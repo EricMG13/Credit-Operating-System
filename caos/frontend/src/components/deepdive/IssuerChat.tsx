@@ -1,0 +1,176 @@
+"use client";
+
+// ATLF issuer Q&A chat (port of design bundle concept-c-chat.jsx).
+// Launched from the module output panel header; grounded in run #2641 module
+// outputs. The grounding context travels as the first user message; the
+// backend /api/chat/issuer endpoint forwards the conversation to Claude.
+
+import { useEffect, useRef, useState } from "react";
+import { askIssuer, type ChatMessage } from "@/lib/api";
+import { CAPACITY, CAPSTACK, COVENANTS, DEAL, DEBATE, RECOVERY, SIZING, TRIGGERS } from "@/lib/reports/deal";
+import { DRIVERS, MODULES } from "@/lib/pipeline/data";
+import { MODULE_OUTPUTS, type OutSection } from "@/lib/deepdive/module-outputs";
+import { Dot } from "@/components/pipeline/atoms";
+
+function caosChatContext(tab: string): string {
+  const mod = MODULES.find((m) => m.id === tab);
+  const out = MODULE_OUTPUTS[tab];
+  const flat = (s: OutSection): string => {
+    if (s.type === "table") return s.title + " — " + s.rows.map((r) => r.join(" | ")).join(" ; ");
+    if (s.type === "flags") return s.title + " — " + s.items.map((f) => "[" + f.sev + "] " + f.text).join(" ; ");
+    return s.title + " — " + s.body;
+  };
+  return [
+    "You are the Credit OS analyst assistant. You answer follow-up questions about ONE issuer for a credit analyst, grounded ONLY in the module outputs below (run #2641, all figures mock).",
+    "Style: terse desk-note tone, under 150 words, plain text (no markdown headers). Cite module codes (CP-x) and evidence ids (E-xx) where they support a point. If the answer isn't in the data, say so and name the module that would produce it. Never invent figures.",
+    "",
+    "ISSUER: " + DEAL.name + " (" + DEAL.code + ") — " + DEAL.sector + ". " + DEAL.sponsor + ". Rating " + DEAL.rating + ". LTM adj. EBITDA $" + DEAL.ebitda + "M, net leverage " + DEAL.netLev + "x.",
+    "DEAL: " + DEAL.deal + ".",
+    "THESIS (CP-6A): " + DEBATE.thesis,
+    "IC VERDICT: " + DEBATE.bias + ". Single greatest uncertainty: " + DEBATE.uncertainty,
+    "CHAIR MEMO: " + DEBATE.memo,
+    "SIZING (CP-6E): " + SIZING.decision + " — initial " + SIZING.initial + ", max " + SIZING.max + ", entry " + SIZING.entry + ". Constraint: " + SIZING.constraint,
+    "CLEARANCE (CP-5): CONDITIONAL — QA-117 (HIGH) open, citation E-44 page mismatch; committee pack held, debate verdict stands ex-E-44.",
+    "CAPITAL STRUCTURE ($M claims): " + CAPSTACK.map((c) => c.cls + " " + c.claim).join(", ") + ".",
+    "RECOVERY (CP-3B): " + RECOVERY.map((s) => s.scen + " " + s.mult + "×$" + s.ebitda + "M=$" + s.ev + "M EV").join("; ") + ". Claims 1L $1,970 / 2L $900 / Sub $400. Market-implied 2L recovery ≈38% at px 96.4.",
+    "COVENANTS (CP-4/4C): " + COVENANTS.map((c) => c.name + " (agg " + c.agg + "/10, " + c.headroom + ")").join("; ") + ". Day-one incremental $" + CAPACITY.incDebt + "M; RP usable $" + CAPACITY.rpToday + "M; add-backs " + CAPACITY.addbackPct + "% of adj. Nearest pressure: " + CAPACITY.nearest,
+    "TRIGGERS (CP-MON): " + TRIGGERS.map((t) => t.id + " " + t.text + " → " + t.owner).join("; "),
+    "EVIDENCE DRIVERS (CP-5B): " + DRIVERS.map((d) => "#" + d.n + " " + d.driver + " [" + d.status + ", conf " + Math.round(d.conf * 100) + "%]").join("; "),
+    "",
+    "USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".",
+    out ? "CURRENT MODULE OUTPUTS:\n" + out.sections.map(flat).join("\n") : "",
+  ].join("\n");
+}
+
+const CAOS_CHAT_KEY = "caos-chat-atlf-2641";
+const CAOS_CHAT_STARTERS = [
+  "Why is clearance conditional?",
+  "Summarize the bear case in 3 bullets",
+  "What trips trigger T-1?",
+  "Is +388bps enough for the priming risk?",
+];
+
+interface Msg extends ChatMessage {
+  err?: boolean;
+}
+
+export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void }) {
+  const [msgs, setMsgs] = useState<Msg[]>(() => {
+    try { return JSON.parse(localStorage.getItem(CAOS_CHAT_KEY) || "[]") || []; } catch { return []; }
+  });
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { try { localStorage.setItem(CAOS_CHAT_KEY, JSON.stringify(msgs)); } catch {} }, [msgs]);
+  useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const send = async (text?: string) => {
+    const q = (text || input).trim();
+    if (!q || busy) return;
+    setInput("");
+    const next: Msg[] = [...msgs, { role: "user", content: q }];
+    setMsgs(next);
+    setBusy(true);
+    try {
+      const payload: ChatMessage[] = [
+        { role: "user", content: caosChatContext(tab) },
+        { role: "assistant", content: "Understood. I'll answer strictly from run #2641 outputs for ATLF, citing CP-x / E-xx." },
+        ...next.slice(-12).map(({ role, content }) => ({ role, content })),
+      ];
+      const reply = await askIssuer(payload);
+      setMsgs((m) => [...m, { role: "assistant", content: String(reply || "").trim() || "(no response)" }]);
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+        || (e as Error)?.message || "rate-limited or offline";
+      setMsgs((m) => [...m, { role: "assistant", content: "⚠ Chat call failed (" + detail + "). Try again.", err: true }]);
+    } finally {
+      setBusy(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  return (
+    <div
+      className="fixed bottom-3 right-3 z-30 caos-enter flex flex-col bg-caos-panel border border-caos-accent/60 rounded-md overflow-hidden"
+      style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px rgba(79,140,255,0.12)" }}
+    >
+      <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
+        <span className="text-caos-accent text-[12px]">✦</span>
+        <span className="tabular text-[11px] text-caos-text whitespace-nowrap">{DEAL.code} · Issuer Q&A</span>
+        <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in RUN #2641 · viewing {tab}</span>
+        <div className="flex-1"></div>
+        {msgs.length ? (
+          <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-[11px]">⌫</button>
+        ) : null}
+        <button onClick={onClose} title="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
+      </div>
+
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg">
+        {!msgs.length ? (
+          <div className="flex flex-col gap-2">
+            <div className="text-[10px] text-caos-muted leading-relaxed">
+              Ask follow-up questions about Atlas Forge — answers cite the module outputs (CP-x) and evidence (E-xx) from this run. All figures mock.
+            </div>
+            <div className="flex flex-col gap-1.5 mt-1">
+              {CAOS_CHAT_STARTERS.map((s) => (
+                <button key={s} onClick={() => send(s)} className="text-left tabular text-[10px] px-2.5 py-1.5 rounded border border-caos-border text-caos-text/85 hover:border-caos-accent/60 hover:bg-caos-elevated/60 transition-caos">
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {msgs.map((m, i) => (
+          <div
+            key={i}
+            className={"max-w-[88%] rounded px-2.5 py-2 text-[10.5px] leading-relaxed whitespace-pre-wrap border " + (m.role === "user" ? "self-end text-caos-text" : "self-start text-caos-text/90")}
+            style={m.role === "user"
+              ? { background: "rgba(79,140,255,0.10)", borderColor: "rgba(79,140,255,0.4)" }
+              : { background: "var(--caos-panel)", borderColor: m.err ? "rgba(245,165,36,0.5)" : "var(--caos-border)" }}
+          >
+            {m.role === "assistant" ? (
+              <div className="tabular text-[8px] uppercase tracking-wider text-caos-muted mb-1 flex items-center gap-1">
+                <span className="text-caos-accent">✦</span>Credit OS
+              </div>
+            ) : null}
+            {m.content}
+          </div>
+        ))}
+        {busy ? (
+          <div className="self-start rounded px-2.5 py-2 border border-caos-border bg-caos-panel flex items-center gap-1.5">
+            <Dot sev="running" pulse />
+            <span className="tabular text-[9.5px] text-caos-muted">querying run outputs…</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="shrink-0 border-t border-caos-border bg-caos-panel px-2.5 py-2 flex items-center gap-2">
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
+          className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/60 outline-none focus:border-caos-accent/70 transition-caos"
+        />
+        <button
+          onClick={() => send()}
+          disabled={busy || !input.trim()}
+          title="Send"
+          className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-[13px]"
+          style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}
+        >
+          ↑
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CP_MODULE_PAYLOAD_BASE.schema.json",
+  "title": "CP Module Payload Base",
+  "description": "JSON Schema Draft 2020-12 form of the corpus CP_MODULE_PAYLOAD_BASE.schema.txt (Migration Guide Phase 1). module_id pattern includes SR|MON (F1). source_basis removed (U2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "module_id",
+    "module_name",
+    "owned_object",
+    "schema_family",
+    "runtime_output",
+    "evidence_trace",
+    "confidence",
+    "limitation_flags",
+    "qa_status",
+    "validation_warnings",
+    "downstream_consumers"
+  ],
+  "properties": {
+    "module_id": {
+      "type": "string",
+      "pattern": "^CP-(0|[1-6][A-F]?|X|SR|MON|DB|RENDER|EXTRACT)$"
+    },
+    "module_name": { "type": "string" },
+    "owned_object": { "type": "string" },
+    "schema_family": { "type": "string", "enum": ["Nested", "Infrastructure"] },
+    "runtime_output": { "type": "object" },
+    "evidence_trace": { "type": "object" },
+    "confidence": {
+      "type": "string",
+      "enum": ["High", "Medium", "Low", "Insufficient Information"]
+    },
+    "limitation_flags": { "type": "array", "items": { "type": "string" } },
+    "qa_status": {
+      "type": "string",
+      "enum": ["Not Reviewed", "Passed", "Restricted", "Blocked"]
+    },
+    "validation_warnings": { "type": "array", "items": { "type": "string" } },
+    "downstream_consumers": { "type": "array", "items": { "type": "string" } }
+  }
+}

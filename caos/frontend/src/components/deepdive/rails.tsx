@@ -1,0 +1,163 @@
+"use client";
+
+// Deep-dive side rails: source register + CP-5B evidence trace (left),
+// CP-5 clearance + IC verdict + sizing + armed triggers (right)
+// (port of design bundle concept-c-app.jsx SourceRail / DecisionRail).
+
+import { DEAL, DEBATE, DOCS, SIZING, TRIGGERS } from "@/lib/reports/deal";
+import { DRIVERS } from "@/lib/pipeline/data";
+import { Bar, Dot, Tag } from "@/components/pipeline/atoms";
+import { Panel } from "@/components/shared/Panel";
+
+export { Panel };
+
+export function SourceRail({
+  ev,
+  open,
+  onToggle,
+}: {
+  ev: string | null;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (!open) {
+    return (
+      <div className="flex flex-col items-center gap-3 min-h-0 bg-caos-panel border border-caos-border rounded-md py-2.5">
+        <button onClick={onToggle} title="Expand source rail" className="text-caos-muted hover:text-caos-text transition-caos text-[12px]">⊐</button>
+        <span className="tabular text-[10px] text-caos-accent" style={{ writingMode: "vertical-rl" }}>{DEAL.code}</span>
+        <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted" style={{ writingMode: "vertical-rl" }}>Source register · Evidence trace</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 min-h-0">
+      <div className="bg-caos-panel border border-caos-border rounded-md px-3 py-2.5 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="tabular text-[12px] text-caos-accent">{DEAL.code}</span>
+          <span className="text-[12px] font-semibold text-caos-text">{DEAL.name}</span>
+          <button onClick={onToggle} title="Collapse source rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-[12px]">⊏</button>
+        </div>
+        <div className="text-[9.5px] text-caos-muted mt-1 leading-relaxed">{DEAL.sector}<br />{DEAL.sponsor}</div>
+        <div className="flex gap-3 mt-1.5 tabular text-[9.5px]">
+          <span className="text-caos-muted">{DEAL.rating}</span>
+          <span className="text-caos-text">LTM adj. EBITDA ${DEAL.ebitda}M</span>
+          <span className="text-caos-text">{DEAL.netLev}x</span>
+        </div>
+      </div>
+      <Panel title="Source Register · CP-0" className="flex-[2]">
+        {DOCS.map((d) => (
+          <div key={d.id} className="px-3 py-[5.5px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos cursor-pointer">
+            <div className="flex items-center gap-2">
+              <span className="text-[10.5px] text-caos-text truncate flex-1">{d.name}</span>
+              <span className="tabular text-[9px] px-1 rounded border" style={{ color: d.grade === "A" ? "var(--caos-success)" : d.grade === "B" ? "var(--caos-warning)" : "var(--caos-critical)", borderColor: "currentColor" }}>{d.grade}</span>
+            </div>
+            <div className="tabular text-[8.5px] text-caos-muted mt-0.5 flex gap-2 whitespace-nowrap">
+              <span>{d.id}</span><span>{d.type}</span><span>{d.pages}pp</span><span>{d.date}</span>
+              {d.mnpi ? <span style={{ color: "var(--caos-warning)" }}>MNPI</span> : null}
+            </div>
+          </div>
+        ))}
+      </Panel>
+      <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
+        {DRIVERS.map((d) => {
+          const hot = ev === "E-44" && d.n === 5;
+          return (
+            <div key={d.n} className={"px-3 py-2 border-b border-caos-border/50 transition-caos " + (hot ? "caos-selected bg-caos-elevated relative z-[5]" : "hover:bg-caos-elevated/60")}>
+              <div className="flex items-start gap-2">
+                <span className="tabular text-[9px] text-caos-muted mt-px">#{d.n}</span>
+                <span className="text-[10px] text-caos-text leading-snug flex-1">{d.driver}</span>
+                <Tag sev={d.status === "verified" ? "ok" : "warning"}>{d.status}</Tag>
+              </div>
+              <div className="tabular text-[8.5px] text-caos-muted mt-1 leading-relaxed pl-4">{d.lineage}</div>
+              <div className="flex items-center gap-1.5 mt-1 pl-4">
+                <Bar pct={d.conf * 100} color={d.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)"} h={2} />
+                <span className="tabular text-[8.5px] text-caos-muted shrink-0">conf {(d.conf * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+          );
+        })}
+      </Panel>
+    </div>
+  );
+}
+
+export function DecisionRail({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  if (!open) {
+    return (
+      <div className="flex flex-col items-center gap-3 min-h-0 bg-caos-panel border border-caos-border rounded-md py-2.5">
+        <button onClick={onToggle} title="Expand decision rail" className="text-caos-muted hover:text-caos-text transition-caos text-[12px]">⊏</button>
+        <span className="text-[11px]" style={{ color: "var(--caos-warning)" }}>⛨</span>
+        <span className="tabular text-[8.5px] uppercase tracking-widest" style={{ writingMode: "vertical-rl", color: "var(--caos-warning)" }}>CP-5 conditional</span>
+        <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted" style={{ writingMode: "vertical-rl" }}>Verdict · Sizing · Triggers</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 min-h-0">
+      <div className="bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px]" style={{ color: "var(--caos-warning)" }}>⛨</span>
+          <span className="tabular text-[10px] uppercase tracking-wider whitespace-nowrap" style={{ color: "var(--caos-warning)" }}>CP-5 clearance: conditional</span>
+          <button onClick={onToggle} title="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-[12px]">⊐</button>
+        </div>
+        <div className="text-[10px] text-caos-text mt-1 leading-snug">
+          QA-117 (HIGH) open — citation E-44 page mismatch. Committee pack assembly HELD; debate verdict stands ex-E-44.
+        </div>
+      </div>
+
+      <Panel title="IC Verdict · CP-6A" className="shrink-0">
+        <div className="px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="tabular text-[11px] px-2 py-1 rounded border whitespace-nowrap" style={{ color: "var(--caos-success)", borderColor: "rgba(34,197,94,0.5)", background: "rgba(34,197,94,0.08)" }}>{DEBATE.bias}</span>
+          </div>
+          <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mt-2.5 mb-1">Single greatest uncertainty</div>
+          <div className="text-[10px] text-caos-text leading-snug">{DEBATE.uncertainty}</div>
+          <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mt-2.5 mb-1">Chair final memo</div>
+          <div className="text-[10px] text-caos-muted leading-relaxed">{DEBATE.memo}</div>
+        </div>
+      </Panel>
+
+      <Panel title="Sizing & Posture · CP-6E" className="shrink-0">
+        <div className="px-3 py-2.5">
+          <div className="tabular text-[11px] text-caos-text">{SIZING.decision}</div>
+          <div className="grid grid-cols-3 gap-2 mt-2">
+            {([["Initial", SIZING.initial], ["Max", SIZING.max], ["Entry", SIZING.entry]] as const).map(([l, v]) => (
+              <div key={l}>
+                <div className="tabular text-[8.5px] uppercase text-caos-muted">{l}</div>
+                <div className="tabular text-[10.5px] text-caos-text mt-0.5">{v}</div>
+              </div>
+            ))}
+          </div>
+          <div className="text-[9.5px] text-caos-muted leading-snug mt-2">{SIZING.constraint}</div>
+        </div>
+      </Panel>
+
+      <Panel title="Triggers Armed → CP-MON" className="flex-1">
+        {TRIGGERS.map((tr) => (
+          <div key={tr.id} className="px-3 py-[6px] border-b border-caos-border/50 flex items-start gap-2">
+            <Dot sev={tr.sev} />
+            <div>
+              <div className="text-[10px] text-caos-text leading-snug">{tr.text}</div>
+              <div className="tabular text-[8.5px] text-caos-muted mt-0.5">{tr.id} · on trip → {tr.owner}</div>
+            </div>
+          </div>
+        ))}
+        <div className="px-3 py-2">
+          <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">Add / trim discipline</div>
+          {SIZING.addTriggers.map((x, i) => (
+            <div key={i} className="text-[9.5px] text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-success)" }}>+</span>{x}</div>
+          ))}
+          {SIZING.trimTriggers.map((x, i) => (
+            <div key={i} className="text-[9.5px] text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-critical)" }}>−</span>{x}</div>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}

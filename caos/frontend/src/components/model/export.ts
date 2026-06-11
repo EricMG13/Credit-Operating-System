@@ -1,0 +1,69 @@
+// Model grid export (port of design bundle concept-d.jsx exportXlsx).
+//
+// The design prototype used SheetJS for a true .xlsx with number formats and a
+// separate Overrides sheet. We ship a dependency-free CSV export (opens in
+// Excel) with the same content: header rows, every model row, and an overrides
+// appendix. To upgrade to real .xlsx, `npm i xlsx` and swap the body of
+// `exportModel` for the SheetJS path from the design prototype.
+
+import type { Model } from "@/lib/reports/model";
+import type { Overrides } from "@/lib/reports/model";
+import { GROUPS_META, ROWS } from "./rows";
+
+function csvCell(v: string | number | null | undefined): string {
+  if (v == null) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+export function exportModel(model: Model, showQ: boolean, overrides: Overrides): void {
+  const colDefs = model.columns
+    .filter((c) => showQ || c.group !== "Q")
+    .map((c) => ({ ...c, ctx: model.cols[c.key] }));
+
+  const lines: string[] = [];
+  lines.push(["Atlas Forge Industrials — cash-flow model M-118", ...colDefs.map((c) => GROUPS_META[c.group])].map(csvCell).join(","));
+  lines.push(["YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", ...colDefs.map((c) => c.ctx.label + (c.ctx.derived ? "*" : ""))].map(csvCell).join(","));
+
+  ROWS.forEach((row) => {
+    if (row.sec) {
+      lines.push(csvCell(row.sec));
+      return;
+    }
+    const cells = colDefs.map((c) => {
+      const v = row.g!(c.ctx);
+      if (v == null || Number.isNaN(v)) return "";
+      // percent-format rows exported as decimals (matches the design's raw values)
+      return Math.round(v * 1000) / 1000;
+    });
+    lines.push([(row.ind ? "   " : "") + row.l + (row.sub ? " (" + row.sub + ")" : ""), ...cells].map(csvCell).join(","));
+  });
+
+  const ovKeys = Object.keys(overrides || {});
+  if (ovKeys.length) {
+    const labels: Record<string, string> = {
+      rev: "Revenues", adj: "Adj. EBITDA", ab: "Adjustments", int: "Cash interest",
+      tax: "Cash taxes", wc: "Changes in WC", capex: "Capex", diss: "Debt issue/(repay)", div: "Dividends",
+    };
+    lines.push("");
+    lines.push(csvCell("Manual overrides — historical inputs"));
+    lines.push(["Period", "Account", "Override value ($m, model basis)"].map(csvCell).join(","));
+    ovKeys.forEach((k) => {
+      const p = k.split(":");
+      const ctx = model.cols[p[0]];
+      lines.push([
+        ctx ? ctx.label + (ctx.kind === "q" ? " (Q)" : " (FY)") : p[0],
+        labels[p[1]] || p[1],
+        overrides[k],
+      ].map(csvCell).join(","));
+    });
+  }
+
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ATLF Cash-Flow Model M-118.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}

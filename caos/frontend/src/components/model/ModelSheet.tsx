@@ -1,0 +1,277 @@
+"use client";
+
+// Model Builder sheet grid + formula bar + manifest strip
+// (port of design bundle concept-d.jsx Sheet / FormulaBar / Manifest).
+
+import { useMemo } from "react";
+import type { Model, ModelCol } from "@/lib/reports/model";
+import type { Overrides } from "@/lib/reports/model";
+import { EvChip } from "@/components/reports/EvidenceModal";
+import { CW, fmt, GROUPS_META, isEditable, LBL, ovField, ROWS, SRC } from "./rows";
+
+export interface CellRef {
+  row: string;
+  col: string;
+}
+
+interface ColDef {
+  key: string;
+  group: string;
+  ctx: ModelCol;
+  w: number;
+  gap: boolean;
+}
+
+/* ---------- the sheet ---------- */
+export function Sheet({
+  model, showQ, hl, sel, onSel, editing, onEdit, onCommit,
+}: {
+  model: Model;
+  showQ: boolean;
+  hl: string | null;
+  sel: CellRef | null;
+  onSel: (s: CellRef) => void;
+  editing: CellRef | null;
+  onEdit: (e: CellRef) => void;
+  onCommit: (value: string | null) => void;
+}) {
+  const colDefs: ColDef[] = useMemo(() => {
+    const list = model.columns.filter((c) => showQ || c.group !== "Q");
+    return list.map((c, i) => ({
+      ...c, ctx: model.cols[c.key], w: CW[c.group],
+      gap: i > 0 && list[i - 1].group !== c.group,
+    }));
+  }, [model, showQ]);
+
+  const groups = useMemo(() => {
+    const out: { group: string; w: number; n: number; gap: boolean }[] = [];
+    colDefs.forEach((c) => {
+      const last = out[out.length - 1];
+      if (last && last.group === c.group) { last.w += c.w; last.n++; }
+      else out.push({ group: c.group, w: c.w, n: 1, gap: c.gap });
+    });
+    return out;
+  }, [colDefs]);
+
+  const hlGroup = hl && SRC[hl] ? SRC[hl].colGroup : undefined;
+
+  const labelColor = (c: ColDef) =>
+    c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
+
+  return (
+    <div className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg">
+      <div style={{ width: "max-content", minWidth: "100%" }}>
+        {/* group bar */}
+        <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
+          <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
+            <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
+          </div>
+          {groups.map((gr, i) => (
+            <div key={i} className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+              <div
+                className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
+                style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "rgba(79,140,255,0.16)", transition: "background 160ms" }}
+              >
+                <span className="tabular text-[8.5px] uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "#0a0a0f" : "var(--caos-text)" }}>
+                  {GROUPS_META[gr.group]}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* period labels */}
+        <div className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
+          <div className="sticky left-0 z-10 shrink-0" style={{ width: LBL, background: "var(--caos-bg)" }}></div>
+          {colDefs.map((c) => (
+            <div key={c.key} className="shrink-0 text-right pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0 }}>
+              <span className="tabular text-[9px] font-semibold whitespace-nowrap" style={{ color: labelColor(c) }}>
+                {c.ctx.label}{c.ctx.derived ? "*" : ""}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {ROWS.map((row, ri) => {
+          if (row.sec) {
+            return (
+              <div key={"s" + ri} className="flex mt-1.5">
+                <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
+                  <span className="text-[10px] font-semibold text-caos-text">{row.sec}</span>
+                </div>
+                {groups.map((gr, i) => (
+                  <div key={i} className="shrink-0 flex items-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+                    <div className="w-full mx-px h-[13px] rounded-sm" style={{ background: "rgba(79,140,255,0.16)" }}></div>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+          const isHl = hl != null && row.src === hl;
+          return (
+            <div key={row.id} className="flex group" style={{ background: isHl ? "rgba(79,140,255,0.10)" : "transparent" }}>
+              <div
+                className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2"
+                style={{ width: LBL, background: isHl ? "#15202f" : "var(--caos-bg)", borderTop: row.line ? "1px solid var(--caos-border)" : "none" }}
+              >
+                <span className={"text-[9.5px] leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                  {row.l}
+                </span>
+                {row.sub ? <span className="tabular text-[8px] text-caos-muted ml-auto whitespace-nowrap">{row.sub}</span> : null}
+              </div>
+              {colDefs.map((c) => {
+                const v = row.g!(c.ctx);
+                const isSel = sel != null && sel.row === row.id && sel.col === c.key;
+                const colHl = hlGroup === c.group;
+                const field = ovField(row.id!);
+                const editable = isEditable(row.id!, c.key);
+                const isOv = editable && c.ctx.ov && c.ctx.ov[field];
+                const isEditing = editing != null && editing.row === row.id && editing.col === c.key;
+                return (
+                  <div
+                    key={c.key}
+                    onClick={() => onSel({ row: row.id!, col: c.key })}
+                    onDoubleClick={() => { if (editable) onEdit({ row: row.id!, col: c.key }); }}
+                    title={editable ? "double-click to override" : undefined}
+                    className="shrink-0 text-right pr-1.5 cursor-cell"
+                    style={{
+                      width: c.w, marginLeft: c.gap ? 8 : 0,
+                      background: isSel ? "rgba(79,140,255,0.22)" : colHl || isHl ? "rgba(79,140,255,0.08)" : row.shade ? "rgba(255,255,255,0.025)" : "transparent",
+                      borderTop: row.line ? "1px solid var(--caos-border)" : "none",
+                      boxShadow: isSel ? "inset 0 0 0 1px var(--caos-accent)" : "none",
+                    }}
+                  >
+                    {isEditing ? (
+                      <input
+                        autoFocus
+                        defaultValue={v == null ? "" : String(Math.round(v * 10) / 10)}
+                        onFocus={(e) => e.target.select()}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          const target = e.target as HTMLInputElement;
+                          if (e.key === "Enter") { target.dataset.done = "1"; onCommit(target.value); }
+                          else if (e.key === "Escape") { target.dataset.done = "1"; onCommit(null); }
+                        }}
+                        onBlur={(e) => { if (!e.target.dataset.done) onCommit(e.target.value); }}
+                        className="w-full tabular text-[9px] text-right bg-caos-elevated outline-none px-0.5 rounded-sm"
+                        style={{ height: 15, border: "1px solid var(--caos-accent)", color: "var(--caos-text)" }}
+                      />
+                    ) : (
+                      <span
+                        className={"tabular text-[9px] leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold" : "")}
+                        style={{
+                          color: isOv ? "var(--caos-warning)" : row.pct ? "rgba(79,140,255,0.9)" : v != null && v < 0 && row.f === "m" ? "var(--caos-muted)" : row.bold ? "var(--caos-text)" : "rgba(230,230,239,0.82)",
+                          borderBottom: isOv ? "1px dotted var(--caos-warning)" : "none",
+                        }}
+                      >
+                        {fmt(v, row.f)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+        <div className="h-2"></div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- formula bar ---------- */
+export function FormulaBar({
+  model, sel, severity, overrides, onResetCell, onOpenEvidence,
+}: {
+  model: Model;
+  sel: CellRef | null;
+  severity: number;
+  overrides: Overrides;
+  onResetCell: (key: string) => void;
+  onOpenEvidence: (id: string) => void;
+}) {
+  if (!sel) {
+    return (
+      <div className="h-8 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2">
+        <span className="tabular text-[11px] text-caos-muted">ƒ</span>
+        <span className="tabular text-[9.5px] text-caos-muted">select any cell to trace its formula and source lineage · double-click historical cells to override</span>
+      </div>
+    );
+  }
+  const row = ROWS.find((r) => r.id === sel.row)!;
+  const ctx = model.cols[sel.col];
+  const src = row.src ? SRC[row.src] : null;
+  const v = row.g!(ctx);
+  const editable = isEditable(sel.row, sel.col);
+  const ovKey = sel.col + ":" + ovField(sel.row);
+  const isOv = editable && overrides && overrides[ovKey] != null;
+  const caseNote = ctx.kind === "b" ? "base case = sponsor model − CP-6A chair haircut ($35M) − CP-1B phasing"
+    : ctx.kind === "d" ? `downside = CP-2B pathway P1 (OEM destocking) at severity ×${severity.toFixed(2)}`
+    : ctx.derived ? "derived period — Q4-25 management accounts missing (gap G-02)" : null;
+  return (
+    <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-hidden">
+      <span className="tabular text-[11px] text-caos-accent">ƒ</span>
+      <span className="tabular text-[10px] text-caos-text whitespace-nowrap">{row.l} · {ctx.label}</span>
+      <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">{fmt(v, row.f) || "—"}</span>
+      <span className="w-px h-4 bg-caos-border shrink-0"></span>
+      {isOv ? (
+        <span className="flex items-center gap-1.5 shrink-0">
+          <span className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+            MANUAL OVERRIDE
+          </span>
+          <span className="text-[9.5px] text-caos-muted whitespace-nowrap">analyst input replaces sourced actual · aggregates recomputed</span>
+          <button
+            onClick={() => onResetCell(ovKey)}
+            className="tabular text-[9px] px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          >
+            RESET CELL
+          </button>
+        </span>
+      ) : (
+        <span className="text-[9.5px] text-caos-muted truncate">{row.formula || `${row.l} — sourced from ${src ? src.name : "model logic"}`}</span>
+      )}
+      {!isOv && editable ? <span className="tabular text-[9px] whitespace-nowrap text-caos-accent">✎ historical input — double-click to override</span> : null}
+      {caseNote ? (
+        <span className="tabular text-[9px] whitespace-nowrap" style={{ color: ctx.kind === "d" || ctx.derived ? "var(--caos-warning)" : "var(--caos-success)" }}>
+          ▸ {caseNote}
+        </span>
+      ) : null}
+      <span className="flex-1"></span>
+      {src ? (
+        <span className="flex items-center gap-1.5 shrink-0">
+          <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">{src.chip}</span>
+          {src.warn ? (
+            <span className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+              {src.warn}
+            </span>
+          ) : null}
+          {src.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------- build manifest strip ---------- */
+export function Manifest({ hl, setHl }: { hl: string | null; setHl: (k: string | null) => void }) {
+  return (
+    <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
+      <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Built from</span>
+      {Object.entries(SRC).map(([k, s]) => (
+        <button
+          key={k}
+          onClick={() => setHl(hl === k ? null : k)}
+          title={s.name + (s.note ? " · " + s.note : "")}
+          className={
+            "flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+            (hl === k ? "border-caos-accent bg-caos-elevated text-caos-text" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+          }
+        >
+          <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.warn ? "var(--caos-warning)" : "var(--caos-success)" }} />
+          {s.chip}
+        </button>
+      ))}
+      <span className="flex-1"></span>
+      <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">click a module to trace which rows it feeds</span>
+    </div>
+  );
+}
