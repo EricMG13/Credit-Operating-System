@@ -397,10 +397,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               UPLOAD ANOTHER
             </button>
             <Link
-              href={`/issuers/${selectedIssuer?.id}`}
+              href="/deepdive"
               className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
             >
-              OPEN COCKPIT →
+              OPEN DEEP-DIVE →
             </Link>
           </div>
         </Panel>

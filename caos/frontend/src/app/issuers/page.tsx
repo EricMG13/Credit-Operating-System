@@ -96,7 +96,7 @@ function IssuersDirectory() {
         <Panel
           title="Issuer Register · coverage universe"
           className="h-full"
-          right={<span className="tabular text-[9px] text-caos-muted">click a row to open its cockpit</span>}
+          right={<span className="tabular text-[9px] text-caos-muted">click a row to open its deep-dive</span>}
         >
           {loading ? (
             <div className="px-3 py-3 text-[10.5px] text-caos-muted">Loading issuers…</div>
@@ -123,7 +123,7 @@ function IssuersDirectory() {
               {issuers.map((issuer) => (
                 <div
                   key={issuer.id}
-                  onClick={() => router.push(`/issuers/${issuer.id}`)}
+                  onClick={() => router.push("/deepdive")}
                   className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group"}
                 >
                   <span className="tabular text-caos-accent text-[10.5px]">

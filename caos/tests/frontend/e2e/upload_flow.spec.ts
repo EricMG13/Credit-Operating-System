@@ -1,12 +1,9 @@
 /**
- * Playwright E2E test: Document upload flow and DAG completion.
+ * Playwright E2E test: Document upload flow and DAG trigger.
  * Tests:
- *  1. Navigate to issuer page
- *  2. Upload OM PDF
- *  3. Trigger a DAG run
- *  4. Poll until COMPLETED
- *  5. Verify chart renders in cockpit
- *  6. Verify click-to-source scroll in PDF viewer
+ *  1. Issuer directory renders
+ *  2. Upload wizard advances to document-type step
+ *  3. Trigger a DAG run via API
  */
 
 import { test, expect } from "@playwright/test";
@@ -47,16 +44,6 @@ test.describe("Upload and DAG flow", () => {
     await expect(page.getByText("Credit Agreement")).toBeVisible();
   });
 
-  test("Issuer cockpit renders split pane", async ({ page }) => {
-    await page.goto(`${BASE_URL}/issuers/${issuerId}`);
-    await expect(page.locator("text=Source Vault")).toBeVisible();
-    const tabs = page.getByTestId("cockpit-tab");
-    await expect(tabs.filter({ hasText: "Analysis" })).toBeVisible();
-    await expect(tabs.filter({ hasText: "Financials" })).toBeVisible();
-    await expect(tabs.filter({ hasText: "Covenants" })).toBeVisible();
-    await expect(tabs.filter({ hasText: "Debate" })).toBeVisible();
-  });
-
   test("DAG run triggers and appears in status badge", async ({ page, request }) => {
     // Upload a minimal PDF to trigger a run
     // (In CI, use a fixture PDF in tests/fixtures/)
@@ -69,16 +56,5 @@ test.describe("Upload and DAG flow", () => {
     });
     // Expect 202 Accepted (even if BLOCKED due to missing docs — status badge should appear)
     expect([202, 404, 422]).toContain(triggerRes.status());
-  });
-
-  test("Tab navigation works in cockpit", async ({ page }) => {
-    await page.goto(`${BASE_URL}/issuers/${issuerId}`);
-    const tabNames = ["Analysis", "Financials", "Liquidity", "Covenants", "Rel. Value", "Debate"];
-    const tabs = page.getByTestId("cockpit-tab");
-    for (const name of tabNames) {
-      const tab = tabs.filter({ hasText: name });
-      await tab.click();
-      await expect(tab).toHaveClass(/bg-caos-accent/);
-    }
   });
 });
