@@ -10,14 +10,7 @@ import { getIssuers, createIssuer } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
-
-const SECTIONS = [
-  { href: "/command", k: "A", label: "Command Center" },
-  { href: "/pipeline", k: "B", label: "Pipeline" },
-  { href: "/deepdive", k: "C", label: "Deep-Dive" },
-  { href: "/model", k: "D", label: "Model Builder" },
-  { href: "/reports", k: "E", label: "Report Studio" },
-];
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 export default function IssuersPage() {
   return (
@@ -64,18 +57,7 @@ function IssuersDirectory() {
           {loading ? "loading…" : issuers.length + " issuers · US HY sleeve"}
         </span>
         <div className="flex-1" />
-        <div className="flex items-center gap-1">
-          {SECTIONS.map((s) => (
-            <Link
-              key={s.k}
-              href={s.href}
-              className="no-underline tabular text-[9.5px] px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos whitespace-nowrap"
-            >
-              <span className="text-caos-accent mr-1">{s.k}</span>
-              {s.label}
-            </Link>
-          ))}
-        </div>
+        <ConceptNav />
         <div className="h-4 w-px bg-caos-border" />
         <Link
           href="/upload"

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
@@ -95,6 +96,8 @@ function ReportStudio() {
         <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
           ← Directory
         </Link>
+        <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
         <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-RENDER</span>
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { RUN_MODES, type Driver } from "@/lib/pipeline/data";
@@ -62,6 +63,8 @@ function PipelineVisualizer() {
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
+        <div className="h-4 w-px bg-caos-border" />
         {/* CP-X route template switcher */}
         <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
           {RUN_MODES.map((m) => (
@@ -78,8 +81,8 @@ function PipelineVisualizer() {
             </button>
           ))}
         </div>
-        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">{mode.runId}</span>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Atlas Forge — {mode.title}</span>
+        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap hidden 2xl:inline">{mode.runId}</span>
+        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap truncate min-w-0">Atlas Forge — {mode.title}</span>
         <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{mode.sub}</span>
         <div className="w-44 flex items-center gap-2 shrink-0">
           <Bar pct={(run.completed / run.total) * 100} color="var(--caos-accent)" />

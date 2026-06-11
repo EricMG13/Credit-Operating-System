@@ -9,6 +9,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
@@ -50,6 +51,8 @@ function CommandCenter() {
         <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
           ← Directory
         </Link>
+        <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
         <div className="flex items-center rounded border border-caos-border overflow-hidden">
           {([{ k: "cio", l: "CIO / PM" }, { k: "res", l: "HEAD OF RESEARCH" }] as const).map((v) => (

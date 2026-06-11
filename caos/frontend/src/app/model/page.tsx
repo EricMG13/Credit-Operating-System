@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { exportModel } from "@/components/model/export";
@@ -75,9 +76,11 @@ function ModelBuilder() {
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
+        <div className="h-4 w-px bg-caos-border" />
         <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">MODEL M-118</span>
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
+        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate min-w-0">
           constructed from RUN #2641 module outputs · dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
@@ -130,7 +133,7 @@ function ModelBuilder() {
           ▦ EXPORT MODEL
         </button>
         <span
-          className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+          className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden 2xl:inline"
           style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}
         >
           forecast cells unaudited — CP-5 scope is actuals only

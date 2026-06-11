@@ -10,6 +10,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
@@ -67,6 +68,8 @@ function DeepDive() {
         <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
           ← Directory
         </Link>
+        <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">{DEAL.deal}</span>
         <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap">RUN #2641 · {run.completed}/{run.total} modules complete</span>

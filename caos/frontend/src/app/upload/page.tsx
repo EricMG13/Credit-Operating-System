@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { UploadWizard } from "@/components/upload/UploadWizard";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 export default function UploadPage() {
   return (
@@ -16,6 +17,8 @@ export default function UploadPage() {
           <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
             ← Directory
           </Link>
+          <div className="h-4 w-px bg-caos-border" />
+          <ConceptNav compact />
           <div className="h-4 w-px bg-caos-border" />
           <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-0</span>
           <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Document Intake — source readiness</span>
