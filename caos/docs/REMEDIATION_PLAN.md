@@ -36,7 +36,7 @@ Severity legend: **P0** = blocks deployment, **P1** = ships broken without it,
 | F-18 | P2 | DAG persistence | `evidence_chain=output.get(...)` crashed when an agent returned `None` (e.g. CP-0 failure path). | **Patched** (isinstance guard) |
 | F-19 | P2 | Rate limiting | Login limiter is per-process in-memory; behind multiple workers it leaks. | **Patched** — `core/rate_limit.py` Redis-backed window counter. |
 | F-20 | P2 | Webhook auth | MS Graph webhook authenticates by `clientState` only; rotate-secret semantics are not implemented. | **Patched** — Redis-backed idempotency cache rejects replays for 24h. |
-| F-21 | P3 | Modular OS prompts | Old CP-EMAIL routing matrices in 24 copies still reference Taxonomy B labels per `TAXONOMY_RECONCILIATION.md` §4. Resync still pending in corpus. | **Open** (corpus owner action) |
+| F-21 | P3 | Modular OS prompts | Old CP-EMAIL routing matrices in 24 copies still reference Taxonomy B labels per `TAXONOMY_RECONCILIATION.md` §4. Resync still pending in corpus. | **Fixed** — corpus owner re-authored all 24 copies to v2.0/Taxonomy A (verified byte-identical; preamble v3.3). Completed in-repo: canonical placed at `Modular OS/References/` per the dedup manifest, and `tests/backend/test_corpus_consistency.py` guards copies-vs-canonical identity + Taxonomy A names against the payload-schema consts (the §5.3 CI check). |
 | F-22 | P3 | Frontend bundle | Frontend has no `RequireAuth` wrapper; every page implements its own redirect. | **Patched** — `RequireAuth` wraps `/issuers`, `/issuers/[id]`, `/upload`. |
 | F-23 | P3 | Observability | Prometheus is instrumented but no Grafana dashboards / SLOs defined. | **Patched** — Prometheus + Grafana provisioned in Compose; `caos-overview.json` dashboard auto-loads. |
 
