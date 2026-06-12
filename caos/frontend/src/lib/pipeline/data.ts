@@ -130,6 +130,49 @@ export const NODE_LIMITS: Record<string, string> = {
   "CP-2F": "Limitation L-04 propagated by CP-X: hedging register absent — floating-rate exposure modeled from SFA margins only. Consumers (CP-6A) flagged.",
 };
 
+/* ---------- required documents / information per degraded module ----------
+   Shown in the Module Inspector when a module runs with a warning or is
+   held/blocked: what has to land for the module to deploy clean. */
+export interface NodeReq {
+  doc: string;
+  why: string;
+  tag: "missing" | "open" | "requested" | "gated";
+}
+
+export const NODE_REQS: Record<string, NodeReq[]> = {
+  "CP-1B": [
+    { doc: "Q4-25 management accounts", why: "closes gap G-02 — the Dec-25 quarter is derived, not sourced; earnings bridge runs on a modeled period", tag: "missing" },
+    { doc: "Sponsor model — cost-out phasing schedule", why: "reconciles the −4.2% EBITDA bridge variance logged against Q1-26 actuals", tag: "requested" },
+    { doc: "Q2-26 compliance certificate (Jul 28)", why: "first realization read on the $30M add-back program — converts phasing risk to actuals", tag: "open" },
+  ],
+  "CP-1C": [
+    { doc: "OM Annex C — corrected peer-margin page", why: "re-anchors citation E-44 (page mismatch) and clears QA-117; restores the full RV band", tag: "open" },
+    { doc: "Peer Q1-26 filings — 7-name universe", why: "re-verifies EBITDA margin alignment once E-44 is re-anchored", tag: "requested" },
+  ],
+  "CP-2D": [
+    { doc: "Sponsor distribution-policy confirmation", why: "two prior dividend recaps at Kestrel portfolio companies — distribution intent unconfirmed", tag: "requested" },
+    { doc: "RP builder-basket certificate", why: "confirms the $240M basket feeding monitoring trigger T-4", tag: "missing" },
+  ],
+  "CP-2F": [
+    { doc: "Hedging register (gap G-01)", why: "floating-rate exposure modeled from SFA margins only — source of limitation L-04", tag: "missing" },
+    { doc: "ISDA schedules + swap/cap confirmations", why: "replaces modeled base-rate sensitivity with actual hedge coverage and tenors", tag: "missing" },
+  ],
+  "CP-4C": [
+    { doc: "Conformed indenture v2 + SFA amendment", why: "re-bases the $612M day-one capacity calculation on controlling documents", tag: "open" },
+    { doc: "Sponsor intent letter — incremental capacity", why: "MEDIUM-HIGH priming risk stays open without use-of-capacity confirmation", tag: "requested" },
+  ],
+  "CP-5": [
+    { doc: "Remediation R-1 — E-44 re-anchor", why: "HIGH finding QA-117: peer-margin citation page mismatch blocks full clearance", tag: "open" },
+    { doc: "CP-1C re-run confirmation", why: "metric alignment must re-verify against the corrected OM Annex C reference", tag: "gated" },
+  ],
+  "CP-RENDER": [
+    { doc: "CP-5 clearance certificate", why: "committee pack assembly held until QA-117 closes (remediation R-1)", tag: "gated" },
+  ],
+  "CP-EXTRACT": [
+    { doc: "CP-5 clearance certificate", why: "structured export and master index gated on QA clearance", tag: "gated" },
+  ],
+};
+
 /* ---------- CP-X run modes (route templates) ---------- */
 
 export interface RunMode {

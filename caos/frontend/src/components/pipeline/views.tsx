@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import {
   ancestorsOf, descendantsOf, DRIVERS, EDGES, LAYERS, MODULES,
-  NODE_LIMITS, NODE_QA, SIM_PLAN, type Driver, type PlanStep,
+  NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
 } from "@/lib/pipeline/data";
 import { SEV_COLOR, type Sim, type SimEvent } from "@/lib/pipeline/sim";
 import { EvChip } from "@/components/reports/EvidenceModal";
@@ -185,6 +185,13 @@ export function SwimlaneView({
 }
 
 /* ---------- inspector rail ---------- */
+const REQ_TAG_COLOR: Record<string, string> = {
+  missing: "var(--caos-critical)",
+  open: "var(--caos-warning)",
+  requested: "var(--caos-accent)",
+  gated: "var(--caos-muted)",
+};
+
 export function Inspector({
   sim, selected, plan, scope, modeLabel,
 }: {
@@ -213,6 +220,8 @@ export function Inspector({
   const consumers = EDGES.filter(([a]) => a === selected).map(([, b]) => b);
   const qa = inScope ? NODE_QA[selected] : null;
   const lim = inScope ? NODE_LIMITS[selected] : null;
+  const degraded = ["warning", "held", "blocked"].includes(st);
+  const reqs = inScope && degraded ? NODE_REQS[selected] : null;
   return (
     <div className="text-[11px]">
       <div className="px-3 py-2.5 border-b border-caos-border">
@@ -250,6 +259,36 @@ export function Inspector({
         <div className="px-3 py-2 border-b border-caos-border">
           <div className="tabular text-[9px] uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>Propagated limitation · CP-X-06</div>
           <div className="text-[10.5px] text-caos-text leading-snug">{lim}</div>
+        </div>
+      ) : null}
+      {reqs && reqs.length ? (
+        <div className="px-3 py-2 border-b border-caos-border">
+          <div className="tabular text-[9px] uppercase tracking-wider mb-1.5" style={{ color: "var(--caos-warning)" }}>
+            {st === "warning" ? "Required to clear warning" : "Required to release hold"} · documents & information
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {reqs.map((r) => (
+              <div key={r.doc} className="flex items-start gap-1.5">
+                <span className="text-[9px] mt-px shrink-0" style={{ color: "var(--caos-warning)" }}>▦</span>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10.5px] text-caos-text leading-snug">{r.doc}</span>
+                    <span
+                      className="tabular text-[8px] uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
+                      style={{
+                        color: REQ_TAG_COLOR[r.tag],
+                        borderColor: REQ_TAG_COLOR[r.tag] + "55",
+                        background: REQ_TAG_COLOR[r.tag] + "14",
+                      }}
+                    >
+                      {r.tag}
+                    </span>
+                  </div>
+                  <div className="text-[9.5px] text-caos-muted leading-snug">{r.why}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
       <div className="px-3 py-2 border-b border-caos-border">
