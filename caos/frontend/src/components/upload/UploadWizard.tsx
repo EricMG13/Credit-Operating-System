@@ -1,8 +1,10 @@
 "use client";
 
 // Document intake wizard (CP-0) — CAOS design language: panel chrome, dense
-// tabular rows, accent-bordered actions. Behavior unchanged: select issuer →
-// document type → file + metadata → upload via /api/ingestion.
+// tabular rows, accent-bordered actions. Flow: select issuer → drop ALL deal
+// documents + pick the run mode → batch upload via /api/ingestion. There is
+// no per-document type or date entry: ingested documents are already dated,
+// and classification is CP-0's job.
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -12,25 +14,22 @@ import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
 
-type DocType = "OM" | "CreditAgreement" | "LBOModel" | "InterimReport" | "PricingSheet";
-
 interface UploadWizardProps {
   initialIssuers?: Issuer[];
 }
 
-const DOC_TYPES: { value: DocType; code: string; label: string; desc: string }[] = [
-  { value: "OM", code: "D-OM", label: "Offering Memorandum", desc: "Primary OM / CIM for new transactions" },
-  { value: "CreditAgreement", code: "D-CA", label: "Credit Agreement", desc: "Signed CA with covenants and terms" },
-  { value: "LBOModel", code: "D-LBO", label: "LBO Model", desc: "Sponsor or sell-side LBO model" },
-  { value: "InterimReport", code: "D-IR", label: "Interim Report", desc: "Quarterly/semi-annual financials (triggers Delta Run)" },
-  { value: "PricingSheet", code: "D-PX", label: "Pricing Sheet", desc: "Master pricing run or broker sheet (XLSX)" },
+// Run-mode templates — same keys as the Concept B (Pipeline) CP-X routes.
+const RUN_MODES: { k: string; code: string; label: string; desc: string }[] = [
+  { k: "full", code: "R-IC", label: "Full IC Committee", desc: "Complete CP-X route — new-issue / full committee review" },
+  { k: "earnings", code: "R-ER", label: "Earnings Update", desc: "Delta route — quarterly / annual results refresh" },
+  { k: "rv", code: "R-RV", label: "Relative Value", desc: "RV refresh — pricing, comps and positioning" },
+  { k: "legal", code: "R-LG", label: "Legal Review", desc: "Covenant & docs deep-dive on the legal stack" },
 ];
 
-type Step = "issuer" | "doctype" | "file" | "result";
+type Step = "issuer" | "file" | "result";
 const STEPS: { k: Step; label: string }[] = [
   { k: "issuer", label: "Issuer" },
-  { k: "doctype", label: "Document type" },
-  { k: "file", label: "File & metadata" },
+  { k: "file", label: "Files & run mode" },
   { k: "result", label: "Ingested" },
 ];
 
@@ -42,18 +41,22 @@ interface UploadResult {
   message: string;
 }
 
+interface FileOutcome {
+  name: string;
+  result?: UploadResult;
+  error?: string;
+}
+
+const isSpreadsheet = (name: string) => /\.(xlsx|xls)$/i.test(name);
 
 export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
   const [selectedIssuer, setSelectedIssuer] = useState<Issuer | null>(null);
-  const [docType, setDocType] = useState<DocType | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [fiscalPeriod, setFiscalPeriod] = useState("");
-  const [mnpiFlag, setMnpiFlag] = useState(false);
-  const [runDate, setRunDate] = useState(new Date().toISOString().split("T")[0]);
+  const [files, setFiles] = useState<File[]>([]);
+  const [runMode, setRunMode] = useState<string>("full");
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<UploadResult | null>(null);
+  const [outcomes, setOutcomes] = useState<FileOutcome[]>([]);
   const [error, setError] = useState("");
 
   // New issuer inline form
@@ -62,15 +65,19 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [newIssuerTicker, setNewIssuerTicker] = useState("");
 
   const onDrop = useCallback((accepted: File[]) => {
-    if (accepted.length > 0) setFile(accepted[0]);
+    setFiles((prev) => {
+      const have = new Set(prev.map((f) => f.name + ":" + f.size));
+      return [...prev, ...accepted.filter((f) => !have.has(f.name + ":" + f.size))];
+    });
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    maxFiles: 1,
-    accept: docType === "PricingSheet"
-      ? { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] }
-      : { "application/pdf": [".pdf"] },
+    accept: {
+      "application/pdf": [".pdf"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.ms-excel": [".xls"],
+    },
   });
 
   const handleCreateIssuer = async () => {
@@ -88,45 +95,39 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   };
 
   const handleUpload = async () => {
-    if (!selectedIssuer || !docType || !file) return;
+    if (!selectedIssuer || files.length === 0) return;
     setUploading(true);
     setError("");
 
-    try {
+    const results: FileOutcome[] = [];
+    for (const file of files) {
       const formData = new FormData();
       formData.append("issuer_id", selectedIssuer.id);
+      formData.append("run_mode", runMode);
       formData.append("file", file);
-
-      let res;
-      if (docType === "PricingSheet") {
-        formData.append("run_date", runDate);
-        res = await uploadPricingSheet(formData);
-      } else {
-        formData.append("doc_type", docType);
-        if (fiscalPeriod) formData.append("fiscal_period", fiscalPeriod);
-        formData.append("mnpi_flag", String(mnpiFlag));
-        res = await uploadDocument(formData);
+      try {
+        const res = isSpreadsheet(file.name)
+          ? await uploadPricingSheet(formData)
+          : await uploadDocument(formData);
+        results.push({ name: file.name, result: res });
+      } catch (err) {
+        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+        results.push({ name: file.name, error: detail || "Upload failed" });
       }
-
-      setResult(res);
-      setStep("result");
-    } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(detail || "Upload failed");
-    } finally {
-      setUploading(false);
     }
+
+    setOutcomes(results);
+    setUploading(false);
+    setStep("result");
   };
 
   const reset = () => {
     setStep("issuer");
     setSelectedIssuer(null);
-    setDocType(null);
-    setFile(null);
-    setResult(null);
+    setFiles([]);
+    setRunMode("full");
+    setOutcomes([]);
     setError("");
-    setFiscalPeriod("");
-    setMnpiFlag(false);
   };
 
   useEffect(() => {
@@ -137,7 +138,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   }, []);
 
   const stepIdx = STEPS.findIndex((s) => s.k === step);
-  const docMeta = DOC_TYPES.find((d) => d.value === docType);
+  const modeMeta = RUN_MODES.find((m) => m.k === runMode);
+  const okCount = outcomes.filter((o) => o.result).length;
+  const failCount = outcomes.length - okCount;
+  const totalChunks = outcomes.reduce((n, o) => n + (o.result?.chunks_created || 0), 0);
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-2">
@@ -171,7 +175,8 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         })}
         <span className="flex-1" />
         {selectedIssuer ? <span className="tabular text-[9px] text-caos-accent whitespace-nowrap">{selectedIssuer.name}</span> : null}
-        {docMeta ? <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· {docMeta.label}</span> : null}
+        {step !== "issuer" && modeMeta ? <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· {modeMeta.label}</span> : null}
+        {step !== "issuer" && files.length ? <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· {files.length} file{files.length > 1 ? "s" : ""}</span> : null}
       </div>
 
       {error ? (
@@ -191,7 +196,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             {issuers.map((issuer) => (
               <button
                 key={issuer.id}
-                onClick={() => { setSelectedIssuer(issuer); setStep("doctype"); }}
+                onClick={() => { setSelectedIssuer(issuer); setStep("file"); }}
                 className={
                   "w-full grid grid-cols-[64px_1fr_110px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 text-left transition-caos hover:bg-caos-elevated/60 " +
                   (selectedIssuer?.id === issuer.id ? "bg-caos-elevated caos-selected relative z-[5]" : "")
@@ -248,39 +253,12 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         </Panel>
       ) : null}
 
-      {/* Step 2: document type */}
-      {step === "doctype" ? (
+      {/* Step 2: files + run mode */}
+      {step === "file" ? (
         <Panel
-          title={"Document type · " + (selectedIssuer?.name || "")}
+          title={"Files & run mode · " + (selectedIssuer?.name || "")}
           right={
-            <button onClick={() => setStep("issuer")} className="tabular text-[9px] text-caos-muted hover:text-caos-text transition-caos">
-              ← BACK
-            </button>
-          }
-        >
-          <div className="text-[11px]">
-            {DOC_TYPES.map((dt) => (
-              <button
-                key={dt.value}
-                onClick={() => { setDocType(dt.value); setStep("file"); }}
-                className="w-full grid grid-cols-[52px_180px_1fr_90px] items-center gap-x-3 px-3 py-[8px] border-b border-caos-border/50 text-left transition-caos hover:bg-caos-elevated/60"
-              >
-                <span className="tabular text-[9px] text-caos-accent">{dt.code}</span>
-                <span className="text-caos-text text-[10.5px]">{dt.label}</span>
-                <span className="text-caos-muted text-[9.5px] truncate">{dt.desc}</span>
-                <span className="tabular text-[9px] text-caos-muted text-right">SELECT →</span>
-              </button>
-            ))}
-          </div>
-        </Panel>
-      ) : null}
-
-      {/* Step 3: file + metadata */}
-      {step === "file" && docMeta ? (
-        <Panel
-          title={"Upload " + docMeta.label + " · " + (selectedIssuer?.name || "")}
-          right={
-            <button onClick={() => { setStep("doctype"); setFile(null); }} className="tabular text-[9px] text-caos-muted hover:text-caos-text transition-caos">
+            <button onClick={() => { setStep("issuer"); setFiles([]); }} className="tabular text-[9px] text-caos-muted hover:text-caos-text transition-caos">
               ← BACK
             </button>
           }
@@ -290,69 +268,62 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               {...getRootProps()}
               className="rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos"
               style={{
-                borderColor: isDragActive ? "var(--caos-accent)" : file ? "rgba(34,197,94,0.5)" : "var(--caos-border)",
-                background: isDragActive ? "rgba(79,140,255,0.06)" : file ? "rgba(34,197,94,0.04)" : "var(--caos-bg)",
+                borderColor: isDragActive ? "var(--caos-accent)" : files.length ? "rgba(34,197,94,0.5)" : "var(--caos-border)",
+                background: isDragActive ? "rgba(79,140,255,0.06)" : files.length ? "rgba(34,197,94,0.04)" : "var(--caos-bg)",
               }}
             >
               <input {...getInputProps()} />
-              {file ? (
-                <div>
-                  <div className="tabular text-[10.5px]" style={{ color: "var(--caos-success)" }}>✓ {file.name}</div>
-                  <div className="tabular text-[9px] text-caos-muted mt-1">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB — click or drop to replace
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="text-[10.5px] text-caos-text/85">
-                    Drop the {docType === "PricingSheet" ? ".xlsx" : ".pdf"} here, or click to browse
-                  </div>
-                  <div className="tabular text-[9px] text-caos-muted mt-1">single file · stored to the MinIO vault under {selectedIssuer?.name}</div>
-                </div>
-              )}
+              <div className="text-[10.5px] text-caos-text/85">
+                Drop all deal documents here, or click to browse
+              </div>
+              <div className="tabular text-[9px] text-caos-muted mt-1">
+                PDF / XLSX · multiple files · documents are already dated — CP-0 classifies on ingest
+              </div>
             </div>
 
-            {docType === "PricingSheet" ? (
-              <div>
-                <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">Run date</label>
-                <input
-                  type="date"
-                  value={runDate}
-                  onChange={(e) => setRunDate(e.target.value)}
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text outline-none focus:border-caos-accent/70 transition-caos"
-                />
+            {files.length ? (
+              <div className="rounded border border-caos-border overflow-hidden">
+                {files.map((f) => (
+                  <div key={f.name + f.size} className="grid grid-cols-[1fr_90px_60px] items-center gap-x-3 px-3 py-[6px] border-b border-caos-border/50 last:border-b-0">
+                    <span className="text-[10.5px] text-caos-text truncate">{f.name}</span>
+                    <span className="tabular text-[9px] text-caos-muted text-right">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                    <button
+                      onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                      className="tabular text-[9px] text-caos-muted hover:text-caos-text text-right transition-caos"
+                    >
+                      REMOVE
+                    </button>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">Fiscal period</label>
-                  <input
-                    type="text"
-                    value={fiscalPeriod}
-                    onChange={(e) => setFiscalPeriod(e.target.value)}
-                    placeholder="e.g. Q1-2026"
-                    className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/50 outline-none focus:border-caos-accent/70 transition-caos"
-                  />
-                </div>
-                <div className="flex items-end pb-0.5">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={mnpiFlag}
-                      onChange={(e) => setMnpiFlag(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded-sm border-caos-border bg-caos-bg accent-[#f5a524]"
-                    />
-                    <span className="tabular text-[9.5px] uppercase tracking-wide" style={{ color: mnpiFlag ? "var(--caos-warning)" : "var(--caos-muted)" }}>
-                      MNPI — restricted handling
+            ) : null}
+
+            <div>
+              <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
+              <div className="rounded border border-caos-border overflow-hidden">
+                {RUN_MODES.map((m) => (
+                  <button
+                    key={m.k}
+                    onClick={() => setRunMode(m.k)}
+                    className={
+                      "w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 " +
+                      (runMode === m.k ? "bg-caos-elevated" : "")
+                    }
+                  >
+                    <span className="tabular text-[9px] text-caos-accent">{m.code}</span>
+                    <span className="text-caos-text text-[10.5px]">{m.label}</span>
+                    <span className="text-caos-muted text-[9.5px] truncate">{m.desc}</span>
+                    <span className="tabular text-[9px] text-right" style={{ color: runMode === m.k ? "var(--caos-success)" : "var(--caos-muted)" }}>
+                      {runMode === m.k ? "✓ SELECTED" : "SELECT"}
                     </span>
-                  </label>
-                </div>
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
 
             <button
               onClick={handleUpload}
-              disabled={!file || uploading}
+              disabled={files.length === 0 || uploading}
               className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-[10px] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {uploading ? (
@@ -361,33 +332,41 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                   UPLOADING & CHUNKING…
                 </>
               ) : (
-                "UPLOAD & PROCESS"
+                `UPLOAD ${files.length || ""} FILE${files.length === 1 ? "" : "S"} & PROCESS`
               )}
             </button>
           </div>
         </Panel>
       ) : null}
 
-      {/* Step 4: result */}
-      {step === "result" && result ? (
+      {/* Step 3: result */}
+      {step === "result" && outcomes.length ? (
         <Panel
           title="Intake complete · CP-0 ready"
           right={
             <span className="flex items-center gap-1.5">
-              <Dot sev="ok" />
-              <span className="tabular text-[9px] text-caos-muted">vaulted & chunked</span>
+              <Dot sev={failCount ? "warning" : "ok"} />
+              <span className="tabular text-[9px] text-caos-muted">
+                {okCount}/{outcomes.length} vaulted · {totalChunks} chunks
+              </span>
             </span>
           }
         >
-          <div className="px-3 py-2.5 border-b border-caos-border text-[10.5px] text-caos-text leading-snug">{result.message}</div>
-          <div className="px-3 py-2.5 border-b border-caos-border">
-            <div className="tabular text-[9px] uppercase tracking-wider text-caos-muted mb-1.5">Vault record</div>
-            <div className="text-[10px] text-caos-text leading-relaxed">
-              <div className="flex justify-between gap-2"><span className="text-caos-muted">Document ID</span><span className="tabular truncate max-w-[260px]">{result.document_id}</span></div>
-              <div className="flex justify-between gap-2"><span className="text-caos-muted">MinIO key</span><span className="tabular truncate max-w-[260px]">{result.minio_key}</span></div>
-              <div className="flex justify-between gap-2"><span className="text-caos-muted">Chunks created</span><span className="tabular">{result.chunks_created}</span></div>
-              <div className="flex justify-between gap-2"><span className="text-caos-muted">Issuer</span><span className="tabular text-caos-accent">{selectedIssuer?.name}</span></div>
-            </div>
+          <div className="px-3 py-2.5 border-b border-caos-border text-[10.5px] text-caos-text leading-snug">
+            {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
+            {modeMeta?.label} ({modeMeta?.code}) run queued
+            {failCount ? ` · ${failCount} failed` : ""}
+          </div>
+          <div className="text-[10px]">
+            {outcomes.map((o) => (
+              <div key={o.name} className="grid grid-cols-[14px_1fr_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
+                <Dot sev={o.result ? "ok" : "critical"} />
+                <span className="text-caos-text truncate">{o.name}</span>
+                <span className="tabular text-[9px] text-right" style={{ color: o.result ? "var(--caos-muted)" : "var(--caos-critical)" }}>
+                  {o.result ? `${o.result.chunks_created} chunks` : o.error}
+                </span>
+              </div>
+            ))}
           </div>
           <div className="p-3 flex gap-2">
             <button

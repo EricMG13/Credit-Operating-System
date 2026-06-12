@@ -15,6 +15,7 @@ import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
+import { SectorRV } from "@/components/command/SectorRV";
 import {
   AlertFeed, CoverageMatrix, EmailIntel, GapsList, IssuerStrip,
   PortfolioTable, QaQueue, SectorBoard,
@@ -30,7 +31,7 @@ export default function CommandPage() {
 
 
 function CommandCenter() {
-  const [view, setView] = useState<"cio" | "res">("cio");
+  const [view, setView] = useState<"cio" | "res" | "rv">("cio");
   const [selected, setSelected] = useState<string | null>(null);
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
@@ -55,7 +56,7 @@ function CommandCenter() {
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
         <div className="flex items-center rounded border border-caos-border overflow-hidden">
-          {([{ k: "cio", l: "CIO / PM" }, { k: "res", l: "HEAD OF RESEARCH" }] as const).map((v) => (
+          {([{ k: "cio", l: "PORTFOLIO" }, { k: "res", l: "RESEARCH" }, { k: "rv", l: "SECTOR RV" }] as const).map((v) => (
             <button
               key={v.k}
               onClick={() => setView(v.k)}
@@ -66,7 +67,11 @@ function CommandCenter() {
           ))}
         </div>
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">
-          {view === "cio" ? "Portfolio Posture — US HY Sleeve" : "Coverage Health — US HY Sleeve"}
+          {view === "cio"
+            ? "Portfolio Posture — US HY Sleeve"
+            : view === "res"
+            ? "Coverage Health — US HY Sleeve"
+            : "Sector Relative Value — Loan Universe"}
         </span>
         <div className="flex-1"></div>
         {headStat("Sleeve NAV", "$2.41B")}
@@ -79,9 +84,17 @@ function CommandCenter() {
         <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
       </div>
 
-      {/* workspace */}
-      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_624px] gap-2 p-2">
-        {view === "cio" ? (
+      {/* workspace — Sector RV runs full-width; the other views keep the
+          CP-MON intake column on the right */}
+      <div
+        className={
+          "flex-1 min-h-0 gap-2 p-2 " +
+          (view === "rv" ? "flex flex-col" : "grid grid-cols-[minmax(0,1fr)_624px]")
+        }
+      >
+        {view === "rv" ? (
+          <SectorRV />
+        ) : view === "cio" ? (
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
             <PanelShell
               title="Portfolio Posture · CP-3C"
@@ -116,6 +129,7 @@ function CommandCenter() {
           </div>
         )}
 
+        {view !== "rv" ? (
         <div className="flex flex-col gap-2 min-h-0">
           <PanelShell
             title="Email Intelligence · CP-MON intake"
@@ -137,6 +151,7 @@ function CommandCenter() {
             <AlertFeed tick={tick} live={live || run.sim.done} />
           </PanelShell>
         </div>
+        ) : null}
       </div>
 
       {selected ? <IssuerStrip code={selected} onClose={() => setSelected(null)} /> : null}

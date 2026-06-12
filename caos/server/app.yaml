@@ -1,0 +1,21 @@
+# Databricks Apps entrypoint. The platform installs requirements.txt from
+# this directory, injects DATABRICKS_APP_PORT, and authenticates users at
+# the edge (identity arrives via X-Forwarded-* headers).
+command: ["python", "run.py"]
+
+env:
+  - name: "ENVIRONMENT"
+    value: "production"
+  - name: "CAOS_DEMO_SEED"
+    value: "true"
+  # Point the document vault at a Unity Catalog Volume for durable storage
+  # (app filesystem is ephemeral). Create the volume first, then uncomment:
+  # - name: "CAOS_STORAGE_DIR"
+  #   value: "/Volumes/main/caos/vault"
+  # Use Lakebase (managed Postgres) instead of ephemeral SQLite:
+  # - name: "DATABASE_URL"
+  #   value: "postgresql+asyncpg://..."
+  # Claude chat — reference a Databricks secret (scope/key set in the app UI
+  # or via `databricks apps` resource config):
+  # - name: "ANTHROPIC_API_KEY"
+  #   valueFrom: "anthropic-api-key"

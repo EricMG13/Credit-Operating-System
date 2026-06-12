@@ -1,0 +1,27 @@
+# Databricks Asset Bundle for the CAOS app.
+#
+# Deploy:
+#   1. Build the frontend into the server:  ./scripts/build_frontend.sh
+#   2. databricks bundle deploy -t dev
+#   3. databricks bundle run caos -t dev    (starts/deploys the app)
+#
+# The app source (caos/server, including the built static frontend) is synced
+# to the workspace; Databricks Apps installs server/requirements.txt and runs
+# app.yaml's command.
+
+bundle:
+  name: caos
+
+resources:
+  apps:
+    caos:
+      name: caos
+      description: "Credit Agent OS — credit analysis workspace (API + UI in one app)"
+      source_code_path: ./server
+
+targets:
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production

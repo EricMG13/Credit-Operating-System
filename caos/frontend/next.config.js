@@ -1,19 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Static export — the build output (out/) is served by the FastAPI server
+  // (caos/server) in deployment, so the whole app ships as one Databricks App.
+  output: "export",
+  // Emit folder/index.html per route so StaticFiles(html=True) resolves
+  // clean URLs like /issuers without extra rewrite logic.
+  trailingSlash: true,
+  images: { unoptimized: true },
   experimental: {
-    optimizePackageImports: ["@antv/g2", "@antv/s2", "ag-grid-react"],
+    optimizePackageImports: ["@antv/g2"],
   },
-  webpack: (config) => {
-    // pdfjs-dist's build has an optional `canvas` require for Node-side
-    // rendering that the browser-only Viewer never uses. Stub it so the
-    // bundler doesn't fail trying to resolve the native module.
-    config.resolve.alias = {
-      ...config.resolve.alias,
-      canvas: false,
-    };
-    return config;
-  },
+  // Dev-only convenience: `next dev` proxies /api to the local FastAPI
+  // server. Rewrites are ignored by `next build` in export mode.
   async rewrites() {
     return [
       {

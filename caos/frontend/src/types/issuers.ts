@@ -4,6 +4,7 @@ export interface Issuer {
   ticker?: string;
   industry?: string;
   country?: string;
+  figi?: string;
 }
 
 export interface Document {

@@ -21,26 +21,37 @@ export default function IssuersPage() {
 }
 
 
+const EMPTY_FORM = { name: "", ticker: "", industry: "", country: "", figi: "" };
+
 function IssuersDirectory() {
   const router = useRouter();
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", ticker: "", industry: "", country: "" });
+  const [form, setForm] = useState(EMPTY_FORM);
 
+  // Server-side search across name / ticker / industry / country / FIGI,
+  // debounced so typing doesn't fire a request per keystroke.
   useEffect(() => {
-    getIssuers().then(setIssuers).finally(() => setLoading(false));
-  }, []);
+    let stale = false;
+    const t = setTimeout(() => {
+      getIssuers(query)
+        .then((rows) => { if (!stale) setIssuers(rows); })
+        .finally(() => { if (!stale) setLoading(false); });
+    }, query ? 200 : 0);
+    return () => { stale = true; clearTimeout(t); };
+  }, [query]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const issuer = await createIssuer(form);
     setIssuers((prev) => [...prev, issuer]);
     setShowForm(false);
-    setForm({ name: "", ticker: "", industry: "", country: "" });
+    setForm(EMPTY_FORM);
   };
 
-  const cols = "grid grid-cols-[64px_minmax(220px,1.6fr)_1fr_1fr_120px_90px] items-center gap-x-3";
+  const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -54,7 +65,11 @@ function IssuersDirectory() {
         <div className="h-4 w-px bg-caos-border" />
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Issuer Directory</span>
         <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
-          {loading ? "loading…" : issuers.length + " issuers · US HY sleeve"}
+          {loading
+            ? "loading…"
+            : query
+            ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
+            : issuers.length + " issuers · US HY sleeve"}
         </span>
         <div className="flex-1" />
         <ConceptNav />
@@ -78,15 +93,52 @@ function IssuersDirectory() {
         <Panel
           title="Issuer Register · coverage universe"
           className="h-full"
-          right={<span className="tabular text-[9px] text-caos-muted">click a row to open its deep-dive</span>}
+          right={
+            <span className="flex items-center gap-2">
+              <span className="tabular text-[9px] text-caos-muted hidden xl:inline">
+                click a row to open its deep-dive
+              </span>
+              <span className="relative flex items-center">
+                <span className="absolute left-2 text-caos-muted text-[10px] pointer-events-none">⌕</span>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="search issuer · industry · country · FIGI"
+                  className="w-64 bg-caos-bg border border-caos-border rounded pl-6 pr-6 py-1 tabular text-[10px] text-caos-text placeholder:text-caos-muted/60 outline-none focus:border-caos-accent/70 transition-caos"
+                />
+                {query ? (
+                  <button
+                    onClick={() => setQuery("")}
+                    title="Clear search"
+                    className="absolute right-1.5 text-caos-muted hover:text-caos-text text-[10px] transition-caos"
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </span>
+            </span>
+          }
         >
           {loading ? (
             <div className="px-3 py-3 text-[10.5px] text-caos-muted">Loading issuers…</div>
+          ) : issuers.length === 0 && query ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
+              <p className="text-caos-text/85 text-[12px] font-medium">No matches for “{query}”</p>
+              <p className="text-caos-muted text-[10.5px] max-w-xs">
+                Search covers issuer name, ticker, industry, country, and FIGI.
+              </p>
+              <button
+                onClick={() => setQuery("")}
+                className="mt-1 tabular text-[10px] px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+              >
+                CLEAR SEARCH
+              </button>
+            </div>
           ) : issuers.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
               <p className="text-caos-text/85 text-[12px] font-medium">No issuers yet</p>
               <p className="text-caos-muted text-[10.5px] max-w-xs">
-                Add your first issuer, then upload its canonical documents (OM, Credit Agreement, LBO Model) to start a run.
+                Add your first issuer, then drop its deal documents and pick a run mode to start a run.
               </p>
               <button
                 onClick={() => setShowForm(true)}
@@ -98,7 +150,7 @@ function IssuersDirectory() {
           ) : (
             <div className="text-[11px]">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-                {["Ticker", "Issuer", "Industry", "Country", "Documents", ""].map((h, i) => (
+                {["Ticker", "Issuer", "Industry", "Country", "FIGI", "Documents", ""].map((h, i) => (
                   <span key={i} className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{h}</span>
                 ))}
               </div>
@@ -114,6 +166,7 @@ function IssuersDirectory() {
                   <span className="text-caos-text text-[11px] truncate group-hover:text-white transition-caos">{issuer.name}</span>
                   <span className="text-caos-muted text-[10px] truncate">{issuer.industry || "—"}</span>
                   <span className="text-caos-muted text-[10px] truncate">{issuer.country || "—"}</span>
+                  <span className="tabular text-caos-muted text-[9.5px] truncate">{issuer.figi || "—"}</span>
                   <span
                     onClick={(e) => { e.stopPropagation(); router.push("/upload"); }}
                     className="tabular text-[9px] text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos"
@@ -149,7 +202,8 @@ function IssuersDirectory() {
                 { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
                 { key: "industry", label: "Industry", required: false, ph: "e.g. Industrials" },
                 { key: "country", label: "Country", required: false, ph: "e.g. United States" },
-              ] as { key: "name" | "ticker" | "industry" | "country"; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
+                { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
+              ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
                 <div key={key}>
                   <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " ·" : ""}</label>
                   <input

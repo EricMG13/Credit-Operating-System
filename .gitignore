@@ -4,7 +4,12 @@
 # Node / Next.js
 node_modules/
 .next/
+out/
 *.tsbuildinfo
+
+# CAOS server build artifacts / local state
+caos/server/static/
+caos/server/data/
 
 # Python
 __pycache__/

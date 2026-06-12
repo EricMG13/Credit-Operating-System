@@ -23,7 +23,7 @@ export default function UploadPage() {
           <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-0</span>
           <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Document Intake — source readiness</span>
           <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
-            PDF / XLSX → MinIO vault → parent-child chunking → CP-0 classification
+            PDF / XLSX → document vault → parent-child chunking → CP-0 classification
           </span>
           <div className="flex-1" />
           <span

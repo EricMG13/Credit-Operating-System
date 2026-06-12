@@ -2,24 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "frontend",
+      "name": "app",
+      "runtimeExecutable": "/tmp/caos-server.sh",
+      "runtimeArgs": [],
+      "autoPort": false,
+      "port": 8000
+    },
+    {
+      "name": "frontend-dev",
       "runtimeExecutable": "/tmp/caos-frontend.sh",
       "runtimeArgs": [],
       "autoPort": false,
       "port": 3000
-    },
-    {
-      "name": "mock-backend",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["caos/demo_mock_backend.py"],
-      "autoPort": false,
-      "port": 8000
-    },
-    {
-      "name": "backend",
-      "runtimeExecutable": "uvicorn",
-      "runtimeArgs": ["--app-dir", "caos/backend", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
-      "port": 8000
     }
   ]
 }
