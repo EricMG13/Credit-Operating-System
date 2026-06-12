@@ -8,6 +8,9 @@ const nextConfig = {
   // clean URLs like /issuers without extra rewrite logic.
   trailingSlash: true,
   images: { unoptimized: true },
+  // Lint runs as its own step (npm run lint — ESLint v9 flat config); the
+  // legacy in-build `next lint` pass is incompatible with it.
+  eslint: { ignoreDuringBuilds: true },
   experimental: {
     optimizePackageImports: ["@antv/g2"],
   },

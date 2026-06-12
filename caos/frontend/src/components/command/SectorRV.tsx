@@ -55,13 +55,15 @@ function Chip({ liq, label }: { liq: Liquidity; label: string }) {
   );
 }
 
-const th = "px-2 py-[6px] text-left tabular text-[8.5px] uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10";
-const thR = th + " text-right";
 const td = "px-2 py-[5px] tabular whitespace-nowrap";
 
 type SortConfig = { col: string | null; asc: boolean };
+type SortVal = string | number | null | undefined;
 
-function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string) => any) {
+// single cast point for sorting on a dynamic column name
+const field = (r: object, c: string): SortVal => (r as Record<string, SortVal>)[c];
+
+function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string) => SortVal) {
   return useMemo(() => {
     if (!config.col) return data;
     return [...data].sort((a, b) => {
@@ -100,7 +102,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
   const sorted = useSort(rows, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
     if (c === "rv") return RV_LABEL[r.liq] || "";
-    return (r as any)[c];
+    return field(r, c);
   });
 
   return (
@@ -166,14 +168,14 @@ export function SectorRV() {
   const handleSortIdx = (col: string) => setSortIdx((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
   const sortedIdx = useSort(INDEX_STATS, sortIdx, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    return (r as any)[c];
+    return field(r, c);
   });
 
   const [sortAvg, setSortAvg] = useState<SortConfig>({ col: null, asc: true });
   const handleSortAvg = (col: string) => setSortAvg((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
   const sortedAvg = useSort(averages, sortAvg, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    return (r as any)[c];
+    return field(r, c);
   });
 
   return (

@@ -14,7 +14,7 @@ import zipfile
 from pathlib import Path
 from typing import List
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from config import get_settings
 
@@ -27,17 +27,24 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 CHUNK_CHARS = 2400
 CHUNK_OVERLAP = 240
 
+_READ_CHUNK = 1024 * 1024  # 1 MB
 
-def enforce_size(content: bytes) -> None:
-    if not content:
-        raise HTTPException(400, "Empty upload")
+
+async def read_capped(file: UploadFile) -> bytes:
+    """Read the upload incrementally, aborting as soon as it exceeds the cap.
+
+    Reading the whole body before checking would let an oversized request
+    occupy its full size in memory before the 413.
+    """
     limit = settings.max_upload_mb * 1024 * 1024
-    if len(content) > limit:
-        raise HTTPException(
-            413,
-            f"File exceeds the {settings.max_upload_mb} MB limit "
-            f"(got {len(content) / 1024 / 1024:.1f} MB)",
-        )
+    buf = bytearray()
+    while chunk := await file.read(_READ_CHUNK):
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit")
+    if not buf:
+        raise HTTPException(400, "Empty upload")
+    return bytes(buf)
 
 
 def sniff_pdf(content: bytes) -> None:

@@ -40,12 +40,15 @@ function PipelineVisualizer() {
   const run = useSimRun({ autoplay: true, plan: mode.plan, complete: mode.complete });
   const reports = useMemo(() => buildReports(), []);
 
-  // persist view preference
+  // persist view preference — write only after restore so the mount-time
+  // default can't clobber the stored choice
+  const [viewHydrated, setViewHydrated] = useState(false);
   useEffect(() => {
     const v = localStorage.getItem("caos-b-view");
     if (v === "graph" || v === "lanes") setView(v);
+    setViewHydrated(true);
   }, []);
-  useEffect(() => { try { localStorage.setItem("caos-b-view", view); } catch {} }, [view]);
+  useEffect(() => { if (viewHydrated) try { localStorage.setItem("caos-b-view", view); } catch {} }, [viewHydrated, view]);
 
   const cp5 = run.sim.mods["CP-5"]?.state || "idle";
   const clearance = ["pass", "warning", "held"].includes(cp5) ? mode.done

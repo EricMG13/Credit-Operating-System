@@ -8,7 +8,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Dot } from "@/components/pipeline/atoms";
-import { SEV_COLOR } from "@/lib/pipeline/sim";
 import {
   INDEX_MOVE,
   SECTOR_REVIEWS,

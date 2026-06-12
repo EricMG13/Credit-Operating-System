@@ -62,6 +62,18 @@ def test_me_databricks_forwarded_identity(client):
     assert body["full_name"] == "Analyst One"
 
 
+def test_me_rejects_headerless_request_in_production(client, monkeypatch):
+    """Bypassing the Databricks edge must not mint the local-dev identity."""
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    assert client.get("/api/auth/me").status_code == 401
+    # forwarded identity still resolves
+    r = client.get("/api/auth/me", headers={"X-Forwarded-Email": "analyst@corp.com"})
+    assert r.status_code == 200
+    assert r.json()["email"] == "analyst@corp.com"
+
+
 def test_demo_issuers_seeded(client):
     r = client.get("/api/issuers/")
     assert r.status_code == 200

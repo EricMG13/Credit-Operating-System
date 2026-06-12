@@ -89,8 +89,7 @@ async def upload_document(
     caller: CallerIdentity = Depends(get_identity),
 ):
     mode = _validate_run_mode(run_mode)
-    content = await file.read()
-    ingest.enforce_size(content)
+    content = await ingest.read_capped(file)
     ingest.sniff_pdf(content)
     text = ingest.extract_pdf_text(content)
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
@@ -105,8 +104,7 @@ async def upload_pricing_sheet(
     caller: CallerIdentity = Depends(get_identity),
 ):
     mode = _validate_run_mode(run_mode)
-    content = await file.read()
-    ingest.enforce_size(content)
+    content = await ingest.read_capped(file)
     ingest.sniff_xlsx(content)
     text = ingest.extract_xlsx_text(content)
     return await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)

@@ -11,7 +11,7 @@ import {
   type EmailRow,
 } from "@/lib/command/data";
 import { SEV_COLOR, simClock } from "@/lib/pipeline/sim";
-import { Bar, Dot, Tag } from "@/components/pipeline/atoms";
+import { Dot, Tag } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
 
 export const POSTURE_COLOR: Record<string, string> = {
