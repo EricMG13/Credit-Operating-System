@@ -7,11 +7,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
-import { RUN_MODES, type Driver } from "@/lib/pipeline/data";
+import { MODULES, RUN_MODES, type Driver } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { Bar, Dot, SimControls, Tag } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
@@ -27,6 +28,7 @@ export default function PipelinePage() {
 
 
 function PipelineVisualizer() {
+  const router = useRouter();
   const [view, setView] = useState<"graph" | "lanes">("graph");
   const [modeK, setModeK] = useState("full");
   const [dimCompleted, setDimCompleted] = useState(false);
@@ -53,6 +55,13 @@ function PipelineVisualizer() {
   const pickDriver = (d: Driver) => {
     const mod = d.lineage.match(/CP-[0-9A-Z]+/);
     if (mod) setSelected(mod[0]);
+  };
+
+  // Double-click a module → its output register in the Concept C deep-dive.
+  // INFRA nodes produce the committee pack itself, so they land on Concept E.
+  const openModule = (id: string) => {
+    const infra = MODULES.find((m) => m.id === id)?.layer === "INFRA";
+    router.push(infra ? "/reports" : `/deepdive?mod=${id}`);
   };
 
   return (
@@ -140,10 +149,10 @@ function PipelineVisualizer() {
           >
             {view === "graph" ? (
               <div className="h-full overflow-auto">
-                <GraphView sim={run.sim} selected={selected} onSelect={setSelected} dim={dimCompleted} scope={scope} />
+                <GraphView sim={run.sim} selected={selected} onSelect={setSelected} dim={dimCompleted} scope={scope} onDoubleClick={openModule} />
               </div>
             ) : (
-              <SwimlaneView sim={run.sim} selected={selected} onSelect={setSelected} scope={scope} />
+              <SwimlaneView sim={run.sim} selected={selected} onSelect={setSelected} scope={scope} onDoubleClick={openModule} />
             )}
           </PanelShell>
           <PanelShell

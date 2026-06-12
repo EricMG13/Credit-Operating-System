@@ -4,13 +4,15 @@
 // live alert feed, CP-SR sector board, coverage matrix, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
+  type EmailRow,
 } from "@/lib/command/data";
 import { SEV_COLOR, simClock } from "@/lib/pipeline/sim";
 import { Bar, Dot, Tag } from "@/components/pipeline/atoms";
+import { SectorReview } from "@/components/command/SectorReview";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -52,7 +54,7 @@ export function PortfolioTable({
   return (
     <div className="text-[11px]" style={{ minWidth: 1180 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-        {["Issuer", "Sector", "Rating", "Instrument", "Px", "YTW", "STW", "Δ d/d", "30-Day", "NetLev", "IntCov", "M2E", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
+        {["Issuer", "Sector", "Rating", "Instrument", "Px", "Margin", "3Y DM", "Δ d/d", "30-Day", "NetLev", "IntCov", "M2E", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
           <span key={i} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
         ))}
       </div>
@@ -74,8 +76,8 @@ export function PortfolioTable({
             <span className="tabular text-[10px] text-caos-muted">{p.rating}</span>
             <span className="tabular text-[10px] text-caos-text truncate">{p.inst}</span>
             <span className="tabular text-right">{p.px.toFixed(1)}</span>
-            <span className="tabular text-right">{p.ytw.toFixed(2)}</span>
-            <span className="tabular text-right text-caos-text">{p.stw + (p.watch ? Math.floor(tick / 9) % 3 : 0)}</span>
+            <span className="tabular text-right">S+{p.margin}</span>
+            <span className="tabular text-right text-caos-text">{p.dm + (p.watch ? Math.floor(tick / 9) % 3 : 0)}</span>
             <span className="tabular text-right" style={{ color: p.dd > 0 ? "var(--caos-critical)" : "var(--caos-success)" }}>{p.dd > 0 ? "+" + p.dd : p.dd}</span>
             <Spark data={p.spark} color={sparkColor} w={76} h={16} />
             <span className="tabular text-right">{p.lev.toFixed(1)}x</span>
@@ -96,9 +98,84 @@ export function PortfolioTable({
   );
 }
 
+/* ---------- CP-MON email viewer window ---------- */
+function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      style={{ background: "rgba(5,5,7,0.72)" }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+        style={{ boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+      >
+        {/* window chrome */}
+        <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60 shrink-0">
+          <Dot sev={email.sev} />
+          <span className="tabular text-[11px] text-caos-text truncate">{email.subj}</span>
+          <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">
+            CP-MON · mat {email.mat}
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            title="Close (Esc)"
+            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* envelope */}
+        <div className="px-4 py-2.5 border-b border-caos-border shrink-0 text-[10px] leading-relaxed">
+          <div className="grid grid-cols-[52px_1fr] gap-x-2">
+            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">From</span>
+            <span className="text-caos-text truncate">{email.from} <span className="text-caos-muted">· {email.src}</span></span>
+            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">To</span>
+            <span className="text-caos-muted truncate">{email.to}</span>
+            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">Time</span>
+            <span className="text-caos-muted">{email.t} ET · today</span>
+          </div>
+        </div>
+
+        {/* body */}
+        <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
+          <p className="text-[10.5px] text-caos-text/90 leading-relaxed whitespace-pre-line">{email.body}</p>
+        </div>
+
+        {/* CP-MON classification footer */}
+        <div className="px-4 py-2 border-t border-caos-border bg-caos-elevated/40 shrink-0 flex items-center gap-2 flex-wrap">
+          <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">CP-MON classification</span>
+          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-accent">{email.issuer}</span>
+          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-muted">{email.signal}</span>
+          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border" style={{ color: SEV_COLOR[email.sev] }}>
+            {email.sev.toUpperCase()} · {email.mat}
+          </span>
+          {email.dedup ? (
+            <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-muted">DEDUPED · CP-MON-F</span>
+          ) : null}
+          <span className="flex-1" />
+          <span className="tabular text-[9px] text-caos-muted">routed → {email.route}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- CP-MON email intelligence ---------- */
 export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
   const [filter, setFilter] = useState<string | null>(null);
+  const [openEmail, setOpenEmail] = useState<EmailRow | null>(null);
   const grow = live ? Math.floor(tick / 8) : 0;
   const tiles = [
     { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 materiality" },
@@ -135,7 +212,12 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
       </div>
       <div className="flex-1 min-h-0 overflow-auto border-t border-caos-border">
         {list.map((e, i) => (
-          <div key={i} className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-[10.5px] hover:bg-caos-elevated/60 transition-caos cursor-pointer">
+          <div
+            key={i}
+            onClick={() => setOpenEmail(e)}
+            title="Open email"
+            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-[10.5px] hover:bg-caos-elevated/60 transition-caos cursor-pointer"
+          >
             <span className="tabular text-[10px] text-caos-muted">{e.t}</span>
             <span className="tabular text-caos-accent">{e.issuer}</span>
             <span className="min-w-0">
@@ -148,6 +230,7 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
           </div>
         ))}
       </div>
+      {openEmail ? <EmailWindow email={openEmail} onClose={() => setOpenEmail(null)} /> : null}
     </div>
   );
 }
@@ -178,22 +261,52 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
 
 /* ---------- CP-SR sector board ---------- */
 export function SectorBoard() {
+  const [open, setOpen] = useState<string | null>(null);
+  // sector → "HH:MM ET" stamp once its knowledge was refreshed this session
+  const [refreshed, setRefreshed] = useState<Record<string, string>>({});
+  const openRow = SECTORS.find((s) => s.sector === open);
+
   return (
     <div className="grid grid-cols-4 gap-1.5 p-2">
-      {SECTORS.map((s) => (
-        <div key={s.sector} className="rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium text-caos-text">{s.sector}</span>
-            {s.ew > 0 ? <span className="tabular text-[9px]" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}>⚠ {s.ew}</span> : null}
-          </div>
-          <div className="tabular text-[9px] tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-          <div className="text-[9.5px] text-caos-muted mt-1 leading-snug">{s.trend}</div>
-          <div className="tabular text-[8.5px] text-caos-muted/70 mt-1.5 flex justify-between">
-            <span>rev. {s.reviewed}</span>
-            {s.due ? <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span> : null}
-          </div>
-        </div>
-      ))}
+      {SECTORS.map((s) => {
+        const fresh = refreshed[s.sector];
+        return (
+          <button
+            key={s.sector}
+            onClick={() => setOpen(s.sector)}
+            title="Open sector review analysis"
+            className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-caos-text">{s.sector}</span>
+              {s.ew > 0 ? <span className="tabular text-[9px]" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}>⚠ {s.ew}</span> : null}
+            </div>
+            <div className="tabular text-[9px] tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+            <div className="text-[9.5px] text-caos-muted mt-1 leading-snug">{s.trend}</div>
+            <div className="tabular text-[8.5px] text-caos-muted/70 mt-1.5 flex justify-between">
+              <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
+              {fresh ? (
+                <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
+              ) : s.due ? (
+                <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
+              ) : null}
+            </div>
+          </button>
+        );
+      })}
+      {openRow ? (
+        <SectorReview
+          row={openRow}
+          refreshedAt={refreshed[openRow.sector] || null}
+          onRefreshed={(sector) =>
+            setRefreshed((prev) => ({
+              ...prev,
+              [sector]: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+            }))
+          }
+          onClose={() => setOpen(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -289,8 +402,8 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
         <span className="text-[12px] text-caos-text font-medium">{p.name}</span>
         <Tag sev={p.qa}>{p.qa}</Tag>
       </span>
-      {stat("STW", p.stw + "bps")}
-      {stat("YTW", p.ytw.toFixed(2) + "%")}
+      {stat("3Y DM", p.dm + "bps")}
+      {stat("Margin", "S+" + p.margin)}
       {stat("Net Lev", p.lev.toFixed(1) + "x")}
       {stat("Int Cov", p.cov.toFixed(1) + "x")}
       {stat("M2E", p.m2e.toFixed(1) + "mo", p.m2e < 12 ? "var(--caos-warning)" : undefined)}

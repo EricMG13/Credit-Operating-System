@@ -12,7 +12,8 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
-import { buildReports } from "@/lib/reports/builders";
+import { buildReports, type ModelInputs } from "@/lib/reports/builders";
+import { loadSheet } from "@/lib/model/sheet";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -26,10 +27,12 @@ function PrintPortal({
   rep,
   omit,
   showSources,
+  edits,
 }: {
   rep: ReturnType<typeof buildReports>[number];
   omit: Record<number, boolean>;
   showSources: boolean;
+  edits: Record<string, string>;
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -40,7 +43,7 @@ function PrintPortal({
     return () => d.remove();
   }, []);
   if (!el) return null;
-  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} />, el);
+  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} />, el);
 }
 
 export default function ReportsPage() {
@@ -52,7 +55,21 @@ export default function ReportsPage() {
 }
 
 function ReportStudio() {
-  const reports = useMemo(() => buildReports(), []);
+  // Concept D model state (overrides / severity / analyst sheet) feeds the
+  // deliverables — loaded once on mount so D edits carry into E.
+  const [modelInputs, setModelInputs] = useState<ModelInputs>({});
+  useEffect(() => {
+    try {
+      const overrides = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
+      const s = parseFloat(localStorage.getItem("caos-d-severity") || "");
+      setModelInputs({
+        overrides: overrides && typeof overrides === "object" ? overrides : {},
+        severity: s >= 0.5 && s <= 1.5 ? s : 1,
+        sheet: loadSheet(),
+      });
+    } catch { /* no model edits yet */ }
+  }, []);
+  const reports = useMemo(() => buildReports(modelInputs), [modelInputs]);
 
   const [activeId, setActiveId] = useState("snapshot");
   const [zoom, setZoom] = useState(0.85);
@@ -60,6 +77,9 @@ function ReportStudio() {
   const [paper, setPaper] = useState("#f7f5ee");
   const [showSources, setShowSources] = useState(true);
   const [evModal, setEvModal] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
+  const [hydrated, setHydrated] = useState(false);
 
   // restore persisted workspace state
   useEffect(() => {
@@ -70,15 +90,23 @@ function ReportStudio() {
       if (ZOOMS.includes(z)) setZoom(z);
       const o = JSON.parse(localStorage.getItem("caos-e-omit") || "{}");
       if (o && typeof o === "object") setOmit(o);
+      const e = JSON.parse(localStorage.getItem("caos-e-edits") || "{}");
+      if (e && typeof e === "object") setEdits(e);
     } catch { /* first visit */ }
+    setHydrated(true);
   }, [reports]);
-  useEffect(() => { try { localStorage.setItem("caos-e-active", activeId); } catch {} }, [activeId]);
-  useEffect(() => { try { localStorage.setItem("caos-e-zoom", String(zoom)); } catch {} }, [zoom]);
-  useEffect(() => { try { localStorage.setItem("caos-e-omit", JSON.stringify(omit)); } catch {} }, [omit]);
+  // persist only after restore has run — writing earlier clobbers stored
+  // state with the initial defaults
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-active", activeId); } catch {} }, [hydrated, activeId]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-zoom", String(zoom)); } catch {} }, [hydrated, zoom]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-omit", JSON.stringify(omit)); } catch {} }, [hydrated, omit]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-edits", JSON.stringify(edits)); } catch {} }, [hydrated, edits]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
   const repOmit = omit[rep.id] || {};
   const omitCount = Object.keys(repOmit).length;
+  const repEdits = edits[rep.id] || {};
+  const editCount = Object.keys(repEdits).length;
 
   const toggleSec = (i: number) => {
     setOmit((o) => {
@@ -86,6 +114,17 @@ function ReportStudio() {
       if (cur[i]) delete cur[i];
       else cur[i] = true;
       return { ...o, [rep.id]: cur };
+    });
+  };
+
+  const applyEdit = (path: string, text: string) => {
+    setEdits((e) => ({ ...e, [rep.id]: { ...e[rep.id], [path]: text } }));
+  };
+  const resetEdits = () => {
+    setEdits((e) => {
+      const next = { ...e };
+      delete next[rep.id];
+      return next;
     });
   };
 
@@ -126,6 +165,25 @@ function ReportStudio() {
         >
           SOURCES
         </button>
+        <button
+          onClick={() => setEditMode(!editMode)}
+          title="Edit the deliverable inline — every figure, label and paragraph is editable; edits persist locally and carry into the PDF export"
+          className={
+            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+          }
+        >
+          ✎ EDIT
+        </button>
+        {editCount > 0 ? (
+          <button
+            onClick={resetEdits}
+            title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
+            className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
+          >
+            ↺ {editCount}
+          </button>
+        ) : null}
         <span className="h-4 w-px bg-caos-border" />
         {/* zoom */}
         <span className="flex items-center gap-1">
@@ -163,7 +221,14 @@ function ReportStudio() {
         <div className="flex-1 min-w-0 rounded border border-caos-border overflow-auto" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
             <div style={{ zoom }}>
-              <ReportDoc rep={rep} omit={repOmit} paper={paper} showSources={showSources} />
+              <ReportDoc
+                rep={rep}
+                omit={repOmit}
+                paper={paper}
+                showSources={showSources}
+                edits={repEdits}
+                onEdit={editMode ? applyEdit : undefined}
+              />
             </div>
           </div>
         </div>
@@ -171,12 +236,12 @@ function ReportStudio() {
         <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
           <LineagePanel rep={rep} onOpenEvidence={setEvModal} />
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
-          <ExportPanel rep={rep} omitCount={omitCount} />
+          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} />
         </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
-      <PrintPortal rep={rep} omit={repOmit} showSources={showSources} />
+      <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} />
     </div>
   );
 }

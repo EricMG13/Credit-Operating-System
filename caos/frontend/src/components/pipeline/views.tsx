@@ -34,13 +34,14 @@ const NW = 128, NH = 44;
 
 /* ---------- DAG view ---------- */
 export function GraphView({
-  sim, selected, onSelect, dim, scope,
+  sim, selected, onSelect, dim, scope, onDoubleClick,
 }: {
   sim: Sim;
   selected: string | null;
   onSelect: (id: string | null) => void;
   dim: boolean;
   scope: Set<string>;
+  onDoubleClick?: (id: string) => void;
 }) {
   const up = useMemo(() => (selected ? ancestorsOf(selected) : new Set<string>()), [selected]);
   const down = useMemo(() => (selected ? descendantsOf(selected) : new Set<string>()), [selected]);
@@ -94,7 +95,8 @@ export function GraphView({
           <button
             key={m.id}
             onClick={() => onSelect(sel ? null : m.id)}
-            title={inScope ? undefined : "Out of scope for this route plan"}
+            onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
+            title={inScope ? m.name + " — double-click to open module outputs" : "Out of scope for this route plan"}
             className={"absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 " + (sel ? "caos-selected z-10" : "")}
             style={{
               left: p.x - NW / 2, top: p.y - NH / 2, width: NW, height: NH,
@@ -121,12 +123,13 @@ export function GraphView({
 
 /* ---------- swimlane view ---------- */
 export function SwimlaneView({
-  sim, selected, onSelect, scope,
+  sim, selected, onSelect, scope, onDoubleClick,
 }: {
   sim: Sim;
   selected: string | null;
   onSelect: (id: string | null) => void;
   scope: Set<string>;
+  onDoubleClick?: (id: string) => void;
 }) {
   return (
     <div className="grid h-full gap-1.5 p-2" style={{ gridTemplateColumns: "repeat(9, 1fr)" }}>
@@ -150,7 +153,8 @@ export function SwimlaneView({
                   <button
                     key={m.id}
                     onClick={() => onSelect(sel ? null : m.id)}
-                    title={inScope ? undefined : "Out of scope for this route plan"}
+                    onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
+                    title={inScope ? m.name + " — double-click to open module outputs" : "Out of scope for this route plan"}
                     className={"text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 " + (sel ? "caos-selected" : "")}
                     style={{
                       borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : color + "55",

@@ -131,6 +131,12 @@ body {
 .rd-col { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .rd-sec { min-width: 0; }
 
+/* edit mode — every text leaf is a contenteditable span */
+.rd-editing [contenteditable="true"] { white-space: pre-wrap; border-radius: 2px; outline: 1px dashed transparent; outline-offset: 1px; transition: outline-color 120ms ease, background 120ms ease; }
+.rd-editing [contenteditable="true"]:hover { outline-color: rgba(79,140,255,0.5); background: rgba(79,140,255,0.07); cursor: text; }
+.rd-editing [contenteditable="true"]:focus { outline: 1px solid rgba(79,140,255,0.85); background: rgba(79,140,255,0.09); }
+.rd-editing [contenteditable="true"]:empty { display: inline-block; min-width: 14px; min-height: 1em; }
+
 .rd-srcline { margin-top: 18px; font-family: var(--font-mono), monospace; font-size: 7.8px; font-weight: 500; color: #6c6c76; letter-spacing: 0.04em; line-height: 1.7; }
 .rd-foot { display: flex; justify-content: space-between; border-top: 1px solid #16161e; margin-top: 8px; padding-top: 6px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; letter-spacing: 0.06em; }
 

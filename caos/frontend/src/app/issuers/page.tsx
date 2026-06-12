@@ -49,6 +49,9 @@ function IssuersDirectory() {
     setIssuers((prev) => [...prev, issuer]);
     setShowForm(false);
     setForm(EMPTY_FORM);
+    // New issuer registered — direct to the Execution Graph so the user sees
+    // the CP-X module route planned for it.
+    router.push("/pipeline");
   };
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
@@ -192,7 +195,7 @@ function IssuersDirectory() {
           >
             <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
               <span className="tabular text-[11px] text-caos-text">New Issuer</span>
-              <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe</span>
+              <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
               <div className="flex-1" />
               <button type="button" onClick={() => setShowForm(false)} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
             </div>

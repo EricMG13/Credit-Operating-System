@@ -59,33 +59,76 @@ const th = "px-2 py-[6px] text-left tabular text-[8.5px] uppercase tracking-wide
 const thR = th + " text-right";
 const td = "px-2 py-[5px] tabular whitespace-nowrap";
 
+type SortConfig = { col: string | null; asc: boolean };
+
+function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string) => any) {
+  return useMemo(() => {
+    if (!config.col) return data;
+    return [...data].sort((a, b) => {
+      const valA = getVal(a, config.col!);
+      const valB = getVal(b, config.col!);
+      if (valA === valB) return 0;
+      if (valA === null || valA === undefined) return 1;
+      if (valB === null || valB === undefined) return -1;
+      if (typeof valA === "string" && typeof valB === "string") {
+        return config.asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return config.asc ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
+    });
+  }, [data, config, getVal]);
+}
+
+function SortTh({ label, align = "left", col, sort, onSort }: { label: string; align?: "left" | "right"; col: string; sort: SortConfig; onSort: (c: string) => void }) {
+  const active = sort.col === col;
+  return (
+    <th
+      className={`px-2 py-[6px] tabular text-[8.5px] uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 cursor-pointer hover:text-caos-text transition-caos select-none ${align === "right" ? "text-right" : "text-left"}`}
+      onClick={() => onSort(col)}
+    >
+      <div className={`flex items-center gap-1 ${align === "right" ? "justify-end" : "justify-start"}`}>
+        {align === "right" && active && <span className="text-[10px] text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+        {label}
+        {align === "left" && active && <span className="text-[10px] text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+      </div>
+    </th>
+  );
+}
+
 function PeerTable({ rows }: { rows: RVRow[] }) {
+  const [sort, setSort] = useState<SortConfig>({ col: null, asc: true });
+  const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
+  const sorted = useSort(rows, sort, (r, c) => {
+    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
+    if (c === "rv") return RV_LABEL[r.liq] || "";
+    return (r as any)[c];
+  });
+
   return (
     <table className="border-collapse text-[9.5px] min-w-[1760px] w-full">
       <thead>
         <tr className="border-b border-caos-border">
-          <th className={th}>Company</th>
-          <th className={th}>Sub-Group</th>
-          <th className={th}>Pub/Priv</th>
-          <th className={th}>FIGI</th>
-          <th className={th}>Ranking</th>
-          <th className={th}>Rating</th>
-          <th className={thR}>Size ($Mn)</th>
-          <th className={thR}>Margin</th>
-          <th className={thR}>Maturity</th>
-          <th className={thR}>Bid</th>
-          <th className={thR}>Ask</th>
-          <th className={th}>Liquidity</th>
-          <th className={th}>Mid RV</th>
-          {DELTA_COLS.map((c) => (
-            <th key={c} className={thR}>{c}</th>
+          <SortTh label="Company" col="company" sort={sort} onSort={handleSort} />
+          <SortTh label="Sub-Group" col="sub" sort={sort} onSort={handleSort} />
+          <SortTh label="Pub/Priv" col="pub" sort={sort} onSort={handleSort} />
+          <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} />
+          <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} />
+          <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} />
+          <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} />
+          <SortTh label="Mid RV" col="rv" sort={sort} onSort={handleSort} />
+          {DELTA_COLS.map((c, i) => (
+            <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} />
           ))}
-          <th className={thR}>Mid YTM</th>
-          <th className={thR}>Mid 3Y DM</th>
+          <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} />
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, i) => (
+        {sorted.map((r, i) => (
           <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos">
             <td className={td + " text-caos-text"}>{r.company}</td>
             <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.sub}</td>
@@ -118,6 +161,20 @@ export function SectorRV() {
   const [active, setActive] = useState(0);
   const sector = SECTORS[active];
   const averages = useMemo(() => ratingAverages(sector.rows), [sector]);
+
+  const [sortIdx, setSortIdx] = useState<SortConfig>({ col: null, asc: true });
+  const handleSortIdx = (col: string) => setSortIdx((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
+  const sortedIdx = useSort(INDEX_STATS, sortIdx, (r, c) => {
+    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
+    return (r as any)[c];
+  });
+
+  const [sortAvg, setSortAvg] = useState<SortConfig>({ col: null, asc: true });
+  const handleSortAvg = (col: string) => setSortAvg((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
+  const sortedAvg = useSort(averages, sortAvg, (r, c) => {
+    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
+    return (r as any)[c];
+  });
 
   return (
     <div className="flex flex-col gap-2 min-h-0 min-w-0 flex-1">
@@ -173,18 +230,18 @@ export function SectorRV() {
             <table className="border-collapse text-[9.5px] w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
-                  <th className={th}>Index</th>
-                  <th className={thR}>MV ($Bn)</th>
-                  <th className={thR}>Avg Price</th>
-                  {DELTA_COLS.map((c) => (
-                    <th key={c} className={thR}>{c}</th>
+                  <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
+                  <SortTh label="MV ($Bn)" col="mv" align="right" sort={sortIdx} onSort={handleSortIdx} />
+                  <SortTh label="Avg Price" col="avgPrice" align="right" sort={sortIdx} onSort={handleSortIdx} />
+                  {DELTA_COLS.map((c, i) => (
+                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortIdx} onSort={handleSortIdx} />
                   ))}
-                  <th className={thR}>YTM</th>
-                  <th className={thR}>3Y DM</th>
+                  <SortTh label="YTM" col="ytm" align="right" sort={sortIdx} onSort={handleSortIdx} />
+                  <SortTh label="3Y DM" col="dm" align="right" sort={sortIdx} onSort={handleSortIdx} />
                 </tr>
               </thead>
               <tbody>
-                {INDEX_STATS.map((s) => (
+                {sortedIdx.map((s) => (
                   <tr key={s.name} className="border-b border-caos-border/40">
                     <td className={td + " text-caos-text"}>{s.name}</td>
                     <td className={td + " text-right text-caos-text"}>{s.mv.toLocaleString()}</td>
@@ -209,20 +266,20 @@ export function SectorRV() {
             <table className="border-collapse text-[9.5px] w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
-                  <th className={th}>Rating</th>
-                  <th className={thR}>Avg Size ($Mn)</th>
-                  <th className={thR}>Margin</th>
-                  <th className={thR}>Bid</th>
-                  <th className={thR}>Ask</th>
-                  {DELTA_COLS.map((c) => (
-                    <th key={c} className={thR}>{c}</th>
+                  <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Avg Size ($Mn)" col="size" align="right" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Margin" col="margin" align="right" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Bid" col="bid" align="right" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Ask" col="ask" align="right" sort={sortAvg} onSort={handleSortAvg} />
+                  {DELTA_COLS.map((c, i) => (
+                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortAvg} onSort={handleSortAvg} />
                   ))}
-                  <th className={thR}>Mid YTM</th>
-                  <th className={thR}>Mid 3Y DM</th>
+                  <SortTh label="Mid YTM" col="ytm" align="right" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sortAvg} onSort={handleSortAvg} />
                 </tr>
               </thead>
               <tbody>
-                {averages.map((b) => (
+                {sortedAvg.map((b) => (
                   <tr key={b.bucket} className="border-b border-caos-border/40">
                     <td className={td + " text-caos-text"}>{b.bucket}</td>
                     <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted/50")}>

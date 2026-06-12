@@ -15,6 +15,9 @@ import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum } from "@/components/model/rows";
 import { buildModel, type Overrides } from "@/lib/reports/model";
 import { buildReports } from "@/lib/reports/builders";
+import {
+  buildGrid, cellKey, EMPTY_SHEET, loadSheet, newColKey, newRowId, type SheetState,
+} from "@/lib/model/sheet";
 
 export default function ModelPage() {
   return (
@@ -32,6 +35,8 @@ function ModelBuilder() {
   const [showQuarters, setShowQuarters] = useState(true);
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({});
+  const [sheet, setSheet] = useState<SheetState>(EMPTY_SHEET);
+  const [hydrated, setHydrated] = useState(false);
 
   // evidence modal cited-by needs the report set
   const reports = useMemo(() => buildReports(), []);
@@ -42,31 +47,65 @@ function ModelBuilder() {
       if (o && typeof o === "object") setOverrides(o);
       const s = parseFloat(localStorage.getItem("caos-d-severity") || "");
       if (s >= 0.5 && s <= 1.5) setSeverity(s);
+      setSheet(loadSheet());
     } catch { /* first visit */ }
+    setHydrated(true);
   }, []);
-  useEffect(() => { try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [overrides]);
-  useEffect(() => { try { localStorage.setItem("caos-d-severity", String(severity)); } catch {} }, [severity]);
+  // persist only after restore — writing earlier clobbers stored state with defaults
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-severity", String(severity)); } catch {} }, [hydrated, severity]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-sheet", JSON.stringify(sheet)); } catch {} }, [hydrated, sheet]);
 
   const model = useMemo(() => buildModel(severity, overrides), [severity, overrides]);
+  const grid = useMemo(() => buildGrid(model, sheet), [model, sheet]);
   const b1 = model.cols.b1, d0 = model.cols.d0;
   const ovCount = Object.keys(overrides).length;
+
+  const isCustomCell = (ref: CellRef) =>
+    sheet.cols.some((c) => c.key === ref.col) || sheet.rows.some((r) => r.id === ref.row);
 
   const commitEdit = (txt: string | null) => {
     if (!editing) return;
     if (txt != null) {
-      const v = parseNum(txt);
-      if (v != null) {
-        const field = ovField(editing.row);
-        const key = editing.col + ":" + field;
-        const modelVal = v * OV_SIGN[field];
-        setOverrides((o) => ({ ...o, [key]: modelVal }));
+      if (isCustomCell(editing)) {
+        const key = cellKey(editing.col, editing.row);
+        const t = txt.trim();
+        setSheet((s) => {
+          const cells = { ...s.cells };
+          if (t === "") delete cells[key];
+          else cells[key] = t;
+          return { ...s, cells };
+        });
         setSel({ row: editing.row, col: editing.col });
+      } else {
+        const v = parseNum(txt);
+        if (v != null) {
+          const field = ovField(editing.row);
+          const key = editing.col + ":" + field;
+          const modelVal = v * OV_SIGN[field];
+          setOverrides((o) => ({ ...o, [key]: modelVal }));
+          setSel({ row: editing.row, col: editing.col });
+        }
       }
     }
     setEditing(null);
   };
   const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
   const resetAll = () => setOverrides({});
+  const clearCell = (key: string) => setSheet((s) => { const cells = { ...s.cells }; delete cells[key]; return { ...s, cells }; });
+
+  const addRow = () => setSheet((s) => ({ ...s, rows: [...s.rows, { id: newRowId(), label: "Analyst row " + (s.rows.length + 1) }] }));
+  const addCol = () => setSheet((s) => ({ ...s, cols: [...s.cols, { key: newColKey(), label: "Custom " + (s.cols.length + 1) }] }));
+  const renameRow = (id: string, label: string) => setSheet((s) => ({ ...s, rows: s.rows.map((r) => (r.id === id ? { ...r, label } : r)) }));
+  const renameCol = (key: string, label: string) => setSheet((s) => ({ ...s, cols: s.cols.map((c) => (c.key === key ? { ...c, label } : c)) }));
+  const deleteRow = (id: string) => setSheet((s) => {
+    const cells = Object.fromEntries(Object.entries(s.cells).filter(([k]) => k.split(":")[1] !== id));
+    return { ...s, rows: s.rows.filter((r) => r.id !== id), cells };
+  });
+  const deleteCol = (key: string) => setSheet((s) => {
+    const cells = Object.fromEntries(Object.entries(s.cells).filter(([k]) => k.split(":")[0] !== key));
+    return { ...s, cols: s.cols.filter((c) => c.key !== key), cells };
+  });
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -115,6 +154,20 @@ function ModelBuilder() {
         >
           QUARTERS
         </button>
+        <button
+          onClick={addRow}
+          title="Add an analyst row at the bottom of the sheet — cells accept numbers or =formulas"
+          className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+        >
+          + ROW
+        </button>
+        <button
+          onClick={addCol}
+          title="Add an analyst column at the right of the sheet — cells accept numbers or =formulas"
+          className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+        >
+          + COL
+        </button>
         {ovCount ? (
           <button
             onClick={resetAll}
@@ -126,7 +179,7 @@ function ModelBuilder() {
           </button>
         ) : null}
         <button
-          onClick={() => exportModel(model, showQuarters, overrides)}
+          onClick={() => exportModel(model, showQuarters, overrides, sheet, grid)}
           title="Export the model grid (CSV — opens in Excel)"
           className="flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
@@ -145,14 +198,19 @@ function ModelBuilder() {
         <Manifest hl={hl} setHl={setHl} />
         <FormulaBar
           model={model}
+          sheet={sheet}
+          grid={grid}
           sel={sel}
           severity={severity}
           overrides={overrides}
           onResetCell={resetCell}
+          onClearCell={clearCell}
           onOpenEvidence={setEvModal}
         />
         <Sheet
           model={model}
+          sheet={sheet}
+          grid={grid}
           showQ={showQuarters}
           hl={hl}
           sel={sel}
@@ -160,6 +218,11 @@ function ModelBuilder() {
           editing={editing}
           onEdit={setEditing}
           onCommit={commitEdit}
+          onAddRow={addRow}
+          onRenameRow={renameRow}
+          onDeleteRow={deleteRow}
+          onRenameCol={renameCol}
+          onDeleteCol={deleteCol}
         />
       </div>
 

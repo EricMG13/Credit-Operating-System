@@ -356,6 +356,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
             {modeMeta?.label} ({modeMeta?.code}) run queued
             {failCount ? ` · ${failCount} failed` : ""}
+            <span className="text-caos-muted"> — view the module route on the Execution Graph</span>
           </div>
           <div className="text-[10px]">
             {outcomes.map((o) => (
@@ -377,9 +378,15 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             </button>
             <Link
               href="/deepdive"
-              className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+              className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
             >
               OPEN DEEP-DIVE →
+            </Link>
+            <Link
+              href="/pipeline"
+              className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+            >
+              VIEW EXECUTION GRAPH →
             </Link>
           </div>
         </Panel>

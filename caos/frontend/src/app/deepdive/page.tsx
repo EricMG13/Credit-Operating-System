@@ -7,8 +7,9 @@
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays
 // the run and outputs unlock as their producing modules clear.
 
-import { useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
@@ -24,7 +25,9 @@ import { IssuerChat } from "@/components/deepdive/IssuerChat";
 export default function DeepDivePage() {
   return (
     <RequireAuth>
-      <DeepDive />
+      <Suspense fallback={null}>
+        <DeepDive />
+      </Suspense>
     </RequireAuth>
   );
 }
@@ -40,13 +43,18 @@ const GROUPS = [
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
   { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  { label: "L4 LEGAL", mods: ["CP-4"] },
+  { label: "L4 LEGAL", mods: ["CP-4", "CP-4C"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
 
 function DeepDive() {
-  const [tab, setTab] = useState("CP-6A");
+  const searchParams = useSearchParams();
+  const modParam = searchParams.get("mod");
+  const [tab, setTab] = useState(modParam || "CP-6A");
+  // keep the open module in sync when the ?mod= param changes (back/forward,
+  // repeated double-clicks from the Execution Graph)
+  useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
   const [evModal, setEvModal] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
   const [decisionOpen, setDecisionOpen] = useState(true);

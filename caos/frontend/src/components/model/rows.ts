@@ -127,7 +127,7 @@ export function fmt(v: number | null | undefined, f?: RowFormat): string {
 }
 
 export const GROUPS_META: Record<string, string> = {
-  Q: "Quarterly", YTD: "YTD", HIST: "Historic", LTM: "LTM", PF: "PF", BASE: "Base Forecast", DOWN: "Downside Forecast",
+  Q: "Quarterly", YTD: "YTD", HIST: "Historic", LTM: "LTM", PF: "PF", BASE: "Base Forecast", DOWN: "Downside Forecast", CUSTOM: "Analyst",
 };
 export const CW: Record<string, number> = { Q: 56, YTD: 60, HIST: 62, LTM: 62, PF: 62, BASE: 68, DOWN: 68 };
 export const LBL = 196;

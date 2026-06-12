@@ -158,12 +158,13 @@ export function ComposePanel({
 }
 
 /* ---------- right rail: export ---------- */
-export function ExportPanel({ rep, omitCount }: { rep: Report; omitCount: number }) {
+export function ExportPanel({ rep, omitCount, editCount }: { rep: Report; omitCount: number; editCount?: number }) {
   const rows: [string, string][] = [
     ["Format", "PDF · US Letter"],
     ["Renderer", "CP-RENDER v2.2"],
     ["Citations", citeCount(rep) + " resolved · 0 orphaned"],
     ["Sections", rep.sections.length - omitCount + " of " + rep.sections.length + " included"],
+    ["Analyst edits", editCount ? editCount + " override" + (editCount === 1 ? "" : "s") : "none"],
     ["Watermark", rep.watermark ? "CONDITIONAL — QA-117" : "none"],
   ];
   return (

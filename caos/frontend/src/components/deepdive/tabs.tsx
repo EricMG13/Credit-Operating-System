@@ -5,6 +5,7 @@
 // (port of design bundle concept-c-app.jsx + concept-c-views.jsx ModuleView).
 
 import { useState } from "react";
+import Link from "next/link";
 import { CAPACITY, CAPSTACK, COVENANTS, DEBATE, RECOVERY } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
@@ -332,7 +333,26 @@ export function ModuleView({
   const plan = SIM_PLAN.find((m) => m.id === id);
   const out = MODULE_OUTPUTS[id];
   const st = sim.mods[id]?.state || "idle";
-  if (!out || !meta) return null;
+  if (!out || !meta) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
+        <div className="tabular text-[11px] text-caos-text">{id} · no analytical output register</div>
+        <div className="text-[10px] leading-relaxed max-w-[400px]">
+          {meta
+            ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
+            : "This module id is not part of the CP-X route graph."}
+        </div>
+        {meta ? (
+          <Link
+            href="/reports"
+            className="tabular text-[9.5px] px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+          >
+            OPEN REPORT STUDIO →
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="p-3 flex flex-col gap-3">
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 flex items-start gap-3">

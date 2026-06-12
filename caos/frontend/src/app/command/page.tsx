@@ -75,7 +75,7 @@ function CommandCenter() {
         </span>
         <div className="flex-1"></div>
         {headStat("Sleeve NAV", "$2.41B")}
-        {headStat("Avg STW", "+512bps")}
+        {headStat("Avg 3Y DM", "+504bps")}
         {headStat("Names", "10")}
         {headStat("Watch", "3", "var(--caos-critical)")}
         {headStat("QA open", "5", "var(--caos-warning)")}
