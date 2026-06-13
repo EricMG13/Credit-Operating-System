@@ -21,6 +21,8 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { CovenantsTab, DebateTab, ModuleView, RecoveryTab } from "@/components/deepdive/tabs";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 
 export default function DeepDivePage() {
   return (
@@ -61,6 +63,9 @@ function DeepDive() {
   const [chatOpen, setChatOpen] = useState(false);
   const run = useSimRun({ prefill: true, plan: SIM_PLAN });
   const reports = useMemo(() => buildReports(), []);
+  // Live engine output for the seeded ATLF deal, when a run exists. Falls back
+  // to the seeded register otherwise (offline demo unaffected).
+  const live = useLiveRun(ATLF_REFERENCE_ISSUER_ID);
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
   const meta = MODULES.find((m) => m.id === tab);
@@ -127,6 +132,11 @@ function DeepDive() {
           right={
             <span className="flex items-center gap-3">
               <span className="tabular text-[9px] text-caos-muted">RUN #2641 · ATLF</span>
+              {live.runId ? (
+                <span className="tabular text-[9px]" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
+                  ● LIVE
+                </span>
+              ) : null}
               <button
                 onClick={() => setChatOpen(!chatOpen)}
                 title="Ask follow-up questions about this issuer"
@@ -142,7 +152,7 @@ function DeepDive() {
             tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} /> :
             tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} /> :
             tab === "CP-4" ? <CovenantsTab onOpenEvidence={setEvModal} /> :
-            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} />
+            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />

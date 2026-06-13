@@ -1,0 +1,256 @@
+"""The module runner — executes the analytical slice and enforces the gate.
+
+Per module: input gate -> retrieve -> synthesize -> validate -> persist, then a
+QA phase runs CP-5B (lineage) over the produced outputs and CP-5 (the
+deterministic gate) rolls the findings up into per-module and run-level status.
+
+The slice is CP-0 -> CP-1 (analytical) followed by CP-5B -> CP-5 (QA). CP-X's
+full DAG routing is a later tier; here the order and dependencies are explicit.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Dict, List
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from config import get_settings
+from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run
+from engine.gate import (
+    Finding,
+    committee_status_from,
+    qa_status_from,
+    roll_up_qa_status,
+    worst_confidence,
+)
+from engine.lineage import validate_lineage
+from engine.schemas import ModulePayload, validate_payload
+from engine.synth import SynthesisError, get_synthesizer
+from retrieval import retrieve as bm25_retrieve
+
+logger = logging.getLogger("caos.engine")
+
+ANALYTICAL_SLICE = ["CP-0", "CP-1"]
+DEPENDENCIES: Dict[str, List[str]] = {"CP-0": [], "CP-1": ["CP-0"]}
+PROMPT_VERSION = "v2.0"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def execute_run(session: AsyncSession, run: Run) -> None:
+    """Execute the slice for ``run`` in place; sets status and gate roll-up.
+
+    Synchronous for the slice (deterministic and easy to test); a queue/worker
+    is a later concern. The caller's session commits the result.
+    """
+    run.status = "running"
+    settings = get_settings()
+    synthesizer = get_synthesizer()
+    run.model_id = settings.anthropic_model if synthesizer.name == "live" else "fixture"
+    run.prompt_version = PROMPT_VERSION
+
+    issuer = await session.get(Issuer, run.issuer_id)
+    issuer_name = issuer.name if issuer else run.issuer_id
+
+    async def retrieve(query: str, k: int = 5):
+        return await bm25_retrieve(session, run.issuer_id, query, k)
+
+    upstream: Dict[str, ModulePayload] = {}
+    module_status: Dict[str, str] = {}
+    output_rows: Dict[str, ModuleOutput] = {}
+
+    try:
+        # ── Analytical modules ───────────────────────────────────────────
+        for module_id in ANALYTICAL_SLICE:
+            blocked_dep = next(
+                (d for d in DEPENDENCIES.get(module_id, [])
+                 if module_status.get(d) in (None, "Blocked")),
+                None,
+            )
+            if blocked_dep is not None:
+                output_rows[module_id] = _persist_blocked(
+                    session, run.id, module_id,
+                    f"Input gate: required upstream {blocked_dep} is missing or Blocked.",
+                )
+                module_status[module_id] = "Blocked"
+                continue
+
+            try:
+                payload = await synthesizer.synthesize(
+                    module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
+                )
+            except SynthesisError as e:
+                logger.warning("synthesis failed for %s: %s", module_id, e)
+                output_rows[module_id] = _persist_blocked(
+                    session, run.id, module_id, f"Synthesis failed: {e}"
+                )
+                module_status[module_id] = "Blocked"
+                continue
+
+            errors = validate_payload(payload)
+            if errors:
+                logger.warning("payload validation failed for %s: %s", module_id, errors)
+                row = _persist_blocked(
+                    session, run.id, module_id,
+                    "Payload failed schema validation: " + "; ".join(errors),
+                    validation_status="Blocked",
+                )
+                output_rows[module_id] = row
+                module_status[module_id] = "Blocked"
+                continue
+
+            await _resolve_evidence(payload, retrieve)
+            output_rows[module_id] = await _persist_output(
+                session, run.id, payload, validation_status="Passed"
+            )
+            upstream[module_id] = payload
+            module_status[module_id] = "Pending"
+
+        produced = [upstream[m] for m in ANALYTICAL_SLICE if m in upstream]
+
+        # ── CP-5B: evidence lineage validation ───────────────────────────
+        findings = validate_lineage(produced)
+        for f in findings:
+            session.add(QAFinding(
+                run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
+                severity=f.severity, lane=f.lane, description=f.description,
+                affected_claim_id=f.affected_claim_id, required_remediation=f.required_remediation,
+            ))
+        await _persist_cp5b(session, run.id, produced, findings)
+
+        # ── CP-5: the deterministic gate ──────────────────────────────────
+        for mid in ANALYTICAL_SLICE:
+            if module_status.get(mid) == "Blocked":
+                continue  # already gated by a structural failure
+            mod_findings = [f for f in findings if f.module_id == mid]
+            status = qa_status_from(mod_findings)
+            row = output_rows[mid]
+            row.qa_status = status
+            row.committee_status = committee_status_from(status, row.confidence)
+            module_status[mid] = status
+
+        await _persist_cp5(session, run.id, findings, module_status)
+
+        # ── Run-level roll-up ─────────────────────────────────────────────
+        statuses = [module_status[m] for m in ANALYTICAL_SLICE if m in module_status]
+        run.qa_status = roll_up_qa_status(statuses)
+        run.committee_status = committee_status_from(
+            run.qa_status, worst_confidence([p.confidence for p in produced])
+        )
+        run.status = "complete"
+        run.completed_at = _now()
+    except Exception:
+        logger.exception("run %s failed", run.id)
+        run.status = "failed"
+        raise
+
+
+def _persist_blocked(
+    session: AsyncSession, run_id: str, module_id: str, reason: str,
+    *, validation_status: str = "Not Executed",
+) -> ModuleOutput:
+    """Record a module that could not run, plus a CRITICAL structural finding."""
+    row = ModuleOutput(
+        run_id=run_id, module_id=module_id, module_name=module_id,
+        owned_object="", runtime_output={"blocked_reason": reason},
+        confidence="Insufficient Information", qa_status="Blocked",
+        committee_status="Blocked", validation_status=validation_status,
+        limitation_flags=[reason],
+    )
+    session.add(row)
+    session.add(QAFinding(
+        run_id=run_id, module_id=module_id, finding_id=f"{module_id}-GATE",
+        severity="CRITICAL", lane=7, description=reason,
+        required_remediation="Resolve the upstream or schema failure and re-run the module.",
+    ))
+    return row
+
+
+async def _persist_output(
+    session: AsyncSession, run_id: str, payload: ModulePayload, *, validation_status: str
+) -> ModuleOutput:
+    row = ModuleOutput(
+        run_id=run_id, module_id=payload.module_id, module_name=payload.module_name,
+        owned_object=payload.owned_object, schema_family=payload.schema_family,
+        runtime_output=payload.runtime_output, confidence=payload.confidence,
+        validation_status=validation_status, limitation_flags=payload.limitation_flags,
+        downstream_consumers=payload.downstream_consumers,
+    )
+    session.add(row)
+    await session.flush()  # assign row.id for claim FK
+    for c in payload.claims:
+        claim = Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
+        session.add(claim)
+        await session.flush()
+        for e in c.evidence:
+            session.add(EvidenceItem(
+                claim_pk=claim.id, evidence_id=e.evidence_id,
+                extraction_type=e.extraction_type, lineage_class=e.lineage_class,
+                source_locator=e.source_locator, document_chunk_id=e.resolved_chunk_id,
+                confidence=e.confidence,
+            ))
+    return row
+
+
+async def _resolve_evidence(payload: ModulePayload, retrieve) -> None:
+    """Link each claim's evidence to the best-matching ingested chunk via BM25."""
+    for c in payload.claims:
+        hits = await retrieve(c.claim_text, 3)
+        if not hits:
+            continue
+        top = hits[0].chunk_id
+        for e in c.evidence:
+            if e.resolved_chunk_id is None:
+                e.resolved_chunk_id = top
+
+
+async def _persist_cp5b(
+    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding]
+) -> None:
+    total_claims = sum(len(p.claims) for p in produced)
+    weak = sum(1 for f in findings if f.lane == 6)
+    session.add(ModuleOutput(
+        run_id=run_id, module_id="CP-5B", module_name="EvidenceTraceValidator",
+        owned_object="evidence_trace_validation", confidence="High",
+        qa_status="Passed", committee_status="Committee Ready", validation_status="Passed",
+        runtime_output={
+            "claims_traced": total_claims,
+            "weak_lineage_flags": weak,
+            "orphan_claims": sum(1 for f in findings if f.lane == 1),
+            "auditability": "STRONG" if weak == 0 else "QUALIFIED",
+        },
+        downstream_consumers=["CP-5"],
+    ))
+
+
+async def _persist_cp5(
+    session: AsyncSession, run_id: str, findings: List[Finding], module_status: Dict[str, str]
+) -> None:
+    counts = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+    clearance = "PASSED"
+    if counts["CRITICAL"]:
+        clearance = "BLOCKED"
+    elif counts["MATERIAL"]:
+        clearance = "CONDITIONAL"
+    session.add(ModuleOutput(
+        run_id=run_id, module_id="CP-5", module_name="ResearchIntegrityQA",
+        owned_object="qa_clearance", confidence="High",
+        qa_status="Passed", committee_status="Committee Ready", validation_status="Passed",
+        runtime_output={
+            "modules_audited": len([m for m in module_status]),
+            "findings_by_severity": counts,
+            "clearance": clearance,
+            "issue_log": [
+                {"id": f.finding_id, "severity": f.severity, "module": f.module_id,
+                 "finding": f.description}
+                for f in findings
+            ],
+        },
+        downstream_consumers=["CP-RENDER", "CP-EXTRACT"],
+    ))

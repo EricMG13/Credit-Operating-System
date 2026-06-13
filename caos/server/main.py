@@ -17,8 +17,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import get_settings
-from database import init_db
-from routes import auth, chat, health, ingestion, issuers
+from database import AsyncSessionLocal, init_db
+from engine.fixtures import ensure_reference_deal
+from routes import auth, chat, health, ingestion, issuers, runs
 from seed import seed_demo_data
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
+        async with AsyncSessionLocal() as session:
+            await ensure_reference_deal(session)
     yield
     logger.info("CAOS shutting down")
 
@@ -49,6 +52,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(issuers.router, prefix="/api/issuers", tags=["issuers"])
 app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)

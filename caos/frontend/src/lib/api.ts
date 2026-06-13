@@ -37,3 +37,30 @@ export const uploadPricingSheet = (formData: FormData) =>
   api.post("/api/ingestion/upload/pricing-sheet", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
+
+// ─── Analytical engine (runs) ───────────────────────────────────────────────
+import type {
+  ModuleDetailDTO,
+  QAReportDTO,
+  RunListItemDTO,
+  RunSummaryDTO,
+} from "@/lib/engine/types";
+
+export const createRun = (issuerId: string, asOfDate?: string): Promise<RunSummaryDTO> =>
+  api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate }).then((r) => r.data);
+
+export const listRuns = (issuerId?: string): Promise<RunListItemDTO[]> =>
+  api.get("/api/runs", { params: issuerId ? { issuer_id: issuerId } : {} }).then((r) => r.data);
+
+export const getRun = (runId: string): Promise<RunSummaryDTO> =>
+  api.get(`/api/runs/${runId}`).then((r) => r.data);
+
+export const getModule = (runId: string, moduleId: string): Promise<ModuleDetailDTO> =>
+  api.get(`/api/runs/${runId}/modules/${moduleId}`).then((r) => r.data);
+
+export const getQA = (runId: string): Promise<QAReportDTO> =>
+  api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
+
+// Committee export — rejects (409) unless the run is Committee Ready.
+export const exportReport = (runId: string): Promise<unknown> =>
+  api.post(`/api/runs/${runId}/report`).then((r) => r.data);

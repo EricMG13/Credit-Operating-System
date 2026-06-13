@@ -7,7 +7,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { CAPACITY, CAPSTACK, COVENANTS, DEBATE, RECOVERY } from "@/lib/reports/deal";
-import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
+import { MODULE_OUTPUTS, type ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { SEV_COLOR, type Sim } from "@/lib/pipeline/sim";
 import { EvChip } from "@/components/reports/EvidenceModal";
@@ -324,14 +324,18 @@ export function ModuleView({
   id,
   sim,
   onOpenEvidence,
+  liveOut,
 }: {
   id: string;
   sim: Sim;
   onOpenEvidence: OpenEv;
+  // Live, adapted module output (from a real run). Falls back to the seeded
+  // demo register when absent, so the offline sim is unaffected.
+  liveOut?: ModuleOutput;
 }) {
   const meta = MODULES.find((m) => m.id === id);
   const plan = SIM_PLAN.find((m) => m.id === id);
-  const out = MODULE_OUTPUTS[id];
+  const out = liveOut ?? MODULE_OUTPUTS[id];
   const st = sim.mods[id]?.state || "idle";
   if (!out || !meta) {
     return (
