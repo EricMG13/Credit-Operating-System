@@ -13,6 +13,7 @@ import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/
 import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
+import { FirstRunHint } from "@/components/shared/FirstRunHint";
 
 interface UploadWizardProps {
   initialIssuers?: Issuer[];
@@ -145,6 +146,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-2">
+      <FirstRunHint id="upload-intake">
+        Drop <span className="text-white font-medium">all</span> of an issuer&apos;s deal documents at once — CP-0 classifies and dates each on ingest. Pick a run mode and the engine routes the matching modules.
+      </FirstRunHint>
       {/* step strip */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
         <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Intake steps</span>
@@ -223,14 +227,14 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                   value={newIssuerName}
                   onChange={(e) => setNewIssuerName(e.target.value)}
                   placeholder="Issuer name (e.g. Atlas Forge Industrials)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/50 outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
                 />
                 <input
                   type="text"
                   value={newIssuerTicker}
                   onChange={(e) => setNewIssuerTicker(e.target.value)}
                   placeholder="Ticker (optional)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/50 outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
                 />
                 <div className="flex gap-2">
                   <button

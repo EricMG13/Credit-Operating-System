@@ -16,6 +16,8 @@ interface EditCtx {
 }
 
 /* ---------- editable text leaf ---------- */
+// Cap per-field length so a stray large paste can't bloat the deliverable.
+const EDIT_MAX_LEN = 2000;
 function E({ p, v, ctx, className }: { p: string; v: string | number | null | undefined; ctx: EditCtx; className?: string }) {
   const base = v == null ? "" : String(v);
   const text = ctx.edits && ctx.edits[p] != null ? ctx.edits[p] : base;
@@ -31,8 +33,15 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
+      onPaste={(e) => {
+        // Insert plain text only (strip the source's rich HTML/styles) and cap
+        // length, so editing the tear-sheet can't inject markup or bloat it.
+        e.preventDefault();
+        const pasted = e.clipboardData.getData("text/plain").slice(0, EDIT_MAX_LEN);
+        document.execCommand("insertText", false, pasted);
+      }}
       onBlur={(e) => {
-        const t = e.currentTarget.innerText;
+        const t = e.currentTarget.innerText.slice(0, EDIT_MAX_LEN);
         if (t !== text) onEdit(p, t);
       }}
       onKeyDown={(e) => {

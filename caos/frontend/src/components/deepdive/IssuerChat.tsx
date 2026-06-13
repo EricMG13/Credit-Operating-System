@@ -159,7 +159,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
-          className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/60 outline-none focus:border-caos-accent/70 transition-caos"
+          className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
         />
         <button
           onClick={() => send()}

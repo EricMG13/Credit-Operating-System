@@ -4,7 +4,7 @@
 // deliverables assembled from module outputs + the M-118 model, with lineage,
 // section compose toggles, QA watermark gating and print-to-PDF.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -73,6 +73,7 @@ function ReportStudio() {
 
   const [activeId, setActiveId] = useState("snapshot");
   const [zoom, setZoom] = useState(0.85);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [omit, setOmit] = useState<Record<string, Record<number, boolean>>>({});
   const [paper, setPaper] = useState("#f7f5ee");
   const [showSources, setShowSources] = useState(true);
@@ -126,6 +127,13 @@ function ReportStudio() {
       delete next[rep.id];
       return next;
     });
+  };
+  // Fit the 980px paper to the available preview width (px-6 padding both sides),
+  // clamped to a sane zoom band. On-demand so it never fights manual zoom.
+  const fitToWidth = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
   return (
@@ -199,6 +207,13 @@ function ReportStudio() {
               {Math.round(z * 100)}%
             </button>
           ))}
+          <button
+            onClick={fitToWidth}
+            title="Fit the page to the available width"
+            className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+          >
+            FIT
+          </button>
         </span>
         <button
           onClick={() => window.print()}
@@ -218,7 +233,7 @@ function ReportStudio() {
       <div className="flex-1 min-h-0 flex gap-2 p-2">
         <ReportList reports={reports} active={rep.id} onSel={setActiveId} />
 
-        <div className="flex-1 min-w-0 rounded border border-caos-border overflow-auto" style={{ background: "#08080c" }}>
+        <div ref={scrollRef} className="flex-1 min-w-0 rounded border border-caos-border overflow-auto" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
             <div style={{ zoom }}>
               <ReportDoc

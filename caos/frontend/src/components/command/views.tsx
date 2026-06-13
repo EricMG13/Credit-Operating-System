@@ -10,9 +10,11 @@ import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
 } from "@/lib/command/data";
-import { SEV_COLOR, simClock } from "@/lib/pipeline/sim";
+import { SEV_COLOR, sevSurface, simClock } from "@/lib/pipeline/sim";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
+import { FlashOnChange } from "@/components/shared/FlashOnChange";
+import { onActivate } from "@/lib/a11y";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -61,11 +63,16 @@ export function PortfolioTable({
       {PORTFOLIO.map((p) => {
         const sel = selected === p.code;
         const sparkColor = p.dd > 5 ? "var(--caos-critical)" : p.dd < -2 ? "var(--caos-success)" : "var(--caos-muted)";
+        const dm = p.dm + (p.watch ? Math.floor(tick / 9) % 3 : 0);
         return (
           <div
             key={p.code}
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(sel ? null : p.code)}
-            className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
+            onKeyDown={onActivate(() => onSelect(sel ? null : p.code))}
+            aria-label={`${p.name} — toggle detail`}
+            className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
           >
             <span className="flex items-center gap-1.5 min-w-0">
               {p.watch ? <span className="w-[10px] text-[9px]" style={{ color: "var(--caos-critical)" }}>▲</span> : <span className="w-[10px]"></span>}
@@ -77,7 +84,7 @@ export function PortfolioTable({
             <span className="tabular text-[10px] text-caos-text truncate">{p.inst}</span>
             <span className="tabular text-right">{p.px.toFixed(1)}</span>
             <span className="tabular text-right">S+{p.margin}</span>
-            <span className="tabular text-right text-caos-text">{p.dm + (p.watch ? Math.floor(tick / 9) % 3 : 0)}</span>
+            <span className="tabular text-right text-caos-text"><FlashOnChange value={dm}>{dm}</FlashOnChange></span>
             <span className="tabular text-right" style={{ color: p.dd > 0 ? "var(--caos-critical)" : "var(--caos-success)" }}>{p.dd > 0 ? "+" + p.dd : p.dd}</span>
             <Spark data={p.spark} color={sparkColor} w={76} h={16} />
             <span className="tabular text-right">{p.lev.toFixed(1)}x</span>
@@ -191,38 +198,42 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
           <button
             key={t.k}
             onClick={() => setFilter(filter === t.k ? null : t.k)}
-            className={"text-left rounded border px-2 py-1.5 transition-caos " + (filter === t.k ? "caos-selected bg-caos-elevated" : "bg-caos-bg hover:bg-caos-elevated/70")}
-            style={{ borderColor: filter === t.k ? "var(--caos-accent)" : SEV_COLOR[t.k] + "44" }}
+            className={"text-left rounded border px-2 py-1.5 transition-caos focus-ring " + (filter === t.k ? "caos-selected bg-caos-elevated" : "bg-caos-bg hover:bg-caos-elevated/70")}
+            style={{ borderColor: filter === t.k ? "var(--caos-accent)" : sevSurface(t.k).borderColor }}
           >
-            <div className="tabular text-[17px] leading-none" style={{ color: SEV_COLOR[t.k] }}>{t.n}</div>
+            <div className="tabular text-[17px] leading-none" style={{ color: SEV_COLOR[t.k] }}><FlashOnChange value={t.n}>{t.n}</FlashOnChange></div>
             <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
-            <div className="tabular text-[8.5px] text-caos-muted/70">{t.sub}</div>
+            <div className="tabular text-[8.5px] text-caos-muted">{t.sub}</div>
           </button>
         ))}
         <div className="rounded border border-caos-border bg-caos-bg px-2 py-1.5">
           <div className="tabular text-[17px] leading-none text-caos-muted">{EMAIL_TILES.dedup}</div>
           <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">Deduped</div>
-          <div className="tabular text-[8.5px] text-caos-muted/70">CP-MON-F</div>
+          <div className="tabular text-[8.5px] text-caos-muted">CP-MON-F</div>
         </div>
         <div className="rounded border border-caos-border bg-caos-bg px-2 py-1.5">
           <div className="tabular text-[17px] leading-none text-caos-text">{EMAIL_TILES.unresolved}</div>
           <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">Unresolved</div>
-          <div className="tabular text-[8.5px] text-caos-muted/70">issuer match</div>
+          <div className="tabular text-[8.5px] text-caos-muted">issuer match</div>
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto border-t border-caos-border">
         {list.map((e, i) => (
           <div
             key={i}
+            role="button"
+            tabIndex={0}
             onClick={() => setOpenEmail(e)}
+            onKeyDown={onActivate(() => setOpenEmail(e))}
             title="Open email"
-            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-[10.5px] hover:bg-caos-elevated/60 transition-caos cursor-pointer"
+            aria-label={`Open email: ${e.subj}`}
+            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-[10.5px] hover:bg-caos-elevated/60 transition-caos cursor-pointer focus-ring"
           >
             <span className="tabular text-[10px] text-caos-muted">{e.t}</span>
             <span className="tabular text-caos-accent">{e.issuer}</span>
             <span className="min-w-0">
-              <span className="text-caos-text truncate block">{e.subj}{e.dedup ? <span className="text-caos-muted/70 text-[9px]"> · dup</span> : null}</span>
-              <span className="text-caos-muted/80 text-[9px] truncate block">{e.src}</span>
+              <span className="text-caos-text truncate block">{e.subj}{e.dedup ? <span className="text-caos-muted text-[9px]"> · dup</span> : null}</span>
+              <span className="text-caos-muted text-[9px] truncate block">{e.src}</span>
             </span>
             <span className="text-[9.5px] text-caos-muted truncate">{e.signal}</span>
             <span className="tabular text-right" style={{ color: SEV_COLOR[e.sev] }}>{e.mat}</span>
@@ -275,7 +286,7 @@ export function SectorBoard() {
             key={s.sector}
             onClick={() => setOpen(s.sector)}
             title="Open sector review analysis"
-            className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer"
+            className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer focus-ring"
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-caos-text">{s.sector}</span>
@@ -283,7 +294,7 @@ export function SectorBoard() {
             </div>
             <div className="tabular text-[9px] tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
             <div className="text-[9.5px] text-caos-muted mt-1 leading-snug">{s.trend}</div>
-            <div className="tabular text-[8.5px] text-caos-muted/70 mt-1.5 flex justify-between">
+            <div className="tabular text-[8.5px] text-caos-muted mt-1.5 flex justify-between">
               <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
               {fresh ? (
                 <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
@@ -332,7 +343,7 @@ export function CoverageMatrix() {
           {layers.map((l) => {
             const st = c.cells[l];
             return (
-              <div key={l} title={`${c.code} ${l} — ${st}`} className={"h-5 rounded-sm flex items-center justify-center cursor-pointer transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")} style={{ background: CELL_COLOR[st] }}>
+              <div key={l} title={`${c.code} ${l} — ${st}`} className={"h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")} style={{ background: CELL_COLOR[st] }}>
                 <span className="tabular text-[8px] uppercase" style={{ color: st === "fresh" ? "#86efac" : st === "aging" ? "#fcd34d" : "#fff" }}>{st}</span>
               </div>
             );
@@ -353,7 +364,7 @@ export function QaQueue() {
   return (
     <div>
       {QA_QUEUE.map((q) => (
-        <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos cursor-pointer">
+        <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
             <span className="tabular text-[10px] text-caos-accent">{q.id}</span>

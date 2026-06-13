@@ -16,8 +16,11 @@ import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
-import { useSimRun } from "@/lib/pipeline/sim";
+import { useSimRun, isCleared } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { FirstRunHint } from "@/components/shared/FirstRunHint";
+import { EvidenceSyncProvider } from "@/lib/evidence-sync";
 import { CovenantsTab, DebateTab, ModuleView, RecoveryTab } from "@/components/deepdive/tabs";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
@@ -67,14 +70,35 @@ function DeepDive() {
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(ATLF_REFERENCE_ISSUER_ID);
 
+  // Adaptivity: the three-pane layout needs room. Below ~1280px the side rails
+  // crush the analysis column, so auto-collapse them when the viewport crosses
+  // into the narrow band and restore on the way back out. Acts on threshold
+  // crossings only, so a manual toggle within a band is respected.
+  useEffect(() => {
+    const NARROW = 1280;
+    let narrow = window.innerWidth < NARROW;
+    if (narrow) { setRailOpen(false); setDecisionOpen(false); }
+    const onResize = () => {
+      const now = window.innerWidth < NARROW;
+      if (now !== narrow) {
+        narrow = now;
+        setRailOpen(!now);
+        setDecisionOpen(!now);
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
-  const unlocked = ["pass", "warning"].includes(gateState(gateId));
+  const unlocked = isCleared(gateState(gateId));
   const title = bespoke ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
 
   return (
+    <EvidenceSyncProvider>
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-4 px-4">
@@ -96,10 +120,10 @@ function DeepDive() {
         <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Module outputs</span>
         {GROUPS.map((g) => (
           <div key={g.label} className="flex items-center gap-1 pl-3 border-l border-caos-border">
-            <span className="tabular text-[8.5px] text-caos-muted/70 whitespace-nowrap mr-0.5">{g.label}</span>
+            <span className="tabular text-[8.5px] text-caos-muted whitespace-nowrap mr-0.5">{g.label}</span>
             {g.mods.map((id) => {
               const st = gateState(GATE[id] || id);
-              const ok = ["pass", "warning"].includes(st);
+              const ok = isCleared(st);
               const sel = tab === id;
               return (
                 <button
@@ -112,7 +136,7 @@ function DeepDive() {
                   }
                   style={{ opacity: ok || sel ? 1 : 0.55 }}
                 >
-                  {!ok ? <span className="text-[8px]">🔒</span> : <Dot sev={st} pulse={st === "running"} />}
+                  {!ok ? <StatusGlyph kind="locked" /> : <Dot sev={st} pulse={st === "running"} />}
                   {BESPOKE[id] ? BESPOKE[id].code : id}
                 </button>
               );
@@ -120,6 +144,11 @@ function DeepDive() {
           </div>
         ))}
       </div>
+
+      <FirstRunHint id="deepdive-panes" className="mx-2 mt-2 shrink-0">
+        <span className="text-white font-medium">Three panes:</span> sources &amp; evidence (left) · module analysis (center) · the IC decision &amp; sizing (right). Click any{" "}
+        <span className="tabular text-caos-accent">E-xx</span> chip to open its cited source.
+      </FirstRunHint>
 
       {/* three-pane workspace */}
       <div
@@ -131,7 +160,7 @@ function DeepDive() {
           title={title}
           right={
             <span className="flex items-center gap-3">
-              <span className="tabular text-[9px] text-caos-muted">RUN #2641 · ATLF</span>
+              <span className="tabular text-[9px] text-caos-muted">ATLF</span>
               {live.runId ? (
                 <span className="tabular text-[9px]" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
                   ● LIVE
@@ -140,10 +169,9 @@ function DeepDive() {
               <button
                 onClick={() => setChatOpen(!chatOpen)}
                 title="Ask follow-up questions about this issuer"
-                className="tabular text-[9.5px] whitespace-nowrap px-2.5 py-1 rounded flex items-center gap-1.5 transition-caos hover:opacity-85"
-                style={{ background: "var(--caos-accent)", color: "#0a0a0f", boxShadow: "0 0 14px rgba(79,140,255,0.4)" }}
+                className="tabular text-[9.5px] whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
-                ✦ ASK ATLF
+                ASK ATLF
               </button>
             </span>
           }
@@ -167,5 +195,6 @@ function DeepDive() {
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? <IssuerChat tab={tab} onClose={() => setChatOpen(false)} /> : null}
     </div>
+    </EvidenceSyncProvider>
   );
 }

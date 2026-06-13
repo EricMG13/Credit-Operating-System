@@ -27,7 +27,7 @@ const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
 
 function DeltaCell({ v }: { v: number | null }) {
   if (v === null)
-    return <td className="px-2 py-[5px] text-right tabular text-caos-muted/50">—</td>;
+    return <td className="px-2 py-[5px] text-right tabular text-caos-muted">—</td>;
   const pos = v > 0;
   const neg = v < 0;
   return (
@@ -284,10 +284,10 @@ export function SectorRV() {
                 {sortedAvg.map((b) => (
                   <tr key={b.bucket} className="border-b border-caos-border/40">
                     <td className={td + " text-caos-text"}>{b.bucket}</td>
-                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted/50")}>
+                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
                       {b.size === null ? "—" : Math.round(b.size).toLocaleString()}
                     </td>
-                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted/50")}>
+                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
                       {b.margin === null ? "—" : Math.round(b.margin)}
                     </td>
                     <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>

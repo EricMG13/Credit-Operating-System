@@ -30,6 +30,33 @@ export const SEV_COLOR: Record<string, string> = {
   queued: "#52525e", clear: "var(--caos-success)", conditional: "var(--caos-warning)",
 };
 
+/** Canonical "module has cleared its gate" predicate: passed, or passed with
+ *  warnings — both unblock downstream work. Replaces the
+ *  `["pass","warning"].includes(state)` check duplicated across the UI. */
+export const isCleared = (state?: string): boolean =>
+  state === "pass" || state === "warning";
+
+/** CSS color for a severity/state token (falls back to idle). */
+export const sevVar = (sev: string): string => SEV_COLOR[sev] || "var(--caos-idle)";
+
+/** Status-tinted surface — the canonical { color, borderColor, background }
+ *  triple for severity-colored cards and tags. Uses color-mix so it works for
+ *  both hex and CSS-var severity colors; the old `color + "44"` string was
+ *  invalid for the var-based entries and silently dropped the tint. */
+export function sevSurface(
+  sev: string,
+  opts?: { border?: number; wash?: number },
+): { color: string; borderColor: string; background: string } {
+  const c = sevVar(sev);
+  const border = opts?.border ?? 38;
+  const wash = opts?.wash ?? 10;
+  return {
+    color: c,
+    borderColor: `color-mix(in srgb, ${c} ${border}%, transparent)`,
+    background: `color-mix(in srgb, ${c} ${wash}%, transparent)`,
+  };
+}
+
 export function simClock(tick: number): string {
   const s = 9 * 3600 + 30 * 60 + tick * 7; // 7 sim-seconds per tick
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
@@ -50,7 +77,7 @@ function stepSim(sim: Sim, plan: PlanStep[], complete: { sev: string; text: stri
   const tick = sim.tick + 1;
   const t = simClock(tick);
   const doneStates: SimState[] = ["pass", "warning", "held", "blocked"];
-  const satisfied = (m: PlanStep) => m.deps.every((d) => ["pass", "warning"].includes(mods[d]?.state));
+  const satisfied = (m: PlanStep) => m.deps.every((d) => isCleared(mods[d]?.state));
   let runningCount = Object.values(mods).filter((m) => m.state === "running").length;
 
   plan.forEach((m) => {

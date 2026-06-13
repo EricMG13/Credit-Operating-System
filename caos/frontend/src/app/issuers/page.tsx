@@ -11,6 +11,7 @@ import type { Issuer } from "@/types/issuers";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
+import { onActivate } from "@/lib/a11y";
 
 export default function IssuersPage() {
   return (
@@ -107,7 +108,7 @@ function IssuersDirectory() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="search issuer · industry · country · FIGI"
-                  className="w-64 bg-caos-bg border border-caos-border rounded pl-6 pr-6 py-1 tabular text-[10px] text-caos-text placeholder:text-caos-muted/60 outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-64 bg-caos-bg border border-caos-border rounded pl-6 pr-6 py-1 tabular text-[10px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
                 />
                 {query ? (
                   <button
@@ -160,8 +161,12 @@ function IssuersDirectory() {
               {issuers.map((issuer) => (
                 <div
                   key={issuer.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => router.push("/deepdive")}
-                  className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group"}
+                  onKeyDown={onActivate(() => router.push("/deepdive"))}
+                  aria-label={`Open deep-dive for ${issuer.name}`}
+                  className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring group"}
                 >
                   <span className="tabular text-caos-accent text-[10.5px]">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
@@ -170,12 +175,13 @@ function IssuersDirectory() {
                   <span className="text-caos-muted text-[10px] truncate">{issuer.industry || "—"}</span>
                   <span className="text-caos-muted text-[10px] truncate">{issuer.country || "—"}</span>
                   <span className="tabular text-caos-muted text-[9.5px] truncate">{issuer.figi || "—"}</span>
-                  <span
+                  <button
                     onClick={(e) => { e.stopPropagation(); router.push("/upload"); }}
-                    className="tabular text-[9px] text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos"
+                    aria-label={`Upload documents for ${issuer.name}`}
+                    className="tabular text-[9px] text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos focus-ring"
                   >
                     + UPLOAD
-                  </span>
+                  </button>
                   <span className="tabular text-[9px] text-caos-muted text-right group-hover:text-caos-accent transition-caos">OPEN →</span>
                 </div>
               ))}
@@ -214,7 +220,7 @@ function IssuersDirectory() {
                     value={form[key]}
                     onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                     placeholder={ph}
-                    className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted/50 outline-none focus:border-caos-accent/70 transition-caos"
+                    className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
                   />
                 </div>
               ))}

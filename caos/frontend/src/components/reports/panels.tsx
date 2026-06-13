@@ -146,7 +146,7 @@ export function ComposePanel({
               >
                 {!off ? "✓" : null}
               </span>
-              <span className={"tabular text-[8.5px] uppercase tracking-wide truncate " + (off ? "text-caos-muted/60 line-through" : "text-caos-muted")}>
+              <span className={"tabular text-[8.5px] uppercase tracking-wide truncate " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
                 {secLabel(s)}
               </span>
             </button>

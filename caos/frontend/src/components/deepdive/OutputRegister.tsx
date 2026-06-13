@@ -43,7 +43,7 @@ export function OutputRegister({
         {n("warning") ? <span className="tabular text-[9px] whitespace-nowrap" style={{ color: "var(--caos-warning)" }}>{n("warning")} w/ limitation</span> : null}
         {n("gap") ? <span className="tabular text-[9px] whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>{n("gap")} gap logged</span> : null}
         <span className="flex-1"></span>
-        {open ? <span className="tabular text-[8.5px] text-caos-muted/70 whitespace-nowrap">click a step to open its full output</span> : null}
+        {open ? <span className="tabular text-[8.5px] text-caos-muted whitespace-nowrap">click a step to open its full output</span> : null}
         <span className="text-caos-muted text-[9px]">{open ? "▲" : "▼"}</span>
       </button>
       {open ? (

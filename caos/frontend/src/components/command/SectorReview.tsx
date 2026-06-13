@@ -92,7 +92,7 @@ export function SectorReview({
     <div className="rounded border border-caos-border bg-caos-bg px-2.5 py-2">
       <div className="tabular text-[15px] leading-none" style={{ color: color || "var(--caos-text)" }}>{value}</div>
       <div className="text-[8.5px] uppercase tracking-wider text-caos-muted mt-1">{label}</div>
-      {sub ? <div className="tabular text-[8.5px] text-caos-muted/70">{sub}</div> : null}
+      {sub ? <div className="tabular text-[8.5px] text-caos-muted">{sub}</div> : null}
     </div>
   );
 
@@ -179,7 +179,7 @@ export function SectorReview({
                 ) : (
                   <Dot sev="idle" />
                 )}
-                <span className={"tabular text-[9.5px] " + (i <= step ? "text-caos-text" : "text-caos-muted/60")}>{s}</span>
+                <span className={"tabular text-[9.5px] " + (i <= step ? "text-caos-text" : "text-caos-muted")}>{s}</span>
               </div>
             ))}
           </div>

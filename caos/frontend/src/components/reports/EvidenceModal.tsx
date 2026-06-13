@@ -9,18 +9,29 @@ import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import type { Report } from "@/lib/reports/builders";
+import { useEvidenceSync } from "@/lib/evidence-sync";
 
 export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
   const open = (EVIDENCE[id] || {}).status === "open";
+  // Publish this id on hover/focus and highlight when it (or any other chip
+  // citing the same id, or its source driver) is the active selection.
+  const { active, setActive } = useEvidenceSync();
+  const synced = active === id;
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onOpen(id); }}
+      onMouseEnter={() => setActive(id)}
+      onMouseLeave={() => setActive(null)}
+      onFocus={() => setActive(id)}
+      onBlur={() => setActive(null)}
       title={"Open source for " + id}
-      className="tabular text-[9px] px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
+      aria-label={"Open source for " + id}
+      className="tabular text-[9px] px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
       style={{
         color: open ? "var(--caos-warning)" : "var(--caos-accent)",
-        borderColor: open ? "rgba(245,165,36,0.5)" : "rgba(79,140,255,0.4)",
-        background: "rgba(79,140,255,0.07)",
+        borderColor: synced ? "var(--caos-accent)" : open ? "rgba(245,165,36,0.5)" : "rgba(79,140,255,0.4)",
+        background: synced ? "rgba(79,140,255,0.18)" : "rgba(79,140,255,0.07)",
+        boxShadow: synced ? "0 0 0 1px var(--caos-accent)" : undefined,
       }}
     >
       {id}{open ? "⚠" : ""}
@@ -132,7 +143,7 @@ export function EvidenceModal({
                   {p.t}
                 </p>
               ))}
-              <div className="tabular text-[8.5px] text-caos-muted/60 mt-4 pt-2 border-t border-caos-border flex justify-between whitespace-nowrap">
+              <div className="tabular text-[8.5px] text-caos-muted mt-4 pt-2 border-t border-caos-border flex justify-between whitespace-nowrap">
                 <span>{docName}</span>
                 {ev.page ? <span>page {ev.page} of {doc ? doc.pages : "—"}</span> : <span>live feed</span>}
               </div>

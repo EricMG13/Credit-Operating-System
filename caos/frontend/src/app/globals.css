@@ -23,6 +23,33 @@
   --tranche-unsec: #f5a524;
   --tranche-sub: #a855f7;
   --tranche-eq: #64748b;
+
+  /* ===== Design tokens — Phase 0 foundation ===== */
+  /* Type scale: deliberate steps replacing the ad-hoc 8.5–12px band. Adopted
+     via Tailwind `text-caos-*`; vars exposed for chart / paper code that can't
+     reach the utility classes. */
+  --fs-micro: 8.5px;
+  --fs-label: 9.5px;
+  --fs-body: 10.5px;
+  --fs-row: 12px;
+  --fs-metric: 16px;
+  --fs-hero: 22px;
+
+  /* Spacing rhythm: intentional grouping, not uniform gutters. */
+  --sp-group: 4px;
+  --sp-item: 8px;
+  --sp-section: 16px;
+
+  /* Semantic status — single naming for the severity palette. */
+  --sev-critical: var(--caos-critical);
+  --sev-warning: var(--caos-warning);
+  --sev-success: var(--caos-success);
+  --sev-running: var(--caos-accent);
+  --sev-idle: var(--caos-idle);
+
+  /* Focus ring — consumed when controls become keyboard-reachable (Phase 2). */
+  --focus-ring: 0 0 0 1px var(--caos-bg),
+    0 0 0 3px color-mix(in srgb, var(--caos-accent) 70%, transparent);
 }
 
 body {
@@ -50,13 +77,27 @@ body {
 .caos-running { animation: caos-pulse 1.6s ease-in-out infinite; }
 @keyframes caos-enter { from { transform: translateY(-5px); } to { transform: none; } }
 .caos-enter { animation: caos-enter 240ms ease-out; }
+/* "What changed" cue — a brief accent wash when a live value updates. */
+@keyframes caos-flash {
+  from { background: color-mix(in srgb, var(--caos-accent) 32%, transparent); }
+  to { background: transparent; }
+}
+.caos-flash { animation: caos-flash 0.6s ease-out; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .caos-running, .caos-enter { animation: none; }
+  .caos-running, .caos-enter, .caos-flash { animation: none; }
 }
 
 /* Selected card ring (cross-pane selection feedback) */
 .caos-selected {
   box-shadow: 0 0 0 1px var(--caos-accent), 0 4px 16px -8px var(--caos-accent);
+}
+
+/* Keyboard focus ring — visible only for keyboard users (:focus-visible).
+   Inset outline so it isn't clipped by scrollable panel overflow. Applied to
+   every interactive surface, including divs promoted to role="button". */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--caos-accent);
+  outline-offset: -2px;
 }
 
 /* Source-vault clause highlight (Evidence Sync target) */

@@ -78,7 +78,7 @@ export function GraphView({
         return (
           <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }}>
             <div className="tabular text-[9px] uppercase tracking-widest text-caos-muted">{l}</div>
-            <div className="text-[8.5px] text-caos-muted/60">{meta ? meta.label : ""}</div>
+            <div className="text-[8.5px] text-caos-muted">{meta ? meta.label : ""}</div>
           </div>
         );
       })}
@@ -340,7 +340,7 @@ export function LineagePanel({
           <div className="tabular text-[9px] text-caos-muted mt-1 leading-relaxed">{d.lineage}</div>
           {d.evs.length ? (
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
-              <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted/70">sources</span>
+              <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">sources</span>
               {d.evs.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
             </div>
           ) : null}

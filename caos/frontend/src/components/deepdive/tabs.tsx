@@ -13,6 +13,9 @@ import { SEV_COLOR, type Sim } from "@/lib/pipeline/sim";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { Dot, Tag } from "@/components/pipeline/atoms";
+import { StatCard } from "@/components/shared/StatCard";
+import { SectionHeader } from "@/components/shared/SectionHeader";
+import { fmtNum, fmtPct } from "@/lib/format";
 import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
 import { OutSections } from "./OutSections";
 import { OutputRegister } from "./OutputRegister";
@@ -84,13 +87,13 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
         {DEBATE.weighting.map((w, i) => (
           <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-[7px] items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
             <span className="text-[10.5px] text-caos-text leading-snug">{w.claim}</span>
-            <span className="flex items-center gap-1.5">
-              <span className="tabular text-[9px]" style={{ color: "var(--caos-success)" }}>{(w.bull * 100).toFixed(0)}</span>
+            <span className="flex items-center gap-1.5" aria-label={`bull ${(w.bull * 100).toFixed(0)} versus bear ${(w.bear * 100).toFixed(0)}`}>
+              <span className="tabular text-[9px] flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
               <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
                 <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
                 <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
               </span>
-              <span className="tabular text-[9px]" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}</span>
+              <span className="tabular text-[9px] flex items-center gap-0.5" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
             </span>
             <span className="text-[10px] leading-snug" style={{ color: w.verdict.startsWith("BULL") ? "var(--caos-success)" : w.verdict.startsWith("BEAR") ? "var(--caos-critical)" : "var(--caos-muted)" }}>{w.verdict}</span>
             <span className="flex flex-wrap gap-1">
@@ -173,19 +176,19 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
       <OutputRegister id="CP-3B" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <div className="grid grid-cols-[440px_1fr] gap-3">
         <div className="rounded border border-caos-border bg-caos-bg">
-          <div className="px-3 py-2 border-b border-caos-border tabular text-[9px] uppercase tracking-wider text-caos-muted">CP-3B-02 · Capital structure ($M)</div>
+          <SectionHeader title="CP-3B-02 · Capital structure ($M)" />
           {CAPSTACK.map((c) => (
             <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px] border-b border-caos-border/50">
               <span className="w-2 h-2 rounded-sm" style={{ background: TRANCHE[c.key] }}></span>
               <span className="text-[10.5px] text-caos-text">{c.cls}</span>
               <span className="tabular text-[10px] text-caos-muted">{c.rate}</span>
-              <span className="tabular text-[10.5px] text-right text-caos-text">{c.claim.toLocaleString()}</span>
-              <span className="tabular text-[9.5px] text-right text-caos-muted">{c.key === "eq" ? "—" : ((c.claim / total) * 100).toFixed(1) + "%"}</span>
+              <span className="tabular text-[10.5px] text-right text-caos-text">{fmtNum(c.claim)}</span>
+              <span className="tabular text-[9.5px] text-right text-caos-muted">{c.key === "eq" ? "—" : fmtPct(c.claim / total, 1)}</span>
             </div>
           ))}
           <div className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px]">
             <span></span><span className="text-[10px] font-semibold text-caos-text">Total debt</span><span></span>
-            <span className="tabular text-[10.5px] text-right text-caos-text font-semibold">{total.toLocaleString()}</span>
+            <span className="tabular text-[10.5px] text-right text-caos-text font-semibold">{fmtNum(total)}</span>
             <span className="tabular text-[9.5px] text-right text-caos-muted">5.7x</span>
           </div>
           <div className="px-2 pb-1 border-t border-caos-border/50">
@@ -195,15 +198,12 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
         </div>
 
         <div className="rounded border border-caos-border bg-caos-bg">
-          <div className="px-3 py-2 border-b border-caos-border flex items-center">
-            <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">CP-3B-06 · Recovery waterfall by scenario</span>
-            <span className="tabular text-[9px] text-caos-muted ml-auto">claims: 1L $1,970 · 2L $900 · Sub $400</span>
-          </div>
+          <SectionHeader title="CP-3B-06 · Recovery waterfall by scenario" right="claims: 1L $1,970 · 2L $900 · Sub $400" />
           {RECOVERY.map((s) => (
             <div key={s.scen} className="flex items-center gap-3 px-3 py-[5px] border-b border-caos-border/50">
               <span className="text-[10.5px] font-medium text-caos-text w-24">{s.scen}</span>
               <span className="tabular text-[9.5px] text-caos-muted">{s.mult} × ${s.ebitda}M = <span className="text-caos-text">${(s.ev / 1000).toFixed(2)}B EV</span></span>
-              <span className="text-[9px] text-caos-muted/80 ml-auto">{s.note}</span>
+              <span className="text-[9px] text-caos-muted ml-auto">{s.note}</span>
             </div>
           ))}
           <div className="px-2 pt-1">
@@ -216,10 +216,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
       </div>
 
       <div className="rounded border border-caos-border bg-caos-bg">
-        <div className="px-3 py-2 border-b border-caos-border flex items-center">
-          <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">2L SSN recovery sensitivity — exit multiple × stressed EBITDA</span>
-          <span className="tabular text-[9px] text-caos-muted ml-auto">cells: % of par</span>
-        </div>
+        <SectionHeader title="2L SSN recovery sensitivity — exit multiple × stressed EBITDA" right="cells: % of par" />
         <div className="p-3">
           <div className="grid" style={{ gridTemplateColumns: `120px repeat(${mults.length}, 1fr)`, gap: 4 }}>
             <span></span>
@@ -249,7 +246,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
 export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
   const [open, setOpen] = useState<string | null>(COVENANTS[1].ref);
   const seg = (n: number) => (
-    <span className="flex gap-px">
+    <span className="flex gap-px" role="img" aria-label={`aggressiveness ${n} of 10`}>
       {Array.from({ length: 10 }, (_, i) => (
         <span key={i} className="w-1.5 h-2.5 rounded-[1px]" style={{ background: i < n ? (n >= 8 ? "var(--caos-critical)" : n >= 6 ? "var(--caos-warning)" : "var(--caos-success)") : "var(--caos-border)" }}></span>
       ))}
@@ -259,22 +256,24 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
     <div className="p-3 flex flex-col gap-3">
       <OutputRegister id="CP-4" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <OutputRegister id="CP-4C" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
-      <div className="grid grid-cols-4 gap-2">
+      <StatCard
+        size="hero"
+        sev="critical"
+        value="7.2 / 10"
+        label="Covenant aggressiveness — the binding read on this credit"
+        sub="vs 2026 single-B market norm 6.1"
+      />
+      <div className="grid grid-cols-3 gap-2">
         {[
           { l: "Day-one incremental capacity", v: "$" + CAPACITY.incDebt + "M", sub: "ahead of SSN · MFN sunsets 12mo", sev: "critical" },
           { l: "RP capacity usable today", v: "$" + CAPACITY.rpToday + "M", sub: "builder + starter baskets", sev: "warning" },
           { l: "EBITDA add-backs", v: CAPACITY.addbackPct + "%", sub: "$" + CAPACITY.addback + "M of adj. EBITDA", sev: "warning" },
-          { l: "Covenant aggressiveness", v: "7.2 / 10", sub: "vs 2026 single-B market norm 6.1", sev: "critical" },
         ].map((c) => (
-          <div key={c.l} className="rounded border bg-caos-bg px-3 py-2" style={{ borderColor: SEV_COLOR[c.sev] + "44" }}>
-            <div className="tabular text-[16px]" style={{ color: SEV_COLOR[c.sev] }}>{c.v}</div>
-            <div className="text-[9.5px] text-caos-text mt-0.5">{c.l}</div>
-            <div className="tabular text-[8.5px] text-caos-muted mt-0.5">{c.sub}</div>
-          </div>
+          <StatCard key={c.l} value={c.v} label={c.l} sub={c.sub} sev={c.sev} />
         ))}
       </div>
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 flex items-center gap-2">
-        <span className="text-[11px]" style={{ color: "var(--caos-warning)" }}>⌖</span>
+        <span className="text-[11px]" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⌖</span>
         <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">CP-4C-10 nearest pressure point</span>
         <span className="text-[10.5px] text-caos-text">{CAPACITY.nearest}</span>
       </div>
@@ -291,7 +290,8 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
             <div key={c.ref} className="border-b border-caos-border/50">
               <button
                 onClick={() => setOpen(open === c.ref ? null : c.ref)}
-                className="w-full text-left grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 py-[7px] items-center hover:bg-caos-elevated/50 transition-caos"
+                aria-expanded={isOpen}
+                className="w-full text-left grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 py-[7px] items-center hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-[9.5px] text-caos-accent">{c.ref}</span>
                 <span className="text-[10.5px] text-caos-text flex items-center gap-2"><Dot sev={c.flag} />{c.name}</span>
@@ -374,10 +374,7 @@ export function ModuleView({
 
       <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${out.kpis.length}, 1fr)` }}>
         {out.kpis.map((k) => (
-          <div key={k.l} className="rounded border bg-caos-bg px-3 py-2" style={{ borderColor: k.sev ? SEV_COLOR[k.sev] + "44" : "var(--caos-border)" }}>
-            <div className="tabular text-[15px] whitespace-nowrap" style={{ color: k.sev ? SEV_COLOR[k.sev] : "var(--caos-text)" }}>{k.v}</div>
-            <div className="text-[9.5px] text-caos-muted mt-0.5">{k.l}</div>
-          </div>
+          <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
         ))}
       </div>
 

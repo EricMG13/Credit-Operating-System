@@ -206,7 +206,7 @@ export function Sheet({
             const custom = c.group === "CUSTOM";
             return (
               <div key={c.key} className="shrink-0 flex items-baseline justify-between pl-1 pr-1.5 pb-0.5 group/col" style={{ width: c.w, marginLeft: c.gap ? 8 : 0 }}>
-                <span className="tabular text-[8px] text-caos-muted/50 whitespace-nowrap">{grid.colAddr[c.key]}</span>
+                <span className="tabular text-[8px] text-caos-muted whitespace-nowrap">{grid.colAddr[c.key]}</span>
                 {custom && renaming?.kind === "col" && renaming.id === c.key ? (
                   <LabelInput value={c.label || ""} onCommit={(v) => { if (v != null && v.trim()) onRenameCol(c.key, v.trim()); setRenaming(null); }} />
                 ) : (
@@ -257,7 +257,7 @@ export function Sheet({
                 className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2"
                 style={{ width: LBL, background: isHl ? "#15202f" : "var(--caos-bg)", borderTop: row.line ? "1px solid var(--caos-border)" : "none" }}
               >
-                <span className="tabular text-[8px] leading-[15px] text-caos-muted/40 w-3.5 text-right shrink-0">{grid.rowAddr[row.id!]}</span>
+                <span className="tabular text-[8px] leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[row.id!]}</span>
                 <span className={"text-[9.5px] leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
                   {row.l}
                 </span>
@@ -289,7 +289,7 @@ export function Sheet({
         {sheet.rows.map((r) => (
           <div key={r.id} className="flex group">
             <div className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2" style={{ width: LBL, background: "var(--caos-bg)" }}>
-              <span className="tabular text-[8px] leading-[15px] text-caos-muted/40 w-3.5 text-right shrink-0">{grid.rowAddr[r.id]}</span>
+              <span className="tabular text-[8px] leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[r.id]}</span>
               {renaming?.kind === "row" && renaming.id === r.id ? (
                 <LabelInput value={r.label} onCommit={(v) => { if (v != null && v.trim()) onRenameRow(r.id, v.trim()); setRenaming(null); }} />
               ) : (
