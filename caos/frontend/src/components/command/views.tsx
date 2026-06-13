@@ -184,38 +184,43 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
   const [filter, setFilter] = useState<string | null>(null);
   const [openEmail, setOpenEmail] = useState<EmailRow | null>(null);
   const grow = live ? Math.floor(tick / 8) : 0;
+  // Tiles weighted by SEVERITY, not count — CRITICAL leads (largest), LOW and the
+  // meta tiles recede, so the eye lands on what must be acted on rather than on
+  // the biggest number (the 67 auto-filed).
   const tiles = [
-    { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 materiality" },
-    { k: "high", label: "High", n: EMAIL_TILES.high, sub: "70–89" },
-    { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / 2), sub: "40–69" },
-    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · auto-filed" },
+    { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 mat.", on: true, fs: "text-caos-hero", color: SEV_COLOR.critical },
+    { k: "high", label: "High", n: EMAIL_TILES.high, sub: "70–89", on: true, fs: "text-[18px]", color: SEV_COLOR.high },
+    { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / 2), sub: "40–69", on: true, fs: "text-caos-metric", color: SEV_COLOR.medium },
+    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-[13px]", color: "var(--caos-muted)" },
+    { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-[13px]", color: "var(--caos-muted)" },
+    { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-[13px]", color: "var(--caos-text)" },
   ];
   const list = EMAILS.filter((e) => !filter || e.sev === filter);
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="grid grid-cols-6 gap-1.5 p-2 shrink-0">
-        {tiles.map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setFilter(filter === t.k ? null : t.k)}
-            className={"text-left rounded border px-2 py-1.5 transition-caos focus-ring " + (filter === t.k ? "caos-selected bg-caos-elevated" : "bg-caos-bg hover:bg-caos-elevated/70")}
-            style={{ borderColor: filter === t.k ? "var(--caos-accent)" : sevSurface(t.k).borderColor }}
-          >
-            <div className="tabular text-[17px] leading-none" style={{ color: SEV_COLOR[t.k] }}><FlashOnChange value={t.n}>{t.n}</FlashOnChange></div>
-            <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
-            <div className="tabular text-[8.5px] text-caos-muted">{t.sub}</div>
-          </button>
-        ))}
-        <div className="rounded border border-caos-border bg-caos-bg px-2 py-1.5">
-          <div className="tabular text-[17px] leading-none text-caos-muted">{EMAIL_TILES.dedup}</div>
-          <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">Deduped</div>
-          <div className="tabular text-[8.5px] text-caos-muted">CP-MON-F</div>
-        </div>
-        <div className="rounded border border-caos-border bg-caos-bg px-2 py-1.5">
-          <div className="tabular text-[17px] leading-none text-caos-text">{EMAIL_TILES.unresolved}</div>
-          <div className="text-[9px] uppercase tracking-wider text-caos-muted mt-1">Unresolved</div>
-          <div className="tabular text-[8.5px] text-caos-muted">issuer match</div>
-        </div>
+      <div className="grid gap-1.5 p-2 shrink-0" style={{ gridTemplateColumns: "1.35fr 1.15fr 1fr .85fr .85fr .9fr" }}>
+        {tiles.map((t) => {
+          const sel = filter === t.k;
+          const cls =
+            "text-left rounded border px-2 py-1.5 transition-caos " +
+            (sel ? "caos-selected bg-caos-elevated " : "bg-caos-bg ") +
+            (t.on ? "hover:bg-caos-elevated/70 focus-ring" : "");
+          const style = { borderColor: sel ? "var(--caos-accent)" : t.on ? sevSurface(t.k).borderColor : "var(--caos-border)" };
+          const inner = (
+            <>
+              <div className={"tabular leading-none " + t.fs} style={{ color: t.color }}>
+                <FlashOnChange value={t.n}>{t.n}</FlashOnChange>
+              </div>
+              <div className="text-caos-label uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
+              <div className="tabular text-caos-micro text-caos-muted truncate">{t.sub}</div>
+            </>
+          );
+          return t.on ? (
+            <button key={t.k} onClick={() => setFilter(sel ? null : t.k)} className={cls} style={style}>{inner}</button>
+          ) : (
+            <div key={t.k} className={cls} style={style}>{inner}</div>
+          );
+        })}
       </div>
       <div className="flex-1 min-h-0 overflow-auto border-t border-caos-border">
         {list.map((e, i) => (

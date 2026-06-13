@@ -31,12 +31,9 @@ export function FirstRunHint({
     setShow(false);
   };
   return (
-    <div
-      className={"caos-enter flex items-start gap-2.5 rounded-md border border-caos-accent/40 px-3 py-2 " + className}
-      style={{ background: "color-mix(in srgb, var(--caos-accent) 6%, transparent)" }}
-    >
-      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-accent mt-0.5 shrink-0">Tip</span>
-      <div className="text-caos-body text-caos-text leading-snug flex-1">{children}</div>
+    <div className={"caos-enter flex items-start gap-2.5 rounded border border-caos-border px-3 py-1.5 " + className}>
+      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-accent mt-px shrink-0">Tip</span>
+      <div className="text-caos-body text-caos-muted leading-snug flex-1">{children}</div>
       <button
         onClick={dismiss}
         aria-label="Dismiss hint"

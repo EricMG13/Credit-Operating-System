@@ -12,6 +12,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { onActivate } from "@/lib/a11y";
+import { PORTFOLIO } from "@/lib/command/data";
 
 export default function IssuersPage() {
   return (
@@ -23,6 +24,17 @@ export default function IssuersPage() {
 
 
 const EMPTY_FORM = { name: "", ticker: "", industry: "", country: "", figi: "" };
+
+// Demo coverage universe shown when the registry is empty, so the entry point
+// reflects the same names the rest of the app works against (Command, Deep-Dive)
+// instead of dead-ending on "no issuers yet".
+const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
+  id: p.code,
+  name: p.name,
+  ticker: p.code,
+  industry: p.sector,
+  country: "United States",
+}));
 
 function IssuersDirectory() {
   const router = useRouter();
@@ -38,7 +50,20 @@ function IssuersDirectory() {
     let stale = false;
     const t = setTimeout(() => {
       getIssuers(query)
-        .then((rows) => { if (!stale) setIssuers(rows); })
+        .then((rows) => {
+          if (stale) return;
+          if (rows.length > 0) { setIssuers(rows); return; }
+          // Empty registry → fall back to the demo universe, filtered client-side
+          // so search still works against it.
+          const q = query.trim().toLowerCase();
+          setIssuers(
+            q
+              ? DEMO_UNIVERSE.filter((i) =>
+                  `${i.name} ${i.ticker ?? ""} ${i.industry ?? ""}`.toLowerCase().includes(q)
+                )
+              : DEMO_UNIVERSE
+          );
+        })
         .finally(() => { if (!stale) setLoading(false); });
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };

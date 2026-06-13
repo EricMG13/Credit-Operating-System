@@ -50,15 +50,15 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
             <div key={i} className="rounded border border-caos-border bg-caos-bg flex flex-col">
               <div className="px-3 py-2 border-b border-caos-border flex items-center gap-2">
                 <span className="text-[12px]" style={{ color: p.color }}>{p.glyph}</span>
-                <span className="text-[11px] font-semibold" style={{ color: p.color }}>{p.label}</span>
-                <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted ml-auto">{r.phase}</span>
+                <span className="text-caos-row font-semibold" style={{ color: p.color }}>{p.label}</span>
+                <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted ml-auto">{r.phase}</span>
               </div>
               <div className="p-3 flex flex-col gap-2.5">
                 {r.points.map((pt, j) => (
                   <div key={j} className="flex gap-2">
-                    <span className="tabular text-[9px] mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
+                    <span className="tabular text-caos-micro mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
                     <div>
-                      <span className="text-[10.5px] text-caos-text leading-snug">{pt.text}</span>
+                      <span className="text-caos-body text-caos-text leading-snug">{pt.text}</span>
                       {pt.ev.length ? (
                         <span className="inline-flex gap-1 ml-1.5 align-middle">
                           {pt.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}

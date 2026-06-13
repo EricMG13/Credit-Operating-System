@@ -38,10 +38,10 @@ function CommandCenter() {
   const tick = run.sim.tick;
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
-  const headStat = (l: string, v: string, c?: string) => (
+  const headStat = (l: string, v: string, c?: string, big?: boolean) => (
     <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className="tabular text-[12px]" style={{ color: c }}>{v}</span>
+      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">{l}</span>
+      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-row")} style={{ color: c }}>{v}</span>
     </span>
   );
 
@@ -77,9 +77,10 @@ function CommandCenter() {
         {headStat("Sleeve NAV", "$2.41B")}
         {headStat("Avg 3Y DM", "+504bps")}
         {headStat("Names", "10")}
-        {headStat("Watch", "3", "var(--caos-critical)")}
-        {headStat("QA open", "5", "var(--caos-warning)")}
-        {headStat("Alerts today", String(alertsToday), "var(--caos-accent)")}
+        <div className="h-4 w-px bg-caos-border" />
+        {headStat("Watch", "3", "var(--caos-critical)", true)}
+        {headStat("QA open", "5", "var(--caos-warning)", true)}
+        {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
         <SimControls run={run} />
         <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
       </div>
