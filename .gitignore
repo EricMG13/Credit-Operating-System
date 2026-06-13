@@ -1,6 +1,9 @@
 # OS
 .DS_Store
 
+# Editor
+.vscode/
+
 # Node / Next.js
 node_modules/
 .next/
