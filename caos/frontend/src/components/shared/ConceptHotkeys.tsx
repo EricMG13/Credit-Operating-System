@@ -1,14 +1,14 @@
 "use client";
 
 // Global concept-switch shortcut: hold SPACE and press ←/→ to cycle through
-// the five concept views (wraps at the ends). Mounted once in the root
+// the six concept views (wraps at the ends). Mounted once in the root
 // layout. Inactive while typing in inputs/textareas/contenteditables so the
 // spacebar still types spaces there.
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-const CONCEPTS = ["/command", "/pipeline", "/deepdive", "/model", "/reports"];
+const CONCEPTS = ["/command", "/pipeline", "/deepdive", "/model", "/reports", "/monitor"];
 
 function isEditable(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;

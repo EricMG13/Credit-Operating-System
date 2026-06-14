@@ -26,6 +26,7 @@ import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { useAsk } from "@/components/shared/Ask";
 
 export default function DeepDivePage() {
   return (
@@ -63,7 +64,9 @@ function DeepDive() {
   const [evModal, setEvModal] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(true);
   const [decisionOpen, setDecisionOpen] = useState(true);
-  const [chatOpen, setChatOpen] = useState(false);
+  // Issuer Q&A open-state is owned by the global Ask launcher (⌘K), so the
+  // in-panel ASK ATLF button and the shortcut drive the same chat.
+  const { open: chatOpen, setOpen: setChatOpen } = useAsk();
   const run = useSimRun({ prefill: true, plan: SIM_PLAN });
   const reports = useMemo(() => buildReports(), []);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back

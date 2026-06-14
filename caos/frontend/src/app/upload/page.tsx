@@ -15,14 +15,14 @@ export default function UploadPage() {
       <div className="h-screen flex flex-col bg-caos-bg">
         {/* sub-header */}
         <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
-            ← Directory
+          <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+            ← Pipeline
           </Link>
           <div className="h-4 w-px bg-caos-border" />
           <ConceptNav compact />
           <div className="h-4 w-px bg-caos-border" />
-          <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-0</span>
-          <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Document Intake — source readiness</span>
+          <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-0 · L0</span>
+          <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Document Intake — Pipeline L0 source readiness</span>
           <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
             PDF / XLSX → document vault → parent-child chunking → CP-0 classification
           </span>

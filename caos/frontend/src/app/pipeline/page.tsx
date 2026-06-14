@@ -61,8 +61,10 @@ function PipelineVisualizer() {
   };
 
   // Double-click a module → its output register in the Concept C deep-dive.
-  // INFRA nodes produce the committee pack itself, so they land on Concept E.
+  // CP-0 is the L0 intake stage, so it opens Document Intake; INFRA nodes
+  // produce the committee pack itself, so they land on Concept E.
   const openModule = (id: string) => {
+    if (id === "CP-0") { router.push("/upload"); return; }
     const infra = MODULES.find((m) => m.id === id)?.layer === "INFRA";
     router.push(infra ? "/reports" : `/deepdive?mod=${id}`);
   };
@@ -93,6 +95,13 @@ function PipelineVisualizer() {
             </button>
           ))}
         </div>
+        <Link
+          href="/upload"
+          title="L0 · Document Intake — add source documents (CP-0) that feed this route"
+          className="no-underline flex items-center gap-1 tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0"
+        >
+          ↑ L0 INTAKE
+        </Link>
         <span className="tabular text-[10px] text-caos-accent whitespace-nowrap hidden 2xl:inline">{mode.runId}</span>
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap truncate min-w-0">Atlas Forge — {mode.title}</span>
         <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{mode.sub}</span>

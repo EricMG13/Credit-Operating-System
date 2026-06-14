@@ -1,10 +1,11 @@
 "use client";
 
-// Concept A — The Command Center: portfolio posture, CP-MON email-intelligence
-// intake with live alert routing, and the CP-SR sector board. Toggleable
-// CIO/PM ⇄ Head-of-Research views (research = L1–L6 coverage freshness matrix
-// + CP-5 QA queue + CP-0 source gaps). Click a row for the issuer detail
-// strip; ATLF links into the Analytical Deep-Dive.
+// Concept A — The Command Center: portfolio posture and the CP-SR sector board.
+// Toggleable CIO/PM ⇄ Head-of-Research lenses (research = L1–L6 coverage
+// freshness matrix + CP-5 QA queue + CP-0 source gaps) plus the full-width
+// Sector RV view. Click a row for the issuer detail strip; ATLF links into the
+// Analytical Deep-Dive. Live CP-MON intake/alerts now live in the Monitor
+// concept — the header alerts badge deep-links there.
 
 import { useState } from "react";
 import Link from "next/link";
@@ -13,12 +14,12 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { Dot, SimControls } from "@/components/pipeline/atoms";
+import { SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
 import { NlQuery } from "@/components/command/NlQuery";
 import {
-  AlertFeed, CoverageMatrix, EmailIntel, GapsList, IssuerStrip,
+  CoverageMatrix, GapsList, IssuerStrip,
   PortfolioTable, QaQueue, SectorBoard,
 } from "@/components/command/views";
 
@@ -81,19 +82,22 @@ function CommandCenter() {
         <div className="h-4 w-px bg-caos-border" />
         {headStat("Watch", "3", "var(--caos-critical)", true)}
         {headStat("QA open", "5", "var(--caos-warning)", true)}
-        {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
+        <Link
+          href="/monitor"
+          title="Open Monitor — live CP-MON email intelligence & alert routing"
+          className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
+        >
+          <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Alerts today</span>
+          <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
+          <span className="tabular text-[9px] text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
+        </Link>
         <SimControls run={run} />
         <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
       </div>
 
-      {/* workspace — Sector RV runs full-width; the other views keep the
-          CP-MON intake column on the right */}
-      <div
-        className={
-          "flex-1 min-h-0 gap-2 p-2 " +
-          (view === "rv" ? "flex flex-col" : "grid grid-cols-[minmax(0,1fr)_624px]")
-        }
-      >
+      {/* workspace — single column for every lens; CP-MON intake/alerts moved
+          to the Monitor concept */}
+      <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col">
         {view === "rv" ? (
           <SectorRV />
         ) : view === "cio" ? (
@@ -131,30 +135,6 @@ function CommandCenter() {
             </div>
           </div>
         )}
-
-        {view !== "rv" ? (
-        <div className="flex flex-col gap-2 min-h-0">
-          <PanelShell
-            title="Email Intelligence · CP-MON intake"
-            className="flex-[5]"
-            right={
-              <span className="flex items-center gap-1.5">
-                <Dot sev="running" pulse={live} />
-                <span className="tabular text-[9px] text-caos-muted">{live ? "LIVE" : "PAUSED"} · 105 msgs today</span>
-              </span>
-            }
-          >
-            <EmailIntel tick={tick} live={live || run.sim.done} />
-          </PanelShell>
-          <PanelShell
-            title="Alert Routing · CP-MON-H"
-            className="flex-[4]"
-            right={<span className="tabular text-[9px] text-caos-muted">{alertsToday} routed</span>}
-          >
-            <AlertFeed tick={tick} live={live || run.sim.done} />
-          </PanelShell>
-        </div>
-        ) : null}
       </div>
 
       {selected ? <IssuerStrip code={selected} onClose={() => setSelected(null)} /> : null}
