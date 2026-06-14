@@ -10,9 +10,11 @@ import { askIssuer, type ChatMessage } from "@/lib/api";
 import { CAPACITY, CAPSTACK, COVENANTS, DEAL, DEBATE, RECOVERY, SIZING, TRIGGERS } from "@/lib/reports/deal";
 import { DRIVERS, MODULES } from "@/lib/pipeline/data";
 import { MODULE_OUTPUTS, type OutSection } from "@/lib/deepdive/module-outputs";
+import { EVIDENCE } from "@/lib/reports/evidence";
+import { useEvidenceSync } from "@/lib/evidence-sync";
 import { Dot } from "@/components/pipeline/atoms";
 
-function caosChatContext(tab: string): string {
+export function caosChatContext(tab: string, focusEv?: string | null): string {
   const mod = MODULES.find((m) => m.id === tab);
   const out = MODULE_OUTPUTS[tab];
   const flat = (s: OutSection): string => {
@@ -20,7 +22,7 @@ function caosChatContext(tab: string): string {
     if (s.type === "flags") return s.title + " — " + s.items.map((f) => "[" + f.sev + "] " + f.text).join(" ; ");
     return s.title + " — " + s.body;
   };
-  return [
+  const lines = [
     "You are the Credit OS analyst assistant. You answer follow-up questions about ONE issuer for a credit analyst, grounded ONLY in the module outputs below (run #2641, all figures mock).",
     "Style: terse desk-note tone, under 150 words, plain text (no markdown headers). Cite module codes (CP-x) and evidence ids (E-xx) where they support a point. If the answer isn't in the data, say so and name the module that would produce it. Never invent figures.",
     "",
@@ -38,8 +40,25 @@ function caosChatContext(tab: string): string {
     "EVIDENCE DRIVERS (CP-5B): " + DRIVERS.map((d) => "#" + d.n + " " + d.driver + " [" + d.status + ", conf " + Math.round(d.conf * 100) + "%]").join("; "),
     "",
     "USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".",
-    out ? "CURRENT MODULE OUTPUTS:\n" + out.sections.map(flat).join("\n") : "",
-  ].join("\n");
+  ];
+
+  // Shared state from the cross-pane Evidence Sync: ground the answer in the
+  // exact evidence the analyst is pointing at, so deictic questions ("is this a
+  // problem?", "explain it") resolve to the right citation.
+  const ev = focusEv ? EVIDENCE[focusEv] : null;
+  if (focusEv && ev) {
+    const hit = ev.excerpt.find((e) => e.hit) || ev.excerpt[0];
+    lines.push(
+      "ANALYST IS POINTING AT EVIDENCE " + focusEv + " — " + ev.section +
+        " · " + ev.doc + (ev.page ? " p." + ev.page : "") +
+        " · extracted by " + ev.module + " · status " + ev.status +
+        (ev.qa ? " · QA: " + ev.qa : "") +
+        (hit ? '. Cited passage: "' + hit.t.slice(0, 280) + '"' : "") +
+        '. If the question says "this"/"it"/"that", it most likely refers to this.'
+    );
+  }
+  if (out) lines.push("CURRENT MODULE OUTPUTS:\n" + out.sections.map(flat).join("\n"));
+  return lines.join("\n");
 }
 
 const CAOS_CHAT_KEY = "caos-chat-atlf-2641";
@@ -63,6 +82,12 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Evidence Sync is hover-transient; keep the most recent focused evidence so
+  // the assistant stays grounded in it after the pointer moves to the input.
+  const { active } = useEvidenceSync();
+  const [focusEv, setFocusEv] = useState<string | null>(null);
+  useEffect(() => { if (active) setFocusEv(active); }, [active]);
+
   useEffect(() => { try { localStorage.setItem(CAOS_CHAT_KEY, JSON.stringify(msgs)); } catch {} }, [msgs]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -81,7 +106,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
     setBusy(true);
     try {
       const payload: ChatMessage[] = [
-        { role: "user", content: caosChatContext(tab) },
+        { role: "user", content: caosChatContext(tab, focusEv) },
         { role: "assistant", content: "Understood. I'll answer strictly from run #2641 outputs for ATLF, citing CP-x / E-xx." },
         ...next.slice(-12).map(({ role, content }) => ({ role, content })),
       ];
@@ -151,6 +176,23 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           </div>
         ) : null}
       </div>
+
+      {focusEv && EVIDENCE[focusEv] ? (
+        <div className="shrink-0 border-t border-caos-border bg-caos-elevated/40 px-2.5 py-1 flex items-center gap-1.5">
+          <span className="tabular text-caos-micro uppercase tracking-wider text-caos-accent shrink-0">In focus</span>
+          <span className="tabular text-[9.5px] text-caos-accent shrink-0">{focusEv}</span>
+          <span className="text-[9.5px] text-caos-muted truncate">{EVIDENCE[focusEv].section}</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setFocusEv(null)}
+            title="Clear focus context"
+            aria-label="Clear focus context"
+            className="shrink-0 rounded text-caos-muted hover:text-caos-text transition-caos text-[10px] focus-ring"
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
 
       <div className="shrink-0 border-t border-caos-border bg-caos-panel px-2.5 py-2 flex items-center gap-2">
         <input
