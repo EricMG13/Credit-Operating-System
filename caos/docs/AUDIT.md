@@ -27,13 +27,13 @@ CI is real. Findings are hardening/hygiene — **no P0/P1**.
 | # | Sev | Area | Finding | Status |
 |---|-----|------|---------|--------|
 | S-1 | P2 | Auth | Auth gate failed open: header-less requests were rejected only when `ENVIRONMENT == "production"`, which defaults to `"development"`. A deploy not applying `app.yaml` would run unauthenticated. | **Fixed** — now also enforces when `DATABRICKS_APP_PORT` is present (the platform always injects it), so it fails closed on the platform regardless of `ENVIRONMENT`. |
-| S-2 | P2 | Headers | No security headers (`Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, HSTS) set by the app on the served static UI ([main.py](../server/main.py)). | Open — add a headers middleware. |
+| S-2 | P2 | Headers | No security headers (`Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS) set by the app on the served static UI ([main.py](../server/main.py)). | **Fixed** — headers middleware in [main.py](../server/main.py): CSP tuned for the static export (`'unsafe-inline'` for script/style — no nonce possible; `object-src none`, `base-uri/form-action/frame-ancestors 'self'`, `connect/img/font 'self'`) + nosniff + Referrer-Policy + HSTS. Verified live on all responses with zero CSP console violations. |
 | S-3 | P3 | Auth | Identity trusts `X-Forwarded-Email/-User` ([identity.py](../server/identity.py)); spoofable if the Databricks edge is ever bypassed. Correct for the platform's network-isolated model. | Open (documented assumption). |
 | S-4 | P3 | Authz | No per-issuer / row-level authorization — any authenticated analyst can access any issuer. Fine for a single-team tool. | Open (by design; revisit if multi-tenant). |
 | D-1 | P2 | Deps | 7 npm advisories (was 1 critical + 1 high + 5 moderate). **All in the dev/build toolchain (vitest → vite → esbuild); `npm ls --omit=dev` confirms none ship in the production export.** | **Partially fixed** — vitest 2→3 cleared the critical (tests still green). Remaining (esbuild dev-server class) are dev-only / non-exploitable in this project's usage (headless `vitest run`, no exposed dev server); accepted-risk pending upstream esbuild. |
 | B-1 | P2 | Seed | `CAOS_DEMO_SEED=true` in [app.yaml](../server/app.yaml) seeds 3 demo issuers + the ATLF reference deal into the prod DB on boot (idempotent, count-gated). Intentional for a POC. | Open — set `false` for a real deployment. |
 | B-2 | P3 | Ingest | Untrusted document parsing (`pypdf`/`openpyxl` on uploads). Mitigated by the 250 MB cap + `openpyxl` read-only streaming + swallowed exceptions. | Open (inherent surface; low). |
-| F-1 | P2 | Tests | No component/page tests — only 3 lib unit files + 1 e2e (`upload_flow`). The Evidence Sync, live-run adapter, and report DSL (~12k LOC) are untested. | Open — add interaction tests for the riskiest logic. |
+| F-1 | P2 | Tests | No component/page tests — only 3 lib unit files + 1 e2e (`upload_flow`). The Evidence Sync, live-run adapter, and report DSL (~12k LOC) are untested. | **Fixed (initial)** — added pure unit tests (`format`, `sim` incl. the sevSurface fix, `a11y`) + RTL interaction tests for the Evidence Sync store & EvChip hover-sync (jsdom). 58 vitest, was 41. Broader component coverage continues to grow. |
 | F-2 | P3 | Types | Localized `any` in [reports/model.ts](../frontend/src/lib/reports/model.ts); whole-file `eslint-disable` on the large mock-data files (`lib/deepdive/*`). | Open (acceptable for generated data). |
 | A-1 | — | Architecture | **Mock-vs-engine gap (honesty flag, not a defect):** the backend has a *real but narrow* engine (Tier-1: runs, evidence, deterministic QA gate, CP-1 via fixture/LLM synth). Most of the frontend's analytical richness (24-module deep-dive, debate, recovery, covenants) is **seeded demo data** ([lib/deepdive/*](../frontend/src/lib/deepdive), [lib/reports/deal.ts](../frontend/src/lib/reports/deal.ts)), with `useLiveRun` overlaying live output only when a run exists. | Known — most of the UI is high-fidelity mock, not engine output. |
 
@@ -41,12 +41,14 @@ CI is real. Findings are hardening/hygiene — **no P0/P1**.
 
 - **S-1** — fail-closed auth keyed off `DATABRICKS_APP_PORT` ([identity.py](../server/identity.py)); 40 pytest pass, local dev identity still resolves.
 - **D-1** — `vitest` 2→3 (clears the critical advisory; 41 vitest pass). Remaining advisories are dev-only and confirmed absent from the production tree.
+- **S-2** — security-headers middleware ([main.py](../server/main.py)); verified live on all responses, app renders with no CSP violations.
+- **F-1** — pure tests (`format`/`sim`/`a11y`) + RTL Evidence Sync interaction tests (store, inert-default, EvChip hover-sync); 58 vitest, was 41.
 
 ## Recommended next (in priority order)
 
-1. **S-2** — security-headers middleware (small, high leverage).
-2. **B-1** — decide demo-seed policy for real deployments.
-3. **F-1** — component/interaction tests for Evidence Sync + the live-run adapter.
+1. **B-1** — decide demo-seed policy for real deployments (set `CAOS_DEMO_SEED=false`).
+2. **F-1 (cont.)** — broaden component coverage (report DSL, Command views, the rails) beyond the Evidence Sync core.
+3. **S-3 / S-4** — document the edge-trust assumption and add per-issuer authorization if the threat model expands.
 
 ## Notably well done
 

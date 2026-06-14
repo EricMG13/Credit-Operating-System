@@ -46,6 +46,41 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ─── Security headers ───────────────────────────────────────────────────────
+# Applied to every response (API + static). The Next static export ships inline
+# bootstrap/RSC scripts and uses inline style attributes throughout, so the CSP
+# must allow 'unsafe-inline' for script/style — a static export can't carry a
+# per-request nonce. The remaining directives still constrain origins, framing,
+# base-uri and form targets. frame-ancestors is 'self'; relax it only if the app
+# is ever embedded cross-origin (e.g. inside the Databricks workspace UI).
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'self'"
+)
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
+    response = await call_next(request)
+    for key, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
 # ─── API routes ───────────────────────────────────────────────────────────
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
