@@ -49,7 +49,9 @@ const GROUPS = [
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
   { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  { label: "L4 LEGAL", mods: ["CP-4", "CP-4C"] },
+  // CP-4C is covered inside the CP-4 "Legal & Covenants" view (code "CP-4 / 4C",
+  // which renders the CP-4C register) — so it isn't a separate launcher entry.
+  { label: "L4 LEGAL", mods: ["CP-4"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
