@@ -10,8 +10,65 @@ import { Bar, Dot, Tag } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
 import { RailShell } from "@/components/shared/RailShell";
 import { useEvidenceSync } from "@/lib/evidence-sync";
+import type { FindingDTO } from "@/lib/engine/types";
 
 export { Panel };
+
+// CP-5C reviewer seats keyed by the audit lane their findings carry
+// (engine/council.py). Diversity is by review lens, not vendor.
+const SEAT_BY_LANE: Record<number, string> = {
+  2: "Numerical Consistency",
+  3: "Covenant Construction",
+  4: "Evidence Sufficiency",
+  5: "Devil's Advocate",
+};
+// Map a finding severity to a Tag tone (severity text label carries meaning too,
+// so this is never color-alone).
+const SEV_TAG: Record<string, string> = {
+  CRITICAL: "critical",
+  MATERIAL: "warning",
+  MINOR: "low",
+};
+
+// Committee Review (CP-5C): live semantic-review findings, grouped by seat.
+// Opt-in on the backend; empty here in the offline/seeded demo, where it
+// documents the capability without implying a fault.
+function CouncilReview({ council }: { council: FindingDTO[] }) {
+  const ordered = [...council].sort(
+    (a, b) => (a.lane ?? 99) - (b.lane ?? 99) || a.finding_id.localeCompare(b.finding_id),
+  );
+  return (
+    <Panel title="Committee Review · CP-5C" className="shrink-0">
+      {ordered.length === 0 ? (
+        <div className="px-3 py-2.5 text-caos-body text-caos-muted leading-snug">
+          No live committee findings. CP-5C runs an adversarial reviewer panel when
+          enabled; flagged reasoning surfaces here and gates the run alongside CP-5B.
+        </div>
+      ) : (
+        ordered.map((f) => (
+          <div key={f.finding_id} className="px-3 py-2 border-b border-caos-border/50">
+            <div className="flex items-center gap-2">
+              <Tag sev={SEV_TAG[f.severity] || "low"}>{f.severity}</Tag>
+              <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted truncate">
+                {SEAT_BY_LANE[f.lane ?? 0] || `Lane ${f.lane ?? "—"}`}
+              </span>
+            </div>
+            <div className="text-caos-body text-caos-text leading-snug mt-1">{f.description}</div>
+            <div className="tabular text-caos-micro text-caos-muted mt-1 flex gap-2 whitespace-nowrap">
+              {f.module_id ? <span>{f.module_id}</span> : null}
+              {f.affected_claim_id ? <span>claim {f.affected_claim_id}</span> : null}
+            </div>
+            {f.required_remediation ? (
+              <div className="text-caos-micro text-caos-muted leading-snug mt-1">
+                → {f.required_remediation}
+              </div>
+            ) : null}
+          </div>
+        ))
+      )}
+    </Panel>
+  );
+}
 
 export function SourceRail({
   ev,
@@ -94,9 +151,11 @@ export function SourceRail({
 export function DecisionRail({
   open,
   onToggle,
+  council = [],
 }: {
   open: boolean;
   onToggle: () => void;
+  council?: FindingDTO[];
 }) {
   return (
     <RailShell
@@ -123,6 +182,8 @@ export function DecisionRail({
           QA-117 (HIGH) open — citation E-44 page mismatch. Committee pack assembly HELD; debate verdict stands ex-E-44.
         </div>
       </div>
+
+      <CouncilReview council={council} />
 
       <Panel title="IC Verdict · CP-6A" className="shrink-0">
         <div className="px-3 py-2.5">
