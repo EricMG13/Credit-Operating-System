@@ -24,6 +24,17 @@ logger = logging.getLogger("caos")
 router = APIRouter()
 
 _QUERY_MAX_PER_MINUTE = 20
+_READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
+
+
+def _read_rate_guard(caller: CallerIdentity) -> None:
+    if not rate_limit.hit(
+        f"query-read:{caller.id}", max_attempts=_READ_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query read rate limit reached — try again in a minute.",
+        )
 
 
 class NlQueryRequest(BaseModel):
@@ -33,6 +44,7 @@ class NlQueryRequest(BaseModel):
 @router.get("/catalog")
 async def get_catalog(caller: CallerIdentity = Depends(get_identity)):
     """The metric dictionary — keys, labels, units, polarity, descriptions."""
+    _read_rate_guard(caller)
     return {"metrics": catalog_dicts()}
 
 
@@ -54,6 +66,7 @@ async def get_chunk(
 ):
     """Fetch one ingested source chunk by id — backs click-to-source on the
     citation chips (the `src` / E-xx markers) in the query results."""
+    _read_rate_guard(caller)
     row = (await db.execute(
         select(DocumentChunk, Document, Issuer)
         .join(Document, Document.id == DocumentChunk.document_id)

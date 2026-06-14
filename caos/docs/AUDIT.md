@@ -1,61 +1,69 @@
 # CAOS — Codebase Audit
 
-**Audit date:** 2026-06-14
-**Scope:** `caos/` — FastAPI server (~2.6k LOC Python), Next.js frontend
-(~12k LOC TS/TSX), config, CI, tests. The `Modular OS/` corpus is
+**Audit date:** 2026-06-14 (re-audit after the NL-query / CP-2 / Scenario-Builder
+work; supersedes the earlier 2026-06-14 pass).
+**Scope:** `caos/` — FastAPI server (~4.0k LOC Python, 35 files), Next.js frontend
+(~14.2k LOC TS/TSX, 85 files), config, CI, tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
 
-> Companion to [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md) (2026-06-09) and
-> [TIER1_ENGINE_PLAN.md](TIER1_ENGINE_PLAN.md). Severity legend matches those:
+> Companion to [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md), [TIER1_ENGINE_PLAN.md](TIER1_ENGINE_PLAN.md),
+> [SECURITY.md](SECURITY.md), [IA_REVIEW.md](IA_REVIEW.md). Severity legend:
 > **P0** blocks deploy · **P1** ships broken · **P2** degrades quality/security
 > · **P3** nice-to-have.
 
 ## Health snapshot (all green)
 
-Frontend: eslint ✓ · `tsc --noEmit` ✓ · 65 vitest ✓ · `next build` ✓.
-Server: **40 pytest ✓**. CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml))
-runs all of the above on both jobs. No committed secrets/DB/vault (`.gitignore`
-covers them), no `TODO/FIXME` in app code, no `eval/exec/subprocess`, no SQL
-string-building, `tsconfig` is `strict`.
+Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · **98 vitest ✓** · `next build` ✓
+(12/12 static pages, export OK). Server: **73 pytest ✓**.
+CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
+vitest + build on the frontend job and pytest on the server job, so the new tests
+are gated. No committed secrets/DB/vault (`.gitignore` covers them), no
+`TODO/FIXME` in app code, no SQL string-building, no `eval`/`exec`, no
+`shell=True`, Alembic chain linear (`0001→0002→0003`), `tsconfig` strict.
 
-**Verdict:** a well-built, deploy-ready codebase. Every API route enforces
-identity, uploads are validated and stored safely, the seed is idempotent, and
-CI is real. Findings are hardening/hygiene — **no P0/P1**.
+**Verdict:** a well-built, deploy-ready codebase — **no P0/P1**. This round's work
+materially advanced the engine: a real QA-gated CP-2 cost-structure module,
+a structured `metric_facts` store, cross-issuer NL query (structured + semantic +
+hybrid) grounded in real evidence with a run/derived/seed provenance ladder,
+click-to-source, and a Scenario Builder — all identity-gated, typed, lint-clean,
+and tested. Open findings are P2/P3 hardening.
 
 ## Findings register
 
 | # | Sev | Area | Finding | Status |
 |---|-----|------|---------|--------|
-| S-1 | P2 | Auth | Auth gate failed open: header-less requests were rejected only when `ENVIRONMENT == "production"`, which defaults to `"development"`. A deploy not applying `app.yaml` would run unauthenticated. | **Fixed** — now also enforces when `DATABRICKS_APP_PORT` is present (the platform always injects it), so it fails closed on the platform regardless of `ENVIRONMENT`. |
-| S-2 | P2 | Headers | No security headers (`Content-Security-Policy`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS) set by the app on the served static UI ([main.py](../server/main.py)). | **Fixed** — headers middleware in [main.py](../server/main.py): CSP tuned for the static export (`'unsafe-inline'` for script/style — no nonce possible; `object-src none`, `base-uri/form-action/frame-ancestors 'self'`, `connect/img/font 'self'`) + nosniff + Referrer-Policy + HSTS. Verified live on all responses with zero CSP console violations. |
-| S-3 | P3 | Auth | Identity trusts `X-Forwarded-Email/-User` ([identity.py](../server/identity.py)); spoofable if the Databricks edge is ever bypassed. Correct for the platform's network-isolated model. | **Documented** — [SECURITY.md](SECURITY.md) §1 (trust model + edge-isolation assumption); identity.py docstring strengthened. |
-| S-4 | P3 | Authz | No per-issuer / row-level authorization — any authenticated analyst can access any issuer. Fine for a single-team tool. | **Documented** — [SECURITY.md](SECURITY.md) §2 records the single-team-by-design decision + exactly what to add for multi-tenant. Not built (YAGNI until the requirement is real). |
-| D-1 | P2 | Deps | 7 npm advisories (was 1 critical + 1 high + 5 moderate). **All in the dev/build toolchain (vitest → vite → esbuild); `npm ls --omit=dev` confirms none ship in the production export.** | **Partially fixed** — vitest 2→3 cleared the critical (tests still green). Remaining (esbuild dev-server class) are dev-only / non-exploitable in this project's usage (headless `vitest run`, no exposed dev server); accepted-risk pending upstream esbuild. |
-| B-1 | P2 | Seed | `CAOS_DEMO_SEED=true` in [app.yaml](../server/app.yaml) seeds 3 demo issuers + the ATLF reference deal into the prod DB on boot (idempotent, count-gated). Intentional for a POC. | **Addressed** — app.yaml comment now flags it demo-only with the off-switch; main.py logs a WARNING when it runs under production. Flip to `false` for a real deployment. |
-| B-2 | P3 | Ingest | Untrusted document parsing (`pypdf`/`openpyxl` on uploads). Mitigated by the 250 MB cap + `openpyxl` read-only streaming + swallowed exceptions. | Open (inherent surface; low). |
-| F-1 | P2 | Tests | No component/page tests — only 3 lib unit files + 1 e2e (`upload_flow`). The Evidence Sync, live-run adapter, and report DSL (~12k LOC) are untested. | **Fixed** — pure unit tests (`format`, `sim` incl. the sevSurface fix, `a11y`), RTL interaction tests for the Evidence Sync store + EvChip hover-sync, and component tests for the shared primitives (StatCard/SectionHeader/StatusGlyph/RailShell/FlashOnChange). **65 vitest, was 41.** Page-level coverage (report DSL, Command views) can keep growing. |
-| F-2 | P3 | Types | Localized `any` in [reports/model.ts](../frontend/src/lib/reports/model.ts); whole-file `eslint-disable` on the large mock-data files (`lib/deepdive/*`). | Open (acceptable for generated data). |
-| A-1 | — | Architecture | **Mock-vs-engine gap (honesty flag, not a defect):** the backend has a *real but narrow* engine (Tier-1: runs, evidence, deterministic QA gate, CP-1 via fixture/LLM synth). Most of the frontend's analytical richness (24-module deep-dive, debate, recovery, covenants) is **seeded demo data** ([lib/deepdive/*](../frontend/src/lib/deepdive), [lib/reports/deal.ts](../frontend/src/lib/reports/deal.ts)), with `useLiveRun` overlaying live output only when a run exists. | Known — most of the UI is high-fidelity mock, not engine output. |
+| SEC-1 | P2 | Rate limit | The read GETs `/api/query/catalog` and `/api/query/chunk/{id}` were identity-gated but not rate-limited (the NL POSTs are). `chunk` hits the DB per call. | **Fixed** — `_read_rate_guard` (60/min/caller) on both ([routes/query.py](../server/routes/query.py)); 73 pytest still green. |
+| D-1 | P2 | Deps | **7 npm advisories (2 moderate + 5 high).** The 2 moderate are **postcss `<8.5.10`** (CSS-stringify XSS) pulled transitively by **Next.js's build tooling** (`next/node_modules/postcss`) — so it sits in the prod dep *tree*, but is **build-time only** with no untrusted-CSS path in this app. The 5 high are the vite/esbuild/vitest dev chain. | **Accepted-risk** — none exploitable in this app's usage; `npm audit fix --force` would downgrade Next to 9.3.3 (**do not run**). Pin to upstream Next/esbuild bumps. |
+| DATA-1 | P3 | Storage | `metric_facts` run-derived rows accumulate one set per run (deduped to the latest run at query time, never pruned) → unbounded growth as runs scale. | Open — add retention / "latest-run-per-issuer" prune before opening runs widely. |
+| PERF-1 | P3 | Query | Hybrid `execute()` issues one `retrieve_corpus` per ranked issuer (N calls). Fine at demo scale (≤10 issuers); N+1 at portfolio scale. | Open — batch retrieval if issuer count grows. |
+| F-1 | P2 | Tests | Logic is well covered (73 pytest incl. nlquery/scenario/CP-2/extraction; 98 vitest incl. buildScenarios/format/translators), but the new React components (`NlQuery`, `CitationViewer`, `ScenarioPanel`) have no RTL render/interaction tests. | Open (cont.) — lib + endpoint coverage strong; component/page coverage still growing. |
+| S-4 | P3 | Authz | No per-issuer / row-level authz — any authenticated analyst can read any issuer. The new `/query/*` + `/scenario` **widen this cross-issuer surface** (any analyst can read any issuer's chunks/metrics). | **Documented** ([SECURITY.md](SECURITY.md) §2) — single-team-by-design; build per-issuer authz only if multi-tenant. |
+| F-2 | P3 | Types | Localized `any` confined to [reports/model.ts](../frontend/src/lib/reports/model.ts) + whole-file `eslint-disable` on the large mock-data files. New code is `any`-free. | Open (acceptable for generated data; no regression). |
+| A-1 | — | Architecture | **Mock-vs-engine gap — narrowing.** This round added real engine output: CP-2 (gated, cited), `metric_facts`, NL query grounded in real evidence with provenance, the citation viewer. Still: most deep-dive/report UI is seeded mock; the Scenario Builder + scenarios lens drive the **panel only**, not the model grid's BASE/DOWN columns; `energy_cost_pct` is run-derived for run issuers / seed-derived otherwise. | Known — the gap is smaller but real. |
+| S-1/2/3, B-1/2 | P2/P3 | Security/Seed/Ingest | Prior round: fail-closed auth gate (S-1), security-headers middleware (S-2), forwarded-identity trust model (S-3), demo-seed flag (B-1), untrusted-doc parsing surface (B-2). | **Fixed / documented** (see below) — unchanged this round. |
 
 ## Fixed / addressed
+- **SEC-1** (this round) — read rate guard on `/query/catalog` + `/query/chunk`.
+- **S-1** — fail-closed auth keyed off `DATABRICKS_APP_PORT` ([identity.py](../server/identity.py)).
+- **S-2** — security-headers middleware ([main.py](../server/main.py)), verified live, no CSP violations.
+- **S-3 / S-4** — forwarded-identity trust model + single-team authz decision in [SECURITY.md](SECURITY.md).
+- **B-1** — demo-seed flagged demo-only in app.yaml + production-seed WARNING in main.py.
 
-- **S-1** — fail-closed auth keyed off `DATABRICKS_APP_PORT` ([identity.py](../server/identity.py)); 40 pytest pass, local dev identity still resolves.
-- **S-2** — security-headers middleware ([main.py](../server/main.py)); verified live on all responses, app renders with no CSP violations.
-- **D-1** — `vitest` 2→3 (clears the critical advisory). Remaining advisories are dev-only and confirmed absent from the production tree.
-- **B-1** — demo-seed flagged demo-only in app.yaml + a production-seed WARNING in main.py.
-- **F-1** — 65 vitest (was 41): pure (`format`/`sim`/`a11y`) + RTL Evidence Sync interaction + shared-primitive component tests.
-- **S-3 / S-4** — trust model + single-team authz decision documented in [SECURITY.md](SECURITY.md).
+## Verified clean (this round)
+- **Auth:** every route `Depends(get_identity)`; only `/health` open. All four new endpoints (`/query/nl|catalog|chunk`, `/scenario/nl`) gated; POSTs + (now) read GETs rate-limited.
+- **Injection:** no `text()`/string-built SQL; parameterized SQLAlchemy throughout; new `ilike(f"%{v}%")` passes the pattern as a bound param.
+- **`subprocess` (markitdown spike):** list form (no `shell=True`), operator-configured command, content→temp file, timeout + swallowed failures — no shell-injection surface.
+- **LLM endpoints** (`nlquery`, `scenario`): output validated/clamped to a closed schema, `max_tokens` caps, `try/except`→deterministic offline fallback, rate-limited; the model never authors SQL.
+- **Frontend:** 0 `dangerouslySetInnerHTML`, 0 `eval`, 0 stray `any` outside the known mock files.
 
 ## Recommended next
-
-1. **F-1 (cont.)** — page-level tests (report DSL, Command views, the rails) as coverage matures.
-2. **S-4** — build per-issuer authorization **only if** the threat model expands to multi-tenant (steps in [SECURITY.md](SECURITY.md) §2).
-3. **B-2** — revisit untrusted-document parsing hardening if upload exposure grows.
+1. **DATA-1** — `metric_facts` retention/prune before scaling runs.
+2. **D-1** — track upstream Next/esbuild for the postcss + dev-chain advisories; never `audit fix --force`.
+3. **F-1 (cont.)** — RTL tests for `NlQuery` / `CitationViewer` / `ScenarioPanel`.
+4. **S-4** — per-issuer authorization only if the threat model expands to multi-tenant.
 
 ## Notably well done
-
-- Auth enforced on every route via `Depends(get_identity)`; only `/health` open.
-- Uploads: incremental size-cap, magic-byte MIME sniff, **path-traversal-safe**
-  storage (sanitized filename + UUID-prefixed key, [ingest.py](../server/ingest.py)).
-- Idempotent seed; Alembic migrations; same-origin single-process serving (no CORS surface).
-- Strict TypeScript; design system is WCAG-AA + colorblind-safe (prior remediation rounds).
+- Identity on every route via `Depends(get_identity)`; only `/health` open. Rate limits on all mutating/LLM endpoints.
+- Consistent "prefer-live / deterministic-fallback" seams (useLiveRun, useModelEngine, nlquery, scenario) so the offline demo always works and real output overlays when present.
+- Uploads: incremental size-cap, magic-byte MIME sniff, path-traversal-safe storage; idempotent seed; Alembic migrations; same-origin single-process serving (no CORS surface).
+- Strict TypeScript; WCAG-AA + colorblind-safe design system; evidence/citation lineage one click from source.
