@@ -11,8 +11,9 @@ they are deliberately not faked from a run.
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.schemas import ModulePayload
 
@@ -115,3 +116,56 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
     return facts
+
+
+def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:
+    """Project CP-2 CostStructure into a MetricFact kwarg dict (run-derived).
+
+    Lands energy_cost_pct as a run-provenance, headline fact cited to the CP-2
+    claim/evidence/chunk that asserts it. Empty if the module derived no value.
+    """
+    val = (payload.runtime_output or {}).get("energy_cost_pct")
+    if val is None:
+        return []
+    claim_id = evidence_id = chunk = None
+    for c in payload.claims:
+        if c.evidence:
+            claim_id, ev = c.claim_id, c.evidence[0]
+            evidence_id, chunk = ev.evidence_id, ev.resolved_chunk_id
+            break
+    return [dict(
+        run_id=run_id, module_id=payload.module_id, metric_key="energy_cost_pct",
+        period="LTM", value=float(val), unit="%", headline=True, qa_status=qa_status,
+        source_claim_id=claim_id, source_evidence_id=evidence_id,
+        document_chunk_id=chunk, provenance="run",
+    )]
+
+
+# Energy cost exposure stated as a percent of the cost base, alongside an
+# energy keyword — the specific "N percent of cost of goods sold" pattern avoids
+# grabbing unrelated percentages (e.g. a gross-margin figure in the same chunk).
+_ENERGY_KW = ("energy", "power", "natural gas", "electricity", "fuel")
+_COST_PCT_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(?:the\s+)?(?:cost of goods sold|cogs|cost base)",
+    re.IGNORECASE,
+)
+
+
+def derive_energy_cost_pct(
+    chunks: Sequence[Tuple[str, str, str]]
+) -> Optional[Tuple[float, str, str]]:
+    """Extract energy-as-%-of-cost-base from an issuer's document chunks.
+
+    ``chunks`` is ``(chunk_id, doc, text)``. Returns ``(value, chunk_id, doc)`` for
+    the first chunk that both mentions energy and states a cost-base percentage,
+    else None. Deterministic and offline — the evidence-grounded counterpart to a
+    hardcoded seed value for energy_cost_pct.
+    """
+    for chunk_id, doc, text in chunks:
+        low = text.lower()
+        if not any(kw in low for kw in _ENERGY_KW):
+            continue
+        m = _COST_PCT_RE.search(text)
+        if m:
+            return float(m.group(1)), chunk_id, doc
+    return None

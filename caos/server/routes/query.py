@@ -11,10 +11,11 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import get_db
+from database import Document, DocumentChunk, Issuer, get_db
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
 from nlquery import QueryError, execute, execute_semantic, plan
@@ -33,6 +34,39 @@ class NlQueryRequest(BaseModel):
 async def get_catalog(caller: CallerIdentity = Depends(get_identity)):
     """The metric dictionary — keys, labels, units, polarity, descriptions."""
     return {"metrics": catalog_dicts()}
+
+
+class ChunkResponse(BaseModel):
+    chunk_id: str
+    issuer_id: str
+    issuer_name: str
+    doc: str
+    doc_type: str
+    seq: int
+    text: str
+
+
+@router.get("/chunk/{chunk_id}", response_model=ChunkResponse)
+async def get_chunk(
+    chunk_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Fetch one ingested source chunk by id — backs click-to-source on the
+    citation chips (the `src` / E-xx markers) in the query results."""
+    row = (await db.execute(
+        select(DocumentChunk, Document, Issuer)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .join(Issuer, Issuer.id == Document.issuer_id)
+        .where(DocumentChunk.id == chunk_id)
+    )).first()
+    if row is None:
+        raise HTTPException(404, "Chunk not found")
+    chunk, doc, issuer = row
+    return ChunkResponse(
+        chunk_id=chunk.id, issuer_id=issuer.id, issuer_name=issuer.name,
+        doc=doc.file_name, doc_type=doc.doc_type, seq=chunk.seq, text=chunk.text,
+    )
 
 
 @router.post("/nl")

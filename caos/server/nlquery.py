@@ -50,6 +50,10 @@ class QuerySpec(BaseModel):
     filters: List[Filter] = Field(default_factory=list)
     limit: int = 10
     interpretation: str = ""
+    # Optional qualitative driver to corroborate the ranking with per-issuer
+    # document excerpts (hybrid mode), e.g. "energy prices" for a margin-exposure
+    # question. None → pure structured ranking.
+    evidence: Optional[str] = None
 
 
 class IssuerFilter(BaseModel):
@@ -113,6 +117,10 @@ _KEYWORD_METRIC = [
 ]
 _DESC_WORDS = ("most", "highest", "largest", "biggest", "greatest", "exposed", "worst", "weakest", "top")
 _ASC_WORDS = ("least", "lowest", "smallest", "safest", "strongest", "best", "lowest")
+# Cues that a structured question also names a qualitative driver worth
+# corroborating with document evidence (→ hybrid).
+_EVIDENCE_CUES = ("exposed", "exposure", "inflation", "sensitive", "driven", "pressure",
+                  "risk", "vulnerable", "affected", "impact")
 
 
 def _demo_translate(question: str) -> QuerySpec:
@@ -126,9 +134,14 @@ def _demo_translate(question: str) -> QuerySpec:
     label = CATALOG_BY_KEY[rank_by].label
     extreme = "highest" if direction == "desc" else "lowest"
     shown = ", ".join(CATALOG_BY_KEY[m].label for m in metrics)
+    # Hybrid: a ranking question that cites a qualitative driver gets the question
+    # itself as the evidence query (BM25 surfaces the relevant chunk per issuer).
+    evidence = question.strip() if any(w in q for w in _EVIDENCE_CUES) else None
     interp = f"Rank issuers by {label} ({extreme} first); showing {shown}."
+    if evidence:
+        interp += " Corroborated with supporting evidence from each issuer's documents."
     return QuerySpec(metrics=metrics, rank_by=rank_by, direction=direction,
-                     limit=10, interpretation=interp)
+                     limit=10, interpretation=interp, evidence=evidence)
 
 
 # Words that signal a *qualitative* question about document content (→ semantic),
@@ -219,7 +232,9 @@ _PLAN_SYSTEM = (
     "keys ONLY from this catalog (exact `key`):\n{catalog}\n"
     'STRUCTURED: {{"mode":"structured","metrics":[keys],"rank_by":key,"direction":'
     '"asc"|"desc","filters":[{{"field":"industry"|"country"|metric_key,"op":'
-    '"=|>|>=|<|<=|ilike","value":...}}],"limit":int,"interpretation":"..."}}.\n'
+    '"=|>|>=|<|<=|ilike","value":...}}],"limit":int,"evidence":"<qualitative driver '
+    'to corroborate with document excerpts, e.g. energy prices; else null>",'
+    '"interpretation":"..."}}.\n'
     "If it asks what issuers' DOCUMENTS say (mention/flag/discuss/risk factors/"
     "qualitative exposure), return SEMANTIC to search source text.\n"
     'SEMANTIC: {{"mode":"semantic","search":"key terms","issuer_filter":'
@@ -338,7 +353,7 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
                     "citation": ({"claim_id": f.source_claim_id,
                                   "evidence_id": f.source_evidence_id,
                                   "chunk_id": f.document_chunk_id}
-                                 if f.source_evidence_id else None),
+                                 if (f.source_evidence_id or f.document_chunk_id) else None),
                 }
                 for key, f in facts.items() if key in spec.metrics
             },
@@ -347,19 +362,42 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
     results.sort(key=lambda r: r["rank_value"], reverse=(spec.direction == "desc"))
     results = results[: spec.limit]
 
+    # Hybrid: corroborate each ranked issuer with the top supporting excerpt from
+    # its own documents, retrieved against the qualitative driver. Reuses the
+    # cross-issuer retriever scoped to one issuer.
+    hybrid = bool(spec.evidence)
+    if hybrid:
+        for row in results:
+            ev_hits = await retrieve_corpus(
+                session, spec.evidence, k=1, issuer_ids=[row["issuer"]["id"]]
+            )
+            row["evidence"] = (
+                {"chunk_id": ev_hits[0].chunk_id, "doc": ev_hits[0].doc,
+                 "text": _snippet(ev_hits[0].text)}
+                if ev_hits else None
+            )
+
     columns = [
         {"key": m, "label": CATALOG_BY_KEY[m].label, "unit": CATALOG_BY_KEY[m].unit,
          "higher_is_better": CATALOG_BY_KEY[m].higher_is_better}
         for m in spec.metrics
     ]
     caveats = []
-    if any(r["metrics"].get(spec.rank_by, {}).get("provenance") == "seed" for r in results):
-        caveats.append(f"{md.label} is illustrative seed data (no run-derived source yet).")
+    provs = {r["metrics"].get(spec.rank_by, {}).get("provenance") for r in results}
+    provs.discard(None)
+    if provs == {"seed"}:
+        caveats.append(f"{md.label} is illustrative seed data (no sourced value yet).")
+    elif "seed" in provs:
+        caveats.append(f"{md.label} is derived from filings for some issuers, illustrative seed for others.")
+    elif provs == {"derived"}:
+        caveats.append(f"{md.label} is derived from each issuer's filings (cited).")
     if any(m["value"] is None for r in results for m in r["metrics"].values()):
         caveats.append("Some issuers are missing values for a displayed metric.")
+    if hybrid:
+        caveats.append("Supporting excerpts are the top document match per issuer (BM25) — corroborating, not the basis for the ranking.")
 
     return {
-        "mode": "structured",
+        "mode": "hybrid" if hybrid else "structured",
         "interpretation": spec.interpretation,
         "spec": spec.model_dump(),
         "rank_by": spec.rank_by,

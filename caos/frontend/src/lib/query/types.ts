@@ -19,7 +19,9 @@ export interface Citation {
 export interface MetricCell {
   value: number;
   unit: string;
-  provenance: "run" | "seed";
+  // run = QA-gated engine run; derived = extracted from a cited document chunk;
+  // seed = illustrative, no source.
+  provenance: "run" | "derived" | "seed";
   qa_status: string;
   period: string;
   citation: Citation | null;
@@ -44,10 +46,13 @@ export interface QueryRow {
   issuer: QueryIssuer;
   rank_value: number;
   metrics: Record<string, MetricCell>;
+  // Hybrid mode: a corroborating document excerpt for this issuer (or null).
+  evidence?: Excerpt | null;
 }
 
 export interface StructuredResult {
-  mode: "structured";
+  // "hybrid" = ranked + per-issuer corroborating evidence excerpts.
+  mode: "structured" | "hybrid";
   interpretation: string;
   spec: unknown;
   rank_by: string;
@@ -79,3 +84,14 @@ export interface SemanticResult {
 
 // The endpoint returns one or the other, discriminated by `mode`.
 export type NlQueryResult = StructuredResult | SemanticResult;
+
+// One ingested source chunk — backs the click-to-source citation viewer.
+export interface ChunkDTO {
+  chunk_id: string;
+  issuer_id: string;
+  issuer_name: string;
+  doc: string;
+  doc_type: string;
+  seq: number;
+  text: string;
+}

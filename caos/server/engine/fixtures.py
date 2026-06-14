@@ -74,6 +74,10 @@ _REFERENCE_DOCS = [
      "Sponsor model extract. Q4 2025 management accounts were not provided. "
      "The Q4 2025 period is a derived period constructed from sponsor "
      "management projections (gap G-02)."),
+    ("D-08", "Profile", "business_profile.pdf",
+     "Atlas Forge cost structure. The cost base is dominated by raw materials "
+     "and labour; energy and freight are roughly 12 percent of cost of goods "
+     "sold, so margins carry moderate sensitivity to energy-price inflation."),
 ]
 
 

@@ -5,11 +5,14 @@ the /api/query endpoints over the seeded metric store.
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
 from engine.fixtures import REFERENCE_ISSUER_ID, atlf_payload
-from engine.metrics import CATALOG_BY_KEY, METRIC_CATALOG, extract_facts
+from engine.metrics import CATALOG_BY_KEY, METRIC_CATALOG, derive_energy_cost_pct, extract_facts
 from nlquery import QueryError, QuerySpec, SemanticSpec, _demo_plan, _demo_translate, validate_spec
 
 CANONICAL = "which issuers have margins most exposed to higher inflation in energy prices"
@@ -92,8 +95,9 @@ def test_canonical_query_ranks_aurora_first(client):
     assert body["rank_by"] == "energy_cost_pct"
     assert body["rows"], "expected ranked issuers"
     assert body["rows"][0]["issuer"]["name"] == "Aurora Chemicals SA"
-    # energy_cost_pct is illustrative seed data → a caveat is surfaced.
-    assert any("illustrative" in c.lower() for c in body["caveats"])
+    # provenance/corroboration caveats are surfaced (energy is evidence-derived,
+    # not seeded — its provenance is asserted in the derived/run-provenance tests).
+    assert body["caveats"]
 
 
 def test_unknown_metric_question_returns_422(client, monkeypatch):
@@ -157,3 +161,101 @@ def test_semantic_covenant_question_surfaces_telecom(client):
     assert "Meridian Telecom Holdings" in names
     excerpts = " ".join(e["text"].lower() for r in body["rows"] for e in r["excerpts"])
     assert "covenant" in excerpts
+
+
+# ── Hybrid composition (rank + corroborating evidence) ───────────────────────
+def test_demo_translate_sets_evidence_only_on_driver_questions():
+    assert _demo_translate(CANONICAL).evidence  # "exposed to … energy" → driver phrase
+    assert _demo_translate("which issuer is most levered").evidence is None
+
+
+def test_canonical_query_is_hybrid_and_corroborates_the_ranking(client):
+    body = client.post("/api/query/nl", json={"question": CANONICAL}).json()
+    assert body["mode"] == "hybrid"
+    assert body["rank_by"] == "energy_cost_pct"
+    top = body["rows"][0]
+    assert top["issuer"]["name"] == "Aurora Chemicals SA"
+    # ranked metric is still present AND a document excerpt corroborates it
+    assert top["metrics"]["energy_cost_pct"]["value"] == 28.0
+    assert top["evidence"] and "energy" in top["evidence"]["text"].lower()
+    assert top["evidence"]["doc"]
+
+
+def test_pure_metric_query_stays_structured_without_evidence(client):
+    body = client.post("/api/query/nl", json={"question": "which issuer is most levered"}).json()
+    assert body["mode"] == "structured"
+    assert all(row.get("evidence") is None for row in body["rows"])
+
+
+# ── Evidence-derived energy_cost_pct ─────────────────────────────────────────
+def test_derive_energy_cost_pct_extracts_cited_value():
+    aurora = [
+        ("c0", "aurora_om.pdf", "Production is energy-intensive: electricity and natural gas "
+         "are roughly 28 percent of cost of goods sold."),
+    ]
+    val, chunk_id, doc = derive_energy_cost_pct(aurora)
+    assert val == 28.0 and chunk_id == "c0" and doc == "aurora_om.pdf"
+    # ignores an unrelated percentage (e.g. a gross-margin figure)
+    assert derive_energy_cost_pct([("c", "f.pdf", "92 percent gross margin; no energy disclosure")]) is None
+    assert derive_energy_cost_pct([("c", "f.pdf", "no figures here")]) is None
+
+
+def test_canonical_energy_is_derived_and_cited(client):
+    top = client.post("/api/query/nl", json={"question": CANONICAL}).json()["rows"][0]
+    assert top["issuer"]["name"] == "Aurora Chemicals SA"
+    energy = top["metrics"]["energy_cost_pct"]
+    assert energy["value"] == 28.0
+    assert energy["provenance"] == "derived"          # extracted from the filing, not seeded
+    assert energy["citation"] and energy["citation"]["chunk_id"]  # cited to its source chunk
+
+
+# ── CP-2 cost-structure module (run-derived, QA-gated energy) ────────────────
+def test_cp2_synthesizes_cited_metric_and_gates_clean():
+    from engine.coststructure import synthesize_cost_structure
+    from engine.lineage import validate_lineage
+    from engine.schemas import validate_payload
+
+    async def found(_q, _k):
+        return [SimpleNamespace(chunk_id="ch1",
+                                text="energy and freight are roughly 12 percent of cost of goods sold",
+                                score=2.0)]
+
+    async def none(_q, _k):
+        return [SimpleNamespace(chunk_id="x", text="no energy disclosure", score=1.0)]
+
+    p = asyncio.run(synthesize_cost_structure("ATLF", found))
+    assert p.module_id == "CP-2" and p.runtime_output["energy_cost_pct"] == 12.0
+    assert validate_payload(p) == []          # schema-valid
+    assert validate_lineage([p]) == []        # Calculated lineage → no QA finding
+    assert p.claims[0].evidence[0].evidence_id == "E-CS1"
+
+    p2 = asyncio.run(synthesize_cost_structure("X", none))
+    assert p2.runtime_output["energy_cost_pct"] is None and not p2.claims
+
+
+def test_run_emits_cp2_and_upgrades_energy_to_run_provenance(client):
+    run = client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert run.status_code == 201, run.text
+    assert any(m["module_id"] == "CP-2" for m in run.json()["modules"])
+    cp2 = client.get(f"/api/runs/{run.json()['id']}/modules/CP-2").json()
+    assert cp2["runtime_output"]["energy_cost_pct"] == 12.0
+    assert cp2["claims"] and cp2["claims"][0]["evidence"][0]["evidence_id"] == "E-CS1"
+
+    rows = client.post("/api/query/nl", json={"question": CANONICAL}).json()["rows"]
+    atlf = next(r for r in rows if r["issuer"]["name"] == "Atlas Forge Industrials")
+    energy = atlf["metrics"]["energy_cost_pct"]
+    assert energy["provenance"] == "run"      # CP-2 run fact overrides the seed
+    assert energy["citation"]["evidence_id"] == "E-CS1"
+    assert energy["citation"]["chunk_id"]
+
+
+# ── Click-to-source chunk endpoint ───────────────────────────────────────────
+def test_chunk_endpoint_returns_text_and_404(client):
+    sem = client.post("/api/query/nl",
+                      json={"question": "which issuers flag energy or input-cost pressure in their filings"}).json()
+    chunk_id = sem["rows"][0]["excerpts"][0]["chunk_id"]
+    r = client.get(f"/api/query/chunk/{chunk_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["chunk_id"] == chunk_id and body["text"] and body["doc"] and body["issuer_name"]
+    assert client.get("/api/query/chunk/does-not-exist").status_code == 404

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 
 from database import AsyncSessionLocal, Document, DocumentChunk, Issuer, MetricFact
 from engine.fixtures import REFERENCE_ISSUER_ID
+from engine.metrics import derive_energy_cost_pct
 
 DEMO_ISSUERS = [
     {
@@ -88,8 +89,9 @@ DEMO_DOCS = {
          "Acme Holdings offering memorandum. Cloud software subscription revenue with a "
          "92 percent gross margin and high net revenue retention. Input costs are minimal — "
          "primarily cloud hosting and engineering payroll — so the business has negligible "
-         "exposure to commodity or energy-price inflation. Net leverage 2.3x with strong "
-         "free cash flow conversion."),
+         "exposure to commodity or energy-price inflation; energy and power are roughly "
+         "4 percent of cost of goods sold. Net leverage 2.3x with strong free cash flow "
+         "conversion."),
         ("Covenant", "acme_compliance_certificate.pdf",
          "Acme compliance certificate. Springing first-lien leverage covenant at 5.0x with "
          "ample headroom; interest coverage 8.5x."),
@@ -99,7 +101,8 @@ DEMO_DOCS = {
          "Meridian Telecom Holdings lender presentation. The fibre-to-the-home build requires "
          "sustained capital expenditure; net leverage of 5.1x reflects the debt-funded network "
          "rollout. Revenue is largely contracted broadband ARPU, with limited direct exposure "
-         "to energy prices beyond network power consumption."),
+         "to energy prices beyond network power consumption — network power is roughly "
+         "7 percent of cost of goods sold."),
         ("SFA", "meridian_senior_facilities_agreement.pdf",
          "Meridian senior facilities agreement. Maintenance net leverage covenant set at 5.75x; "
          "covenant headroom is tight given the ongoing capex program. Interest coverage 3.2x."),
@@ -143,18 +146,37 @@ async def seed_demo_documents() -> None:
 
 
 async def seed_metrics() -> None:
-    """Seed illustrative headline metric_facts once, on an empty store."""
+    """Seed headline metric_facts once, on an empty store.
+
+    energy_cost_pct is *derived* from each issuer's own filings where they
+    disclose it (provenance "derived", cited to the source chunk) rather than
+    hardcoded — the evidence-grounded value the cross-issuer ranking pins on.
+    The remaining metrics stay illustrative seed until a module produces them.
+    """
     async with AsyncSessionLocal() as session:
         existing = (await session.execute(
-            select(func.count()).select_from(MetricFact).where(MetricFact.provenance == "seed")
+            select(func.count()).select_from(MetricFact)
+            .where(MetricFact.provenance.in_(["seed", "derived"]))
         )).scalar()
         if existing:
             return
         for issuer_id, values in SEED_METRICS.items():
+            # Pull this issuer's chunks once and try to derive energy exposure.
+            chunks = (await session.execute(
+                select(DocumentChunk.id, Document.file_name, DocumentChunk.text)
+                .join(Document, Document.id == DocumentChunk.document_id)
+                .where(Document.issuer_id == issuer_id)
+            )).all()
+            derived = derive_energy_cost_pct([(c[0], c[1], c[2]) for c in chunks])
             for key, value in zip(_M, values):
-                session.add(MetricFact(
+                fact = dict(
                     issuer_id=issuer_id, run_id=None, module_id=None,
-                    metric_key=key, period="LTM", value=float(value), unit=_UNIT[key],
-                    headline=True, qa_status="Not Reviewed", provenance="seed",
-                ))
+                    metric_key=key, period="LTM", unit=_UNIT[key],
+                    headline=True, qa_status="Not Reviewed",
+                    value=float(value), provenance="seed",
+                )
+                if key == "energy_cost_pct" and derived is not None:
+                    val, chunk_id, _doc = derived
+                    fact.update(value=val, provenance="derived", document_chunk_id=chunk_id)
+                session.add(MetricFact(**fact))
         await session.commit()

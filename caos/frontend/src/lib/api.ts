@@ -66,10 +66,14 @@ export const exportReport = (runId: string): Promise<unknown> =>
   api.post(`/api/runs/${runId}/report`).then((r) => r.data);
 
 // ─── Cross-issuer natural-language query ─────────────────────────────────────
-import type { MetricDef, NlQueryResult } from "@/lib/query/types";
+import type { ChunkDTO, MetricDef, NlQueryResult } from "@/lib/query/types";
 
 export const nlQuery = (question: string): Promise<NlQueryResult> =>
   api.post("/api/query/nl", { question }).then((r) => r.data);
 
 export const getMetricCatalog = (): Promise<MetricDef[]> =>
   api.get("/api/query/catalog").then((r) => r.data.metrics);
+
+// Click-to-source: fetch one ingested chunk behind a citation chip.
+export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
+  api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);

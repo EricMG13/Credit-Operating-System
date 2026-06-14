@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from database import Claim, EvidenceItem, Issuer, MetricFact, ModuleOutput, QAFinding, Run
-from engine.metrics import extract_facts
+from engine.coststructure import synthesize_cost_structure
+from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
     Finding,
     committee_status_from,
@@ -33,8 +34,8 @@ from retrieval import retrieve as bm25_retrieve
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1"]
-DEPENDENCIES: Dict[str, List[str]] = {"CP-0": [], "CP-1": ["CP-0"]}
+ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-2"]
+DEPENDENCIES: Dict[str, List[str]] = {"CP-0": [], "CP-1": ["CP-0"], "CP-2": ["CP-1"]}
 PROMPT_VERSION = "v2.0"
 
 
@@ -81,9 +82,14 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 continue
 
             try:
-                payload = await synthesizer.synthesize(
-                    module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
-                )
+                # CP-2 is a deterministic, document-grounded module (no fixture /
+                # LLM) so it derives from the issuer's own sources for any issuer.
+                if module_id == "CP-2":
+                    payload = await synthesize_cost_structure(issuer_name, retrieve)
+                else:
+                    payload = await synthesizer.synthesize(
+                        module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
+                    )
             except SynthesisError as e:
                 logger.warning("synthesis failed for %s: %s", module_id, e)
                 output_rows[module_id] = _persist_blocked(
@@ -140,6 +146,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         cp1 = upstream.get("CP-1")
         if cp1 is not None:
             for fact in extract_facts(run.id, cp1, output_rows["CP-1"].qa_status):
+                session.add(MetricFact(issuer_id=run.issuer_id, **fact))
+        cp2 = upstream.get("CP-2")
+        if cp2 is not None:
+            for fact in extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status):
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
 
         # ── Run-level roll-up ─────────────────────────────────────────────
