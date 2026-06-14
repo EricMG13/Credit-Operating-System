@@ -64,3 +64,12 @@ export const getQA = (runId: string): Promise<QAReportDTO> =>
 // Committee export — rejects (409) unless the run is Committee Ready.
 export const exportReport = (runId: string): Promise<unknown> =>
   api.post(`/api/runs/${runId}/report`).then((r) => r.data);
+
+// ─── Cross-issuer natural-language query ─────────────────────────────────────
+import type { MetricDef, NlQueryResult } from "@/lib/query/types";
+
+export const nlQuery = (question: string): Promise<NlQueryResult> =>
+  api.post("/api/query/nl", { question }).then((r) => r.data);
+
+export const getMetricCatalog = (): Promise<MetricDef[]> =>
+  api.get("/api/query/catalog").then((r) => r.data.metrics);

@@ -16,6 +16,7 @@ import { useSimRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
+import { NlQuery } from "@/components/command/NlQuery";
 import {
   AlertFeed, CoverageMatrix, EmailIntel, GapsList, IssuerStrip,
   PortfolioTable, QaQueue, SectorBoard,
@@ -97,6 +98,7 @@ function CommandCenter() {
           <SectorRV />
         ) : view === "cio" ? (
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
+            <NlQuery />
             <PanelShell
               title="Portfolio Posture · CP-3C"
               className="flex-[3]"

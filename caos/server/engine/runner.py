@@ -17,7 +17,8 @@ from typing import Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run
+from database import Claim, EvidenceItem, Issuer, MetricFact, ModuleOutput, QAFinding, Run
+from engine.metrics import extract_facts
 from engine.gate import (
     Finding,
     committee_status_from,
@@ -134,6 +135,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             module_status[mid] = status
 
         await _persist_cp5(session, run.id, findings, module_status)
+
+        # ── Project structured metric facts (run-derived, for cross-issuer NL query) ──
+        cp1 = upstream.get("CP-1")
+        if cp1 is not None:
+            for fact in extract_facts(run.id, cp1, output_rows["CP-1"].qa_status):
+                session.add(MetricFact(issuer_id=run.issuer_id, **fact))
 
         # ── Run-level roll-up ─────────────────────────────────────────────
         statuses = [module_status[m] for m in ANALYTICAL_SLICE if m in module_status]

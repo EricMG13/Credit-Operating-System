@@ -17,7 +17,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,3 +90,36 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
     ).all()
     corpus = [(r[0], r[1]) for r in rows]
     return bm25_rank(query, corpus, k=k)
+
+
+@dataclass(frozen=True)
+class CorpusHit(Hit):
+    """A BM25 hit attributed to its issuer and source document — for cross-issuer
+    semantic query, where the same retrieval ranks chunks from many issuers."""
+
+    issuer_id: str = ""
+    doc: str = ""  # source file_name
+
+
+async def retrieve_corpus(
+    db: AsyncSession,
+    query: str,
+    k: int = 8,
+    issuer_ids: Optional[Sequence[str]] = None,
+) -> List[CorpusHit]:
+    """BM25-rank document chunks across all issuers (or a subset), attributing
+    each hit to the issuer + source document it came from."""
+    stmt = (
+        select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
+        .join(Document, Document.id == DocumentChunk.document_id)
+    )
+    if issuer_ids:
+        stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+    rows = (await db.execute(stmt)).all()
+    meta = {r[0]: (r[2], r[3]) for r in rows}  # chunk_id -> (issuer_id, file_name)
+    corpus = [(r[0], r[1]) for r in rows]
+    return [
+        CorpusHit(chunk_id=h.chunk_id, text=h.text, score=h.score,
+                  issuer_id=meta[h.chunk_id][0], doc=meta[h.chunk_id][1])
+        for h in bm25_rank(query, corpus, k=k)
+    ]

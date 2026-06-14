@@ -15,7 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, inspect
+from sqlalchemy import (
+    JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+    UniqueConstraint, inspect,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -185,6 +188,42 @@ class QAFinding(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     affected_claim_id: Mapped[Optional[str]] = mapped_column(String(32))
     required_remediation: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class MetricFact(Base):
+    """A structured, queryable per-issuer metric value — the curated store that
+    backs cross-issuer natural-language query.
+
+    Two provenances: ``run`` facts are projected from a completed run's module
+    outputs (e.g. CP-1 normalized_financials) and carry a citation back to the
+    claim/evidence/chunk that supports them, plus the module's QA status; ``seed``
+    facts are illustrative demo values (no run). ``headline`` marks the current
+    LTM value used for cross-issuer ranking, distinct from historical periods.
+    """
+
+    __tablename__ = "metric_facts"
+    __table_args__ = (
+        UniqueConstraint("issuer_id", "run_id", "metric_key", "period", name="uq_fact"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"))
+    module_id: Mapped[Optional[str]] = mapped_column(String(16))
+    metric_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    period: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String(16), default="")
+    headline: Mapped[bool] = mapped_column(Boolean, default=False)
+    qa_status: Mapped[str] = mapped_column(String(16), default="Not Reviewed")
+    # Citation back to the asserting claim/evidence (run-derived facts only).
+    source_claim_id: Mapped[Optional[str]] = mapped_column(String(32))
+    source_evidence_id: Mapped[Optional[str]] = mapped_column(String(32))
+    document_chunk_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("document_chunks.id")
+    )
+    provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 def _alembic_config():
