@@ -141,9 +141,12 @@ body {
 .rd-h-sub { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; letter-spacing: 0.04em; color: #5c5c66; text-transform: none; }
 
 .rd-table { width: 100%; border-collapse: collapse; }
-.rd-table th { font-size: 7.8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #5c5c66; text-align: left; padding: 1px 5px 3px 0; border-bottom: 1px solid #b9b6aa; vertical-align: bottom; line-height: 1.25; }
-.rd-table td { font-size: 9.3px; padding: 2px 5px 2px 0; vertical-align: top; line-height: 1.45; }
-.rd-table th.rd-r, .rd-table td.rd-r { text-align: right; padding-right: 0; padding-left: 5px; }
+.rd-table th { font-size: 7.8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #5c5c66; text-align: left; padding: 1px 0 3px; border-bottom: 1px solid #b9b6aa; vertical-align: bottom; line-height: 1.25; }
+.rd-table td { font-size: 9.3px; padding: 2px 0; vertical-align: top; line-height: 1.45; }
+/* Consistent gap between adjacent columns so a right-aligned number never butts
+   against the next column's text; first column stays flush-left, last flush-right. */
+.rd-table th + th, .rd-table td + td { padding-left: 14px; }
+.rd-table th.rd-r, .rd-table td.rd-r { text-align: right; }
 .rd-num { font-family: var(--font-mono), monospace; font-size: 8.8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rd-table tr.rd-b td { font-weight: 600; }
 .rd-table tr.rd-it td { color: #6c6c76; font-size: 8.4px; font-style: italic; }
