@@ -77,3 +77,17 @@ export const getMetricCatalog = (): Promise<MetricDef[]> =>
 // Click-to-source: fetch one ingested chunk behind a citation chip.
 export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
+
+// ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
+// Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.
+export interface ScenarioSpec {
+  rev_growth_delta: number;
+  margin_delta: number;
+  capex_delta: number;
+  rate_delta: number;
+  label: string;
+  rationale: string;
+}
+
+export const scenarioFromNL = (text: string): Promise<ScenarioSpec> =>
+  api.post("/api/scenario/nl", { text }).then((r) => r.data);

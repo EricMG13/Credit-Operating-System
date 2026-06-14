@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, health, ingestion, issuers, query, runs
+from routes import auth, chat, health, ingestion, issuers, query, runs, scenario
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
@@ -97,6 +97,7 @@ app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"]
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
+app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)

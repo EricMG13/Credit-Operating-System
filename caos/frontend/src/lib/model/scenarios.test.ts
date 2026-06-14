@@ -109,3 +109,25 @@ describe("live CP-1 anchor re-bases the lens", () => {
     expect(liveBase).not.toBeCloseTo(seededBase, 3);
   });
 });
+
+describe("scenario builder adjust re-centers base & downside", () => {
+  const pf = buildModel(1).cols.pf;
+  const exitLev = (l: ReturnType<typeof buildScenarios>, k: "best" | "base" | "worst") =>
+    metricValue(l.project(l.scenarios.find((s) => s.key === k)!.drivers), "netLevExit");
+
+  it("a downside scenario raises base AND worst exit leverage vs the module lens", () => {
+    const stressed = buildScenarios(pf, { adjMargin: -0.03, rate: 0.01 });
+    expect(exitLev(stressed, "base")).toBeGreaterThan(exitLev(lens, "base"));
+    expect(exitLev(stressed, "worst")).toBeGreaterThan(exitLev(lens, "worst"));
+  });
+
+  it("applies deltas to the base drivers", () => {
+    const adjusted = buildScenarios(pf, { revGrowth: -0.05, adjMargin: -0.02 });
+    expect(adjusted.base.revGrowth).toBeCloseTo(lens.base.revGrowth - 0.05, 6);
+    expect(adjusted.base.adjMargin).toBeCloseTo(lens.base.adjMargin - 0.02, 6);
+  });
+
+  it("reset (no adjust) equals the module forecasts", () => {
+    expect(buildScenarios(pf, undefined).base).toEqual(buildScenarios(pf).base);
+  });
+});

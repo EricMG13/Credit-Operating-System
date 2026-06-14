@@ -112,8 +112,15 @@ export interface ScenarioLens {
 
 /** Build the forward scenario lens anchored on a model's pro-forma (PF) column.
  *  Pass the live-anchored model's `cols.pf` so best/base/worst + the tornado
- *  re-base on the live CP-1 run; omit it for the seeded offline demo. */
-export function buildScenarios(pf: ModelCol = buildModel(1).cols.pf): ScenarioLens {
+ *  re-base on the live CP-1 run; omit it for the seeded offline demo.
+ *
+ *  `adjust` applies analyst-supplied driver deltas (the Scenario Builder) to the
+ *  base before deriving best/base/worst — re-centering the whole lens (base AND
+ *  downside) on a custom scenario. Omit it to get the module forecasts. */
+export function buildScenarios(
+  pf: ModelCol = buildModel(1).cols.pf,
+  adjust?: Partial<Drivers>,
+): ScenarioLens {
   const anchor: Anchor = {
     rev0: pf.rev,
     totalDebt: pf.tdebt,
@@ -124,10 +131,10 @@ export function buildScenarios(pf: ModelCol = buildModel(1).cols.pf): ScenarioLe
   };
 
   const base: Drivers = {
-    revGrowth: 0.035,
-    adjMargin: pf.adjm,
-    capexPct: pf.capex / pf.rev,
-    rate: pf.int / pf.tdebt,
+    revGrowth: 0.035 + (adjust?.revGrowth ?? 0),
+    adjMargin: pf.adjm + (adjust?.adjMargin ?? 0),
+    capexPct: Math.max(0, pf.capex / pf.rev + (adjust?.capexPct ?? 0)),
+    rate: Math.max(0, pf.int / pf.tdebt + (adjust?.rate ?? 0)),
   };
 
   function project(d: Drivers): Projection {
