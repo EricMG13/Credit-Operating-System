@@ -61,7 +61,7 @@ export function ReportList({
                   {r.title}
                 </span>
                 <span className="tabular text-[8.5px] text-caos-muted truncate">
-                  {r.file}.pdf · {r.sections.length} sections · {citeCount(r)} citations
+                  {r.sections.length} sections · {citeCount(r)} citations
                 </span>
               </span>
               <StatusTag held={!!r.watermark} />
@@ -69,7 +69,7 @@ export function ReportList({
           );
         })}
       </div>
-      <div className="px-3 py-2.5 border-t border-caos-border flex items-start gap-2">
+      <div className="px-4 py-2.5 border-t border-caos-border flex items-start gap-2">
         <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1" style={{ background: "var(--caos-warning)" }} />
         <span className="text-[9px] leading-relaxed text-caos-muted">
           CP-RENDER assembles deliverables from cleared module outputs. The IC Credit Memo is held by CP-5
