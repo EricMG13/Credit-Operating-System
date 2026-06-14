@@ -6,8 +6,10 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
+import type { Model } from "@/lib/reports/model";
 import {
-  SCENARIOS, FORECAST_YEARS, project, tornado, METRICS, type MetricKey,
+  buildScenarios, FORECAST_YEARS, swingLabel, METRICS,
+  type MetricKey, type ScenarioLens, type TornadoBar,
 } from "@/lib/model/scenarios";
 
 const fmtX = (v: number) => v.toFixed(2) + "x";
@@ -18,8 +20,8 @@ const fmtMetric = (v: number, key: MetricKey) =>
 const GOOD = "rgba(34,197,94,0.5)";
 const BAD = "rgba(239,68,68,0.5)";
 
-function ScenarioComparison() {
-  const proj = useMemo(() => SCENARIOS.map((s) => ({ s, p: project(s.drivers) })), []);
+function ScenarioComparison({ sc }: { sc: ScenarioLens }) {
+  const proj = useMemo(() => sc.scenarios.map((s) => ({ s, p: sc.project(s.drivers) })), [sc]);
   const val = "tabular text-[10px] text-right";
   const lbl = "flex items-baseline gap-1.5 min-w-0";
   const top = " mt-1 pt-1.5 border-t border-caos-border/60";
@@ -78,16 +80,37 @@ function ScenarioComparison() {
   );
 }
 
-function Tornado() {
+function Tornado({ sc }: { sc: ScenarioLens }) {
   const [metric, setMetric] = useState<MetricKey>("netLevExit");
   const [intensity, setIntensity] = useState(1);
   const meta = METRICS.find((m) => m.key === metric)!;
-  const { base, bars } = useMemo(() => tornado(metric, intensity), [metric, intensity]);
+  const { base, bars } = useMemo(() => sc.tornado(metric, intensity), [sc, metric, intensity]);
 
   const all = [...bars.flatMap((b) => [b.low, b.high]), base];
   const dmin = Math.min(...all), dmax = Math.max(...all), span = dmax - dmin || 1;
   const pos = (x: number) => ((x - dmin) / span) * 100;
   const fmt = (x: number) => fmtMetric(x, metric);
+
+  // Plain-language read of the tornado for the credit. `bars` arrives sorted
+  // widest-impact first (tornado order), so bars[0] is the binding driver.
+  const top = bars[0];
+  const range = (b: TornadoBar) => Math.abs(b.high - b.low);
+  const worseOf = (b: TornadoBar) => (meta.lowerIsBetter ? Math.max(b.low, b.high) : Math.min(b.low, b.high));
+  const betterOf = (b: TornadoBar) => (meta.lowerIsBetter ? Math.min(b.low, b.high) : Math.max(b.low, b.high));
+  const fmtMag = (v: number) =>
+    meta.unit === "x" ? Math.abs(v).toFixed(2) + "x" : "$" + Math.round(Math.abs(v)).toLocaleString() + "M";
+  const worstV = worseOf(top), bestV = betterOf(top);
+  const downAmt = Math.abs(worstV - base), upAmt = Math.abs(bestV - base);
+  const ratio = upAmt === 0 ? Infinity : downAmt / upAmt;
+  const skew =
+    ratio >= 1.5 ? "markedly downside-skewed" : ratio >= 1.15 ? "modestly downside-skewed"
+    : ratio <= 0.67 ? "markedly upside-skewed" : ratio <= 0.87 ? "modestly upside-skewed"
+    : "roughly symmetric";
+  const conc = range(bars[1]) === 0 ? Infinity : range(top) / range(bars[1]);
+  const concPhrase = isFinite(conc) ? `${conc.toFixed(1)}× the next-widest factor (${bars[1].label})` : "far wider than any other factor";
+  const tLo = Math.min(top.low, top.high), tHi = Math.max(top.low, top.high);
+  const adverseDir = worstV > base ? "above" : "below";
+  const favorDir = bestV > base ? "above" : "below";
 
   return (
     <div className="flex flex-col gap-2">
@@ -134,32 +157,51 @@ function Tornado() {
           const belowColor = meta.lowerIsBetter ? GOOD : BAD; // values < base
           const aboveColor = meta.lowerIsBetter ? BAD : GOOD; // values > base
           return (
-            <div key={b.driver} className="flex items-center gap-2" title={`${b.label}: ${fmt(b.low)} ↔ ${fmt(b.high)}`}>
-              <span className="text-[9px] text-caos-text w-[80px] shrink-0 truncate">{b.label}</span>
+            <div key={b.driver} className="flex items-center gap-1.5" title={`${b.label}: ${fmt(b.low)} ↔ ${fmt(b.high)} (base ${fmt(base)})`}>
+              <span className="text-[9px] text-caos-text w-[72px] shrink-0 truncate">{b.label}</span>
+              <span className="tabular text-[8.5px] text-caos-text w-[48px] shrink-0 text-right whitespace-nowrap tabular-nums">{fmt(a)}</span>
               <div className="relative flex-1 h-3.5 rounded-sm" style={{ background: "var(--caos-bg)" }}>
                 <span className="absolute top-0 bottom-0 rounded-l-sm" style={{ left: La + "%", width: Math.max(0, Lb - La) + "%", background: belowColor }} />
                 <span className="absolute top-0 bottom-0 rounded-r-sm" style={{ left: Lb + "%", width: Math.max(0, Lc - Lb) + "%", background: aboveColor }} />
                 <span className="absolute top-[-1px] bottom-[-1px] w-px" style={{ left: Lb + "%", background: "var(--caos-text)" }} />
               </div>
+              <span className="tabular text-[8.5px] text-caos-text w-[48px] shrink-0 text-left whitespace-nowrap tabular-nums">{fmt(c)}</span>
             </div>
           );
         })}
       </div>
 
       <div className="tabular text-caos-micro text-caos-muted leading-snug">
-        {meta.lowerIsBetter ? "Green improves (lower), red worsens." : "Green improves (higher), red worsens."} Forward FCF lens — total debt static, FCF builds cash.
+        {meta.lowerIsBetter ? "Green improves (lower), red worsens." : "Green improves (higher), red worsens."} Bar spans low–high outcome; tick = {fmt(base)} base.
+      </div>
+
+      {/* Narrative read — interprets the tornado for the credit, live with the selectors. */}
+      <div className="flex flex-col gap-1 pt-2 border-t border-caos-border/60">
+        <div className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Sensitivity read</div>
+        <p className="text-[10px] text-caos-muted leading-relaxed">
+          <span className="font-medium text-caos-text">{top.label} is the binding lever.</span>{" "}
+          A {swingLabel(top.driver, intensity)} swing alone moves the outcome{" "}
+          <span className="tabular text-caos-text">{fmt(tLo)}–{fmt(tHi)}</span>{" "}({fmtMag(range(top))}), {concPhrase}.{" "}
+          Risk is {skew}: the adverse case (<span className="tabular text-caos-text">{fmt(worstV)}</span>){" "}
+          sits {fmtMag(downAmt)} {adverseDir} the {fmt(base)} base versus {fmtMag(upAmt)} {favorDir} on the upside.{" "}
+          {bars[2].label} and {bars[3].label} are second-order (≤{fmtMag(range(bars[2]))} each).{" "}
+          Debt is held static — FCF accrues to cash, so this is a deleveraging lens, not a valuation.
+        </p>
       </div>
     </div>
   );
 }
 
-export function ScenarioPanel() {
+// Anchored on the model's pro-forma (PF) column, so the lens re-bases on the
+// same live CP-1 run the grid does (and falls back to the seeded PF offline).
+export function ScenarioPanel({ model }: { model: Model }) {
+  const sc = useMemo(() => buildScenarios(model.cols.pf), [model]);
   return (
     <Panel title="Scenario & Sensitivity · forward cash-flow lens" className="w-[372px] shrink-0">
       <div className="p-2.5 flex flex-col gap-3.5">
-        <ScenarioComparison />
+        <ScenarioComparison sc={sc} />
         <div className="border-t border-caos-border" />
-        <Tornado />
+        <Tornado sc={sc} />
       </div>
     </Panel>
   );

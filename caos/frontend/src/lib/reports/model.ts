@@ -7,6 +7,12 @@
 // Consumed by both the Model Builder (/model — full grid incl. PF/BASE/DOWN,
 // severity, manual overrides) and the Report Studio (/reports — historical
 // columns only).
+//
+// Optionally grounded in a live CP-1 run: passing a `ModelAnchor` re-bases the
+// LTM and PF columns onto the engine's reported figures (see `applyAnchor`),
+// leaving historicals and the forecast on the seeded build.
+
+import type { ModelAnchor } from "@/lib/engine/modelAnchor";
 
 export interface ModelCol {
   key: string;
@@ -83,6 +89,10 @@ export interface ModelColumnDef {
 export interface Model {
   cols: Record<string, ModelCol>;
   columns: ModelColumnDef[];
+  // Provenance for the Model Builder's LIVE/SEEDED chip + tie-out badge.
+  // `seededLtmNetlev` is the model's own LTM net leverage *before* any anchor,
+  // so the UI can reconcile it against CP-1's reported figure.
+  provenance: { seededLtmNetlev: number; anchored: boolean };
 }
 
 export type Overrides = Record<string, number>; // "colKey:field" -> model-basis value
@@ -154,6 +164,25 @@ function finishBalances(c: any) {
   return c as ModelCol;
 }
 
+// Ground an annual anchor column (LTM / PF) in a live CP-1 run: re-base its
+// revenue, adj. EBITDA and net debt onto the engine's reported figures, then
+// re-derive the credit KPIs the same way finishBalances does. Applied as a
+// post-step *after* the forecast is built, so BASE/DOWN (which read the seeded
+// l1.cash) and the historicals are untouched. Debt stack (tdebt) stays seeded;
+// cash is back-solved from net debt to keep the column self-consistent.
+function applyAnchor(c: ModelCol, a: ModelAnchor): void {
+  c.rev = a.ltmRevenue;
+  c.adj = a.ltmAdjEbitda;
+  c.adjm = c.adj / c.rev;
+  c.ndebt = a.netDebt;
+  c.cash = c.tdebt - c.ndebt;
+  c.srsec = (c.rcf + c.tlb + c.ssn - c.cash) / c.adj;
+  c.totlev = c.tdebt / c.adj;
+  c.netlev = c.ndebt / c.adj;
+  c.intcov = c.adj / c.int;
+  c.fcfdebt = c.fcf / c.tdebt;
+}
+
 function qCtx(i: number, prevCash: number, A: Record<string, number[]>, capexOv: Record<number, number>): ModelCol {
   const rev = A.rev[i];
   const c: Ctx = {
@@ -219,7 +248,7 @@ function fCtx(key: string, label: string, kind: "b" | "d", p: Ctx, prevCash: num
   return finishBalances(c);
 }
 
-export function buildModel(sev: number = 1, OV: Overrides = {}): Model {
+export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAnchor): Model {
   const s = Math.max(0.25, Math.min(1.6, sev || 1));
   const g = (col: string, f: string, dflt: number) => {
     const v = OV[col + ":" + f];
@@ -332,5 +361,14 @@ export function buildModel(sev: number = 1, OV: Overrides = {}): Model {
     { key: "b0", group: "BASE" }, { key: "b1", group: "BASE" }, { key: "b2", group: "BASE" },
     { key: "d0", group: "DOWN" }, { key: "d1", group: "DOWN" }, { key: "d2", group: "DOWN" },
   ];
-  return { cols, columns };
+
+  // Capture the model's own LTM net leverage before any anchor, so the UI can
+  // reconcile the seeded build against CP-1's reported figure, then ground the
+  // LTM (l1) and PF columns in the live run if one is supplied.
+  const seededLtmNetlev = cols.l1.netlev ?? 0;
+  if (anchor) {
+    applyAnchor(cols.l1, anchor);
+    applyAnchor(cols.pf, anchor);
+  }
+  return { cols, columns, provenance: { seededLtmNetlev, anchored: !!anchor } };
 }

@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
-import {
-  BASE_DRIVERS, SCENARIOS, project, metricValue, tornado, METRICS,
-} from "./scenarios";
+import { buildScenarios, metricValue, METRICS } from "./scenarios";
+import { buildModel } from "@/lib/reports/model";
+import type { ModelAnchor } from "@/lib/engine/modelAnchor";
 
-const scen = (k: "best" | "base" | "worst") => SCENARIOS.find((s) => s.key === k)!.drivers;
+// The default lens anchors on the seeded build's PF column (offline fallback).
+const lens = buildScenarios();
+const scen = (k: "best" | "base" | "worst") => lens.scenarios.find((s) => s.key === k)!.drivers;
 
 describe("project (cash-flow lens)", () => {
   it("projects three forecast years of finite credit metrics", () => {
-    const p = project(BASE_DRIVERS);
+    const p = lens.project(lens.base);
     expect(p.years).toHaveLength(3);
     for (const arr of [p.revenue, p.adjEbitda, p.fcf, p.cash, p.netDebt, p.netLev, p.intCov]) {
       expect(arr).toHaveLength(3);
@@ -16,7 +18,7 @@ describe("project (cash-flow lens)", () => {
   });
 
   it("deleverages in the base case (net leverage falls as FCF builds cash)", () => {
-    const p = project(BASE_DRIVERS);
+    const p = lens.project(lens.base);
     expect(p.netLev[2]).toBeLessThan(p.netLev[0]);
     expect(p.cash[2]).toBeGreaterThan(p.cash[0]);
   });
@@ -24,13 +26,13 @@ describe("project (cash-flow lens)", () => {
 
 describe("best / base / worst ordering", () => {
   it("orders exit net leverage best < base < worst", () => {
-    const lev = (k: "best" | "base" | "worst") => metricValue(project(scen(k)), "netLevExit");
+    const lev = (k: "best" | "base" | "worst") => metricValue(lens.project(scen(k)), "netLevExit");
     expect(lev("best")).toBeLessThan(lev("base"));
     expect(lev("base")).toBeLessThan(lev("worst"));
   });
 
   it("orders cumulative FCF best > base > worst", () => {
-    const fcf = (k: "best" | "base" | "worst") => metricValue(project(scen(k)), "cumFcf");
+    const fcf = (k: "best" | "base" | "worst") => metricValue(lens.project(scen(k)), "cumFcf");
     expect(fcf("best")).toBeGreaterThan(fcf("base"));
     expect(fcf("base")).toBeGreaterThan(fcf("worst"));
   });
@@ -38,8 +40,8 @@ describe("best / base / worst ordering", () => {
 
 describe("tornado (adjustable sensitivity)", () => {
   it("returns one bar per driver, sorted widest-impact first", () => {
-    const { base, bars } = tornado("netLevExit");
-    expect(base).toBe(metricValue(project(BASE_DRIVERS), "netLevExit"));
+    const { base, bars } = lens.tornado("netLevExit");
+    expect(base).toBe(metricValue(lens.project(lens.base), "netLevExit"));
     expect(bars).toHaveLength(4);
     for (let i = 0; i < bars.length - 1; i++) {
       const wi = Math.abs(bars[i].high - bars[i].low);
@@ -49,7 +51,7 @@ describe("tornado (adjustable sensitivity)", () => {
   });
 
   it("has correct directionality: more revenue growth lowers leverage; a higher rate raises it", () => {
-    const { bars } = tornado("netLevExit");
+    const { bars } = lens.tornado("netLevExit");
     const rev = bars.find((b) => b.driver === "revGrowth")!;
     const rate = bars.find((b) => b.driver === "rate")!;
     expect(rev.high).toBeLessThan(rev.low);   // +growth → lower net leverage
@@ -57,12 +59,53 @@ describe("tornado (adjustable sensitivity)", () => {
   });
 
   it("intensity widens the swing", () => {
-    const narrow = tornado("netLevExit", 0.5).bars[0];
-    const wide = tornado("netLevExit", 1.5).bars[0];
+    const narrow = lens.tornado("netLevExit", 0.5).bars[0];
+    const wide = lens.tornado("netLevExit", 1.5).bars[0];
     expect(Math.abs(wide.high - wide.low)).toBeGreaterThan(Math.abs(narrow.high - narrow.low));
   });
 
   it("exposes the four selectable output metrics", () => {
     expect(METRICS.map((m) => m.key)).toEqual(["netLevExit", "cumFcf", "minCash", "intCovExit"]);
+  });
+});
+
+describe("live CP-1 anchor re-bases the lens", () => {
+  // A live anchor deliberately offset from the seeded build, so the test proves
+  // the lens re-bases on the PF column (rather than coinciding by construction).
+  const ANCHOR: ModelAnchor = {
+    ltmRevenue: 2850,
+    ltmAdjEbitda: 450,
+    netDebt: 2500,
+    netLeverage: 5.9,
+    intCov: 2.0,
+  };
+
+  it("defaults to the same PF column as the seeded build", () => {
+    const seeded = buildScenarios(buildModel(1).cols.pf);
+    expect(lens.base).toEqual(seeded.base);
+  });
+
+  it("derives base drivers from the anchored PF, not the seeded one", () => {
+    const pf = buildModel(1, {}, ANCHOR).cols.pf;
+    const live = buildScenarios(pf);
+    // adj margin re-bases onto the live LTM (450 / 2850), diverging from seeded.
+    expect(live.base.adjMargin).toBeCloseTo(ANCHOR.ltmAdjEbitda / ANCHOR.ltmRevenue, 6);
+    expect(live.base.adjMargin).not.toBeCloseTo(lens.base.adjMargin, 4);
+  });
+
+  it("rolls the projection forward from the live PF revenue", () => {
+    const pf = buildModel(1, {}, ANCHOR).cols.pf;
+    const live = buildScenarios(pf);
+    const p = live.project(live.base);
+    // Year 1 revenue = live PF revenue grown one year at the base growth rate.
+    expect(p.revenue[0]).toBeCloseTo(ANCHOR.ltmRevenue * (1 + live.base.revGrowth), 6);
+  });
+
+  it("shifts the tornado base off the seeded value", () => {
+    const pf = buildModel(1, {}, ANCHOR).cols.pf;
+    const live = buildScenarios(pf);
+    const liveBase = live.tornado("netLevExit").base;
+    const seededBase = lens.tornado("netLevExit").base;
+    expect(liveBase).not.toBeCloseTo(seededBase, 3);
   });
 });

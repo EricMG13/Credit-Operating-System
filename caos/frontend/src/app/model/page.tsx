@@ -14,8 +14,10 @@ import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/Mo
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
 import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum } from "@/components/model/rows";
-import { buildModel, type Overrides } from "@/lib/reports/model";
+import { buildModel, type Model, type Overrides } from "@/lib/reports/model";
 import { buildReports } from "@/lib/reports/builders";
+import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import {
   buildGrid, cellKey, EMPTY_SHEET, loadSheet, newColKey, newRowId, type SheetState,
 } from "@/lib/model/sheet";
@@ -58,7 +60,13 @@ function ModelBuilder() {
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-severity", String(severity)); } catch {} }, [hydrated, severity]);
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-sheet", JSON.stringify(sheet)); } catch {} }, [hydrated, sheet]);
 
-  const model = useMemo(() => buildModel(severity, overrides), [severity, overrides]);
+  // Prefer a live CP-1 run for the LTM/PF anchor; falls back to the seeded
+  // model when no run / no backend (offline demo unaffected).
+  const eng = useModelEngine(ATLF_REFERENCE_ISSUER_ID);
+  const model = useMemo(
+    () => buildModel(severity, overrides, eng.anchor ?? undefined),
+    [severity, overrides, eng.anchor],
+  );
   const grid = useMemo(() => buildGrid(model, sheet), [model, sheet]);
   const b1 = model.cols.b1, d0 = model.cols.d0;
   const ovCount = Object.keys(overrides).length;
@@ -121,8 +129,9 @@ function ModelBuilder() {
         <div className="h-4 w-px bg-caos-border" />
         <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">MODEL M-118</span>
         <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate min-w-0">
-          constructed from RUN #2641 module outputs · dbl-click historical cells to override
+        <ModelProvenance eng={eng} model={model} />
+        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
+          dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
         <span className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap">
@@ -239,11 +248,58 @@ function ModelBuilder() {
               onDeleteCol={deleteCol}
             />
           </div>
-          {showScenarios ? <ScenarioPanel /> : null}
+          {showScenarios ? <ScenarioPanel model={model} /> : null}
         </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
     </div>
+  );
+}
+
+// Engine provenance for the sub-header: whether the LTM/PF anchor is grounded in
+// a live CP-1 run or the seeded demo model, plus a tie-out reconciling the
+// model's own LTM net leverage against CP-1's reported figure. Status is always
+// glyph-paired (dot / ✓ / ⚠), never carried by color alone.
+function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }) {
+  if (eng.loading) {
+    return <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· linking engine…</span>;
+  }
+  if (!eng.live || !eng.anchor) {
+    return (
+      <span
+        className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap text-caos-muted"
+        title="No completed run found — grid uses the seeded demo model (offline fallback)."
+      >
+        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
+        SEEDED · demo RUN #2641
+      </span>
+    );
+  }
+  const live = eng.anchor.netLeverage;
+  const drift = Math.abs(model.provenance.seededLtmNetlev - live);
+  const ok = drift <= 0.05;
+  return (
+    <span className="flex items-center gap-2 whitespace-nowrap">
+      <span
+        className="flex items-center gap-1.5 tabular text-[9px]"
+        style={{ color: "var(--caos-success)" }}
+        title={`Anchored to live CP-1 from run ${eng.runId} · committee: ${eng.committeeStatus ?? "—"}`}
+      >
+        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} />
+        CP-1 LIVE · RUN {eng.runId!.slice(0, 8)}
+      </span>
+      <span
+        className="flex items-center gap-1 tabular text-[9px] px-1.5 py-px rounded border"
+        style={
+          ok
+            ? { color: "var(--caos-success)", borderColor: "rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.08)" }
+            : { color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }
+        }
+        title={`Model's independently-built LTM net leverage (${model.provenance.seededLtmNetlev.toFixed(2)}x) vs CP-1 reported (${live.toFixed(2)}x).`}
+      >
+        {ok ? `✓ ties to CP-1 ${live.toFixed(2)}x` : `⚠ Δ${drift.toFixed(2)}x vs CP-1 ${live.toFixed(2)}x`}
+      </span>
+    </span>
   );
 }
