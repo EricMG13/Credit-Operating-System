@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # Upload cap (MB).
     max_upload_mb: int = 250
 
+    # Optional: external markitdown CLI for structure-preserving document → text
+    # extraction (tables, headings — better for financials/covenants than the
+    # built-in pypdf/openpyxl). markitdown needs Python 3.10+, so it runs
+    # out-of-process: set this to a command that invokes it in a 3.10+ env, e.g.
+    # "/opt/markitdown/.venv/bin/markitdown". Empty = use the built-in
+    # extractors. See caos/docs/TOOLING_REVIEW.md.
+    markitdown_cmd: str = ""
+    markitdown_timeout_s: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

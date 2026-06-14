@@ -23,3 +23,8 @@ env:
   # or via `databricks apps` resource config):
   # - name: "ANTHROPIC_API_KEY"
   #   valueFrom: "anthropic-api-key"
+  # Optional: structure-preserving document extraction via an external markitdown
+  # CLI (tables/headings; needs Python 3.10+, so it runs out-of-process). Empty =
+  # built-in pypdf/openpyxl. See docs/TOOLING_REVIEW.md.
+  # - name: "CAOS_MARKITDOWN_CMD"
+  #   value: "/opt/markitdown/.venv/bin/markitdown"

@@ -91,7 +91,7 @@ async def upload_document(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_pdf(content)
-    text = ingest.extract_pdf_text(content)
+    text = ingest.extract_pdf_text(content, file.filename or "upload.pdf")
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
 
 
@@ -106,5 +106,5 @@ async def upload_pricing_sheet(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_xlsx(content)
-    text = ingest.extract_xlsx_text(content)
+    text = ingest.extract_xlsx_text(content, file.filename or "upload.xlsx")
     return await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)

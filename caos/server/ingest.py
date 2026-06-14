@@ -8,17 +8,22 @@ downstream retrieval.
 from __future__ import annotations
 
 import io
+import logging
 import re
+import shlex
+import subprocess
+import tempfile
 import uuid
 import zipfile
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile
 
 from config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("caos.ingest")
 
 _PDF_MAGIC = b"%PDF-"
 _OOXML_MAGIC = b"PK\x03\x04"
@@ -76,7 +81,41 @@ def store(content: bytes, file_name: str) -> str:
     return key
 
 
-def extract_pdf_text(content: bytes) -> str:
+def _markitdown_text(content: bytes, filename: str) -> Optional[str]:
+    """Structure-preserving extraction via an external markitdown CLI, when one
+    is configured (CAOS_MARKITDOWN_CMD). markitdown needs Python 3.10+, so it
+    runs out-of-process — the server keeps its own interpreter. Returns the
+    Markdown, or None to fall back to the built-in extractors (also on any
+    failure/timeout, so a misconfigured command never blocks an upload)."""
+    cmd = settings.markitdown_cmd
+    if not cmd:
+        return None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix or ".bin") as tmp:
+            tmp.write(content)
+            tmp.flush()
+            proc = subprocess.run(
+                [*shlex.split(cmd), tmp.name],
+                capture_output=True,
+                timeout=settings.markitdown_timeout_s,
+            )
+        if proc.returncode == 0:
+            return proc.stdout.decode("utf-8", "replace").strip() or None
+        logger.warning(
+            "markitdown rc=%s — falling back. stderr=%s",
+            proc.returncode,
+            proc.stderr.decode("utf-8", "replace")[:200],
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("markitdown unavailable (%s) — falling back.", exc)
+    return None
+
+
+def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> str:
+    md = _markitdown_text(content, filename)
+    if md is not None:
+        return md
+
     from pypdf import PdfReader
 
     try:
@@ -86,7 +125,11 @@ def extract_pdf_text(content: bytes) -> str:
         return ""  # scanned / encrypted PDFs vault fine, just produce no chunks
 
 
-def extract_xlsx_text(content: bytes) -> str:
+def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
+    md = _markitdown_text(content, filename)
+    if md is not None:
+        return md
+
     from openpyxl import load_workbook
 
     try:
