@@ -15,6 +15,7 @@ bypassed, so it is rejected rather than given the dev identity.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
@@ -35,13 +36,21 @@ _LOCAL_DEV = CallerIdentity(
     id="local-dev", email="analyst@local.dev", full_name="Local Analyst"
 )
 
+# Databricks Apps always injects DATABRICKS_APP_PORT. Treat its presence as a
+# deployed context that must enforce identity even if ENVIRONMENT was left unset
+# — so the gate fails closed on the platform, not only when env is tagged
+# "production".
+_UNDER_DATABRICKS = os.environ.get("DATABRICKS_APP_PORT") is not None
+
 
 def get_identity(request: Request) -> CallerIdentity:
     """FastAPI dependency: resolve the caller from forwarded headers."""
     email = request.headers.get("x-forwarded-email")
     user = request.headers.get("x-forwarded-user")
     if not email and not user:
-        if get_settings().environment == "production":
+        # Fail closed: reject a header-less (un-proxied) request in any deployed
+        # context; fall back to the dev identity only for a genuine local run.
+        if get_settings().environment == "production" or _UNDER_DATABRICKS:
             raise HTTPException(
                 401, "No platform identity — request did not pass the Databricks Apps edge."
             )
