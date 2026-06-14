@@ -1,9 +1,10 @@
 # CAOS — Credit Agent OS
 
-Credit analysis workspace: a five-concept analyst UI (Command Center,
-Pipeline, Deep-Dive, Model Builder, Report Studio) backed by a FastAPI
-service. Built to deploy as a single **Databricks App** — one process serves
-the JSON API under `/api` and the statically-exported Next.js frontend at `/`.
+Credit analysis workspace: a six-concept analyst UI (Command Center,
+Pipeline, Deep-Dive, Model Builder, Report Studio, Monitor) plus a global
+**Ask (⌘K)** launcher, backed by a FastAPI service. Built to deploy as a single
+**Databricks App** — one process serves the JSON API under `/api` and the
+statically-exported Next.js frontend at `/`.
 
 ```
 caos/
@@ -21,7 +22,7 @@ caos/
 | Concern        | Implementation                                                       |
 |----------------|----------------------------------------------------------------------|
 | Auth           | Platform-managed (workspace OAuth at the edge). The app reads the forwarded identity headers (`X-Forwarded-User` / `-Email`); there is no in-app login. |
-| Database       | SQLite by default (ephemeral); set `DATABASE_URL` to Lakebase (`postgresql+asyncpg://…`) for durability. Schema is `create_all` on boot. |
+| Database       | SQLite by default (ephemeral); set `DATABASE_URL` to Lakebase (`postgresql+asyncpg://…`) for durability. Schema is managed by **Alembic** (migrations run on boot). |
 | Document vault | Local dir by default; set `CAOS_STORAGE_DIR` to a Unity Catalog Volume (`/Volumes/...`) for durability. |
 | LLM chat       | Anthropic Claude (`claude-opus-4-8`) via `ANTHROPIC_API_KEY` (Databricks secret). Without a key the chat endpoint returns canned demo replies. |
 | Frontend       | Next.js static export served by FastAPI's StaticFiles — no Node process in deployment. |
