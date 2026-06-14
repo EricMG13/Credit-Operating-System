@@ -9,8 +9,13 @@ OAuth) and forwards the verified identity to the app:
 
 There is no in-app login. Outside Databricks (local dev) the headers are
 absent and a stable local analyst identity is returned so the UI works
-unchanged. In production a header-less request means the platform edge was
-bypassed, so it is rejected rather than given the dev identity.
+unchanged. A header-less request in any deployed context means the platform
+edge was bypassed, so it is rejected (401) — enforced when ENVIRONMENT is
+"production" OR DATABRICKS_APP_PORT is set (the platform always injects the
+latter), so the gate fails closed on-platform even if ENVIRONMENT is unset.
+
+Trusting these headers is safe only because the edge is the sole network path
+to the app; see caos/docs/SECURITY.md §1.
 """
 
 from __future__ import annotations

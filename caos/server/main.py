@@ -32,6 +32,12 @@ async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
     await init_db()
     if settings.caos_demo_seed:
+        if settings.environment == "production":
+            logger.warning(
+                "CAOS_DEMO_SEED is on in production — seeding demo issuers + the ATLF "
+                "reference deal into the database. Set CAOS_DEMO_SEED=false for a "
+                "non-demo deployment so the registry starts empty."
+            )
         await seed_demo_data()
         async with AsyncSessionLocal() as session:
             await ensure_reference_deal(session)

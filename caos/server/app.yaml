@@ -6,6 +6,10 @@ command: ["python", "run.py"]
 env:
   - name: "ENVIRONMENT"
     value: "production"
+  # DEMO data only — seeds 3 demo issuers + the ATLF reference deal on boot
+  # (idempotent; skipped once the registry is non-empty). This is on for the
+  # POC. For a real (non-demo) deployment set "false" — the registry then
+  # starts empty. The app logs a WARNING when this runs in production.
   - name: "CAOS_DEMO_SEED"
     value: "true"
   # Point the document vault at a Unity Catalog Volume for durable storage
