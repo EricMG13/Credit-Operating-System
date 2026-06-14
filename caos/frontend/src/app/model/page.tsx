@@ -11,6 +11,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
+import { ScenarioPanel } from "@/components/model/ScenarioPanel";
 import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum } from "@/components/model/rows";
 import { buildModel, type Overrides } from "@/lib/reports/model";
@@ -33,6 +34,7 @@ function ModelBuilder() {
   const [evModal, setEvModal] = useState<string | null>(null);
   const [severity, setSeverity] = useState(1);
   const [showQuarters, setShowQuarters] = useState(true);
+  const [showScenarios, setShowScenarios] = useState(true);
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({});
   const [sheet, setSheet] = useState<SheetState>(EMPTY_SHEET);
@@ -155,6 +157,16 @@ function ModelBuilder() {
           QUARTERS
         </button>
         <button
+          onClick={() => setShowScenarios(!showScenarios)}
+          title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
+          className={
+            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+          }
+        >
+          SCENARIOS
+        </button>
+        <button
           onClick={addRow}
           title="Add an analyst row at the bottom of the sheet — cells accept numbers or =formulas"
           className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
@@ -207,23 +219,28 @@ function ModelBuilder() {
           onClearCell={clearCell}
           onOpenEvidence={setEvModal}
         />
-        <Sheet
-          model={model}
-          sheet={sheet}
-          grid={grid}
-          showQ={showQuarters}
-          hl={hl}
-          sel={sel}
-          onSel={setSel}
-          editing={editing}
-          onEdit={setEditing}
-          onCommit={commitEdit}
-          onAddRow={addRow}
-          onRenameRow={renameRow}
-          onDeleteRow={deleteRow}
-          onRenameCol={renameCol}
-          onDeleteCol={deleteCol}
-        />
+        <div className="flex-1 min-h-0 flex gap-2">
+          <div className="flex-1 min-w-0 min-h-0 flex">
+            <Sheet
+              model={model}
+              sheet={sheet}
+              grid={grid}
+              showQ={showQuarters}
+              hl={hl}
+              sel={sel}
+              onSel={setSel}
+              editing={editing}
+              onEdit={setEditing}
+              onCommit={commitEdit}
+              onAddRow={addRow}
+              onRenameRow={renameRow}
+              onDeleteRow={deleteRow}
+              onRenameCol={renameCol}
+              onDeleteCol={deleteCol}
+            />
+          </div>
+          {showScenarios ? <ScenarioPanel /> : null}
+        </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
