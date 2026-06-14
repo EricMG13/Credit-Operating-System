@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
@@ -64,6 +65,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [showNewIssuer, setShowNewIssuer] = useState(false);
   const [newIssuerName, setNewIssuerName] = useState("");
   const [newIssuerTicker, setNewIssuerTicker] = useState("");
+
+  // Optional ?issuer=<id> deep-link from a directory row's UPLOAD action.
+  const issuerParam = useSearchParams().get("issuer");
 
   const onDrop = useCallback((accepted: File[]) => {
     setFiles((prev) => {
@@ -137,6 +141,18 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Deep-link: arriving with ?issuer=<id> for an issuer that already exists
+  // pre-selects it and skips straight to "Files & run mode" (step 02). Only
+  // auto-advances from the first step, so it never fights later navigation.
+  useEffect(() => {
+    if (!issuerParam) return;
+    const match = issuers.find((i) => i.id === issuerParam);
+    if (match) {
+      setSelectedIssuer(match);
+      setStep((s) => (s === "issuer" ? "file" : s));
+    }
+  }, [issuerParam, issuers]);
 
   const stepIdx = STEPS.findIndex((s) => s.k === step);
   const modeMeta = RUN_MODES.find((m) => m.k === runMode);

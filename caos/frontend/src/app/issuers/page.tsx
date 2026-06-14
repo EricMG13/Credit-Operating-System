@@ -201,7 +201,7 @@ function IssuersDirectory() {
                   <span className="text-caos-muted text-[10px] truncate">{issuer.country || "—"}</span>
                   <span className="tabular text-caos-muted text-[9.5px] truncate">{issuer.figi || "—"}</span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); router.push("/upload"); }}
+                    onClick={(e) => { e.stopPropagation(); router.push("/upload?issuer=" + encodeURIComponent(issuer.id)); }}
                     aria-label={`Upload documents for ${issuer.name}`}
                     className="tabular text-[9px] text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos focus-ring"
                   >

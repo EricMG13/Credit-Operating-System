@@ -3,6 +3,7 @@
 // Document Intake — CP-0 source upload, in the CAOS design language shared by
 // the concept sections: h-10 sub-header, panel chrome, dense tabular controls.
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { UploadWizard } from "@/components/upload/UploadWizard";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -36,7 +37,9 @@ export default function UploadPage() {
 
         {/* wizard */}
         <div className="flex-1 min-h-0 overflow-auto p-2">
-          <UploadWizard />
+          <Suspense fallback={null}>
+            <UploadWizard />
+          </Suspense>
         </div>
       </div>
     </RequireAuth>
