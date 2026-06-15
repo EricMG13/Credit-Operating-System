@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { getChunk } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 
 export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; label?: string | null; onClose: () => void }) {
   const [chunk, setChunk] = useState<ChunkDTO | null>(null);
@@ -63,7 +64,7 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
 
         <div className="flex-1 min-h-0 overflow-auto px-3.5 py-3">
           {err ? (
-            <div className="tabular text-[10px]" style={{ color: "var(--caos-warning)" }}>⚠ {err}</div>
+            <div className="tabular text-[10px]" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div>
           ) : !chunk ? (
             <div className="tabular text-[10px] text-caos-muted">Loading source…</div>
           ) : (

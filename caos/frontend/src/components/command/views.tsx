@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
@@ -295,7 +296,7 @@ export function SectorBoard() {
           >
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-caos-text">{s.sector}</span>
-              {s.ew > 0 ? <span className="tabular text-[9px]" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}>⚠ {s.ew}</span> : null}
+              {s.ew > 0 ? <span className="tabular text-[9px]" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
             </div>
             <div className="tabular text-[9px] tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
             <div className="text-[9.5px] text-caos-muted mt-1 leading-snug">{s.trend}</div>

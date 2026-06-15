@@ -10,6 +10,7 @@ import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 
 export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
   const open = (EVIDENCE[id] || {}).status === "open";
@@ -34,7 +35,7 @@ export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => voi
         boxShadow: synced ? "0 0 0 1px var(--caos-accent)" : undefined,
       }}
     >
-      {id}{open ? "⚠" : ""}
+      {id}{open ? <StatusGlyph kind="warning" className="ml-0.5" /> : null}
     </button>
   );
 }

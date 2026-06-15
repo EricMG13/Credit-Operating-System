@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
@@ -298,7 +299,7 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
         }
         title={`Model's independently-built LTM net leverage (${model.provenance.seededLtmNetlev.toFixed(2)}x) vs CP-1 reported (${live.toFixed(2)}x).`}
       >
-        {ok ? `✓ ties to CP-1 ${live.toFixed(2)}x` : `⚠ Δ${drift.toFixed(2)}x vs CP-1 ${live.toFixed(2)}x`}
+        {ok ? <>✓ ties to CP-1 {live.toFixed(2)}x</> : <><StatusGlyph kind="warning" /> Δ{drift.toFixed(2)}x vs CP-1 {live.toFixed(2)}x</>}
       </span>
     </span>
   );

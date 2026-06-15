@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Dot } from "@/components/pipeline/atoms";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import {
   INDEX_MOVE,
   SECTOR_REVIEWS,
@@ -115,7 +116,7 @@ export function SectorReview({
           </span>
           {row.ew > 0 ? (
             <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border" style={{ color: row.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}>
-              ⚠ {row.ew} EW triggers
+              <StatusGlyph kind="warning" /> {row.ew} EW triggers
             </span>
           ) : null}
           <div className="flex-1" />
