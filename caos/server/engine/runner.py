@@ -25,6 +25,7 @@ from database import (
 )
 from engine import budget, edgar_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
+from engine.council import get_reviewer
 from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
@@ -182,6 +183,22 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 affected_claim_id=f.affected_claim_id, required_remediation=f.required_remediation,
             ))
         await _persist_cp5b(session, run.id, produced, findings)
+
+        # ── CP-5C: semantic committee review (opt-in; emits findings) ─────
+        # An ensemble of adversarial reviewer seats reads the produced payloads
+        # and flags reasoning the lineage pass cannot see. It only *produces*
+        # findings; the deterministic CP-5 gate below still decides status. No-op
+        # (no token cost) unless council_enabled and a key are set.
+        council = await get_reviewer().review(produced)
+        for f in council:
+            session.add(QAFinding(
+                run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
+                severity=f.severity, lane=f.lane, description=f.description,
+                affected_claim_id=f.affected_claim_id,
+                required_remediation=f.required_remediation,
+            ))
+        findings = findings + council  # the CP-5 gate consumes lineage + council
+        await _persist_cp5c(session, run.id, produced, council)
 
         # ── CP-5: the deterministic gate ──────────────────────────────────
         for mid in ANALYTICAL_SLICE:
@@ -366,6 +383,41 @@ async def _persist_cp5b(
             "weak_lineage_flags": weak,
             "orphan_claims": sum(1 for f in findings if f.lane == 1),
             "auditability": "STRONG" if weak == 0 else "QUALIFIED",
+        },
+        downstream_consumers=["CP-5"],
+    ))
+
+
+async def _persist_cp5c(
+    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding]
+) -> None:
+    """Record the committee review as an auditable module output (show your work).
+
+    Always Passed/Committee Ready as a *process* record — it attests the review
+    ran; the findings it raised gate the analytical modules, not this row. When
+    the council is disabled this records a clean, zero-seat pass.
+    """
+    counts = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
+    for f in findings:
+        counts[f.severity] = counts.get(f.severity, 0) + 1
+    settings = get_settings()
+    seats = min(max(0, settings.council_seats), 4) if settings.council_enabled else 0
+    session.add(ModuleOutput(
+        run_id=run_id, module_id="CP-5C", module_name="SemanticCommitteeReview",
+        owned_object="committee_review", confidence="High",
+        qa_status="Passed", committee_status="Committee Ready", validation_status="Passed",
+        runtime_output={
+            "enabled": bool(settings.council_enabled),
+            "seats": seats,
+            "peer_round": bool(settings.council_enabled and settings.council_peer_round),
+            "modules_reviewed": [p.module_id for p in produced],
+            "findings_by_severity": counts,
+            "issue_log": [
+                {"id": f.finding_id, "severity": f.severity, "lane": f.lane,
+                 "module": f.module_id, "claim": f.affected_claim_id,
+                 "finding": f.description}
+                for f in findings
+            ],
         },
         downstream_consumers=["CP-5"],
     ))

@@ -194,7 +194,7 @@ function DeepDive() {
             </div>
           )}
         </Panel>
-        <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} />
+        <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} />
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}

@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
 
+    # CP-5C semantic committee review (engine/council.py). An ensemble of
+    # adversarial reviewer "seats" that emit CP-5 findings the deterministic
+    # gate then consumes — it never decides status itself. Off by default: it
+    # is an LLM fan-out (one call per seat per run) and so costs tokens, and it
+    # needs anthropic_api_key. When unset the runner uses the no-op
+    # FixtureReviewer, so the engine stays fully exercisable offline.
+    council_enabled: bool = False
+    council_seats: int = 4  # number of reviewer lanes used (1-4)
+    # Stage-2 anonymized peer round: after the seats raise findings, show the
+    # pooled findings back to the panel with authorship stripped and let them
+    # confirm/reject and recalibrate severity. Trims single-seat false positives
+    # at the cost of a second LLM fan-out. No effect unless council_enabled.
+    council_peer_round: bool = False
+
     # Upload cap (MB).
     max_upload_mb: int = 250
 
