@@ -11,13 +11,15 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
+from database import (
+    AsyncSessionLocal, Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db,
+)
 from engine.report import assemble_report, committee_export_allowed
 from engine.runner import execute_run
 from identity import CallerIdentity, get_identity
@@ -28,10 +30,34 @@ router = APIRouter()
 _RUNS_MAX_PER_MINUTE = 12
 
 
+async def _execute_run_bg(run_id: str) -> None:
+    """Execute a queued run in the background, on its own session. A failure is
+    persisted (status=failed + reason) so it stays inspectable — the runner never
+    leaves a run stuck in 'running'."""
+    async with AsyncSessionLocal() as session:
+        run = await session.get(Run, run_id)
+        if run is None:
+            return
+        try:
+            await execute_run(session, run)
+            await session.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.exception("background run %s failed", run_id)
+            await session.rollback()
+            run = await session.get(Run, run_id)
+            if run is not None:
+                run.status = "failed"
+                run.failure_reason = (f"{type(e).__name__}: {e}")[:1000]
+                await session.commit()
+
+
 # ── Request / response models ───────────────────────────────────────────────
 class RunCreate(BaseModel):
     issuer_id: str = Field(min_length=1, max_length=36)
     as_of_date: Optional[str] = Field(default=None, max_length=32)
+    # Opt-in async execution: return immediately with status='queued' and run in
+    # the background (poll GET /runs/{id}). Default stays synchronous.
+    background: bool = False
 
 
 class ModuleStatus(BaseModel):
@@ -145,6 +171,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
 @router.post("", response_model=RunSummary, status_code=201)
 async def create_run(
     body: RunCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
@@ -158,6 +185,14 @@ async def create_run(
     db.add(run)
     await db.flush()
     run_id = run.id
+
+    # Async path: persist the queued run, hand execution to a background task, and
+    # return immediately so a multi-module / LLM run doesn't block the request.
+    if body.background:
+        run.status = "queued"
+        await db.commit()
+        background_tasks.add_task(_execute_run_bg, run_id)
+        return await _summary(db, run)
 
     try:
         await execute_run(db, run)
