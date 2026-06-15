@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Protocol
 
 from config import SERVER_DIR, get_settings
+from engine import budget
 from engine.fixtures import atlf_payload
+from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -82,6 +84,8 @@ class LiveSynthesizer:
         return path.read_text(encoding="utf-8")
 
     async def synthesize(self, module_id, *, issuer_name, upstream, retrieve):
+        if not budget.llm_allowed():
+            raise SynthesisError(f"{module_id}: per-run token budget exhausted")
         active_prompt = self._active_prompt(module_id)
         hits = await retrieve(f"{issuer_name} {module_id} financials covenants leverage liquidity", 8)
         grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits) or "(no documents)"
@@ -96,9 +100,11 @@ class LiveSynthesizer:
             "(High|Medium|Low|Insufficient Information), limitation_flags (array), "
             "downstream_consumers (array), and claims (array of {claim_id, claim_text, "
             "evidence:[{evidence_id, extraction_type, lineage_class, source_locator, "
-            "confidence}]}). Ground every claim in the SOURCE CHUNKS; never invent figures."
+            "confidence}]}). Ground every claim in the SOURCE CHUNKS; never invent figures.\n\n"
+            + UNTRUSTED_RULE
         )
-        user = f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\nSOURCE CHUNKS:\n{grounding}"
+        user = (f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
+                f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}")
 
         resp = await self._get_client().messages.create(
             model=self._settings.anthropic_model,
@@ -106,6 +112,7 @@ class LiveSynthesizer:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "")
         return _parse_payload(module_id, text)
 

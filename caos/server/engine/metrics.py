@@ -46,6 +46,9 @@ METRIC_CATALOG: List[MetricDef] = [
     MetricDef("energy_cost_pct", "Energy cost exposure", "%", "cost exposure", False,
               "Energy as a percent of the cost base — a proxy for how exposed "
               "margins are to energy-price inflation (higher = more exposed)."),
+    MetricDef("altman_z", "Altman Z''", "", "distress", True,
+              "Altman Z''-Score from the XBRL balance sheet (private-firm variant): "
+              "below 1.1 distress, 1.1-2.6 grey, above 2.6 safe (higher is safer)."),
 ]
 
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
@@ -63,6 +66,7 @@ _CITE_KEYWORDS: Dict[str, List[str]] = {
     "interest_coverage": ["coverage", "interest"],
     "adj_ebitda": ["ebitda", "add-back"],
     "revenue": ["revenue"],
+    "altman_z": ["altman"],
 }
 
 
@@ -80,6 +84,23 @@ def _is_ltm(period: str) -> bool:
     return period.upper().startswith("LTM")
 
 
+def _period_year(period: str) -> int:
+    nums = re.findall(r"\d{2,4}", period)
+    return int(nums[-1]) if nums else -1
+
+
+def _headline_period(periods: Sequence[str]) -> Optional[str]:
+    """The period whose value is the cross-issuer headline: an explicit LTM /
+    trailing period if one exists (the fixture/LLM case), else the most recent
+    fiscal year (the EDGAR annual-filer case, where the latest 10-K *is* the
+    headline). Keeps headline selection correct for both provenances."""
+    periods = list(periods)
+    ltm = [p for p in periods if _is_ltm(p)]
+    if ltm:
+        return ltm[0]
+    return max(periods, key=_period_year) if periods else None
+
+
 def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:
     """Project CP-1 normalized_financials into MetricFact kwarg dicts (run-derived).
 
@@ -88,9 +109,12 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     that asserts it where one matches. LTM periods are the headline values used
     for cross-issuer ranking.
     """
-    fin = (payload.runtime_output or {}).get("normalized_financials") or {}
+    ro = payload.runtime_output or {}
+    fin = ro.get("normalized_financials") or {}
     rev = fin.get("revenue") or {}
     eb = fin.get("adj_ebitda") or {}
+    # EDGAR CP-1 is reported GAAP; fixture/LLM CP-1 carries covenant-adjusted figures.
+    basis = "reported" if ro.get("basis") == "reported_gaap_xbrl" else "adjusted"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -101,20 +125,25 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
             run_id=run_id, module_id=payload.module_id, metric_key=metric_key,
             period=period, value=float(value), unit=unit, headline=headline,
             qa_status=qa_status, source_claim_id=cid, source_evidence_id=eid,
-            document_chunk_id=chunk, provenance="run",
+            document_chunk_id=chunk, provenance="run", basis=basis,
         ))
 
+    rev_headline = _headline_period(list(rev.keys()))
+    eb_headline = _headline_period(list(eb.keys()))
     for period, v in rev.items():
-        add("revenue", period, v, "$M", _is_ltm(period))
+        add("revenue", period, v, "$M", period == rev_headline)
     for period, v in eb.items():
-        add("adj_ebitda", period, v, "$M", _is_ltm(period))
+        add("adj_ebitda", period, v, "$M", period == eb_headline)
         rv = rev.get(period)
         if isinstance(rv, (int, float)) and rv and isinstance(v, (int, float)):
-            add("ebitda_margin", period, round(100 * v / rv, 1), "%", _is_ltm(period))
+            add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
 
     # LTM credit ratios are LTM by definition → headline.
     add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
+    # Altman Z'' distress score (EDGAR-derived; lives outside normalized_financials).
+    dz = (payload.runtime_output or {}).get("distress") or {}
+    add("altman_z", "LTM", dz.get("altman_z"), "", True)
     return facts
 
 
@@ -137,7 +166,7 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
         run_id=run_id, module_id=payload.module_id, metric_key="energy_cost_pct",
         period="LTM", value=float(val), unit="%", headline=True, qa_status=qa_status,
         source_claim_id=claim_id, source_evidence_id=evidence_id,
-        document_chunk_id=chunk, provenance="run",
+        document_chunk_id=chunk, provenance="run", basis=None,  # energy is basis-agnostic
     )]
 
 

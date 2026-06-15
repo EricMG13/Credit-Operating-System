@@ -11,6 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
 
@@ -20,7 +22,18 @@ os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
 os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
 
+import pytest
 import pytest_asyncio
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    """The rate limiter is process-global; reset it per test so the suite's many
+    run/query calls don't trip the per-caller window across tests."""
+    import rate_limit
+
+    rate_limit.reset()
+    yield
 
 
 @pytest_asyncio.fixture

@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
 
+    # CP-5C semantic committee review (engine/council.py). An ensemble of
+    # adversarial reviewer "seats" that emit CP-5 findings the deterministic
+    # gate then consumes — it never decides status itself. Off by default: it
+    # is an LLM fan-out (one call per seat per run) and so costs tokens, and it
+    # needs anthropic_api_key. When unset the runner uses the no-op
+    # FixtureReviewer, so the engine stays fully exercisable offline.
+    council_enabled: bool = False
+    council_seats: int = 4  # number of reviewer lanes used (1-4)
+    # Stage-2 anonymized peer round: after the seats raise findings, show the
+    # pooled findings back to the panel with authorship stripped and let them
+    # confirm/reject and recalibrate severity. Trims single-seat false positives
+    # at the cost of a second LLM fan-out. No effect unless council_enabled.
+    council_peer_round: bool = False
+
     # Upload cap (MB).
     max_upload_mb: int = 250
 
@@ -59,6 +73,23 @@ class Settings(BaseSettings):
     # extractors. See caos/docs/TOOLING_REVIEW.md.
     markitdown_cmd: str = ""
     markitdown_timeout_s: int = 60
+
+    # Optional: SEC EDGAR free filing-retrieval lane — covenant/legal source
+    # acquisition for CP-4 (credit agreements = Ex-10.x, indentures = Ex-4.x,
+    # covenant "Description of Notes" = S-4/424B). Off by default. SEC fair-access
+    # REQUIRES a descriptive User-Agent carrying contact info, e.g.
+    # "Atlas Credit research@atlas.example"; requests without one are 403-ed, so
+    # the /api/edgar routes return 503 until this is set. No key, no cost. See
+    # caos/docs/AGENT_SKILLS_REVIEW.md and
+    # "Modular OS/CP-4/REF_CP-4_EDGARCovenantSourceMap.md".
+    edgar_user_agent: str = ""
+    edgar_timeout_s: int = 30
+    edgar_max_exhibit_mb: int = 25
+
+    # Per-run LLM token budget (engine/budget.py). 0 = unlimited (default). When
+    # set, a run that spends its budget degrades later LLM modules to their
+    # deterministic path (or gates them) instead of spending beyond the cap.
+    run_token_budget: int = 0
 
 
 @lru_cache

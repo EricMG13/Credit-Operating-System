@@ -18,6 +18,12 @@ _windows: DefaultDict[str, Tuple[float, int]] = defaultdict(lambda: (0.0, 0))
 _SWEEP_THRESHOLD = 1024  # keep the map bounded — one entry per caller otherwise
 
 
+def reset() -> None:
+    """Clear all windows. For test isolation — the limiter is process-global."""
+    with _lock:
+        _windows.clear()
+
+
 def hit(key: str, *, max_attempts: int, window_seconds: int) -> bool:
     """Record one attempt. True while the caller is inside the budget."""
     now = time.monotonic()

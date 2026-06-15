@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from database import Issuer, MetricFact
 from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
-from retrieval import retrieve_corpus
+from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
 
 logger = logging.getLogger("caos.nlquery")
 
@@ -349,7 +349,7 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
             "metrics": {
                 key: {
                     "value": f.value, "unit": f.unit, "provenance": f.provenance,
-                    "qa_status": f.qa_status, "period": f.period,
+                    "qa_status": f.qa_status, "period": f.period, "basis": f.basis,
                     "citation": ({"claim_id": f.source_claim_id,
                                   "evidence_id": f.source_evidence_id,
                                   "chunk_id": f.document_chunk_id}
@@ -367,14 +367,15 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
     # cross-issuer retriever scoped to one issuer.
     hybrid = bool(spec.evidence)
     if hybrid:
+        # One query for the best supporting excerpt per ranked issuer (PERF-1).
+        best = await retrieve_corpus_by_issuer(
+            session, spec.evidence, [row["issuer"]["id"] for row in results]
+        )
         for row in results:
-            ev_hits = await retrieve_corpus(
-                session, spec.evidence, k=1, issuer_ids=[row["issuer"]["id"]]
-            )
+            h = best.get(row["issuer"]["id"])
             row["evidence"] = (
-                {"chunk_id": ev_hits[0].chunk_id, "doc": ev_hits[0].doc,
-                 "text": _snippet(ev_hits[0].text)}
-                if ev_hits else None
+                {"chunk_id": h.chunk_id, "doc": h.doc, "text": _snippet(h.text)}
+                if h else None
             )
 
     columns = [
@@ -391,6 +392,15 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
         caveats.append(f"{md.label} is derived from filings for some issuers, illustrative seed for others.")
     elif provs == {"derived"}:
         caveats.append(f"{md.label} is derived from each issuer's filings (cited).")
+    # Reported (EDGAR GAAP) vs adjusted (covenant/modeled) EBITDA are not directly
+    # comparable; warn when a leverage/EBITDA ranking mixes them across issuers.
+    if spec.rank_by in {"net_leverage", "adj_ebitda"}:
+        bases = {r["metrics"].get(spec.rank_by, {}).get("basis") for r in results}
+        bases.discard(None)
+        if "reported" in bases and "adjusted" in bases:
+            caveats.append(
+                f"{md.label} mixes reported-GAAP (EDGAR filers) and covenant-adjusted "
+                "(modeled) bases across issuers — not directly comparable.")
     if any(m["value"] is None for r in results for m in r["metrics"].values()):
         caveats.append("Some issuers are missing values for a displayed metric.")
     if hybrid:

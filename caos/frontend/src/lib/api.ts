@@ -91,3 +91,47 @@ export interface ScenarioSpec {
 
 export const scenarioFromNL = (text: string): Promise<ScenarioSpec> =>
   api.post("/api/scenario/nl", { text }).then((r) => r.data);
+
+// ─── SEC EDGAR retrieval lane (free, no key; gated on EDGAR_USER_AGENT) ───────
+// Search → filing pointers (external · unverified) → exhibits → vault one as a
+// primary source. Endpoints 503 until EDGAR_USER_AGENT is configured server-side.
+export interface EdgarFilingHit {
+  cik: string;
+  accession: string;
+  form: string;
+  filed_date: string;
+  title: string;
+  source_url: string;
+  provenance: string;
+}
+export interface EdgarExhibit {
+  name: string;
+  url: string;
+  doc_label: string;
+  authority_rank: number | null;
+  size: number | null;
+}
+export interface EdgarVaultResult {
+  document_id: string;
+  storage_key: string;
+  doc_type: string;
+  run_mode: string;
+  chunks_created: number;
+  provenance: string;
+  message: string;
+}
+
+export const edgarSearch = (q: string, forms?: string): Promise<EdgarFilingHit[]> =>
+  api.get("/api/edgar/search", { params: { q, ...(forms ? { forms } : {}) } }).then((r) => r.data);
+
+export const edgarExhibits = (cik: string, accession: string): Promise<EdgarExhibit[]> =>
+  api.get("/api/edgar/exhibits", { params: { cik, accession } }).then((r) => r.data);
+
+export const edgarVaultExhibit = (
+  issuerId: string,
+  exhibitUrl: string,
+  runMode = "legal",
+): Promise<EdgarVaultResult> =>
+  api
+    .post("/api/edgar/vault-exhibit", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
+    .then((r) => r.data);
