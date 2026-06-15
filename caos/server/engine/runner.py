@@ -25,6 +25,7 @@ from database import (
 )
 from engine import edgar_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
+from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
 from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
@@ -41,9 +42,9 @@ from retrieval import retrieve as bm25_retrieve
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-2"]
+ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-2", "CP-4C"]
 DEPENDENCIES: Dict[str, List[str]] = {
-    "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-2": ["CP-1"],
+    "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
 }
 PROMPT_VERSION = "v2.0"
 
@@ -105,6 +106,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 # add-backs (deterministic / LLM over the issuer's documents).
                 elif module_id == "CP-1A":
                     payload = await synthesize_adjusted(upstream["CP-1"], retrieve)
+                # CP-4C computes covenant capacity / headroom against CP-1's
+                # leverage from the issuer's governing documents.
+                elif module_id == "CP-4C":
+                    payload = await synthesize_covenants(upstream["CP-1"], retrieve)
                 else:
                     payload = await synthesizer.synthesize(
                         module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
@@ -145,6 +150,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         recon = reconciliation_finding(upstream.get("CP-1A"))
         if recon is not None:
             findings.append(recon)
+        covlite = covlite_finding(upstream.get("CP-4C"))
+        if covlite is not None:
+            findings.append(covlite)
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
