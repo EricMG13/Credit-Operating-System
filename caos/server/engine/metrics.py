@@ -80,6 +80,23 @@ def _is_ltm(period: str) -> bool:
     return period.upper().startswith("LTM")
 
 
+def _period_year(period: str) -> int:
+    nums = re.findall(r"\d{2,4}", period)
+    return int(nums[-1]) if nums else -1
+
+
+def _headline_period(periods: Sequence[str]) -> Optional[str]:
+    """The period whose value is the cross-issuer headline: an explicit LTM /
+    trailing period if one exists (the fixture/LLM case), else the most recent
+    fiscal year (the EDGAR annual-filer case, where the latest 10-K *is* the
+    headline). Keeps headline selection correct for both provenances."""
+    periods = list(periods)
+    ltm = [p for p in periods if _is_ltm(p)]
+    if ltm:
+        return ltm[0]
+    return max(periods, key=_period_year) if periods else None
+
+
 def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:
     """Project CP-1 normalized_financials into MetricFact kwarg dicts (run-derived).
 
@@ -104,13 +121,15 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
             document_chunk_id=chunk, provenance="run",
         ))
 
+    rev_headline = _headline_period(list(rev.keys()))
+    eb_headline = _headline_period(list(eb.keys()))
     for period, v in rev.items():
-        add("revenue", period, v, "$M", _is_ltm(period))
+        add("revenue", period, v, "$M", period == rev_headline)
     for period, v in eb.items():
-        add("adj_ebitda", period, v, "$M", _is_ltm(period))
+        add("adj_ebitda", period, v, "$M", period == eb_headline)
         rv = rev.get(period)
         if isinstance(rv, (int, float)) and rv and isinstance(v, (int, float)):
-            add("ebitda_margin", period, round(100 * v / rv, 1), "%", _is_ltm(period))
+            add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
 
     # LTM credit ratios are LTM by definition → headline.
     add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)

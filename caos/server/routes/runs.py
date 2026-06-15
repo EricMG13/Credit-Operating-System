@@ -54,6 +54,7 @@ class RunSummary(BaseModel):
     as_of_date: Optional[str]
     model_id: Optional[str]
     prompt_version: Optional[str]
+    failure_reason: Optional[str] = None
     modules: List[ModuleStatus]
 
 
@@ -135,6 +136,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
         as_of_date=run.as_of_date, model_id=run.model_id, prompt_version=run.prompt_version,
+        failure_reason=run.failure_reason,
         modules=[ModuleStatus.model_validate(m) for m in modules],
     )
 
@@ -155,12 +157,27 @@ async def create_run(
     run = Run(issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id)
     db.add(run)
     await db.flush()
+    run_id = run.id
 
     try:
         await execute_run(db, run)
-    except Exception as e:  # run marked failed inside; surface as 502
-        logger.warning("run execution failed: %s", e)
-        raise HTTPException(502, "Run execution failed.") from e
+    except Exception as e:  # noqa: BLE001
+        # The in-flight error may have poisoned the session, so roll back and
+        # persist a minimal failed-run record in a fresh transaction — the fault
+        # is then inspectable via GET /runs/{id} (Phase-1 fault-finding) instead
+        # of vanishing on rollback. The reason is also surfaced in the 502.
+        reason = (f"{type(e).__name__}: {e}")[:1000]
+        logger.exception("run %s execution failed", run_id)
+        await db.rollback()
+        db.add(Run(
+            id=run_id, issuer_id=body.issuer_id, as_of_date=body.as_of_date,
+            analyst_id=caller.id, status="failed", failure_reason=reason,
+        ))
+        await db.commit()
+        raise HTTPException(
+            502, detail={"message": "Run execution failed.", "run_id": run_id,
+                         "failure_reason": reason},
+        ) from e
 
     await db.flush()
     return await _summary(db, run)

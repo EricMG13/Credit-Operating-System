@@ -113,6 +113,8 @@ class Run(Base):
     # Run-level gate roll-up (worst module status wins).
     qa_status: Mapped[str] = mapped_column(String(16), default="Not Reviewed")
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")
+    # Why a failed run failed — captured so a fault is inspectable, not lost.
+    failure_reason: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

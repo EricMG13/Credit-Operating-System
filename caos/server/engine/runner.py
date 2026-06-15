@@ -10,14 +10,20 @@ full DAG routing is a later tier; here the order and dependencies are explicit.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database import Claim, EvidenceItem, Issuer, MetricFact, ModuleOutput, QAFinding, Run
+from database import (
+    Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
+    ModuleOutput, QAFinding, Run,
+)
+from engine import edgar_cp1
 from engine.coststructure import synthesize_cost_structure
 from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
@@ -86,6 +92,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 # LLM) so it derives from the issuer's own sources for any issuer.
                 if module_id == "CP-2":
                     payload = await synthesize_cost_structure(issuer_name, retrieve)
+                # CP-1 prefers a deterministic EDGAR reported foundation for any
+                # public filer, falling back to the LLM/fixture synthesizer.
+                elif module_id == "CP-1":
+                    payload = await _synthesize_cp1(
+                        session, issuer, issuer_name, synthesizer, upstream, retrieve
+                    )
                 else:
                     payload = await synthesizer.synthesize(
                         module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
@@ -211,6 +223,65 @@ async def _persist_output(
                 confidence=e.confidence,
             ))
     return row
+
+
+async def _synthesize_cp1(
+    session: AsyncSession, issuer: Optional[Issuer], issuer_name: str,
+    synthesizer, upstream: Dict[str, ModulePayload], retrieve,
+) -> ModulePayload:
+    """CP-1 precedence: a deterministic EDGAR reported foundation for a public
+    filer (cited to XBRL, no key) when EDGAR is configured and the issuer has a
+    ticker; otherwise the LLM/fixture synthesizer. The EDGAR figures are vaulted
+    as a chunk and the payload's evidence resolved to it, so CP-5B passes cleanly
+    and click-to-source has a real source. The adjusted/covenant-EBITDA read is a
+    separate layer (CP-4C) — EDGAR is the reported basis only."""
+    settings = get_settings()
+    if settings.edgar_user_agent.strip() and issuer is not None and issuer.ticker:
+        build = await asyncio.to_thread(edgar_cp1.fetch_cp1, issuer.ticker, issuer_name)
+        if build is not None:
+            chunk_id = await _vault_edgar_facts(session, issuer, build.facts_text)
+            for c in build.payload.claims:
+                for e in c.evidence:
+                    e.resolved_chunk_id = chunk_id
+            logger.info("CP-1 grounded in EDGAR for %s (CIK %s)", issuer_name, build.cik)
+            return build.payload
+    return await synthesizer.synthesize(
+        "CP-1", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
+    )
+
+
+async def _vault_edgar_facts(session: AsyncSession, issuer: Issuer, facts_text: str) -> str:
+    """Idempotently vault the EDGAR XBRL extract as a single-chunk document for the
+    issuer, returning the chunk id to anchor CP-1 evidence to. Re-runs refresh the
+    chunk text in place rather than accumulating duplicates."""
+    storage_key = f"edgar/{issuer.id}/xbrl_facts"
+    doc = (await session.execute(
+        select(Document).where(
+            Document.issuer_id == issuer.id, Document.storage_key == storage_key
+        )
+    )).scalar_one_or_none()
+    if doc is not None:
+        chunk = (await session.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.seq)
+        )).scalars().first()
+        if chunk is not None:
+            chunk.text = facts_text
+            await session.flush()
+            return chunk.id
+    else:
+        doc = Document(
+            issuer_id=issuer.id, doc_type="EDGAR-XBRL",
+            file_name="sec_edgar_xbrl_facts.txt", storage_key=storage_key,
+            chunk_count=1, uploaded_by="edgar-lane",
+        )
+        session.add(doc)
+        await session.flush()
+    chunk = DocumentChunk(document_id=doc.id, seq=0, text=facts_text)
+    session.add(chunk)
+    await session.flush()
+    return chunk.id
 
 
 async def _resolve_evidence(payload: ModulePayload, retrieve) -> None:
