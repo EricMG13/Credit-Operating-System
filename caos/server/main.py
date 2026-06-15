@@ -20,6 +20,7 @@ from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
 from routes import auth, chat, health, ingestion, issuers, query, runs, scenario
+from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
@@ -43,7 +44,11 @@ async def lifespan(app: FastAPI):
             await ensure_reference_deal(session)
         await seed_demo_documents()  # distinctive source text for cross-issuer semantic query
         await seed_metrics()  # illustrative headline metrics for cross-issuer NL query
+    app.state.executor = get_executor()
+    await app.state.executor.start()
+    logger.info("CAOS run executor started (%s)", app.state.executor.name)
     yield
+    await app.state.executor.stop()
     logger.info("CAOS shutting down")
 
 

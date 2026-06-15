@@ -172,3 +172,10 @@ class QueueWorker:
                 await asyncio.wait_for(self._stop.wait(), timeout=poll)
             except asyncio.TimeoutError:
                 pass
+
+
+def get_executor():
+    """Pick the executor by DB dialect: in-process on SQLite, queue on Postgres."""
+    if engine.dialect.name == "postgresql":
+        return QueueWorker()
+    return InProcessExecutor()

@@ -39,3 +39,18 @@ async def seeded_db():
         await s.commit()
     yield
     await db_engine.dispose()
+
+
+def wait_for_run(client, run_id: str, timeout_s: float = 10.0) -> dict:
+    """Poll GET /runs/{id} until the run reaches a terminal state."""
+    import time
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        r = client.get(f"/api/runs/{run_id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if body["status"] in ("complete", "failed"):
+            return body
+        time.sleep(0.05)
+    raise AssertionError(f"run {run_id} did not finish within {timeout_s}s")
