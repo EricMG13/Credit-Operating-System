@@ -27,6 +27,7 @@ from engine import budget, edgar_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
+from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
     Finding,
@@ -42,9 +43,10 @@ from retrieval import retrieve as bm25_retrieve
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-2", "CP-4C"]
+ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-2", "CP-4C"]
 DEPENDENCIES: Dict[str, List[str]] = {
-    "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
+    "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-1B": ["CP-1"],
+    "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
 }
 PROMPT_VERSION = "v2.0"
 
@@ -108,6 +110,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 # add-backs (deterministic / LLM over the issuer's documents).
                 elif module_id == "CP-1A":
                     payload = await synthesize_adjusted(upstream["CP-1"], retrieve)
+                # CP-1B is a pure period-over-period delta off CP-1 (no docs/LLM).
+                elif module_id == "CP-1B":
+                    payload = synthesize_earnings_delta(upstream["CP-1"])
                 # CP-4C computes covenant capacity / headroom against CP-1's
                 # leverage from the issuer's governing documents.
                 elif module_id == "CP-4C":
@@ -155,6 +160,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         covlite = covlite_finding(upstream.get("CP-4C"))
         if covlite is not None:
             findings.append(covlite)
+        monitor = monitoring_finding(upstream.get("CP-1B"))
+        if monitor is not None:
+            findings.append(monitor)
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
