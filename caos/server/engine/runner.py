@@ -28,6 +28,7 @@ from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
+from engine.readiness import synthesize_source_readiness
 from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
     Finding,
@@ -96,9 +97,13 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 continue
 
             try:
+                # CP-0 reads the issuer's own vaulted documents (no fixture), so a
+                # fresh issuer reports its real source pack, not a canned one.
+                if module_id == "CP-0" and issuer is not None:
+                    payload = await synthesize_source_readiness(session, issuer)
                 # CP-2 is a deterministic, document-grounded module (no fixture /
                 # LLM) so it derives from the issuer's own sources for any issuer.
-                if module_id == "CP-2":
+                elif module_id == "CP-2":
                     payload = await synthesize_cost_structure(issuer_name, retrieve)
                 # CP-1 prefers a deterministic EDGAR reported foundation for any
                 # public filer, falling back to the LLM/fixture synthesizer.
