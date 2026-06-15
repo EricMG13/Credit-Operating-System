@@ -191,3 +191,20 @@ def test_failed_run_surfaces_error(api_client, monkeypatch):
     body = wait_for_run(api_client, r.json()["id"])
     assert body["status"] == "failed"
     assert "kaboom" in (body["error"] or "")
+
+
+@pytest.mark.asyncio
+async def test_sqlite_uses_wal_and_busy_timeout():
+    import sqlite3
+    from database import engine as db_engine, init_db, settings
+
+    if db_engine.dialect.name != "sqlite":
+        pytest.skip("sqlite-only pragma check")
+
+    await init_db()  # opening a connection fires the WAL pragma
+    path = settings.database_url.split("///")[-1]
+    con = sqlite3.connect(path)
+    mode = con.execute("PRAGMA journal_mode").fetchone()[0]
+    con.close()
+    assert mode.lower() == "wal"
+    await db_engine.dispose()

@@ -17,7 +17,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
-    UniqueConstraint, inspect,
+    UniqueConstraint, event, inspect,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -32,6 +32,17 @@ if settings.database_url.startswith("sqlite"):
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+
+# SQLite needs WAL + a busy timeout so the async executor and request handlers
+# can write concurrently without "database is locked". No-op on Postgres.
+if settings.database_url.startswith("sqlite"):
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
