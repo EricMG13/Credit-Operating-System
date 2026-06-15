@@ -19,9 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, edgar, health, ingestion, issuers, query, runs, scenario
+from routes import auth, chat, compare, edgar, health, ingestion, issuers, query, runs, scenario
 from run_executor import get_executor
-from seed import seed_demo_data, seed_demo_documents, seed_metrics
+from seed import seed_deals, seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("caos")
@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
             await ensure_reference_deal(session)
         await seed_demo_documents()  # distinctive source text for cross-issuer semantic query
         await seed_metrics()  # illustrative headline metrics for cross-issuer NL query
+        await seed_deals()  # illustrative loan-documentation deals for /compare
     app.state.executor = get_executor()
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
@@ -104,6 +105,7 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
+app.include_router(compare.router, prefix="/api/compare", tags=["compare"])
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)

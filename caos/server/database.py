@@ -259,6 +259,65 @@ class MetricFact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+# ─── Loan Compare: deal documentation comparison across issuers ──────────────
+# A Deal is one financing snapshot (a column in the /compare grid); DealTerm is
+# one extracted covenant/term value (a cell). The field definitions live in code
+# (engine/terms_catalog.py), so this stays a tall EAV store — new terms ship
+# without a migration. Each cell carries its own evidence (lineage + confidence +
+# the chunk it was drawn from), mirroring MetricFact's run-derived provenance, so
+# every value is one click from the agreement language (CP-5B). See
+# docs/COMPARE_SCHEMA.md.
+
+
+class Deal(Base):
+    """One financing snapshot — a column in the Compare grid. A deal is an
+    issuer's facility at a transaction phase (Launch/Final), sourced from one
+    extraction run over its credit agreement."""
+
+    __tablename__ = "deals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"))
+    document_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("documents.id"))
+    # Denormalised identity for the deal picker / column header (also stored as
+    # header-section terms, but cheap to read here without a pivot).
+    label: Mapped[str] = mapped_column(String(255), nullable=False)        # "team.blue"
+    transaction_phase: Mapped[Optional[str]] = mapped_column(String(32))    # Launch|Final
+    launch_date: Mapped[Optional[str]] = mapped_column(String(32))
+    as_of_date: Mapped[Optional[str]] = mapped_column(String(32))
+    provenance: Mapped[str] = mapped_column(String(16), default="seed")     # run|seed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DealTerm(Base):
+    """One covenant/term value for a deal — a cell. Mixed-type, so value lives in
+    value_num (numbers, %, turns, $M, 1–5 scores) OR value_text (enum, boolean,
+    free-text covenant blocks, '—'). term_key references engine/terms_catalog.
+
+    Three value-states must stay distinguishable (do not collapse them): present
+    (value_* set); not present in the agreement (value_text='—', confidence High
+    — a real fact, e.g. cov-lite); not extracted (both null, lineage_class
+    'Insufficient Information')."""
+
+    __tablename__ = "deal_terms"
+    __table_args__ = (UniqueConstraint("deal_id", "term_key", name="uq_deal_term"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    deal_id: Mapped[str] = mapped_column(String(36), ForeignKey("deals.id"), index=True)
+    term_key: Mapped[str] = mapped_column(String(64), nullable=False)  # catalog key, e.g. "mfn_hard_cap_musd"
+    value_num: Mapped[Optional[float]] = mapped_column(Float)
+    value_text: Mapped[Optional[str]] = mapped_column(Text)
+    # Provenance (same vocabularies as EvidenceItem / MetricFact).
+    extraction_type: Mapped[str] = mapped_column(String(32), default="not_available")
+    lineage_class: Mapped[str] = mapped_column(String(32), default="Untraced")
+    confidence: Mapped[str] = mapped_column(String(32), default="Insufficient Information")
+    document_chunk_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("document_chunks.id")
+    )
+    quote: Mapped[Optional[str]] = mapped_column(Text)  # verbatim agreement language (the long blocks ARE the quote)
+
+
 def _alembic_config():
     from alembic.config import Config
 
