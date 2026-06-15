@@ -74,7 +74,8 @@ export function CompareTable({
 
   const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
     const next = new Set(set);
-    next.has(key) ? next.delete(key) : next.add(key);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     setter(next);
   };
 
@@ -142,7 +143,7 @@ export function CompareTable({
 
   return (
     <div className="h-full overflow-auto text-caos-body">
-      <div className="min-w-max">
+      <div className="w-full">
         {/* Header row — deal columns */}
         <div className="grid sticky top-0 z-20 bg-caos-elevated border-b border-caos-border" style={{ gridTemplateColumns: cols }}>
           <div className="sticky left-0 z-10 bg-caos-elevated px-3 py-2 border-r border-caos-border text-caos-label uppercase tracking-wider text-caos-muted">
@@ -153,7 +154,7 @@ export function CompareTable({
             return (
               <div
                 key={d.id}
-                className={"px-3 py-2 border-r border-caos-border " + (isBench ? "bg-caos-accent/10" : "")}
+                className={"px-3 py-2 border-r border-caos-border min-w-0 " + (isBench ? "bg-caos-accent/10" : "")}
               >
                 <div className="flex items-start gap-1.5">
                   <div className="min-w-0 flex-1">
@@ -228,7 +229,7 @@ export function CompareTable({
                         return (
                           <div
                             key={cell.deal_id}
-                            className={"px-3 py-2 border-r border-caos-border align-top " + (isBench ? "bg-caos-accent/5" : "")}
+                            className={"px-3 py-2 border-r border-caos-border align-top min-w-0 break-words " + (isBench ? "bg-caos-accent/5" : "")}
                           >
                             {renderValue(row, cell, cellKey)}
                           </div>
