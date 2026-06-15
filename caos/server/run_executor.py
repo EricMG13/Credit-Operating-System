@@ -7,6 +7,7 @@ pick one by DB dialect.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from database import AsyncSessionLocal, Run
@@ -34,3 +35,30 @@ async def execute_run_by_id(run_id: str) -> None:
                 run.error = str(e)[:2000]
                 run.lease_expires_at = None
                 await session.commit()
+
+
+class InProcessExecutor:
+    """SQLite/local: one fire-and-forget asyncio task per enqueued run.
+
+    Task references are retained in `_tasks` so the loop can't GC them
+    mid-flight; `execute_run_by_id`'s own try/except guarantees the run reaches
+    a terminal state even if the task body raises.
+    """
+
+    name = "in_process"
+
+    def __init__(self) -> None:
+        self._tasks: set[asyncio.Task] = set()
+
+    async def start(self) -> None:  # no background loop needed
+        return None
+
+    async def stop(self) -> None:
+        for t in list(self._tasks):
+            t.cancel()
+        self._tasks.clear()
+
+    async def enqueue(self, run_id: str) -> None:
+        task = asyncio.create_task(execute_run_by_id(run_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)

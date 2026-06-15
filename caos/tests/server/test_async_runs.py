@@ -68,3 +68,32 @@ async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
         run = (await s.execute(select(Run).where(Run.id == run_id))).scalar_one()
         assert run.status == "failed"
         assert "synthetic failure" in (run.error or "")
+
+
+import asyncio
+
+
+@pytest.mark.asyncio
+async def test_inprocess_executor_runs_enqueued(seeded_db):
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import InProcessExecutor
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    ex = InProcessExecutor()
+    await ex.start()
+    await ex.enqueue(run_id)
+    # let the fire-and-forget task finish
+    for _ in range(100):
+        async with AsyncSessionLocal() as s:
+            run = await s.get(Run, run_id)
+            if run.status in ("complete", "failed"):
+                break
+        await asyncio.sleep(0.05)
+    await ex.stop()
+    assert run.status == "complete"
