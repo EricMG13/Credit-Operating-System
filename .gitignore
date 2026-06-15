@@ -26,3 +26,6 @@ __pycache__/
 # Test artifacts
 .pytest_cache/
 coverage/
+
+# Superpowers brainstorming specs / scratch (local only)
+docs/superpowers/

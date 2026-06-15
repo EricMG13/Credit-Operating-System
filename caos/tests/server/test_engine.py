@@ -134,9 +134,12 @@ def client():
 
 @pytest.fixture(scope="module")
 def atlf_run(client):
+    from conftest import wait_for_run
+
     r = client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID, "as_of_date": "2026-03-31"})
     assert r.status_code == 201, r.text
-    return r.json()
+    assert r.json()["status"] == "queued"
+    return wait_for_run(client, r.json()["id"])
 
 
 def test_run_completes_and_gates_to_restricted(atlf_run):

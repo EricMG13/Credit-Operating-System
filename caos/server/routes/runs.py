@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
 from engine.report import assemble_report, committee_export_allowed
-from engine.runner import execute_run
 from identity import CallerIdentity, get_identity
 
 logger = logging.getLogger("caos")
@@ -54,6 +53,7 @@ class RunSummary(BaseModel):
     as_of_date: Optional[str]
     model_id: Optional[str]
     prompt_version: Optional[str]
+    error: Optional[str] = None
     modules: List[ModuleStatus]
 
 
@@ -135,6 +135,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
         as_of_date=run.as_of_date, model_id=run.model_id, prompt_version=run.prompt_version,
+        error=run.error,
         modules=[ModuleStatus.model_validate(m) for m in modules],
     )
 
@@ -143,6 +144,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
 @router.post("", response_model=RunSummary, status_code=201)
 async def create_run(
     body: RunCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
@@ -154,15 +156,9 @@ async def create_run(
 
     run = Run(issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id)
     db.add(run)
-    await db.flush()
+    await db.commit()  # persist the queued run so the executor can see it
 
-    try:
-        await execute_run(db, run)
-    except Exception as e:  # run marked failed inside; surface as 502
-        logger.warning("run execution failed: %s", e)
-        raise HTTPException(502, "Run execution failed.") from e
-
-    await db.flush()
+    await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
 
 

@@ -53,6 +53,7 @@ export interface RunSummaryDTO {
   as_of_date: string | null;
   model_id: string | null;
   prompt_version: string | null;
+  error: string | null;
   modules: ModuleStatusDTO[];
 }
 

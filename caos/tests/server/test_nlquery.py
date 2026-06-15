@@ -115,8 +115,11 @@ def test_unknown_metric_question_returns_422(client, monkeypatch):
 def test_run_derived_facts_override_seed_with_citation(client):
     # A completed ATLF run projects CP-1 financials as run-derived, cited facts
     # that take precedence over the seed in cross-issuer ranking.
+    from conftest import wait_for_run
+
     run = client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
     assert run.status_code == 201, run.text
+    wait_for_run(client, run.json()["id"])
     body = client.post("/api/query/nl", json={"question": "rank issuers by net leverage"}).json()
     assert body["mode"] == "structured"
     atlf = next((row for row in body["rows"] if row["issuer"]["name"] == "Atlas Forge Industrials"), None)
@@ -234,9 +237,12 @@ def test_cp2_synthesizes_cited_metric_and_gates_clean():
 
 
 def test_run_emits_cp2_and_upgrades_energy_to_run_provenance(client):
+    from conftest import wait_for_run
+
     run = client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
     assert run.status_code == 201, run.text
-    assert any(m["module_id"] == "CP-2" for m in run.json()["modules"])
+    finished = wait_for_run(client, run.json()["id"])
+    assert any(m["module_id"] == "CP-2" for m in finished["modules"])
     cp2 = client.get(f"/api/runs/{run.json()['id']}/modules/CP-2").json()
     assert cp2["runtime_output"]["energy_cost_pct"] == 12.0
     assert cp2["claims"] and cp2["claims"][0]["evidence"][0]["evidence_id"] == "E-CS1"
