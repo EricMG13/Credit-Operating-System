@@ -20,13 +20,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from database import (
-    Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
+    Claim, Deal, DealTerm, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
     ModuleOutput, QAFinding, Run,
 )
 from engine import budget, edgar_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.council import get_reviewer
 from engine.covenants import covlite_finding, synthesize_covenants
+from engine.deal_terms import synthesize_deal_terms
+from engine.terms_catalog import BY_KEY
 from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
@@ -46,10 +48,10 @@ from retrieval import retrieve as bm25_retrieve
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-4C"]
+ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-4C", "CP-4D"]
 DEPENDENCIES: Dict[str, List[str]] = {
     "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-1B": ["CP-1"],
-    "CP-1C": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
+    "CP-1C": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"], "CP-4D": ["CP-1"],
 }
 PROMPT_VERSION = "v2.0"
 
@@ -127,6 +129,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 # leverage from the issuer's governing documents.
                 elif module_id == "CP-4C":
                     payload = await synthesize_covenants(upstream["CP-1"], retrieve)
+                # CP-4D extracts the full structured term set (the ~115 catalog
+                # fields) for the cross-issuer documentation comparison on /compare.
+                elif module_id == "CP-4D":
+                    payload = await synthesize_deal_terms(upstream["CP-1"], retrieve)
                 else:
                     payload = await synthesizer.synthesize(
                         module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
@@ -235,6 +241,11 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 )
             )
 
+        # ── Project the extracted deal-term set (run-derived, for /compare) ──
+        cp4d = upstream.get("CP-4D")
+        if cp4d is not None and module_status.get("CP-4D") != "Blocked":
+            await _project_deal_terms(session, run, issuer_name, cp4d)
+
         # ── Run-level roll-up ─────────────────────────────────────────────
         statuses = [module_status[m] for m in ANALYTICAL_SLICE if m in module_status]
         run.qa_status = roll_up_qa_status(statuses)
@@ -296,6 +307,51 @@ async def _persist_output(
                 confidence=e.confidence,
             ))
     return row
+
+
+async def _project_deal_terms(
+    session: AsyncSession, run: Run, issuer_name: str, cp4d: ModulePayload
+) -> None:
+    """Project CP-4D's extracted term set into deals/deal_terms for /compare.
+
+    One run-provenance Deal per issuer, superseding the issuer's prior run deal
+    (the metric_facts retention pattern), with a DealTerm per extracted term
+    carrying its lineage/confidence/chunk. Seed deals (provenance 'seed') are
+    untouched, so the picker shows both demo and run-derived deals.
+    """
+    terms = (cp4d.runtime_output or {}).get("terms") or []
+    if not terms:
+        return
+
+    old_ids = (await session.execute(
+        select(Deal.id).where(Deal.issuer_id == run.issuer_id, Deal.provenance == "run")
+    )).scalars().all()
+    if old_ids:
+        await session.execute(delete(DealTerm).where(DealTerm.deal_id.in_(old_ids)))
+        await session.execute(delete(Deal).where(Deal.id.in_(old_ids)))
+
+    def tv(key: str) -> Optional[str]:
+        return next((t.get("value_text") for t in terms
+                     if t.get("term_key") == key and t.get("value_text") is not None), None)
+
+    deal = Deal(
+        issuer_id=run.issuer_id, run_id=run.id, label=tv("company") or issuer_name,
+        transaction_phase=tv("transaction_phase"), launch_date=tv("launch_date"),
+        as_of_date=run.as_of_date, provenance="run",
+    )
+    session.add(deal)
+    await session.flush()  # assign deal.id for the term FK
+    for t in terms:
+        if t.get("term_key") not in BY_KEY:
+            continue
+        session.add(DealTerm(
+            deal_id=deal.id, term_key=t["term_key"],
+            value_num=t.get("value_num"), value_text=t.get("value_text"), quote=t.get("quote"),
+            extraction_type=t.get("extraction_type") or "documentary_fact",
+            lineage_class=t.get("lineage_class") or "Directly Sourced",
+            confidence=t.get("confidence") or "High",
+            document_chunk_id=t.get("chunk_id"),
+        ))
 
 
 async def _synthesize_cp1(
