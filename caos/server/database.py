@@ -115,6 +115,12 @@ class Run(Base):
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Async executor lease/recovery (see migrations/0004_run_lease).
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    worker_id: Mapped[Optional[str]] = mapped_column(String(64))
+    error: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class ModuleOutput(Base):
