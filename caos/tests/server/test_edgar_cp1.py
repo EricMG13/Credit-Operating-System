@@ -98,6 +98,14 @@ def test_build_cp1_none_without_revenue():
     assert build_cp1_payload("X", {"facts": {"us-gaap": {}}}) is None
 
 
+def test_fetch_cp1_failsafe_on_malformed_facts(monkeypatch):
+    # A structural surprise on real XBRL must degrade to None (fallback), not raise
+    # and fail the run (adversarial-review finding).
+    monkeypatch.setattr(edgar_cp1, "resolve_cik", lambda t: "0000000001")
+    monkeypatch.setattr(edgar_cp1.edgar, "_get_json", lambda url: {"facts": {"us-gaap": "not-a-dict"}})
+    assert edgar_cp1.fetch_cp1("X", "X Co") is None
+
+
 def test_build_cp1_omits_leverage_when_net_cash():
     # Cash > total debt → net debt negative → leverage is non-meaningful, so it's
     # omitted and flagged (the Ford-captive-finance / net-cash case).

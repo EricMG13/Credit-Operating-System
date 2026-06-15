@@ -311,17 +311,18 @@ def resolve_cik(ticker: str) -> Optional[str]:
 
 def fetch_cp1(ticker: str, entity_name: str) -> Optional[Cp1Build]:
     """Ground CP-1 in EDGAR for ``ticker`` (synchronous — the runner calls it in a
-    thread). None when it can't (not a filer, no facts, EDGAR off/unreachable) so
-    the runner falls back to the LLM/fixture path."""
+    thread). Fail-safe: returns None on *any* failure (not a filer, no facts, EDGAR
+    off/unreachable, or a parse surprise on real XBRL) so the runner always degrades
+    to the LLM/fixture path rather than failing the whole run."""
     try:
         cik = resolve_cik(ticker)
         if not cik:
             return None
         facts = edgar._get_json(_FACTS_URL.format(cik=cik))
-    except edgar.EdgarError as e:
-        logger.warning("EDGAR CP-1 fetch failed for %s: %s", ticker, e)
+        payload = build_cp1_payload(entity_name or str(facts.get("entityName") or ticker), facts)
+        if payload is None:
+            return None
+        return Cp1Build(payload=payload, facts_text=render_facts_text(entity_name or ticker, payload), cik=cik)
+    except Exception as e:  # noqa: BLE001 — degrade to fallback on any EDGAR/parse failure
+        logger.warning("EDGAR CP-1 unavailable for %s (%s) — falling back", ticker, e)
         return None
-    payload = build_cp1_payload(entity_name or str(facts.get("entityName") or ticker), facts)
-    if payload is None:
-        return None
-    return Cp1Build(payload=payload, facts_text=render_facts_text(entity_name or ticker, payload), cik=cik)
