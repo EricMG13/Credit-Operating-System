@@ -208,3 +208,34 @@ async def test_sqlite_uses_wal_and_busy_timeout():
     con.close()
     assert mode.lower() == "wal"
     await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancellation_marks_run_failed(seeded_db, monkeypatch):
+    """A run cancelled mid-flight at shutdown must not strand in 'running'."""
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    import run_executor
+    from run_executor import InProcessExecutor
+
+    async def slow(session, run):
+        await asyncio.sleep(30)  # block until cancelled
+
+    monkeypatch.setattr(run_executor, "execute_run", slow)
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    ex = InProcessExecutor()
+    await ex.start()
+    await ex.enqueue(run_id)
+    await asyncio.sleep(0.1)  # let the task enter execute_run
+    await ex.stop()           # cancels in-flight + awaits the mark-failed handler
+
+    async with AsyncSessionLocal() as s:
+        run = await s.get(Run, run_id)
+        assert run.status == "failed"
+        assert "shutdown" in (run.error or "")

@@ -35,15 +35,31 @@ async def execute_run_by_id(run_id: str) -> None:
         try:
             await execute_run(session, run)
             await session.commit()
+        except asyncio.CancelledError:
+            # Shutdown cancellation. CancelledError is BaseException, not Exception,
+            # so the guard below would miss it and strand the run in 'running'
+            # (fatal on SQLite/InProcessExecutor, which has no reaper). Mark it
+            # failed, then re-raise so the task still cancels cleanly.
+            logger.warning("run %s cancelled during shutdown — marking failed", run_id)
+            await _mark_run_failed(session, run_id, "worker shutdown during execution")
+            raise
         except Exception as e:  # noqa: BLE001 — last-resort guard so a run is never stranded
             logger.exception("run %s failed in executor", run_id)
-            await session.rollback()
-            run = await session.get(Run, run_id)
-            if run is not None:
-                run.status = "failed"
-                run.error = str(e)[:2000]
-                run.lease_expires_at = None
-                await session.commit()
+            await _mark_run_failed(session, run_id, str(e)[:2000])
+
+
+async def _mark_run_failed(session, run_id: str, reason: str) -> None:
+    """Roll back and mark a run failed; never raises (last-resort recovery)."""
+    try:
+        await session.rollback()
+        run = await session.get(Run, run_id)
+        if run is not None:
+            run.status = "failed"
+            run.error = reason
+            run.lease_expires_at = None
+            await session.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("could not mark run %s failed", run_id)
 
 
 class InProcessExecutor:
@@ -63,8 +79,13 @@ class InProcessExecutor:
         return None
 
     async def stop(self) -> None:
-        for t in list(self._tasks):
+        tasks = list(self._tasks)
+        for t in tasks:
             t.cancel()
+        if tasks:
+            # Await so each task's cancellation handler (mark-failed) commits
+            # before the event loop tears down.
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
 
     async def enqueue(self, run_id: str) -> None:
@@ -101,8 +122,13 @@ class QueueWorker:
         self._stop.set()
         if self._loop_task:
             await self._loop_task
-        for t in list(self._inflight):
+        tasks = list(self._inflight)
+        for t in tasks:
             t.cancel()
+        if tasks:
+            # Await so each task's cancellation handler (mark-failed) commits
+            # before the event loop tears down.
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def enqueue(self, run_id: str) -> None:
         # The row already exists as 'queued'; the loop will pick it up. No-op.
