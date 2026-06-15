@@ -109,9 +109,12 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     that asserts it where one matches. LTM periods are the headline values used
     for cross-issuer ranking.
     """
-    fin = (payload.runtime_output or {}).get("normalized_financials") or {}
+    ro = payload.runtime_output or {}
+    fin = ro.get("normalized_financials") or {}
     rev = fin.get("revenue") or {}
     eb = fin.get("adj_ebitda") or {}
+    # EDGAR CP-1 is reported GAAP; fixture/LLM CP-1 carries covenant-adjusted figures.
+    basis = "reported" if ro.get("basis") == "reported_gaap_xbrl" else "adjusted"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -122,7 +125,7 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
             run_id=run_id, module_id=payload.module_id, metric_key=metric_key,
             period=period, value=float(value), unit=unit, headline=headline,
             qa_status=qa_status, source_claim_id=cid, source_evidence_id=eid,
-            document_chunk_id=chunk, provenance="run",
+            document_chunk_id=chunk, provenance="run", basis=basis,
         ))
 
     rev_headline = _headline_period(list(rev.keys()))
@@ -163,7 +166,7 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
         run_id=run_id, module_id=payload.module_id, metric_key="energy_cost_pct",
         period="LTM", value=float(val), unit="%", headline=True, qa_status=qa_status,
         source_claim_id=claim_id, source_evidence_id=evidence_id,
-        document_chunk_id=chunk, provenance="run",
+        document_chunk_id=chunk, provenance="run", basis=None,  # energy is basis-agnostic
     )]
 
 

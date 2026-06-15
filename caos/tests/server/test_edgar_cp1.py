@@ -139,6 +139,19 @@ def test_extract_facts_marks_latest_fy_headline():
     assert eb["FY2025"]["headline"] is True and eb["FY2024"]["headline"] is False
 
 
+def test_extract_facts_tags_reported_vs_adjusted_basis():
+    edgar = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"basis": "reported_gaap_xbrl", "normalized_financials": {
+            "revenue": {"FY2025": 2742.0}, "net_leverage_adj_ltm": 5.5, "net_debt_ltm": 100.0}})
+    assert all(f["basis"] == "reported" for f in extract_facts("r", edgar, "Passed"))
+    # A fixture/LLM CP-1 (no reported basis) is tagged adjusted.
+    fixture = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {"revenue": {"FY2025": 2742.0}}})
+    assert all(f["basis"] == "adjusted" for f in extract_facts("r", fixture, "Passed"))
+
+
 # ── Runner CP-1 precedence (integration; EDGAR monkeypatched, no network) ─────
 @pytest.fixture()
 def edgar_on():

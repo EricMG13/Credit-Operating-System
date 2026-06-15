@@ -349,7 +349,7 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
             "metrics": {
                 key: {
                     "value": f.value, "unit": f.unit, "provenance": f.provenance,
-                    "qa_status": f.qa_status, "period": f.period,
+                    "qa_status": f.qa_status, "period": f.period, "basis": f.basis,
                     "citation": ({"claim_id": f.source_claim_id,
                                   "evidence_id": f.source_evidence_id,
                                   "chunk_id": f.document_chunk_id}
@@ -391,6 +391,15 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
         caveats.append(f"{md.label} is derived from filings for some issuers, illustrative seed for others.")
     elif provs == {"derived"}:
         caveats.append(f"{md.label} is derived from each issuer's filings (cited).")
+    # Reported (EDGAR GAAP) vs adjusted (covenant/modeled) EBITDA are not directly
+    # comparable; warn when a leverage/EBITDA ranking mixes them across issuers.
+    if spec.rank_by in {"net_leverage", "adj_ebitda"}:
+        bases = {r["metrics"].get(spec.rank_by, {}).get("basis") for r in results}
+        bases.discard(None)
+        if "reported" in bases and "adjusted" in bases:
+            caveats.append(
+                f"{md.label} mixes reported-GAAP (EDGAR filers) and covenant-adjusted "
+                "(modeled) bases across issuers — not directly comparable.")
     if any(m["value"] is None for r in results for m in r["metrics"].values()):
         caveats.append("Some issuers are missing values for a displayed metric.")
     if hybrid:

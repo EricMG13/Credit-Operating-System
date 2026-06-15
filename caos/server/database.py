@@ -227,6 +227,9 @@ class MetricFact(Base):
         String(36), ForeignKey("document_chunks.id")
     )
     provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
+    # EBITDA/leverage basis: reported (EDGAR GAAP) | adjusted (covenant/modeled) |
+    # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
+    basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
