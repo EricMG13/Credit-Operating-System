@@ -77,13 +77,13 @@ function IssuersDirectory() {
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
         <span className="flex items-center gap-2">
-          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-[10px] font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-          <span className="text-[12px] font-semibold tracking-wide text-caos-text whitespace-nowrap">CREDIT OS</span>
-          <span className="tabular text-[9px] text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
+          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
+          <span className="text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">CREDIT OS</span>
+          <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
         </span>
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Issuer Directory</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Issuer Directory</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
           {loading
             ? "loading…"
             : query
@@ -95,13 +95,13 @@ function IssuersDirectory() {
         <div className="h-4 w-px bg-caos-border" />
         <Link
           href="/upload"
-          className="no-underline tabular text-[9px] px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           UPLOAD DOCUMENTS
         </Link>
         <button
           onClick={() => setShowForm(true)}
-          className="tabular text-[9px] px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
           + NEW ISSUER
         </button>
@@ -114,22 +114,22 @@ function IssuersDirectory() {
           className="h-full"
           right={
             <span className="flex items-center gap-2">
-              <span className="tabular text-[9px] text-caos-muted hidden xl:inline">
+              <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">
                 click a row to open its deep-dive
               </span>
               <span className="relative flex items-center">
-                <span className="absolute left-2 text-caos-muted text-[10px] pointer-events-none">⌕</span>
+                <span className="absolute left-2 text-caos-muted text-caos-md pointer-events-none">⌕</span>
                 <TextInput
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="search issuer · industry · country · FIGI"
-                  className="w-64 pl-6 pr-6 py-1 tabular text-[10px]"
+                  className="w-64 pl-6 pr-6 py-1 tabular text-caos-md"
                 />
                 {query ? (
                   <button
                     onClick={() => setQuery("")}
                     title="Clear search"
-                    className="absolute right-1.5 text-caos-muted hover:text-caos-text text-[10px] transition-caos"
+                    className="absolute right-1.5 text-caos-muted hover:text-caos-text text-caos-md transition-caos"
                   >
                     ✕
                   </button>
@@ -139,38 +139,38 @@ function IssuersDirectory() {
           }
         >
           {loading ? (
-            <div className="px-3 py-3 text-[10.5px] text-caos-muted">Loading issuers…</div>
+            <div className="px-3 py-3 text-caos-lg text-caos-muted">Loading issuers…</div>
           ) : issuers.length === 0 && query ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-[12px] font-medium">No matches for “{query}”</p>
-              <p className="text-caos-muted text-[10.5px] max-w-xs">
+              <p className="text-caos-text/85 text-caos-2xl font-medium">No matches for “{query}”</p>
+              <p className="text-caos-muted text-caos-lg max-w-xs">
                 Search covers issuer name, ticker, industry, country, and FIGI.
               </p>
               <button
                 onClick={() => setQuery("")}
-                className="mt-1 tabular text-[10px] px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
               >
                 CLEAR SEARCH
               </button>
             </div>
           ) : issuers.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-[12px] font-medium">No issuers yet</p>
-              <p className="text-caos-muted text-[10.5px] max-w-xs">
+              <p className="text-caos-text/85 text-caos-2xl font-medium">No issuers yet</p>
+              <p className="text-caos-muted text-caos-lg max-w-xs">
                 Add your first issuer, then drop its deal documents and pick a run mode to start a run.
               </p>
               <button
                 onClick={() => setShowForm(true)}
-                className="mt-1 tabular text-[10px] px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
                 + NEW ISSUER
               </button>
             </div>
           ) : (
-            <div className="text-[11px]">
+            <div className="text-caos-xl">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 {["Ticker", "Issuer", "Industry", "Country", "FIGI", "Documents", ""].map((h, i) => (
-                  <span key={i} className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{h}</span>
+                  <span key={i} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
                 ))}
               </div>
               {issuers.map((issuer) => (
@@ -183,21 +183,21 @@ function IssuersDirectory() {
                   aria-label={`Open deep-dive for ${issuer.name}`}
                   className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring group"}
                 >
-                  <span className="tabular text-caos-accent text-[10.5px]">
+                  <span className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span className="text-caos-text text-[11px] truncate group-hover:text-white transition-caos">{issuer.name}</span>
-                  <span className="text-caos-muted text-[10px] truncate">{issuer.industry || "—"}</span>
-                  <span className="text-caos-muted text-[10px] truncate">{issuer.country || "—"}</span>
-                  <span className="tabular text-caos-muted text-[9.5px] truncate">{issuer.figi || "—"}</span>
+                  <span className="text-caos-text text-caos-xl truncate group-hover:text-white transition-caos">{issuer.name}</span>
+                  <span className="text-caos-muted text-caos-md truncate">{issuer.industry || "—"}</span>
+                  <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
+                  <span className="tabular text-caos-muted text-caos-sm truncate">{issuer.figi || "—"}</span>
                   <button
                     onClick={(e) => { e.stopPropagation(); router.push("/upload?issuer=" + encodeURIComponent(issuer.id)); }}
                     aria-label={`Upload documents for ${issuer.name}`}
-                    className="tabular text-[9px] text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos focus-ring"
+                    className="tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos focus-ring"
                   >
                     + UPLOAD
                   </button>
-                  <span className="tabular text-[9px] text-caos-muted text-right group-hover:text-caos-accent transition-caos">OPEN →</span>
+                  <span className="tabular text-caos-xs text-caos-muted text-right group-hover:text-caos-accent transition-caos">OPEN →</span>
                 </div>
               ))}
             </div>
@@ -263,10 +263,10 @@ function NewIssuerModal({
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
-          <span className="tabular text-[11px] text-caos-text">New Issuer</span>
-          <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
+          <span className="tabular text-caos-xl text-caos-text">New Issuer</span>
+          <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
           <div className="flex-1" />
-          <button type="button" onClick={onClose} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
+          <button type="button" onClick={onClose} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md">✕</button>
         </div>
         <div className="p-3 flex flex-col gap-2.5">
           {([
@@ -277,25 +277,25 @@ function NewIssuerModal({
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
             <div key={key}>
-              <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
+              <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
               <TextInput
                 required={required}
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                 placeholder={ph}
-                className="w-full px-2.5 py-1.5 text-[10.5px]"
+                className="w-full px-2.5 py-1.5 text-caos-lg"
               />
             </div>
           ))}
         </div>
         {createError ? (
-          <div className="px-3 pb-1 tabular text-[10px]" style={{ color: "var(--caos-critical)" }}>{createError}</div>
+          <div className="px-3 pb-1 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>{createError}</div>
         ) : null}
         <div className="px-3 pb-3 flex gap-2">
-          <button type="submit" disabled={creating} className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
+          <button type="submit" disabled={creating} className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
             {creating ? "CREATING…" : "CREATE ISSUER"}
           </button>
-          <button type="button" onClick={onClose} className="px-3 tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
+          <button type="button" onClick={onClose} className="px-3 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
             CANCEL
           </button>
         </div>

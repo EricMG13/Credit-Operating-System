@@ -40,7 +40,7 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
     <div className="p-3 flex flex-col gap-3">
       <OutputRegister id="CP-6A" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
-        <div className="tabular text-[9px] uppercase tracking-wider text-caos-muted mb-1">CP-6A-02 · Pre-debate thesis map</div>
+        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">CP-6A-02 · Pre-debate thesis map</div>
         <div className="text-[11.5px] text-caos-text leading-relaxed">{DEBATE.thesis}</div>
       </div>
 
@@ -50,16 +50,16 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           return (
             <div key={i} className="rounded border border-caos-border bg-caos-bg flex flex-col">
               <div className="px-3 py-2 border-b border-caos-border flex items-center gap-2">
-                <span className="text-[12px]" style={{ color: p.color }}>{p.glyph}</span>
-                <span className="text-caos-row font-semibold" style={{ color: p.color }}>{p.label}</span>
-                <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted ml-auto">{r.phase}</span>
+                <span className="text-caos-2xl" style={{ color: p.color }}>{p.glyph}</span>
+                <span className="text-caos-2xl font-semibold" style={{ color: p.color }}>{p.label}</span>
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted ml-auto">{r.phase}</span>
               </div>
               <div className="p-3 flex flex-col gap-2.5">
                 {r.points.map((pt, j) => (
                   <div key={j} className="flex gap-2">
-                    <span className="tabular text-caos-micro mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
+                    <span className="tabular text-caos-2xs mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
                     <div>
-                      <span className="text-caos-body text-caos-text leading-snug">{pt.text}</span>
+                      <span className="text-caos-lg text-caos-text leading-snug">{pt.text}</span>
                       {pt.ev.length ? (
                         <span className="inline-flex gap-1 ml-1.5 align-middle">
                           {pt.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
@@ -76,33 +76,33 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
 
       <div className="rounded border border-caos-border bg-caos-bg">
         <div className="px-3 py-2 border-b border-caos-border flex items-center gap-2">
-          <span className="text-[12px] text-caos-accent">⚖</span>
-          <span className="text-[11px] font-semibold text-caos-text">IC Chair — Evidence Weighting & Resolution Matrix</span>
-          <span className="tabular text-[9px] text-caos-muted ml-auto">CP-6A-06 / 07</span>
+          <span className="text-caos-2xl text-caos-accent">⚖</span>
+          <span className="text-caos-xl font-semibold text-caos-text">IC Chair — Evidence Weighting & Resolution Matrix</span>
+          <span className="tabular text-caos-xs text-caos-muted ml-auto">CP-6A-06 / 07</span>
         </div>
         <div className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
           {["Contested claim", "Weighting (bull ◂ ▸ bear)", "Chair verdict", "Evidence"].map((h) => (
-            <span key={h} className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{h}</span>
+            <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
           ))}
         </div>
         {DEBATE.weighting.map((w, i) => (
           <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-[7px] items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
-            <span className="text-[10.5px] text-caos-text leading-snug">{w.claim}</span>
+            <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
             <span className="flex items-center gap-1.5" aria-label={`bull ${(w.bull * 100).toFixed(0)} versus bear ${(w.bear * 100).toFixed(0)}`}>
-              <span className="tabular text-[9px] flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
+              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
               <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
                 <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
                 <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
               </span>
-              <span className="tabular text-[9px] flex items-center gap-0.5" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
+              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
             </span>
-            <span className="text-[10px] leading-snug" style={{ color: w.verdict.startsWith("BULL") ? "var(--caos-success)" : w.verdict.startsWith("BEAR") ? "var(--caos-critical)" : "var(--caos-muted)" }}>{w.verdict}</span>
+            <span className="text-caos-md leading-snug" style={{ color: w.verdict.startsWith("BULL") ? "var(--caos-success)" : w.verdict.startsWith("BEAR") ? "var(--caos-critical)" : "var(--caos-muted)" }}>{w.verdict}</span>
             <span className="flex flex-wrap gap-1">
               {w.ev.split(" · ").map((tok) => {
                 const eid = tok.split(" ")[0];
                 return EVIDENCE[eid]
                   ? <EvChip key={eid} id={eid} onOpen={onOpenEvidence} />
-                  : <span key={tok} className="tabular text-[9px] text-caos-accent">{tok}</span>;
+                  : <span key={tok} className="tabular text-caos-xs text-caos-accent">{tok}</span>;
               })}
             </span>
           </div>
@@ -181,19 +181,19 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           {CAPSTACK.map((c) => (
             <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px] border-b border-caos-border/50">
               <span className="w-2 h-2 rounded-sm" style={{ background: TRANCHE[c.key] }}></span>
-              <span className="text-[10.5px] text-caos-text">{c.cls}</span>
-              <span className="tabular text-[10px] text-caos-muted">{c.rate}</span>
-              <span className="tabular text-[10.5px] text-right text-caos-text">{fmtNum(c.claim)}</span>
-              <span className="tabular text-[9.5px] text-right text-caos-muted">{c.key === "eq" ? "—" : fmtPct(c.claim / total, 1)}</span>
+              <span className="text-caos-lg text-caos-text">{c.cls}</span>
+              <span className="tabular text-caos-md text-caos-muted">{c.rate}</span>
+              <span className="tabular text-caos-lg text-right text-caos-text">{fmtNum(c.claim)}</span>
+              <span className="tabular text-caos-sm text-right text-caos-muted">{c.key === "eq" ? "—" : fmtPct(c.claim / total, 1)}</span>
             </div>
           ))}
           <div className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px]">
-            <span></span><span className="text-[10px] font-semibold text-caos-text">Total debt</span><span></span>
-            <span className="tabular text-[10.5px] text-right text-caos-text font-semibold">{fmtNum(total)}</span>
-            <span className="tabular text-[9.5px] text-right text-caos-muted">5.7x</span>
+            <span></span><span className="text-caos-md font-semibold text-caos-text">Total debt</span><span></span>
+            <span className="tabular text-caos-lg text-right text-caos-text font-semibold">{fmtNum(total)}</span>
+            <span className="tabular text-caos-sm text-right text-caos-muted">5.7x</span>
           </div>
           <div className="px-2 pb-1 border-t border-caos-border/50">
-            <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted px-1 pt-1.5">Seniority stack · claims incl. equity ($M)</div>
+            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-1 pt-1.5">Seniority stack · claims incl. equity ($M)</div>
             <G2Chart spec={CAPSTACK_CHART_SPEC} height={52} />
           </div>
         </div>
@@ -202,15 +202,15 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           <SectionHeader title="CP-3B-06 · Recovery waterfall by scenario" right="claims: 1L $1,970 · 2L $900 · Sub $400" />
           {RECOVERY.map((s) => (
             <div key={s.scen} className="flex items-center gap-3 px-3 py-[5px] border-b border-caos-border/50">
-              <span className="text-[10.5px] font-medium text-caos-text w-24">{s.scen}</span>
-              <span className="tabular text-[9.5px] text-caos-muted">{s.mult} × ${s.ebitda}M = <span className="text-caos-text">${(s.ev / 1000).toFixed(2)}B EV</span></span>
-              <span className="text-[9px] text-caos-muted ml-auto">{s.note}</span>
+              <span className="text-caos-lg font-medium text-caos-text w-24">{s.scen}</span>
+              <span className="tabular text-caos-sm text-caos-muted">{s.mult} × ${s.ebitda}M = <span className="text-caos-text">${(s.ev / 1000).toFixed(2)}B EV</span></span>
+              <span className="text-caos-xs text-caos-muted ml-auto">{s.note}</span>
             </div>
           ))}
           <div className="px-2 pt-1">
             <G2Chart spec={RECOVERY_CHART_SPEC} height={192} />
           </div>
-          <div className="px-3 py-1.5 text-[9.5px] text-caos-muted">
+          <div className="px-3 py-1.5 text-caos-sm text-caos-muted">
             Market-implied 2L recovery at px 96.4 ≈ <span className="tabular text-caos-text">38%</span> under base-distress probability weights — wide of model in severe only.
           </div>
         </div>
@@ -221,16 +221,16 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
         <div className="p-3">
           <div className="grid" style={{ gridTemplateColumns: `120px repeat(${mults.length}, 1fr)`, gap: 4 }}>
             <span></span>
-            {mults.map((m) => <span key={m} className="tabular text-[9.5px] text-caos-muted text-center">{m.toFixed(1)}x</span>)}
+            {mults.map((m) => <span key={m} className="tabular text-caos-sm text-caos-muted text-center">{m.toFixed(1)}x</span>)}
             {ebitdas.map((e) => (
               <span key={"row" + e} className="contents">
-                <span className="tabular text-[9.5px] text-caos-muted self-center">${e}M {e === 421 ? "(LTM adj.)" : e === 360 ? "(base stress)" : "(severe)"}</span>
+                <span className="tabular text-caos-sm text-caos-muted self-center">${e}M {e === 421 ? "(LTM adj.)" : e === 360 ? "(base stress)" : "(severe)"}</span>
                 {mults.map((m) => {
                   const r = recoveries(e * m)["2l"];
                   const c = r >= 0.9 ? "rgba(34,197,94," : r >= 0.5 ? "rgba(245,165,36," : "rgba(239,68,68,";
                   return (
                     <span key={m} className="h-8 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 cursor-default" style={{ background: c + (0.12 + r * 0.3) + ")" }}>
-                      <span className="tabular text-[10.5px]" style={{ color: r >= 0.9 ? "var(--caos-success-bright)" : r >= 0.5 ? "var(--caos-warning-bright)" : "var(--caos-critical-bright)" }}>{(r * 100).toFixed(0)}</span>
+                      <span className="tabular text-caos-lg" style={{ color: r >= 0.9 ? "var(--caos-success-bright)" : r >= 0.5 ? "var(--caos-warning-bright)" : "var(--caos-critical-bright)" }}>{(r * 100).toFixed(0)}</span>
                     </span>
                   );
                 })}
@@ -274,15 +274,15 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
         ))}
       </div>
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 flex items-center gap-2">
-        <span className="text-[11px]" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⌖</span>
-        <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">CP-4C-10 nearest pressure point</span>
-        <span className="text-[10.5px] text-caos-text">{CAPACITY.nearest}</span>
+        <span className="text-caos-xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⌖</span>
+        <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">CP-4C-10 nearest pressure point</span>
+        <span className="text-caos-lg text-caos-text">{CAPACITY.nearest}</span>
       </div>
 
       <div className="rounded border border-caos-border bg-caos-bg">
         <div className="grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
           {["Provision · controlling doc", "Feature", "Aggressiveness", "Headroom / capacity", ""].map((h, i) => (
-            <span key={i} className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{h}</span>
+            <span key={i} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
           ))}
         </div>
         {COVENANTS.map((c) => {
@@ -294,21 +294,21 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
                 aria-expanded={isOpen}
                 className="w-full text-left grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 py-[7px] items-center hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
-                <span className="tabular text-[9.5px] text-caos-accent">{c.ref}</span>
-                <span className="text-[10.5px] text-caos-text flex items-center gap-2"><Dot sev={c.flag} />{c.name}</span>
-                <span className="flex items-center gap-1.5">{seg(c.agg)}<span className="tabular text-[9px] text-caos-muted">{c.agg}</span></span>
-                <span className="tabular text-[10px]" style={{ color: c.flag === "ok" ? "var(--caos-muted)" : SEV_COLOR[c.flag] }}>{c.headroom}</span>
-                <span className="justify-self-end text-caos-muted text-[9px]">{isOpen ? "▲" : "▼"}</span>
+                <span className="tabular text-caos-sm text-caos-accent">{c.ref}</span>
+                <span className="text-caos-lg text-caos-text flex items-center gap-2"><Dot sev={c.flag} />{c.name}</span>
+                <span className="flex items-center gap-1.5">{seg(c.agg)}<span className="tabular text-caos-xs text-caos-muted">{c.agg}</span></span>
+                <span className="tabular text-caos-md" style={{ color: c.flag === "ok" ? "var(--caos-muted)" : SEV_COLOR[c.flag] }}>{c.headroom}</span>
+                <span className="justify-self-end text-caos-muted text-caos-xs">{isOpen ? "▲" : "▼"}</span>
               </button>
               {isOpen ? (
                 <div className="px-3 pb-3 grid grid-cols-2 gap-3 caos-enter">
                   <div>
-                    <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">Controlling clause (verbatim)</div>
-                    <div className="clause-highlight tabular px-2.5 py-2 text-caos-text/90 leading-relaxed text-[11px]">{c.clause}</div>
+                    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Controlling clause (verbatim)</div>
+                    <div className="clause-highlight tabular px-2.5 py-2 text-caos-text/90 leading-relaxed text-caos-xl">{c.clause}</div>
                   </div>
                   <div>
-                    <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">CP-4 interpretation · credit translation</div>
-                    <div className="text-[10.5px] text-caos-text leading-relaxed">{c.read}</div>
+                    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">CP-4 interpretation · credit translation</div>
+                    <div className="text-caos-lg text-caos-text leading-relaxed">{c.read}</div>
                   </div>
                 </div>
               ) : null}
@@ -341,8 +341,8 @@ export function ModuleView({
   if (!out || !meta) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
-        <div className="tabular text-[11px] text-caos-text">{id} · no analytical output register</div>
-        <div className="text-[10px] leading-relaxed max-w-[400px]">
+        <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
+        <div className="text-caos-md leading-relaxed max-w-[400px]">
           {meta
             ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
             : "This module id is not part of the CP-X route graph."}
@@ -350,7 +350,7 @@ export function ModuleView({
         {meta ? (
           <Link
             href="/reports"
-            className="tabular text-[9.5px] px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+            className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
           >
             OPEN REPORT STUDIO →
           </Link>
@@ -364,12 +364,12 @@ export function ModuleView({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Dot sev={st} />
-            <span className="tabular text-[12px] text-caos-text whitespace-nowrap">{id}</span>
+            <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
             <span className="text-[11.5px] font-semibold text-caos-text">{meta.name}</span>
             <Tag sev={st}>{st}</Tag>
           </div>
-          <div className="text-[10px] text-caos-muted mt-1">{meta.desc}</div>
-          {plan?.event ? <div className="tabular text-[9.5px] text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
+          <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
+          {plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
         </div>
       </div>
 

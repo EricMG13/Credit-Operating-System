@@ -42,8 +42,8 @@ function CommandCenter() {
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
   const headStat = (l: string, v: string, c?: string, big?: boolean) => (
     <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-row")} style={{ color: c }}>{v}</span>
+      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
+      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
     </span>
   );
 
@@ -51,7 +51,7 @@ function CommandCenter() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-5 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
@@ -62,13 +62,13 @@ function CommandCenter() {
             <button
               key={v.k}
               onClick={() => setView(v.k)}
-              className={"tabular whitespace-nowrap text-[10px] px-3 py-1.5 transition-caos " + (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")}
+              className={"tabular whitespace-nowrap text-caos-md px-3 py-1.5 transition-caos " + (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")}
             >
               {v.l}
             </button>
           ))}
         </div>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">
           {view === "cio"
             ? "Portfolio Posture — US HY Sleeve"
             : view === "res"
@@ -87,12 +87,12 @@ function CommandCenter() {
           title="Open Monitor — live CP-MON email intelligence & alert routing"
           className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
         >
-          <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Alerts today</span>
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts today</span>
           <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
-          <span className="tabular text-[9px] text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
+          <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
         </Link>
         <SimControls run={run} />
-        <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
+        <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
       </div>
 
       {/* workspace — single column for every lens; CP-MON intake/alerts moved
@@ -106,7 +106,7 @@ function CommandCenter() {
             <PanelShell
               title="Portfolio Posture · CP-3C"
               className="flex-[3]"
-              right={<span className="tabular text-[9px] text-caos-muted">10 issuers · marks {run.clock}</span>}
+              right={<span className="tabular text-caos-xs text-caos-muted">10 issuers · marks {run.clock}</span>}
             >
               <div className="overflow-x-auto">
                 <PortfolioTable selected={selected} onSelect={setSelected} tick={tick} />
@@ -115,7 +115,7 @@ function CommandCenter() {
             <PanelShell
               title="Sector Review Board · CP-SR"
               className="flex-[2]"
-              right={<span className="tabular text-[9px] text-caos-muted">8 sectors · 2 refreshes due</span>}
+              right={<span className="tabular text-caos-xs text-caos-muted">8 sectors · 2 refreshes due</span>}
             >
               <SectorBoard />
             </PanelShell>
@@ -125,7 +125,7 @@ function CommandCenter() {
             <PanelShell
               title="Module Coverage Matrix · L1–L6 freshness"
               className="flex-[3]"
-              right={<span className="tabular text-[9px] text-caos-muted">refresh SLA: L1 5d · L2 10d · L4 30d</span>}
+              right={<span className="tabular text-caos-xs text-caos-muted">refresh SLA: L1 5d · L2 10d · L4 30d</span>}
             >
               <CoverageMatrix />
             </PanelShell>

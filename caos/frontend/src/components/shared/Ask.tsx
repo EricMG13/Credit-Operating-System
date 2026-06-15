@@ -63,11 +63,11 @@ export function AskLauncher() {
     <button
       onClick={toggle}
       title="Ask CAOS (⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className="fixed bottom-3 left-3 z-overlay flex items-center gap-1.5 tabular text-[10px] px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+      className="fixed bottom-3 left-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
-      <span className="text-[12px]">✦</span> Ask
-      <span className="tabular text-[8.5px] px-1 rounded border border-caos-border opacity-80">⌘K</span>
+      <span className="text-caos-2xl">✦</span> Ask
+      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border opacity-80">⌘K</span>
     </button>
   ) : null;
 
@@ -93,16 +93,16 @@ export function AskLauncher() {
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70 shrink-0">
-          <span className="text-caos-accent text-[12px]">✦</span>
-          <span className="tabular text-[11px] text-caos-text whitespace-nowrap">Ask across issuers</span>
-          <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap hidden sm:inline">
+          <span className="text-caos-accent text-caos-2xl">✦</span>
+          <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">Ask across issuers</span>
+          <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap hidden sm:inline">
             grounded in the metric store · cited where run-derived
           </span>
           <div className="flex-1" />
           <button
             onClick={() => setOpen(false)}
             title="Close (Esc)"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]"
+            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
           >
             ✕
           </button>

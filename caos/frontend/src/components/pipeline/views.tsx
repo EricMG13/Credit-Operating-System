@@ -78,8 +78,8 @@ export function GraphView({
         const meta = LAYERS.find((x) => x.id === l);
         return (
           <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }}>
-            <div className="tabular text-[9px] uppercase tracking-widest text-caos-muted">{l}</div>
-            <div className="text-[8.5px] text-caos-muted">{meta ? meta.label : ""}</div>
+            <div className="tabular text-caos-xs uppercase tracking-widest text-caos-muted">{l}</div>
+            <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}</div>
           </div>
         );
       })}
@@ -108,12 +108,12 @@ export function GraphView({
           >
             <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
               <Dot sev={st} pulse={st === "running"} />
-              <span className="tabular text-[10px] text-caos-text whitespace-nowrap">{m.id}</span>
-              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-[9px]" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
+              <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
+              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
-              {st === "held" ? <span className="ml-auto text-[9px]" style={{ color: "var(--caos-warning)" }}>🔒</span> : null}
+              {st === "held" ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-warning)" }}>🔒</span> : null}
             </div>
-            <div className="px-2 text-[8.5px] text-caos-muted truncate leading-tight">{m.name}</div>
+            <div className="px-2 text-caos-2xs text-caos-muted truncate leading-tight">{m.name}</div>
             <div className="px-2 pt-[3px]"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>
           </button>
         );
@@ -140,8 +140,8 @@ export function SwimlaneView({
         return (
           <div key={l} className="flex flex-col min-h-0 rounded border border-caos-border bg-caos-bg/50">
             <div className="px-2 py-1.5 border-b border-caos-border shrink-0">
-              <div className="tabular text-[9.5px] uppercase tracking-widest text-caos-text">{l}</div>
-              <div className="text-[8.5px] text-caos-muted">{meta ? meta.label : ""}</div>
+              <div className="tabular text-caos-sm uppercase tracking-widest text-caos-text">{l}</div>
+              <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}</div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">
               {mods.map((m) => {
@@ -165,12 +165,12 @@ export function SwimlaneView({
                   >
                     <div className="flex items-center gap-1.5">
                       <Dot sev={st} pulse={st === "running"} />
-                      <span className="tabular text-[10px] text-caos-text">{m.id}</span>
-                      <span className="tabular text-[8.5px] ml-auto" style={{ color: inScope ? color : "var(--caos-muted)" }}>
+                      <span className="tabular text-caos-md text-caos-text">{m.id}</span>
+                      <span className="tabular text-caos-2xs ml-auto" style={{ color: inScope ? color : "var(--caos-muted)" }}>
                         {!inScope ? "skip" : st === "idle" ? "queued" : st}
                       </span>
                     </div>
-                    <div className="text-[9px] text-caos-muted leading-tight mt-0.5">{m.name}</div>
+                    <div className="text-caos-xs text-caos-muted leading-tight mt-0.5">{m.name}</div>
                     <div className="mt-1"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>
                     {inScope && NODE_QA[m.id] ? <div className="mt-1"><Tag sev="critical">QA {NODE_QA[m.id].id}</Tag></div> : null}
                     {inScope && NODE_LIMITS[m.id] ? <div className="mt-1"><Tag sev="warning">LIMIT L-04</Tag></div> : null}
@@ -204,7 +204,7 @@ export function Inspector({
 }) {
   if (!selected) {
     return (
-      <div className="p-4 text-[11px] text-caos-muted leading-relaxed">
+      <div className="p-4 text-caos-xl text-caos-muted leading-relaxed">
         <div className="text-caos-text font-medium mb-2">Select a module</div>
         Click any node to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span> and{" "}
         <span style={{ color: "var(--tranche-sub)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
@@ -224,20 +224,20 @@ export function Inspector({
   const degraded = ["warning", "held", "blocked"].includes(st);
   const reqs = inScope && degraded ? NODE_REQS[selected] : null;
   return (
-    <div className="text-[11px]">
+    <div className="text-caos-xl">
       <div className="px-3 py-2.5 border-b border-caos-border">
         <div className="flex items-center gap-2">
           <Dot sev={st} pulse={st === "running"} />
           <span className="tabular text-[13px] text-caos-text">{m.id}</span>
           <Tag sev={st}>{st === "idle" ? "queued" : st}</Tag>
         </div>
-        <div className="text-[12px] text-caos-text mt-1 font-medium">{m.name}</div>
-        <div className="text-[10px] text-caos-muted mt-1 leading-snug">{m.desc}</div>
+        <div className="text-caos-2xl text-caos-text mt-1 font-medium">{m.name}</div>
+        <div className="text-caos-md text-caos-muted mt-1 leading-snug">{m.desc}</div>
       </div>
       {!inScope ? (
         <div className="px-3 py-2 border-b border-caos-border flex items-start gap-2" style={{ background: "rgba(138,138,154,0.06)" }}>
-          <span className="text-[10px] text-caos-muted mt-px">⊘</span>
-          <span className="text-[10px] text-caos-muted leading-snug">
+          <span className="text-caos-md text-caos-muted mt-px">⊘</span>
+          <span className="text-caos-md text-caos-muted leading-snug">
             Out of scope for the {modeLabel} route — CP-X skipped this module; registers inherit from the last
             full-committee run (#2641).
           </span>
@@ -245,37 +245,37 @@ export function Inspector({
       ) : null}
       {planEntry && planEntry.event && ["pass", "warning", "held"].includes(st) ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-[9px] uppercase tracking-wider text-caos-muted mb-1">Latest payload</div>
-          <div className="text-[10.5px] text-caos-text leading-snug">{planEntry.event}</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">Latest payload</div>
+          <div className="text-caos-lg text-caos-text leading-snug">{planEntry.event}</div>
         </div>
       ) : null}
       {qa ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-[9px] uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical)" }}>QA finding · CP-5</div>
-          <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{qa.sev}</Tag><span className="tabular text-[10px] text-caos-accent">{qa.id}</span></div>
-          <div className="text-[10.5px] text-caos-text leading-snug">{qa.text}</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical)" }}>QA finding · CP-5</div>
+          <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{qa.sev}</Tag><span className="tabular text-caos-md text-caos-accent">{qa.id}</span></div>
+          <div className="text-caos-lg text-caos-text leading-snug">{qa.text}</div>
         </div>
       ) : null}
       {lim ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-[9px] uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>Propagated limitation · CP-X-06</div>
-          <div className="text-[10.5px] text-caos-text leading-snug">{lim}</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>Propagated limitation · CP-X-06</div>
+          <div className="text-caos-lg text-caos-text leading-snug">{lim}</div>
         </div>
       ) : null}
       {reqs && reqs.length ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-[9px] uppercase tracking-wider mb-1.5" style={{ color: "var(--caos-warning)" }}>
+          <div className="tabular text-caos-xs uppercase tracking-wider mb-1.5" style={{ color: "var(--caos-warning)" }}>
             {st === "warning" ? "Required to clear warning" : "Required to release hold"} · documents & information
           </div>
           <div className="flex flex-col gap-1.5">
             {reqs.map((r) => (
               <div key={r.doc} className="flex items-start gap-1.5">
-                <span className="text-[9px] mt-px shrink-0" style={{ color: "var(--caos-warning)" }}>▦</span>
+                <span className="text-caos-xs mt-px shrink-0" style={{ color: "var(--caos-warning)" }}>▦</span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10.5px] text-caos-text leading-snug">{r.doc}</span>
+                    <span className="text-caos-lg text-caos-text leading-snug">{r.doc}</span>
                     <span
-                      className="tabular text-[8px] uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
+                      className="tabular text-caos-3xs uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
                       style={{
                         color: REQ_TAG_COLOR[r.tag],
                         borderColor: REQ_TAG_COLOR[r.tag] + "55",
@@ -285,7 +285,7 @@ export function Inspector({
                       {r.tag}
                     </span>
                   </div>
-                  <div className="text-[9.5px] text-caos-muted leading-snug">{r.why}</div>
+                  <div className="text-caos-sm text-caos-muted leading-snug">{r.why}</div>
                 </div>
               </div>
             ))}
@@ -293,23 +293,23 @@ export function Inspector({
         </div>
       ) : null}
       <div className="px-3 py-2 border-b border-caos-border">
-        <div className="tabular text-[9px] uppercase tracking-wider text-caos-muted mb-1.5">Upstream inputs · {deps.length}</div>
+        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Upstream inputs · {deps.length}</div>
         <div className="flex flex-wrap gap-1">
           {deps.length ? deps.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-[9.5px] px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg">
+            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg">
               <Dot sev={sim.mods[d]?.state || "idle"} />{d}
             </span>
-          )) : <span className="text-[10px] text-caos-muted">— root node (source intake)</span>}
+          )) : <span className="text-caos-md text-caos-muted">— root node (source intake)</span>}
         </div>
       </div>
       <div className="px-3 py-2 border-b border-caos-border">
-        <div className="tabular text-[9px] uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
+        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
         <div className="flex flex-wrap gap-1">
           {consumers.length ? consumers.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-[9.5px] px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg" style={{ color: "#c4b5fd" }}>
+            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg" style={{ color: "#c4b5fd" }}>
               {d}
             </span>
-          )) : <span className="text-[10px] text-caos-muted">— terminal node</span>}
+          )) : <span className="text-caos-md text-caos-muted">— terminal node</span>}
         </div>
       </div>
     </div>
@@ -334,20 +334,20 @@ export function LineagePanel({
           onClick={() => onPick(d)}
         >
           <div className="flex items-center gap-2">
-            <span className="tabular text-[10px] text-caos-muted">#{d.n}</span>
-            <span className="text-[10.5px] text-caos-text leading-snug flex-1">{d.driver}</span>
+            <span className="tabular text-caos-md text-caos-muted">#{d.n}</span>
+            <span className="text-caos-lg text-caos-text leading-snug flex-1">{d.driver}</span>
             <Tag sev={d.status === "verified" ? "ok" : "warning"}>{d.status}</Tag>
           </div>
-          <div className="tabular text-[9px] text-caos-muted mt-1 leading-relaxed">{d.lineage}</div>
+          <div className="tabular text-caos-xs text-caos-muted mt-1 leading-relaxed">{d.lineage}</div>
           {d.evs.length ? (
             <div className="flex flex-wrap items-center gap-1 mt-1.5">
-              <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">sources</span>
+              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">sources</span>
               {d.evs.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
             </div>
           ) : null}
           <div className="flex items-center gap-1.5 mt-1">
             <Bar pct={d.conf * 100} color={d.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)"} h={2} />
-            <span className="tabular text-[9px] text-caos-muted shrink-0">{(d.conf * 100).toFixed(0)}%</span>
+            <span className="tabular text-caos-xs text-caos-muted shrink-0">{(d.conf * 100).toFixed(0)}%</span>
           </div>
         </div>
       ))}
@@ -359,12 +359,12 @@ export function LineagePanel({
 export function EventLog({ events }: { events: SimEvent[] }) {
   return (
     <div className="h-full overflow-auto">
-      {events.length === 0 ? <div className="px-3 py-2 text-[10px] text-caos-muted">Awaiting run start…</div> : null}
+      {events.length === 0 ? <div className="px-3 py-2 text-caos-md text-caos-muted">Awaiting run start…</div> : null}
       {events.map((e, i) => (
         <div key={events.length - i} className={"flex items-center gap-2 px-3 py-[3.5px] border-b border-caos-border/40 " + (i === 0 ? "caos-enter" : "")}>
-          <span className="tabular text-[9.5px] text-caos-muted shrink-0">{e.t}</span>
+          <span className="tabular text-caos-sm text-caos-muted shrink-0">{e.t}</span>
           <Dot sev={e.sev} />
-          <span className={"tabular text-[10px] leading-snug truncate " + (e.sev === "running" ? "text-caos-muted" : "text-caos-text")}>{e.text}</span>
+          <span className={"tabular text-caos-md leading-snug truncate " + (e.sev === "running" ? "text-caos-muted" : "text-caos-text")}>{e.text}</span>
         </div>
       ))}
     </div>

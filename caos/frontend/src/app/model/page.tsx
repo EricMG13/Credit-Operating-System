@@ -122,32 +122,32 @@ function ModelBuilder() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
+        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
         <ModelProvenance eng={eng} model={model} />
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
           dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
-        <span className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap">
+        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
           <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
           <span className="text-caos-muted">BASE · net lev FY27e</span>
           <span style={{ color: "var(--caos-success)" }}>{b1.netlev!.toFixed(2)}x</span>
         </span>
-        <span className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap">
+        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
           <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
           <span className="text-caos-muted">DOWNSIDE · peak</span>
           <span style={{ color: "var(--caos-warning)" }}>{d0.netlev!.toFixed(2)}x</span>
         </span>
         <span className="h-4 w-px bg-caos-border" />
         {/* downside severity */}
-        <span className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap text-caos-muted">
+        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted">
           SEVERITY
           <input
             type="range" min={0.5} max={1.5} step={0.05} value={severity}
@@ -160,7 +160,7 @@ function ModelBuilder() {
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={
-            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -170,7 +170,7 @@ function ModelBuilder() {
           onClick={() => setShowScenarios(!showScenarios)}
           title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
           className={
-            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -179,14 +179,14 @@ function ModelBuilder() {
         <button
           onClick={addRow}
           title="Add an analyst row at the bottom of the sheet — cells accept numbers or =formulas"
-          className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           + ROW
         </button>
         <button
           onClick={addCol}
           title="Add an analyst column at the right of the sheet — cells accept numbers or =formulas"
-          className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           + COL
         </button>
@@ -194,7 +194,7 @@ function ModelBuilder() {
           <button
             onClick={resetAll}
             title="Clear all manual overrides"
-            className="flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
+            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
             style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)" }}
           >
             ↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET
@@ -203,12 +203,12 @@ function ModelBuilder() {
         <button
           onClick={() => exportModel(model, showQuarters, overrides, sheet, grid)}
           title="Export the model grid (CSV — opens in Excel)"
-          className="flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
           ▦ EXPORT MODEL
         </button>
         <span
-          className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden 2xl:inline"
+          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden 2xl:inline"
           style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}
         >
           forecast cells unaudited — CP-5 scope is actuals only
@@ -264,12 +264,12 @@ function ModelBuilder() {
 // glyph-paired (dot / ✓ / ⚠), never carried by color alone.
 function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }) {
   if (eng.loading) {
-    return <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· linking engine…</span>;
+    return <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· linking engine…</span>;
   }
   if (!eng.live || !eng.anchor) {
     return (
       <span
-        className="flex items-center gap-1.5 tabular text-[9px] whitespace-nowrap text-caos-muted"
+        className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"
         title="No completed run found — grid uses the seeded demo model (offline fallback)."
       >
         <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
@@ -283,7 +283,7 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
       <span
-        className="flex items-center gap-1.5 tabular text-[9px]"
+        className="flex items-center gap-1.5 tabular text-caos-xs"
         style={{ color: "var(--caos-success)" }}
         title={`Anchored to live CP-1 from run ${eng.runId} · committee: ${eng.committeeStatus ?? "—"}`}
       >
@@ -291,7 +291,7 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
         CP-1 LIVE · RUN {eng.runId!.slice(0, 8)}
       </span>
       <span
-        className="flex items-center gap-1 tabular text-[9px] px-1.5 py-px rounded border"
+        className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"
         style={
           ok
             ? { color: "var(--caos-success)", borderColor: "rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.08)" }

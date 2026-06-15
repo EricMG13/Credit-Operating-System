@@ -54,9 +54,9 @@ export function PortfolioTable({
   onSelect: (code: string | null) => void;
   tick: number;
 }) {
-  const th = "tabular text-[9px] uppercase tracking-wider text-caos-muted";
+  const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   return (
-    <div className="text-[11px]" style={{ minWidth: 1180 }}>
+    <div className="text-caos-xl" style={{ minWidth: 1180 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
         {["Issuer", "Sector", "Rating", "Instrument", "Px", "Margin", "3Y DM", "Δ d/d", "30-Day", "NetLev", "IntCov", "M2E", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
           <span key={i} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
@@ -77,13 +77,13 @@ export function PortfolioTable({
             className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
           >
             <span className="flex items-center gap-1.5 min-w-0">
-              {p.watch ? <span className="w-[10px] text-[9px]" style={{ color: "var(--caos-critical)" }}>▲</span> : <span className="w-[10px]"></span>}
+              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical)" }}>▲</span> : <span className="w-[10px]"></span>}
               <span className="tabular text-caos-accent">{p.code}</span>
-              <span className="text-caos-text truncate text-[10.5px]">{p.name}</span>
+              <span className="text-caos-text truncate text-caos-lg">{p.name}</span>
             </span>
-            <span className="text-caos-muted text-[10px] truncate">{p.sector}</span>
-            <span className="tabular text-[10px] text-caos-muted">{p.rating}</span>
-            <span className="tabular text-[10px] text-caos-text truncate">{p.inst}</span>
+            <span className="text-caos-muted text-caos-md truncate">{p.sector}</span>
+            <span className="tabular text-caos-md text-caos-muted">{p.rating}</span>
+            <span className="tabular text-caos-md text-caos-text truncate">{p.inst}</span>
             <span className="tabular text-right">{p.px.toFixed(1)}</span>
             <span className="tabular text-right">S+{p.margin}</span>
             <span className="tabular text-right text-caos-text"><FlashOnChange value={dm}>{dm}</FlashOnChange></span>
@@ -92,7 +92,7 @@ export function PortfolioTable({
             <span className="tabular text-right">{p.lev.toFixed(1)}x</span>
             <span className="tabular text-right">{p.cov.toFixed(1)}x</span>
             <span className="tabular text-right" style={{ color: p.m2e < 12 ? "var(--caos-warning)" : undefined }}>{p.m2e.toFixed(1)}</span>
-            <span className="tabular text-[9px] tracking-wide" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>
+            <span className="tabular text-caos-xs tracking-wide" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>
             <span className="flex gap-px">
               {[1, 2, 3, 4, 5].map((i) => (
                 <span key={i} className="w-1 h-2.5 rounded-sm" style={{ background: i <= p.conv ? "var(--caos-accent)" : "var(--caos-border)" }}></span>
@@ -126,50 +126,50 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
         {/* window chrome */}
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60 shrink-0">
           <Dot sev={email.sev} />
-          <span className="tabular text-[11px] text-caos-text truncate">{email.subj}</span>
-          <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">
+          <span className="tabular text-caos-xl text-caos-text truncate">{email.subj}</span>
+          <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">
             CP-MON · mat {email.mat}
           </span>
           <div className="flex-1" />
           <button
             onClick={onClose}
             title="Close (Esc)"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]"
+            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
           >
             ✕
           </button>
         </div>
 
         {/* envelope */}
-        <div className="px-4 py-2.5 border-b border-caos-border shrink-0 text-[10px] leading-relaxed">
+        <div className="px-4 py-2.5 border-b border-caos-border shrink-0 text-caos-md leading-relaxed">
           <div className="grid grid-cols-[52px_1fr] gap-x-2">
-            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">From</span>
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">From</span>
             <span className="text-caos-text truncate">{email.from} <span className="text-caos-muted">· {email.src}</span></span>
-            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">To</span>
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">To</span>
             <span className="text-caos-muted truncate">{email.to}</span>
-            <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">Time</span>
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Time</span>
             <span className="text-caos-muted">{email.t} ET · today</span>
           </div>
         </div>
 
         {/* body */}
         <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
-          <p className="text-[10.5px] text-caos-text/90 leading-relaxed whitespace-pre-line">{email.body}</p>
+          <p className="text-caos-lg text-caos-text/90 leading-relaxed whitespace-pre-line">{email.body}</p>
         </div>
 
         {/* CP-MON classification footer */}
         <div className="px-4 py-2 border-t border-caos-border bg-caos-elevated/40 shrink-0 flex items-center gap-2 flex-wrap">
-          <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">CP-MON classification</span>
-          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-accent">{email.issuer}</span>
-          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-muted">{email.signal}</span>
-          <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border" style={{ color: SEV_COLOR[email.sev] }}>
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-MON classification</span>
+          <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-border text-caos-accent">{email.issuer}</span>
+          <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-border text-caos-muted">{email.signal}</span>
+          <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-border" style={{ color: SEV_COLOR[email.sev] }}>
             {email.sev.toUpperCase()} · {email.mat}
           </span>
           {email.dedup ? (
-            <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-border text-caos-muted">DEDUPED · CP-MON-F</span>
+            <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-border text-caos-muted">DEDUPED · CP-MON-F</span>
           ) : null}
           <span className="flex-1" />
-          <span className="tabular text-[9px] text-caos-muted">routed → {email.route}</span>
+          <span className="tabular text-caos-xs text-caos-muted">routed → {email.route}</span>
         </div>
       </div>
     </div>
@@ -208,8 +208,8 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
               <div className={"tabular leading-none " + t.fs} style={{ color: t.color }}>
                 <FlashOnChange value={t.n}>{t.n}</FlashOnChange>
               </div>
-              <div className="text-caos-label uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
-              <div className="tabular text-caos-micro text-caos-muted truncate">{t.sub}</div>
+              <div className="text-caos-sm uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
+              <div className="tabular text-caos-2xs text-caos-muted truncate">{t.sub}</div>
             </>
           );
           return t.on ? (
@@ -229,17 +229,17 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
             onKeyDown={onActivate(() => setOpenEmail(e))}
             title="Open email"
             aria-label={`Open email: ${e.subj}`}
-            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-[10.5px] hover:bg-caos-elevated/60 transition-caos cursor-pointer focus-ring"
+            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 text-caos-lg hover:bg-caos-elevated/60 transition-caos cursor-pointer focus-ring"
           >
-            <span className="tabular text-[10px] text-caos-muted">{e.t}</span>
+            <span className="tabular text-caos-md text-caos-muted">{e.t}</span>
             <span className="tabular text-caos-accent">{e.issuer}</span>
             <span className="min-w-0">
-              <span className="text-caos-text truncate block">{e.subj}{e.dedup ? <span className="text-caos-muted text-[9px]"> · dup</span> : null}</span>
-              <span className="text-caos-muted text-[9px] truncate block">{e.src}</span>
+              <span className="text-caos-text truncate block">{e.subj}{e.dedup ? <span className="text-caos-muted text-caos-xs"> · dup</span> : null}</span>
+              <span className="text-caos-muted text-caos-xs truncate block">{e.src}</span>
             </span>
-            <span className="text-[9.5px] text-caos-muted truncate">{e.signal}</span>
+            <span className="text-caos-sm text-caos-muted truncate">{e.signal}</span>
             <span className="tabular text-right" style={{ color: SEV_COLOR[e.sev] }}>{e.mat}</span>
-            <span className="tabular text-[9px] text-caos-muted truncate text-right">→ {e.route}</span>
+            <span className="tabular text-caos-xs text-caos-muted truncate text-right">→ {e.route}</span>
           </div>
         ))}
       </div>
@@ -259,11 +259,11 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
           <Dot sev={a.sev} pulse={i === 0 && live} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="tabular text-[10px] text-caos-accent">{a.issuer}</span>
-              <span className="tabular text-[9px] text-caos-muted">{a.code}</span>
-              <span className="tabular text-[9px] text-caos-muted ml-auto">{simClock(Math.max(0, tick - i * 5))}</span>
+              <span className="tabular text-caos-md text-caos-accent">{a.issuer}</span>
+              <span className="tabular text-caos-xs text-caos-muted">{a.code}</span>
+              <span className="tabular text-caos-xs text-caos-muted ml-auto">{simClock(Math.max(0, tick - i * 5))}</span>
             </div>
-            <div className="text-[10.5px] text-caos-text leading-snug mt-0.5">{a.text}</div>
+            <div className="text-caos-lg text-caos-text leading-snug mt-0.5">{a.text}</div>
             <div className="mt-1"><Tag sev="info">route → {a.route}</Tag></div>
           </div>
         </div>
@@ -291,12 +291,12 @@ export function SectorBoard() {
             className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer focus-ring"
           >
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium text-caos-text">{s.sector}</span>
-              {s.ew > 0 ? <span className="tabular text-[9px]" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+              <span className="text-caos-xl font-medium text-caos-text">{s.sector}</span>
+              {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
             </div>
-            <div className="tabular text-[9px] tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-            <div className="text-[9.5px] text-caos-muted mt-1 leading-snug">{s.trend}</div>
-            <div className="tabular text-[8.5px] text-caos-muted mt-1.5 flex justify-between">
+            <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+            <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
+            <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
               <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
               {fresh ? (
                 <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
@@ -335,27 +335,27 @@ export function CoverageMatrix() {
   return (
     <div className="p-2">
       <div className="grid grid-cols-[110px_repeat(6,1fr)_70px] gap-1 items-center mb-1 px-1">
-        <span className="tabular text-[9px] uppercase text-caos-muted">Issuer</span>
-        {layers.map((l) => <span key={l} className="tabular text-[9px] uppercase text-caos-muted text-center">{l}</span>)}
-        <span className="tabular text-[9px] uppercase text-caos-muted text-right">Refresh</span>
+        <span className="tabular text-caos-xs uppercase text-caos-muted">Issuer</span>
+        {layers.map((l) => <span key={l} className="tabular text-caos-xs uppercase text-caos-muted text-center">{l}</span>)}
+        <span className="tabular text-caos-xs uppercase text-caos-muted text-right">Refresh</span>
       </div>
       {COVERAGE.map((c) => (
         <div key={c.code} className="grid grid-cols-[110px_repeat(6,1fr)_70px] gap-1 items-center mb-1 px-1">
-          <span className="tabular text-[10.5px] text-caos-accent">{c.code}</span>
+          <span className="tabular text-caos-lg text-caos-accent">{c.code}</span>
           {layers.map((l) => {
             const st = c.cells[l];
             return (
               <div key={l} title={`${c.code} ${l} — ${st}`} className={"h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")} style={{ background: CELL_COLOR[st] }}>
-                <span className="tabular text-[8px] uppercase" style={{ color: st === "fresh" ? "var(--caos-success-bright)" : st === "aging" ? "var(--caos-warning-bright)" : "var(--caos-text)" }}>{st}</span>
+                <span className="tabular text-caos-3xs uppercase" style={{ color: st === "fresh" ? "var(--caos-success-bright)" : st === "aging" ? "var(--caos-warning-bright)" : "var(--caos-text)" }}>{st}</span>
               </div>
             );
           })}
-          <button className="tabular text-[9px] text-caos-muted border border-caos-border rounded px-1 py-0.5 hover:text-caos-text hover:border-caos-accent/60 transition-caos">RE-RUN</button>
+          <button className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-0.5 hover:text-caos-text hover:border-caos-accent/60 transition-caos">RE-RUN</button>
         </div>
       ))}
       <div className="flex gap-3 mt-2 px-1">
         {Object.keys(CELL_COLOR).map((k) => (
-          <span key={k} className="flex items-center gap-1 text-[9px] text-caos-muted"><span className="w-2 h-2 rounded-sm" style={{ background: CELL_COLOR[k] }}></span>{k}</span>
+          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted"><span className="w-2 h-2 rounded-sm" style={{ background: CELL_COLOR[k] }}></span>{k}</span>
         ))}
       </div>
     </div>
@@ -369,11 +369,11 @@ export function QaQueue() {
         <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
-            <span className="tabular text-[10px] text-caos-accent">{q.id}</span>
-            <span className="tabular text-[10px] text-caos-muted">{q.issuer} · {q.module}</span>
-            <span className="tabular text-[9px] text-caos-muted ml-auto">{q.age}</span>
+            <span className="tabular text-caos-md text-caos-accent">{q.id}</span>
+            <span className="tabular text-caos-md text-caos-muted">{q.issuer} · {q.module}</span>
+            <span className="tabular text-caos-xs text-caos-muted ml-auto">{q.age}</span>
           </div>
-          <div className="text-[10.5px] text-caos-text leading-snug mt-1">{q.text}</div>
+          <div className="text-caos-lg text-caos-text leading-snug mt-1">{q.text}</div>
         </div>
       ))}
     </div>
@@ -387,11 +387,11 @@ export function GapsList() {
         <div key={i} className="px-3 py-[6px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos">
           <div className="flex items-center gap-2">
             <Dot sev={g.sev} />
-            <span className="tabular text-[10px] text-caos-accent">{g.issuer}</span>
-            <span className="text-[10.5px] text-caos-text truncate">{g.doc}</span>
-            <span className="tabular text-[9px] text-caos-muted ml-auto">req. {g.requested}</span>
+            <span className="tabular text-caos-md text-caos-accent">{g.issuer}</span>
+            <span className="text-caos-lg text-caos-text truncate">{g.doc}</span>
+            <span className="tabular text-caos-xs text-caos-muted ml-auto">req. {g.requested}</span>
           </div>
-          <div className="text-[9.5px] text-caos-muted leading-snug mt-0.5 pl-3.5">{g.impact}</div>
+          <div className="text-caos-sm text-caos-muted leading-snug mt-0.5 pl-3.5">{g.impact}</div>
         </div>
       ))}
     </div>
@@ -404,15 +404,15 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
   if (!p) return null;
   const stat = (l: string, v: string, c?: string) => (
     <span key={l} className="flex flex-col items-start">
-      <span className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className="tabular text-[12px]" style={{ color: c }}>{v}</span>
+      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
+      <span className="tabular text-caos-2xl" style={{ color: c }}>{v}</span>
     </span>
   );
   return (
     <div className="h-12 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-6 px-4 caos-enter">
       <span className="flex items-center gap-2">
-        <span className="tabular text-[12px] text-caos-accent">{p.code}</span>
-        <span className="text-[12px] text-caos-text font-medium">{p.name}</span>
+        <span className="tabular text-caos-2xl text-caos-accent">{p.code}</span>
+        <span className="text-caos-2xl text-caos-text font-medium">{p.name}</span>
         <Tag sev={p.qa}>{p.qa}</Tag>
       </span>
       {stat("3Y DM", p.dm + "bps")}
@@ -423,13 +423,13 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
       {stat("Posture", p.posture, POSTURE_COLOR[p.posture])}
       <div className="flex-1"></div>
       {p.code === "ATLF" ? (
-        <Link href="/deepdive" className="no-underline tabular text-[10px] px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
+        <Link href="/deepdive" className="no-underline tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
           OPEN DEEP-DIVE →
         </Link>
       ) : (
-        <span className="tabular text-[9px] text-caos-muted">deep-dive mocked for ATLF only</span>
+        <span className="tabular text-caos-xs text-caos-muted">deep-dive mocked for ATLF only</span>
       )}
-      <button onClick={onClose} className="text-caos-muted hover:text-caos-text transition-caos text-[11px]">✕</button>
+      <button onClick={onClose} className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">✕</button>
     </div>
   );
 }

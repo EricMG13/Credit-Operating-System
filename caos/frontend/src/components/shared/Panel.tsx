@@ -18,7 +18,7 @@ export function Panel({
   return (
     <div className={"bg-caos-panel border border-caos-border rounded-md flex flex-col min-h-0 " + className}>
       <div className="h-8 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border">
-        <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-caos-muted">{title}</span>
+        <span className="text-caos-md font-semibold tracking-[0.12em] uppercase text-caos-muted">{title}</span>
         <div className="flex-1" />
         {right}
       </div>

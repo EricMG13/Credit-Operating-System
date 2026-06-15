@@ -25,17 +25,17 @@ const BAD = "rgba(239,68,68,0.5)";
 
 function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string | null }) {
   const proj = useMemo(() => sc.scenarios.map((s) => ({ s, p: sc.project(s.drivers) })), [sc]);
-  const val = "tabular text-[10px] text-right";
+  const val = "tabular text-caos-md text-right";
   const lbl = "flex items-baseline gap-1.5 min-w-0";
   const top = " mt-1 pt-1.5 border-t border-caos-border/60";
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
           Best · base · worst — FY26e–FY28e
         </span>
         {active ? (
-          <span className="tabular text-[8px] px-1 py-px rounded border whitespace-nowrap truncate" style={{ color: "var(--caos-accent)", borderColor: "rgba(79,140,255,0.4)", background: "rgba(79,140,255,0.08)" }} title={`Re-centered on scenario: ${active}`}>
+          <span className="tabular text-caos-3xs px-1 py-px rounded border whitespace-nowrap truncate" style={{ color: "var(--caos-accent)", borderColor: "rgba(79,140,255,0.4)", background: "rgba(79,140,255,0.08)" }} title={`Re-centered on scenario: ${active}`}>
             ▸ {active}
           </span>
         ) : null}
@@ -43,15 +43,15 @@ function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string 
       <div className="grid items-center gap-x-2 gap-y-1" style={{ gridTemplateColumns: "1fr repeat(3, 1fr)" }}>
         <span />
         {proj.map(({ s }) => (
-          <span key={s.key} className="tabular text-[9px] uppercase tracking-wide text-right" style={{ color: s.color }}>{s.label}</span>
+          <span key={s.key} className="tabular text-caos-xs uppercase tracking-wide text-right" style={{ color: s.color }}>{s.label}</span>
         ))}
 
         {/* net-leverage trajectory */}
         {FORECAST_YEARS.map((yr, i) => (
           <Fragment key={yr}>
             <span className={lbl}>
-              <span className="text-[10px] text-caos-text">{i === 0 ? "Net leverage" : ""}</span>
-              <span className="tabular text-caos-micro text-caos-muted">{yr}</span>
+              <span className="text-caos-md text-caos-text">{i === 0 ? "Net leverage" : ""}</span>
+              <span className="tabular text-caos-2xs text-caos-muted">{yr}</span>
             </span>
             {proj.map(({ s, p }) => (
               <span key={s.key} className={val} style={{ color: i === FORECAST_YEARS.length - 1 ? s.color : "var(--caos-text)" }}>
@@ -63,8 +63,8 @@ function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string 
 
         {/* cumulative FCF */}
         <span className={lbl + top}>
-          <span className="text-[10px] text-caos-text">Cum. FCF</span>
-          <span className="tabular text-caos-micro text-caos-muted">3y</span>
+          <span className="text-caos-md text-caos-text">Cum. FCF</span>
+          <span className="tabular text-caos-2xs text-caos-muted">3y</span>
         </span>
         {proj.map(({ s, p }) => (
           <span key={s.key} className={val + top} style={{ color: "var(--caos-text)" }}>
@@ -74,8 +74,8 @@ function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string 
 
         {/* minimum cash */}
         <span className={lbl}>
-          <span className="text-[10px] text-caos-text">Min cash</span>
-          <span className="tabular text-caos-micro text-caos-muted">3y</span>
+          <span className="text-caos-md text-caos-text">Min cash</span>
+          <span className="tabular text-caos-2xs text-caos-muted">3y</span>
         </span>
         {proj.map(({ s, p }) => {
           const mc = Math.min(...p.cash);
@@ -124,7 +124,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Sensitivity — tornado</div>
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Sensitivity — tornado</div>
 
       <div className="flex flex-wrap gap-1">
         {METRICS.map((m) => (
@@ -132,7 +132,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
             key={m.key}
             onClick={() => setMetric(m.key)}
             className={
-              "tabular text-[8.5px] px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
               (metric === m.key ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -142,14 +142,14 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Swing</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Swing</span>
         {([[0.5, "±½"], [1, "±1"], [1.5, "±1½"]] as const).map(([v, l]) => (
           <button
             key={v}
             onClick={() => setIntensity(v)}
             title={"Driver swing intensity ×" + v}
             className={
-              "tabular text-[8.5px] px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
               (intensity === v ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -157,7 +157,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
           </button>
         ))}
         <span className="flex-1" />
-        <span className="tabular text-caos-micro text-caos-muted">base {fmt(base)}</span>
+        <span className="tabular text-caos-2xs text-caos-muted">base {fmt(base)}</span>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -168,27 +168,27 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
           const aboveColor = meta.lowerIsBetter ? BAD : GOOD; // values > base
           return (
             <div key={b.driver} className="flex items-center gap-1.5" title={`${b.label}: ${fmt(b.low)} ↔ ${fmt(b.high)} (base ${fmt(base)})`}>
-              <span className="text-[9px] text-caos-text w-[72px] shrink-0 truncate">{b.label}</span>
-              <span className="tabular text-[8.5px] text-caos-text w-[48px] shrink-0 text-right whitespace-nowrap tabular-nums">{fmt(a)}</span>
+              <span className="text-caos-xs text-caos-text w-[72px] shrink-0 truncate">{b.label}</span>
+              <span className="tabular text-caos-2xs text-caos-text w-[48px] shrink-0 text-right whitespace-nowrap tabular-nums">{fmt(a)}</span>
               <div className="relative flex-1 h-3.5 rounded-sm" style={{ background: "var(--caos-bg)" }}>
                 <span className="absolute top-0 bottom-0 rounded-l-sm" style={{ left: La + "%", width: Math.max(0, Lb - La) + "%", background: belowColor }} />
                 <span className="absolute top-0 bottom-0 rounded-r-sm" style={{ left: Lb + "%", width: Math.max(0, Lc - Lb) + "%", background: aboveColor }} />
                 <span className="absolute top-[-1px] bottom-[-1px] w-px" style={{ left: Lb + "%", background: "var(--caos-text)" }} />
               </div>
-              <span className="tabular text-[8.5px] text-caos-text w-[48px] shrink-0 text-left whitespace-nowrap tabular-nums">{fmt(c)}</span>
+              <span className="tabular text-caos-2xs text-caos-text w-[48px] shrink-0 text-left whitespace-nowrap tabular-nums">{fmt(c)}</span>
             </div>
           );
         })}
       </div>
 
-      <div className="tabular text-caos-micro text-caos-muted leading-snug">
+      <div className="tabular text-caos-2xs text-caos-muted leading-snug">
         {meta.lowerIsBetter ? "Green improves (lower), red worsens." : "Green improves (higher), red worsens."} Bar spans low–high outcome; tick = {fmt(base)} base.
       </div>
 
       {/* Narrative read — interprets the tornado for the credit, live with the selectors. */}
       <div className="flex flex-col gap-1 pt-2 border-t border-caos-border/60">
-        <div className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Sensitivity read</div>
-        <p className="text-[10px] text-caos-muted leading-relaxed">
+        <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Sensitivity read</div>
+        <p className="text-caos-md text-caos-muted leading-relaxed">
           <span className="font-medium text-caos-text">{top.label} is the binding lever.</span>{" "}
           A {swingLabel(top.driver, intensity)} swing alone moves the outcome{" "}
           <span className="tabular text-caos-text">{fmt(tLo)}–{fmt(tHi)}</span>{" "}({fmtMag(range(top))}), {concPhrase}.{" "}
@@ -263,21 +263,21 @@ function ScenarioBuilder({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">Scenario builder</div>
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Scenario builder</div>
 
       {active ? (
         <div className="rounded border px-2 py-1.5 flex flex-col gap-1" style={{ borderColor: "rgba(79,140,255,0.4)", background: "rgba(79,140,255,0.08)" }}>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-sm shrink-0" style={{ background: "var(--caos-accent)" }} />
-            <span className="text-[10px] text-caos-text font-medium truncate">{active.label}</span>
+            <span className="text-caos-md text-caos-text font-medium truncate">{active.label}</span>
             <span className="flex-1" />
-            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-[8.5px] px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
+            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
           </div>
-          <div className="tabular text-[9px]" style={{ color: "var(--caos-accent)" }}>{deltaSummary(active.deltas) || "no driver change"}</div>
-          {active.rationale ? <div className="text-[9px] text-caos-muted leading-snug">{active.rationale}</div> : null}
+          <div className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }}>{deltaSummary(active.deltas) || "no driver change"}</div>
+          {active.rationale ? <div className="text-caos-xs text-caos-muted leading-snug">{active.rationale}</div> : null}
         </div>
       ) : (
-        <div className="tabular text-[9px] text-caos-muted leading-snug">Apply a scenario to re-center base &amp; downside. Module forecasts shown.</div>
+        <div className="tabular text-caos-xs text-caos-muted leading-snug">Apply a scenario to re-center base &amp; downside. Module forecasts shown.</div>
       )}
 
       {/* pre-defined scenarios */}
@@ -287,7 +287,7 @@ function ScenarioBuilder({
             key={p.label}
             onClick={() => onApply(p.deltas, p.label, "")}
             title={deltaSummary(p.deltas)}
-            className="tabular text-[8.5px] px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+            className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
           >
             {p.label}
           </button>
@@ -296,24 +296,24 @@ function ScenarioBuilder({
 
       {/* natural-language scenario */}
       <div className="flex items-center gap-1.5">
-        <span className="text-caos-accent text-[11px]">✦</span>
+        <span className="text-caos-accent text-caos-xl">✦</span>
         <TextInput
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runNL(); } }}
           placeholder="Describe a scenario — e.g. oil shock, margins compress 200bps"
-          className="flex-1 px-2 py-1 text-[10px]"
+          className="flex-1 px-2 py-1 text-caos-md"
         />
         <button
           onClick={() => runNL()}
           disabled={busy || !q.trim()}
-          className="shrink-0 tabular text-[9px] px-2 py-1 rounded transition-caos disabled:opacity-40"
+          className="shrink-0 tabular text-caos-xs px-2 py-1 rounded transition-caos disabled:opacity-40"
           style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
         >
           {busy ? "…" : "BUILD"}
         </button>
       </div>
-      {err ? <div className="tabular text-[9px]" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div> : null}
+      {err ? <div className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div> : null}
     </div>
   );
 }

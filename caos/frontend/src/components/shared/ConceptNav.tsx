@@ -70,7 +70,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
             title={s.label}
             aria-label={s.label}
             className={
-              "no-underline flex items-center gap-1.5 tabular text-[9.5px] px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+              "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
               (active
                 ? "bg-caos-elevated text-caos-text border-caos-accent"
                 : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")

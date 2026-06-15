@@ -151,12 +151,12 @@ export function ModuleCharts({ id }: { id: string }) {
       {defs.map((c, i) => (
         <div key={i} className="rounded border border-caos-border bg-caos-bg">
           <div className="px-3 py-2 border-b border-caos-border flex items-center">
-            <span className="tabular text-[9px] uppercase tracking-wider text-caos-muted">{c.title}</span>
+            <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{c.title}</span>
           </div>
           <div className="px-2 pt-1">
             <G2Chart spec={c.spec} height={c.h || 180} />
           </div>
-          {c.note ? <div className="px-3 py-1.5 tabular text-[8.5px] text-caos-muted">{c.note}</div> : null}
+          {c.note ? <div className="px-3 py-1.5 tabular text-caos-2xs text-caos-muted">{c.note}</div> : null}
         </div>
       ))}
     </div>

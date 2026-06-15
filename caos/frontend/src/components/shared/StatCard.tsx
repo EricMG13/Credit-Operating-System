@@ -37,8 +37,8 @@ export function StatCard({
       >
         {value}
       </div>
-      <div className="text-caos-label text-caos-muted mt-0.5">{label}</div>
-      {sub ? <div className="tabular text-caos-micro text-caos-muted mt-0.5">{sub}</div> : null}
+      <div className="text-caos-sm text-caos-muted mt-0.5">{label}</div>
+      {sub ? <div className="tabular text-caos-2xs text-caos-muted mt-0.5">{sub}</div> : null}
     </div>
   );
 }

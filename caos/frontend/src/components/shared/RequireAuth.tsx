@@ -30,7 +30,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
         </p>
         <button
           onClick={() => refresh()}
-          className="tabular text-[10px] px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+          className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
         >
           RETRY
         </button>

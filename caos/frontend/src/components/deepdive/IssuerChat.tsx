@@ -129,25 +129,25 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
       style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px rgba(79,140,255,0.12)" }}
     >
       <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
-        <span className="text-caos-accent text-[12px]">✦</span>
-        <span className="tabular text-[11px] text-caos-text whitespace-nowrap">{DEAL.code} · Issuer Q&A</span>
-        <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in RUN #2641 · viewing {tab}</span>
+        <span className="text-caos-accent text-caos-2xl">✦</span>
+        <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">{DEAL.code} · Issuer Q&A</span>
+        <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in RUN #2641 · viewing {tab}</span>
         <div className="flex-1"></div>
         {msgs.length ? (
-          <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-[11px]">⌫</button>
+          <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">⌫</button>
         ) : null}
-        <button onClick={onClose} title="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
+        <button onClick={onClose} title="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md">✕</button>
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg">
         {!msgs.length ? (
           <div className="flex flex-col gap-2">
-            <div className="text-[10px] text-caos-muted leading-relaxed">
+            <div className="text-caos-md text-caos-muted leading-relaxed">
               Ask follow-up questions about Atlas Forge — answers cite the module outputs (CP-x) and evidence (E-xx) from this run. All figures mock.
             </div>
             <div className="flex flex-col gap-1.5 mt-1">
               {CAOS_CHAT_STARTERS.map((s) => (
-                <button key={s} onClick={() => send(s)} className="text-left tabular text-[10px] px-2.5 py-1.5 rounded border border-caos-border text-caos-text/85 hover:border-caos-accent/60 hover:bg-caos-elevated/60 transition-caos">
+                <button key={s} onClick={() => send(s)} className="text-left tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-border text-caos-text/85 hover:border-caos-accent/60 hover:bg-caos-elevated/60 transition-caos">
                   {s}
                 </button>
               ))}
@@ -157,13 +157,13 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         {msgs.map((m, i) => (
           <div
             key={i}
-            className={"max-w-[88%] rounded px-2.5 py-2 text-[10.5px] leading-relaxed whitespace-pre-wrap border " + (m.role === "user" ? "self-end text-caos-text" : "self-start text-caos-text/90")}
+            className={"max-w-[88%] rounded px-2.5 py-2 text-caos-lg leading-relaxed whitespace-pre-wrap border " + (m.role === "user" ? "self-end text-caos-text" : "self-start text-caos-text/90")}
             style={m.role === "user"
               ? { background: "rgba(79,140,255,0.10)", borderColor: "rgba(79,140,255,0.4)" }
               : { background: "var(--caos-panel)", borderColor: m.err ? "rgba(245,165,36,0.5)" : "var(--caos-border)" }}
           >
             {m.role === "assistant" ? (
-              <div className="tabular text-[8px] uppercase tracking-wider text-caos-muted mb-1 flex items-center gap-1">
+              <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1 flex items-center gap-1">
                 <span className="text-caos-accent">✦</span>Credit OS
               </div>
             ) : null}
@@ -173,22 +173,22 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         {busy ? (
           <div className="self-start rounded px-2.5 py-2 border border-caos-border bg-caos-panel flex items-center gap-1.5">
             <Dot sev="running" pulse />
-            <span className="tabular text-[9.5px] text-caos-muted">querying run outputs…</span>
+            <span className="tabular text-caos-sm text-caos-muted">querying run outputs…</span>
           </div>
         ) : null}
       </div>
 
       {focusEv && EVIDENCE[focusEv] ? (
         <div className="shrink-0 border-t border-caos-border bg-caos-elevated/40 px-2.5 py-1 flex items-center gap-1.5">
-          <span className="tabular text-caos-micro uppercase tracking-wider text-caos-accent shrink-0">In focus</span>
-          <span className="tabular text-[9.5px] text-caos-accent shrink-0">{focusEv}</span>
-          <span className="text-[9.5px] text-caos-muted truncate">{EVIDENCE[focusEv].section}</span>
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent shrink-0">In focus</span>
+          <span className="tabular text-caos-sm text-caos-accent shrink-0">{focusEv}</span>
+          <span className="text-caos-sm text-caos-muted truncate">{EVIDENCE[focusEv].section}</span>
           <div className="flex-1" />
           <button
             onClick={() => setFocusEv(null)}
             title="Clear focus context"
             aria-label="Clear focus context"
-            className="shrink-0 rounded text-caos-muted hover:text-caos-text transition-caos text-[10px] focus-ring"
+            className="shrink-0 rounded text-caos-muted hover:text-caos-text transition-caos text-caos-md focus-ring"
           >
             ✕
           </button>
@@ -202,7 +202,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
-          className="flex-1 px-2.5 py-1.5 text-[10.5px]"
+          className="flex-1 px-2.5 py-1.5 text-caos-lg"
         />
         <button
           onClick={() => send()}

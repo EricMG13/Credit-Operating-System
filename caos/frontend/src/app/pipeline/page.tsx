@@ -73,7 +73,7 @@ function PipelineVisualizer() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
@@ -87,7 +87,7 @@ function PipelineVisualizer() {
               onClick={() => { setModeK(m.k); setSelected(null); }}
               title={m.title}
               className={
-                "tabular text-[9.5px] px-2.5 py-[7px] transition-caos whitespace-nowrap " +
+                "tabular text-caos-sm px-2.5 py-[7px] transition-caos whitespace-nowrap " +
                 (modeK === m.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
               }
             >
@@ -98,21 +98,21 @@ function PipelineVisualizer() {
         <Link
           href="/upload"
           title="L0 · Document Intake — add source documents (CP-0) that feed this route"
-          className="no-underline flex items-center gap-1 tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0"
+          className="no-underline flex items-center gap-1 tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0"
         >
           ↑ L0 INTAKE
         </Link>
-        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap hidden 2xl:inline">{mode.runId}</span>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap truncate min-w-0">Atlas Forge — {mode.title}</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{mode.sub}</span>
+        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap hidden 2xl:inline">{mode.runId}</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">Atlas Forge — {mode.title}</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{mode.sub}</span>
         <div className="w-44 flex items-center gap-2 shrink-0">
           <Bar pct={(run.completed / run.total) * 100} color="var(--caos-accent)" />
-          <span className="tabular text-[10px] text-caos-muted whitespace-nowrap">{run.completed}/{run.total}</span>
+          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.completed}/{run.total}</span>
         </div>
         <div className="flex-1" />
         <Tag sev={clearance.tag}>{clearance.text}</Tag>
         <SimControls run={run} />
-        <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
+        <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
         <div className="flex items-center rounded border border-caos-border overflow-hidden">
           {([
             { k: "graph", l: "DAG" },
@@ -122,7 +122,7 @@ function PipelineVisualizer() {
               key={v.k}
               onClick={() => setView(v.k)}
               className={
-                "tabular text-[10px] px-3 py-1.5 transition-caos " +
+                "tabular text-caos-md px-3 py-1.5 transition-caos " +
                 (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
               }
             >
@@ -134,7 +134,7 @@ function PipelineVisualizer() {
           onClick={() => setDimCompleted(!dimCompleted)}
           title="Dim completed nodes"
           className={
-            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (dimCompleted ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -150,10 +150,10 @@ function PipelineVisualizer() {
             className="flex-1"
             right={
               <span className="flex items-center gap-3">
-                <span className="flex items-center gap-1 text-[9px] text-caos-muted">
+                <span className="flex items-center gap-1 text-caos-xs text-caos-muted">
                   <span className="w-3 h-px" style={{ background: "var(--caos-accent)" }}></span>lineage (upstream)
                 </span>
-                <span className="flex items-center gap-1 text-[9px] text-caos-muted">
+                <span className="flex items-center gap-1 text-caos-xs text-caos-muted">
                   <span className="w-3 h-px" style={{ background: "var(--tranche-sub)" }}></span>consumers
                 </span>
               </span>
@@ -173,7 +173,7 @@ function PipelineVisualizer() {
             right={
               <span className="flex items-center gap-1.5">
                 <Dot sev="running" pulse={run.playing && !run.sim.done} />
-                <span className="tabular text-[9px] text-caos-muted">{run.sim.events.length} events</span>
+                <span className="tabular text-caos-xs text-caos-muted">{run.sim.events.length} events</span>
               </span>
             }
           >
