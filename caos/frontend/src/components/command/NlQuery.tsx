@@ -7,6 +7,8 @@
 
 import { Fragment, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
+import { TextInput } from "@/components/shared/TextInput";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
 import { fmtMetric } from "@/lib/query/format";
 import { CitationViewer } from "@/components/command/CitationViewer";
@@ -222,18 +224,18 @@ export function NlQueryBody() {
         {/* input */}
         <div className="flex items-center gap-2">
           <span className="text-caos-accent text-[12px]">✦</span>
-          <input
+          <TextInput
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); run(); } }}
             placeholder="Ask across issuers — e.g. which margins are most exposed to energy-price inflation"
-            className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[11px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+            className="flex-1 px-2.5 py-1.5 text-[11px]"
           />
           <button
             onClick={() => run()}
             disabled={busy || !q.trim()}
             className="shrink-0 tabular text-[10px] px-3 py-1.5 rounded transition-caos disabled:opacity-40"
-            style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}
+            style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
           >
             {busy ? "…" : "ASK"}
           </button>
@@ -256,7 +258,7 @@ export function NlQueryBody() {
 
         {err ? (
           <div className="tabular text-[10px] px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)", background: "rgba(245,165,36,0.08)" }}>
-            ⚠ {err}
+            <StatusGlyph kind="warning" /> {err}
           </div>
         ) : null}
 

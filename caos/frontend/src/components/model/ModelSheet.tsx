@@ -192,7 +192,7 @@ export function Sheet({
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "rgba(79,140,255,0.16)", transition: "background 160ms" }}
               >
-                <span className="tabular text-[8.5px] uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "#0a0a0f" : "var(--caos-text)" }}>
+                <span className="tabular text-[8.5px] uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "var(--caos-bg)" : "var(--caos-text)" }}>
                   {GROUPS_META[gr.group]}
                 </span>
               </div>

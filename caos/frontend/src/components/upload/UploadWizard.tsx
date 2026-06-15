@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { TextInput } from "@/components/shared/TextInput";
 import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/lib/api";
@@ -239,19 +240,19 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               </button>
             ) : (
               <div className="flex flex-col gap-2">
-                <input
+                <TextInput
                   type="text"
                   value={newIssuerName}
                   onChange={(e) => setNewIssuerName(e.target.value)}
                   placeholder="Issuer name (e.g. Atlas Forge Industrials)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-full px-2.5 py-1.5 text-[10.5px]"
                 />
-                <input
+                <TextInput
                   type="text"
                   value={newIssuerTicker}
                   onChange={(e) => setNewIssuerTicker(e.target.value)}
                   placeholder="Ticker (optional)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-full px-2.5 py-1.5 text-[10.5px]"
                 />
                 <div className="flex gap-2">
                   <button

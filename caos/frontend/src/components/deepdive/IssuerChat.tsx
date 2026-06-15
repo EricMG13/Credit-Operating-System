@@ -6,6 +6,7 @@
 // backend /api/chat/issuer endpoint forwards the conversation to Claude.
 
 import { useEffect, useRef, useState } from "react";
+import { TextInput } from "@/components/shared/TextInput";
 import { askIssuer, type ChatMessage } from "@/lib/api";
 import { CAPACITY, CAPSTACK, COVENANTS, DEAL, DEBATE, RECOVERY, SIZING, TRIGGERS } from "@/lib/reports/deal";
 import { DRIVERS, MODULES } from "@/lib/pipeline/data";
@@ -115,7 +116,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
         || (e as Error)?.message || "rate-limited or offline";
-      setMsgs((m) => [...m, { role: "assistant", content: "⚠ Chat call failed (" + detail + "). Try again.", err: true }]);
+      setMsgs((m) => [...m, { role: "assistant", content: "Chat call failed (" + detail + "). Try again.", err: true}]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -195,20 +196,20 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
       ) : null}
 
       <div className="shrink-0 border-t border-caos-border bg-caos-panel px-2.5 py-2 flex items-center gap-2">
-        <input
+        <TextInput
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
-          className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+          className="flex-1 px-2.5 py-1.5 text-[10.5px]"
         />
         <button
           onClick={() => send()}
           disabled={busy || !input.trim()}
           title="Send"
           className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-[13px]"
-          style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}
+          style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
         >
           ↑
         </button>

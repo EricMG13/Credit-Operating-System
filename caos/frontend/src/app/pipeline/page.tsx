@@ -154,7 +154,7 @@ function PipelineVisualizer() {
                   <span className="w-3 h-px" style={{ background: "var(--caos-accent)" }}></span>lineage (upstream)
                 </span>
                 <span className="flex items-center gap-1 text-[9px] text-caos-muted">
-                  <span className="w-3 h-px" style={{ background: "#a855f7" }}></span>consumers
+                  <span className="w-3 h-px" style={{ background: "var(--tranche-sub)" }}></span>consumers
                 </span>
               </span>
             }

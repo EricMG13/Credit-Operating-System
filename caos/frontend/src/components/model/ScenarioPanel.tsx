@@ -6,6 +6,8 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
+import { TextInput } from "@/components/shared/TextInput";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import type { Model } from "@/lib/reports/model";
 import { scenarioFromNL } from "@/lib/api";
 import {
@@ -295,23 +297,23 @@ function ScenarioBuilder({
       {/* natural-language scenario */}
       <div className="flex items-center gap-1.5">
         <span className="text-caos-accent text-[11px]">✦</span>
-        <input
+        <TextInput
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runNL(); } }}
           placeholder="Describe a scenario — e.g. oil shock, margins compress 200bps"
-          className="flex-1 bg-caos-bg border border-caos-border rounded px-2 py-1 text-[10px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+          className="flex-1 px-2 py-1 text-[10px]"
         />
         <button
           onClick={() => runNL()}
           disabled={busy || !q.trim()}
           className="shrink-0 tabular text-[9px] px-2 py-1 rounded transition-caos disabled:opacity-40"
-          style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}
+          style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
         >
           {busy ? "…" : "BUILD"}
         </button>
       </div>
-      {err ? <div className="tabular text-[9px]" style={{ color: "var(--caos-warning)" }}>⚠ {err}</div> : null}
+      {err ? <div className="tabular text-[9px]" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div> : null}
     </div>
   );
 }

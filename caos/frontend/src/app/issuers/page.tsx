@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
+import { TextInput } from "@/components/shared/TextInput";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -43,6 +44,8 @@ function IssuersDirectory() {
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -69,15 +72,33 @@ function IssuersDirectory() {
     return () => { stale = true; clearTimeout(t); };
   }, [query]);
 
+  // Close the create modal on Escape, matching the other overlays.
+  useEffect(() => {
+    if (!showForm) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowForm(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [showForm]);
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    const issuer = await createIssuer(form);
-    setIssuers((prev) => [...prev, issuer]);
-    setShowForm(false);
-    setForm(EMPTY_FORM);
-    // New issuer registered — direct to the Execution Graph so the user sees
-    // the CP-X module route planned for it.
-    router.push("/pipeline");
+    if (creating) return; // guard against double-submit (would register duplicate issuers)
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const issuer = await createIssuer(form);
+      setIssuers((prev) => [...prev, issuer]);
+      setShowForm(false);
+      setForm(EMPTY_FORM);
+      // New issuer registered — direct to the Execution Graph so the user sees
+      // the CP-X module route planned for it.
+      router.push("/pipeline");
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setCreateError(detail || "Couldn't create the issuer. Check the details and try again.");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
@@ -87,7 +108,7 @@ function IssuersDirectory() {
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
         <span className="flex items-center gap-2">
-          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-[10px] font-bold" style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}>C</span>
+          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-[10px] font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
           <span className="text-[12px] font-semibold tracking-wide text-caos-text whitespace-nowrap">CREDIT OS</span>
           <span className="tabular text-[9px] text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
         </span>
@@ -129,11 +150,11 @@ function IssuersDirectory() {
               </span>
               <span className="relative flex items-center">
                 <span className="absolute left-2 text-caos-muted text-[10px] pointer-events-none">⌕</span>
-                <input
+                <TextInput
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="search issuer · industry · country · FIGI"
-                  className="w-64 bg-caos-bg border border-caos-border rounded pl-6 pr-6 py-1 tabular text-[10px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                  className="w-64 pl-6 pr-6 py-1 tabular text-[10px]"
                 />
                 {query ? (
                   <button
@@ -239,20 +260,23 @@ function IssuersDirectory() {
                 { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
               ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
                 <div key={key}>
-                  <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " ·" : ""}</label>
-                  <input
+                  <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
+                  <TextInput
                     required={required}
                     value={form[key]}
                     onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                     placeholder={ph}
-                    className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                    className="w-full px-2.5 py-1.5 text-[10.5px]"
                   />
                 </div>
               ))}
             </div>
+            {createError ? (
+              <div className="px-3 pb-1 tabular text-[10px]" style={{ color: "var(--caos-critical)" }}>{createError}</div>
+            ) : null}
             <div className="px-3 pb-3 flex gap-2">
-              <button type="submit" className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
-                CREATE ISSUER
+              <button type="submit" disabled={creating} className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
+                {creating ? "CREATING…" : "CREATE ISSUER"}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="px-3 tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
                 CANCEL

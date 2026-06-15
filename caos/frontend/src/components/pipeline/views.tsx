@@ -11,6 +11,7 @@ import {
 import { SEV_COLOR, type Sim, type SimEvent } from "@/lib/pipeline/sim";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 
 const COL_ORDER = ["L0", "ORCH", "L1", "L2", "L3", "L4", "L6", "L5", "INFRA"];
 
@@ -109,7 +110,7 @@ export function GraphView({
               <Dot sev={st} pulse={st === "running"} />
               <span className="tabular text-[10px] text-caos-text whitespace-nowrap">{m.id}</span>
               {inScope && NODE_QA[m.id] ? <span className="ml-auto text-[9px]" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
-              {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto text-[9px]" style={{ color: "var(--caos-warning)" }}>⚠</span> : null}
+              {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
               {st === "held" ? <span className="ml-auto text-[9px]" style={{ color: "var(--caos-warning)" }}>🔒</span> : null}
             </div>
             <div className="px-2 text-[8.5px] text-caos-muted truncate leading-tight">{m.name}</div>
@@ -206,7 +207,7 @@ export function Inspector({
       <div className="p-4 text-[11px] text-caos-muted leading-relaxed">
         <div className="text-caos-text font-medium mb-2">Select a module</div>
         Click any node to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span> and{" "}
-        <span style={{ color: "#a855f7" }}>downstream consumers</span> through the CP-X route graph, inspect payload
+        <span style={{ color: "var(--tranche-sub)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
         status, QA findings and propagated limitations.
       </div>
     );

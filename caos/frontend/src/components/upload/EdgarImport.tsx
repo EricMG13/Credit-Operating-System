@@ -18,6 +18,7 @@ import {
 import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
+import { TextInput } from "@/components/shared/TextInput";
 
 // Covenant-bearing forms: credit agreements (Ex-10.x) and indentures (Ex-4.x)
 // attach to these, plus the covenant "Description of Notes" in S-1/S-4/424B.
@@ -31,8 +32,8 @@ function errInfo(err: unknown): { status?: number; detail?: string } {
 
 // CP-4 authority hierarchy → a tranche-style hue (governing docs read strongest).
 function rankColor(rank: number | null): string {
-  if (rank === 1) return "var(--caos-tranche-1l, #2dd4bf)";
-  if (rank === 2) return "var(--caos-tranche-2l, #4f8cff)";
+  if (rank === 1) return "var(--tranche-1l)";
+  if (rank === 2) return "var(--tranche-2l)";
   if (rank && rank >= 3) return "var(--caos-warning)";
   return "var(--caos-muted)";
 }
@@ -114,14 +115,14 @@ export function EdgarImport({
     >
       <div className="p-3 flex flex-col gap-2.5">
         <div className="flex gap-2">
-          <input
+          <TextInput
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && search()}
             placeholder="Issuer + document, e.g. Atlas Forge credit agreement"
             aria-label="Search SEC EDGAR filings for this issuer"
-            className="focus-ring flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+            className="flex-1 px-2.5 py-1.5 text-[10.5px]"
           />
           <button
             onClick={search}
