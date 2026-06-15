@@ -28,7 +28,11 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
           ).filter((el) => el.offsetParent !== null)
         : [];
 
-    (focusables()[0] ?? panel)?.focus?.();
+    // Prefer the first form field (a form modal should land on its first input,
+    // not the close button); else the first focusable; else the panel itself.
+    const initial = focusables();
+    const firstField = initial.find((el) => /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+    (firstField ?? initial[0] ?? panel)?.focus?.();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {

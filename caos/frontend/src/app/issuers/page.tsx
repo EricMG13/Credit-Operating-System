@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { TextInput } from "@/components/shared/TextInput";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -43,9 +44,6 @@ function IssuersDirectory() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -71,35 +69,6 @@ function IssuersDirectory() {
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
   }, [query]);
-
-  // Close the create modal on Escape, matching the other overlays.
-  useEffect(() => {
-    if (!showForm) return;
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setShowForm(false); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [showForm]);
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (creating) return; // guard against double-submit (would register duplicate issuers)
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const issuer = await createIssuer(form);
-      setIssuers((prev) => [...prev, issuer]);
-      setShowForm(false);
-      setForm(EMPTY_FORM);
-      // New issuer registered — direct to the Execution Graph so the user sees
-      // the CP-X module route planned for it.
-      router.push("/pipeline");
-    } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setCreateError(detail || "Couldn't create the issuer. Check the details and try again.");
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
 
@@ -238,53 +207,99 @@ function IssuersDirectory() {
 
       {/* create modal */}
       {showForm ? (
-        <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={() => setShowForm(false)}>
-          <form
-            onSubmit={handleCreate}
-            onClick={(e) => e.stopPropagation()}
-            className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden"
-            style={{ boxShadow: "var(--shadow-modal)" }}
-          >
-            <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
-              <span className="tabular text-[11px] text-caos-text">New Issuer</span>
-              <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
-              <div className="flex-1" />
-              <button type="button" onClick={() => setShowForm(false)} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
-            </div>
-            <div className="p-3 flex flex-col gap-2.5">
-              {([
-                { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials" },
-                { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
-                { key: "industry", label: "Industry", required: false, ph: "e.g. Industrials" },
-                { key: "country", label: "Country", required: false, ph: "e.g. United States" },
-                { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
-              ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
-                <div key={key}>
-                  <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
-                  <TextInput
-                    required={required}
-                    value={form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                    placeholder={ph}
-                    className="w-full px-2.5 py-1.5 text-[10.5px]"
-                  />
-                </div>
-              ))}
-            </div>
-            {createError ? (
-              <div className="px-3 pb-1 tabular text-[10px]" style={{ color: "var(--caos-critical)" }}>{createError}</div>
-            ) : null}
-            <div className="px-3 pb-3 flex gap-2">
-              <button type="submit" disabled={creating} className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
-                {creating ? "CREATING…" : "CREATE ISSUER"}
-              </button>
-              <button type="button" onClick={() => setShowForm(false)} className="px-3 tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
-                CANCEL
-              </button>
-            </div>
-          </form>
-        </div>
+        <NewIssuerModal
+          onClose={() => setShowForm(false)}
+          onCreated={(issuer) => {
+            setIssuers((prev) => [...prev, issuer]);
+            // New issuer registered — direct to the Execution Graph so the user
+            // sees the CP-X module route planned for it.
+            router.push("/pipeline");
+          }}
+        />
       ) : null}
+    </div>
+  );
+}
+
+// Create-issuer dialog — its own component so useModalA11y can run on
+// mount/unmount (focus-trap + Escape + scroll-lock; the inline form couldn't,
+// since a hook can't run conditionally). Owns the form + create call and hands
+// the new issuer back to the directory via onCreated.
+function NewIssuerModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (issuer: Issuer) => void;
+}) {
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const panelRef = useModalA11y<HTMLFormElement>(onClose);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creating) return; // guard against double-submit (would register duplicate issuers)
+    setCreating(true);
+    setCreateError(null);
+    try {
+      onCreated(await createIssuer(form));
+      onClose();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setCreateError(detail || "Couldn't create the issuer. Check the details and try again.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+      <form
+        ref={panelRef}
+        onSubmit={handleCreate}
+        onClick={(e) => e.stopPropagation()}
+        className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden"
+        style={{ boxShadow: "var(--shadow-modal)" }}
+      >
+        <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
+          <span className="tabular text-[11px] text-caos-text">New Issuer</span>
+          <span className="tabular text-[8.5px] px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
+          <div className="flex-1" />
+          <button type="button" onClick={onClose} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]">✕</button>
+        </div>
+        <div className="p-3 flex flex-col gap-2.5">
+          {([
+            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials" },
+            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
+            { key: "industry", label: "Industry", required: false, ph: "e.g. Industrials" },
+            { key: "country", label: "Country", required: false, ph: "e.g. United States" },
+            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
+          ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
+            <div key={key}>
+              <label className="block tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
+              <TextInput
+                required={required}
+                value={form[key]}
+                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                placeholder={ph}
+                className="w-full px-2.5 py-1.5 text-[10.5px]"
+              />
+            </div>
+          ))}
+        </div>
+        {createError ? (
+          <div className="px-3 pb-1 tabular text-[10px]" style={{ color: "var(--caos-critical)" }}>{createError}</div>
+        ) : null}
+        <div className="px-3 pb-3 flex gap-2">
+          <button type="submit" disabled={creating} className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
+            {creating ? "CREATING…" : "CREATE ISSUER"}
+          </button>
+          <button type="button" onClick={onClose} className="px-3 tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
+            CANCEL
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
