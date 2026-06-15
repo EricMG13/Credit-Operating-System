@@ -9,11 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
+from datetime import datetime, timedelta, timezone
 
-from database import AsyncSessionLocal, Run
+from sqlalchemy import and_, or_, select, update
+
+from config import get_settings
+from database import AsyncSessionLocal, Run, engine
 from engine.runner import execute_run
 
 logger = logging.getLogger("caos.executor")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def execute_run_by_id(run_id: str) -> None:
@@ -62,3 +71,104 @@ class InProcessExecutor:
         task = asyncio.create_task(execute_run_by_id(run_id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+
+class QueueWorker:
+    """Postgres: claim queued (and truly-orphaned) runs via FOR UPDATE SKIP
+    LOCKED, execute up to `concurrency` at once, and reap attempts-exhausted
+    orphans. Lease is a generous fixed window (no heartbeat); re-claim fires
+    only on genuine worker death.
+
+        queued ──claim──► running ──execute_run──► complete / failed
+        running & lease<now & attempts<MAX ──re-claim──► running
+        running & lease<now & attempts>=MAX ──reap──► failed
+    """
+
+    name = "queue_worker"
+
+    def __init__(self) -> None:
+        self._settings = get_settings()
+        self._worker_id = f"{socket.gethostname()}:{id(self)}"
+        self._inflight: set[asyncio.Task] = set()
+        self._loop_task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+
+    async def start(self) -> None:
+        self._stop.clear()
+        self._loop_task = asyncio.create_task(self._run_loop())
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._loop_task:
+            await self._loop_task
+        for t in list(self._inflight):
+            t.cancel()
+
+    async def enqueue(self, run_id: str) -> None:
+        # The row already exists as 'queued'; the loop will pick it up. No-op.
+        return None
+
+    async def _reap_orphans(self) -> None:
+        async with AsyncSessionLocal() as s:
+            await s.execute(
+                update(Run)
+                .where(
+                    Run.status == "running",
+                    Run.lease_expires_at < _now(),
+                    Run.attempts >= self._settings.caos_run_max_attempts,
+                )
+                .values(status="failed", error="abandoned after max attempts", lease_expires_at=None)
+            )
+            await s.commit()
+
+    async def _claim_one(self) -> str | None:
+        max_attempts = self._settings.caos_run_max_attempts
+        lease = timedelta(seconds=self._settings.caos_run_lease_seconds)
+        async with AsyncSessionLocal() as s:
+            async with s.begin():
+                row = (
+                    await s.execute(
+                        select(Run)
+                        .where(
+                            or_(
+                                Run.status == "queued",
+                                and_(
+                                    Run.status == "running",
+                                    Run.lease_expires_at < _now(),
+                                    Run.attempts < max_attempts,
+                                ),
+                            )
+                        )
+                        .order_by(Run.created_at)
+                        .limit(1)
+                        .with_for_update(skip_locked=True)
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = "running"
+                row.attempts += 1
+                row.claimed_at = _now()
+                row.lease_expires_at = _now() + lease
+                row.worker_id = self._worker_id
+                return row.id
+
+    async def _run_loop(self) -> None:
+        poll = self._settings.caos_run_poll_seconds
+        cap = self._settings.caos_run_concurrency
+        while not self._stop.is_set():
+            try:
+                await self._reap_orphans()
+                while len(self._inflight) < cap:
+                    run_id = await self._claim_one()
+                    if run_id is None:
+                        break
+                    task = asyncio.create_task(execute_run_by_id(run_id))
+                    self._inflight.add(task)
+                    task.add_done_callback(self._inflight.discard)
+            except Exception:  # noqa: BLE001 — never let the loop die
+                logger.exception("worker loop tick failed")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=poll)
+            except asyncio.TimeoutError:
+                pass

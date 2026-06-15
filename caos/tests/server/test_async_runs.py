@@ -97,3 +97,56 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
         await asyncio.sleep(0.05)
     await ex.stop()
     assert run.status == "complete"
+
+
+# These exercise the SKIP LOCKED claim path and only run against Postgres.
+import os
+
+requires_pg = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="worker claim/lease requires Postgres (SKIP LOCKED)",
+)
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_two_workers_claim_one_run_once(seeded_db):
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import QueueWorker
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    w1, w2 = QueueWorker(), QueueWorker()
+    id1 = await w1._claim_one()
+    id2 = await w2._claim_one()
+    claimed = [x for x in (id1, id2) if x == run_id]
+    assert len(claimed) == 1, "exactly one worker may claim the run"
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_reaper_fails_exhausted_orphan(seeded_db):
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import QueueWorker
+    from datetime import datetime, timedelta, timezone
+
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t",
+                  status="running", attempts=3, lease_expires_at=past)
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    await QueueWorker()._reap_orphans()
+
+    async with AsyncSessionLocal() as s:
+        run = await s.get(Run, run_id)
+        assert run.status == "failed"
+        assert "max attempts" in (run.error or "")
