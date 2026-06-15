@@ -5,8 +5,8 @@
 // (with tooltips) for the dense concept-page headers; the directory uses the
 // icon+label variant. Glyphs are small inline SVGs (stroke = currentColor) — no
 // icon-font dependency, consistent with the terminal chrome. The original
-// five-concept scheme grew a sixth (Monitor) and a seventh (Compare), so chips
-// key off an icon, not an A–E letter.
+// five-concept scheme grew a sixth (Monitor), a seventh (Compare) and an eighth
+// (Scorecard), so chips key off an icon, not an A–E letter.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -47,6 +47,7 @@ const ICONS: Record<string, Icon> = {
   report: svg(<><path d="M3.6 1.9h4.6L11 4.7v7.4H3.6z" /><path d="M5.4 6.6h4M5.4 8.8h4" /></>),
   monitor: svg(<path d="M1.5 7.4h2.6l1.6-4 2.2 7 1.5-3h3.1" />),
   compare: svg(<><rect x="1.8" y="2.4" width="4" height="9.2" rx="1" /><rect x="8.2" y="2.4" width="4" height="9.2" rx="1" /></>),
+  scorecard: svg(<><path d="M2 9.5a5 5 0 0 1 10 0" /><path d="M7 9.5l2.6-2.6" /><path d="M2 9.5h.01M12 9.5h-.01" /></>),
 };
 
 const SECTIONS = [
@@ -57,6 +58,7 @@ const SECTIONS = [
   { href: "/reports", icon: "report", label: "Report" },
   { href: "/monitor", icon: "monitor", label: "Monitor" },
   { href: "/compare", icon: "compare", label: "Compare" },
+  { href: "/scorecard", icon: "scorecard", label: "Scorecard" },
 ];
 
 export function ConceptNav({ compact = false }: { compact?: boolean }) {

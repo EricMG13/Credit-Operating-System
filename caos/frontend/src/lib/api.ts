@@ -146,3 +146,9 @@ export const getComparison = (dealIds: string[], benchmark?: string): Promise<Co
   api
     .get("/api/compare", { params: { deals: dealIds.join(","), ...(benchmark ? { benchmark } : {}) } })
     .then((r) => r.data);
+
+// ─── Loan Scorecard (documentation-protection score for one deal) ────────────
+import type { Scorecard } from "@/lib/scorecard/types";
+
+export const getScorecard = (dealId: string): Promise<Scorecard> =>
+  api.get(`/api/scorecard/${dealId}`).then((r) => r.data);
