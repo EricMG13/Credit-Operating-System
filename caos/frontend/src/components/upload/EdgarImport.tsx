@@ -120,12 +120,13 @@ export function EdgarImport({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && search()}
             placeholder="Issuer + document, e.g. Atlas Forge credit agreement"
-            className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+            aria-label="Search SEC EDGAR filings for this issuer"
+            className="focus-ring flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
           />
           <button
             onClick={search}
             disabled={searching || !query.trim()}
-            className="tabular text-[10px] px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40 flex items-center gap-1.5"
+            className="focus-ring tabular text-[10px] px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40 flex items-center gap-1.5"
           >
             {searching ? <Dot sev="running" pulse /> : null}
             {searching ? "SEARCHING…" : "SEARCH EDGAR"}
@@ -162,7 +163,8 @@ export function EdgarImport({
                 <div key={hit.accession} className="border-b border-caos-border/50 last:border-b-0">
                   <button
                     onClick={() => toggleExhibits(hit)}
-                    className="w-full grid grid-cols-[58px_72px_1fr_70px] items-center gap-x-3 px-3 py-[7px] text-left transition-caos hover:bg-caos-elevated/60"
+                    aria-expanded={open}
+                    className="focus-ring w-full grid grid-cols-[58px_72px_1fr_70px] items-center gap-x-3 px-3 py-[7px] text-left transition-caos hover:bg-caos-elevated/60"
                   >
                     <span className="tabular text-[9px] text-caos-accent">{hit.form}</span>
                     <span className="tabular text-[9px] text-caos-muted">{hit.filed_date}</span>
@@ -195,7 +197,8 @@ export function EdgarImport({
                                 <button
                                   onClick={() => vault(doc)}
                                   disabled={vaulting === doc.url}
-                                  className="tabular text-[9px] py-[3px] rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos disabled:opacity-40"
+                                  aria-label={`Vault ${doc.doc_label} (${doc.name}) for this issuer`}
+                                  className="focus-ring tabular text-[9px] py-[3px] rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos disabled:opacity-40"
                                 >
                                   {vaulting === doc.url ? "VAULTING…" : "VAULT →"}
                                 </button>
