@@ -15,6 +15,7 @@ import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
+import { EdgarImport } from "@/components/upload/EdgarImport";
 
 interface UploadWizardProps {
   initialIssuers?: Issuer[];
@@ -357,6 +358,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             </button>
           </div>
         </Panel>
+      ) : null}
+
+      {/* Step 2 companion: pull governing docs straight from SEC EDGAR (free) */}
+      {step === "file" && selectedIssuer ? (
+        <EdgarImport issuer={selectedIssuer} runMode={runMode} />
       ) : null}
 
       {/* Step 3: result */}
