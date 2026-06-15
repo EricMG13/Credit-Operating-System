@@ -4,7 +4,8 @@
 // + step-output viewer modal showing each step's full analytical output per
 // the Modular OS REF templates (port of design bundle concept-c-views.jsx).
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
 import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
@@ -87,11 +88,7 @@ export function StepOutputModal({
   const data = STEP_OUTPUTS[id + ":" + name];
   const narr = STEP_NOTES[id + ":" + name];
   const meta = MODULES.find((m) => m.id === id);
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   const evs: string[] = [];
   const addEv = (a?: string[]) => a && a.forEach((e) => { if (!evs.includes(e)) evs.push(e); });
@@ -103,10 +100,11 @@ export function StepOutputModal({
   const sevKey = status === "gap" ? "critical" : status;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
       <div
+        ref={panelRef}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden"
-        style={{ width: 1080, maxWidth: "94vw", maxHeight: "min(840px, 92vh)", boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+        style={{ width: 1080, maxWidth: "94vw", maxHeight: "min(840px, 92vh)", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="h-10 shrink-0 px-3 flex items-center gap-2.5 border-b border-caos-border bg-caos-elevated/60">

@@ -4,7 +4,7 @@
 // Shows the exact cited source extract with the passage highlighted, document
 // metadata, extraction anchor, CP-5B trace status, and cited-by trail.
 
-import { useEffect } from "react";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
@@ -82,21 +82,18 @@ export function EvidenceModal({
   onClose: () => void;
 }) {
   const ev = EVIDENCE[id];
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
   if (!ev) return null;
   const doc = DOCS.find((d) => d.id === ev.doc);
   const docName = doc ? doc.name : "Market Data Feed (LoanX / desk)";
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
       <div
+        ref={panelRef}
         className="bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden w-full max-w-[1150px]"
-        style={{ maxHeight: "86vh", boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+        style={{ maxHeight: "86vh", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}

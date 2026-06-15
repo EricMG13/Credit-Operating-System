@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { getChunk } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 
 export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; label?: string | null; onClose: () => void }) {
   const [chunk, setChunk] = useState<ChunkDTO | null>(null);
@@ -29,20 +30,17 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
     return () => { cancelled = true; };
   }, [chunkId]);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 caos-enter"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 caos-enter"
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         className="w-[520px] max-w-[92vw] max-h-[80vh] flex flex-col bg-caos-panel border border-caos-accent/50 rounded-md overflow-hidden"
-        style={{ boxShadow: "0 24px 72px -16px rgba(0,0,0,0.9)" }}
+        style={{ boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

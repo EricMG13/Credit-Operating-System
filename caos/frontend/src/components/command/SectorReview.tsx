@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Dot } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   INDEX_MOVE,
   SECTOR_REVIEWS,
@@ -63,13 +64,7 @@ export function SectorReview({
   const onRefreshedRef = useRef(onRefreshed);
   onRefreshedRef.current = onRefreshed;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   // staged CP-SR refresh simulation — stable interval while running
   useEffect(() => {
@@ -99,14 +94,15 @@ export function SectorReview({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      className="fixed inset-0 z-modal flex items-center justify-center p-6"
       style={{ background: "rgba(5,5,7,0.72)" }}
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden"
-        style={{ boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+        style={{ boxShadow: "var(--shadow-modal)" }}
       >
         {/* chrome */}
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60 shrink-0">

@@ -4,9 +4,10 @@
 // live alert feed, CP-SR sector board, coverage matrix, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
@@ -108,24 +109,19 @@ export function PortfolioTable({
 
 /* ---------- CP-MON email viewer window ---------- */
 function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      className="fixed inset-0 z-modal flex items-center justify-center p-6"
       style={{ background: "rgba(5,5,7,0.72)" }}
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
-        style={{ boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+        style={{ boxShadow: "var(--shadow-modal)" }}
       >
         {/* window chrome */}
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60 shrink-0">
@@ -350,7 +346,7 @@ export function CoverageMatrix() {
             const st = c.cells[l];
             return (
               <div key={l} title={`${c.code} ${l} — ${st}`} className={"h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")} style={{ background: CELL_COLOR[st] }}>
-                <span className="tabular text-[8px] uppercase" style={{ color: st === "fresh" ? "#86efac" : st === "aging" ? "#fcd34d" : "#fff" }}>{st}</span>
+                <span className="tabular text-[8px] uppercase" style={{ color: st === "fresh" ? "var(--caos-success-bright)" : st === "aging" ? "var(--caos-warning-bright)" : "var(--caos-text)" }}>{st}</span>
               </div>
             );
           })}
