@@ -25,6 +25,7 @@ from typing import Awaitable, Callable, Dict, List, Protocol
 from config import SERVER_DIR, get_settings
 from engine import budget
 from engine.fixtures import atlf_payload
+from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -99,9 +100,11 @@ class LiveSynthesizer:
             "(High|Medium|Low|Insufficient Information), limitation_flags (array), "
             "downstream_consumers (array), and claims (array of {claim_id, claim_text, "
             "evidence:[{evidence_id, extraction_type, lineage_class, source_locator, "
-            "confidence}]}). Ground every claim in the SOURCE CHUNKS; never invent figures."
+            "confidence}]}). Ground every claim in the SOURCE CHUNKS; never invent figures.\n\n"
+            + UNTRUSTED_RULE
         )
-        user = f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\nSOURCE CHUNKS:\n{grounding}"
+        user = (f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
+                f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}")
 
         resp = await self._get_client().messages.create(
             model=self._settings.anthropic_model,

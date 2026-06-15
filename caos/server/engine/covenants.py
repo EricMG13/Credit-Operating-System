@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
+from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -80,12 +81,13 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[flo
         "incremental / incurrence debt capacity in $millions), \"incremental_chunk_id\": "
         "id|null, \"leverage_covenant_x\": number|null (maximum net leverage maintenance "
         "covenant, in turns), \"leverage_chunk_id\": id|null}. Use null when a term is not "
-        "present. Never invent a figure."
+        "present. Never invent a figure.\n\n" + UNTRUSTED_RULE
     )
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     resp = await client.messages.create(
         model=settings.anthropic_model, max_tokens=400,
-        system=system, messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{grounding}"}],
+        system=system,
+        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
     )
     budget.record_usage(resp)
     text = next((b.text for b in resp.content if b.type == "text"), "")
@@ -95,11 +97,10 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[flo
     data = json.loads(match.group(0))
     incr = data.get("incremental_musd")
     lev = data.get("leverage_covenant_x")
-    fallback = hits[0].chunk_id if hits else ""
     out: Dict[str, Optional[Tuple[float, str]]] = {
-        "incremental_musd": (float(incr), str(data.get("incremental_chunk_id") or fallback))
+        "incremental_musd": (float(incr), safe_chunk_id(data.get("incremental_chunk_id"), hits))
         if isinstance(incr, (int, float)) and incr > 0 else None,
-        "leverage_covenant_x": (float(lev), str(data.get("leverage_chunk_id") or fallback))
+        "leverage_covenant_x": (float(lev), safe_chunk_id(data.get("leverage_chunk_id"), hits))
         if isinstance(lev, (int, float)) and lev > 0 else None,
     }
     return out if (out["incremental_musd"] or out["leverage_covenant_x"]) else None

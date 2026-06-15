@@ -32,6 +32,7 @@ from typing import List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
+from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -101,12 +102,14 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
         "From the SOURCE CHUNKS, return ONLY a JSON object: {\"addback_pct\": number "
         "(add-backs as a FRACTION of adjusted EBITDA, e.g. 0.18), \"categories\": "
         "[strings], \"chunk_id\": the id of the chunk you used}. If the documents do "
-        "not disclose an add-back load, return {\"addback_pct\": null}. Never invent a figure."
+        "not disclose an add-back load, return {\"addback_pct\": null}. Never invent a figure.\n\n"
+        + UNTRUSTED_RULE
     )
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     resp = await client.messages.create(
         model=settings.anthropic_model, max_tokens=400,
-        system=system, messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{grounding}"}],
+        system=system,
+        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
     )
     budget.record_usage(resp)
     text = next((b.text for b in resp.content if b.type == "text"), "")
@@ -117,7 +120,7 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     pct = data.get("addback_pct")
     if not isinstance(pct, (int, float)) or not (0 < float(pct) < 1):
         return None
-    chunk_id = str(data.get("chunk_id") or (hits[0].chunk_id if hits else ""))
+    chunk_id = safe_chunk_id(data.get("chunk_id"), hits)  # reject fabricated ids
     cats = [str(c) for c in (data.get("categories") or []) if isinstance(c, str)]
     return float(pct), cats, chunk_id
 
