@@ -160,11 +160,15 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
     financials: dict = {"revenue": revenue, "adj_ebitda": adj_ebitda}
     leverage = None
-    if eb_ly and total_debt:
+    # Only emit leverage when it is meaningful: positive EBITDA and positive net
+    # debt. A loss year, a net-cash position, or captive-finance debt not fully
+    # captured by these tags (e.g. Ford Credit) would otherwise yield a
+    # misleading figure (negative or absurd leverage).
+    if eb_ly and eb_ly > 0 and total_debt and net_debt > 0:
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
-    if eb_ly and int_ly and int_ly[0]:
+    if eb_ly and eb_ly > 0 and int_ly and int_ly[0]:
         financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
 
     nf: dict = {
@@ -192,6 +196,11 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         "total_liabilities": _inst_at(_TOTAL_LIAB),
         "book_equity": _inst_at(_EQUITY),
     }
+    # Many filers report no standalone us-gaap:Liabilities (only the
+    # Liabilities+Equity total) — derive total liabilities from assets less book
+    # equity so the Altman score still computes (e.g. Carnival, cruise lines).
+    if bs["total_liabilities"] is None and bs["total_assets"] is not None and bs["book_equity"] is not None:
+        bs["total_liabilities"] = bs["total_assets"] - bs["book_equity"]
     ebit = opinc[ly][0] if ly in opinc else None  # EBIT = operating income (excl. D&A)
     z = None
     if ebit is not None and all(v is not None for v in bs.values()):
@@ -208,7 +217,7 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         claim_text=f"FY{ly} reported revenue was approximately ${_m(rly[0]):,.0f}M (SEC filing, us-gaap:{rev_c}).",
         evidence=[EvidenceSpec("E-EDG-1", "table_value", "Directly Sourced", src(rev_c, ly, rly[1]), "High")],
     )]
-    if eb_ly and total_debt:
+    if leverage is not None:
         claims.append(ClaimSpec(
             claim_id="C-EDG-LEV",
             claim_text=(
@@ -239,6 +248,11 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     ]
     if not ebitda:
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
+    elif total_debt and leverage is None:
+        limitations.append(
+            "Net leverage not derived: reported net debt <= 0 or EBITDA <= 0 from XBRL tags "
+            "(net cash, a loss year, or captive-finance debt not fully captured) — verify total "
+            "debt against the filing.")
 
     return ModulePayload(
         module_id="CP-1",

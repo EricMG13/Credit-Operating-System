@@ -98,6 +98,22 @@ def test_build_cp1_none_without_revenue():
     assert build_cp1_payload("X", {"facts": {"us-gaap": {}}}) is None
 
 
+def test_build_cp1_omits_leverage_when_net_cash():
+    # Cash > total debt → net debt negative → leverage is non-meaningful, so it's
+    # omitted and flagged (the Ford-captive-finance / net-cash case).
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 1_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 200_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("DepreciationDepletionAndAmortization", [("2025-01-01", "2025-12-31", 50_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("LongTermDebt", [("2025-12-31", 100_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("CashAndCashEquivalentsAtCarryingValue", [("2025-12-31", 500_000_000, 2025, "a", "2026-02-01")]),
+    }}}
+    p = build_cp1_payload("NetCash Co", facts)
+    assert "net_leverage_adj_ltm" not in p.runtime_output["normalized_financials"]
+    assert any("Net leverage not derived" in f for f in p.limitation_flags)
+    assert not any(c.claim_id == "C-EDG-LEV" for c in p.claims)  # no misleading leverage claim
+
+
 def test_build_cp1_revenue_only_still_builds():
     facts = {"facts": {"us-gaap": _flow("Revenues", [
         ("2025-01-01", "2025-12-31", 500_000_000, 2025, "acc", "2026-02-01")])}}

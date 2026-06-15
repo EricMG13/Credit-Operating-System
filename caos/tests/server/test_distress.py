@@ -69,6 +69,23 @@ def test_build_cp1_enriches_with_altman_z():
     assert any(c.claim_id == "C-EDG-Z" for c in p.claims)
 
 
+def test_build_cp1_derives_total_liabilities_when_untagged():
+    # Many filers (e.g. Carnival) tag no standalone us-gaap:Liabilities — total
+    # liabilities is derived from Assets − equity so the score still computes.
+    us = {}
+    us.update(_flow("Revenues", [("2025-01-01", "2025-12-31", 2_742_000_000, 2025, "a", "2026-02-01")]))
+    us.update(_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 300_000_000, 2025, "a", "2026-02-01")]))
+    us.update(_inst("Assets", "2025-12-31", 5_000_000_000))
+    us.update(_inst("AssetsCurrent", "2025-12-31", 1_500_000_000))
+    us.update(_inst("LiabilitiesCurrent", "2025-12-31", 800_000_000))
+    us.update(_inst("RetainedEarningsAccumulatedDeficit", "2025-12-31", 1_000_000_000))
+    us.update(_inst("StockholdersEquity", "2025-12-31", 1_500_000_000))
+    # deliberately no "Liabilities" key → derived = 5000 − 1500 = 3500
+    p = build_cp1_payload("NoTotalLiab Co", {"facts": {"us-gaap": us}})
+    assert "distress" in p.runtime_output
+    assert p.runtime_output["distress"]["altman_z"] == pytest.approx(5.67, abs=0.02)
+
+
 def test_build_cp1_no_distress_without_balance_sheet():
     # Revenue-only facts → no balance sheet → no distress block (graceful).
     facts = {"facts": {"us-gaap": _flow("Revenues", [
