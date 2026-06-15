@@ -150,3 +150,44 @@ async def test_reaper_fails_exhausted_orphan(seeded_db):
         run = await s.get(Run, run_id)
         assert run.status == "failed"
         assert "max attempts" in (run.error or "")
+
+
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture(scope="module")
+def api_client():
+    from main import app
+    with TestClient(app) as c:
+        yield c
+
+
+def test_post_runs_returns_queued_fast(api_client):
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "queued"
+
+
+def test_post_runs_then_polls_to_complete(api_client):
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    body = wait_for_run(api_client, r.json()["id"])
+    assert body["status"] == "complete"
+    assert body["error"] is None
+
+
+def test_failed_run_surfaces_error(api_client, monkeypatch):
+    import run_executor
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    async def boom(session, run):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(run_executor, "execute_run", boom)
+    r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    body = wait_for_run(api_client, r.json()["id"])
+    assert body["status"] == "failed"
+    assert "kaboom" in (body["error"] or "")
