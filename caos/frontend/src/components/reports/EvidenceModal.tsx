@@ -88,7 +88,7 @@ export function EvidenceModal({
   }, [onClose]);
   if (!ev) return null;
   const doc = DOCS.find((d) => d.id === ev.doc);
-  const docName = doc ? doc.name : "Market Data Feed (TRACE / desk)";
+  const docName = doc ? doc.name : "Market Data Feed (LoanX / desk)";
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
@@ -173,7 +173,7 @@ export function EvidenceModal({
                   ) : null}
                 </div>
               ) : (
-                <div className="text-[10px] text-caos-muted">External market data — TRACE prints + desk runs, Jun 8 2026.</div>
+                <div className="text-[10px] text-caos-muted">External market data — LoanX marks + dealer runs, Jun 8 2026.</div>
               )}
             </div>
             <div className="px-3 py-2.5 border-b border-caos-border">

@@ -89,8 +89,8 @@ export const SIM_PLAN: PlanStep[] = [
   { id: "CP-2D", deps: ["CP-1A", "CP-2"], dur: 4, outcome: "warning", event: "CP-2D WARNING — sponsor behavior flag: 2 prior dividend recaps at portfolio cos" },
   { id: "CP-2E", deps: ["CP-1", "CP-2"], dur: 4, outcome: "pass", event: "CP-2E PASS — 19.3 months-to-empty under base · RCF 78% undrawn" },
   { id: "CP-2F", deps: ["CP-2"], dur: 3, outcome: "warning", event: "CP-2F WARNING — hedging register missing; floating exposure modeled from SFA only" },
-  { id: "CP-3", deps: ["CP-1", "CP-1C", "CP-2", "CP-2E"], dur: 5, outcome: "pass", event: "CP-3 PASS — SSN ranked 2/7 on fundamental value matrix · +38bps excess spread" },
-  { id: "CP-3B", deps: ["CP-3"], dur: 4, outcome: "pass", event: "CP-3B PASS — preference: 2L SSN over TLB · recovery delta acceptable at 6.0x stress" },
+  { id: "CP-3", deps: ["CP-1", "CP-1C", "CP-2", "CP-2E"], dur: 5, outcome: "pass", event: "CP-3 PASS — 2L TL ranked 2/7 on fundamental value matrix · +38bps excess spread" },
+  { id: "CP-3B", deps: ["CP-3"], dur: 4, outcome: "pass", event: "CP-3B PASS — preference: 2L TL over TLB · recovery delta acceptable at 6.0x stress" },
   { id: "CP-3C", deps: ["CP-3"], dur: 3, outcome: "pass", event: "CP-3C PASS — fits HY sleeve · concentration check OK (sector 6.1% post-add)" },
   { id: "CP-3D", deps: ["CP-1", "CP-2B", "CP-2E"], dur: 4, outcome: "pass", event: "CP-3D PASS — LME vulnerability 4/10 · 2027 wall refinanceable in current market" },
   { id: "CP-4", deps: ["CP-1", "CP-3D"], dur: 6, outcome: "pass", event: "CP-4 PASS — covenant aggressiveness 7.2/10 · J.Crew + Chewy blockers PRESENT, paths blocked" },
@@ -119,11 +119,11 @@ export const DRIVERS: Driver[] = [
   { n: 2, driver: "Customer concentration — top 3 OEMs = 38% revenue", lineage: "D-01 p.97 → CP-1A operating model → CP-2B fragility map F-2", conf: 0.95, status: "verified", evs: ["E-15", "E-31"] },
   { n: 3, driver: "Incremental debt capacity $612M day-one (priming risk)", lineage: "D-03 §4.09 → CP-4 incurrence register → CP-4C capacity register", conf: 0.97, status: "verified", evs: ["E-63", "E-64"] },
   { n: 4, driver: "FCF conversion 41% — capex-light vs peer median 33%", lineage: "D-04 p.31 → CP-1 KPI K-22 → CP-1C benchmark 04B", conf: 0.88, status: "verified", evs: ["E-22"] },
-  { n: 5, driver: "Peer margin citation E-44 — page mismatch in OM Annex C", lineage: "D-01 Annex C → CP-1C metric alignment → CP-5 issue QA-117", conf: 0.41, status: "open", evs: ["E-44"] },
+  { n: 5, driver: "Peer margin citation E-44 — page mismatch in CIM Annex C", lineage: "D-01 Annex C → CP-1C metric alignment → CP-5 issue QA-117", conf: 0.41, status: "open", evs: ["E-44"] },
 ];
 
 export const NODE_QA: Record<string, { id: string; sev: string; text: string }> = {
-  "CP-1C": { id: "QA-117", sev: "HIGH", text: "Citation E-44 unresolved — peer EBITDA margin page mismatch (OM Annex C). Blocks CP-5 clearance." },
+  "CP-1C": { id: "QA-117", sev: "HIGH", text: "Citation E-44 unresolved — peer EBITDA margin page mismatch (CIM Annex C). Blocks CP-5 clearance." },
 };
 
 export const NODE_LIMITS: Record<string, string> = {
@@ -146,7 +146,7 @@ export const NODE_REQS: Record<string, NodeReq[]> = {
     { doc: "Q2-26 compliance certificate (Jul 28)", why: "first realization read on the $30M add-back program — converts phasing risk to actuals", tag: "open" },
   ],
   "CP-1C": [
-    { doc: "OM Annex C — corrected peer-margin page", why: "re-anchors citation E-44 (page mismatch) and clears QA-117; restores the full RV band", tag: "open" },
+    { doc: "CIM Annex C — corrected peer-margin page", why: "re-anchors citation E-44 (page mismatch) and clears QA-117; restores the full RV band", tag: "open" },
     { doc: "Peer Q1-26 filings — 7-name universe", why: "re-verifies EBITDA margin alignment once E-44 is re-anchored", tag: "requested" },
   ],
   "CP-2D": [
@@ -158,12 +158,12 @@ export const NODE_REQS: Record<string, NodeReq[]> = {
     { doc: "ISDA schedules + swap/cap confirmations", why: "replaces modeled base-rate sensitivity with actual hedge coverage and tenors", tag: "missing" },
   ],
   "CP-4C": [
-    { doc: "Conformed indenture v2 + SFA amendment", why: "re-bases the $612M day-one capacity calculation on controlling documents", tag: "open" },
+    { doc: "Conformed credit agreement v2 + SFA amendment", why: "re-bases the $612M day-one capacity calculation on controlling documents", tag: "open" },
     { doc: "Sponsor intent letter — incremental capacity", why: "MEDIUM-HIGH priming risk stays open without use-of-capacity confirmation", tag: "requested" },
   ],
   "CP-5": [
     { doc: "Remediation R-1 — E-44 re-anchor", why: "HIGH finding QA-117: peer-margin citation page mismatch blocks full clearance", tag: "open" },
-    { doc: "CP-1C re-run confirmation", why: "metric alignment must re-verify against the corrected OM Annex C reference", tag: "gated" },
+    { doc: "CP-1C re-run confirmation", why: "metric alignment must re-verify against the corrected CIM Annex C reference", tag: "gated" },
   ],
   "CP-RENDER": [
     { doc: "CP-5 clearance certificate", why: "committee pack assembly held until QA-117 closes (remediation R-1)", tag: "gated" },
@@ -198,7 +198,7 @@ function scopedPlan(scope: string[], overrides: Record<string, Partial<PlanStep>
 
 export const RUN_MODES: RunMode[] = [
   {
-    k: "full", label: "COMMITTEE", runId: "RUN #2641", title: "SSN '31 new-issue review", sub: "CP-X route v2.2 · 21 analytical modules · J1 join",
+    k: "full", label: "COMMITTEE", runId: "RUN #2641", title: "2L TL '31 new-issue review", sub: "CP-X route v2.2 · 21 analytical modules · J1 join",
     drivers: null, plan: SIM_PLAN, complete: null,
     done: { tag: "warning", text: "CLEARANCE: CONDITIONAL — QA-117 open · committee pack HELD" },
   },
@@ -221,18 +221,18 @@ export const RUN_MODES: RunMode[] = [
     }),
   },
   {
-    k: "legal", label: "LEGAL", runId: "RUN #2652", title: "Covenant & docs deep-dive", sub: "route L-2 · 9 modules · conformed indenture v2",
+    k: "legal", label: "LEGAL", runId: "RUN #2652", title: "Covenant & docs deep-dive", sub: "route L-2 · 9 modules · conformed credit agreement v2",
     drivers: [3],
     done: { tag: "ok", text: "REGISTER PUBLISHED — covenant memo v2 distributed" },
     complete: { sev: "ok", text: "RUN COMPLETE — covenant register v2 published · aggressiveness 7.2/10 · priming watch ARMED" },
     plan: scopedPlan(["CP-0", "CP-X", "CP-1", "CP-3D", "CP-4", "CP-4C", "CP-5B", "CP-5", "CP-RENDER"], {
-      "CP-0": { dur: 3, event: "CP-0 PASS — conformed indenture v2 + SFA amendment classified · controlling-doc check PASS" },
+      "CP-0": { dur: 3, event: "CP-0 PASS — conformed credit agreement v2 + SFA amendment classified · controlling-doc check PASS" },
       "CP-X": { event: "CP-X route locked — legal template L-2 · 9 modules in scope · financial registers inherited read-only" },
       "CP-1": { dur: 3, event: "CP-1 PASS — EBITDA definition register synced to §1.01 · covenant calc basis confirmed" },
       "CP-3D": { event: "CP-3D PASS — LME vulnerability re-scored 4/10 → 5/10 · MFN sunset proximity flagged" },
       "CP-4": { dur: 7, event: "CP-4 PASS — 41 covenants registered · J.Crew/Chewy blockers PRESENT · uptier path open at 50.1% vote" },
       "CP-4C": { event: "CP-4C WARNING — $612M day-one capacity re-affirmed · RP builder basket $240M and growing" },
-      "CP-5B": { deps: ["CP-3D", "CP-4", "CP-4C"], event: "CP-5B PASS — every covenant cite anchored to conformed indenture · doc lineage 100%" },
+      "CP-5B": { deps: ["CP-3D", "CP-4", "CP-4C"], event: "CP-5B PASS — every covenant cite anchored to conformed credit agreement · doc lineage 100%" },
       "CP-5": { outcome: "pass", event: "CP-5 PASS — legal register cleared · 0 citation defects · memo released" },
       "CP-RENDER": { outcome: "pass", event: "CP-RENDER PASS — covenant memo v2 assembled · distributed legal + PM" },
     }),
@@ -243,15 +243,15 @@ export const RUN_MODES: RunMode[] = [
     done: { tag: "ok", text: "RV REFRESH PUBLISHED — OVERWEIGHT affirmed" },
     complete: { sev: "ok", text: "RUN COMPLETE — RV refresh published · ATLF holds OVERWEIGHT · next sweep T+1" },
     plan: scopedPlan(["CP-0", "CP-X", "CP-1", "CP-1C", "CP-3", "CP-3B", "CP-3C", "CP-6E", "CP-5", "CP-EXTRACT"], {
-      "CP-0": { dur: 2, event: "CP-0 PASS — market snapshot ingested · TRACE prints + desk runs Jun 9 · 7 peer marks refreshed" },
+      "CP-0": { dur: 2, event: "CP-0 PASS — market snapshot ingested · LoanX marks + dealer runs Jun 9 · 7 peer marks refreshed" },
       "CP-X": { event: "CP-X route locked — RV template R-1 · 10 modules in scope · fundamental registers inherited read-only" },
       "CP-1": { dur: 2, event: "CP-1 PASS — KPI register loaded read-only · no re-spread required" },
       "CP-1C": { outcome: "warning", event: "CP-1C WARNING — peer set re-marked · E-44 still open → ex-E-44 band in force (+325–340bps)" },
-      "CP-3": { event: "CP-3 PASS — SSN slips 2/7 → 3/7 on value matrix · HELX tightened 9bps" },
-      "CP-3B": { event: "CP-3B PASS — preference unchanged: 2L SSN over TLB · recovery delta stable at 6.0x stress" },
+      "CP-3": { event: "CP-3 PASS — 2L TL slips 2/7 → 3/7 on value matrix · HELX tightened 9bps" },
+      "CP-3B": { event: "CP-3B PASS — preference unchanged: 2L TL over TLB · recovery delta stable at 6.0x stress" },
       "CP-3C": { event: "CP-3C PASS — sizing headroom 50bps to max · sector concentration 6.1% unchanged" },
       "CP-6E": { event: "CP-6E PASS — CIO posture re-affirmed: add-on-weakness · standing order at +400bps" },
-      "CP-5": { outcome: "pass", deps: ["CP-6E"], dur: 3, event: "CP-5 PASS — marks tie to TRACE within 0.1pt · spot-check audit clean" },
+      "CP-5": { outcome: "pass", deps: ["CP-6E"], dur: 3, event: "CP-5 PASS — marks tie to LoanX within 0.1pt · spot-check audit clean" },
       "CP-EXTRACT": { outcome: "pass", event: "CP-EXTRACT PASS — RV table pushed to portfolio dashboard" },
     }),
   },

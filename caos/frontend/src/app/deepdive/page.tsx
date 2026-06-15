@@ -1,7 +1,7 @@
 "use client";
 
 // Concept C — The Analytical Deep-Dive: three-pane split for the Atlas Forge
-// SSN review. Source register + CP-5B evidence rail · full L0–L6 module
+// 2L term-loan review. Source register + CP-5B evidence rail · full L0–L6 module
 // launcher (bespoke CP-6A debate / CP-3B recovery / CP-4 covenants tabs +
 // generic module views with clickable step-output registers) · IC verdict,
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays

@@ -57,10 +57,10 @@ export const EVIDENCE: Record<string, EvidenceEntry> = {
   },
   "E-44": {
     doc: "D-01", page: 388, section: "Annex C — Industry & Peer Data (UNRESOLVED)", status: "open", conf: 0.41, module: "CP-1C",
-    qa: "QA-117 (HIGH): CP-1C cites 'Annex C, p.388' for the peer EBITDA margin set, but p.388 in the conformed OM contains the auditor consent letter. The peer table appears at p.391 of the prior draft. Citation must be re-anchored to the conformed document before clearance.",
+    qa: "QA-117 (HIGH): CP-1C cites 'Annex C, p.388' for the peer EBITDA margin set, but p.388 in the conformed CIM contains the auditor consent letter. The peer table appears at p.391 of the prior draft. Citation must be re-anchored to the conformed document before clearance.",
     excerpt: [
-      { t: "[p.388 — conformed OM] CONSENT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM. We hereby consent to the inclusion in this Offering Memorandum of our report dated February 12, 2026…", hit: true },
-      { t: "[expected content — peer margin benchmark table] Not present at the cited anchor. CP-5 remediation: re-extract Annex C table coordinates from conformed OM and re-run CP-1C metric alignment." },
+      { t: "[p.388 — conformed CIM] CONSENT OF INDEPENDENT REGISTERED PUBLIC ACCOUNTING FIRM. We hereby consent to the inclusion in this Confidential Info Memo of our report dated February 12, 2026…", hit: true },
+      { t: "[expected content — peer margin benchmark table] Not present at the cited anchor. CP-5 remediation: re-extract Annex C table coordinates from conformed CIM and re-run CP-1C metric alignment." },
     ],
   },
   "E-58": {
@@ -71,23 +71,23 @@ export const EVIDENCE: Record<string, EvidenceEntry> = {
     ],
   },
   "E-63": {
-    doc: "D-03", page: 162, section: "Indenture §4.09(b)(14) — Incremental Debt Capacity", status: "verified", conf: 0.97, module: "CP-4",
+    doc: "D-03", page: 162, section: "Credit Agt §4.09(b)(14) — Incremental Debt Capacity", status: "verified", conf: 0.97, module: "CP-4",
     excerpt: [
       { t: "…(14) Indebtedness in an aggregate principal amount not to exceed the greater of $150.0 million and 35% of Consolidated EBITDA, plus unlimited additional amounts so long as, on a pro forma basis, the Consolidated Secured Leverage Ratio does not exceed 5.25 to 1.00…", hit: true },
-      { t: "CP-4C capacity register: freebie $150M (grower to $147M ≈ 35% × $421M) + ratio capacity $310M at current Secured Leverage of 4.68x + reclassification headroom $155M = $612M day-one, incurrable senior or pari to the 2L SSN." },
+      { t: "CP-4C capacity register: freebie $150M (grower to $147M ≈ 35% × $421M) + ratio capacity $310M at current Secured Leverage of 4.68x + reclassification headroom $155M = $612M day-one, incurrable senior or pari to the 2L TL." },
     ],
   },
   "E-64": {
-    doc: "D-03", page: 164, section: "Indenture §4.09(d) — MFN Protection & Sunset", status: "verified", conf: 0.96, module: "CP-4",
+    doc: "D-03", page: 164, section: "Credit Agt §4.09(d) — MFN Protection & Sunset", status: "verified", conf: 0.96, module: "CP-4",
     excerpt: [
-      { t: "…provided that, with respect to any Incremental Equivalent Debt incurred under clause (b)(14) that is secured on a pari passu basis and incurred within 12 months of the Issue Date, the All-in Yield shall not exceed the All-in Yield of the Notes by more than 50 basis points unless the interest rate on the Notes is increased accordingly…", hit: true },
-      { t: "Translation: MFN protection applies only to pari incremental debt and only for 12 months. After June 2027, a priming or pari raise carries no yield protection for SSN holders." },
+      { t: "…provided that, with respect to any Incremental Equivalent Debt incurred under clause (b)(14) that is secured on a pari passu basis and incurred within 12 months of the Issue Date, the All-in Yield shall not exceed the All-in Yield of the Term Loans by more than 50 basis points unless the interest rate on the Term Loans is increased accordingly…", hit: true },
+      { t: "Translation: MFN protection applies only to pari incremental debt and only for 12 months. After June 2027, a priming or pari raise carries no yield protection for 2L lenders." },
     ],
   },
   "E-71": {
-    doc: "MKT", page: null, section: "Desk Marks & TRACE Prints — Jun 8, 2026", status: "verified", conf: 0.84, module: "CP-1C",
+    doc: "MKT", page: null, section: "Desk Marks & LoanX Prints — Jun 8, 2026", status: "verified", conf: 0.84, module: "CP-1C",
     excerpt: [
-      { t: "ATLF 8.250% '31 last TRACE print 96.40 (Jun 8, 14:21 ET), $4.2M institutional. Two-way desk markets 96.25 / 96.75. Z-spread +388bps; STW +388bps at the print." },
+      { t: "ATLF S+425 '31 last LoanX mark 96.40 (Jun 8, 14:21 ET), $4.2M institutional. Two-way desk markets 96.25 / 96.75. Discount margin +388bps (3Y) at the mark." },
       { t: "CP-1C fair-value band construction: B2 industrial 2L cohort regression (margin, FCF conversion, leverage, docs score) implies +325–340bps for the subject's fundamental profile — subject trades +48–63bps cheap to model.", hit: true },
     ],
   },

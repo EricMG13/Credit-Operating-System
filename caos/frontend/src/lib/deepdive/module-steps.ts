@@ -108,7 +108,7 @@ export const MODULE_STEPS: Record<string, StepRow[]> = {
       ["T3B.1", "Instrument Data Gate", "ok"], ["T3B.2", "Capital Structure Dashboard", "ok"],
       ["T3B.3", "Instrument Matrix", "ok"], ["T3B.4", "Structural Positioning Log", "ok"],
       ["T3B.5", "Legal / Covenant / LME Overlay", "ok"], ["T3B.6", "Recovery Sensitivity Table", "ok", "5.0–7.5x grid"],
-      ["T3B.7", "Compensation Cross-Check", "ok"], ["T3B.8", "Preference Decision Table", "ok", "2L SSN over TLB"],
+      ["T3B.7", "Compensation Cross-Check", "ok"], ["T3B.8", "Preference Decision Table", "ok", "2L TL over TLB"],
       ["—", "Ranking & Trade-Off Summary", "ok"], ["T3B.10", "Monitoring Triggers", "ok"],
       ["T3B.11", "Gaps Ledger", "ok"], ["—", "Overall Instrument Preference View", "ok"],
     ],

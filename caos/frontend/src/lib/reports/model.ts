@@ -310,7 +310,7 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
   const l0 = sumCtx("l0", "Mar-25", "ltm", q.slice(1, 5), q[4], f24);
   const l1 = sumCtx("l1", "Mar-26", "ltm", q.slice(5, 9), q[8], l0);
 
-  // PF: LTM Mar-26 pro forma for the SSN '31 issue (refis 2L bridge; interest restated)
+  // PF: LTM Mar-26 pro forma for the 2L TL '31 issue (refis 2L bridge; interest restated)
   const pf: Ctx = { ...l1, key: "pf", label: "Jun-26", kind: "pf", int: 193 };
   finishFlows(pf);
   pf.cash = l1.cash;
