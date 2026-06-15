@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
@@ -185,6 +185,18 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         if cp2 is not None:
             for fact in extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status):
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
+
+        # Retention (DATA-1): the cross-issuer query only uses the latest run's
+        # facts per issuer, so supersede older run-derived rows for this issuer
+        # rather than letting them accumulate unbounded. Seed facts are untouched.
+        if cp1 is not None or cp2 is not None:
+            await session.execute(
+                delete(MetricFact).where(
+                    MetricFact.issuer_id == run.issuer_id,
+                    MetricFact.provenance == "run",
+                    MetricFact.run_id != run.id,
+                )
+            )
 
         # ── Run-level roll-up ─────────────────────────────────────────────
         statuses = [module_status[m] for m in ANALYTICAL_SLICE if m in module_status]
