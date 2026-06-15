@@ -24,6 +24,7 @@ from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import edgar  # the covenant/legal retrieval lane — reused for HTTP + CIK helpers
+from engine.distress import altman_z_double_prime
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.edgar")
@@ -42,6 +43,14 @@ _LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt")
 _DEBT_CURRENT = ("LongTermDebtCurrent", "DebtCurrent")
 _CASH = ("CashAndCashEquivalentsAtCarryingValue",
          "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
+# Balance-sheet concepts for the Altman Z'' distress score (all instant).
+_TOTAL_ASSETS = ("Assets",)
+_CURRENT_ASSETS = ("AssetsCurrent",)
+_CURRENT_LIAB = ("LiabilitiesCurrent",)
+_RETAINED = ("RetainedEarningsAccumulatedDeficit",)
+_TOTAL_LIAB = ("Liabilities",)
+_EQUITY = ("StockholdersEquity",
+           "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
 
 
 @dataclass
@@ -169,6 +178,27 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
             "current_debt": dc_c, "cash": cash_c}.items() if v},
     }
 
+    # Altman Z'' distress score (balance-sheet only) when every input is present.
+    def _inst_at(names: Sequence[str]) -> Optional[float]:
+        _, s = _series(us, names, "instant")
+        v = _latest(s, ly)
+        return v[0] if v else None
+
+    bs = {
+        "current_assets": _inst_at(_CURRENT_ASSETS),
+        "current_liabilities": _inst_at(_CURRENT_LIAB),
+        "total_assets": _inst_at(_TOTAL_ASSETS),
+        "retained_earnings": _inst_at(_RETAINED),
+        "total_liabilities": _inst_at(_TOTAL_LIAB),
+        "book_equity": _inst_at(_EQUITY),
+    }
+    ebit = opinc[ly][0] if ly in opinc else None  # EBIT = operating income (excl. D&A)
+    z = None
+    if ebit is not None and all(v is not None for v in bs.values()):
+        z = altman_z_double_prime(ebit=ebit, **bs)  # type: ignore[arg-type]
+        if z is not None:
+            nf["distress"] = {"altman_z": z[0], "zone": z[1], "model": "Altman Z''"}
+
     def src(concept: Optional[str], year: int, accn: str) -> str:
         return f"SEC EDGAR XBRL · us-gaap:{concept} · FY{year} · accession {accn or 'n/a'}"
 
@@ -188,6 +218,18 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
                 "the credit agreement and are not reflected here."
             ),
             evidence=[EvidenceSpec("E-EDG-2", "calculated_metric", "Calculated", src(op_c, ly, eb_accn), "Medium")],
+        ))
+    if z is not None:
+        claims.append(ClaimSpec(
+            claim_id="C-EDG-Z",
+            claim_text=(
+                f"Altman Z''-Score is {z[0]:g} ({z[1]} zone) — a balance-sheet distress signal "
+                "(private-firm variant; below 1.1 distress, above 2.6 safe)."
+            ),
+            evidence=[EvidenceSpec(
+                "E-EDG-3", "calculated_metric", "Calculated",
+                f"SEC EDGAR XBRL balance sheet (Assets, current assets/liabilities, retained "
+                f"earnings, liabilities, equity) + operating income · FY{ly}", "Medium")],
         ))
 
     limitations = [

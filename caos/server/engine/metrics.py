@@ -46,6 +46,9 @@ METRIC_CATALOG: List[MetricDef] = [
     MetricDef("energy_cost_pct", "Energy cost exposure", "%", "cost exposure", False,
               "Energy as a percent of the cost base — a proxy for how exposed "
               "margins are to energy-price inflation (higher = more exposed)."),
+    MetricDef("altman_z", "Altman Z''", "", "distress", True,
+              "Altman Z''-Score from the XBRL balance sheet (private-firm variant): "
+              "below 1.1 distress, 1.1-2.6 grey, above 2.6 safe (higher is safer)."),
 ]
 
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
@@ -63,6 +66,7 @@ _CITE_KEYWORDS: Dict[str, List[str]] = {
     "interest_coverage": ["coverage", "interest"],
     "adj_ebitda": ["ebitda", "add-back"],
     "revenue": ["revenue"],
+    "altman_z": ["altman"],
 }
 
 
@@ -134,6 +138,9 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     # LTM credit ratios are LTM by definition → headline.
     add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
+    # Altman Z'' distress score (EDGAR-derived; lives outside normalized_financials).
+    dz = (payload.runtime_output or {}).get("distress") or {}
+    add("altman_z", "LTM", dz.get("altman_z"), "", True)
     return facts
 
 
