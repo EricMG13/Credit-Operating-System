@@ -45,11 +45,6 @@
   --fs-metric: 16px;
   --fs-hero: 22px;
 
-  /* Spacing rhythm: intentional grouping, not uniform gutters. */
-  --sp-group: 4px;
-  --sp-item: 8px;
-  --sp-section: 16px;
-
   /* Semantic status — single naming for the severity palette. */
   --sev-critical: var(--caos-critical);
   --sev-warning: var(--caos-warning);

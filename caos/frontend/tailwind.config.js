@@ -41,12 +41,6 @@ module.exports = {
         "caos-metric": ["16px", { lineHeight: "1.15" }],
         "caos-hero": ["22px", { lineHeight: "1.1" }],
       },
-      // Semantic spacing for intentional rhythm (group ≪ item ≪ section).
-      spacing: {
-        group: "4px",
-        item: "8px",
-        section: "16px",
-      },
       // Semantic z-index scale — named layers instead of magic numbers, so
       // stacking is intentional: sticky < raised < overlay < modal < toast.
       zIndex: {
