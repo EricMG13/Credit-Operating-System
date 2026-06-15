@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     edgar_timeout_s: int = 30
     edgar_max_exhibit_mb: int = 25
 
+    # Per-run LLM token budget (engine/budget.py). 0 = unlimited (default). When
+    # set, a run that spends its budget degrades later LLM modules to their
+    # deterministic path (or gates them) instead of spending beyond the cap.
+    run_token_budget: int = 0
+
 
 @lru_cache
 def get_settings() -> Settings:

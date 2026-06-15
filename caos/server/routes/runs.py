@@ -81,6 +81,7 @@ class RunSummary(BaseModel):
     model_id: Optional[str]
     prompt_version: Optional[str]
     failure_reason: Optional[str] = None
+    tokens_used: Optional[int] = None
     modules: List[ModuleStatus]
 
 
@@ -162,7 +163,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
         as_of_date=run.as_of_date, model_id=run.model_id, prompt_version=run.prompt_version,
-        failure_reason=run.failure_reason,
+        failure_reason=run.failure_reason, tokens_used=run.tokens_used,
         modules=[ModuleStatus.model_validate(m) for m in modules],
     )
 

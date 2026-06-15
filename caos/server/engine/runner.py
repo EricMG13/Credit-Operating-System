@@ -23,7 +23,7 @@ from database import (
     Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
     ModuleOutput, QAFinding, Run,
 )
-from engine import edgar_cp1
+from engine import budget, edgar_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
@@ -61,6 +61,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     """
     run.status = "running"
     settings = get_settings()
+    run_budget = budget.RunBudget(limit=settings.run_token_budget)
+    budget.set_budget(run_budget)  # consulted by every LLM module this run
     synthesizer = get_synthesizer()
     run.model_id = settings.anthropic_model if synthesizer.name == "live" else "fixture"
     run.prompt_version = PROMPT_VERSION
@@ -190,11 +192,13 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         run.committee_status = committee_status_from(
             run.qa_status, worst_confidence([p.confidence for p in produced])
         )
+        run.tokens_used = run_budget.used
         run.status = "complete"
         run.completed_at = _now()
     except Exception:
         logger.exception("run %s failed", run.id)
         run.status = "failed"
+        run.tokens_used = run_budget.used
         raise
 
 

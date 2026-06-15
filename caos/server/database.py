@@ -115,6 +115,8 @@ class Run(Base):
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")
     # Why a failed run failed — captured so a fault is inspectable, not lost.
     failure_reason: Mapped[Optional[str]] = mapped_column(Text)
+    # Total LLM tokens this run spent (per-run budget accounting).
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 

@@ -26,6 +26,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from config import get_settings
+from engine import budget
 from engine.gate import Finding
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -86,6 +87,7 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[flo
         model=settings.anthropic_model, max_tokens=400,
         system=system, messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{grounding}"}],
     )
+    budget.record_usage(resp)
     text = next((b.text for b in resp.content if b.type == "text"), "")
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -104,8 +106,9 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[flo
 
 
 async def extract_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[float, str]]]]:
-    """Covenant terms via the LLM when a key is set (deterministic fallback)."""
-    if get_settings().anthropic_api_key:
+    """Covenant terms via the LLM when a key is set and budget remains (else the
+    deterministic regex fallback)."""
+    if get_settings().anthropic_api_key and budget.llm_allowed():
         try:
             res = await _llm_covenant_terms(retrieve)
             if res is not None:

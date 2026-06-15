@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Protocol
 
 from config import SERVER_DIR, get_settings
+from engine import budget
 from engine.fixtures import atlf_payload
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -82,6 +83,8 @@ class LiveSynthesizer:
         return path.read_text(encoding="utf-8")
 
     async def synthesize(self, module_id, *, issuer_name, upstream, retrieve):
+        if not budget.llm_allowed():
+            raise SynthesisError(f"{module_id}: per-run token budget exhausted")
         active_prompt = self._active_prompt(module_id)
         hits = await retrieve(f"{issuer_name} {module_id} financials covenants leverage liquidity", 8)
         grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits) or "(no documents)"
@@ -106,6 +109,7 @@ class LiveSynthesizer:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "")
         return _parse_payload(module_id, text)
 

@@ -30,6 +30,7 @@ import re
 from typing import List, Optional, Sequence, Tuple
 
 from config import get_settings
+from engine import budget
 from engine.gate import Finding
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -107,6 +108,7 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
         model=settings.anthropic_model, max_tokens=400,
         system=system, messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{grounding}"}],
     )
+    budget.record_usage(resp)
     text = next((b.text for b in resp.content if b.type == "text"), "")
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
@@ -121,8 +123,9 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
 
 
 async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
-    """Add-back load via the LLM when a key is set (deterministic fallback)."""
-    if get_settings().anthropic_api_key:
+    """Add-back load via the LLM when a key is set and budget remains (else the
+    deterministic regex fallback)."""
+    if get_settings().anthropic_api_key and budget.llm_allowed():
         try:
             res = await _llm_addbacks(retrieve)
             if res is not None:
