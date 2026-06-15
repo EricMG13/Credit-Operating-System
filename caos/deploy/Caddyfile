@@ -1,0 +1,19 @@
+# TLS edge. Caddy auto-provisions a Let's Encrypt cert for a public domain that
+# resolves to this host (ports 80/443 open). For an internal-only host with no
+# public DNS, replace the site line with `https://{$CAOS_DOMAIN}` and add
+# `tls internal` inside the block (Caddy issues a local CA cert).
+
+{$CAOS_DOMAIN} {
+	encode gzip
+
+	# SECURITY.md §1: the header-trust model is safe only if the edge is the
+	# sole setter of identity. Strip any client-supplied identity headers so a
+	# caller cannot spoof them; only oauth2-proxy may set them downstream.
+	request_header -X-Forwarded-User
+	request_header -X-Forwarded-Email
+	request_header -X-Forwarded-Preferred-Username
+	request_header -X-Forwarded-Groups
+	request_header -X-Forwarded-Access-Token
+
+	reverse_proxy oauth2-proxy:4180
+}

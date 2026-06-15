@@ -1,0 +1,19 @@
+# Build context is caos/. Keep it lean: frontend/ + server/ source only.
+**/node_modules
+**/.next
+**/out
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.DS_Store
+server/static
+server/data
+.env
+.env.*
+docs/
+tests/
+mcp/
+scripts/
+deploy/
+*.md
