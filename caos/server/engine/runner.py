@@ -28,6 +28,7 @@ from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.covenants import covlite_finding, synthesize_covenants
 from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
+from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
 from engine.readiness import synthesize_source_readiness
 from engine.metrics import extract_cost_facts, extract_facts
 from engine.gate import (
@@ -44,10 +45,10 @@ from retrieval import retrieve as bm25_retrieve
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-2", "CP-4C"]
+ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-4C"]
 DEPENDENCIES: Dict[str, List[str]] = {
     "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-1B": ["CP-1"],
-    "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
+    "CP-1C": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
 }
 PROMPT_VERSION = "v2.0"
 
@@ -118,6 +119,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 # CP-1B is a pure period-over-period delta off CP-1 (no docs/LLM).
                 elif module_id == "CP-1B":
                     payload = synthesize_earnings_delta(upstream["CP-1"])
+                # CP-1C benchmarks the issuer vs peers from the metric store.
+                elif module_id == "CP-1C" and issuer is not None:
+                    payload = await synthesize_peer_benchmark(session, issuer, upstream["CP-1"])
                 # CP-4C computes covenant capacity / headroom against CP-1's
                 # leverage from the issuer's governing documents.
                 elif module_id == "CP-4C":
@@ -168,6 +172,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         monitor = monitoring_finding(upstream.get("CP-1B"))
         if monitor is not None:
             findings.append(monitor)
+        peer = peer_outlier_finding(upstream.get("CP-1C"))
+        if peer is not None:
+            findings.append(peer)
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
