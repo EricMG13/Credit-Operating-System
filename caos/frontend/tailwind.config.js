@@ -47,6 +47,15 @@ module.exports = {
         item: "8px",
         section: "16px",
       },
+      // Semantic z-index scale — named layers instead of magic numbers, so
+      // stacking is intentional: sticky < raised < overlay < modal < toast.
+      zIndex: {
+        sticky: "10",
+        raised: "30",
+        overlay: "40",
+        modal: "50",
+        toast: "60",
+      },
     },
   },
   plugins: [],
