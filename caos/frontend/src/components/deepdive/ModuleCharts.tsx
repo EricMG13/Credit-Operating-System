@@ -5,6 +5,7 @@
 // antv-g2-chart skill). Covers the L1 base modules + CP-3 relative value.
 
 import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
+import { CHART_HEX } from "@/lib/chart-colors";
 
 const MC_AXIS = { x: { title: false }, y: { title: false } };
 
@@ -26,7 +27,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       ],
       encode: { x: "fy", y: "v", color: "s" },
       transform: [{ type: "dodgeX" }],
-      scale: { color: { domain: ["Adj. EBITDA", "Reported (pre add-back)"], range: ["#4f8cff", "#64748b"] } },
+      scale: { color: { domain: ["Adj. EBITDA", "Reported (pre add-back)"], range: [CHART_HEX.accent, CHART_HEX.eq] } },
       axis: MC_AXIS,
       legend: { color: { position: "top" } },
       labels: [{ text: "v", position: "top", fontSize: 8.5, transform: [{ type: "overlapHide" }] }],
@@ -35,8 +36,8 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       type: "view",
       data: [{ fy: "FY23", v: 6.7 }, { fy: "FY24", v: 6.0 }, { fy: "FY25", v: 5.7 }, { fy: "LTM", v: 5.68 }],
       children: [
-        { type: "line", encode: { x: "fy", y: "v" }, style: { stroke: "#2dd4bf", lineWidth: 2 } },
-        { type: "point", encode: { x: "fy", y: "v" }, style: { fill: "#2dd4bf" },
+        { type: "line", encode: { x: "fy", y: "v" }, style: { stroke: CHART_HEX.teal, lineWidth: 2 } },
+        { type: "point", encode: { x: "fy", y: "v" }, style: { fill: CHART_HEX.teal },
           labels: [{ text: (d: { v: number }) => d.v.toFixed(2).replace(/0$/, "") + "x", fontSize: 8.5, transform: [{ type: "overlapDodgeY" }] }] },
       ],
       scale: { y: { domain: [5, 7] } },
@@ -55,7 +56,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       encode: { x: "m", y: "v", color: "seg" },
       transform: [{ type: "stackY" }],
       coordinate: { transform: [{ type: "transpose" }] },
-      scale: { color: { domain: ["Drivetrain", "Fluid Systems", "Aftermarket & Services"], range: ["#46506b", "#5b6b85", "#2dd4bf"] } },
+      scale: { color: { domain: ["Drivetrain", "Fluid Systems", "Aftermarket & Services"], range: [CHART_HEX.slateDeep, CHART_HEX.slate, CHART_HEX.teal] } },
       axis: { x: { title: false }, y: false },
       legend: { color: { position: "top" } },
       labels: [{ text: (d: { v: number }) => d.v + "%", position: "inside", fontSize: 8.5, transform: [{ type: "contrastReverse" }, { type: "overflowHide" }] }],
@@ -72,7 +73,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       ],
       encode: { x: "q", y: "v", color: "s" },
       transform: [{ type: "dodgeX" }],
-      scale: { color: { domain: ["Revenue", "Adj. EBITDA"], range: ["#4f8cff", "#2dd4bf"] } },
+      scale: { color: { domain: ["Revenue", "Adj. EBITDA"], range: [CHART_HEX.accent, CHART_HEX.teal] } },
       axis: MC_AXIS,
       legend: { color: { position: "top" } },
       labels: [{ text: "v", position: "top", fontSize: 8.5, transform: [{ type: "overlapHide" }] }],
@@ -87,7 +88,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
         { type: "line", encode: { x: "q", y: "v", color: "s" } },
         { type: "point", encode: { x: "q", y: "v", color: "s" } },
       ],
-      scale: { color: { domain: ["Aftermarket mix (%)", "Book-to-bill (×10)"], range: ["#2dd4bf", "#f5a524"] } },
+      scale: { color: { domain: ["Aftermarket mix (%)", "Book-to-bill (×10)"], range: [CHART_HEX.teal, CHART_HEX.warning] } },
       axis: MC_AXIS,
       legend: { color: { position: "top" } },
     } },
@@ -110,7 +111,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       scale: {
         x: { domain: [10.5, 17] },
         y: { domain: [250, 620] },
-        color: { domain: ["Subject", "Peer", "Excluded outlier"], range: ["#4f8cff", "#8a8a9a", "#f5a524"] },
+        color: { domain: ["Subject", "Peer", "Excluded outlier"], range: [CHART_HEX.accent, CHART_HEX.muted, CHART_HEX.warning] },
       },
       axis: { x: { title: "EBITDA margin (%)" }, y: { title: "DM (bps)" } },
       legend: { color: { position: "top" } },
@@ -134,7 +135,7 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
       encode: { x: "name", y: "v", color: "grp" },
       coordinate: { transform: [{ type: "transpose" }] },
       transform: [{ type: "sortX", by: "y", reverse: true }],
-      scale: { color: { domain: ["Subject", "Cheap", "Rich"], range: ["#4f8cff", "#22c55e", "#ef4444"] } },
+      scale: { color: { domain: ["Subject", "Cheap", "Rich"], range: [CHART_HEX.accent, CHART_HEX.success, CHART_HEX.critical] } },
       axis: { x: { title: false }, y: { title: false, labelFormatter: (d: number) => (d > 0 ? "+" + d : String(d)) } },
       legend: { color: { position: "top" } },
       labels: [{ text: (d: { v: number }) => (d.v > 0 ? "+" + d.v : String(d.v)), position: "outside", fontSize: 8.5, transform: [{ type: "exceedAdjust" }] }],

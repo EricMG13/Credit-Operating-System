@@ -17,6 +17,7 @@ import { StatCard } from "@/components/shared/StatCard";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 import { fmtNum, fmtPct } from "@/lib/format";
 import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
+import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
 import { OutputRegister } from "./OutputRegister";
 import { ModuleCharts } from "./ModuleCharts";
@@ -134,7 +135,7 @@ const RECOVERY_CHART_SPEC: G2Spec = {
   coordinate: { transform: [{ type: "transpose" }] },
   scale: {
     y: { domain: [0, 1] },
-    color: { domain: Object.values(TR_LABELS), range: ["#2dd4bf", "#4f8cff", "#a855f7"] },
+    color: { domain: Object.values(TR_LABELS), range: [TRANCHE_HEX["1l"], TRANCHE_HEX["2l"], TRANCHE_HEX.sub] },
   },
   axis: {
     x: { title: false },
@@ -158,7 +159,7 @@ const CAPSTACK_CHART_SPEC: G2Spec = {
   legend: false,
   scale: { color: {
     domain: CAPSTACK.map((c) => c.cls),
-    range: ["#14b8a6", "#2dd4bf", "#4f8cff", "#a855f7", "#64748b"],
+    range: [CHART_HEX.tealDeep, TRANCHE_HEX["1l"], TRANCHE_HEX["2l"], TRANCHE_HEX.sub, TRANCHE_HEX.eq],
   } },
   labels: [{
     text: (d: { cls: string; claim: number }) => "$" + d.claim.toLocaleString(),
