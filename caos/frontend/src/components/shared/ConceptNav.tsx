@@ -59,7 +59,7 @@ const SECTIONS = [
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
   return (
-    <div className="flex items-center gap-1 shrink-0" title="Tip: hold SPACE + ← / → to switch concepts">
+    <nav aria-label="Concepts" className="flex items-center gap-1 shrink-0" title="Tip: hold SPACE + ← / → to switch concepts">
       {SECTIONS.map((s) => {
         const active = pathname.startsWith(s.href);
         const Glyph = ICONS[s.icon];
@@ -81,6 +81,6 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }

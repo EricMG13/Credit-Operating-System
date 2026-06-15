@@ -111,7 +111,7 @@ export function GraphView({
               <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
               {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
-              {st === "held" ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-warning)" }}>🔒</span> : null}
+              {st === "held" ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
             </div>
             <div className="px-2 text-caos-2xs text-caos-muted truncate leading-tight">{m.name}</div>
             <div className="px-2 pt-[3px]"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>

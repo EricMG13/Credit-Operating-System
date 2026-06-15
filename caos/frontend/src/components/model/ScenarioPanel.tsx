@@ -302,6 +302,7 @@ function ScenarioBuilder({
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runNL(); } }}
           placeholder="Describe a scenario — e.g. oil shock, margins compress 200bps"
+          aria-label="Describe a scenario"
           className="flex-1 px-2 py-1 text-caos-md"
         />
         <button

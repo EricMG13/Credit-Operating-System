@@ -229,6 +229,7 @@ export function NlQueryBody() {
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); run(); } }}
             placeholder="Ask across issuers — e.g. which margins are most exposed to energy-price inflation"
+            aria-label="Ask a question across issuers"
             className="flex-1 px-2.5 py-1.5 text-caos-xl"
           />
           <button

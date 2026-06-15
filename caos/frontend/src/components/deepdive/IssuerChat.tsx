@@ -202,6 +202,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
+          aria-label="Ask a question about this issuer"
           className="flex-1 px-2.5 py-1.5 text-caos-lg"
         />
         <button

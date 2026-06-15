@@ -12,6 +12,13 @@ import { useEffect, useRef } from "react";
 // role="dialog" aria-modal="true". Components only (it runs on mount/unmount).
 export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: () => void) {
   const ref = useRef<T>(null);
+  // Keep the latest onClose in a ref so the setup effect runs exactly once (on
+  // mount) yet always calls the current handler. Callers pass inline arrows, and
+  // timer-driven parents (e.g. the Command Center sim clock) re-render while a
+  // modal is open — depending on [onClose] would re-run the whole effect each
+  // tick, re-stealing focus and thrashing the scroll-lock.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const panel = ref.current;
     const prevFocus = document.activeElement as HTMLElement | null;
@@ -37,7 +44,7 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab" || !panel) return;
@@ -64,7 +71,7 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   return ref;
 }

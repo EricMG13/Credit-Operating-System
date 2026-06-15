@@ -245,6 +245,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                   value={newIssuerName}
                   onChange={(e) => setNewIssuerName(e.target.value)}
                   placeholder="Issuer name (e.g. Atlas Forge Industrials)"
+                  aria-label="Issuer name"
                   className="w-full px-2.5 py-1.5 text-caos-lg"
                 />
                 <TextInput
@@ -252,6 +253,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                   value={newIssuerTicker}
                   onChange={(e) => setNewIssuerTicker(e.target.value)}
                   placeholder="Ticker (optional)"
+                  aria-label="Ticker (optional)"
                   className="w-full px-2.5 py-1.5 text-caos-lg"
                 />
                 <div className="flex gap-2">

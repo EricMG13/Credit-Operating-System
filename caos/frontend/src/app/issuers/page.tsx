@@ -123,6 +123,7 @@ function IssuersDirectory() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="search issuer · industry · country · FIGI"
+                  aria-label="Search issuers"
                   className="w-64 pl-6 pr-6 py-1 tabular text-caos-md"
                 />
                 {query ? (
@@ -283,6 +284,7 @@ function NewIssuerModal({
                 value={form[key]}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
                 placeholder={ph}
+                aria-label={label}
                 className="w-full px-2.5 py-1.5 text-caos-lg"
               />
             </div>

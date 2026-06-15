@@ -126,8 +126,12 @@ export function SourceRail({
           return (
             <div
               key={d.n}
+              tabIndex={0}
+              aria-label={`Evidence for driver ${d.n}: ${d.driver}`}
               onMouseEnter={() => setActive(d.evs[0])}
               onMouseLeave={() => setActive(null)}
+              onFocus={() => setActive(d.evs[0])}
+              onBlur={() => setActive(null)}
               className={"px-3 py-2 border-b border-caos-border/50 transition-caos " + (hot ? "caos-selected bg-caos-elevated relative z-[5]" : "hover:bg-caos-elevated/60")}
             >
               <div className="flex items-start gap-2">
