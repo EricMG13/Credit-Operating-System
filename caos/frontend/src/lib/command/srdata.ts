@@ -6,7 +6,7 @@
 export const TIMEFRAMES = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 export type Timeframe = (typeof TIMEFRAMES)[number];
 
-// US Leveraged Loan index STW move (bps) per timeframe — comparison baseline.
+// US Leveraged Loan index DM move (bps) per timeframe — comparison baseline.
 export const INDEX_MOVE: number[] = [-4, -12, 18, 9, 6, -22];
 
 // Idiosyncratic drift scales with window length.
@@ -35,15 +35,15 @@ export interface SectorReviewData {
   thesis: string;
   drivers: string[];
   newFinding: string; // appended to drivers by a knowledge refresh
-  stw: number[]; // sector STW move (bps) per timeframe
+  dm: number[]; // sector discount-margin move (bps) per timeframe
   dispersion: number[]; // intra-sector dispersion (bps) per timeframe
   issuers: ImpactedIssuer[];
   sources: KnowledgeSource[]; // retrieved by the refresh search
 }
 
-/** Issuer ΔSTW (bps) for a timeframe index. */
+/** Issuer ΔDM (bps) for a timeframe index. */
 export function issuerMove(s: SectorReviewData, i: ImpactedIssuer, tf: number): number {
-  return Math.round(i.beta * s.stw[tf] + i.idio * IDIO_SCALE[tf]);
+  return Math.round(i.beta * s.dm[tf] + i.idio * IDIO_SCALE[tf]);
 }
 
 export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
@@ -57,7 +57,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "Steel + freight input costs −6% YTD, margin tailwind into H2",
     ],
     newFinding: "Q2 channel checks: aftermarket order books +4% q/q — earlier than modeled",
-    stw: [-3, -9, -21, -14, -18, -36],
+    dm: [-3, -9, -21, -14, -18, -36],
     dispersion: [18, 24, 31, 36, 33, 44],
     issuers: [
       { code: "ATLF", name: "Atlas Forge Industrials", held: true, beta: 1.1, idio: -4, impact: "Engineered-components mix tracks PMI with a one-quarter lag; add-back realization is the idio risk, not the cycle" },
@@ -82,7 +82,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "LME pipeline building: three capital structures in advisor processes",
     ],
     newFinding: "NWCF lender call confirms co-op group at ~55% of TLB — uptier path live",
-    stw: [8, 25, 64, 88, 71, 102],
+    dm: [8, 25, 64, 88, 71, 102],
     dispersion: [40, 62, 98, 121, 104, 150],
     issuers: [
       { code: "NWCF", name: "Northwind Cable & Fiber", held: true, beta: 1.4, idio: 25, impact: "Thursday lender call + co-op chatter — CP-3D LME vulnerability 9/10; non-pro-rata uptier viable at 50.1%" },
@@ -106,7 +106,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "Payor disputes extending DSO — receivables quality the new differentiator",
     ],
     newFinding: "BLHP payor-dispute review scope confirmed at 2 payors / $41M receivables",
-    stw: [5, 18, 42, 55, 38, 60],
+    dm: [5, 18, 42, 55, 38, 60],
     dispersion: [33, 51, 77, 92, 80, 115],
     issuers: [
       { code: "BLHP", name: "Brightline Health", held: true, beta: 1.3, idio: 18, impact: "Earnings call pushed +9 days on receivable review — disclosure-timing flag in CP-2D; watch the May 21 print" },
@@ -129,7 +129,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "H2-26 contract repricing windows concentrate the earnings risk",
     ],
     newFinding: "CP-SR threshold 2-of-3 tripped — TiO2 early-warning now armed weekly",
-    stw: [4, 11, 28, 19, 24, 33],
+    dm: [4, 11, 28, 19, 24, 33],
     dispersion: [22, 30, 45, 52, 47, 66],
     issuers: [
       { code: "HELX", name: "Helios Specialty Chem", held: true, beta: 1.2, idio: 6, impact: "~40% of volume reprices H2-26; FCF turns negative below $2,450/t TiO2 — CP-2B pathway armed" },
@@ -153,10 +153,10 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "Asset-sale / unsub transfer risk re-rating CCC cohort documents",
     ],
     newFinding: "QLMH strategic review names unrestricted-sub transfer as a structure option — CP-4 leakage register re-opened",
-    stw: [12, 38, 96, 132, 110, 167],
+    dm: [12, 38, 96, 132, 110, 167],
     dispersion: [55, 84, 140, 171, 150, 210],
     issuers: [
-      { code: "QLMH", name: "Quill Media Holdings", held: true, beta: 1.5, idio: 40, impact: "Broadcast strategic review — leakage risk to SSN collateral; CP-4 register re-opened, RV dislocated 2.1pts" },
+      { code: "QLMH", name: "Quill Media Holdings", held: true, beta: 1.5, idio: 40, impact: "Broadcast strategic review — leakage risk to loan collateral; CP-4 register re-opened, RV dislocated 2.1pts" },
       { code: "BCNB", name: "Beacon Broadcast", held: false, beta: 1.1, idio: 10, impact: "Station-sale comps set the recovery marks CP-3B uses for QLMH collateral" },
       { code: "HLCP", name: "Halcyon Publishing", held: false, beta: 0.7, idio: -5, impact: "Digital-weighted survivor — funds the relative-value short leg vs linear-heavy names" },
     ],
@@ -164,7 +164,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       { kind: "external", name: "PR Newswire", detail: "QLMH strategic-review release (07:51 intake)" },
       { kind: "external", name: "Nielsen / ad-spend trackers", detail: "linear decay + local inventory pricing" },
       { kind: "external", name: "Station-sale comps", detail: "broadcast M&A multiples — trailing 12m" },
-      { kind: "vault", name: "QLMH SSN indenture", detail: "vault D-03 · unsub transfer & leakage covenants" },
+      { kind: "vault", name: "QLMH credit agreement", detail: "vault D-03 · unsub transfer & leakage covenants" },
     ],
   },
   Software: {
@@ -177,7 +177,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "AI seat-substitution a watch item in 2027 renewal cohorts",
     ],
     newFinding: "Cohort renewal data: seat-based NRR −1.8pts vs usage-based — substitution signal early but real",
-    stw: [-2, -6, -12, -9, -11, -19],
+    dm: [-2, -6, -12, -9, -11, -19],
     dispersion: [15, 20, 28, 33, 29, 41],
     issuers: [
       { code: "VRSW", name: "Verita Software Group", held: true, beta: 1.0, idio: -2, impact: "Usage-based pricing insulates from seat substitution; spread compresses with the cohort" },
@@ -199,7 +199,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "Glass→PET substrate shift rewards flexible converters",
     ],
     newFinding: "Resin futures backwardation steepened — pass-through turns a modest H2 tailwind",
-    stw: [1, 3, 7, 4, 6, 9],
+    dm: [1, 3, 7, 4, 6, 9],
     dispersion: [12, 16, 22, 25, 23, 30],
     issuers: [
       { code: "PGPK", name: "Pinegrove Packaging", held: true, beta: 1.0, idio: 1, impact: "Carry position — pass-through mechanics tested and holding; no catalyst either way" },
@@ -221,7 +221,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
       "No speculative newbuild orders — supply side rational",
     ],
     newFinding: "Two FPSO awards pulled forward to Q3 — CBMS backlog read-through positive",
-    stw: [-4, -11, -26, -19, -23, -41],
+    dm: [-4, -11, -26, -19, -23, -41],
     dispersion: [20, 27, 38, 44, 40, 55],
     issuers: [
       { code: "CBMS", name: "Cobalt Marine Services", held: true, beta: 1.1, idio: -5, impact: "Backlog quality + 2027 contract cover — overweight thesis compounds with sector compression" },

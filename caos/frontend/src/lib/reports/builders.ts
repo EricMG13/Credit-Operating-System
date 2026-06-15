@@ -162,16 +162,16 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
           ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
           ["Recommendation", "BUY — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
           ["CLO", "eligible — B3 bucket check on trade date"], ["Indexed Loans", "TLB — HOLD (defensive rotation)"],
-          ["Indexed HY", "2L SSN '31 — ADD ON WEAKNESS"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
+          ["Indexed Lev Loan", "2L TL '31 — ADD ON WEAKNESS"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
         ] }],
       ] },
       { t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
-        { cells: ["Atlas Forge Intermediate Holdings", "SSN 8.250% '31", "2L Senior Secured Notes", "Refi 2L bridge + GCP", "900", "8.25–8.50% / IPT 8.625%", "99.41", "2031", "B3 / B−", "71", "May-26"] },
+        { cells: ["Atlas Forge Intermediate Holdings", "2L TL '31", "2nd Lien Term Loan", "Refi 2L bridge + GCP", "900", "S+400–425 / IPT S+450", "99.41", "2031", "B3 / B−", "71", "May-26"] },
       ] },
       { t: "table", title: "CAPITAL STRUCTURE", cols: ["Facility", "Spread / Coupon", "CCY", "Maturity", "Bid", "Ask", "Outstanding ($Mn)", "Multiple", "% EV", "Recommendation"], align: [0, 1, 0, 1, 1, 1, 1, 1, 1, 0], rows: [
         { cells: ["RCF $250M (drawn)", "S+350", "USD", "2027", "—", "—", fm(rcf), "", "", "—"] },
         { cells: ["1L Term Loan B", "S+375", "USD", "2029", "99.10", "99.60", fm(tlb), "", "", "HOLD"] },
-        { cells: ["2L SS Notes '31 (subject)", "8.250%", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
+        { cells: ["2L TL '31 (subject)", "S+425", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
         { cells: ["Senior secured debt", "", "", "", "", "", fm(secured), xm(secured), pev(secured), ""], b: 1, line: 1 },
         { cells: ["Sub Notes '32", "10.000%", "USD", "2032", "88.50", "89.80", fm(sub), "", "", "AVOID"] },
         { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(tdebt), "", ""], b: 1, line: 1 },
@@ -186,7 +186,7 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
         data: [
           { slot: "stack", cls: "RCF (drawn)", v: rcf },
           { slot: "stack", cls: "1L Term Loan B", v: tlb },
-          { slot: "stack", cls: "2L SS Notes '31 (subject)", v: ssn },
+          { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
           { slot: "stack", cls: "Sub Notes '32", v: sub },
           { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
         ],
@@ -196,7 +196,7 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
         axis: false,
         legend: false,
         scale: { color: {
-          domain: ["RCF (drawn)", "1L Term Loan B", "2L SS Notes '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
+          domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
           range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
         } },
         labels: [{
@@ -214,7 +214,7 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
           ["Structuring EBITDA", fm(structEbitda)],
         ], boldLast: 1 }],
       ] },
-      { t: "text", title: "INVESTMENT THESIS", body: "Carry plus deleveraging, not convergence: at +388bps the 2L SSN pays +48–63bps over the fair band (+20–25bps ex-E-44) for risks that are monitorable rather than structural. Base case deleverages to ~4.9x by FY27 on realized add-backs alone (sponsor model demoted to upside). The bear case — structural add-backs, $612M priming capacity, sponsor recap record — is real but priced; the IC haircuts base EBITDA by $35M and stages sizing accordingly. Verdict: CONSTRUCTIVE, add on weakness (CP-6A).", label: "Catalysts and near-term events", labelBody: "Jul 28 Q2-26 print (first add-back realization read) · Oct-26 Q3-26 compliance certificate (T-1 — thesis-defining) · Sep-26 RCF extension window · Jun-27 MFN sunset · Q2-27 Meridian repricing." },
+      { t: "text", title: "INVESTMENT THESIS", body: "Carry plus deleveraging, not convergence: at +388bps the 2L TL pays +48–63bps over the fair band (+20–25bps ex-E-44) for risks that are monitorable rather than structural. Base case deleverages to ~4.9x by FY27 on realized add-backs alone (sponsor model demoted to upside). The bear case — structural add-backs, $612M priming capacity, sponsor recap record — is real but priced; the IC haircuts base EBITDA by $35M and stages sizing accordingly. Verdict: CONSTRUCTIVE, add on weakness (CP-6A).", label: "Catalysts and near-term events", labelBody: "Jul 28 Q2-26 print (first add-back realization read) · Oct-26 Q3-26 compliance certificate (T-1 — thesis-defining) · Sep-26 RCF extension window · Jun-27 MFN sunset · Q2-27 Meridian repricing." },
       { t: "cols", w: [1, 1], items: [
         [
           { t: "list", title: "CREDIT SUMMARY", subhead: "Strengths", items: [
@@ -311,7 +311,7 @@ function creditMemo(): Report {
         w.map((x) => ({ cells: [x.claim, (x.bull * 100).toFixed(0), (x.bear * 100).toFixed(0), x.verdict] })),
       },
       { t: "cols", w: [1, 1], items: [
-        [{ t: "table", title: "RECOVERY SCENARIOS — 2L SSN (CP-3B)", cols: ["Scenario", "EV basis", "1L", "2L SSN", "Sub"], align: [0, 0, 1, 1, 1], rows: [
+        [{ t: "table", title: "RECOVERY SCENARIOS — 2L TL (CP-3B)", cols: ["Scenario", "EV basis", "1L", "2L TL", "Sub"], align: [0, 0, 1, 1, 1], rows: [
           { cells: ["Going concern", "7.0x × $421M", "100%", "100%", "100%"] },
           { cells: ["Base distress", "5.5x × $360M", "100%", "22%", "0%"] },
           { cells: ["Severe", "5.0x × $295M", "75%", "0%", "0%"] },
@@ -319,14 +319,14 @@ function creditMemo(): Report {
         [{ t: "chart", title: "RECOVERY BY TRANCHE (% OF PAR)", h: 150, spec: {
           type: "interval",
           data: [
-            { scen: "Going concern", tr: "1L", rec: 100 }, { scen: "Going concern", tr: "2L SSN", rec: 100 }, { scen: "Going concern", tr: "Sub", rec: 100 },
-            { scen: "Base distress", tr: "1L", rec: 100 }, { scen: "Base distress", tr: "2L SSN", rec: 22 }, { scen: "Base distress", tr: "Sub", rec: 0 },
-            { scen: "Severe", tr: "1L", rec: 75 }, { scen: "Severe", tr: "2L SSN", rec: 0 }, { scen: "Severe", tr: "Sub", rec: 0 },
+            { scen: "Going concern", tr: "1L", rec: 100 }, { scen: "Going concern", tr: "2L TL", rec: 100 }, { scen: "Going concern", tr: "Sub", rec: 100 },
+            { scen: "Base distress", tr: "1L", rec: 100 }, { scen: "Base distress", tr: "2L TL", rec: 22 }, { scen: "Base distress", tr: "Sub", rec: 0 },
+            { scen: "Severe", tr: "1L", rec: 75 }, { scen: "Severe", tr: "2L TL", rec: 0 }, { scen: "Severe", tr: "Sub", rec: 0 },
           ],
           encode: { x: "scen", y: "rec", color: "tr" },
           transform: [{ type: "dodgeX" }],
           coordinate: { transform: [{ type: "transpose" }] },
-          scale: { y: { domain: [0, 100] }, color: { domain: ["1L", "2L SSN", "Sub"], range: ["#0d9488", "#2563eb", "#7c3aed"] } },
+          scale: { y: { domain: [0, 100] }, color: { domain: ["1L", "2L TL", "Sub"], range: ["#0d9488", "#2563eb", "#7c3aed"] } },
           axis: { x: { title: false }, y: { title: false, labelFormatter: (d: number) => d + "%" } },
           legend: { color: { position: "top" } },
           labels: [{ text: (d: { rec: number }) => d.rec + "%", position: "inside", fontSize: 8, transform: [{ type: "contrastReverse" }, { type: "overflowHide" }] }],
@@ -336,7 +336,7 @@ function creditMemo(): Report {
         { cells: ["Day-one incremental capacity — pari/senior to 2L", "$612M", "T-2 — raise >$200M in MFN window"] },
         { cells: ["MFN sunset", "Jun-27", "calendar — protection decays"] },
         { cells: ["RP capacity usable today", "$310M", "T-4 — any activation"] },
-        { cells: ["Add-backs (uncapped indenture definition)", "18.2% of adj.", "T-1 — Q3-26 certificate"] },
+        { cells: ["Add-backs (uncapped credit agreement definition)", "18.2% of adj.", "T-1 — Q3-26 certificate"] },
       ] },
       { t: "text", title: "SINGLE GREATEST UNCERTAINTY", body: DEBATE.uncertainty },
       { t: "text", title: "IC CHAIR FINAL MEMO", body: DEBATE.memo },
@@ -355,9 +355,9 @@ function covenantBrief(): Report {
     sections: [
       { t: "profile", title: "HEADLINE CAPACITY", rows: [
         ["Aggressiveness score", "7.2 / 10 — Aggressive (2026 single-B norm: 6.1)"],
-        ["Day-one incremental capacity", "$612M — pari or senior to the 2L SSN"],
+        ["Day-one incremental capacity", "$612M — pari or senior to the 2L TL"],
         ["RP capacity usable today", "$310M ($240M builder pre-positioned)"],
-        ["EBITDA add-backs", "18.2% of adj. — uncapped under the indenture"],
+        ["EBITDA add-backs", "18.2% of adj. — uncapped under the credit agreement"],
         ["Nearest pressure point", CAPACITY.nearest],
       ] },
       { t: "table", title: "KEY PROVISIONS", cols: ["Provision · doc", "Feature", "Aggressiveness", "Headroom / capacity"], align: [0, 0, 1, 1], rows:
@@ -369,7 +369,7 @@ function covenantBrief(): Report {
         { cells: ["Reclassification headroom", "155", "basket migration mechanics"] },
         { cells: ["Total — incurrable pari or senior to 2L", "612", ""], b: 1, line: 1 },
       ] },
-      { t: "text", title: "PD vs LGD TRANSLATION", body: "This document set shifts risk from PD to LGD: default is not nearer (no maintenance covenant to trip; liquidity strong), but the creditor's position at default is erodible — used capacity cuts the 6.0x-stress 2L recovery from 21% to ~8%. The single most consequential date in the documents is the MFN sunset, June 2027, after which a priming raise carries no yield protection for SSN holders." },
+      { t: "text", title: "PD vs LGD TRANSLATION", body: "This document set shifts risk from PD to LGD: default is not nearer (no maintenance covenant to trip; liquidity strong), but the creditor's position at default is erodible — used capacity cuts the 6.0x-stress 2L recovery from 21% to ~8%. The single most consequential date in the documents is the MFN sunset, June 2027, after which a priming raise carries no yield protection for 2L lenders." },
     ],
   };
 }

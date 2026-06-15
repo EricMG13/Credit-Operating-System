@@ -28,7 +28,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
         ]},
         { type: "flags", title: "CP-1-10 · Definition conflict register", items: [
-          { sev: "warning", text: "EBITDA definition: SFA caps cost-saving add-backs at 25% (24mo); SSN Indenture is uncapped — covenant calcs diverge by $14.2M.", ev: ["E-09", "E-103"] },
+          { sev: "warning", text: "EBITDA definition: SFA caps cost-saving add-backs at 25% (24mo); 2L Credit Agt is uncapped — covenant calcs diverge by $14.2M.", ev: ["E-09", "E-103"] },
           { sev: "warning", text: "Derived Q4-25 period constructed from sponsor model — Q4-25 management accounts not provided (gap G-02).", ev: ["E-58"] },
         ]},
         { type: "text", title: "CP-1-12 · Coverage gate & downstream readiness", body: "All three statements covered FY23–LTM at quarterly grain. Calculation register complete for 41 KPIs; tie-out to audited financials within 0.3% on every line. Downstream readiness: GREEN for all consumers; CP-1B inherits the Q4-25 derived-period caveat." },
@@ -44,7 +44,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           ["Nov 2021", "LBO by Kestrel Capital Fund V", "$2,150M EV", "7.9x"],
           ["Jun 2023", "Bolt-on: Hartwell Precision (aero brackets)", "$210M", "6.4x"],
           ["Mar 2024", "Repricing + $250M incremental TLB", "—", "—"],
-          ["May 2026", "2L SSN $900M — refinance 2L bridge + GCP", "—", "—"],
+          ["May 2026", "2L TL $900M — refinance 2L bridge + GCP", "—", "—"],
         ]},
         { type: "text", title: "CP-1A-06 · Operating model", body: "Engineered metal components for industrial OEMs across 3 segments: Drivetrain (46% rev), Fluid Systems (31%), Aftermarket & Services (23% rev / 44% gross profit). 14 plants (9 US, 4 EU, 1 MX); 71% of COGS is pass-through-indexed steel and alloys with 60–90 day lag. Aftermarket attaches to a 1.9M-unit installed base with 92% contract renewal." },
         { type: "flags", title: "CP-1A-08 · Credit translation", items: [
@@ -75,11 +75,11 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
     },
     "CP-1C": {
       kpis: [
-        { l: "Peer universe", v: "7 names" }, { l: "Subject vs median STW", v: "+61bps", sev: "ok" },
+        { l: "Peer universe", v: "7 names" }, { l: "Subject vs median DM", v: "+61bps", sev: "ok" },
         { l: "Margin percentile", v: "64th" }, { l: "Outliers excluded", v: "1" },
       ],
       sections: [
-        { type: "table", title: "CP-1C-04C · Credit metric benchmark", cols: ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "STW"], align: [0,0,1,1,1,1], rows: [
+        { type: "table", title: "CP-1C-04C · Credit metric benchmark", cols: ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], align: [0,0,1,1,1,1], rows: [
           ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
           ["Forgeline Industries", "B2 / B", "5.9x", "13.8%", "31%", "+352"],
           ["Karst Components", "B3 / B−", "6.4x", "12.1%", "27%", "+459"],
@@ -89,7 +89,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           ["Tarn Engineered Sys", "B3 / CCC+", "7.1x", "11.4%", "22%", "+577"],
         ]},
         { type: "flags", title: "CP-1C-05 · Outlier register & open items", items: [
-          { sev: "critical", text: "Citation E-44 (peer margin set, OM Annex C) — page mismatch under QA-117. Benchmark conclusions carried ex-E-44 until re-verified.", ev: ["E-44"] },
+          { sev: "critical", text: "Citation E-44 (peer margin set, CIM Annex C) — page mismatch under QA-117. Benchmark conclusions carried ex-E-44 until re-verified.", ev: ["E-44"] },
           { sev: "low", text: "Tarn Engineered excluded from median (distressed outlier, +577bps)." },
         ]},
         { type: "text", title: "CP-1C-09 · Overall peer benchmarking view", body: "Subject screens cheap: +61bps wide of the B2 median with top-quartile FCF conversion and above-median margin. Ex-E-44 the gap compresses to +20–25bps — still positive carry vs fundamentals." },
@@ -150,7 +150,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
       sections: [
         { type: "table", title: "CP-2D-04 · Sponsor behavior flags", cols: ["Flag", "Evidence", "Severity"], align: [0,0,0], rows: [
           ["Dividend recap history — 2 prior Kestrel portfolio cos within 24mo of refi", "Fund V portfolio review", "WARNING"],
-          ["RP basket pre-positioning — builder already $240M with no stated use", "Indenture §4.07 + cert", "WARNING"],
+          ["RP basket pre-positioning — builder already $240M with no stated use", "Credit Agt §4.07 + cert", "WARNING"],
           ["Fund VI close $4.2B — support capacity positive offset", "Jun-26 press / LP letter", "INFO"],
         ]},
         { type: "text", title: "CP-2D-12 · Overall governance view", body: "Kestrel is a competent operator with an extractive financial-policy record. Disclosure cadence is institutional-grade (monthly lender reporting), which partially offsets. Treat any RP-basket activation as a posture-changing event (T-4).", ev: ["E-91"] },
@@ -187,7 +187,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { type: "table", title: "CP-2F-02 · Debt rate exposure register", cols: ["Instrument", "Balance ($M)", "Basis", "Modeled hedge"], align: [0,1,0,0], rows: [
           ["RCF (drawn)", "120", "SOFR + 350", "none"],
           ["Term Loan B", "1,850", "SOFR + 375", "unknown — register missing"],
-          ["2L SSN '31", "900", "Fixed 8.250%", "n/a"],
+          ["2L TL '31", "900", "S+425 (floating)", "n/a"],
           ["Sub Notes '32", "400", "Fixed 10.00%", "n/a"],
         ]},
         { type: "text", title: "CP-2F-10 · Overall macro view", body: "Rate sensitivity is the dominant macro channel: each +100bps costs ~$12.1M FCF (7% of LTM FCF) if truly unhedged. Commodity exposure is structurally pass-through with a 60–90 day lag. Resolution of gap G-01 (swap confirms) would likely improve this view." },
@@ -199,13 +199,13 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { l: "Scorecard", v: "71 / 100" }, { l: "Fair value band", v: "+325–340" },
       ],
       sections: [
-        { type: "table", title: "CP-3-05 · Relative value table", cols: ["Instrument", "STW", "Fair band", "Excess", "Rank"], align: [0,1,1,1,1], rows: [
-          ["ATLF 2L SSN 8.250% '31 (subject)", "+388", "+325–340", "+48–63", "2"],
-          ["Veldt Precision SSN '30", "+291", "+285–300", "−9–+6", "5"],
-          ["Ironvale SSN '29", "+327", "+310–325", "+2–17", "4"],
+        { type: "table", title: "CP-3-05 · Relative value table", cols: ["Instrument", "DM", "Fair band", "Excess", "Rank"], align: [0,1,1,1,1], rows: [
+          ["ATLF 2L TL '31 (subject)", "+388", "+325–340", "+48–63", "2"],
+          ["Veldt Precision TLB '30", "+291", "+285–300", "−9–+6", "5"],
+          ["Ironvale TLB '29", "+327", "+310–325", "+2–17", "4"],
           ["Forgeline TLB '30", "+352", "+330–345", "+7–22", "3"],
-          ["Karst SSN '29", "+459", "+470–495", "−36–−11", "6"],
-          ["Cascadia SUN '30", "+341", "+280–300", "+41–61", "1*"],
+          ["Karst TLB '29", "+459", "+470–495", "−36–−11", "6"],
+          ["Cascadia 2L TL '30", "+341", "+280–300", "+41–61", "1*"],
         ]},
         { type: "text", title: "CP-3-08 · Security selection conclusions", body: "Subject ranks 2/7 on the fundamental value matrix; Cascadia ranks above only on an unsecured-recovery adjustment the IC has historically discounted. Conviction is carry + deleveraging, not convergence: hold-to-maturity math clears the hurdle at +388 even with zero spread tightening.", ev: ["E-71", "E-44"] },
       ],
@@ -235,7 +235,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { type: "table", title: "CP-3D-02 · Maturity wall & refinancing register", cols: ["Year", "Instrument", "Amount ($M)", "Path assessment"], align: [0,0,1,0], rows: [
           ["2027", "RCF commitment expiry", "250", "Extend H2-26 — relationship banks, likely +25–50bps"],
           ["2029", "Term Loan B", "1,850", "Refinanceable in current market at ~SOFR+400"],
-          ["2031", "2L SSN (subject)", "900", "Inside refi horizon post-deleveraging"],
+          ["2031", "2L TL (subject)", "900", "Inside refi horizon post-deleveraging"],
           ["2032", "Sub Notes", "400", "Candidate for discounted repurchase if px < 85"],
         ]},
         { type: "text", title: "CP-3D-12 · Overall refinancing & LME view", body: "Vulnerability 4/10: no near wall, real FCF, open market access. But legal capacity for an uptier exists ($612M incremental + open RP paths) — vulnerability re-rates to 7/10 if P1 stress coincides with the 2029 TLB approach.", ev: ["E-63", "E-64"] },
@@ -248,9 +248,9 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
       ],
       sections: [
         { type: "table", title: "CP-0-C/D · Document map & quality assignment", cols: ["Doc", "Name", "Type", "Grade", "Handling"], align: [0,0,0,0,0], rows: [
-          ["D-01", "Offering Memorandum (SSN '31)", "OM", "A", "—"],
+          ["D-01", "Confidential Info Memo (2L TL '31)", "CIM", "A", "—"],
           ["D-02", "Senior Facilities Agreement", "SFA", "A", "—"],
-          ["D-03", "SSN Indenture (final)", "Indenture", "A", "—"],
+          ["D-03", "2L Credit Agt (final)", "Credit Agt", "A", "—"],
           ["D-04", "FY23–FY25 Audited Financials", "Audit", "A", "—"],
           ["D-05", "Q1-26 Compliance Certificate", "Covenant", "A", "—"],
           ["D-06", "Lender Presentation", "LP", "B", "MNPI"],
@@ -259,7 +259,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { type: "flags", title: "CP-0-F/G · Gap & conflict log", items: [
           { sev: "warning", text: "G-01: hedging register / swap confirms not provided — CP-2F routed in degraded mode (limitation L-04)." },
           { sev: "low", text: "G-02: Q4-25 management accounts missing — CP-1 instructed to construct derived period from sponsor model.", ev: ["E-58"] },
-          { sev: "ok", text: "Conflict log: 0 unresolved — OM vs audit tie-outs within tolerance at intake." },
+          { sev: "ok", text: "Conflict log: 0 unresolved — CIM vs audit tie-outs within tolerance at intake." },
         ]},
         { type: "text", title: "CP-0-I · Downstream readiness", body: "Readiness 0.91 — all 21 analytical modules routable. Two gaps logged with degraded-mode instructions attached; neither is blocking. Master index updated; intake export assembled for CP-X." },
       ],
@@ -294,12 +294,12 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
       ],
       sections: [
         { type: "table", title: "CP-5-09 · Consolidated issue log", cols: ["ID", "Sev", "Module", "Finding", "Status"], align: [0,0,0,0,0], rows: [
-          ["QA-117", "HIGH", "CP-1C", "Citation E-44 — peer EBITDA margin set anchored to wrong page (OM Annex C)", "OPEN"],
+          ["QA-117", "HIGH", "CP-1C", "Citation E-44 — peer EBITDA margin set anchored to wrong page (CIM Annex C)", "OPEN"],
           ["QA-121", "LOW", "CP-2C", "Catalyst probability stated without basis — re-labeled [Analyst estimate]", "RESOLVED"],
           ["QA-122", "LOW", "CP-3", "RV table rounding (1dp) inconsistent with CP-1C alignment register", "RESOLVED"],
         ]},
         { type: "flags", title: "CP-5-10 · Remediation priority map", items: [
-          { sev: "critical", text: "R-1 (blocks committee pack): re-anchor E-44 to conformed OM p.391, re-run CP-1C metric alignment, then refresh CP-3 RV table and CP-6A weighting row 3.", ev: ["E-44"] },
+          { sev: "critical", text: "R-1 (blocks committee pack): re-anchor E-44 to conformed CIM p.391, re-run CP-1C metric alignment, then refresh CP-3 RV table and CP-6A weighting row 3.", ev: ["E-44"] },
         ]},
         { type: "text", title: "CP-5-11 · Clearance decision", body: "CONDITIONAL — one HIGH citation defect open; math, legal, market and consistency audits clean across all 21 modules. CP-RENDER and CP-EXTRACT held until QA-117 remediation lands; no other gating findings." },
       ],
@@ -339,7 +339,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
     },
     "CP-3B": {
       kpis: [
-        { l: "Preference", v: "2L SSN over TLB", sev: "ok" }, { l: "Recovery @ 6.0x stress", v: "21%" },
+        { l: "Preference", v: "2L TL over TLB", sev: "ok" }, { l: "Recovery @ 6.0x stress", v: "21%" },
         { l: "Comp cross-check", v: "PASS", sev: "ok" }, { l: "Monitoring triggers", v: "3" },
       ],
       sections: [],

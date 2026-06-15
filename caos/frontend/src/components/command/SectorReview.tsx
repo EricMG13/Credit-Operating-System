@@ -85,8 +85,8 @@ export function SectorReview({
   }, [running, step, row.sector]);
 
   if (!data) return null;
-  const stw = data.stw[tf];
-  const vsIndex = stw - INDEX_MOVE[tf];
+  const dm = data.dm[tf];
+  const vsIndex = dm - INDEX_MOVE[tf];
 
   const metric = (label: string, value: string, color?: string, sub?: string) => (
     <div className="rounded border border-caos-border bg-caos-bg px-2.5 py-2">
@@ -188,7 +188,7 @@ export function SectorReview({
         <div className="flex-1 min-h-0 overflow-auto">
           {/* metrics for selected timeframe */}
           <div className="grid grid-cols-4 gap-1.5 p-3">
-            {metric("Sector STW Δ " + TIMEFRAMES[tf], fmtBps(stw), moveColor(stw))}
+            {metric("Sector DM Δ " + TIMEFRAMES[tf], fmtBps(dm), moveColor(dm))}
             {metric("vs Lev Loan Index", fmtBps(vsIndex), moveColor(vsIndex), "index " + fmtBps(INDEX_MOVE[tf]))}
             {metric("Dispersion", data.dispersion[tf] + "bps", undefined, "intra-sector p10–p90")}
             {metric("EW triggers", String(row.ew), row.ew >= 3 ? "var(--caos-critical)" : row.ew > 0 ? "var(--caos-warning)" : "var(--caos-success)", "CP-MON armed")}
@@ -256,7 +256,7 @@ export function SectorReview({
           {/* impacted issuers */}
           <div className="px-4 pb-4">
             <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1.5">
-              Impacted issuers · Δ STW {TIMEFRAMES[tf]}
+              Impacted issuers · Δ DM {TIMEFRAMES[tf]}
             </div>
             <div className="rounded border border-caos-border overflow-hidden">
               {data.issuers.map((i) => {

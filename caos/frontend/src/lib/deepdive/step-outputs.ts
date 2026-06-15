@@ -15,9 +15,9 @@ const O0: Record<string, StepOutput> = {
     /* ================= CP-0 · DocumentIntakeManager ================= */
     "CP-0:File Classification": { ref: "REF_CP-0_A", out: "File classification register", sections: [
       T("CP-0-A · File classification register (14 files)", ["ID", "File", "Class", "Pages", "Status"], [0,0,0,1,0], [
-        ["D-01", "Offering Memorandum — SSN 8.250% '31", "OM", "412", "CLASSIFIED"],
+        ["D-01", "Confidential Info Memo — 2L TL '31", "CIM", "412", "CLASSIFIED"],
         ["D-02", "Senior Facilities Agreement (conformed)", "SFA", "287", "CLASSIFIED"],
-        ["D-03", "SSN Indenture (executed, final)", "INDENTURE", "231", "CLASSIFIED"],
+        ["D-03", "2L Credit Agt (executed, final)", "CRED AGT", "231", "CLASSIFIED"],
         ["D-04", "FY23–FY25 Audited Financial Statements", "AUDIT", "104", "CLASSIFIED"],
         ["D-05", "Q1-26 Compliance Certificate", "COVENANT", "9", "CLASSIFIED"],
         ["D-06", "Lender Presentation (May-26)", "LP", "48", "CLASSIFIED · MNPI"],
@@ -38,9 +38,9 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-0:Document Mapping": { ref: "REF_CP-0_C", out: "Document-to-module map", sections: [
       T("CP-0-C · Document-to-module routing", ["Doc", "Primary consumers", "Secondary"], [0,0,0], [
-        ["D-01 OM", "CP-1 · CP-1A · CP-1C", "CP-2 · CP-3B"],
+        ["D-01 CIM", "CP-1 · CP-1A · CP-1C", "CP-2 · CP-3B"],
         ["D-02 SFA", "CP-4 · CP-4C", "CP-1 (definitions) · CP-2F"],
-        ["D-03 Indenture", "CP-4 · CP-4C", "CP-3B · CP-3D"],
+        ["D-03 Credit Agt", "CP-4 · CP-4C", "CP-3B · CP-3D"],
         ["D-04 Audits", "CP-1 · CP-2E", "CP-1C · CP-5B"],
         ["D-05 Compliance Cert", "CP-1 · CP-4C", "CP-2E"],
         ["D-06 Lender Pres (MNPI)", "CP-2D", "CP-1B"],
@@ -49,8 +49,8 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-0:Quality Assignment": { ref: "REF_CP-0_D", out: "Quality grade register", sections: [
       T("CP-0-D · Quality assignment", ["Doc", "Grade", "Rationale"], [0,0,0], [
-        ["D-01 OM", "A", "Executed offering document, counsel-reviewed, conformed"],
-        ["D-02 SFA / D-03 Indenture", "A", "Executed legal documents — controlling authority"],
+        ["D-01 CIM", "A", "Executed offering document, counsel-reviewed, conformed"],
+        ["D-02 SFA / D-03 Credit Agt", "A", "Executed legal documents — controlling authority"],
         ["D-04 Audits", "A", "Audited, unqualified opinion, three fiscal years"],
         ["D-05 Compliance Cert", "A", "Officer-certified covenant calculations"],
         ["D-06 Lender Presentation", "B", "Sponsor-prepared marketing material · MNPI handling"],
@@ -78,7 +78,7 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-0:Conflict Logging": { ref: "REF_CP-0_G", out: "Conflict log", sections: [
       T("CP-0-G · Intake tie-out checks", ["Check", "Result"], [0,0], [
-        ["OM summary financials vs audited statements", "TIE — within 0.3% on every line"],
+        ["CIM summary financials vs audited statements", "TIE — within 0.3% on every line"],
         ["Compliance cert covenant EBITDA vs SFA definition", "TIE — $421.4M reproduces"],
         ["Lender presentation KPIs vs audit", "2 presentational variances — non-conflicting, noted"],
         ["Sponsor model basis vs audited presentation", "DIVERGENT — escalated to CP-1 definition register"],
@@ -87,7 +87,7 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-0:File Quality Risk": { ref: "REF_CP-0_H", out: "File quality risk assessment", sections: [
       T("CP-0-H · Quality risk by analytical surface", ["Surface", "Coverage", "Risk"], [0,0,0], [
-        ["Historical financials", "Grade A (audits + OM)", "LOW"],
+        ["Historical financials", "Grade A (audits + CIM)", "LOW"],
         ["Legal / covenant analysis", "Grade A (executed docs)", "LOW"],
         ["Current-quarter earnings", "Grade A (cert) + B (LP)", "LOW"],
         ["Forward projections", "Grade C only (sponsor model)", "ELEVATED — quarantined to upside case"],
@@ -166,7 +166,7 @@ const O0: Record<string, StepOutput> = {
         ["D-02 / D-03 (legal)", "CP-4 · CP-4C (+ ref by CP-3B/3D)", "none"],
         ["D-06 lender presentation", "CP-2D · CP-1B", "MNPI — walled"],
         ["D-07 sponsor model", "CP-1B · CP-1 (derived period)", "MNPI — walled"],
-        ["MKT — TRACE / desk runs", "CP-1C · CP-3 · CP-3C", "public side"],
+        ["MKT — LoanX / dealer runs", "CP-1C · CP-3 · CP-3C", "public side"],
       ]),
     ]},
     "CP-X:Limitation Propagation Register": { ref: "REF_CP-X · TX.6", out: "Limitation register", sections: [
@@ -183,7 +183,7 @@ const O0: Record<string, StepOutput> = {
     "CP-1:Source Register (file gate)": { ref: "REF_CP-1_01 · T4.1", out: "Source register + gate decision", sections: [
       T("T4.1 · Admitted sources", ["Doc", "Role in spreading", "Grade", "Decision"], [0,0,0,0], [
         ["D-04 Audits FY23–25", "Primary basis — all statements", "A", "ADMITTED"],
-        ["D-01 OM financials", "LTM + adjustment detail", "A", "ADMITTED"],
+        ["D-01 CIM financials", "LTM + adjustment detail", "A", "ADMITTED"],
         ["D-05 Compliance cert", "Covenant EBITDA + ratios", "A", "ADMITTED"],
         ["D-07 Sponsor model", "Derived Q4-25 only", "C", "ADMITTED · RESTRICTED"],
       ]),
@@ -196,7 +196,7 @@ const O0: Record<string, StepOutput> = {
         ["Periods", "12 — FY23, FY24, FY25 quarterly + LTM Q1-26"],
         ["Grain", "Quarterly"],
         ["Currency", "USD millions"],
-        ["Basis", "US GAAP, audited; LTM per OM/cert"],
+        ["Basis", "US GAAP, audited; LTM per CIM/cert"],
       ]),
     ]},
     "CP-1:Normalization Register": { ref: "REF_CP-1_03 · T4.3", out: "Normalization register", sections: [
@@ -217,7 +217,7 @@ const O0: Record<string, StepOutput> = {
         ["Gross margin", "24.0%", "24.3%", "24.6%", "24.7%"],
         ["SG&A + other opex", "(260)", "(300)", "(333)", "(347)"],
         ["Reported EBITDA", "318", "329", "341", "344"],
-        ["Add-backs (per OM reconciliation)", "40", "63", "74", "77"],
+        ["Add-backs (per CIM reconciliation)", "40", "63", "74", "77"],
         ["Adjusted EBITDA", "358", "392", "415", "421"],
         ["D&A", "(128)", "(131)", "(134)", "(136)"],
         ["EBIT (reported)", "190", "198", "207", "208"],
@@ -296,16 +296,16 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-1:Definition Conflict Register": { ref: "REF_CP-1_10 · T4.11", out: "Definition conflict register", sections: [
       T("T4.11 · Definition conflicts", ["#", "Conflict", "Divergence", "Disposition"], [0,0,1,0], [
-        ["DC-1", "EBITDA add-back cap: SFA 25% / 24mo vs SSN Indenture uncapped", "$14.2M", "Both series carried — covenant calcs use controlling doc per facility"],
+        ["DC-1", "EBITDA add-back cap: SFA 25% / 24mo vs 2L Credit Agt uncapped", "$14.2M", "Both series carried — covenant calcs use controlling doc per facility"],
         ["DC-2", "Sponsor model EBITDA basis vs audited presentation", "$8.6M", "Model basis quarantined to [Sponsor view]; not reconciled silently"],
       ]),
-      X("Note", "Conflicts are logged, not averaged. DC-1 is thesis-relevant: indenture grower baskets key off the larger, uncapped figure — handed to CP-4C.", ["E-09", "E-103"]),
+      X("Note", "Conflicts are logged, not averaged. DC-1 is thesis-relevant: credit agreement grower baskets key off the larger, uncapped figure — handed to CP-4C.", ["E-09", "E-103"]),
     ]},
     "CP-1:Evidence→Risk→Credit Narrative": { ref: "REF_CP-1_11", out: "Analytical narrative by dimension", sections: [
       X("Leverage trajectory", "Evidence: net leverage 6.7x → 5.68x over nine quarters on EBITDA growth, not debt paydown (net debt flat at ~$2.4B). Risk mechanic: deleveraging is entirely earnings-dependent. Credit implication: any EBITDA stress re-rates leverage immediately — there is no amortization cushion."),
       X("Coverage & cash-flow quality", "Evidence: interest coverage 2.1x and FCF conversion 41% (K-22), with working capital consuming only ~$14M/yr. Risk mechanic: thin coverage but genuine cash generation; capex is light (4.3% of revenue). Credit implication: debt service is funded from operations with headroom; the +100bps rate channel (CP-2F) is the main coverage threat.", ["E-22"]),
       X("Earnings quality", "Evidence: $76.6M of add-backs = 18.2% of adj. EBITDA; 'one-time' charges recurred in 3 of the last 4 years (D-04 p.58). Risk mechanic: presented EBITDA overstates run-rate cash earnings if add-backs are structural. Credit implication: a $35M haircut to base EBITDA is defensible — adopted by the IC Chair in CP-6A.", ["E-09", "E-87"]),
-      X("Data quality & definitions", "Evidence: gap G-02 (derived Q4-25) and conflicts DC-1/DC-2. Risk mechanic: comparability noise in quarterly series; basket capacity keys off the uncapped indenture definition. Credit implication: covenant capacity is larger than SFA-basis intuition suggests — quantified by CP-4C at $612M.", ["E-58"]),
+      X("Data quality & definitions", "Evidence: gap G-02 (derived Q4-25) and conflicts DC-1/DC-2. Risk mechanic: comparability noise in quarterly series; basket capacity keys off the uncapped credit agreement definition. Credit implication: covenant capacity is larger than SFA-basis intuition suggests — quantified by CP-4C at $612M.", ["E-58"]),
     ]},
     "CP-1:Gaps + Downstream Readiness": { ref: "REF_CP-1_12 · T4.12", out: "Coverage gate + readiness", sections: [
       T("T4.12 · Downstream readiness", ["Consumer", "Requires", "Status"], [0,0,0], [
@@ -320,22 +320,22 @@ const O0: Record<string, StepOutput> = {
     /* ================= CP-1A · CompanyProfile ================= */
     "CP-1A:Source Basis Establishment": { ref: "REF_CP-1A_01", out: "Source basis register", sections: [
       T("Source basis", ["Source", "Use", "Authority"], [0,0,0], [
-        ["D-01 OM — Business (p.85–112)", "Segments, customers, footprint, installed base", "PRIMARY"],
+        ["D-01 CIM — Business (p.85–112)", "Segments, customers, footprint, installed base", "PRIMARY"],
         ["D-04 Audits — segment notes", "Segment revenue / profit verification", "PRIMARY"],
         ["D-06 Lender presentation", "Color only — every claim cross-checked to grade A", "SECONDARY"],
       ]),
     ]},
     "CP-1A:Source Classification": { ref: "REF_CP-1A_02", out: "Factual vs promotional split", sections: [
       T("Classification", ["Content", "Class", "Handling"], [0,0,0], [
-        ["OM risk factors, audit notes, contract terms", "FACTUAL", "Drives the record"],
+        ["CIM risk factors, audit notes, contract terms", "FACTUAL", "Drives the record"],
         ["Market-share and TAM claims (LP p.8–14)", "PROMOTIONAL", "[Sponsor view] label, excluded from credit record"],
         ["Cost-out program targets (LP / model)", "PROMOTIONAL", "Carried only as upside case via CP-1B"],
       ]),
     ]},
     "CP-1A:Transaction Summary": { ref: "REF_CP-1A_03", out: "Transaction summary", sections: [
       T("Subject transaction", ["Field", "Value"], [0,0], [
-        ["Instrument", "$900M 2L Senior Secured Notes due 2031"],
-        ["Coupon / price", "8.250% · issued at 99.41 (May-26)"],
+        ["Instrument", "$900M 2nd Lien Term Loan due 2031"],
+        ["Margin / OID", "S+425 · issued at 99.41 (May-26)"],
         ["Use of proceeds", "Refinance 2L bridge ($860M) + general corporate purposes"],
         ["Pro forma net leverage", "5.68x total · 4.68x secured (1L)"],
         ["Context", "Fifth capital-structure event since 2021 LBO"],
@@ -370,7 +370,7 @@ const O0: Record<string, StepOutput> = {
         ["Nov 2021", "LBO by Kestrel Capital Fund V", "$2,150M EV", "7.9x"],
         ["Jun 2023", "Bolt-on: Hartwell Precision (aero brackets)", "$210M", "6.4x"],
         ["Mar 2024", "Repricing + $250M incremental TLB", "—", "—"],
-        ["May 2026", "2L SSN $900M — refinance 2L bridge + GCP", "—", "—"],
+        ["May 2026", "2L TL $900M — refinance 2L bridge + GCP", "—", "—"],
       ]),
       X("Pattern", "Four capital-structure events in 4.5 years — steady re-leveraging at flat net debt. The history reads as a sponsor managing leverage to a ceiling, not amortizing toward exit."),
     ]},
@@ -391,7 +391,7 @@ const O0: Record<string, StepOutput> = {
     /* ================= CP-1B · EarningsMonitor ================= */
     "CP-1B:File Gate & Source Validation": { ref: "REF_CP-1B_01", out: "Gate decision", sections: [
       T("Gate", ["Source", "Status"], [0,0], [
-        ["Q1-26 interim financials (OM-extracted)", "ADMITTED — grade A"],
+        ["Q1-26 interim financials (CIM-extracted)", "ADMITTED — grade A"],
         ["D-05 compliance certificate", "ADMITTED — grade A"],
         ["D-07 sponsor model", "ADMITTED — comparison basis only, grade C"],
         ["Q4-25 management accounts", "ABSENT — derived period inherited from CP-1 (G-02)"],
@@ -444,7 +444,7 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-1B:Corporate Actions": { ref: "REF_CP-1B_08", out: "Corporate actions register", sections: [
       T("Actions in window", ["Date", "Action", "Cash impact"], [0,0,1], [
-        ["May 2026", "$900M 2L SSN issuance — refinance 2L bridge", "+$28M net (fees, OID)"],
+        ["May 2026", "$900M 2L TL issuance — refinance 2L bridge", "+$28M net (fees, OID)"],
         ["Mar 2026", "Hartwell earnout settlement agreed", "−$24M (committed, H2-26)"],
       ]),
     ]},
@@ -481,12 +481,12 @@ const O0: Record<string, StepOutput> = {
     ]},
     "CP-1C:Peer Data Gate": { ref: "REF_CP-1C_01", out: "Data sufficiency", sections: [
       T("Sufficiency by metric", ["Metric", "Coverage", "Source"], [0,0,0], [
-        ["EBITDA margin / growth", "7 of 7", "public filings + OM Annex C"],
+        ["EBITDA margin / growth", "7 of 7", "public filings + CIM Annex C"],
         ["Net leverage", "7 of 7", "filings"],
         ["FCF conversion", "7 of 7", "filings"],
-        ["STW (market)", "7 of 7", "TRACE / desk runs Jun 8"],
+        ["DM (market)", "7 of 7", "LoanX / desk runs Jun 8"],
       ]),
-      X("Decision", "PASS — full metric set available for all seven names. The OM Annex C anchor later proved mismatched (see Metric Alignment Register)."),
+      X("Decision", "PASS — full metric set available for all seven names. The CIM Annex C anchor later proved mismatched (see Metric Alignment Register)."),
     ]},
     "CP-1C:Peer Universe Register": { ref: "REF_CP-1C_02", out: "Peer universe", sections: [
       T("Universe (7 names)", ["Name", "Rating", "Revenue", "Why comparable"], [0,0,1,0], [
@@ -502,12 +502,12 @@ const O0: Record<string, StepOutput> = {
     "CP-1C:Metric Alignment Register": { ref: "REF_CP-1C_03", out: "Alignment register", sections: [
       T("Alignment to CP-1 definitions", ["Metric", "Alignment action", "Status"], [0,0,0], [
         ["EBITDA (peers)", "Re-stated to subject's adj. definition where add-back detail disclosed", "ALIGNED (5 of 6)"],
-        ["Peer margin set (Annex C)", "Cited OM Annex C p.388 — anchor mismatched", "OPEN — QA-117"],
+        ["Peer margin set (Annex C)", "Cited CIM Annex C p.388 — anchor mismatched", "OPEN — QA-117"],
         ["Leverage", "Net debt standardized ex-leases", "ALIGNED"],
         ["FCF conversion", "K-22 formula applied uniformly", "ALIGNED"],
       ]),
       F("Open item", [
-        { sev: "critical", text: "E-44: p.388 of the conformed OM contains the auditor consent letter, not the peer margin table (expected p.391 of prior draft). Benchmark conclusions carried ex-E-44 until re-anchored — QA-117 (HIGH).", ev: ["E-44"] },
+        { sev: "critical", text: "E-44: p.388 of the conformed CIM contains the auditor consent letter, not the peer margin table (expected p.391 of prior draft). Benchmark conclusions carried ex-E-44 until re-anchored — QA-117 (HIGH).", ev: ["E-44"] },
       ]),
     ]},
     "CP-1C:Operating Benchmark": { ref: "REF_CP-1C_04A", out: "Operating benchmark", sections: [
@@ -535,7 +535,7 @@ const O0: Record<string, StepOutput> = {
       X("Read", "Second-lightest capex and top-quartile FCF conversion — the clearest fundamental edge over the peer set.", ["E-22"]),
     ]},
     "CP-1C:Credit Metric Benchmark": { ref: "REF_CP-1C_04C", out: "Credit metric benchmark", sections: [
-      T("4C · Credit metric benchmark", ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "STW"], [0,0,1,1,1,1], [
+      T("4C · Credit metric benchmark", ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], [0,0,1,1,1,1], [
         ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
         ["Forgeline Industries", "B2 / B", "5.9x", "13.8%", "31%", "+352"],
         ["Karst Components", "B3 / B−", "6.4x", "12.1%", "27%", "+459"],
@@ -550,11 +550,11 @@ const O0: Record<string, StepOutput> = {
         ["Net leverage", "5.7x", "5.5x", "38th"],
         ["EBITDA margin", "15.0%", "13.9%", "64th"],
         ["FCF conversion", "41%", "31%", "92nd"],
-        ["STW", "+388", "+327", "+61bps wide"],
+        ["DM", "+388", "+327", "+61bps wide"],
       ]),
     ]},
     "CP-1C:Outlier Register": { ref: "REF_CP-1C_05", out: "Outlier register", sections: [
-      X("Register", "Tarn Engineered (B3 / CCC+, +577bps, negative growth) excluded from median computation as a distressed outlier; retained in tables for context. No other exclusions. Sensitivity: including Tarn widens the median STW to +341 and flatters the subject's relative position — the conservative ex-Tarn basis is carried."),
+      X("Register", "Tarn Engineered (B3 / CCC+, +577bps, negative growth) excluded from median computation as a distressed outlier; retained in tables for context. No other exclusions. Sensitivity: including Tarn widens the median DM to +341 and flatters the subject's relative position — the conservative ex-Tarn basis is carried."),
     ]},
     "CP-1C:Public Trading Comps": { ref: "REF_CP-1C_06A", out: "Trading comps", sections: [
       T("6A · Public trading comps", ["Comp", "EV/EBITDA", "EBITDA mgn", "Note"], [0,1,1,0], [
@@ -709,7 +709,7 @@ const O1: Record<string, StepOutput> = {
     "CP-2:Monitoring Triggers": { ref: "REF_CP-2_12", out: "Observable trigger table", sections: [
       T("Standing triggers", ["ID", "Trigger", "Observable", "On trip"], [0,0,0,0], [
         ["T-1", "Add-back realization < $30M", "Q3-26 compliance certificate", "CP-6A re-vote"],
-        ["T-2", "Incremental raise > $200M in MFN window", "facility notices / TRACE", "CP-3B re-rank + CP-6E review"],
+        ["T-2", "Incremental raise > $200M in MFN window", "facility notices / LoanX", "CP-3B re-rank + CP-6E review"],
         ["T-3", "Meridian repricing terms", "Q2-27 disclosure", "CP-2B P1 refresh"],
         ["T-4", "RP basket activation", "covenant certificate / notices", "posture change — CP-2D + CP-6E"],
       ]),
@@ -871,7 +871,7 @@ const O1: Record<string, StepOutput> = {
     "CP-2D:Behavior Flag Register": { ref: "REF_CP-2D_04", out: "Behavior flags", sections: [
       F("Flags", [
         { sev: "warning", text: "Dividend-recap history: two Fund IV portfolio companies executed recaps within 24 months of a refinancing window — pattern, not anecdote." },
-        { sev: "warning", text: "RP basket pre-positioning: builder already $240M with no stated use (indenture §4.07 + certificate) — capacity built before need." },
+        { sev: "warning", text: "RP basket pre-positioning: builder already $240M with no stated use (credit agreement §4.07 + certificate) — capacity built before need." },
         { sev: "low", text: "Fund VI close $4.2B (Jun-26) — support-capacity positive offset; industrials 38% of deployment.", ev: ["E-91"] },
       ]),
     ]},
@@ -939,7 +939,7 @@ const O1: Record<string, StepOutput> = {
     ]},
     "CP-2E:Mandatory Cash Uses Register": { ref: "REF_CP-2E_03", out: "Mandatory uses", sections: [
       T("Mandatory uses — 12 months ($M)", ["Use", "Amount", "Timing"], [0,1,0], [
-        ["Cash interest", "(196)", "semi-annual SSN + quarterly floating"],
+        ["Cash interest", "(196)", "quarterly floating — 1L TLB + 2L TL"],
         ["TLB amortization (1%)", "(18)", "quarterly"],
         ["Hartwell earnout", "(24)", "H2-26"],
         ["Maturities", "—", "none inside 24 months"],
@@ -1000,7 +1000,7 @@ const O1: Record<string, StepOutput> = {
       T("Exposure register", ["Instrument", "Balance ($M)", "Basis", "Modeled hedge"], [0,1,0,0], [
         ["RCF (drawn)", "120", "SOFR + 350", "none"],
         ["Term Loan B", "1,850", "SOFR + 375", "unknown — register missing"],
-        ["2L SSN '31", "900", "Fixed 8.250%", "n/a"],
+        ["2L TL '31", "900", "S+425 (floating)", "n/a"],
         ["Sub Notes '32", "400", "Fixed 10.00%", "n/a"],
       ]),
       X("Summary", "61% floating share before any undisclosed hedges — flagged with (*) wherever quoted."),
@@ -1064,7 +1064,7 @@ const O2: Record<string, StepOutput> = {
       T("Sources", ["Input", "Status"], [0,0], [
         ["CP-1C benchmarks (ex-E-44 basis)", "GREEN — limitation carried"],
         ["CP-2 credit view (B2 / STABLE)", "GREEN"],
-        ["MKT — TRACE prints + desk runs (Jun 8)", "GREEN"],
+        ["MKT — LoanX marks + dealer runs (Jun 8)", "GREEN"],
       ]),
       X("Mode", "Full-stack execution — fundamental scorecard, fair-value band and final ranking all produced.", ["E-71"]),
     ]},
@@ -1086,13 +1086,13 @@ const O2: Record<string, StepOutput> = {
       X("Register", "Empty — no analyst overrides applied to model scores. The scorecard output is carried as computed. (Override policy: any manual adjustment requires a written basis and CP-5 notification; none invoked this run.)"),
     ]},
     "CP-3:Relative Value Table": { ref: "REF_CP-3_05 · T3.5", out: "Relative value table", sections: [
-      T("RV table", ["Instrument", "STW", "Fair band", "Excess", "Rank"], [0,1,1,1,1], [
-        ["ATLF 2L SSN 8.250% '31 (subject)", "+388", "+325–340", "+48–63", "2"],
-        ["Veldt Precision SSN '30", "+291", "+285–300", "−9–+6", "5"],
-        ["Ironvale SSN '29", "+327", "+310–325", "+2–17", "4"],
+      T("RV table", ["Instrument", "DM", "Fair band", "Excess", "Rank"], [0,1,1,1,1], [
+        ["ATLF 2L TL '31 (subject)", "+388", "+325–340", "+48–63", "2"],
+        ["Veldt Precision TLB '30", "+291", "+285–300", "−9–+6", "5"],
+        ["Ironvale TLB '29", "+327", "+310–325", "+2–17", "4"],
         ["Forgeline TLB '30", "+352", "+330–345", "+7–22", "3"],
-        ["Karst SSN '29", "+459", "+470–495", "−36–−11", "6"],
-        ["Cascadia SUN '30", "+341", "+280–300", "+41–61", "1*"],
+        ["Karst TLB '29", "+459", "+470–495", "−36–−11", "6"],
+        ["Cascadia 2L TL '30", "+341", "+280–300", "+41–61", "1*"],
       ]),
       X("Band note", "The fair band leans on E-44; the ex-E-44 construction (sector beta regression) still shows +20–25bps cheap. Both bands carried until QA-117 resolves.", ["E-71", "E-44"]),
     ]},
@@ -1103,27 +1103,27 @@ const O2: Record<string, StepOutput> = {
         ["Fair / stable", "Ironvale · Forgeline"],
         ["Rich / strong", "Veldt"],
       ]),
-      X("Note", "* Cascadia plots cheaper only on an unsecured-recovery adjustment the IC has historically discounted; on like-for-like secured basis the subject is the cheapest improving credit in the set."),
+      X("Note", "* Cascadia plots cheaper only on a recovery adjustment (thinner collateral coverage) the IC has historically discounted; on a like-for-like recovery basis the subject is the cheapest improving credit in the set."),
     ]},
     "CP-3:Final Ranking": { ref: "REF_CP-3_07 · T3.7", out: "Final ranking", sections: [
       T("Final ranking", ["Rank", "Name", "Basis"], [1,0,0], [
-        ["1*", "Cascadia SUN '30", "recovery-adjusted — discounted by IC"],
-        ["2", "ATLF 2L SSN (subject)", "carry + deleveraging, monitorable risks"],
+        ["1*", "Cascadia 2L TL '30", "recovery-adjusted — discounted by IC"],
+        ["2", "ATLF 2L TL (subject)", "carry + deleveraging, monitorable risks"],
         ["3", "Forgeline TLB '30", "fair-to-cheap, lower beta"],
-        ["4", "Ironvale SSN '29", "fair"],
-        ["5", "Veldt Precision SSN '30", "rich — quality priced"],
-        ["6", "Karst SSN '29", "cheap for a reason — deteriorating"],
+        ["4", "Ironvale TLB '29", "fair"],
+        ["5", "Veldt Precision TLB '30", "rich — quality priced"],
+        ["6", "Karst TLB '29", "cheap for a reason — deteriorating"],
       ]),
       X("Robustness", "Dropping the contested E-44 margin set moves the subject from 2 to 3 of 7 — still inside the actionable band."),
     ]},
     "CP-3:Security Selection Conclusions": { ref: "REF_CP-3_08", out: "Selection conclusions", sections: [
-      X("Conclusions", "Within the ATLF structure, the 2L SSN is the expression: +210bps of spread pickup over the TLB for an acceptable recovery delta at the 6.0x stress point (CP-3B). Sub notes rejected on priming exposure and thin covenant protection. Hold-to-maturity math clears the hurdle at +388 even with zero spread tightening — conviction is carry plus deleveraging, not convergence."),
+      X("Conclusions", "Within the ATLF structure, the 2L TL is the expression: +210bps of spread pickup over the TLB for an acceptable recovery delta at the 6.0x stress point (CP-3B). Sub notes rejected on priming exposure and thin covenant protection. Hold-to-maturity math clears the hurdle at +388 even with zero spread tightening — conviction is carry plus deleveraging, not convergence."),
     ]},
     "CP-3:Monitoring Triggers": { ref: "REF_CP-3_09 · T3.9", out: "RV triggers", sections: [
       T("Triggers", ["Trigger", "Threshold", "Action"], [0,0,0], [
         ["Spread tightening", "through +300", "exit — thesis complete"],
         ["Peer-set rating migration", "any notch move", "re-rank universe"],
-        ["Mark refresh", "weekly", "desk runs + TRACE"],
+        ["Mark refresh", "weekly", "desk runs + LoanX"],
       ]),
     ]},
     "CP-3:Gaps Ledger": { ref: "REF_CP-3_10", out: "Gaps ledger", sections: [
@@ -1137,8 +1137,8 @@ const O2: Record<string, StepOutput> = {
     "CP-3B:Instrument Data Gate": { ref: "REF_CP-3B · T3B.1", out: "Gate decision", sections: [
       T("Instrument verification", ["Instrument", "Terms verified vs", "Status"], [0,0,0], [
         ["RCF $250M · TLB $1,850M", "D-02 SFA schedules", "VERIFIED"],
-        ["2L SSN $900M 8.250% '31", "D-03 indenture", "VERIFIED"],
-        ["Sub Notes $400M 10.00% '32", "D-03 + OM description", "VERIFIED"],
+        ["2L TL $900M S+425 '31", "D-03 credit agreement", "VERIFIED"],
+        ["Sub Notes $400M 10.00% '32", "D-03 + CIM description", "VERIFIED"],
       ]),
       X("Tie-out", "Claims totals tie to CP-1 net debt within rounding. Gate PASS."),
     ]},
@@ -1146,13 +1146,13 @@ const O2: Record<string, StepOutput> = {
       T("Capital structure ($M)", ["Class", "Rate", "Amount", "Leverage through"], [0,0,1,1], [
         ["RCF (drawn)", "S+350", "120", "—"],
         ["Term Loan B (1L)", "S+375", "1,850", "4.68x (secured)"],
-        ["2L SSN '31 (subject)", "8.250%", "900", "5.7x"],
+        ["2L TL '31 (subject)", "S+425", "900", "5.7x"],
         ["Sub Notes '32", "10.00%", "400", "6.6x"],
         ["Total debt", "", "3,270", "6.6x gross · 5.68x net (adj.)"],
       ]),
     ]},
     "CP-3B:Instrument Matrix": { ref: "REF_CP-3B · T3B.3", out: "Instrument matrix", sections: [
-      T("Matrix", ["Dimension", "TLB (1L)", "2L SSN", "Subs"], [0,0,0,0], [
+      T("Matrix", ["Dimension", "TLB (1L)", "2L TL", "Subs"], [0,0,0,0], [
         ["Spread / yield", "S+375 (~+340)", "+388", "+545"],
         ["Recovery @ 6.0x stress", "100%", "21%", "0%"],
         ["Covenant protection", "springing only", "full package", "thin"],
@@ -1161,7 +1161,7 @@ const O2: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-3B:Structural Positioning Log": { ref: "REF_CP-3B · T3B.4", out: "Positioning log", sections: [
-      X("Positioning", "The 2L SSN sits behind $1,970M of 1L claims with full guarantor coverage (87% of EBITDA) and second-lien collateral on substantially all assets — and structurally ahead of a $400M sub-notes cushion. Non-guarantor leakage is limited to the MX subsidiary (<4% of EBITDA). The position is conventional; the risk is documentary (priming), not structural."),
+      X("Positioning", "The 2L TL sits behind $1,970M of 1L claims with full guarantor coverage (87% of EBITDA) and second-lien collateral on substantially all assets — and structurally ahead of a $400M sub-notes cushion. Non-guarantor leakage is limited to the MX subsidiary (<4% of EBITDA). The position is conventional; the risk is documentary (priming), not structural."),
     ]},
     "CP-3B:Legal / Covenant / LME Overlay": { ref: "REF_CP-3B · T3B.5", out: "LME overlay", sections: [
       F("Overlay findings", [
@@ -1183,13 +1183,13 @@ const O2: Record<string, StepOutput> = {
         ["Probability-weighted LGD (base-distress weights)", "~62% of par"],
         ["Annual default probability (B2 cohort)", "~2.4%"],
         ["Required spread for LGD", "~248bps"],
-        ["Actual STW", "+388bps"],
+        ["Actual DM", "+388bps"],
         ["Excess compensation", "~140bps"],
       ]),
       X("Result", "PASS — at +388 the 2L compensates modeled loss-given-default with ~140bps of excess spread. Market-implied 2L recovery at px 96.4 ≈ 38% — wide of model in severe only."),
     ]},
     "CP-3B:Preference Decision Table": { ref: "REF_CP-3B · T3B.8", out: "Preference decision", sections: [
-      T("Decision", ["Criterion", "TLB", "2L SSN", "Subs"], [0,0,0,0], [
+      T("Decision", ["Criterion", "TLB", "2L TL", "Subs"], [0,0,0,0], [
         ["Spread pickup vs 1L", "—", "+210bps", "+370bps"],
         ["Recovery delta @ 6.0x", "—", "−79pp", "−100pp"],
         ["Covenant package", "springing only", "full", "thin"],
@@ -1198,20 +1198,20 @@ const O2: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-3B:Ranking & Trade-Off Summary": { ref: "REF_CP-3B", out: "Trade-off summary", sections: [
-      X("Summary", "2L SSN > TLB > Subs. The 2L's recovery cliff below 5.5x stressed is the accepted risk, paid for by +210bps over the TLB. The subs' extra +160bps does not compensate first-loss positioning plus priming exposure with no MFN protection — rejected. TLB retained as the defensive rotation if T-2 (incremental raise) trips."),
+      X("Summary", "2L TL > TLB > Subs. The 2L's recovery cliff below 5.5x stressed is the accepted risk, paid for by +210bps over the TLB. The subs' extra +160bps does not compensate first-loss positioning plus priming exposure with no MFN protection — rejected. TLB retained as the defensive rotation if T-2 (incremental raise) trips."),
     ]},
     "CP-3B:Monitoring Triggers": { ref: "REF_CP-3B · T3B.10", out: "Instrument triggers", sections: [
       T("Triggers", ["Trigger", "Signal", "Action"], [0,0,0], [
-        ["1L incremental raise", "facility notice / TRACE", "re-run waterfall, re-test preference"],
-        ["Sub notes repurchase < 85", "TRACE prints", "LME-posture tell — escalate to CP-3D"],
-        ["TLB / SSN price decoupling", "weekly marks", "re-test relative preference"],
+        ["1L incremental raise", "facility notice / LoanX", "re-run waterfall, re-test preference"],
+        ["Sub notes repurchase < 85", "LoanX marks", "LME-posture tell — escalate to CP-3D"],
+        ["1L 1L TLB / 2L TL price decoupling", "weekly marks", "re-test relative preference"],
       ]),
     ]},
     "CP-3B:Gaps Ledger": { ref: "REF_CP-3B · T3B.11", out: "Gaps ledger", sections: [
       X("Ledger", "No instrument-level gaps. Lease ($84M) and pension (de-minimis) claims modeled from audit notes at $61M combined priority-adjusted — immaterial to attachment points."),
     ]},
     "CP-3B:Overall Instrument Preference View": { ref: "REF_CP-3B", out: "Overall preference view", sections: [
-      X("View", "2L SSN preferred over the TLB: +210bps of spread pickup for an acceptable recovery delta at the 6.0x stress point. Sub notes rejected on priming exposure and thin covenant protection. The preference stands under both fair-value bands and both waterfall variants short of an actual priming event."),
+      X("View", "2L TL preferred over the TLB: +210bps of spread pickup for an acceptable recovery delta at the 6.0x stress point. Sub notes rejected on priming exposure and thin covenant protection. The preference stands under both fair-value bands and both waterfall variants short of an actual priming event."),
     ]},
 
     /* ================= CP-3C · PortfolioFit ================= */
@@ -1254,7 +1254,7 @@ const O2: Record<string, StepOutput> = {
       X("Watched pair", "SXAA is the monitored overlap (same OEM exposure class) — no concurrent adds ruled by the CIO."),
     ]},
     "CP-3C:Liquidity & Implementation": { ref: "REF_CP-3C · T3C.6", out: "Implementation feasibility", sections: [
-      X("Feasibility", "Two-way desk markets 96.25/96.75 and $4.2M average TRACE print size support building 75bps inside ~2 weeks without moving the price. Standing limit order at +400bps captures weakness. Exit liquidity adequate for a 75bps position; 125bps would take ~4 weeks to unwind in stress — acceptable for a hold-to-maturity thesis.", ["E-71"]),
+      X("Feasibility", "Two-way desk markets 96.25/96.75 and $4.2M average LoanX clip support building 75bps inside ~2 weeks without moving the price. Standing limit order at +400bps captures weakness. Exit liquidity adequate for a 75bps position; 125bps would take ~4 weeks to unwind in stress — acceptable for a hold-to-maturity thesis.", ["E-71"]),
     ]},
     "CP-3C:Downside Budget & Recovery Sensitivity": { ref: "REF_CP-3C · T3C.7", out: "Downside budget", sections: [
       T("Budget consumption", ["Case", "Position loss", "Quarterly budget use"], [0,1,1], [
@@ -1290,13 +1290,13 @@ const O2: Record<string, StepOutput> = {
       T("Wall ($M)", ["Year", "Instrument", "Amount", "Path assessment"], [0,0,1,0], [
         ["2027", "RCF commitment expiry", "250", "extend H2-26 — relationship banks, likely +25–50bps"],
         ["2029", "Term Loan B", "1,850", "refinanceable in current market at ~SOFR+400"],
-        ["2031", "2L SSN (subject)", "900", "inside refi horizon post-deleveraging"],
+        ["2031", "2L TL (subject)", "900", "inside refi horizon post-deleveraging"],
         ["2032", "Sub Notes", "400", "candidate for discounted repurchase if px < 85"],
       ]),
     ]},
     "CP-3D:Liquidity / Market Access Table": { ref: "REF_CP-3D · T3D.3", out: "Market access", sections: [
       T("Access channels", ["Channel", "Evidence", "Status"], [0,0,0], [
-        ["HY primary", "May-26 SSN priced inside talk at 99.41", "OPEN"],
+        ["Lev loan primary", "May-26 2L TL priced inside talk at 99.41", "OPEN"],
         ["Loan market", "TLB trades 99.1–99.6", "OPEN"],
         ["RCF banks", "5-bank group, all retained since 2021", "SUPPORTIVE"],
       ]),
@@ -1322,7 +1322,7 @@ const O2: Record<string, StepOutput> = {
       T("Paths", ["Instrument", "Path", "Risk"], [0,0,0], [
         ["RCF (2027)", "extend H2-26 at +25–50bps", "LOW"],
         ["TLB (2029)", "refi at ~SOFR+400 on current fundamentals", "LOW-MED — cycle-dependent"],
-        ["2L SSN (2031)", "refi post-deleveraging; callable 2028 at 104.1", "MED"],
+        ["2L TL (2031)", "refi post-deleveraging; 101 soft-call lapsed — par-prepayable", "MED"],
         ["Subs (2032)", "discounted repurchase if px < 85", "opportunistic"],
       ]),
     ]},
@@ -1339,7 +1339,7 @@ const O2: Record<string, StepOutput> = {
     "CP-3D:Creditor Class Exposure Table": { ref: "REF_CP-3D · T3D.8", out: "Class exposure", sections: [
       T("Exposure by class", ["Class", "LME exposure", "Mechanism"], [0,0,0], [
         ["TLB (1L)", "LOW", "protected by lien priority + springing covenant"],
-        ["2L SSN (subject)", "HIGH — target class", "priming capacity lands directly above"],
+        ["2L TL (subject)", "HIGH — target class", "priming capacity lands directly above"],
         ["Sub Notes", "STRUCTURAL", "first-loss; repurchase-at-discount candidate"],
       ]),
     ]},
@@ -1372,15 +1372,15 @@ const O3: Record<string, StepOutput> = {
     "CP-4:Source Gate + Module Status": { ref: "REF_CP-4 · T4.1", out: "Gate decision", sections: [
       T("Admitted documents", ["Doc", "Authority", "Status"], [0,0,0], [
         ["D-02 SFA (executed, conformed)", "controls bank debt", "ADMITTED"],
-        ["D-03 SSN Indenture (executed)", "controls the notes", "ADMITTED"],
+        ["D-03 2L Credit Agt (executed)", "controls the 2L loan", "ADMITTED"],
         ["Intercreditor agreement", "lien priority + standstill", "ADMITTED"],
-        ["OM covenant summary", "navigation only — never authority", "REFERENCE"],
+        ["CIM covenant summary", "navigation only — never authority", "REFERENCE"],
       ]),
     ]},
     "CP-4:Controlling Document Register": { ref: "REF_CP-4 · T4.2", out: "Controlling register", sections: [
       T("Controlling text", ["Provision area", "Controls", "Summary conflicts found"], [0,0,0], [
-        ["Notes covenants, RP, incremental", "D-03 Indenture", "1 — OM understates reclassification headroom"],
-        ["Bank covenants, springing test", "D-02 SFA", "1 — OM omits LC carve-out detail"],
+        ["2L covenants, RP, incremental", "D-03 Credit Agt", "1 — CIM understates reclassification headroom"],
+        ["Bank covenants, springing test", "D-02 SFA", "1 — CIM omits LC carve-out detail"],
         ["Lien priority / remedies standstill", "Intercreditor", "0"],
       ]),
       X("Rule", "Where summaries conflict with executed text, executed text controls — both instances resolved against the executed documents and noted."),
@@ -1389,7 +1389,7 @@ const O3: Record<string, StepOutput> = {
       T("Register (material provisions of 41)", ["Ref", "Provision", "Feature class", "Agg."], [0,0,0,1], [
         ["§4.09(b)(14)", "Incremental debt — freebie + ratio + reclass", "capacity", "9"],
         ["§4.09(d)", "MFN 50bps · pari-only · 12mo sunset", "protection decay", "8"],
-        ["§1.01 'Consolidated EBITDA'", "uncapped add-backs (indenture)", "definition", "8"],
+        ["§1.01 'Consolidated EBITDA'", "uncapped add-backs (credit agreement)", "definition", "8"],
         ["§4.07", "RP — builder + starter baskets", "leakage", "7"],
         ["§4.12 / §10.02", "liens + collateral release mechanics", "security", "4"],
         ["§9.02", "amendments — 50.1% non-money terms", "remedies", "7"],
@@ -1397,13 +1397,13 @@ const O3: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-4:EBITDA, Definitions & Ratio Mechanics": { ref: "REF_CP-4", out: "Definition mechanics", sections: [
-      T("Definition comparison", ["Element", "SFA (bank)", "Indenture (notes)"], [0,0,0], [
+      T("Definition comparison", ["Element", "SFA (bank)", "Credit Agt (notes)"], [0,0,0], [
         ["Cost-saving add-backs", "capped 25% of EBITDA / 24mo", "UNCAPPED"],
         ["Run-rate window", "24 months", "36 months"],
         ["Covenant EBITDA (LTM)", "$421.4M", "$435.6M"],
         ["Divergence", "—", "+$14.2M feeds every grower basket"],
       ]),
-      X("Mechanics", "Definitional looseness is the document's core aggression: the uncapped indenture definition inflates every grower basket and ratio test mechanically with each 'one-time' charge. Evidence → mechanic → implication: recurring charges (3 of last 4 years) → permanent basket inflation → capacity grows precisely when earnings quality falls.", ["E-09", "E-103"]),
+      X("Mechanics", "Definitional looseness is the document's core aggression: the uncapped credit agreement definition inflates every grower basket and ratio test mechanically with each 'one-time' charge. Evidence → mechanic → implication: recurring charges (3 of last 4 years) → permanent basket inflation → capacity grows precisely when earnings quality falls.", ["E-09", "E-103"]),
     ]},
     "CP-4:Debt Incurrence, Incremental & MFN": { ref: "REF_CP-4", out: "Incurrence stack", sections: [
       T("Incurrence stack ($M)", ["Basket", "Capacity", "Ranking permitted"], [0,1,0], [
@@ -1412,7 +1412,7 @@ const O3: Record<string, StepOutput> = {
         ["Reclassification headroom", "155", "pari or senior to 2L"],
         ["Total day-one", "612", ""],
       ]),
-      X("MFN", "MFN at 50bps protects pari incremental raises only and sunsets June 2027 — after which a priming or pari raise carries no yield protection for SSN holders.", ["E-63", "E-64"]),
+      X("MFN", "MFN at 50bps protects pari incremental raises only and sunsets June 2027 — after which a priming or pari raise carries no yield protection for 2L lenders.", ["E-63", "E-64"]),
     ]},
     "CP-4:Leakage, RP, Investments & Transfers": { ref: "REF_CP-4", out: "Leakage analysis", sections: [
       T("Leakage paths ($M)", ["Path", "Capacity today", "Note"], [0,1,0], [
@@ -1439,7 +1439,7 @@ const O3: Record<string, StepOutput> = {
     ]},
     "CP-4:Market Norm Comparison": { ref: "REF_CP-4 · T4.10", out: "Norm comparison", sections: [
       T("vs 2026 single-B norm set", ["Dimension", "Subject", "Market norm"], [0,1,1], [
-        ["Add-back treatment", "uncapped (indenture)", "25–30% cap typical"],
+        ["Add-back treatment", "uncapped (credit agreement)", "25–30% cap typical"],
         ["Day-one capacity / EBITDA", "1.45x", "0.9–1.1x"],
         ["MFN sunset", "12 months", "18–24 months"],
         ["Guarantor coverage", "87%", "80–85%"],
@@ -1481,8 +1481,8 @@ const O3: Record<string, StepOutput> = {
     ]},
     "CP-4C:Controlling Capacity Source Map": { ref: "REF_CP-4C · T4C.2", out: "Capacity source map", sections: [
       T("Source map", ["Capacity figure", "Controlling clause", "Cross-checks"], [0,0,0], [
-        ["Incremental $612M", "Indenture §4.09(b)(14)", "SFA cross-default — not binding"],
-        ["RP $240M builder", "Indenture §4.07(a)(iii)", "certificate build verified"],
+        ["Incremental $612M", "Credit Agt §4.09(b)(14)", "SFA cross-default — not binding"],
+        ["RP $240M builder", "Credit Agt §4.07(a)(iii)", "certificate build verified"],
         ["Springing test", "SFA §7.11", "trips > 40% RCF utilization"],
       ]),
     ]},
@@ -1506,12 +1506,12 @@ const O3: Record<string, StepOutput> = {
         ["Freebie basket", "150", "greater of $150M / 35% × $421M"],
         ["Ratio capacity", "310", "to 5.25x secured at 4.68x current"],
         ["Reclassification headroom", "155", "basket migration mechanics"],
-        ["Total — pari or senior to 2L SSN", "612", ""],
+        ["Total — pari or senior to 2L TL", "612", ""],
       ]),
-      X("Note", "Incurrable senior or pari passu to the 2L SSN — the figure consumed by CP-3B's LME overlay and CP-3D's vulnerability work.", ["E-63"]),
+      X("Note", "Incurrable senior or pari passu to the 2L TL — the figure consumed by CP-3B's LME overlay and CP-3D's vulnerability work.", ["E-63"]),
     ]},
     "CP-4C:Debt / Lien / Priming Analysis": { ref: "REF_CP-4C · T4C.6", out: "Priming analysis", sections: [
-      X("Analysis", "Priming risk MEDIUM-HIGH. The full $612M is incurrable pari or senior to the 2L; inside the MFN window a pari raise must price within 50bps (or ratchet the notes), but after June 2027 it can also price freely. The 2L is the natural priming victim: 1L lenders are protected by lien priority, subs are too small to matter. Watch: any incremental notice during stress (T-2).", ["E-63"]),
+      X("Analysis", "Priming risk MEDIUM-HIGH. The full $612M is incurrable pari or senior to the 2L; inside the MFN window a pari raise must price within 50bps (or ratchet the 2L margin), but after June 2027 it can also price freely. The 2L is the natural priming victim: 1L lenders are protected by lien priority, subs are too small to matter. Watch: any incremental notice during stress (T-2).", ["E-63"]),
     ]},
     "CP-4C:RP / Leakage Analysis": { ref: "REF_CP-4C · T4C.7", out: "RP / leakage analysis", sections: [
       T("RP capacity today ($M)", ["Basket", "Amount", "Status"], [0,1,0], [
@@ -1539,7 +1539,7 @@ const O3: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-4C:Nearest Pressure Point": { ref: "REF_CP-4C", out: "Nearest pressure point", sections: [
-      X("MFN sunset — June 2027", "After the sunset, a priming or pari incremental raise carries no yield protection for SSN holders. Combined with $612M of open capacity and a 50.1% amendment threshold, this is the single most consequential date in the document set. All capacity-related triggers (T-2) reference it.", ["E-64"]),
+      X("MFN sunset — June 2027", "After the sunset, a priming or pari incremental raise carries no yield protection for 2L lenders. Combined with $612M of open capacity and a 50.1% amendment threshold, this is the single most consequential date in the document set. All capacity-related triggers (T-2) reference it.", ["E-64"]),
     ]},
     "CP-4C:Capacity Risk Priority Matrix": { ref: "REF_CP-4C · T4C.11", out: "Priority matrix", sections: [
       T("Priority matrix", ["Rank", "Risk", "Character", "Trigger"], [0,0,0,0], [
@@ -1549,7 +1549,7 @@ const O3: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-4C:Gaps Ledger": { ref: "REF_CP-4C · T4C.12", out: "Gaps ledger", sections: [
-      X("Ledger", "No gaps. Capacity math reproducible end-to-end from registered clause cites — every figure resolves to an indenture or SFA section."),
+      X("Ledger", "No gaps. Capacity math reproducible end-to-end from registered clause cites — every figure resolves to an credit agreement or SFA section."),
     ]},
     "CP-4C:Overall Covenant Capacity View": { ref: "REF_CP-4C", out: "Overall capacity view", sections: [
       X("View", "Capacity is the credit's defining legal feature: $612M of day-one debt and $310M of leakage, all real and all priced via sizing and triggers rather than exclusion. Nearest pressure point: MFN sunset June 2027."),
@@ -1572,17 +1572,17 @@ const O3: Record<string, StepOutput> = {
         ["[Analyst estimate] labels verified", "4 of 4 properly flagged"],
       ]),
       F("Finding", [
-        { sev: "critical", text: "QA-117 (HIGH): CP-1C cites OM Annex C p.388 for the peer margin set; p.388 contains the auditor consent letter. Anchor must be re-mapped to conformed p.391 before clearance.", ev: ["E-44"] },
+        { sev: "critical", text: "QA-117 (HIGH): CP-1C cites CIM Annex C p.388 for the peer margin set; p.388 contains the auditor consent letter. Anchor must be re-mapped to conformed p.391 before clearance.", ev: ["E-44"] },
       ]),
     ]},
     "CP-5:Math / Logic / Definition Audit": { ref: "REF_CP-5 · T5.3", out: "Math audit", sections: [
       X("Result — CLEAN", "Every calc-register figure recomputed independently: 0 math defects and 0 definitional drift instances across 41 KPIs, the recovery grid, the liquidity bridge and all capacity math. The CP-3 rounding inconsistency (QA-122, LOW) was corrected in-run and re-verified."),
     ]},
     "CP-5:Legal / Structural Claim Audit": { ref: "REF_CP-5 · T5.4", out: "Legal claim audit", sections: [
-      X("Result — CLEAN", "All legal claims traced to executed-document clauses: the $612M capacity build, MFN mechanics, amendment thresholds and ranking statements verified verbatim against the indenture and SFA. No claim rests on an OM summary."),
+      X("Result — CLEAN", "All legal claims traced to executed-document clauses: the $612M capacity build, MFN mechanics, amendment thresholds and ranking statements verified verbatim against the credit agreement and SFA. No claim rests on a CIM summary."),
     ]},
     "CP-5:RV / Market Claim Audit": { ref: "REF_CP-5 · T5.5", out: "Market claim audit", sections: [
-      X("Result — CLEAN", "Market claims verified against TRACE prints and desk runs: +388 STW, 96.40 last print, and the fair-band regression inputs all reproduce. The dual-band (with / ex-E-44) presentation verified as consistent everywhere quoted.", ["E-71"]),
+      X("Result — CLEAN", "Market claims verified against LoanX marks and desk runs: +388 DM, 96.40 last mark, and the fair-band regression inputs all reproduce. The dual-band (with / ex-E-44) presentation verified as consistent everywhere quoted.", ["E-71"]),
     ]},
     "CP-5:Consistency & Version Audit": { ref: "REF_CP-5 · T5.6", out: "Consistency audit", sections: [
       X("Result — CLEAN", "Cross-module consistency clean after the QA-122 rounding fix: every module quotes identical figures for EBITDA ($421M adj. / $421.4M covenant), leverage (5.68x), and capacity ($612M). Version graph linear — no module consumed a superseded output."),
@@ -1597,14 +1597,14 @@ const O3: Record<string, StepOutput> = {
     ]},
     "CP-5:Consolidated Issue Log": { ref: "REF_CP-5 · T5.9", out: "Issue log", sections: [
       T("Issue log", ["ID", "Sev", "Module", "Finding", "Status"], [0,0,0,0,0], [
-        ["QA-117", "HIGH", "CP-1C", "E-44 anchored to wrong page (OM Annex C)", "OPEN"],
+        ["QA-117", "HIGH", "CP-1C", "E-44 anchored to wrong page (CIM Annex C)", "OPEN"],
         ["QA-121", "LOW", "CP-2C", "probability without basis — re-labeled [Analyst estimate]", "RESOLVED"],
         ["QA-122", "LOW", "CP-3", "RV table rounding inconsistent with CP-1C register", "RESOLVED"],
       ]),
     ]},
     "CP-5:Remediation Priority Map": { ref: "REF_CP-5 · T5.10", out: "Remediation map", sections: [
       F("Map", [
-        { sev: "critical", text: "R-1 (blocks committee pack): re-anchor E-44 to conformed OM p.391 → re-run CP-1C metric alignment → refresh CP-3 RV table → refresh CP-6A weighting row 3. Estimated 40 minutes of module time.", ev: ["E-44"] },
+        { sev: "critical", text: "R-1 (blocks committee pack): re-anchor E-44 to conformed CIM p.391 → re-run CP-1C metric alignment → refresh CP-3 RV table → refresh CP-6A weighting row 3. Estimated 40 minutes of module time.", ev: ["E-44"] },
       ]),
     ]},
     "CP-5:Clearance Decision": { ref: "REF_CP-5 · T5.11", out: "Clearance decision", sections: [
@@ -1717,7 +1717,7 @@ const O3: Record<string, StepOutput> = {
       X("Add-back realization", "If the Q3-26 certificate shows under $30M realized, base-case deleveraging fails and the position reverts to a 6.9x credit bought at a 5.7x price — trigger T-1 forces the re-vote. Everything else in the debate is priced; this is the one input that changes the thesis rather than the size.", ["E-103"]),
     ]},
     "CP-6A:IC Chair Final Memo": { ref: "REF_CP-6A", out: "Chair memo", sections: [
-      X("Memo", "CONSTRUCTIVE at a price. The franchise is better than the documents, and the spread pays for the difference — for now. Haircut base EBITDA by $35M; treat the indenture, not the income statement, as the real risk; let the Q3-26 certificate decide the upgrade to max size. Verdict stands ex-E-44; pack release gated on QA-117 remediation."),
+      X("Memo", "CONSTRUCTIVE at a price. The franchise is better than the documents, and the spread pays for the difference — for now. Haircut base EBITDA by $35M; treat the credit agreement, not the income statement, as the real risk; let the Q3-26 certificate decide the upgrade to max size. Verdict stands ex-E-44; pack release gated on QA-117 remediation."),
     ]},
     "CP-6A:Gaps Ledger": { ref: "REF_CP-6A · T6A.11", out: "Gaps ledger", sections: [
       X("Ledger", "One debate-level gap: hedging posture unknown (L-04) — flagged as unresolvable until G-01 lands rather than argued past. Macro claims carry upper-bound labeling in the weighting."),

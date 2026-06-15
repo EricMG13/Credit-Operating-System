@@ -15,7 +15,7 @@ export const DEAL = {
   sponsor: "Kestrel Capital Partners (Fund V, 68.4%)",
   rating: "B2 (stable) / B (stable)",
   sector: "Industrials — Engineered Components",
-  deal: "2L SSN 8.250% 2031 — new issue review",
+  deal: "2L TL '31 — new issue review",
   ebitda: 421,
   netLev: 5.68,
 };
@@ -31,9 +31,9 @@ export interface DealDoc {
 }
 
 export const DOCS: DealDoc[] = [
-  { id: "D-01", name: "Offering Memorandum (SSN '31)", type: "OM", pages: 412, grade: "A", date: "May 2026", mnpi: false },
+  { id: "D-01", name: "Confidential Info Memo (2L TL '31)", type: "CIM", pages: 412, grade: "A", date: "May 2026", mnpi: false },
   { id: "D-02", name: "Senior Facilities Agreement", type: "SFA", pages: 386, grade: "A", date: "Mar 2024", mnpi: false },
-  { id: "D-03", name: "SSN Indenture (final)", type: "Indenture", pages: 298, grade: "A", date: "May 2026", mnpi: false },
+  { id: "D-03", name: "2L Credit Agt (final)", type: "Credit Agt", pages: 298, grade: "A", date: "May 2026", mnpi: false },
   { id: "D-04", name: "FY23–FY25 Audited Financials", type: "Audit", pages: 214, grade: "A", date: "Feb 2026", mnpi: false },
   { id: "D-05", name: "Q1-26 Compliance Certificate", type: "Covenant", pages: 9, grade: "A", date: "Jun 2026", mnpi: false },
   { id: "D-06", name: "Lender Presentation", type: "LP", pages: 64, grade: "B", date: "May 2026", mnpi: true },
@@ -53,12 +53,12 @@ export interface DebateRound {
 
 export const DEBATE = {
   thesis:
-    "Long 2L SSN 8.250% '31 at 96.4 (+388bps STW). Engineered-components platform with sticky aftermarket mix (44% of gross profit), 5.7x net leverage through the SSN, sponsor equity cushion ≈ 42% of capitalization at entry multiple.",
+    "Long 2L TL '31 at 96.4 (+388bps DM). Engineered-components platform with sticky aftermarket mix (44% of gross profit), 5.7x net leverage through the 2L TL, sponsor equity cushion ≈ 42% of capitalization at entry multiple.",
   rounds: [
     { who: "BULL", phase: "Opening Statement", points: [
       { text: "Aftermarket revenue (44% of GP) is contract-locked with 92% renewal — recurring stream covers fixed charges 1.6x on its own.", ev: ["E-12", "E-31"] },
       { text: "FCF conversion 41% vs peer median 33%; deleveraging path to 4.9x by FY27 without multiple expansion.", ev: ["E-22", "E-58"] },
-      { text: "At +388bps the SSN prices a B3 outcome; CP-1C fair-value band implies +325–340bps for the fundamental profile.", ev: ["E-44", "E-71"] },
+      { text: "At +388bps the 2L TL prices a B3 outcome; CP-1C fair-value band implies +325–340bps for the fundamental profile.", ev: ["E-44", "E-71"] },
     ] },
     { who: "BEAR", phase: "Cross-Examination", points: [
       { text: "Adj. EBITDA includes $76.6M add-backs (18.2%) — synergy and 'one-time' operational items recur in 3 of last 4 years. Real leverage nearer 6.9x.", ev: ["E-09", "E-87"] },
@@ -87,12 +87,12 @@ export const DEBATE = {
 };
 
 export const COVENANTS = [
-  { ref: "SSN Indenture §4.09(b)(1)", name: "Ratio Debt", agg: 8, headroom: "$310M ratio + $150M freebie", flag: "critical", clause: "…may Incur Indebtedness if the Fixed Charge Coverage Ratio … would be at least 2.00 to 1.00, determined on a pro forma basis (including a pro forma application of the net proceeds therefrom)…", read: "Open ratio basket. Pro-forma EBITDA includes uncapped 'expected cost savings' (24-month realization window) — effective capacity well above headline." },
-  { ref: "SSN Indenture §4.09(b)(14)", name: "Incremental / Freebie", agg: 9, headroom: "$612M day-one", flag: "critical", clause: "…the greater of $150.0 million and 35% of Consolidated EBITDA, plus unlimited amounts subject to 5.25x Secured Leverage…", read: "Grower freebie + ratio capacity = $612M day-one priming capacity ahead of the SSN. MFN protection sunsets after 12 months." },
-  { ref: "SSN Indenture §4.07(a)", name: "Restricted Payments", agg: 7, headroom: "$240M usable today", flag: "warning", clause: "…50% of Consolidated Net Income builder, plus the Available Amount, plus a starter basket of the greater of $100.0 million and 22.5% of Consolidated EBITDA…", read: "Builder at $240M and growing; no leverage governor on starter basket. Dividend recap possible without amendment by FY27." },
-  { ref: "SSN Indenture §4.15 / def. 'Unrestricted Subsidiary'", name: "Asset Transfer (J.Crew)", agg: 3, headroom: "Blocked", flag: "ok", clause: "…the Issuer may designate any Restricted Subsidiary as an Unrestricted Subsidiary if such designation would not cause a Default; provided that no Material Intellectual Property may be transferred…", read: "J.Crew blocker PRESENT and well-drafted ('Material IP' broadly defined). Chewy-style guarantee-release also blocked via §10.04 amendment." },
+  { ref: "2L Credit Agt §4.09(b)(1)", name: "Ratio Debt", agg: 8, headroom: "$310M ratio + $150M freebie", flag: "critical", clause: "…may Incur Indebtedness if the Fixed Charge Coverage Ratio … would be at least 2.00 to 1.00, determined on a pro forma basis (including a pro forma application of the net proceeds therefrom)…", read: "Open ratio basket. Pro-forma EBITDA includes uncapped 'expected cost savings' (24-month realization window) — effective capacity well above headline." },
+  { ref: "2L Credit Agt §4.09(b)(14)", name: "Incremental / Freebie", agg: 9, headroom: "$612M day-one", flag: "critical", clause: "…the greater of $150.0 million and 35% of Consolidated EBITDA, plus unlimited amounts subject to 5.25x Secured Leverage…", read: "Grower freebie + ratio capacity = $612M day-one priming capacity ahead of the 2L TL. MFN protection sunsets after 12 months." },
+  { ref: "2L Credit Agt §4.07(a)", name: "Restricted Payments", agg: 7, headroom: "$240M usable today", flag: "warning", clause: "…50% of Consolidated Net Income builder, plus the Available Amount, plus a starter basket of the greater of $100.0 million and 22.5% of Consolidated EBITDA…", read: "Builder at $240M and growing; no leverage governor on starter basket. Dividend recap possible without amendment by FY27." },
+  { ref: "2L Credit Agt §4.15 / def. 'Unrestricted Subsidiary'", name: "Asset Transfer (J.Crew)", agg: 3, headroom: "Blocked", flag: "ok", clause: "…the Issuer may designate any Restricted Subsidiary as an Unrestricted Subsidiary if such designation would not cause a Default; provided that no Material Intellectual Property may be transferred…", read: "J.Crew blocker PRESENT and well-drafted ('Material IP' broadly defined). Chewy-style guarantee-release also blocked via §10.04 amendment." },
   { ref: "SFA §7.02 (springing)", name: "Financial Covenant", agg: 4, headroom: "28% EBITDA cushion", flag: "ok", clause: "…First Lien Net Leverage shall not exceed 7.10:1.00, tested only when RCF utilization (excl. LCs) exceeds 40%…", read: "Springing only; current utilization 22%. Cushion vs covenant ≈ 28% of EBITDA — not a near-term default vector." },
-  { ref: "SSN Indenture §3.07", name: "Call Protection", agg: 2, headroom: "NC until Jun-28", flag: "ok", clause: "…non-callable prior to June 1, 2028, thereafter at 104.125, declining…", read: "NC-2 then standard step-downs; adequate for the carry thesis horizon." },
+  { ref: "2L Credit Agt §2.05 (soft-call)", name: "Soft-Call / Prepayment", agg: 2, headroom: "101 soft-call to Nov-26", flag: "ok", clause: "…the Loans may be voluntarily prepaid at any time; provided that any prepayment on or prior to the date six months after the Closing Date shall be accompanied by a 1.00% prepayment premium (101 soft-call)…", read: "101 soft-call lapses six months after close; par-prepayable thereafter. Repricing / refi risk is the trade-off for loan format — monitor primary-market spreads for a repricing trigger." },
 ];
 
 export const CAPACITY = {
@@ -108,7 +108,7 @@ export const CAPACITY = {
 export const CAPSTACK = [
   { cls: "RCF (drawn)", key: "1l", claim: 120, rate: "S+350" },
   { cls: "Term Loan B", key: "1l", claim: 1850, rate: "S+375" },
-  { cls: "2L Senior Secured Notes", key: "2l", claim: 900, rate: "8.250%" },
+  { cls: "2nd Lien Term Loan", key: "2l", claim: 900, rate: "S+425" },
   { cls: "Subordinated Notes", key: "sub", claim: 400, rate: "10.00%" },
   { cls: "Sponsor Equity", key: "eq", claim: 1640, rate: "—" },
 ];
@@ -120,7 +120,7 @@ export const RECOVERY = [
 ];
 
 export const SIZING = {
-  decision: "INITIATE — 2L SSN 8.250% '31",
+  decision: "INITIATE — 2L TL '31",
   initial: "75bps of NAV",
   max: "125bps",
   entry: "≤ 96.75 / ≥ +380bps",
@@ -128,7 +128,7 @@ export const SIZING = {
   addTriggers: [
     "Q3-26 compliance cert shows ≥ $38M add-back realization",
     "QA-117 resolved with E-44 re-verified",
-    "STW ≥ +420bps on no new fundamental information",
+    "DM ≥ +420bps on no new fundamental information",
   ],
   trimTriggers: [
     "Meridian-platform renewal priced > 200bps concession",

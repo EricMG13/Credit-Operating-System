@@ -122,7 +122,7 @@ function recoveries(ev: number): Record<string, number> {
 }
 
 /* G2 v5 specs (antv-g2-chart skill) — static data, module-level so refs stay stable */
-const TR_LABELS: Record<string, string> = { "1l": "1L (RCF+TLB)", "2l": "2L SSN ◆", sub: "Sub Notes" };
+const TR_LABELS: Record<string, string> = { "1l": "1L (RCF+TLB)", "2l": "2L TL ◆", sub: "Sub Notes" };
 const RECOVERY_CHART_SPEC: G2Spec = {
   type: "interval",
   data: RECOVERY.flatMap((s) => {
@@ -216,7 +216,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
       </div>
 
       <div className="rounded border border-caos-border bg-caos-bg">
-        <SectionHeader title="2L SSN recovery sensitivity — exit multiple × stressed EBITDA" right="cells: % of par" />
+        <SectionHeader title="2L TL recovery sensitivity — exit multiple × stressed EBITDA" right="cells: % of par" />
         <div className="p-3">
           <div className="grid" style={{ gridTemplateColumns: `120px repeat(${mults.length}, 1fr)`, gap: 4 }}>
             <span></span>
@@ -265,7 +265,7 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
       />
       <div className="grid grid-cols-3 gap-2">
         {[
-          { l: "Day-one incremental capacity", v: "$" + CAPACITY.incDebt + "M", sub: "ahead of SSN · MFN sunsets 12mo", sev: "critical" },
+          { l: "Day-one incremental capacity", v: "$" + CAPACITY.incDebt + "M", sub: "ahead of the 2L TL · MFN sunsets 12mo", sev: "critical" },
           { l: "RP capacity usable today", v: "$" + CAPACITY.rpToday + "M", sub: "builder + starter baskets", sev: "warning" },
           { l: "EBITDA add-backs", v: CAPACITY.addbackPct + "%", sub: "$" + CAPACITY.addback + "M of adj. EBITDA", sev: "warning" },
         ].map((c) => (
