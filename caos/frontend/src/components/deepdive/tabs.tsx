@@ -230,7 +230,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
                   const c = r >= 0.9 ? "rgba(34,197,94," : r >= 0.5 ? "rgba(245,165,36," : "rgba(239,68,68,";
                   return (
                     <span key={m} className="h-8 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 cursor-default" style={{ background: c + (0.12 + r * 0.3) + ")" }}>
-                      <span className="tabular text-[10.5px]" style={{ color: r >= 0.9 ? "#86efac" : r >= 0.5 ? "#fcd34d" : "#fca5a5" }}>{(r * 100).toFixed(0)}</span>
+                      <span className="tabular text-[10.5px]" style={{ color: r >= 0.9 ? "var(--caos-success-bright)" : r >= 0.5 ? "var(--caos-warning-bright)" : "var(--caos-critical-bright)" }}>{(r * 100).toFixed(0)}</span>
                     </span>
                   );
                 })}

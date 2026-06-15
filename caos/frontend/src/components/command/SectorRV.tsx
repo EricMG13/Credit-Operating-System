@@ -18,11 +18,11 @@ import {
 } from "@/lib/command/rvdata";
 
 const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
-  High: { bg: "rgba(34,197,94,0.20)", fg: "#4ade80" },
-  Normal: { bg: "rgba(34,197,94,0.09)", fg: "#86efac" },
-  OK: { bg: "rgba(245,165,36,0.14)", fg: "#fbbf24" },
-  Concerning: { bg: "rgba(239,68,68,0.16)", fg: "#f87171" },
-  Impaired: { bg: "rgba(148,163,184,0.14)", fg: "#94a3b8" },
+  High: { bg: "rgba(34,197,94,0.20)", fg: "var(--caos-success-bright)" },
+  Normal: { bg: "rgba(34,197,94,0.09)", fg: "var(--caos-success-bright)" },
+  OK: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
+  Concerning: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
+  Impaired: { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
 function DeltaCell({ v }: { v: number | null }) {
@@ -34,7 +34,7 @@ function DeltaCell({ v }: { v: number | null }) {
     <td
       className="px-2 py-[5px] text-right tabular"
       style={{
-        color: pos ? "#4ade80" : neg ? "#f87171" : "var(--caos-muted)",
+        color: pos ? "var(--caos-success-bright)" : neg ? "var(--caos-critical-bright)" : "var(--caos-muted)",
         background: pos ? "rgba(34,197,94,0.06)" : neg ? "rgba(239,68,68,0.06)" : undefined,
       }}
     >

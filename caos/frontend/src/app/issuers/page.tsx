@@ -238,12 +238,12 @@ function IssuersDirectory() {
 
       {/* create modal */}
       {showForm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={() => setShowForm(false)}>
+        <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={() => setShowForm(false)}>
           <form
             onSubmit={handleCreate}
             onClick={(e) => e.stopPropagation()}
             className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden"
-            style={{ boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+            style={{ boxShadow: "var(--shadow-modal)" }}
           >
             <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
               <span className="tabular text-[11px] text-caos-text">New Issuer</span>

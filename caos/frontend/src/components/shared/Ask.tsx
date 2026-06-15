@@ -63,8 +63,8 @@ export function AskLauncher() {
     <button
       onClick={toggle}
       title="Ask CAOS (⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className="fixed bottom-3 left-3 z-40 flex items-center gap-1.5 tabular text-[10px] px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-      style={{ boxShadow: "0 8px 28px -10px rgba(0,0,0,0.8)" }}
+      className="fixed bottom-3 left-3 z-overlay flex items-center gap-1.5 tabular text-[10px] px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+      style={{ boxShadow: "var(--shadow-pop)" }}
     >
       <span className="text-[12px]">✦</span> Ask
       <span className="tabular text-[8.5px] px-1 rounded border border-caos-border opacity-80">⌘K</span>
@@ -83,14 +83,14 @@ export function AskLauncher() {
   // Everywhere else → the cross-issuer NL query, as a centered modal.
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center p-6 pt-[12vh]"
+      className="fixed inset-0 z-modal flex items-start justify-center p-6 pt-[12vh]"
       style={{ background: "rgba(5,5,7,0.72)" }}
       onClick={() => setOpen(false)}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full max-w-2xl max-h-[78vh] flex flex-col overflow-hidden"
-        style={{ boxShadow: "0 24px 80px -24px rgba(0,0,0,0.9)" }}
+        style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70 shrink-0">
           <span className="text-caos-accent text-[12px]">✦</span>
