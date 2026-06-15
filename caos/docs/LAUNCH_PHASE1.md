@@ -1,8 +1,8 @@
 # CAOS — Phase-1 Launch Runbook (self-hosted Docker)
 
 **Profile:** Durable internal pilot · **Target:** self-hosted Docker stack
-(`caos/deploy/`) · **Ships from:** `caos-app` (after merging `feat/edgar-cp1`) ·
-**Last updated:** 2026-06-15
+(`caos/deploy/`) · **Ships from:** `caos-app` (EDGAR engine stack + DM/loans
+re-model integrated via #13/#14) · **Last updated:** 2026-06-15
 
 Step-by-step instruction to stand CAOS up for the first real internal pilot —
 3–5 credit analysts doing live work, data that survives restarts. Databricks is
@@ -42,17 +42,17 @@ by live runs, dev-chain `npm audit` advisories.
 
 All green **before** you provision the host.
 
-1. **Merge the EDGAR work into the deploy branch.**
+1. **The analytical stack is already integrated on `caos-app`.** The EDGAR engine
+   slice (CP-0 → CP-5C) and the DM/loans re-model were merged via #13 and #14
+   (2026-06-15); the old `feat/edgar-cp1` lane is folded in and retired. Just sync
+   to the merged tip:
    ```bash
    cd caos
    git checkout caos-app && git pull
-   git merge --no-ff feat/edgar-cp1
-   # resolve any conflicts, then push and let CI run
-   git push origin caos-app
    ```
-   Wait for CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) to
-   pass on `caos-app`: frontend lint + `tsc --noEmit` + vitest + `next build`,
-   and server pytest.
+   Confirm CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) is
+   green on `caos-app`: frontend lint + `tsc --noEmit` + vitest + `next build`,
+   and server pytest. (Green as of the `#13`/`#14` merge commits.)
 
 2. **Re-run the gate locally** (mirrors CI; the image build also type-checks):
    ```bash
