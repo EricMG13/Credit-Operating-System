@@ -86,6 +86,7 @@ async def ensure_reference_deal(session: AsyncSession) -> None:
     if await session.get(Issuer, REFERENCE_ISSUER_ID) is not None:
         return
     session.add(Issuer(**_REFERENCE_ISSUER))
+    await session.flush()  # insert the issuer before its documents (FK-enforcing DBs)
     for seq, (doc_id, doc_type, file_name, text) in enumerate(_REFERENCE_DOCS):
         doc = Document(
             issuer_id=REFERENCE_ISSUER_ID,

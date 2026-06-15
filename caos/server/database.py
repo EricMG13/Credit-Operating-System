@@ -10,6 +10,7 @@ place rather than colliding.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from sqlalchemy import (
     UniqueConstraint, event, inspect,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from config import SERVER_DIR, get_settings
@@ -31,7 +33,16 @@ if settings.database_url.startswith("sqlite"):
     db_path = settings.database_url.split("///")[-1]
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+# Tests run async (pytest-asyncio) and a sync TestClient against this same global
+# engine on different event loops; a pooled connection cleaned up after its
+# creating loop closed raises "Event loop is closed" (notably with asyncpg).
+# NullPool in test mode avoids cross-loop connection reuse. Production keeps the
+# default pool.
+_engine_kwargs: dict = {"pool_pre_ping": True}
+if os.environ.get("CAOS_TEST") == "1":
+    _engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 # SQLite needs WAL + a busy timeout so the async executor and request handlers
 # can write concurrently without "database is locked". No-op on Postgres.

@@ -18,6 +18,7 @@ _TMP = tempfile.mkdtemp(prefix="caos-tests-")
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TMP}/caos_tests.db")
 os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
+os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
 
 import pytest_asyncio
 
