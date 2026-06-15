@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from database import Issuer, MetricFact
 from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
-from retrieval import retrieve_corpus
+from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
 
 logger = logging.getLogger("caos.nlquery")
 
@@ -367,14 +367,15 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
     # cross-issuer retriever scoped to one issuer.
     hybrid = bool(spec.evidence)
     if hybrid:
+        # One query for the best supporting excerpt per ranked issuer (PERF-1).
+        best = await retrieve_corpus_by_issuer(
+            session, spec.evidence, [row["issuer"]["id"] for row in results]
+        )
         for row in results:
-            ev_hits = await retrieve_corpus(
-                session, spec.evidence, k=1, issuer_ids=[row["issuer"]["id"]]
-            )
+            h = best.get(row["issuer"]["id"])
             row["evidence"] = (
-                {"chunk_id": ev_hits[0].chunk_id, "doc": ev_hits[0].doc,
-                 "text": _snippet(ev_hits[0].text)}
-                if ev_hits else None
+                {"chunk_id": h.chunk_id, "doc": h.doc, "text": _snippet(h.text)}
+                if h else None
             )
 
     columns = [
