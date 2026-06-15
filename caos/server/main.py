@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, health, ingestion, issuers, query, runs, scenario
+from routes import auth, chat, edgar, health, ingestion, issuers, query, runs, scenario
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
@@ -94,6 +94,7 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(issuers.router, prefix="/api/issuers", tags=["issuers"])
 app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"])
+app.include_router(edgar.router, prefix="/api/edgar", tags=["edgar"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])

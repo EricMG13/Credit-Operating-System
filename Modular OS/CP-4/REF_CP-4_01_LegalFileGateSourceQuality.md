@@ -18,6 +18,14 @@
 9. If CP-1 financials missing: headroom/capacity calculations limited — flag.
 10. If CP-3D missing: LME legal-capacity overlay incomplete — flag.
 
+> **Free acquisition lane (added 2026-06-15):** Before assigning **Blocked** for a
+> missing governing document, attempt the free SEC EDGAR lane in
+> `REF_CP-4_EDGARCovenantSourceMap` (credit agreements = Ex-10.x; indentures /
+> supplements = Ex-4.x; covenant "Description of Notes" = S-4 / 424B). A
+> **pulled-and-vaulted** EDGAR exhibit is an executed primary source (Authority
+> Rank 1–4); an **unfetched** full-text hit is `external · unverified` and does
+> **not** satisfy the BLOCKING gate until the exhibit is ingested.
+
 ## Output
 T4.1: Source gate register (document inventory + quality assessment + authority rank + limitations)
 + Module Status: Completed / Completed with Limitations / Blocked

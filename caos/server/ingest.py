@@ -146,6 +146,34 @@ def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
     return "\n".join(lines)
 
 
+def extract_text(content: bytes, filename: str = "download.bin") -> str:
+    """Generic extraction for content of any supported type, used by the EDGAR
+    retrieval lane (exhibits are usually .htm). Tries the configured markitdown
+    CLI first (handles HTML/PDF/Office), then falls back: PDF → pypdf; HTML →
+    crude tag strip; otherwise decoded text."""
+    md = _markitdown_text(content, filename)
+    if md is not None:
+        return md
+
+    if content[:5] == _PDF_MAGIC:
+        from pypdf import PdfReader
+
+        try:
+            reader = PdfReader(io.BytesIO(content))
+            return "\n".join((page.extract_text() or "") for page in reader.pages)
+        except Exception:
+            return ""
+
+    text = content.decode("utf-8", "replace")
+    if filename.lower().endswith((".htm", ".html")) or "<html" in text[:2000].lower():
+        text = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
+        text = re.sub(r"(?s)<[^>]+>", " ", text)
+        text = re.sub(r"&nbsp;", " ", text).replace("&amp;", "&")
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+    return text.strip()
+
+
 def chunk_text(text: str) -> List[str]:
     text = text.strip()
     if not text:
