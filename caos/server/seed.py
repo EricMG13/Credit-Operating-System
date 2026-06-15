@@ -174,6 +174,7 @@ async def seed_metrics() -> None:
                     metric_key=key, period="LTM", unit=_UNIT[key],
                     headline=True, qa_status="Not Reviewed",
                     value=float(value), provenance="seed",
+                    basis="adjusted",  # illustrative seed values are covenant-adjusted style
                 )
                 if key == "energy_cost_pct" and derived is not None:
                     val, chunk_id, _doc = derived

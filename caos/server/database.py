@@ -135,6 +135,8 @@ class Run(Base):
     # Run-level gate roll-up (worst module status wins).
     qa_status: Mapped[str] = mapped_column(String(16), default="Not Reviewed")
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")
+    # Total LLM tokens this run spent (per-run budget accounting).
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Async executor lease/recovery (see migrations/0004_run_lease).
@@ -251,6 +253,9 @@ class MetricFact(Base):
         String(36), ForeignKey("document_chunks.id")
     )
     provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
+    # EBITDA/leverage basis: reported (EDGAR GAAP) | adjusted (covenant/modeled) |
+    # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
+    basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

@@ -13,6 +13,12 @@ export default function UploadPage() {
   return (
     <RequireAuth>
       <div className="h-screen flex flex-col bg-caos-bg">
+        <a
+          href="#main-content"
+          className="focus-ring sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 bg-caos-elevated text-caos-text text-[11px] px-3 py-1.5 rounded border border-caos-accent"
+        >
+          Skip to content
+        </a>
         {/* sub-header */}
         <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
           <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
@@ -36,11 +42,11 @@ export default function UploadPage() {
         </div>
 
         {/* wizard */}
-        <div className="flex-1 min-h-0 overflow-auto p-2">
+        <main id="main-content" className="flex-1 min-h-0 overflow-auto p-2">
           <Suspense fallback={null}>
             <UploadWizard />
           </Suspense>
-        </div>
+        </main>
       </div>
     </RequireAuth>
   );

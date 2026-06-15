@@ -123,3 +123,27 @@ async def retrieve_corpus(
                   issuer_id=meta[h.chunk_id][0], doc=meta[h.chunk_id][1])
         for h in bm25_rank(query, corpus, k=k)
     ]
+
+
+async def retrieve_corpus_by_issuer(
+    db: AsyncSession, query: str, issuer_ids: Sequence[str]
+) -> dict[str, CorpusHit]:
+    """The single best-matching chunk *per issuer* for ``query``, in one query +
+    one BM25 pass. Replaces N per-issuer ``retrieve_corpus`` calls in the hybrid
+    NL query (PERF-1: avoids the N+1 at portfolio scale)."""
+    if not issuer_ids:
+        return {}
+    rows = (await db.execute(
+        select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(Document.issuer_id.in_(list(issuer_ids)))
+    )).all()
+    meta = {r[0]: (r[2], r[3]) for r in rows}
+    corpus = [(r[0], r[1]) for r in rows]
+    best: dict[str, CorpusHit] = {}
+    for h in bm25_rank(query, corpus, k=len(corpus)):  # hits are best-first
+        iid = meta[h.chunk_id][0]
+        if iid not in best:  # first hit seen per issuer is its top chunk
+            best[iid] = CorpusHit(chunk_id=h.chunk_id, text=h.text, score=h.score,
+                                  issuer_id=iid, doc=meta[h.chunk_id][1])
+    return best

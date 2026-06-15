@@ -60,6 +60,23 @@ class Settings(BaseSettings):
     markitdown_cmd: str = ""
     markitdown_timeout_s: int = 60
 
+    # Optional: SEC EDGAR free filing-retrieval lane — covenant/legal source
+    # acquisition for CP-4 (credit agreements = Ex-10.x, indentures = Ex-4.x,
+    # covenant "Description of Notes" = S-4/424B). Off by default. SEC fair-access
+    # REQUIRES a descriptive User-Agent carrying contact info, e.g.
+    # "Atlas Credit research@atlas.example"; requests without one are 403-ed, so
+    # the /api/edgar routes return 503 until this is set. No key, no cost. See
+    # caos/docs/AGENT_SKILLS_REVIEW.md and
+    # "Modular OS/CP-4/REF_CP-4_EDGARCovenantSourceMap.md".
+    edgar_user_agent: str = ""
+    edgar_timeout_s: int = 30
+    edgar_max_exhibit_mb: int = 25
+
+    # Per-run LLM token budget (engine/budget.py). 0 = unlimited (default). When
+    # set, a run that spends its budget degrades later LLM modules to their
+    # deterministic path (or gates them) instead of spending beyond the cap.
+    run_token_budget: int = 0
+
 
 @lru_cache
 def get_settings() -> Settings:
