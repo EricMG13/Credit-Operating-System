@@ -135,20 +135,3 @@ export const edgarVaultExhibit = (
   api
     .post("/api/edgar/vault-exhibit", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
-
-// ─── Loan Compare (cross-issuer documentation comparison) ────────────────────
-import type { CompareGrid, DealSummary } from "@/lib/compare/types";
-
-export const getDeals = (q?: string): Promise<DealSummary[]> =>
-  api.get("/api/compare/deals", { params: q && q.trim() ? { q: q.trim() } : {} }).then((r) => r.data);
-
-export const getComparison = (dealIds: string[], benchmark?: string): Promise<CompareGrid> =>
-  api
-    .get("/api/compare", { params: { deals: dealIds.join(","), ...(benchmark ? { benchmark } : {}) } })
-    .then((r) => r.data);
-
-// ─── Loan Scorecard (documentation-protection score for one deal) ────────────
-import type { Scorecard } from "@/lib/scorecard/types";
-
-export const getScorecard = (dealId: string): Promise<Scorecard> =>
-  api.get(`/api/scorecard/${dealId}`).then((r) => r.data);
