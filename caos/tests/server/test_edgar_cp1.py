@@ -184,6 +184,25 @@ def test_build_cp1_prefers_recent_debt_concept():
     assert p.runtime_output["xbrl_concepts"]["long_term_debt"] == "LongTermDebtAndCapitalLeaseObligations"
 
 
+def test_build_cp1_adds_back_impairment_to_ebitda():
+    # Six Flags-style: a goodwill impairment drives reported operating income deeply
+    # negative; adding it back yields a representative EBITDA so leverage still computes.
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 3_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", -1_375_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("DepreciationAndAmortization", [("2025-01-01", "2025-12-31", 486_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("GoodwillAndIntangibleAssetImpairment", [("2025-01-01", "2025-12-31", 1_518_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("LongTermDebtAndCapitalLeaseObligations", [("2025-12-31", 5_500_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("CashAndCashEquivalentsAtCarryingValue", [("2025-12-31", 410_000_000, 2025, "a", "2026-02-01")]),
+    }}}
+    p = build_cp1_payload("Themepark Co", facts)
+    nf = p.runtime_output["normalized_financials"]
+    assert nf["adj_ebitda"]["FY2025"] == pytest.approx(629.0, abs=0.5)  # -1375 + 486 + 1518
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(8.09, abs=0.05)  # (5500-410)/629
+    assert p.runtime_output["xbrl_concepts"]["impairment"] == "GoodwillAndIntangibleAssetImpairment"
+    assert any("non-cash impairment" in f for f in p.limitation_flags)
+
+
 # ── Headline period projection (EDGAR annual filer) ──────────────────────────
 def test_extract_facts_marks_latest_fy_headline():
     payload = ModulePayload(

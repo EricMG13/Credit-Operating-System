@@ -51,7 +51,8 @@ _MILLION = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*million", re.IGNORECASE)
 _MAINT_COVENANT_PATTERNS = (
     re.compile(r"maximum\s+permitted\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*:\s*1(?:\.0+)?", re.IGNORECASE),
     re.compile(
-        r"shall\s+not\s+permit[^.]{0,160}?(?:total|consolidated|net)\s+leverage\s+ratio"
+        r"shall\s+not\s+permit[^.]{0,160}?"
+        r"(?:total|consolidated|net|senior\s+secured|first[\s-]?lien)\s+leverage\s+ratio"
         r"[^.]{0,90}?(?:greater\s+than|exceed)\s*"
         r"(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|x\b|times\b|\s+to\s+1(?:\.0+)?)",
         re.IGNORECASE | re.DOTALL,

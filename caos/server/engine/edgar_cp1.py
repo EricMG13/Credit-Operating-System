@@ -43,6 +43,11 @@ _DA = ("DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccre
 # tag is absent.
 _DEPRECIATION = ("Depreciation", "DepreciationNonproduction")
 _AMORTIZATION = ("AmortizationOfIntangibleAssets", "AmortizationOfAcquiredIntangibleAssets")
+# Non-cash impairments to add back to the EBITDA proxy (first present wins) — a
+# goodwill write-down can swamp operating income for a year (e.g. Six Flags FY25).
+_IMPAIRMENT = ("GoodwillAndIntangibleAssetImpairment", "GoodwillImpairmentLoss",
+               "AssetImpairmentCharges", "ImpairmentOfLongLivedAssetsHeldAndUsed",
+               "TangibleAssetImpairmentCharges")
 _INTEREST = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
 _LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations", "LongTermDebt")
 _DEBT_CURRENT = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent", "DebtCurrent")
@@ -182,9 +187,15 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     op_c, opinc = _series(us, _OP_INCOME, "flow")
     da_c, da = _da_series(us)
     int_c, interest = _series(us, _INTEREST, "flow")
+    imp_c, impair = _series(us, _IMPAIRMENT, "flow")
 
     years = sorted(rev)[-max_years:]
-    ebitda = {y: opinc[y][0] + da[y][0] for y in years if y in opinc and y in da}
+    # Reported EBITDA proxy = operating income + D&A + non-cash impairments. Impairments
+    # are non-cash and non-operating, and a goodwill write-down can otherwise drive the
+    # raw op-income+D&A EBITDA negative for a year (Six Flags FY25: op income -$1.4bn on a
+    # ~$1.5bn impairment), masking a fundamentally cash-generative business.
+    ebitda = {y: opinc[y][0] + da[y][0] + (impair[y][0] if y in impair else 0.0)
+              for y in years if y in opinc and y in da}
 
     revenue = {f"FY{y}": _m(rev[y][0]) for y in years}
     adj_ebitda = {f"FY{y}": _m(ebitda[y]) for y in sorted(ebitda)}
@@ -226,12 +237,12 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
 
     nf: dict = {
         "basis": "reported_gaap_xbrl",
-        "ebitda_definition": "operating_income_plus_dna",
+        "ebitda_definition": "operating_income_plus_dna_and_impairments",
         "source": "SEC EDGAR company facts (us-gaap)",
         "normalized_financials": financials,
         "xbrl_concepts": {k: v for k, v in {
             "revenue": rev_c, "operating_income": op_c, "d_and_a": da_c,
-            "interest_expense": int_c, "long_term_debt": ltd_c,
+            "impairment": imp_c, "interest_expense": int_c, "long_term_debt": ltd_c,
             "current_debt": dc_c, "cash": cash_c}.items() if v},
     }
 
@@ -276,8 +287,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
             claim_text=(
                 f"Reported net leverage is approximately {leverage:g}x at FY{ly} "
                 f"(net debt ${_m(net_debt):,.0f}M / reported EBITDA ${_m(eb_ly):,.0f}M). EBITDA is a "
-                "GAAP proxy (operating income + D&A); covenant-adjusted EBITDA and add-backs require "
-                "the credit agreement and are not reflected here."
+                "GAAP proxy (operating income + D&A + non-cash impairments); covenant-adjusted EBITDA "
+                "and add-backs require the credit agreement and are not reflected here."
             ),
             evidence=[EvidenceSpec("E-EDG-2", "calculated_metric", "Calculated", src(op_c, ly, eb_accn), "Medium")],
         ))
@@ -295,10 +306,14 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         ))
 
     limitations = [
-        "EBITDA is a reported GAAP proxy (operating income + D&A) from XBRL — not "
-        "covenant-adjusted EBITDA. Adjusted EBITDA / add-backs require the credit "
-        "agreement (CP-1 adjusted layer / CP-4C); reported-vs-adjusted leverage may diverge.",
+        "EBITDA is a reported GAAP proxy (operating income + D&A + non-cash impairments) "
+        "from XBRL — not covenant-adjusted EBITDA. Adjusted EBITDA / add-backs require the "
+        "credit agreement (CP-1 adjusted layer / CP-4C); reported-vs-adjusted leverage may diverge.",
     ]
+    if impair and ly in impair and impair[ly][0]:
+        limitations.append(
+            f"FY{ly} reported EBITDA adds back a ${_m(impair[ly][0]):,.0f}M non-cash impairment "
+            f"(us-gaap:{imp_c}) that drove reported operating income sharply lower.")
     if not ebitda:
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
     elif total_debt and leverage is None and not debt_fresh:
