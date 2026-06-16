@@ -47,6 +47,19 @@ export function Spark({ data, color = "var(--caos-accent)", w = 72, h = 18 }: { 
 /* ---------- CIO/PM view: portfolio table ---------- */
 const COLS = "grid grid-cols-[150px_84px_70px_110px_50px_50px_56px_44px_80px_42px_42px_46px_92px_56px_70px_36px] items-center gap-x-2";
 
+// Tooltips for the abbreviated / glyph-only column headers — F5: a column's
+// meaning shouldn't depend on prior knowledge or a bare glyph.
+const COL_TITLES: Record<string, string> = {
+  "3Y DM": "3-year discount margin (bps)",
+  "Δ d/d": "Day-over-day change (bps)",
+  NetLev: "Net leverage (×)",
+  IntCov: "Interest coverage (×)",
+  M2E: "Market-to-estimate gap",
+  "Conv.": "Conviction — analyst scale 1–5",
+  QA: "QA clearance status",
+  "⚑": "Open alerts",
+};
+
 export function PortfolioTable({
   selected, onSelect, tick,
 }: {
@@ -59,7 +72,7 @@ export function PortfolioTable({
     <div className="text-caos-xl" style={{ minWidth: 1180 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
         {["Issuer", "Sector", "Rating", "Instrument", "Px", "Margin", "3Y DM", "Δ d/d", "30-Day", "NetLev", "IntCov", "M2E", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
-          <span key={i} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
+          <span key={i} title={COL_TITLES[h]} aria-label={COL_TITLES[h] || undefined} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
         ))}
       </div>
       {PORTFOLIO.map((p) => {

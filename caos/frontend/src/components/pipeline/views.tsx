@@ -61,15 +61,15 @@ export function GraphView({
           const downEdge = selected != null && inDown(a) && inDown(b);
           const active = upEdge || downEdge;
           const off = !scope.has(a) || !scope.has(b);
-          const stroke = upEdge ? "var(--caos-accent)" : downEdge ? "#a855f7" : "#34344a";
+          const stroke = upEdge ? "var(--caos-accent)" : downEdge ? "#a855f7" : "#4a4a60";
           return (
             <path
               key={i}
               d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
               fill="none"
               stroke={stroke}
-              strokeWidth={active ? 1.6 : 1}
-              opacity={off ? 0.07 : selected ? (active ? 0.95 : 0.16) : 0.5}
+              strokeWidth={active ? 1.6 : 1.2}
+              opacity={off ? 0.07 : selected ? (active ? 0.95 : 0.16) : 0.62}
             />
           );
         })}
@@ -209,6 +209,9 @@ export function Inspector({
         Click any node to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span> and{" "}
         <span style={{ color: "var(--tranche-sub)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
         status, QA findings and propagated limitations.
+        <div className="mt-3 tabular text-caos-sm text-caos-muted">
+          {modeLabel} route · {scope.size} modules in scope.
+        </div>
       </div>
     );
   }
