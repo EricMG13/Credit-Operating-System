@@ -125,6 +125,9 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
 
   return (
     <div
+      role="dialog"
+      aria-modal={false}
+      aria-label={DEAL.code + " · Issuer Q&A"}
       className="fixed bottom-3 right-3 z-30 caos-enter flex flex-col bg-caos-panel border border-caos-accent/60 rounded-md overflow-hidden"
       style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px rgba(79,140,255,0.12)" }}
     >

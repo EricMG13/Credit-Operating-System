@@ -11,6 +11,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { usePathname } from "next/navigation";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { NlQueryBody } from "@/components/command/NlQuery";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 
 interface AskCtx {
   open: boolean;
@@ -81,13 +82,24 @@ export function AskLauncher() {
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.
+  return <AskModal onClose={() => setOpen(false)} />;
+}
+
+// Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets
+// focus-trap / restore / scroll-lock + dialog semantics via useModalA11y.
+function AskModal({ onClose }: { onClose: () => void }) {
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
   return (
     <div
       className="fixed inset-0 z-modal flex items-start justify-center p-6 pt-[12vh]"
       style={{ background: "rgba(5,5,7,0.72)" }}
-      onClick={() => setOpen(false)}
+      onClick={onClose}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ask across issuers"
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full max-w-2xl max-h-[78vh] flex flex-col overflow-hidden"
         style={{ boxShadow: "var(--shadow-modal)" }}
@@ -100,7 +112,7 @@ export function AskLauncher() {
           </span>
           <div className="flex-1" />
           <button
-            onClick={() => setOpen(false)}
+            onClick={onClose}
             title="Close (Esc)"
             className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
           >

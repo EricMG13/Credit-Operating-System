@@ -202,7 +202,10 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
         labels: [{
           text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
           position: "inside", fontSize: 8,
-          transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
+          // overlapHide drops labels that would collide (narrow tranches like RCF /
+          // Sub) instead of letting them overlap — exact $ stay in the cap-structure
+          // table above. overflowHide alone doesn't stop adjacent-segment collisions.
+          transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
         }],
       } },
       { t: "cols", w: [3, 2], items: [
