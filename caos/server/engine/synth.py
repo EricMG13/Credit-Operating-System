@@ -7,11 +7,24 @@ Two implementations behind one interface, mirroring the demo-mode pattern in
     key is configured, so the whole engine (persistence, retrieval, lineage,
     gate) is fully exercisable and testable offline.
   - LiveSynthesizer — reads the module's on-disk Active Prompt from
-    ``Modular OS/``, grounds it in retrieved document chunks, calls Claude, and
-    parses the JSON payload. The methodology prompt files stay the single source
-    of truth; we never fork them into code.
+    ``Modular OS/``, grounds it in retrieved document chunks, and asks Claude to
+    return the payload via a **forced tool call** (structured output) rather than
+    free-text JSON we then scrape. The methodology prompt files stay the single
+    source of truth; we never fork them into code.
 
 ``get_synthesizer`` picks Live when ANTHROPIC_API_KEY is set, else Fixture.
+
+Robustness (SYNTH-1): the live path is the product thesis and the least-defended
+code, so it is hardened on three axes —
+  1. **Structured output** — the model must call ``emit_module_payload`` whose
+     ``input_schema`` mirrors ``ModulePayload`` (with closed enums for
+     confidence / extraction_type / lineage_class), so the payload arrives
+     schema-shaped instead of regex-scraped from prose.
+  2. **One-shot repair** — a first response that truncates, parses badly, or
+     fails ``validate_payload`` gets exactly one corrective retry (the error fed
+     back) before the module is gated, and only if the token budget allows it.
+  3. A defensive text→JSON fallback is retained for the (forced-tool) case where
+     a response unexpectedly carries no tool call.
 """
 
 from __future__ import annotations
@@ -20,13 +33,21 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, List, Protocol
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 
 from config import SERVER_DIR, get_settings
 from engine import budget
 from engine.fixtures import atlf_payload
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
-from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+from engine.schemas import (
+    CONFIDENCE,
+    EXTRACTION_TYPES,
+    LINEAGE_CLASSES,
+    ClaimSpec,
+    EvidenceSpec,
+    ModulePayload,
+    validate_payload,
+)
 
 logger = logging.getLogger("caos.engine")
 
@@ -34,6 +55,70 @@ logger = logging.getLogger("caos.engine")
 MODULAR_OS_DIR = SERVER_DIR.parent.parent / "Modular OS"
 
 RetrieveFn = Callable[[str, int], Awaitable[list]]
+
+_MAX_TOKENS = 4096
+
+# Structured-output contract: the model fills this schema instead of authoring
+# free-text JSON. Closed enums mirror engine.schemas so most schema violations
+# are prevented at the source; the rest are caught by validate_payload.
+_PAYLOAD_TOOL = {
+    "name": "emit_module_payload",
+    "description": (
+        "Emit this module's analytical payload. Populate every field, and ground "
+        "each claim's evidence in the provided SOURCE CHUNKS — never invent figures."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "module_name": {"type": "string"},
+            "owned_object": {"type": "string"},
+            "runtime_output": {
+                "type": "object",
+                "description": "The module's structured output object.",
+            },
+            "confidence": {"type": "string", "enum": sorted(CONFIDENCE)},
+            "limitation_flags": {"type": "array", "items": {"type": "string"}},
+            "downstream_consumers": {"type": "array", "items": {"type": "string"}},
+            "claims": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "claim_id": {"type": "string"},
+                        "claim_text": {"type": "string"},
+                        "evidence": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "evidence_id": {"type": "string"},
+                                    "extraction_type": {
+                                        "type": "string",
+                                        "enum": sorted(EXTRACTION_TYPES),
+                                    },
+                                    "lineage_class": {
+                                        "type": "string",
+                                        "enum": sorted(LINEAGE_CLASSES),
+                                    },
+                                    "source_locator": {"type": "string"},
+                                    "confidence": {"type": "string", "enum": sorted(CONFIDENCE)},
+                                },
+                                "required": [
+                                    "evidence_id",
+                                    "extraction_type",
+                                    "lineage_class",
+                                    "source_locator",
+                                ],
+                            },
+                        },
+                    },
+                    "required": ["claim_id", "claim_text", "evidence"],
+                },
+            },
+        },
+        "required": ["module_name", "owned_object", "runtime_output", "confidence", "claims"],
+    },
+}
 
 
 class SynthesisError(RuntimeError):
@@ -83,6 +168,19 @@ class LiveSynthesizer:
             raise SynthesisError(f"Active prompt not found for {module_id} at {path}")
         return path.read_text(encoding="utf-8")
 
+    async def _call(self, system: str, messages: list):
+        """One forced-tool Claude call; accrues token usage onto the run budget."""
+        resp = await self._get_client().messages.create(
+            model=self._settings.anthropic_model,
+            max_tokens=_MAX_TOKENS,
+            system=system,
+            tools=[_PAYLOAD_TOOL],
+            tool_choice={"type": "tool", "name": _PAYLOAD_TOOL["name"]},
+            messages=messages,
+        )
+        budget.record_usage(resp)
+        return resp
+
     async def synthesize(self, module_id, *, issuer_name, upstream, retrieve):
         if not budget.llm_allowed():
             raise SynthesisError(f"{module_id}: per-run token budget exhausted")
@@ -95,40 +193,89 @@ class LiveSynthesizer:
 
         system = (
             active_prompt
-            + "\n\n---\nReturn ONLY a JSON object for this module's payload with keys: "
-            "module_name, owned_object, runtime_output (object), confidence "
-            "(High|Medium|Low|Insufficient Information), limitation_flags (array), "
-            "downstream_consumers (array), and claims (array of {claim_id, claim_text, "
-            "evidence:[{evidence_id, extraction_type, lineage_class, source_locator, "
-            "confidence}]}). Ground every claim in the SOURCE CHUNKS; never invent figures.\n\n"
+            + "\n\n---\nCall the `emit_module_payload` tool exactly once with this module's "
+            "payload. Ground every claim in the SOURCE CHUNKS; never invent figures. Use "
+            'confidence "Insufficient Information" where the sources do not support a claim.\n\n'
             + UNTRUSTED_RULE
         )
-        user = (f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
-                f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}")
-
-        resp = await self._get_client().messages.create(
-            model=self._settings.anthropic_model,
-            max_tokens=4096,
-            system=system,
-            messages=[{"role": "user", "content": user}],
+        user = (
+            f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
+            f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"
         )
-        budget.record_usage(resp)
-        text = next((b.text for b in resp.content if b.type == "text"), "")
-        return _parse_payload(module_id, text)
+
+        resp = await self._call(system, [{"role": "user", "content": user}])
+        payload, error = _extract_payload(module_id, resp)
+        if error is None:
+            return payload
+
+        # One-shot repair: feed the error back and try once more — but only if the
+        # budget allows another call (a failing run must not blow the cap).
+        logger.info("%s: first payload invalid (%s); attempting one repair", module_id, error)
+        if not budget.llm_allowed():
+            raise SynthesisError(f"{module_id}: {error}; repair skipped (token budget exhausted)")
+        repair_user = (
+            user
+            + "\n\n---\nA previous attempt produced an INVALID payload:\n"
+            + error
+            + "\nCall `emit_module_payload` again with a complete, corrected payload; "
+            "ground every claim in the SOURCE CHUNKS above."
+        )
+        resp2 = await self._call(system, [{"role": "user", "content": repair_user}])
+        payload, error2 = _extract_payload(module_id, resp2)
+        if error2 is not None:
+            raise SynthesisError(f"{module_id}: payload still invalid after one repair ({error2})")
+        return payload
 
 
-def _parse_payload(module_id: str, text: str) -> ModulePayload:
-    """Parse a model JSON response into a ModulePayload (defensive)."""
+def _extract_payload(
+    module_id: str, resp
+) -> Tuple[Optional[ModulePayload], Optional[str]]:
+    """Turn a Claude response into a validated payload.
+
+    Returns ``(payload, None)`` on success or ``(None, error)`` when the response
+    can't yield a valid payload — truncation, no payload, or a schema violation.
+    The caller uses ``error`` to drive the one-shot repair.
+    """
+    if getattr(resp, "stop_reason", None) == "max_tokens":
+        return None, "response truncated (max_tokens) before a complete payload"
+    data = _payload_data_from_resp(resp)
+    if not isinstance(data, dict):
+        return None, "model returned no payload (no tool call, no JSON object)"
+    payload = _payload_from_data(module_id, data)
+    errors = validate_payload(payload)
+    if errors:
+        return None, "; ".join(errors)
+    return payload, None
+
+
+def _payload_data_from_resp(resp) -> Optional[dict]:
+    """Pull the payload dict from the forced tool call, falling back to a JSON
+    object embedded in a text block (defensive — should not happen with
+    forced tool_choice, but keeps a bad response recoverable)."""
+    content = getattr(resp, "content", None) or []
+    for block in content:
+        if getattr(block, "type", None) == "tool_use":
+            return getattr(block, "input", None)
+    text = next(
+        (getattr(b, "text", "") for b in content if getattr(b, "type", None) == "text"), ""
+    )
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
-        raise SynthesisError(f"{module_id}: model returned no JSON object")
+        return None
     try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        raise SynthesisError(f"{module_id}: payload JSON did not parse ({e})") from e
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
 
+
+def _payload_from_data(module_id: str, data: dict) -> ModulePayload:
+    """Build a ModulePayload from a payload dict (tool input or parsed JSON).
+
+    Defensive (``.get`` defaults + ``str`` coercion) so a malformed dict yields a
+    degenerate-but-constructed payload that ``validate_payload`` then flags —
+    rather than raising here and bypassing the repair path."""
     claims: List[ClaimSpec] = []
-    for c in data.get("claims", []):
+    for c in data.get("claims", []) or []:
         evidence = [
             EvidenceSpec(
                 evidence_id=str(e.get("evidence_id", "")),
@@ -137,7 +284,7 @@ def _parse_payload(module_id: str, text: str) -> ModulePayload:
                 source_locator=str(e.get("source_locator", "")),
                 confidence=str(e.get("confidence", "Medium")),
             )
-            for e in c.get("evidence", [])
+            for e in (c.get("evidence", []) or [])
         ]
         claims.append(
             ClaimSpec(
@@ -157,6 +304,18 @@ def _parse_payload(module_id: str, text: str) -> ModulePayload:
         limitation_flags=list(data.get("limitation_flags", []) or []),
         downstream_consumers=list(data.get("downstream_consumers", []) or []),
     )
+
+
+def _parse_payload(module_id: str, text: str) -> ModulePayload:
+    """Parse a free-text JSON response into a ModulePayload (legacy text path)."""
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise SynthesisError(f"{module_id}: model returned no JSON object")
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError as e:
+        raise SynthesisError(f"{module_id}: payload JSON did not parse ({e})") from e
+    return _payload_from_data(module_id, data)
 
 
 def get_synthesizer() -> Synthesizer:
