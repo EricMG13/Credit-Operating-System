@@ -40,6 +40,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
 from config import get_settings
+from engine import budget
 from engine.gate import SEVERITY_RANK, Finding
 from engine.schemas import ModulePayload
 
@@ -104,6 +105,10 @@ class LiveReviewer:
         seats = list(SEATS[: max(0, self._settings.council_seats)])
         if not seats:
             return []
+        # Council runs after the analytical modules, which may have spent the
+        # per-run token budget — skip the fan-out rather than overspend.
+        if not budget.llm_allowed():
+            return []
         # Concurrent fan-out, one call per seat (mirrors query_models_parallel).
         # return_exceptions so one seat failing never blocks the gate.
         batches = await asyncio.gather(
@@ -138,6 +143,7 @@ class LiveReviewer:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "[]")
         return _parse(seat, text)
 
@@ -146,6 +152,8 @@ class LiveReviewer:
     ) -> List[Finding]:
         """Stage 2: show the pooled findings back to the panel, authorship hidden,
         and let each seat confirm/reject + recalibrate. Deterministic tally."""
+        if not budget.llm_allowed():  # don't spend the peer round if the budget is gone
+            return merged
         labels = [chr(65 + i) for i in range(len(merged))]  # A, B, C, … (anonymous)
         catalog = "\n".join(
             f"Finding {lbl}: [{f.module_id} {f.affected_claim_id or '-'}] "
@@ -186,6 +194,7 @@ class LiveReviewer:
             system=system,
             messages=[{"role": "user", "content": user}],
         )
+        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "{}")
         return _parse_ballot(text)
 
