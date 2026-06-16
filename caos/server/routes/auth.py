@@ -1,8 +1,9 @@
 """Identity endpoint.
 
-Authentication is handled by the Databricks Apps platform (workspace OAuth at
-the edge); this endpoint just reflects the forwarded identity so the frontend
-can display who is signed in. In local dev it returns a stable local analyst.
+Authentication is handled at the edge by the auth proxy (Caddy + oauth2-proxy on
+the self-hosted stack; the Databricks Apps platform previously) — this endpoint
+just reflects the forwarded identity so the frontend can display who is signed
+in. In local dev it returns a stable local analyst.
 """
 
 from __future__ import annotations

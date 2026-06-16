@@ -2,30 +2,34 @@
 
 How CAOS authenticates, authorizes, and protects data, and the boundaries of
 its current threat model. Companion to [AUDIT.md](AUDIT.md). Last reviewed
-2026-06-14.
+2026-06-16.
 
 ## 1. Authentication & identity
 
-**Platform-managed, edge-terminated.** CAOS has no in-app login. On Databricks
-Apps every request is authenticated at the platform edge (workspace OAuth); the
+**Proxy-managed, edge-terminated.** CAOS has no in-app login. On the self-hosted
+stack ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)) every request is authenticated at the
+edge by **oauth2-proxy** (Google Workspace OIDC) behind **Caddy** (TLS); the
 verified identity arrives as forwarded headers (`X-Forwarded-User`,
 `X-Forwarded-Email`, `X-Forwarded-Preferred-Username`), surfaced by
-[identity.py](../server/identity.py) and reflected at `/api/auth/me`.
+[identity.py](../server/identity.py) and reflected at `/api/auth/me`. This
+reproduces the edge-auth trust model the Databricks Apps platform previously
+provided.
 
-**Fail-closed gate.** A request with no identity headers means the platform edge
-was bypassed. [identity.py](../server/identity.py) rejects it (401) when either
-`ENVIRONMENT == "production"` **or** `DATABRICKS_APP_PORT` is set — and the
-platform always injects `DATABRICKS_APP_PORT`, so the gate fails closed on the
-platform even if `ENVIRONMENT` was left unset. The permissive local-dev identity
-(`local-dev`) is returned **only** for genuine local runs (no port, non-prod).
+**Fail-closed gate.** A request with no identity headers means the edge was
+bypassed. [identity.py](../server/identity.py) rejects it (401) when
+`ENVIRONMENT == "production"` — which the Docker stack bakes in — or when the
+legacy `DATABRICKS_APP_PORT` is set. So the gate fails closed in production;
+`DATABRICKS_APP_PORT` is now a vestigial trigger carried over from the Databricks
+path (AUDIT DOC-1). The permissive local-dev identity (`local-dev`) is returned
+**only** for genuine local runs (non-prod, no port).
 
 **Trust assumption (S-3).** In production the app *trusts* the `X-Forwarded-*`
-headers. This is safe **only because the Databricks edge is the sole network
-path to the app** — the platform sets these headers and a client cannot reach
-the app directly to spoof them. **If CAOS is ever exposed on a network path that
-bypasses the edge, header-based identity becomes spoofable (impersonation).**
-Any non-Databricks deployment must put an equivalent authenticating proxy in
-front and strip/replace client-supplied `X-Forwarded-*` headers.
+headers. This is safe **only because the auth proxy is the sole network path to
+the app** — Caddy strips any client-supplied `X-Forwarded-*` and oauth2-proxy
+re-sets them from the verified session, and the app container publishes no port a
+client could reach directly (both verified in [LAUNCH_PHASE1](LAUNCH_PHASE1.md)
+§5). **If CAOS is ever exposed on a path that bypasses the proxy, header-based
+identity becomes spoofable (impersonation) — never publish the app port.**
 
 ## 2. Authorization
 
