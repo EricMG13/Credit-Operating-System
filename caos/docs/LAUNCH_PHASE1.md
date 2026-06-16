@@ -198,7 +198,7 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 | S-4 | No per-issuer / row-level authorization | Acceptable — single coverage team, one workspace. |
 | §1 | Header-based identity trusts the proxy | Safe **only** because the app has no published port and Caddy strips client `X-Forwarded-*`. Never publish the app port. |
 | A-1 | Mock-vs-engine gap (some UI seeded, overlaid by live runs) | Trust the provenance/click-to-source numbers; flag any panel that lacks them. |
-| DATA-1 | `metric_facts` run-derived rows accrue per run, never pruned | Fine at pilot scale; add retention before opening runs widely. |
+| DATA-1 | `metric_facts` run-derived rows | **Resolved** — each completed run prunes the issuer's older run rows to the latest (`test_retention.py`); seed facts kept. Fine at scale. |
 | D-1 | `npm audit` advisories in the **dev/build** chain only | None ship in the static export; never `audit fix --force`. |
 | — | No managed backups | Schedule `pg_dump` + vault tarball via cron (deploy/README). |
 
