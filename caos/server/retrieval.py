@@ -7,8 +7,9 @@ those chunks against a free-text query so module synthesis can ground claims in
 real source text and link each evidence item back to the chunk it came from.
 
 Self-contained pure-Python BM25 (Okapi) — no extra dependency, and the scoring
-core (``bm25_rank``) is database-free so it unit-tests in isolation. Phase 2
-swaps the corpus fetch for Databricks Vector Search behind the same interface.
+core (``bm25_rank``) is database-free so it unit-tests in isolation. A later
+phase can swap the corpus fetch for a vector index (e.g. pgvector in the existing
+Postgres — free/self-hostable, no new infra) behind the same interface.
 """
 
 from __future__ import annotations
