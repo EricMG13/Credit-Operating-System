@@ -29,6 +29,21 @@ def test_categorize_by_type_and_filename():
     assert _categorize(_doc("Misc", "random_notes.txt")) == set()
 
 
+def test_categorize_by_content_head():
+    # Real SEC filings/exhibits are named by accession number / "EX-10.1" — the
+    # (uninformative) name matches nothing, so they must classify by head content (#25).
+    tenk = _doc("Document", "0000950170-25-077138.pdf")
+    assert _categorize(tenk, "UNITED STATES SECURITIES AND EXCHANGE COMMISSION Form 10-K "
+                             "ANNUAL REPORT PURSUANT TO SECTION 13 OR 15(d)") == {"financials"}
+    agreement = _doc("Document", "EX-10.1.pdf")
+    assert _categorize(agreement, "Exhibit 10.1 Execution Version CREDIT AGREEMENT dated as of "
+                                  "January 21, 2026 among VIASAT TECHNOLOGIES LIMITED, as Borrower") == {"agreement"}
+    assert _categorize(_doc("Document", "cert.pdf"),
+                       "COMPLIANCE CERTIFICATE delivered pursuant to Section 6.01") == {"covenant"}
+    # no markers + uninformative name → unclassified (e.g. an earnings deck)
+    assert _categorize(_doc("Document", "deck.pdf"), "Q4 FY2026 Earnings Results May 28, 2026") == set()
+
+
 @pytest.fixture(scope="module")
 def client():
     from main import app
