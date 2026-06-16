@@ -37,12 +37,29 @@ _LABEL = {
     "covenant": "covenant / compliance documents",
 }
 
+# Content markers found in the document *head*, so a real SEC filing / exhibit
+# classifies by what it IS — not its (accession-number) file name. Real filings are
+# named e.g. "0000950170-25-077138.pdf" / "EX-10.1.pdf", which match no name cue.
+_CONTENT_MARKERS = {
+    "financials": ("form 10-k", "form 10-q", "annual report pursuant to section 13",
+                   "quarterly report pursuant to section 13", "consolidated balance sheet",
+                   "consolidated statements of operations"),
+    "agreement": ("credit agreement", "indenture", "facility agreement",
+                  "senior facilities agreement", "loan agreement", "exhibit 10."),
+    "offering": ("offering memorandum", "preliminary prospectus", "prospectus supplement",
+                 "information memorandum"),
+    "covenant": ("compliance certificate", "financial covenant", "covenant compliance"),
+}
 
-def _categorize(doc: Document) -> Set[str]:
-    dt, fn = (doc.doc_type or "").lower(), (doc.file_name or "").lower()
+
+def _categorize(doc: Document, head: str = "") -> Set[str]:
+    """Classify a document by doc_type / file name (cheap) and, crucially, by the
+    content of its head — so SEC filings named by accession number still classify."""
+    dt, fn, ct = (doc.doc_type or "").lower(), (doc.file_name or "").lower(), head.lower()
     return {
         cat for cat, (types, names) in _CATEGORIES.items()
         if any(t in dt for t in types) or any(n in fn for n in names)
+        or any(mk in ct for mk in _CONTENT_MARKERS.get(cat, ()))
     }
 
 
@@ -52,8 +69,19 @@ async def synthesize_source_readiness(session: AsyncSession, issuer: Issuer) -> 
     )).scalars().all()
 
     present: Set[str] = set()
+    doc_map: list = []
     for d in docs:
-        present |= _categorize(d)
+        head = (await session.execute(
+            select(DocumentChunk.text)
+            .where(DocumentChunk.document_id == d.id)
+            .order_by(DocumentChunk.seq).limit(1)
+        )).scalar_one_or_none() or ""
+        cats = _categorize(d, head)
+        present |= cats
+        doc_map.append({
+            "doc": d.id[:8], "name": d.file_name, "type": d.doc_type,
+            "categories": sorted(_LABEL[c] for c in cats) or ["unclassified"],
+        })
     n = len(docs)
     missing = [c for c in _CATEGORIES if c not in present]
     coverage = round(len(present) / len(_CATEGORIES), 2)
@@ -80,7 +108,7 @@ async def synthesize_source_readiness(session: AsyncSession, issuer: Issuer) -> 
         "categories_present": sorted(present),
         "categories_missing": missing,
         "edgar_available": edgar,
-        "document_map": [{"doc": d.id[:8], "name": d.file_name, "type": d.doc_type} for d in docs[:12]],
+        "document_map": doc_map[:12],
         "gap_log": gap_log,
     }
 
