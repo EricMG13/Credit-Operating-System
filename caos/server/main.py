@@ -52,11 +52,18 @@ async def lifespan(app: FastAPI):
     logger.info("CAOS shutting down")
 
 
+_PROD = settings.environment == "production"
 app = FastAPI(
     title="Credit Agent OS (CAOS)",
     version="2.0.0",
     description="Credit analysis workspace — Databricks App build.",
     lifespan=lifespan,
+    # Interactive API docs / schema are exploration aids — keep them in dev but
+    # close them in production (no reason to publish the API surface there, even
+    # behind the authenticated edge).
+    docs_url=None if _PROD else "/docs",
+    redoc_url=None if _PROD else "/redoc",
+    openapi_url=None if _PROD else "/openapi.json",
 )
 
 # ─── Security headers ───────────────────────────────────────────────────────

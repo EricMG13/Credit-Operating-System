@@ -115,7 +115,9 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
     except urllib.error.HTTPError as exc:
         raise EdgarError(f"EDGAR HTTP {exc.code} for {url}") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise EdgarError(f"EDGAR request failed: {exc}") from exc
+        # Don't surface the raw network/OS error text to the client; keep the
+        # cause chained for the server-side traceback.
+        raise EdgarError("EDGAR request failed — network error or timeout.") from exc
 
 
 def _get_json(url: str) -> dict:
