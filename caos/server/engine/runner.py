@@ -42,7 +42,7 @@ from engine.gate import (
 from engine.lineage import validate_lineage
 from engine.schemas import ModulePayload, validate_payload
 from engine.synth import SynthesisError, get_synthesizer
-from retrieval import retrieve as bm25_retrieve
+from retrieval import build_issuer_index, rank_with_index
 
 logger = logging.getLogger("caos.engine")
 
@@ -75,8 +75,13 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     issuer = await session.get(Issuer, run.issuer_id)
     issuer_name = issuer.name if issuer else run.issuer_id
 
+    # P4-2: build the issuer's BM25 index once, then score every retrieve() call
+    # (per module + per claim) against it — the corpus is tokenized once, not
+    # re-tokenized on every call.
+    issuer_index = await build_issuer_index(session, run.issuer_id)
+
     async def retrieve(query: str, k: int = 5):
-        return await bm25_retrieve(session, run.issuer_id, query, k)
+        return rank_with_index(issuer_index, query, k)
 
     upstream: Dict[str, ModulePayload] = {}
     module_status: Dict[str, str] = {}

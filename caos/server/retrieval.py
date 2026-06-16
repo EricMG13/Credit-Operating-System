@@ -40,43 +40,63 @@ class Hit:
     score: float
 
 
-def bm25_rank(query: str, corpus: Sequence[Tuple[str, str]], k: int = 5) -> List[Hit]:
-    """Rank ``(chunk_id, text)`` pairs against ``query`` by Okapi BM25.
+@dataclass(frozen=True)
+class Bm25Index:
+    """A BM25 index over a fixed corpus — built once, ranked many times.
 
-    Returns at most ``k`` hits with a positive score, best first. An empty
-    query or corpus yields no hits.
+    Within a run the issuer's chunks are static, so building the index once and
+    reusing it across the run's many ``retrieve()`` calls (per module + per claim)
+    avoids re-tokenizing the whole corpus on every call (P4-2).
     """
-    q_terms = tokenize(query)
-    if not q_terms or not corpus:
-        return []
 
-    docs = [(cid, tokenize(text), text) for cid, text in corpus]
-    n = len(docs)
-    avgdl = sum(len(toks) for _, toks, _ in docs) / n
+    docs: List[Tuple[str, "Counter[str]", int, str]]  # (chunk_id, term-freqs, len, text)
+    n: int
+    avgdl: float
+    df: "Counter[str]"  # document frequency per term
 
+
+def build_index(corpus: Sequence[Tuple[str, str]]) -> Bm25Index:
+    """Tokenize + count a ``(chunk_id, text)`` corpus into a reusable BM25 index."""
+    docs: List[Tuple[str, Counter, int, str]] = []
     df: Counter[str] = Counter()
-    for _, toks, _ in docs:
-        df.update(set(toks))
+    total_len = 0
+    for cid, text in corpus:
+        toks = tokenize(text)
+        tf = Counter(toks)
+        docs.append((cid, tf, len(toks) or 1, text))
+        df.update(tf.keys())  # each distinct term counts once toward document freq
+        total_len += len(toks)
+    n = len(docs)
+    return Bm25Index(docs=docs, n=n, avgdl=(total_len / n) if n else 0.0, df=df)
 
+
+def rank_with_index(index: Bm25Index, query: str, k: int = 5) -> List[Hit]:
+    """Okapi BM25-rank ``query`` against a prebuilt index — pure scoring, no corpus
+    tokenization. At most ``k`` hits with a positive score, best first."""
+    q_terms = tokenize(query)
+    if not q_terms or index.n == 0:
+        return []
     q_set = set(q_terms)
     # log(1 + …) keeps idf strictly positive, so any query-term match scores > 0.
-    idf = {t: math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5)) for t in q_set}
-
+    idf = {t: math.log(1 + (index.n - index.df[t] + 0.5) / (index.df[t] + 0.5)) for t in q_set}
     hits: List[Hit] = []
-    for cid, toks, text in docs:
-        dl = len(toks) or 1
-        tf = Counter(toks)
+    for cid, tf, dl, text in index.docs:
         score = 0.0
         for t in q_set:
             f = tf.get(t, 0)
             if not f:
                 continue
-            score += idf[t] * (f * (_K1 + 1)) / (f + _K1 * (1 - _B + _B * dl / avgdl))
+            score += idf[t] * (f * (_K1 + 1)) / (f + _K1 * (1 - _B + _B * dl / index.avgdl))
         if score > 0:
             hits.append(Hit(chunk_id=cid, text=text, score=score))
-
     hits.sort(key=lambda h: h.score, reverse=True)
     return hits[:k]
+
+
+def bm25_rank(query: str, corpus: Sequence[Tuple[str, str]], k: int = 5) -> List[Hit]:
+    """One-shot BM25: build an index from ``corpus`` and rank ``query`` against it.
+    Kept for single-query callers; in-run code builds the index once and reuses it."""
+    return rank_with_index(build_index(corpus), query, k=k)
 
 
 async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> List[Hit]:
@@ -90,6 +110,20 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
     ).all()
     corpus = [(r[0], r[1]) for r in rows]
     return bm25_rank(query, corpus, k=k)
+
+
+async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
+    """Fetch an issuer's document chunks and build the BM25 index once. The runner
+    builds this at the start of a run and reuses it across every ``retrieve()``
+    call, so the corpus is tokenized once rather than per call (P4-2)."""
+    rows = (
+        await db.execute(
+            select(DocumentChunk.id, DocumentChunk.text)
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(Document.issuer_id == issuer_id)
+        )
+    ).all()
+    return build_index([(r[0], r[1]) for r in rows])
 
 
 @dataclass(frozen=True)
