@@ -15,26 +15,26 @@ export default function UploadPage() {
       <div className="h-screen flex flex-col bg-caos-bg">
         <a
           href="#main-content"
-          className="focus-ring sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 bg-caos-elevated text-caos-text text-[11px] px-3 py-1.5 rounded border border-caos-accent"
+          className="focus-ring sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 bg-caos-elevated text-caos-text text-caos-xl px-3 py-1.5 rounded border border-caos-accent"
         >
           Skip to content
         </a>
         {/* sub-header */}
         <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-          <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+          <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
             ← Pipeline
           </Link>
           <div className="h-4 w-px bg-caos-border" />
           <ConceptNav compact />
           <div className="h-4 w-px bg-caos-border" />
-          <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-0 · L0</span>
-          <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Document Intake — Pipeline L0 source readiness</span>
-          <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
+          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-0 · L0</span>
+          <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Document Intake — Pipeline L0 source readiness</span>
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
             PDF / XLSX → document vault → parent-child chunking → CP-0 classification
           </span>
           <div className="flex-1" />
           <span
-            className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+            className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
             style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}
           >
             MNPI uploads are restricted-handled

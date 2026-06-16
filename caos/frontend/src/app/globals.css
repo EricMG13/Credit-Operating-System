@@ -17,6 +17,16 @@
   --caos-success: #22c55e;
   --caos-idle: #3f3f46;
 
+  /* On-dark "bright" status tints — status text / heat over dark surfaces, where
+     the 500-level semantics above read too dark. Signal only (status, not decor). */
+  --caos-success-bright: #4ade80;
+  --caos-warning-bright: #fbbf24;
+  --caos-critical-bright: #f87171;
+
+  /* Elevation — drop shadows consolidated from repeated inline values. */
+  --shadow-modal: 0 24px 80px -24px rgba(0, 0, 0, 0.9);
+  --shadow-pop: 0 8px 28px -10px rgba(0, 0, 0, 0.8);
+
   /* Seniority ramp — categorical hues, no lightness banding (Blueprint §5.3) */
   --tranche-1l: #2dd4bf;
   --tranche-2l: #4f8cff;
@@ -34,11 +44,6 @@
   --fs-row: 12px;
   --fs-metric: 16px;
   --fs-hero: 22px;
-
-  /* Spacing rhythm: intentional grouping, not uniform gutters. */
-  --sp-group: 4px;
-  --sp-item: 8px;
-  --sp-section: 16px;
 
   /* Semantic status — single naming for the severity palette. */
   --sev-critical: var(--caos-critical);

@@ -18,11 +18,11 @@ import {
 } from "@/lib/command/rvdata";
 
 const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
-  High: { bg: "rgba(34,197,94,0.20)", fg: "#4ade80" },
-  Normal: { bg: "rgba(34,197,94,0.09)", fg: "#86efac" },
-  OK: { bg: "rgba(245,165,36,0.14)", fg: "#fbbf24" },
-  Concerning: { bg: "rgba(239,68,68,0.16)", fg: "#f87171" },
-  Impaired: { bg: "rgba(148,163,184,0.14)", fg: "#94a3b8" },
+  High: { bg: "rgba(34,197,94,0.20)", fg: "var(--caos-success-bright)" },
+  Normal: { bg: "rgba(34,197,94,0.09)", fg: "var(--caos-success-bright)" },
+  OK: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
+  Concerning: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
+  Impaired: { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
 function DeltaCell({ v }: { v: number | null }) {
@@ -34,7 +34,7 @@ function DeltaCell({ v }: { v: number | null }) {
     <td
       className="px-2 py-[5px] text-right tabular"
       style={{
-        color: pos ? "#4ade80" : neg ? "#f87171" : "var(--caos-muted)",
+        color: pos ? "var(--caos-success-bright)" : neg ? "var(--caos-critical-bright)" : "var(--caos-muted)",
         background: pos ? "rgba(34,197,94,0.06)" : neg ? "rgba(239,68,68,0.06)" : undefined,
       }}
     >
@@ -47,7 +47,7 @@ function Chip({ liq, label }: { liq: Liquidity; label: string }) {
   const s = LIQ_STYLE[liq];
   return (
     <span
-      className="tabular text-[8.5px] px-1.5 py-px rounded whitespace-nowrap"
+      className="tabular text-caos-2xs px-1.5 py-px rounded whitespace-nowrap"
       style={{ background: s.bg, color: s.fg }}
     >
       {label}
@@ -84,13 +84,13 @@ function SortTh({ label, align = "left", col, sort, onSort }: { label: string; a
   const active = sort.col === col;
   return (
     <th
-      className={`px-2 py-[6px] tabular text-[8.5px] uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 cursor-pointer hover:text-caos-text transition-caos select-none ${align === "right" ? "text-right" : "text-left"}`}
+      className={`px-2 py-[6px] tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 cursor-pointer hover:text-caos-text transition-caos select-none ${align === "right" ? "text-right" : "text-left"}`}
       onClick={() => onSort(col)}
     >
       <div className={`flex items-center gap-1 ${align === "right" ? "justify-end" : "justify-start"}`}>
-        {align === "right" && active && <span className="text-[10px] text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+        {align === "right" && active && <span className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
         {label}
-        {align === "left" && active && <span className="text-[10px] text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+        {align === "left" && active && <span className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
       </div>
     </th>
   );
@@ -106,7 +106,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
   });
 
   return (
-    <table className="border-collapse text-[9.5px] min-w-[1760px] w-full">
+    <table className="border-collapse text-caos-sm min-w-[1760px] w-full">
       <thead>
         <tr className="border-b border-caos-border">
           <SortTh label="Company" col="company" sort={sort} onSort={handleSort} />
@@ -182,7 +182,7 @@ export function SectorRV() {
     <div className="flex flex-col gap-2 min-h-0 min-w-0 flex-1">
       {/* sheet tabs */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-1.5 overflow-x-auto">
-        <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap mr-1.5">
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap mr-1.5">
           Sector tables
         </span>
         {SECTORS.map((s, i) => (
@@ -190,7 +190,7 @@ export function SectorRV() {
             key={s.name}
             onClick={() => setActive(i)}
             className={
-              "flex items-center gap-1.5 tabular text-[9.5px] px-2.5 py-1 rounded border transition-caos whitespace-nowrap " +
+              "flex items-center gap-1.5 tabular text-caos-sm px-2.5 py-1 rounded border transition-caos whitespace-nowrap " +
               (i === active
                 ? "bg-caos-elevated text-caos-text"
                 : "border-caos-border text-caos-muted hover:text-caos-text")
@@ -202,7 +202,7 @@ export function SectorRV() {
           </button>
         ))}
         <span className="flex-1" />
-        <span className="tabular text-[9px] text-caos-muted whitespace-nowrap hidden xl:inline">
+        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">
           {sector.rows.length} loans · marks T-1 close
         </span>
       </div>
@@ -212,7 +212,7 @@ export function SectorRV() {
         title={sector.name + " — Sector Peers · Relative Value"}
         className="flex-[3] min-h-0"
         right={
-          <span className="tabular text-[9px] text-caos-muted">
+          <span className="tabular text-caos-xs text-caos-muted">
             issuer + loan data · spread-implied liquidity · CP-3 inputs
           </span>
         }
@@ -226,10 +226,10 @@ export function SectorRV() {
       <div className="flex-[2] grid grid-cols-2 gap-2 min-h-0">
         <PanelShell
           title="Index Statistics"
-          right={<span className="tabular text-[9px] text-caos-muted">Bloomberg US Leveraged Loan Index</span>}
+          right={<span className="tabular text-caos-xs text-caos-muted">Bloomberg US Leveraged Loan Index</span>}
         >
           <div className="overflow-auto h-full">
-            <table className="border-collapse text-[9.5px] w-full min-w-[760px]">
+            <table className="border-collapse text-caos-sm w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
@@ -262,10 +262,10 @@ export function SectorRV() {
 
         <PanelShell
           title={"Sector Ratings Average · " + sector.name}
-          right={<span className="tabular text-[9px] text-caos-muted">computed from peer set</span>}
+          right={<span className="tabular text-caos-xs text-caos-muted">computed from peer set</span>}
         >
           <div className="overflow-auto h-full">
-            <table className="border-collapse text-[9.5px] w-full min-w-[760px]">
+            <table className="border-collapse text-caos-sm w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />

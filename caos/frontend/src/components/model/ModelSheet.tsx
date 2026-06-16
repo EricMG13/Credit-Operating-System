@@ -42,7 +42,7 @@ function LabelInput({ value, onCommit }: { value: string; onCommit: (v: string |
         else if (e.key === "Escape") { t.dataset.done = "1"; onCommit(null); }
       }}
       onBlur={(e) => { if (!e.target.dataset.done) onCommit(e.target.value); }}
-      className="tabular text-[9px] bg-caos-elevated outline-none px-1 rounded-sm w-full"
+      className="tabular text-caos-xs bg-caos-elevated outline-none px-1 rounded-sm w-full"
       style={{ height: 15, border: "1px solid var(--caos-accent)", color: "var(--caos-text)" }}
     />
   );
@@ -62,7 +62,7 @@ function CellInput({ initial, onCommit }: { initial: string; onCommit: (v: strin
         else if (e.key === "Escape") { t.dataset.done = "1"; onCommit(null); }
       }}
       onBlur={(e) => { if (!e.target.dataset.done) onCommit(e.target.value); }}
-      className="w-full tabular text-[9px] text-right bg-caos-elevated outline-none px-0.5 rounded-sm"
+      className="w-full tabular text-caos-xs text-right bg-caos-elevated outline-none px-0.5 rounded-sm"
       style={{ height: 15, border: "1px solid var(--caos-accent)", color: "var(--caos-text)" }}
     />
   );
@@ -168,7 +168,7 @@ export function Sheet({
           />
         ) : (
           <span
-            className={"tabular text-[9px] leading-[15px] whitespace-nowrap " + (opts.bold ? "font-semibold" : "")}
+            className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-semibold" : "")}
             style={{ color, borderBottom: isOv ? "1px dotted var(--caos-warning)" : "none" }}
           >
             {display}
@@ -184,7 +184,7 @@ export function Sheet({
         {/* group bar */}
         <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
           <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
-            <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
+            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
             <div key={i} className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
@@ -192,7 +192,7 @@ export function Sheet({
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "rgba(79,140,255,0.16)", transition: "background 160ms" }}
               >
-                <span className="tabular text-[8.5px] uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "#0a0a0f" : "var(--caos-text)" }}>
+                <span className="tabular text-caos-2xs uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "var(--caos-bg)" : "var(--caos-text)" }}>
                   {GROUPS_META[gr.group]}
                 </span>
               </div>
@@ -206,7 +206,7 @@ export function Sheet({
             const custom = c.group === "CUSTOM";
             return (
               <div key={c.key} className="shrink-0 flex items-baseline justify-between pl-1 pr-1.5 pb-0.5 group/col" style={{ width: c.w, marginLeft: c.gap ? 8 : 0 }}>
-                <span className="tabular text-[8px] text-caos-muted whitespace-nowrap">{grid.colAddr[c.key]}</span>
+                <span className="tabular text-caos-3xs text-caos-muted whitespace-nowrap">{grid.colAddr[c.key]}</span>
                 {custom && renaming?.kind === "col" && renaming.id === c.key ? (
                   <LabelInput value={c.label || ""} onCommit={(v) => { if (v != null && v.trim()) onRenameCol(c.key, v.trim()); setRenaming(null); }} />
                 ) : (
@@ -215,7 +215,7 @@ export function Sheet({
                       <button
                         onClick={() => onDeleteCol(c.key)}
                         title="Delete column"
-                        className="tabular text-[8px] text-caos-muted/0 group-hover/col:text-caos-muted hover:!text-caos-critical transition-caos"
+                        className="tabular text-caos-3xs text-caos-muted/0 group-hover/col:text-caos-muted hover:!text-caos-critical transition-caos"
                       >
                         ✕
                       </button>
@@ -223,7 +223,7 @@ export function Sheet({
                     <span
                       onDoubleClick={custom ? () => setRenaming({ kind: "col", id: c.key }) : undefined}
                       title={custom ? "double-click to rename" : undefined}
-                      className="tabular text-[9px] font-semibold whitespace-nowrap truncate"
+                      className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
                       style={{ color: labelColor(c) }}
                     >
                       {custom ? c.label : c.ctx!.label + (c.ctx!.derived ? "*" : "")}
@@ -240,7 +240,7 @@ export function Sheet({
             return (
               <div key={"s" + ri} className="flex mt-1.5">
                 <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
-                  <span className="text-[10px] font-semibold text-caos-text">{row.sec}</span>
+                  <span className="text-caos-md font-semibold text-caos-text">{row.sec}</span>
                 </div>
                 {groups.map((gr, i) => (
                   <div key={i} className="shrink-0 flex items-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
@@ -257,11 +257,11 @@ export function Sheet({
                 className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2"
                 style={{ width: LBL, background: isHl ? "#15202f" : "var(--caos-bg)", borderTop: row.line ? "1px solid var(--caos-border)" : "none" }}
               >
-                <span className="tabular text-[8px] leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[row.id!]}</span>
-                <span className={"text-[9.5px] leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                <span className="tabular text-caos-3xs leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[row.id!]}</span>
+                <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
                   {row.l}
                 </span>
-                {row.sub ? <span className="tabular text-[8px] text-caos-muted ml-auto whitespace-nowrap">{row.sub}</span> : null}
+                {row.sub ? <span className="tabular text-caos-3xs text-caos-muted ml-auto whitespace-nowrap">{row.sub}</span> : null}
               </div>
               {colDefs.map((c) => renderCell(row.id!, c, { bold: row.bold, pct: row.pct, shade: row.shade, line: row.line, isHl }))}
             </div>
@@ -271,11 +271,11 @@ export function Sheet({
         {/* analyst rows */}
         <div className="flex mt-1.5">
           <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center gap-2" style={{ width: LBL, background: "var(--caos-bg)" }}>
-            <span className="text-[10px] font-semibold text-caos-text">Analyst Rows</span>
+            <span className="text-caos-md font-semibold text-caos-text">Analyst Rows</span>
             <button
               onClick={onAddRow}
               title="Add an analyst row — cells accept numbers or =formulas"
-              className="tabular text-[8.5px] px-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+              className="tabular text-caos-2xs px-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
             >
               + ROW
             </button>
@@ -289,7 +289,7 @@ export function Sheet({
         {sheet.rows.map((r) => (
           <div key={r.id} className="flex group">
             <div className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2" style={{ width: LBL, background: "var(--caos-bg)" }}>
-              <span className="tabular text-[8px] leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[r.id]}</span>
+              <span className="tabular text-caos-3xs leading-[15px] text-caos-muted w-3.5 text-right shrink-0">{grid.rowAddr[r.id]}</span>
               {renaming?.kind === "row" && renaming.id === r.id ? (
                 <LabelInput value={r.label} onCommit={(v) => { if (v != null && v.trim()) onRenameRow(r.id, v.trim()); setRenaming(null); }} />
               ) : (
@@ -297,14 +297,14 @@ export function Sheet({
                   <span
                     onDoubleClick={() => setRenaming({ kind: "row", id: r.id })}
                     title="double-click to rename"
-                    className="text-[9.5px] leading-[15px] whitespace-nowrap truncate text-caos-text/80"
+                    className="text-caos-sm leading-[15px] whitespace-nowrap truncate text-caos-text/80"
                   >
                     {r.label}
                   </span>
                   <button
                     onClick={() => onDeleteRow(r.id)}
                     title="Delete row"
-                    className="tabular text-[8px] ml-auto text-caos-muted/0 group-hover:text-caos-muted hover:!text-caos-critical transition-caos"
+                    className="tabular text-caos-3xs ml-auto text-caos-muted/0 group-hover:text-caos-muted hover:!text-caos-critical transition-caos"
                   >
                     ✕
                   </button>
@@ -337,8 +337,8 @@ export function FormulaBar({
   if (!sel) {
     return (
       <div className="h-8 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2">
-        <span className="tabular text-[11px] text-caos-muted">ƒ</span>
-        <span className="tabular text-[9.5px] text-caos-muted">select any cell to trace its formula and source lineage · double-click historical cells to override · analyst cells accept =formulas (=M4*1.05)</span>
+        <span className="tabular text-caos-xl text-caos-muted">ƒ</span>
+        <span className="tabular text-caos-sm text-caos-muted">select any cell to trace its formula and source lineage · double-click historical cells to override · analyst cells accept =formulas (=M4*1.05)</span>
       </div>
     );
   }
@@ -354,25 +354,25 @@ export function FormulaBar({
     const colLabel = customCol ? customCol.label : model.cols[sel.col]?.label || sel.col;
     return (
       <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-hidden">
-        <span className="tabular text-[11px] text-caos-accent">ƒ</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap">{addr}</span>
-        <span className="tabular text-[10px] text-caos-text whitespace-nowrap">{rowLabel} · {colLabel}</span>
-        <span className="tabular text-[10px] whitespace-nowrap" style={{ color: cv.err ? "var(--caos-critical)" : "var(--caos-accent)" }}>{fmtVal(cv) || "—"}</span>
+        <span className="tabular text-caos-xl text-caos-accent">ƒ</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">{addr}</span>
+        <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{rowLabel} · {colLabel}</span>
+        <span className="tabular text-caos-md whitespace-nowrap" style={{ color: cv.err ? "var(--caos-critical)" : "var(--caos-accent)" }}>{fmtVal(cv) || "—"}</span>
         <span className="w-px h-4 bg-caos-border shrink-0"></span>
         {raw != null && raw.trim() !== "" ? (
           <>
-            <span className="tabular text-[9.5px] text-caos-text whitespace-nowrap">{raw}</span>
+            <span className="tabular text-caos-sm text-caos-text whitespace-nowrap">{raw}</span>
             <button
               onClick={() => onClearCell(key)}
-              className="tabular text-[9px] px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+              className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
             >
               CLEAR CELL
             </button>
           </>
         ) : (
-          <span className="text-[9.5px] text-caos-muted truncate">empty analyst cell — double-click to enter a number or =formula</span>
+          <span className="text-caos-sm text-caos-muted truncate">empty analyst cell — double-click to enter a number or =formula</span>
         )}
-        <span className="tabular text-[9px] whitespace-nowrap text-caos-accent">✎ basic arithmetic — cell refs + − × ÷ ( ) %, e.g. =R5-R6 or =M4*1.05</span>
+        <span className="tabular text-caos-xs whitespace-nowrap text-caos-accent">✎ basic arithmetic — cell refs + − × ÷ ( ) %, e.g. =R5-R6 or =M4*1.05</span>
         <span className="flex-1"></span>
       </div>
     );
@@ -390,39 +390,39 @@ export function FormulaBar({
     : ctx.derived ? "derived period — Q4-25 management accounts missing (gap G-02)" : null;
   return (
     <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-hidden">
-      <span className="tabular text-[11px] text-caos-accent">ƒ</span>
-      <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap">{addr}</span>
-      <span className="tabular text-[10px] text-caos-text whitespace-nowrap">{row.l} · {ctx.label}</span>
-      <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">{fmt(v, row.f) || "—"}</span>
+      <span className="tabular text-caos-xl text-caos-accent">ƒ</span>
+      <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">{addr}</span>
+      <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{row.l} · {ctx.label}</span>
+      <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{fmt(v, row.f) || "—"}</span>
       <span className="w-px h-4 bg-caos-border shrink-0"></span>
       {isOv ? (
         <span className="flex items-center gap-1.5 shrink-0">
-          <span className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+          <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
             MANUAL OVERRIDE
           </span>
-          <span className="text-[9.5px] text-caos-muted whitespace-nowrap">analyst input replaces sourced actual · aggregates recomputed</span>
+          <span className="text-caos-sm text-caos-muted whitespace-nowrap">analyst input replaces sourced actual · aggregates recomputed</span>
           <button
             onClick={() => onResetCell(ovKey)}
-            className="tabular text-[9px] px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+            className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
           >
             RESET CELL
           </button>
         </span>
       ) : (
-        <span className="text-[9.5px] text-caos-muted truncate">{row.formula || `${row.l} — sourced from ${src ? src.name : "model logic"}`}</span>
+        <span className="text-caos-sm text-caos-muted truncate">{row.formula || `${row.l} — sourced from ${src ? src.name : "model logic"}`}</span>
       )}
-      {!isOv && editable ? <span className="tabular text-[9px] whitespace-nowrap text-caos-accent">✎ historical input — double-click to override</span> : null}
+      {!isOv && editable ? <span className="tabular text-caos-xs whitespace-nowrap text-caos-accent">✎ historical input — double-click to override</span> : null}
       {caseNote ? (
-        <span className="tabular text-[9px] whitespace-nowrap" style={{ color: ctx.kind === "d" || ctx.derived ? "var(--caos-warning)" : "var(--caos-success)" }}>
+        <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: ctx.kind === "d" || ctx.derived ? "var(--caos-warning)" : "var(--caos-success)" }}>
           ▸ {caseNote}
         </span>
       ) : null}
       <span className="flex-1"></span>
       {src ? (
         <span className="flex items-center gap-1.5 shrink-0">
-          <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">{src.chip}</span>
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">{src.chip}</span>
           {src.warn ? (
-            <span className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+            <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
               {src.warn}
             </span>
           ) : null}
@@ -437,14 +437,14 @@ export function FormulaBar({
 export function Manifest({ hl, setHl }: { hl: string | null; setHl: (k: string | null) => void }) {
   return (
     <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
-      <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Built from</span>
+      <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Built from</span>
       {Object.entries(SRC).map(([k, s]) => (
         <button
           key={k}
           onClick={() => setHl(hl === k ? null : k)}
           title={s.name + (s.note ? " · " + s.note : "")}
           className={
-            "flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+            "flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap " +
             (hl === k ? "border-caos-accent bg-caos-elevated text-caos-text" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
           }
         >
@@ -453,7 +453,7 @@ export function Manifest({ hl, setHl }: { hl: string | null; setHl: (k: string |
         </button>
       ))}
       <span className="flex-1"></span>
-      <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">click a module to trace which rows it feeds</span>
+      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">click a module to trace which rows it feeds</span>
     </div>
   );
 }

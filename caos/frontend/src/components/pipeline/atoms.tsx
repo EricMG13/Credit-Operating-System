@@ -17,7 +17,7 @@ export function Tag({ sev, children }: { sev: string; children: React.ReactNode 
   const c = SEV_COLOR[sev] || "var(--caos-muted)";
   return (
     <span
-      className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border inline-flex items-center gap-1 whitespace-nowrap"
+      className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border inline-flex items-center gap-1 whitespace-nowrap"
       style={{ color: c, borderColor: c + "55", background: c + "14" }}
     >
       {children}
@@ -38,14 +38,14 @@ export function SimControls({ run }: { run: SimRun }) {
     <div className="flex items-center gap-1.5">
       <button
         onClick={() => run.setPlaying(!run.playing)}
-        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-text hover:border-caos-accent/60 transition-caos text-[9px]"
+        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-text hover:border-caos-accent/60 transition-caos text-caos-xs"
         title={run.playing ? "Pause simulation" : "Play simulation"}
       >
         {run.playing && !run.sim.done ? "❚❚" : "▶"}
       </button>
       <button
         onClick={run.reset}
-        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px]"
+        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
         title="Reset run"
       >
         ↺
@@ -55,7 +55,7 @@ export function SimControls({ run }: { run: SimRun }) {
           key={s}
           onClick={() => run.setSpeed(s)}
           className={
-            "tabular text-[10px] px-1.5 h-6 rounded border transition-caos " +
+            "tabular text-caos-md px-1.5 h-6 rounded border transition-caos " +
             (run.speed === s ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >

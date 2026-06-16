@@ -140,15 +140,15 @@ function ReportStudio() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-RENDER</span>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap truncate">
+        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
           assembled from RUN #2641 outputs · figures on M-118 model basis
         </span>
         <span className="flex-1" />
@@ -167,7 +167,7 @@ function ReportStudio() {
         <button
           onClick={() => setShowSources(!showSources)}
           className={
-            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -177,7 +177,7 @@ function ReportStudio() {
           onClick={() => setEditMode(!editMode)}
           title="Edit the deliverable inline — every figure, label and paragraph is editable; edits persist locally and carry into the PDF export"
           className={
-            "tabular text-[9px] px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -187,7 +187,7 @@ function ReportStudio() {
           <button
             onClick={resetEdits}
             title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
-            className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
+            className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
           >
             ↺ {editCount}
           </button>
@@ -200,7 +200,7 @@ function ReportStudio() {
               key={z}
               onClick={() => setZoom(z)}
               className={
-                "tabular text-[9px] px-1.5 h-6 rounded border transition-caos " +
+                "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
                 (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
               }
             >
@@ -210,19 +210,19 @@ function ReportStudio() {
           <button
             onClick={fitToWidth}
             title="Fit the page to the available width"
-            className="tabular text-[9px] px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+            className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
           >
             FIT
           </button>
         </span>
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-1.5 tabular text-[9px] px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
           ⎙ EXPORT PDF
         </button>
         <span
-          className="tabular text-[9px] uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
           style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}
         >
           CP-5 CONDITIONAL — QA-117

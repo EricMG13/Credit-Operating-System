@@ -30,7 +30,7 @@ export function RailShell({
           onClick={onToggle}
           title={expandTitle}
           aria-label={expandTitle}
-          className="text-caos-muted hover:text-caos-text transition-caos text-[12px]"
+          className="text-caos-muted hover:text-caos-text transition-caos text-caos-2xl"
         >
           {glyph}
         </button>

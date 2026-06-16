@@ -32,8 +32,8 @@ function Monitor() {
 
   const headStat = (l: string, v: string, c?: string, big?: boolean) => (
     <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-row")} style={{ color: c }}>{v}</span>
+      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
+      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
     </span>
   );
 
@@ -41,14 +41,14 @@ function Monitor() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-5 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="tabular text-[10px] text-caos-accent whitespace-nowrap">CP-MON</span>
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">Monitor — email intelligence &amp; alert routing</span>
+        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-MON</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Monitor — email intelligence &amp; alert routing</span>
         <div className="flex-1" />
         {headStat("Msgs today", "105")}
         {headStat("Unresolved", "4", "var(--caos-warning)")}
@@ -56,7 +56,7 @@ function Monitor() {
         {headStat("Critical", "2", "var(--caos-critical)", true)}
         {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
         <SimControls run={run} />
-        <span className="tabular text-[10px] text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
+        <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
       </div>
 
       {/* workspace — intake stream is primary; alert routing rides alongside */}
@@ -67,7 +67,7 @@ function Monitor() {
           right={
             <span className="flex items-center gap-1.5">
               <Dot sev="running" pulse={live} />
-              <span className="tabular text-[9px] text-caos-muted">{live ? "LIVE" : "PAUSED"} · 105 msgs today</span>
+              <span className="tabular text-caos-xs text-caos-muted">{live ? "LIVE" : "PAUSED"} · 105 msgs today</span>
             </span>
           }
         >
@@ -76,7 +76,7 @@ function Monitor() {
         <PanelShell
           title="Alert Routing · CP-MON-H"
           className="min-h-0"
-          right={<span className="tabular text-[9px] text-caos-muted">{alertsToday} routed</span>}
+          right={<span className="tabular text-caos-xs text-caos-muted">{alertsToday} routed</span>}
         >
           <div className="h-full overflow-auto">
             <AlertFeed tick={tick} live={live || run.sim.done} />

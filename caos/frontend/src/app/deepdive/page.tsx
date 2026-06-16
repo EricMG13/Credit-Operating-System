@@ -107,25 +107,25 @@ function DeepDive() {
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-4 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-[11px] transition-caos whitespace-nowrap">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
           ← Directory
         </Link>
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-[11px] text-caos-text font-medium whitespace-nowrap">{DEAL.deal}</span>
-        <span className="tabular text-[9.5px] text-caos-muted whitespace-nowrap">RUN #2641 · {run.completed}/{run.total} modules complete</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">{DEAL.deal}</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">RUN #2641 · {run.completed}/{run.total} modules complete</span>
         <div className="flex-1"></div>
-        <span className="tabular text-[9px] text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
+        <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
         <SimControls run={run} />
       </div>
 
       {/* module launcher strip */}
       <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-3 overflow-x-auto">
-        <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Module outputs</span>
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Module outputs</span>
         {GROUPS.map((g) => (
           <div key={g.label} className="flex items-center gap-1 pl-3 border-l border-caos-border">
-            <span className="tabular text-[8.5px] text-caos-muted whitespace-nowrap mr-0.5">{g.label}</span>
+            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap mr-0.5">{g.label}</span>
             {g.mods.map((id) => {
               const st = gateState(GATE[id] || id);
               const ok = isCleared(st);
@@ -136,7 +136,7 @@ function DeepDive() {
                   onClick={() => setTab(id)}
                   title={MODULES.find((m) => m.id === id)?.name}
                   className={
-                    "flex items-center gap-1.5 tabular text-[9.5px] px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+                    "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
                     (sel ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
                   }
                   style={{ opacity: ok || sel ? 1 : 0.55 }}
@@ -165,16 +165,16 @@ function DeepDive() {
           title={title}
           right={
             <span className="flex items-center gap-3">
-              <span className="tabular text-[9px] text-caos-muted">ATLF</span>
+              <span className="tabular text-caos-xs text-caos-muted">ATLF</span>
               {live.runId ? (
-                <span className="tabular text-[9px]" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
                   ● LIVE
                 </span>
               ) : null}
               <button
                 onClick={() => setChatOpen(!chatOpen)}
                 title="Ask follow-up questions about this issuer"
-                className="tabular text-[9.5px] whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+                className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
                 ASK ATLF
               </button>
@@ -189,8 +189,8 @@ function DeepDive() {
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />
-              <div className="tabular text-[11px]">{gateId} {gateState(gateId) === "running" ? "running…" : "awaiting upstream dependencies"}</div>
-              <div className="text-[10px]">output unlocks when the producing module clears its gate</div>
+              <div className="tabular text-caos-xl">{gateId} {gateState(gateId) === "running" ? "running…" : "awaiting upstream dependencies"}</div>
+              <div className="text-caos-md">output unlocks when the producing module clears its gate</div>
             </div>
           )}
         </Panel>

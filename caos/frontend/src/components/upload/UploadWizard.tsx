@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { TextInput } from "@/components/shared/TextInput";
 import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/lib/api";
@@ -168,7 +169,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       </FirstRunHint>
       {/* step strip */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
-        <span className="tabular text-[8.5px] uppercase tracking-widest text-caos-muted whitespace-nowrap">Intake steps</span>
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Intake steps</span>
         {STEPS.map((s, i) => {
           const state = i < stepIdx ? "done" : i === stepIdx ? "active" : "pending";
           return (
@@ -176,7 +177,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               {i > 0 ? <span className="w-3 h-px bg-caos-border" /> : null}
               <span
                 className={
-                  "flex items-center gap-1.5 tabular text-[9.5px] px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+                  "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
                   (state === "active"
                     ? "border-caos-accent bg-caos-elevated text-caos-text"
                     : state === "done"
@@ -185,7 +186,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                 }
               >
                 {state === "done" ? (
-                  <span className="text-[9px]" style={{ color: "var(--caos-success)" }}>✓</span>
+                  <span className="text-caos-xs" style={{ color: "var(--caos-success)" }}>✓</span>
                 ) : (
                   <Dot sev={state === "active" ? "running" : "idle"} pulse={state === "active"} />
                 )}
@@ -195,15 +196,15 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           );
         })}
         <span className="flex-1" />
-        {selectedIssuer ? <span className="tabular text-[9px] text-caos-accent whitespace-nowrap">{selectedIssuer.name}</span> : null}
-        {step !== "issuer" && modeMeta ? <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· {modeMeta.label}</span> : null}
-        {step !== "issuer" && files.length ? <span className="tabular text-[9px] text-caos-muted whitespace-nowrap">· {files.length} file{files.length > 1 ? "s" : ""}</span> : null}
+        {selectedIssuer ? <span className="tabular text-caos-xs text-caos-accent whitespace-nowrap">{selectedIssuer.name}</span> : null}
+        {step !== "issuer" && modeMeta ? <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· {modeMeta.label}</span> : null}
+        {step !== "issuer" && files.length ? <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· {files.length} file{files.length > 1 ? "s" : ""}</span> : null}
       </div>
 
       {error ? (
         <div className="rounded border px-3 py-2 flex items-center gap-2" style={{ borderColor: "rgba(239,68,68,0.5)", background: "rgba(239,68,68,0.07)" }}>
           <Dot sev="critical" />
-          <span className="text-[10.5px]" style={{ color: "var(--caos-critical)" }}>{error}</span>
+          <span className="text-caos-lg" style={{ color: "var(--caos-critical)" }}>{error}</span>
         </div>
       ) : null}
 
@@ -211,9 +212,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       {step === "issuer" ? (
         <Panel
           title="Select issuer"
-          right={<span className="tabular text-[9px] text-caos-muted">{issuers.length} registered</span>}
+          right={<span className="tabular text-caos-xs text-caos-muted">{issuers.length} registered</span>}
         >
-          <div className="text-[11px]">
+          <div className="text-caos-xl">
             {issuers.map((issuer) => (
               <button
                 key={issuer.id}
@@ -223,9 +224,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                   (selectedIssuer?.id === issuer.id ? "bg-caos-elevated caos-selected relative z-[5]" : "")
                 }
               >
-                <span className="tabular text-caos-accent text-[10.5px]">{issuer.ticker?.slice(0, 5).toUpperCase() || "—"}</span>
+                <span className="tabular text-caos-accent text-caos-lg">{issuer.ticker?.slice(0, 5).toUpperCase() || "—"}</span>
                 <span className="text-caos-text truncate">{issuer.name}</span>
-                <span className="tabular text-[9px] text-caos-muted text-right">SELECT →</span>
+                <span className="tabular text-caos-xs text-caos-muted text-right">SELECT →</span>
               </button>
             ))}
           </div>
@@ -233,37 +234,39 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             {!showNewIssuer ? (
               <button
                 onClick={() => setShowNewIssuer(true)}
-                className="w-full tabular text-[10px] py-1.5 rounded border border-dashed border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos"
+                className="w-full tabular text-caos-md py-1.5 rounded border border-dashed border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos"
               >
                 + ADD NEW ISSUER
               </button>
             ) : (
               <div className="flex flex-col gap-2">
-                <input
+                <TextInput
                   type="text"
                   value={newIssuerName}
                   onChange={(e) => setNewIssuerName(e.target.value)}
                   placeholder="Issuer name (e.g. Atlas Forge Industrials)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                  aria-label="Issuer name"
+                  className="w-full px-2.5 py-1.5 text-caos-lg"
                 />
-                <input
+                <TextInput
                   type="text"
                   value={newIssuerTicker}
                   onChange={(e) => setNewIssuerTicker(e.target.value)}
                   placeholder="Ticker (optional)"
-                  className="w-full bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[10.5px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+                  aria-label="Ticker (optional)"
+                  className="w-full px-2.5 py-1.5 text-caos-lg"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={handleCreateIssuer}
                     disabled={!newIssuerName.trim()}
-                    className="tabular text-[10px] px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40"
+                    className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40"
                   >
                     CREATE
                   </button>
                   <button
                     onClick={() => setShowNewIssuer(false)}
-                    className="tabular text-[10px] px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+                    className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
                   >
                     CANCEL
                   </button>
@@ -279,7 +282,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         <Panel
           title={"Files & run mode · " + (selectedIssuer?.name || "")}
           right={
-            <button onClick={() => { setStep("issuer"); setFiles([]); }} className="tabular text-[9px] text-caos-muted hover:text-caos-text transition-caos">
+            <button onClick={() => { setStep("issuer"); setFiles([]); }} className="tabular text-caos-xs text-caos-muted hover:text-caos-text transition-caos">
               ← BACK
             </button>
           }
@@ -294,10 +297,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               }}
             >
               <input {...getInputProps()} />
-              <div className="text-[10.5px] text-caos-text/85">
+              <div className="text-caos-lg text-caos-text/85">
                 Drop all deal documents here, or click to browse
               </div>
-              <div className="tabular text-[9px] text-caos-muted mt-1">
+              <div className="tabular text-caos-xs text-caos-muted mt-1">
                 PDF / XLSX · multiple files · documents are already dated — CP-0 classifies on ingest
               </div>
             </div>
@@ -306,11 +309,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
               <div className="rounded border border-caos-border overflow-hidden">
                 {files.map((f) => (
                   <div key={f.name + f.size} className="grid grid-cols-[1fr_90px_60px] items-center gap-x-3 px-3 py-[6px] border-b border-caos-border/50 last:border-b-0">
-                    <span className="text-[10.5px] text-caos-text truncate">{f.name}</span>
-                    <span className="tabular text-[9px] text-caos-muted text-right">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
+                    <span className="text-caos-lg text-caos-text truncate">{f.name}</span>
+                    <span className="tabular text-caos-xs text-caos-muted text-right">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
                     <button
                       onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
-                      className="tabular text-[9px] text-caos-muted hover:text-caos-text text-right transition-caos"
+                      className="tabular text-caos-xs text-caos-muted hover:text-caos-text text-right transition-caos"
                     >
                       REMOVE
                     </button>
@@ -320,7 +323,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             ) : null}
 
             <div>
-              <div className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
+              <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
               <div className="rounded border border-caos-border overflow-hidden">
                 {RUN_MODES.map((m) => (
                   <button
@@ -331,10 +334,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                       (runMode === m.k ? "bg-caos-elevated" : "")
                     }
                   >
-                    <span className="tabular text-[9px] text-caos-accent">{m.code}</span>
-                    <span className="text-caos-text text-[10.5px]">{m.label}</span>
-                    <span className="text-caos-muted text-[9.5px] truncate">{m.desc}</span>
-                    <span className="tabular text-[9px] text-right" style={{ color: runMode === m.k ? "var(--caos-success)" : "var(--caos-muted)" }}>
+                    <span className="tabular text-caos-xs text-caos-accent">{m.code}</span>
+                    <span className="text-caos-text text-caos-lg">{m.label}</span>
+                    <span className="text-caos-muted text-caos-sm truncate">{m.desc}</span>
+                    <span className="tabular text-caos-xs text-right" style={{ color: runMode === m.k ? "var(--caos-success)" : "var(--caos-muted)" }}>
                       {runMode === m.k ? "✓ SELECTED" : "SELECT"}
                     </span>
                   </button>
@@ -345,7 +348,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             <button
               onClick={handleUpload}
               disabled={files.length === 0 || uploading}
-              className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-[10px] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {uploading ? (
                 <>
@@ -372,24 +375,24 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           right={
             <span className="flex items-center gap-1.5">
               <Dot sev={failCount ? "warning" : "ok"} />
-              <span className="tabular text-[9px] text-caos-muted">
+              <span className="tabular text-caos-xs text-caos-muted">
                 {okCount}/{outcomes.length} vaulted · {totalChunks} chunks
               </span>
             </span>
           }
         >
-          <div className="px-3 py-2.5 border-b border-caos-border text-[10.5px] text-caos-text leading-snug">
+          <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
             {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
             {modeMeta?.label} ({modeMeta?.code}) run queued
             {failCount ? ` · ${failCount} failed` : ""}
             <span className="text-caos-muted"> — view the module route on the Execution Graph</span>
           </div>
-          <div className="text-[10px]">
+          <div className="text-caos-md">
             {outcomes.map((o) => (
               <div key={o.name} className="grid grid-cols-[14px_1fr_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
                 <Dot sev={o.result ? "ok" : "critical"} />
                 <span className="text-caos-text truncate">{o.name}</span>
-                <span className="tabular text-[9px] text-right" style={{ color: o.result ? "var(--caos-muted)" : "var(--caos-critical)" }}>
+                <span className="tabular text-caos-xs text-right" style={{ color: o.result ? "var(--caos-muted)" : "var(--caos-critical)" }}>
                   {o.result ? `${o.result.chunks_created} chunks` : o.error}
                 </span>
               </div>
@@ -398,19 +401,19 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           <div className="p-3 flex gap-2">
             <button
               onClick={reset}
-              className="flex-1 tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+              className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
             >
               UPLOAD ANOTHER
             </button>
             <Link
               href="/deepdive"
-              className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+              className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
             >
               OPEN DEEP-DIVE →
             </Link>
             <Link
               href="/pipeline"
-              className="flex-1 no-underline text-center tabular text-[10px] py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+              className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
             >
               VIEW EXECUTION GRAPH →
             </Link>

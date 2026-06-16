@@ -7,6 +7,8 @@
 
 import { Fragment, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
+import { TextInput } from "@/components/shared/TextInput";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
 import { fmtMetric } from "@/lib/query/format";
 import { CitationViewer } from "@/components/command/CitationViewer";
@@ -31,7 +33,7 @@ function Pill({ text, color, title }: { text: string; color: string; title?: str
   return (
     <span
       title={title}
-      className="tabular text-[8px] uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
+      className="tabular text-caos-3xs uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
       style={{ color, borderColor: color + "66", background: color + "14" }}
     >
       {text}
@@ -43,13 +45,13 @@ function Pill({ text, color, title }: { text: string; color: string; title?: str
 // carry a clickable citation chip that opens the source chunk; seed reads as
 // illustrative.
 function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; ranked: boolean; onOpenCite: OpenCite }) {
-  if (!cell) return <span className="tabular text-[10px] text-caos-muted">—</span>;
+  if (!cell) return <span className="tabular text-caos-md text-caos-muted">—</span>;
   const cite = cell.citation;
   const chipLabel = cite?.evidence_id || (cite?.chunk_id ? "src" : null);
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">
       <span
-        className="tabular text-[10px]"
+        className="tabular text-caos-md"
         style={{ color: ranked ? "var(--caos-accent)" : "var(--caos-text)", fontWeight: ranked ? 600 : 400 }}
       >
         {fmtMetric(cell.value, cell.unit)}
@@ -58,12 +60,12 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
         <button
           onClick={() => onOpenCite(cite.chunk_id!, chipLabel)}
           title={`Open source — ${cite.evidence_id ? "claim " + (cite.claim_id ?? "?") + " · " + cite.evidence_id : "derived from document"} · chunk ${cite.chunk_id.slice(0, 8)}`}
-          className="tabular text-[8px] px-1 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+          className="tabular text-caos-3xs px-1 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
         >
           {chipLabel}
         </button>
       ) : ranked && cell.provenance === "seed" ? (
-        <span title="Illustrative seed value (no sourced value yet)" className="tabular text-[8px] text-caos-muted">seed</span>
+        <span title="Illustrative seed value (no sourced value yet)" className="tabular text-caos-3xs text-caos-muted">seed</span>
       ) : null}
     </span>
   );
@@ -76,12 +78,12 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
       <table className="w-full border-collapse">
         <thead>
           <tr className="text-left">
-            <th className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">#</th>
-            <th className="tabular text-[8.5px] uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">Issuer</th>
+            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">#</th>
+            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">Issuer</th>
             {res.columns.map((c) => (
               <th
                 key={c.key}
-                className="tabular text-[8.5px] uppercase tracking-wider font-normal py-1 px-2 text-right whitespace-nowrap"
+                className="tabular text-caos-2xs uppercase tracking-wider font-normal py-1 px-2 text-right whitespace-nowrap"
                 style={{ color: c.key === res.rank_by ? "var(--caos-accent)" : "var(--caos-muted)" }}
                 title={c.higher_is_better ? "higher is stronger" : "higher is weaker / more exposed"}
               >
@@ -106,11 +108,11 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
             return (
               <Fragment key={row.issuer.id}>
                 <tr className="border-t border-caos-border/60">
-                  <td className="tabular text-[10px] text-caos-muted py-1.5 pr-2 align-top">{i + 1}</td>
+                  <td className="tabular text-caos-md text-caos-muted py-1.5 pr-2 align-top">{i + 1}</td>
                   <td className="py-1.5 pr-2 align-top">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-[10px] text-caos-text whitespace-nowrap">{row.issuer.name}</span>
-                      {row.issuer.ticker ? <span className="tabular text-[8.5px] text-caos-muted">{row.issuer.ticker}</span> : null}
+                      <span className="text-caos-md text-caos-text whitespace-nowrap">{row.issuer.name}</span>
+                      {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
                       <Pill text={badge.text} color={badge.color} title={badge.title} />
                       <GateBadge qa={qa} />
                     </div>
@@ -129,12 +131,12 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
                       <div className="pl-2 border-l-2 border-caos-accent/40">
                         <button
                           onClick={() => onOpenCite(row.evidence!.chunk_id, row.evidence!.doc)}
-                          className="tabular text-[8px] uppercase tracking-wide text-caos-muted hover:text-caos-accent transition-caos mb-0.5 focus-ring"
+                          className="tabular text-caos-3xs uppercase tracking-wide text-caos-muted hover:text-caos-accent transition-caos mb-0.5 focus-ring"
                           title="Open source"
                         >
                           {row.evidence.doc}
                         </button>
-                        <div className="text-[9.5px] text-caos-text/80 leading-relaxed">&ldquo;{row.evidence.text}&rdquo;</div>
+                        <div className="text-caos-sm text-caos-text/80 leading-relaxed">&ldquo;{row.evidence.text}&rdquo;</div>
                       </div>
                     </td>
                   </tr>
@@ -143,7 +145,7 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
             );
           })}
           {!res.rows.length ? (
-            <tr><td colSpan={res.columns.length + 2} className="tabular text-[10px] text-caos-muted py-2">No issuers matched.</td></tr>
+            <tr><td colSpan={res.columns.length + 2} className="tabular text-caos-md text-caos-muted py-2">No issuers matched.</td></tr>
           ) : null}
         </tbody>
       </table>
@@ -155,17 +157,17 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
 // with cited source excerpts (the qualitative counterpart to the metric table).
 function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: OpenCite }) {
   if (!res.rows.length) {
-    return <div className="tabular text-[10px] text-caos-muted py-1">No issuer documents matched.</div>;
+    return <div className="tabular text-caos-md text-caos-muted py-1">No issuer documents matched.</div>;
   }
   return (
     <div className="flex flex-col gap-2 overflow-auto" style={{ maxHeight: 300 }}>
       {res.rows.map((row, i) => (
         <div key={row.issuer.id} className="rounded border border-caos-border/70 bg-caos-bg/40">
           <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-caos-border/50">
-            <span className="tabular text-[10px] text-caos-muted">{i + 1}</span>
-            <span className="text-[10px] text-caos-text whitespace-nowrap">{row.issuer.name}</span>
-            {row.issuer.ticker ? <span className="tabular text-[8.5px] text-caos-muted">{row.issuer.ticker}</span> : null}
-            {row.issuer.industry ? <span className="tabular text-[8.5px] text-caos-muted">· {row.issuer.industry}</span> : null}
+            <span className="tabular text-caos-md text-caos-muted">{i + 1}</span>
+            <span className="text-caos-md text-caos-text whitespace-nowrap">{row.issuer.name}</span>
+            {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
+            {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
             <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />
           </div>
@@ -174,12 +176,12 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
               <div key={ex.chunk_id} className="pl-2 border-l-2 border-caos-accent/40">
                 <button
                   onClick={() => onOpenCite(ex.chunk_id, ex.doc)}
-                  className="tabular text-[8px] uppercase tracking-wide text-caos-muted hover:text-caos-accent transition-caos mb-0.5 focus-ring"
+                  className="tabular text-caos-3xs uppercase tracking-wide text-caos-muted hover:text-caos-accent transition-caos mb-0.5 focus-ring"
                   title="Open source"
                 >
                   {ex.doc}
                 </button>
-                <div className="text-[10px] text-caos-text/90 leading-relaxed">&ldquo;{ex.text}&rdquo;</div>
+                <div className="text-caos-md text-caos-text/90 leading-relaxed">&ldquo;{ex.text}&rdquo;</div>
               </div>
             ))}
           </div>
@@ -221,19 +223,21 @@ export function NlQueryBody() {
     <div className="flex flex-col gap-2">
         {/* input */}
         <div className="flex items-center gap-2">
-          <span className="text-caos-accent text-[12px]">✦</span>
-          <input
+          <span className="text-caos-accent text-caos-2xl">✦</span>
+          <TextInput
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); run(); } }}
             placeholder="Ask across issuers — e.g. which margins are most exposed to energy-price inflation"
-            className="flex-1 bg-caos-bg border border-caos-border rounded px-2.5 py-1.5 text-[11px] text-caos-text placeholder:text-caos-muted outline-none focus:border-caos-accent/70 transition-caos"
+            aria-label="Ask a question across issuers"
+            maxLength={500}
+            className="flex-1 px-2.5 py-1.5 text-caos-xl"
           />
           <button
             onClick={() => run()}
             disabled={busy || !q.trim()}
-            className="shrink-0 tabular text-[10px] px-3 py-1.5 rounded transition-caos disabled:opacity-40"
-            style={{ background: "var(--caos-accent)", color: "#0a0a0f" }}
+            className="shrink-0 tabular text-caos-md px-3 py-1.5 rounded transition-caos disabled:opacity-40"
+            style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
           >
             {busy ? "…" : "ASK"}
           </button>
@@ -246,7 +250,7 @@ export function NlQueryBody() {
               <button
                 key={s}
                 onClick={() => run(s)}
-                className="tabular text-[9px] px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+                className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
               >
                 {s}
               </button>
@@ -255,16 +259,16 @@ export function NlQueryBody() {
         ) : null}
 
         {err ? (
-          <div className="tabular text-[10px] px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)", background: "rgba(245,165,36,0.08)" }}>
-            ⚠ {err}
+          <div className="tabular text-caos-md px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)", background: "rgba(245,165,36,0.08)" }}>
+            <StatusGlyph kind="warning" /> {err}
           </div>
         ) : null}
 
         {res ? (
           <div className="flex flex-col gap-2">
             {/* interpretation — show the analyst exactly how the question was read */}
-            <div className="tabular text-[10px] text-caos-muted leading-snug">
-              <span className="uppercase tracking-wider text-caos-micro text-caos-accent mr-1.5">Reading</span>
+            <div className="tabular text-caos-md text-caos-muted leading-snug">
+              <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5">Reading</span>
               {res.interpretation}
             </div>
 
@@ -274,7 +278,7 @@ export function NlQueryBody() {
 
             {/* caveats — honesty about seed vs run-derived / qualitative match */}
             {res.caveats.length ? (
-              <div className="tabular text-[9px] text-caos-muted leading-snug">
+              <div className="tabular text-caos-xs text-caos-muted leading-snug">
                 {res.caveats.map((c, i) => <div key={i}>· {c}</div>)}
               </div>
             ) : null}
@@ -291,7 +295,7 @@ export function NlQuery() {
     <PanelShell
       title="Ask across issuers · cross-issuer query"
       className="shrink-0"
-      right={<span className="tabular text-[9px] text-caos-muted">grounded in the metric store · cited where run-derived</span>}
+      right={<span className="tabular text-caos-xs text-caos-muted">grounded in the metric store · cited where run-derived</span>}
     >
       <div className="p-2.5"><NlQueryBody /></div>
     </PanelShell>

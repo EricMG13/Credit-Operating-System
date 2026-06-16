@@ -14,8 +14,8 @@ export function SectionHeader({
 }) {
   return (
     <div className={"px-3 py-2 border-b border-caos-border flex items-center gap-2 " + className}>
-      <span className="tabular text-caos-label uppercase tracking-wider text-caos-muted">{title}</span>
-      {right ? <span className="tabular text-caos-label text-caos-muted ml-auto">{right}</span> : null}
+      <span className="tabular text-caos-sm uppercase tracking-wider text-caos-muted">{title}</span>
+      {right ? <span className="tabular text-caos-sm text-caos-muted ml-auto">{right}</span> : null}
     </div>
   );
 }

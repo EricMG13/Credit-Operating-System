@@ -32,12 +32,12 @@ export function FirstRunHint({
   };
   return (
     <div className={"caos-enter flex items-start gap-2.5 rounded border border-caos-border px-3 py-1.5 " + className}>
-      <span className="tabular text-caos-micro uppercase tracking-wider text-caos-accent mt-px shrink-0">Tip</span>
-      <div className="text-caos-body text-caos-muted leading-snug flex-1">{children}</div>
+      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent mt-px shrink-0">Tip</span>
+      <div className="text-caos-lg text-caos-muted leading-snug flex-1">{children}</div>
       <button
         onClick={dismiss}
         aria-label="Dismiss hint"
-        className="shrink-0 rounded text-caos-muted hover:text-caos-text transition-caos text-[11px] focus-ring"
+        className="shrink-0 rounded text-caos-muted hover:text-caos-text transition-caos text-caos-xl focus-ring"
       >
         ✕
       </button>

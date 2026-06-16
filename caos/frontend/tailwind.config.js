@@ -4,7 +4,6 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        "gray-850": "#1a1f2e",
         caos: {
           bg: "#0a0a0f",
           panel: "#12121a",
@@ -31,21 +30,30 @@ module.exports = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
-      // Deliberate type scale — replaces the ad-hoc `text-[8.5px]…text-[12px]`
-      // band with named steps. Adopted in Phase 1.
+      // Type scale — font-size only for the dense band (line-height inherits the
+      // 1.5 base; the dense UI tunes leading per context), so the named steps are
+      // drop-in for the ad-hoc text-[Npx] they replace. Headings keep a tight
+      // line-height. Steps mirror the sizes actually used across the workspace.
       fontSize: {
-        "caos-micro": ["8.5px", { lineHeight: "1.3" }],
-        "caos-label": ["9.5px", { lineHeight: "1.35" }],
-        "caos-body": ["10.5px", { lineHeight: "1.5" }],
-        "caos-row": ["12px", { lineHeight: "1.4" }],
+        "caos-3xs": "8px",
+        "caos-2xs": "8.5px",
+        "caos-xs": "9px",
+        "caos-sm": "9.5px",
+        "caos-md": "10px",
+        "caos-lg": "10.5px",
+        "caos-xl": "11px",
+        "caos-2xl": "12px",
         "caos-metric": ["16px", { lineHeight: "1.15" }],
         "caos-hero": ["22px", { lineHeight: "1.1" }],
       },
-      // Semantic spacing for intentional rhythm (group ≪ item ≪ section).
-      spacing: {
-        group: "4px",
-        item: "8px",
-        section: "16px",
+      // Semantic z-index scale — named layers instead of magic numbers, so
+      // stacking is intentional: sticky < raised < overlay < modal < toast.
+      zIndex: {
+        sticky: "10",
+        raised: "30",
+        overlay: "40",
+        modal: "50",
+        toast: "60",
       },
     },
   },

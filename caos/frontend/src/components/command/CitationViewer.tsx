@@ -7,6 +7,8 @@
 import { useEffect, useState } from "react";
 import { getChunk } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 
 export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; label?: string | null; onClose: () => void }) {
   const [chunk, setChunk] = useState<ChunkDTO | null>(null);
@@ -28,34 +30,31 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
     return () => { cancelled = true; };
   }, [chunkId]);
 
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 caos-enter"
+      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 caos-enter"
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         className="w-[520px] max-w-[92vw] max-h-[80vh] flex flex-col bg-caos-panel border border-caos-accent/50 rounded-md overflow-hidden"
-        style={{ boxShadow: "0 24px 72px -16px rgba(0,0,0,0.9)" }}
+        style={{ boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Source document chunk"
       >
         <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
-          <span className="text-caos-accent text-[11px]">❝</span>
-          <span className="tabular text-[10px] uppercase tracking-wider text-caos-muted">Source</span>
-          {label ? <span className="tabular text-[9px] px-1.5 py-px rounded border border-caos-accent/50 text-caos-accent">{label}</span> : null}
+          <span className="text-caos-accent text-caos-xl">❝</span>
+          <span className="tabular text-caos-md uppercase tracking-wider text-caos-muted">Source</span>
+          {label ? <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-accent/50 text-caos-accent">{label}</span> : null}
           <div className="flex-1" />
           <button
             onClick={onClose}
             aria-label="Close source viewer"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-[10px] focus-ring"
+            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
           >
             ✕
           </button>
@@ -63,20 +62,20 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
 
         <div className="flex-1 min-h-0 overflow-auto px-3.5 py-3">
           {err ? (
-            <div className="tabular text-[10px]" style={{ color: "var(--caos-warning)" }}>⚠ {err}</div>
+            <div className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div>
           ) : !chunk ? (
-            <div className="tabular text-[10px] text-caos-muted">Loading source…</div>
+            <div className="tabular text-caos-md text-caos-muted">Loading source…</div>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] text-caos-text font-medium">{chunk.issuer_name}</span>
-                <span className="tabular text-[8.5px] uppercase tracking-wide px-1.5 py-px rounded border border-caos-border text-caos-muted">{chunk.doc_type}</span>
-                <span className="tabular text-[9px] text-caos-muted">{chunk.doc}</span>
+                <span className="text-caos-xl text-caos-text font-medium">{chunk.issuer_name}</span>
+                <span className="tabular text-caos-2xs uppercase tracking-wide px-1.5 py-px rounded border border-caos-border text-caos-muted">{chunk.doc_type}</span>
+                <span className="tabular text-caos-xs text-caos-muted">{chunk.doc}</span>
               </div>
-              <div className="text-[11px] text-caos-text/90 leading-relaxed whitespace-pre-wrap border-l-2 border-caos-accent/40 pl-2.5">
+              <div className="text-caos-xl text-caos-text/90 leading-relaxed whitespace-pre-wrap border-l-2 border-caos-accent/40 pl-2.5">
                 {chunk.text}
               </div>
-              <div className="tabular text-[8px] uppercase tracking-wide text-caos-muted">
+              <div className="tabular text-caos-3xs uppercase tracking-wide text-caos-muted">
                 chunk {chunk.chunk_id.slice(0, 8)} · seq {chunk.seq}
               </div>
             </div>
