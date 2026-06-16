@@ -82,6 +82,58 @@ def test_synthesize_insufficient_without_terms():
     assert not p.claims
 
 
+# ── Real-agreement covenant formats (#26) ────────────────────────────────────
+# The "N:1.00" / "N to 1.00" ratio forms real credit agreements use, plus the
+# compliance-certificate form — and rejection of the many incurrence ratio tests.
+_MAINT_RATIO = ("The Borrower shall not permit the Total Leverage Ratio as of the last day "
+                "of any Fiscal Quarter to be greater than 5.75 to 1.00.")
+_COMPLIANCE = ("Total Leverage Ratio as of the Determination Date was __ : 1.00. "
+               "Maximum Permitted: 5.75:1.00. Total Leverage Ratio is computed as follows.")
+_INCURRENCE = ("The Borrower may incur Incremental Facilities if, on a Pro Forma Basis, the "
+               "Secured Leverage Ratio does not exceed 3.25 to 1.00 and no Default exists.")
+
+
+def test_derive_terms_ratio_format_covenant_clause():
+    terms = derive_covenant_terms([("c-ag", _MAINT_RATIO)])
+    assert terms["leverage_covenant_x"] == (5.75, "c-ag")  # "to 1.00" form, not "x"
+
+
+def test_derive_terms_compliance_certificate_ratio():
+    terms = derive_covenant_terms([("c-cc", _COMPLIANCE)])
+    assert terms["leverage_covenant_x"] == (5.75, "c-cc")  # "Maximum Permitted: N:1.00"
+
+
+def test_derive_terms_ignores_incurrence_ratio_tests():
+    # An incurrence test (no "shall not permit" / "Maximum Permitted") is NOT the
+    # maintenance covenant — it must not be mistaken for one.
+    assert derive_covenant_terms([("c-inc", _INCURRENCE)]) is None
+
+
+def test_synthesize_headroom_ratio_format():
+    p = asyncio.run(synthesize_covenants(_cp1(5.68, 2391.0), _retrieve(_MAINT_RATIO, "c-ag")))
+    assert p.runtime_output["covenant_structure"] == "maintenance"
+    calc = next(c for c in p.runtime_output["calculations"] if c["name"].startswith("Net leverage covenant"))
+    assert calc["numerator"] == 5.75
+    assert calc["value"] == pytest.approx(0.07, abs=0.01)  # 5.75 − 5.68 turns (razor-thin)
+
+
+def test_synthesize_sources_covenant_without_cp1_leverage():
+    """EDGAR-path case (#27): CP-1 has no leverage — still surface the covenant as a
+    directly-sourced fact, with headroom deferred, rather than abstaining."""
+    cp1_no_lev = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {"revenue": {"FY25": 4520}}},
+    )
+    p = asyncio.run(synthesize_covenants(cp1_no_lev, _retrieve(_MAINT_RATIO, "c-ag")))
+    assert validate_payload(p) == [] and p.confidence == "High"
+    assert p.runtime_output["covenant_structure"] == "maintenance"
+    assert p.runtime_output["leverage_covenant_x"] == 5.75
+    assert "current_net_leverage" not in p.runtime_output  # none to report
+    assert p.claims[0].evidence[0].lineage_class == "Directly Sourced"
+    assert all(c["name"] != "Net leverage covenant headroom" for c in p.runtime_output["calculations"])
+    assert any("headroom is not computed" in f for f in p.limitation_flags)
+
+
 # ── Cov-lite finding ─────────────────────────────────────────────────────────
 def test_covlite_finding_fires_for_covlite():
     p = ModulePayload(module_id="CP-4C", module_name="X", owned_object="o",
