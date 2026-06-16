@@ -6,7 +6,10 @@
 // viewFill. Sizes from clientWidth and rebuilds on container resize.
 
 import { useEffect, useRef } from "react";
-import { Chart } from "@antv/g2";
+// Type-only — the runtime g2 module is dynamically imported inside the effect so
+// it is code-split out of the first-load bundle (g2 v5 dominated /deepdive +
+// /reports). A type-only import is erased at compile time and adds no bundle cost.
+import type { Chart } from "@antv/g2";
 
 const CAOS_G2_THEMES = {
   dark: { type: "classicDark", view: { viewFill: "transparent" } },
@@ -44,6 +47,7 @@ export function G2Chart({
     const el = ref.current;
     if (!el) return;
     let chart: Chart | null = null;
+    let ChartCtor: typeof import("@antv/g2").Chart | null = null;
     let dead = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,11 +57,11 @@ export function G2Chart({
     // fires in hidden/backgrounded frames) for the width to hold still before
     // the first build, then rebuild on real container resizes.
     const build = () => {
-      if (dead) return;
+      if (dead || !ChartCtor) return;
       try { chart?.destroy(); } catch { /* already gone */ }
       el.innerHTML = "";
       builtWidth = el.clientWidth || 320;
-      chart = new Chart({ container: el, width: builtWidth, height });
+      chart = new ChartCtor({ container: el, width: builtWidth, height });
       chart.options({ theme: CAOS_G2_THEMES[mode] || CAOS_G2_THEMES.dark, ...spec });
       const p = chart.render();
       if (p && typeof p.catch === "function") p.catch(() => {});
@@ -81,7 +85,12 @@ export function G2Chart({
       if (stable >= 2 || tries > 24) { build(); ro.observe(el); }
       else settleTimer = setTimeout(settle, 32);
     };
-    settleTimer = setTimeout(settle, 0);
+    // Defer loading g2 until a chart actually mounts; then start sizing.
+    import("@antv/g2").then((m) => {
+      if (dead) return;
+      ChartCtor = m.Chart;
+      settleTimer = setTimeout(settle, 0);
+    });
 
     return () => {
       dead = true;
