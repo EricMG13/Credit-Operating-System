@@ -200,7 +200,7 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 | A-1 | Mock-vs-engine gap (some UI seeded, overlaid by live runs) | Trust the provenance/click-to-source numbers; flag any panel that lacks them. |
 | DATA-1 | `metric_facts` run-derived rows accrue per run, never pruned | Fine at pilot scale; add retention before opening runs widely. |
 | D-1 | `npm audit` advisories in the **dev/build** chain only | None ship in the static export; never `audit fix --force`. |
-| — | No managed backups | Schedule `pg_dump` + vault tarball via cron (deploy/README). |
+| — | On-host backups only | The `backup` service runs daily `pg_dump` + vault tarball with rotation (P7-1). **Copy `/backups` off-host** (rsync / object storage) for host-loss protection. |
 
 ---
 
