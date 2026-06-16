@@ -109,6 +109,14 @@ def test_derive_terms_ignores_incurrence_ratio_tests():
     assert derive_covenant_terms([("c-inc", _INCURRENCE)]) is None
 
 
+def test_derive_terms_senior_secured_single_threshold():
+    # Six Flags-style covenant *type* (Senior Secured Leverage Ratio) with a single
+    # threshold — the qualifier must be recognized, not only Total/Consolidated/Net.
+    text = ("The Borrower shall not permit the Senior Secured Leverage Ratio as of the last "
+            "day of any fiscal quarter to exceed 4.50 to 1.00.")
+    assert derive_covenant_terms([("c-ss", text)])["leverage_covenant_x"] == (4.5, "c-ss")
+
+
 def test_synthesize_headroom_ratio_format():
     p = asyncio.run(synthesize_covenants(_cp1(5.68, 2391.0), _retrieve(_MAINT_RATIO, "c-ag")))
     assert p.runtime_output["covenant_structure"] == "maintenance"
