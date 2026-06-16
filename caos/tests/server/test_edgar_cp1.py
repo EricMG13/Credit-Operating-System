@@ -132,6 +132,58 @@ def test_build_cp1_revenue_only_still_builds():
     assert any("not derived" in f for f in p.limitation_flags)
 
 
+# ── Real-issuer XBRL shapes (#27, found on Viasat) ───────────────────────────
+def test_build_cp1_sums_da_components_when_no_combined_tag():
+    # Viasat-style: no combined D&A tag — sum Depreciation + intangible amortization.
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 4_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", -100_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("Depreciation", [("2025-01-01", "2025-12-31", 1_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("AmortizationOfIntangibleAssets", [("2025-01-01", "2025-12-31", 300_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("LongTermDebtAndCapitalLeaseObligations", [("2025-12-31", 6_000_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("CashAndCashEquivalentsAtCarryingValue", [("2025-12-31", 1_500_000_000, 2025, "a", "2026-02-01")]),
+    }}}
+    p = build_cp1_payload("Sat Co", facts)
+    nf = p.runtime_output["normalized_financials"]
+    assert nf["adj_ebitda"]["FY2025"] == 1200.0          # -100 + (1000 + 300) D&A
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(3.75, abs=0.01)  # (6000-1500)/1200
+    assert p.runtime_output["xbrl_concepts"]["d_and_a"] == "Depreciation+AmortizationOfIntangibleAssets"
+
+
+def test_build_cp1_skips_stale_debt_tag():
+    # Debt tagged only years before the EBITDA period (filer switched concepts) →
+    # leverage must NOT be computed off the stale figure (the Viasat 2019 trap).
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 4_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 300_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("DepreciationDepletionAndAmortization", [("2025-01-01", "2025-12-31", 200_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("LongTermDebtNoncurrent", [("2019-12-31", 1_000_000_000, 2019, "old", "2020-02-01")]),
+        **_inst("CashAndCashEquivalentsAtCarryingValue", [("2025-12-31", 100_000_000, 2025, "a", "2026-02-01")]),
+    }}}
+    p = build_cp1_payload("Stale Co", facts)
+    assert "net_leverage_adj_ltm" not in p.runtime_output["normalized_financials"]
+    assert any("predates the EBITDA period" in f for f in p.limitation_flags)
+    assert not any(c.claim_id == "C-EDG-LEV" for c in p.claims)
+
+
+def test_build_cp1_prefers_recent_debt_concept():
+    # A stale Noncurrent tag (2019) AND a current AndCapitalLease tag (2025) → use the
+    # recent one (the Viasat pattern), never the stale figure.
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 4_000_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 300_000_000, 2025, "a", "2026-02-01")]),
+        **_flow("DepreciationDepletionAndAmortization", [("2025-01-01", "2025-12-31", 200_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("LongTermDebtNoncurrent", [("2019-12-31", 800_000_000, 2019, "old", "2020-02-01")]),
+        **_inst("LongTermDebtAndCapitalLeaseObligations", [("2025-12-31", 3_000_000_000, 2025, "a", "2026-02-01")]),
+        **_inst("CashAndCashEquivalentsAtCarryingValue", [("2025-12-31", 500_000_000, 2025, "a", "2026-02-01")]),
+    }}}
+    p = build_cp1_payload("Recent Co", facts)
+    nf = p.runtime_output["normalized_financials"]
+    assert nf["net_debt_ltm"] == 2500.0                 # 3000 (recent) - 500, not 800 (stale)
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(5.0, abs=0.01)  # 2500 / (300+200)
+    assert p.runtime_output["xbrl_concepts"]["long_term_debt"] == "LongTermDebtAndCapitalLeaseObligations"
+
+
 # ── Headline period projection (EDGAR annual filer) ──────────────────────────
 def test_extract_facts_marks_latest_fy_headline():
     payload = ModulePayload(
