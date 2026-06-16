@@ -57,7 +57,7 @@ function CommandCenter() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <div className="flex items-center rounded border border-caos-border overflow-hidden">
+        <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
           {([{ k: "cio", l: "PORTFOLIO" }, { k: "res", l: "RESEARCH" }, { k: "rv", l: "SECTOR RV" }] as const).map((v) => (
             <button
               key={v.k}
