@@ -125,6 +125,16 @@ def test_synthesize_headroom_ratio_format():
     assert calc["value"] == pytest.approx(0.07, abs=0.01)  # 5.75 − 5.68 turns (razor-thin)
 
 
+def test_synthesize_headroom_from_reported_leverage_no_net_debt():
+    # #34: a reported-disclosure CP-1 carries net leverage WITHOUT net debt; headroom
+    # only needs leverage, so CP-4C must still compute it (the non-EDGAR issuer path).
+    cp1 = ModulePayload(module_id="CP-1", module_name="X", owned_object="o",
+                        runtime_output={"normalized_financials": {"net_leverage_adj_ltm": 5.5}})
+    p = asyncio.run(synthesize_covenants(cp1, _retrieve(_MAINT_RATIO, "c-ag")))  # covenant 5.75
+    calc = next(c for c in p.runtime_output["calculations"] if c["name"].startswith("Net leverage covenant"))
+    assert calc["value"] == pytest.approx(0.25, abs=0.01)  # 5.75 − 5.5
+
+
 def test_synthesize_sources_covenant_without_cp1_leverage():
     """EDGAR-path case (#27): CP-1 has no leverage — still surface the covenant as a
     directly-sourced fact, with headroom deferred, rather than abstaining."""

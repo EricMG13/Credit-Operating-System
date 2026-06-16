@@ -152,11 +152,14 @@ async def extract_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[
 
 
 def _cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
+    # Leverage and net debt independently: a reported-disclosure CP-1 (non-EDGAR
+    # issuer) carries net_leverage_adj_ltm without net_debt, and headroom only needs
+    # leverage; net debt is only required for the incremental pro-forma calc.
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    if isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd:
-        return float(lev), float(nd)
-    return None, None
+    lev = float(lev) if isinstance(lev, (int, float)) and lev else None
+    nd = float(nd) if isinstance(nd, (int, float)) and nd else None
+    return lev, nd
 
 
 async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
