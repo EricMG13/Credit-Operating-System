@@ -4,7 +4,6 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        "gray-850": "#1a1f2e",
         caos: {
           bg: "#0a0a0f",
           panel: "#12121a",

@@ -122,6 +122,7 @@ export function EdgarImport({
             onKeyDown={(e) => e.key === "Enter" && search()}
             placeholder="Issuer + document, e.g. Atlas Forge credit agreement"
             aria-label="Search SEC EDGAR filings for this issuer"
+            maxLength={200}
             className="flex-1 px-2.5 py-1.5 text-caos-lg"
           />
           <button
