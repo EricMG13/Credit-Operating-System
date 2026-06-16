@@ -60,7 +60,7 @@ on every response:
 - **X-Content-Type-Options: nosniff**, **Referrer-Policy:
   strict-origin-when-cross-origin**, **Strict-Transport-Security** (HSTS).
 
-TLS is terminated at the Databricks edge.
+TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
 
 ## 4. Input handling
 
@@ -78,10 +78,11 @@ TLS is terminated at the Databricks edge.
 
 ## 5. Data & secrets
 
-- DB is SQLite by default (ephemeral) or Lakebase/Postgres via `DATABASE_URL`.
-  Documents live in a local vault dir or a Unity Catalog Volume
-  (`CAOS_STORAGE_DIR`).
-- `ANTHROPIC_API_KEY` is read from the environment / a Databricks secret; absent,
+- DB is SQLite by default (ephemeral) or Postgres via `DATABASE_URL` (the
+  self-hosted stack runs Postgres). Documents live in a local vault dir / Docker
+  volume (`CAOS_STORAGE_DIR`).
+- `ANTHROPIC_API_KEY` is read from the environment (injected from the deploy's
+  `.env`, never committed); absent,
   chat and synthesis degrade to deterministic demo/fixture output. **No secrets,
   databases, or vault contents are committed** (`.gitignore` covers them).
 
@@ -94,15 +95,15 @@ in [AUDIT.md](AUDIT.md) D-1.
 
 ## 7. Demo seed
 
-`CAOS_DEMO_SEED` (on in [app.yaml](../server/app.yaml) for the POC) seeds 3 demo
-issuers + the ATLF reference deal on boot — idempotent (skipped once the registry
-is non-empty), and the app logs a WARNING when it runs in production. **Set it
-`false` for any real (non-demo) deployment.**
+`CAOS_DEMO_SEED` seeds 3 demo issuers + the ATLF reference deal on boot —
+idempotent (skipped once the registry is non-empty), and the app logs a WARNING
+when it runs in production. The self-hosted stack fixes it **`false`**; set it
+`false` for any real (non-demo) deployment.
 
 ## 8. Threat-model boundaries (explicit non-goals today)
 
 - Multi-tenant isolation / per-issuer authorization (see §2).
-- Defense against a compromised Databricks edge or a deployment that bypasses it
+- Defense against a compromised edge proxy or a deployment that bypasses it
   (see §1).
 - Rate limiting / abuse controls beyond the upload size cap.
 
