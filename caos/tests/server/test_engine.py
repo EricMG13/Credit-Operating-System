@@ -21,7 +21,7 @@ from engine.gate import (
 )
 from engine.lineage import validate_lineage
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, validate_payload
-from retrieval import bm25_rank
+from retrieval import bm25_rank, build_index, rank_with_index
 
 
 # ── BM25 retrieval ───────────────────────────────────────────────────────────
@@ -41,6 +41,22 @@ def test_bm25_empty_query_or_no_match_returns_nothing():
     corpus = [("c1", "alpha beta gamma")]
     assert bm25_rank("", corpus) == []
     assert bm25_rank("zzzznotpresent", corpus) == []
+
+
+def test_prebuilt_index_matches_one_shot_bm25():
+    # P4-2: the in-run path builds the BM25 index once and scores every query
+    # against it. rank_with_index on a prebuilt index must be numerically
+    # identical to the one-shot bm25_rank, across reuse for many queries.
+    corpus = [
+        ("c1", "the senior facilities agreement caps add-backs at 25 percent"),
+        ("c2", "aftermarket installed base and contract renewal"),
+        ("c3", "adjusted net leverage 5.68x and interest coverage 2.1x"),
+    ]
+    index = build_index(corpus)
+    for q in ("net leverage coverage", "add-backs facilities", "aftermarket renewal", "", "zzz"):
+        reuse = [(h.chunk_id, round(h.score, 9)) for h in rank_with_index(index, q, k=3)]
+        oneshot = [(h.chunk_id, round(h.score, 9)) for h in bm25_rank(q, corpus, k=3)]
+        assert reuse == oneshot, f"mismatch for {q!r}: {reuse} != {oneshot}"
 
 
 # ── The deterministic CP-5 gate ──────────────────────────────────────────────
