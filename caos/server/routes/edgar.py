@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import edgar
 import ingest
+import rate_limit
 from config import get_settings
 from database import Document, DocumentChunk, Issuer, get_db
 from identity import CallerIdentity, get_identity
@@ -76,6 +77,21 @@ def _require_edgar() -> None:
         )
 
 
+# EDGAR routes make outbound SEC requests (and vault-exhibit fetches + ingests),
+# so cap per-caller — the in-edgar.py fair-access throttle is global, not per-user.
+_EDGAR_MAX_PER_MINUTE = 30
+
+
+def _edgar_rate_guard(caller: CallerIdentity) -> None:
+    if not rate_limit.hit(
+        f"edgar:{caller.id}", max_attempts=_EDGAR_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "EDGAR rate limit reached — try again in a minute.",
+        )
+
+
 def _hit_out(h: edgar.FilingHit) -> FilingHitOut:
     return FilingHitOut(
         cik=h.cik, accession=h.accession, form=h.form, filed_date=h.filed_date,
@@ -88,10 +104,11 @@ async def search_filings(
     q: str = Query(..., min_length=2),
     forms: Optional[str] = Query(None, description="Comma-separated, e.g. 8-K,S-4,10-K"),
     limit: int = Query(10, ge=1, le=50),
-    _: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
     """Full-text search → filing pointers (external · unverified)."""
     _require_edgar()
+    _edgar_rate_guard(caller)
     form_list = [f.strip() for f in forms.split(",")] if forms else None
     try:
         hits = await run_in_threadpool(edgar.search, q, form_list, None, None, limit)
@@ -105,10 +122,11 @@ async def issuer_filings(
     cik: str,
     forms: Optional[str] = Query(None),
     limit: int = Query(25, ge=1, le=100),
-    _: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
     """An issuer's recent filings, optionally filtered to covenant-bearing forms."""
     _require_edgar()
+    _edgar_rate_guard(caller)
     form_list = [f.strip() for f in forms.split(",")] if forms else None
     try:
         hits = await run_in_threadpool(edgar.list_filings, cik, form_list, limit)
@@ -121,10 +139,11 @@ async def issuer_filings(
 async def filing_exhibits(
     cik: str = Query(...),
     accession: str = Query(...),
-    _: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
     """A filing's documents, classified against the CP-4 covenant taxonomy."""
     _require_edgar()
+    _edgar_rate_guard(caller)
     try:
         exhibits = await run_in_threadpool(edgar.list_exhibits, cik, accession)
     except edgar.EdgarError as exc:
@@ -147,6 +166,7 @@ async def vault_exhibit(
     """Fetch an EDGAR exhibit and vault it through the standard ingest path,
     turning a pointer into an E-xx-eligible primary source for the issuer."""
     _require_edgar()
+    _edgar_rate_guard(caller)
     if body.run_mode.strip().lower() not in LEGAL_RUN_MODES:
         raise HTTPException(400, f"run_mode must be one of {sorted(LEGAL_RUN_MODES)}")
     issuer = await db.get(Issuer, body.issuer_id)

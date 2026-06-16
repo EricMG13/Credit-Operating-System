@@ -8,11 +8,12 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import ingest
+import rate_limit
 from database import Document, DocumentChunk, Issuer, get_db
 from identity import CallerIdentity, get_identity
 
@@ -20,6 +21,19 @@ router = APIRouter()
 
 # CP-X route templates — keep in sync with the frontend wizard / Concept B.
 RUN_MODES = {"full", "earnings", "rv", "legal"}
+
+# Uploads parse + chunk + store, so cap per-caller (DoS / resource abuse).
+_UPLOAD_MAX_PER_MINUTE = 20
+
+
+def _upload_rate_guard(caller: CallerIdentity) -> None:
+    if not rate_limit.hit(
+        f"upload:{caller.id}", max_attempts=_UPLOAD_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Upload rate limit reached — try again in a minute.",
+        )
 
 
 class IngestionResponse(BaseModel):
@@ -88,6 +102,7 @@ async def upload_document(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_pdf(content)
@@ -103,6 +118,7 @@ async def upload_pricing_sheet(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_xlsx(content)
