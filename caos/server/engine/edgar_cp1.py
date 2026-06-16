@@ -38,9 +38,14 @@ _REVENUE = ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
 _OP_INCOME = ("OperatingIncomeLoss",)
 _DA = ("DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet",
        "DepreciationAndAmortization")
+# Many filers (satellite / telecom / industrials — e.g. Viasat) report no combined
+# D&A tag, only the components; sum them as the EBITDA add-back when the combined
+# tag is absent.
+_DEPRECIATION = ("Depreciation", "DepreciationNonproduction")
+_AMORTIZATION = ("AmortizationOfIntangibleAssets", "AmortizationOfAcquiredIntangibleAssets")
 _INTEREST = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
-_LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt")
-_DEBT_CURRENT = ("LongTermDebtCurrent", "DebtCurrent")
+_LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations", "LongTermDebt")
+_DEBT_CURRENT = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent", "DebtCurrent")
 _CASH = ("CashAndCashEquivalentsAtCarryingValue",
          "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
 # Balance-sheet concepts for the Altman Z'' distress score (all instant).
@@ -115,11 +120,50 @@ def _series(us_gaap: dict, names: Sequence[str], kind: str) -> Tuple[Optional[st
     return None, {}
 
 
+def _da_series(us_gaap: dict) -> Tuple[Optional[str], Dict[int, Tuple[float, str]]]:
+    """D&A annual series → (label, {year: (val, accn)}). Prefer a combined D&A
+    concept; otherwise sum the components (depreciation + intangible amortization),
+    which is how many filers (e.g. Viasat) report it rather than a single D&A line."""
+    name, series = _series(us_gaap, _DA, "flow")
+    if series:
+        return name, series
+    _, dep = _series(us_gaap, _DEPRECIATION, "flow")
+    _, amort = _series(us_gaap, _AMORTIZATION, "flow")
+    if not dep and not amort:
+        return None, {}
+    combined: Dict[int, Tuple[float, str]] = {}
+    for y in sorted(set(dep) | set(amort)):
+        val = (dep[y][0] if y in dep else 0.0) + (amort[y][0] if y in amort else 0.0)
+        combined[y] = (val, dep[y][1] if y in dep else amort[y][1])
+    return "Depreciation+AmortizationOfIntangibleAssets", combined
+
+
 def _latest(series: Dict[int, Tuple[float, str]], year: int) -> Optional[Tuple[float, str]]:
     if year in series:
         return series[year]
     earlier = [y for y in series if y <= year]
     return series[max(earlier)] if earlier else None
+
+
+def _recent_instant(us_gaap: dict, names: Sequence[str], year: int):
+    """Among candidate instant concepts, the one whose latest value at-or-before
+    ``year`` is the *most recent* — so a concept a filer stopped tagging years ago
+    (e.g. Viasat's LongTermDebtNoncurrent, last tagged 2019, after it moved to
+    LongTermDebtAndCapitalLeaseObligations) never supplies a stale figure. Returns
+    ``(value_year, value, accession, concept)`` or None."""
+    best = None
+    for name in names:
+        data = (us_gaap.get(name) or {}).get("units", {}).get("USD")
+        if not data:
+            continue
+        series = _annual_series(data, "instant")
+        cand = [y for y in series if y <= year]
+        if not cand:
+            continue
+        y = max(cand)
+        if best is None or y > best[0]:
+            best = (y, series[y][0], series[y][1], name)
+    return best
 
 
 def _m(v: float) -> float:
@@ -136,11 +180,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     if not rev:
         return None
     op_c, opinc = _series(us, _OP_INCOME, "flow")
-    da_c, da = _series(us, _DA, "flow")
+    da_c, da = _da_series(us)
     int_c, interest = _series(us, _INTEREST, "flow")
-    ltd_c, ltd = _series(us, _LT_DEBT, "instant")
-    dc_c, dcur = _series(us, _DEBT_CURRENT, "instant")
-    cash_c, cash = _series(us, _CASH, "instant")
 
     years = sorted(rev)[-max_years:]
     ebitda = {y: opinc[y][0] + da[y][0] for y in years if y in opinc and y in da}
@@ -151,9 +192,21 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     ly = max(ebitda) if ebitda else max(years)
     eb_ly = ebitda.get(ly)
     eb_accn = opinc[ly][1] if ly in opinc else ""
-    ltd_ly, dcur_ly, cash_ly = _latest(ltd, ly), _latest(dcur, ly), _latest(cash, ly)
-    total_debt = (ltd_ly[0] if ltd_ly else 0.0) + (dcur_ly[0] if dcur_ly else 0.0)
-    net_debt = total_debt - (cash_ly[0] if cash_ly else 0.0)
+    # Debt/cash at the leverage year, picking the concept with the most recent
+    # coverage — filers (e.g. Viasat) stop tagging LongTermDebtNoncurrent and switch
+    # to LongTermDebtAndCapitalLeaseObligations, so never trust a stale concept.
+    ltd_at = _recent_instant(us, _LT_DEBT, ly)
+    dcur_at = _recent_instant(us, _DEBT_CURRENT, ly)
+    cash_at = _recent_instant(us, _CASH, ly)
+    ltd_c = ltd_at[3] if ltd_at else None
+    dc_c = dcur_at[3] if dcur_at else None
+    cash_c = cash_at[3] if cash_at else None
+    total_debt = (ltd_at[1] if ltd_at else 0.0) + (dcur_at[1] if dcur_at else 0.0)
+    net_debt = total_debt - (cash_at[1] if cash_at else 0.0)
+    # Don't compute leverage off stale debt: require it within a year of the EBITDA
+    # period (else a long-discontinued tag misleads, e.g. 2019 debt vs 2026 EBITDA).
+    debt_year = ltd_at[0] if ltd_at else (dcur_at[0] if dcur_at else None)
+    debt_fresh = debt_year is not None and debt_year >= ly - 1
     int_ly = _latest(interest, ly)
 
     # normalized_financials matches the CP-1 contract the adapter + metric-facts
@@ -164,7 +217,7 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     # debt. A loss year, a net-cash position, or captive-finance debt not fully
     # captured by these tags (e.g. Ford Credit) would otherwise yield a
     # misleading figure (negative or absurd leverage).
-    if eb_ly and eb_ly > 0 and total_debt and net_debt > 0:
+    if eb_ly and eb_ly > 0 and total_debt and net_debt > 0 and debt_fresh:
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
@@ -248,6 +301,11 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     ]
     if not ebitda:
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
+    elif total_debt and leverage is None and not debt_fresh:
+        limitations.append(
+            "Net leverage not derived: the latest long-term-debt XBRL tag predates the EBITDA "
+            "period (the filer likely switched debt concepts) — verify total debt against the "
+            "most recent balance sheet.")
     elif total_debt and leverage is None:
         limitations.append(
             "Net leverage not derived: reported net debt <= 0 or EBITDA <= 0 from XBRL tags "
