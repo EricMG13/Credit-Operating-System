@@ -34,12 +34,42 @@ from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 logger = logging.getLogger("caos.engine")
 
 _RETRIEVE_QUERY = (
-    "covenant leverage incurrence incremental capacity maximum net leverage "
-    "headroom maintenance restricted payments basket shall not exceed"
+    "maximum permitted total leverage ratio financial maintenance covenant "
+    "compliance certificate shall not permit as of the last day of any fiscal "
+    "quarter; incremental incurrence debt capacity basket"
 )
 _MILLION = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*million", re.IGNORECASE)
-_TURNS = re.compile(r"(\d+(?:\.\d+)?)\s*(?:x|times)\b", re.IGNORECASE)
-_COVENANT_CUES = ("covenant", "shall not", "not exceed", "maximum", "may not", "greater than")
+
+# The financial *maintenance* leverage covenant — distinct from the many incurrence
+# ratio tests an agreement also carries (e.g. "…the Secured Leverage Ratio does not
+# exceed 3.25 to 1.00…" / "…on a Pro Forma Basis…"). Two canonical shapes, both
+# supporting the real ratio format "N:1.00":
+#   1. compliance certificate — "Maximum Permitted: 5.75:1.00"
+#   2. the covenant clause — "shall not permit the [Total/Net] Leverage Ratio … to
+#      be greater than 5.75 to 1.00"
+# Anchoring on these shapes (not a bare ratio) keeps us off the incurrence tests.
+_MAINT_COVENANT_PATTERNS = (
+    re.compile(r"maximum\s+permitted\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*:\s*1(?:\.0+)?", re.IGNORECASE),
+    re.compile(
+        r"shall\s+not\s+permit[^.]{0,160}?(?:total|consolidated|net)\s+leverage\s+ratio"
+        r"[^.]{0,90}?(?:greater\s+than|exceed)\s*"
+        r"(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|x\b|times\b|\s+to\s+1(?:\.0+)?)",
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+
+
+def _maintenance_leverage_threshold(text: str) -> Optional[float]:
+    """The financial maintenance leverage covenant threshold (turns) if present —
+    matched on the compliance-certificate or covenant-clause shape, not an
+    incurrence ratio test. Range-guarded to plausible covenant levels."""
+    for pat in _MAINT_COVENANT_PATTERNS:
+        m = pat.search(text)
+        if m:
+            v = float(m.group(1))
+            if 1.0 <= v <= 12.0:
+                return v
+    return None
 
 
 def derive_covenant_terms(
@@ -56,10 +86,10 @@ def derive_covenant_terms(
             m = _MILLION.search(text)
             if m:
                 incremental = (float(m.group(1).replace(",", "")), cid)
-        if leverage_cov is None and "leverage" in low and any(c in low for c in _COVENANT_CUES):
-            m = _TURNS.search(text)
-            if m:
-                leverage_cov = (float(m.group(1)), cid)
+        if leverage_cov is None and "leverage" in low:
+            v = _maintenance_leverage_threshold(text)
+            if v is not None:
+                leverage_cov = (v, cid)
     if incremental is None and leverage_cov is None:
         return None
     return {"incremental_musd": incremental, "leverage_covenant_x": leverage_cov}
@@ -71,7 +101,7 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[flo
     import anthropic
 
     settings = get_settings()
-    hits = await retrieve(_RETRIEVE_QUERY, 6)
+    hits = await retrieve(_RETRIEVE_QUERY, 10)
     if not hits:
         return None
     grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
@@ -116,7 +146,7 @@ async def extract_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[
                 return res
         except Exception as e:  # noqa: BLE001
             logger.warning("LLM covenant extraction failed, using regex: %s", e)
-    hits = await retrieve(_RETRIEVE_QUERY, 6)
+    hits = await retrieve(_RETRIEVE_QUERY, 10)
     return derive_covenant_terms([(h.chunk_id, h.text) for h in hits])
 
 
@@ -134,9 +164,8 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
     lev, nd = _cp1_leverage(cp1)
     terms = await extract_covenant_terms(retrieve)
 
-    if terms is None or lev is None:
-        reason = ("No covenant capacity disclosures found in ingested sources."
-                  if terms is None else "CP-1 did not provide a net leverage to compute capacity against.")
+    if terms is None:
+        reason = "No covenant capacity disclosures found in ingested sources."
         return ModulePayload(
             module_id="CP-4C", module_name="CovenantCapacityCalculator",
             owned_object="covenant_capacity_calculation",
@@ -145,72 +174,98 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
             downstream_consumers=["CP-6A", "CP-6E", "CP-RENDER"],
         )
 
-    ebitda = nd / lev
+    # Leverage lets us *compute* capacity/headroom; without it we still surface the
+    # covenant terms as directly-sourced facts (e.g. the EDGAR CP-1 path, which does
+    # not yet derive leverage — see #27 — should not hide a real covenant).
+    ebitda = (nd / lev) if (lev and nd) else None
     calcs: List[dict] = []
     claims: List[ClaimSpec] = []
+    limitations: List[str] = []
 
     incr = terms.get("incremental_musd")
     if incr:
         amt, cid = incr
-        pf_nd = nd + amt
-        pf_lev = round(pf_nd / ebitda, 2)
-        calcs.append({
-            "name": "Pro-forma net leverage after day-one incremental",
-            "formula": "(net debt + incremental capacity) / LTM adj. EBITDA",
-            "numerator": round(pf_nd, 1), "denominator": round(ebitda, 1),
-            "period": "LTM", "value": pf_lev, "unit": "x",
-            "source": "Incremental capacity (governing document) + CP-1",
-        })
-        claims.append(ClaimSpec(
-            claim_id="C-CAP1",
-            claim_text=(
-                f"Drawing the ${amt:g}M day-one incremental capacity takes pro-forma net "
-                f"leverage from {lev:g}x to {pf_lev:g}x."
-            ),
-            evidence=[EvidenceSpec("E-CAP1", "calculated_metric", "Calculated",
-                                   "Incremental capacity (governing document) + CP-1 net debt / EBITDA",
-                                   "High", resolved_chunk_id=cid)],
-        ))
+        if ebitda is not None:
+            pf_nd = nd + amt
+            pf_lev = round(pf_nd / ebitda, 2)
+            calcs.append({
+                "name": "Pro-forma net leverage after day-one incremental",
+                "formula": "(net debt + incremental capacity) / LTM adj. EBITDA",
+                "numerator": round(pf_nd, 1), "denominator": round(ebitda, 1),
+                "period": "LTM", "value": pf_lev, "unit": "x",
+                "source": "Incremental capacity (governing document) + CP-1",
+            })
+            claims.append(ClaimSpec(
+                claim_id="C-CAP1",
+                claim_text=(
+                    f"Drawing the ${amt:g}M day-one incremental capacity takes pro-forma net "
+                    f"leverage from {lev:g}x to {pf_lev:g}x."
+                ),
+                evidence=[EvidenceSpec("E-CAP1", "calculated_metric", "Calculated",
+                                       "Incremental capacity (governing document) + CP-1 net debt / EBITDA",
+                                       "High", resolved_chunk_id=cid)],
+            ))
+        else:
+            claims.append(ClaimSpec(
+                claim_id="C-CAP1",
+                claim_text=f"The governing document provides ${amt:g}M of day-one incremental debt capacity.",
+                evidence=[EvidenceSpec("E-CAP1", "table_value", "Directly Sourced",
+                                       "Incremental capacity (governing document)",
+                                       "High", resolved_chunk_id=cid)],
+            ))
 
     lev_cov = terms.get("leverage_covenant_x")
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
         thr, cid = lev_cov
-        headroom = round(thr - lev, 2)
-        cushion = round((1 - lev / thr) * 100, 1) if thr else 0.0
-        calcs.append({
-            "name": "Net leverage covenant headroom",
-            "formula": "covenant threshold − current net leverage",
-            "numerator": thr, "denominator": lev, "period": "LTM",
-            "value": headroom, "unit": "turns", "ebitda_cushion_pct": cushion,
-            "source": "Financial maintenance covenant (governing document)",
-        })
-        claims.append(ClaimSpec(
-            claim_id="C-CAP2",
-            claim_text=(
-                f"The net leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
-                f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA cushion to a breach)."
-            ),
-            evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
-                                   "Financial maintenance covenant threshold + CP-1 leverage",
-                                   "High", resolved_chunk_id=cid)],
-        ))
+        if lev is not None:
+            headroom = round(thr - lev, 2)
+            cushion = round((1 - lev / thr) * 100, 1) if thr else 0.0
+            calcs.append({
+                "name": "Net leverage covenant headroom",
+                "formula": "covenant threshold − current net leverage",
+                "numerator": thr, "denominator": lev, "period": "LTM",
+                "value": headroom, "unit": "turns", "ebitda_cushion_pct": cushion,
+                "source": "Financial maintenance covenant (governing document)",
+            })
+            claims.append(ClaimSpec(
+                claim_id="C-CAP2",
+                claim_text=(
+                    f"The total leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
+                    f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA cushion to a breach)."
+                ),
+                evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
+                                       "Financial maintenance covenant threshold + CP-1 leverage",
+                                       "High", resolved_chunk_id=cid)],
+            ))
+        else:
+            claims.append(ClaimSpec(
+                claim_id="C-CAP2",
+                claim_text=f"The agreement sets a maximum total leverage covenant of {thr:g}x (financial maintenance).",
+                evidence=[EvidenceSpec("E-CAP2", "table_value", "Directly Sourced",
+                                       "Financial maintenance covenant threshold (governing document)",
+                                       "High", resolved_chunk_id=cid)],
+            ))
+            limitations.append(
+                "CP-1 did not provide net leverage — covenant threshold is sourced, but headroom is not computed."
+            )
 
-    limitations = []
     if covenant_structure == "cov-lite":
         limitations.append(
             "No financial maintenance leverage covenant identified in ingested sources "
             "(cov-lite): no leverage-based early-warning trip before a payment default."
         )
 
+    runtime_output: dict = {"calculations": calcs, "covenant_structure": covenant_structure}
+    if lev is not None:
+        runtime_output["current_net_leverage"] = round(lev, 2)
+    if lev_cov:
+        runtime_output["leverage_covenant_x"] = lev_cov[0]
+
     return ModulePayload(
         module_id="CP-4C", module_name="CovenantCapacityCalculator",
         owned_object="covenant_capacity_calculation",
-        runtime_output={
-            "calculations": calcs,
-            "covenant_structure": covenant_structure,
-            "current_net_leverage": round(lev, 2),
-        },
+        runtime_output=runtime_output,
         confidence="High",
         limitation_flags=limitations,
         downstream_consumers=["CP-6A", "CP-6E", "CP-RENDER"],
