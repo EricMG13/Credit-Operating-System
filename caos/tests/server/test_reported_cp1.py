@@ -32,6 +32,15 @@ def test_extract_none_without_disclosed_leverage():
     assert extract_reported_metrics([("c", "Adjusted EBITDA was £900 million.")]) is None
 
 
+def test_extract_prefers_most_recent_filing():
+    # Across quarterly disclosures the later reporting period wins — and maturity years
+    # ("due 2033" / "maturing 2034") must NOT be mistaken for the reporting date.
+    older = "Results to 31 March 2025. Net Debt to EBITDA of 5.52x. Senior Notes due 2033."
+    newer = "Results to 31 March 2026. Net Debt to EBITDA of 5.86x. Term Loan maturing 2034."
+    assert extract_reported_metrics([("old", older), ("new", newer)])["net_leverage"] == (5.86, "new")
+    assert extract_reported_metrics([("new", newer), ("old", older)])["net_leverage"] == (5.86, "new")  # order-independent
+
+
 def _retrieve(text):
     async def r(query, k=12):
         return [SimpleNamespace(chunk_id="c1", text=text)]
