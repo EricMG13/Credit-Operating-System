@@ -104,7 +104,8 @@ import os
 
 requires_pg = pytest.mark.skipif(
     not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
-    reason="worker claim/lease requires Postgres (SKIP LOCKED)",
+    reason="worker claim/lease requires Postgres (SKIP LOCKED) — run in the CI server "
+           "job's Postgres step, or locally via DATABASE_URL=postgresql+asyncpg://...",
 )
 
 

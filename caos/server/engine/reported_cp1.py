@@ -1,13 +1,14 @@
 """Reported-disclosure CP-1 for non-EDGAR issuers.
 
-For issuers with no SEC XBRL — non-US / IFRS / private bond-only (e.g. Virgin Media
-O2) — the deterministic EDGAR lane (edgar_cp1.py) doesn't apply: the runner would
-otherwise fall straight to the LLM/fixture CP-1. But HY bond reporters *disclose*
-their own headline credit metrics — net leverage (their covenant metric), Adjusted
-EBITDA, revenue — in the quarterly bond report / earnings release. This extracts
-those issuer-disclosed figures into a reported-basis CP-1, cited to the source
-chunk, so the keyless path produces real numbers (not the ATLF fixture) and CP-4C
-has a leverage to work against.
+For issuers with no SEC XBRL — non-US / IFRS filers (e.g. Virgin Media O2, a mixed
+bond + senior-secured-term-loan credit) — the deterministic EDGAR lane
+(edgar_cp1.py) doesn't apply: the runner would otherwise fall straight to the
+LLM/fixture CP-1. But HY leveraged-finance issuers *disclose* their own headline
+credit metrics — net leverage (their covenant metric), Adjusted EBITDA, revenue —
+in the quarterly investor report / earnings release. This extracts those
+issuer-disclosed figures into a reported-basis CP-1, cited to the source chunk, so
+the keyless path produces real numbers (not the ATLF fixture) and CP-4C has a
+leverage to work against.
 
 These are figures the issuer disclosed *about itself*, taken as reported — not
 independently re-derived from the primary statements (flagged in limitations). Net
@@ -136,10 +137,10 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
     currency = None
     claims: List[ClaimSpec] = [ClaimSpec(
         claim_id="C-RPT-LEV",
-        claim_text=(f"Issuer-disclosed net leverage is {lev_val:g}x (as reported in the bond "
-                    "report / earnings release; not independently re-derived)."),
+        claim_text=(f"Issuer-disclosed net leverage is {lev_val:g}x (as reported in the issuer's "
+                    "quarterly investor report / earnings release; not independently re-derived)."),
         evidence=[EvidenceSpec("E-RPT-LEV", "table_value", "Directly Sourced",
-                               "Issuer disclosure (bond report / earnings release)", "High",
+                               "Issuer disclosure (quarterly investor report / earnings release)", "High",
                                resolved_chunk_id=lev_cid)],
     )]
 
@@ -171,13 +172,13 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
         owned_object="canonical_financials",
         runtime_output={
             "basis": "reported_disclosure",
-            "source": "Issuer disclosure (non-EDGAR: bond report / earnings)",
+            "source": "Issuer disclosure (non-EDGAR: quarterly investor report / earnings)",
             "currency": currency,
             "normalized_financials": nf,
         },
         confidence="Medium",
         limitation_flags=[
-            "Figures are issuer-disclosed headline metrics (bond report / earnings release), "
+            "Figures are issuer-disclosed headline metrics (quarterly investor report / earnings release), "
             "taken as reported — not independently re-derived from the primary financial "
             "statements, and not covenant-adjusted. For non-US/IFRS issuers with no SEC XBRL.",
         ],

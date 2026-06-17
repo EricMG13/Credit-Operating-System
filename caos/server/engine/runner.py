@@ -323,8 +323,9 @@ async def _synthesize_cp1(
                     e.resolved_chunk_id = chunk_id
             logger.info("CP-1 grounded in EDGAR for %s (CIK %s)", issuer_name, build.cik)
             return build.payload
-    # Non-EDGAR issuers (non-US / IFRS / bond-only): try a reported-disclosure CP-1
-    # from the issuer's own bond report / earnings before the LLM/fixture path. Its
+    # Non-EDGAR issuers (non-US / IFRS, no SEC XBRL): try a reported-disclosure CP-1
+    # from the issuer's own quarterly investor report / earnings before the LLM/fixture
+    # path. Its
     # evidence already resolves to the source (uploaded) chunk.
     reported = await reported_cp1.build_reported_cp1_payload(issuer_name, retrieve)
     if reported is not None:
