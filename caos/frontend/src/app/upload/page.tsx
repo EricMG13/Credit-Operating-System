@@ -41,12 +41,12 @@ export default function UploadPage() {
           </span>
         </div>
 
-        {/* wizard */}
-        <main id="main-content" className="flex-1 min-h-0 overflow-auto p-2">
+        {/* wizard — the <main> landmark now lives in the root layout */}
+        <div className="flex-1 min-h-0 overflow-auto p-2">
           <Suspense fallback={null}>
             <UploadWizard />
           </Suspense>
-        </main>
+        </div>
       </div>
     </RequireAuth>
   );

@@ -92,6 +92,9 @@ export function EvidenceModal({
     <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
       <div
         ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={"Source evidence " + id}
         className="bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden w-full max-w-[1150px]"
         style={{ maxHeight: "86vh", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}

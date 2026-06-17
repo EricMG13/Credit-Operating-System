@@ -258,6 +258,9 @@ function NewIssuerModal({
     <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
       <form
         ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New issuer"
         onSubmit={handleCreate}
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden"
