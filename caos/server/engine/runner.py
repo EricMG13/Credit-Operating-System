@@ -23,7 +23,7 @@ from database import (
     Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
     ModuleOutput, QAFinding, Run,
 )
-from engine import budget, edgar_cp1
+from engine import budget, edgar_cp1, reported_cp1
 from engine.adjusted import reconciliation_finding, synthesize_adjusted
 from engine.council import get_reviewer
 from engine.covenants import covlite_finding, synthesize_covenants
@@ -323,6 +323,13 @@ async def _synthesize_cp1(
                     e.resolved_chunk_id = chunk_id
             logger.info("CP-1 grounded in EDGAR for %s (CIK %s)", issuer_name, build.cik)
             return build.payload
+    # Non-EDGAR issuers (non-US / IFRS / bond-only): try a reported-disclosure CP-1
+    # from the issuer's own bond report / earnings before the LLM/fixture path. Its
+    # evidence already resolves to the source (uploaded) chunk.
+    reported = await reported_cp1.build_reported_cp1_payload(issuer_name, retrieve)
+    if reported is not None:
+        logger.info("CP-1 grounded in issuer-disclosed reported metrics for %s", issuer_name)
+        return reported
     return await synthesizer.synthesize(
         "CP-1", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
     )
