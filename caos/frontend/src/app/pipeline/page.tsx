@@ -5,9 +5,9 @@
 // lineage tracing, module inspector, CP-5B driver lineage with E-xx evidence,
 // QA gating on CP-5, and the orchestrator event log.
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
@@ -23,7 +23,9 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 export default function PipelinePage() {
   return (
     <RequireAuth>
-      <PipelineVisualizer />
+      <Suspense fallback={null}>
+        <PipelineVisualizer />
+      </Suspense>
     </RequireAuth>
   );
 }
@@ -42,9 +44,10 @@ function PipelineVisualizer() {
   const run = useSimRun({ autoplay: true, plan: mode.plan, complete: mode.complete });
   const reports = useMemo(() => buildReports(), []);
 
-  // Prefer the live CP-X run (latest complete run for the reference issuer);
+  // Prefer the live CP-X run for ?issuer=<id> (the reference issuer by default);
   // fall back to the offline sim demo when there's no run / no backend.
-  const live = useLivePipeline(ATLF_REFERENCE_ISSUER_ID);
+  const issuerId = useSearchParams().get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const live = useLivePipeline(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
 
@@ -151,7 +154,7 @@ function PipelineVisualizer() {
           ↑ L0 INTAKE
         </Link>
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap hidden 2xl:inline">{useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId}</span>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">Atlas Forge — {useLive ? "live CP-X run" : mode.title}</span>
+        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{useLive ? (issuerId === ATLF_REFERENCE_ISSUER_ID ? "Atlas Forge — live CP-X run" : "Live CP-X run") : "Atlas Forge — " + mode.title}</span>
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{useLive ? live!.summary : mode.sub}</span>
         <div className="w-44 flex items-center gap-2 shrink-0">
           <Bar pct={total ? (completed / total) * 100 : 0} color="var(--caos-accent)" />

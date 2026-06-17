@@ -32,8 +32,13 @@ _RETRIEVE_QUERY = (
 
 # Issuer-disclosed net leverage, most precise first. Currency-agnostic (a ratio).
 _LEVERAGE_PATTERNS = (
+    # Tolerate a parenthetical between EBITDA and the number ("... Annualised Adjusted
+    # EBITDA (last two quarters annualised) of 4.38x"). Without this the covenant
+    # metric is skipped and a broader figure later in the text wins — real disclosures
+    # (e.g. VMO2) lead with the covenant leverage, so this also makes it the one picked.
     re.compile(r"net\s+(?:total\s+)?debt\s+to\s+(?:annualised\s+|annualized\s+)?(?:adjusted\s+)?"
-               r"ebitda\s+(?:ratio\s+)?(?:of\s+|was\s+|:\s*)?(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
+               r"ebitda\s*(?:\([^)]*\))?\s*(?:ratio\s+)?(?:of\s+|was\s+|:\s*)?(\d+(?:\.\d+)?)\s*x",
+               re.IGNORECASE),
     # Connector ("of"/"was"/"at") is OPTIONAL, and the metric→number gap may be a
     # bare space, a colon, or "ratio" — real releases write "net leverage 5.68x",
     # "net leverage: 5.68x", "net leverage ratio 5.68x", not only "leverage of N".

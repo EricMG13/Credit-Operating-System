@@ -29,6 +29,14 @@ def test_extract_leverage_bare_forms_no_connector():
     assert extract_reported_metrics([("c", "net leverage ratio 4.2x")])["net_leverage"][0] == 4.2
 
 
+def test_extract_leverage_covenant_metric_with_parenthetical_wins():
+    # VMO2's real shape: the covenant metric is qualified in parens and disclosed
+    # first; the broader figure comes later and must NOT win.
+    t = ("Net Total Debt to Annualised Adjusted EBITDA (last two quarters annualised) "
+         "of 4.38x. Total Net Debt to Annualised Adjusted EBITDA of 5.86x.")
+    assert extract_reported_metrics([("vmo2", t)])["net_leverage"][0] == 4.38
+
+
 def test_extract_amounts_currency_and_scale():
     m = extract_reported_metrics([("c", "Total Net Debt to EBITDA of 5.0x. Adjusted EBITDA was "
                                         "£901.7 million. Total revenue of €2.6 billion.")])
