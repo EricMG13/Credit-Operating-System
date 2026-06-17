@@ -16,6 +16,7 @@ import type { Sim, SimEvent } from "./sim";
 export interface LivePipeline {
   runId: string;
   gateStatus: string; // CP-X route-plan gate status (Full Run / Ready with Limitations / Blocked)
+  committeeStatus: string; // run-level QA verdict (Committee Ready / Restricted / Blocked)
   summary: string; // CP-X one-line route summary
   sim: Sim;
   plan: PlanStep[]; // synthesized so the Inspector finds a per-module entry
@@ -112,6 +113,7 @@ export function useLivePipeline(issuerId: string): LivePipeline | null {
           setLive({
             runId: latest.id,
             gateStatus: rt.gate_status ?? run.committee_status,
+            committeeStatus: run.committee_status,
             summary: rt.summary ?? "",
             sim: { mods, events, tick: 0, done: true },
             plan,

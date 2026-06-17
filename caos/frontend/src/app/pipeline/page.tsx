@@ -66,14 +66,19 @@ function PipelineVisualizer() {
   useEffect(() => { if (viewHydrated) try { localStorage.setItem("caos-b-view", view); } catch {} }, [viewHydrated, view]);
 
   const cp5 = sim.mods["CP-5"]?.state || "idle";
-  const clearance = useLive
-    ? cp5 === "blocked"
-      ? { tag: "critical", text: `CLEARANCE: BLOCKED · ${live!.gateStatus}` }
-      : cp5 === "warning"
-      ? { tag: "warning", text: `CLEARANCE: CONDITIONAL · ${live!.gateStatus}` }
-      : ["pass", "held"].includes(cp5)
-      ? { tag: "ok", text: `CLEARANCE: ${live!.gateStatus}` }
-      : { tag: "idle", text: "CLEARANCE: live run pending" }
+  // Live: the headline is the run's QA verdict (committee_status), not the CP-X
+  // route gate — a Blocked run must never read "Full Run".
+  const liveClear = useLive
+    ? live!.committeeStatus === "Blocked"
+      ? { tag: "critical", text: "CLEARANCE: BLOCKED" }
+      : live!.committeeStatus === "Restricted"
+      ? { tag: "warning", text: "CLEARANCE: RESTRICTED" }
+      : live!.committeeStatus === "Committee Ready"
+      ? { tag: "ok", text: `CLEARANCE: COMMITTEE READY · ${live!.gateStatus}` }
+      : { tag: "idle", text: `CLEARANCE: ${live!.committeeStatus}` }
+    : null;
+  const clearance = liveClear
+    ? liveClear
     : ["pass", "warning", "held"].includes(cp5) ? mode.done
     : cp5 === "running" ? { tag: "running", text: "CP-5 QA audit in progress…" }
     : { tag: "idle", text: "CLEARANCE: pending upstream completion" };
