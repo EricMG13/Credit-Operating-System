@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { getModule, getRun, listRuns } from "@/lib/api";
-import type { ModuleStatusDTO } from "@/lib/engine/types";
+import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
 import type { Sim, SimEvent } from "./sim";
 
@@ -27,7 +27,7 @@ export interface LivePipeline {
 
 // committee_status (preferred) → graph node state. A run is terminal, so nothing
 // is "running"; idle is reserved for nodes the run never produced.
-function liveOutcome(m: ModuleStatusDTO): SimOutcome {
+export function liveOutcome(m: ModuleStatusDTO): SimOutcome {
   switch (m.committee_status) {
     case "Committee Ready":
       return "pass";
@@ -47,6 +47,63 @@ interface RouteStep {
   depends_on?: string[];
 }
 
+// Pure transform (no I/O) so the mapping is unit-testable: a completed run + its
+// CP-X route plan → the {sim, plan, scope} the Pipeline views already render.
+export function buildLiveSnapshot(run: RunSummaryDTO, cpx: ModuleDetailDTO | null): LivePipeline {
+  const statusById = new Map(run.modules.map((m) => [m.module_id, m]));
+  const rt = (cpx?.runtime_output ?? {}) as {
+    gate_status?: string;
+    summary?: string;
+    execution_sequence?: RouteStep[];
+  };
+  const depsById = new Map(
+    (rt.execution_sequence ?? []).map((s) => [s.module_id, s.depends_on ?? []]),
+  );
+
+  // Node states: every graph node defaults idle, overridden by what the run
+  // actually produced. Unproduced infra/export nodes stay idle.
+  const mods: Sim["mods"] = {};
+  for (const node of MODULES) {
+    const m = statusById.get(node.id);
+    mods[node.id] = { state: m ? liveOutcome(m) : "idle", prog: m ? 1 : 0 };
+  }
+
+  // Inspector reads plan.find(id) for per-module detail; synthesize one entry per
+  // produced module, ordered by the route plan's execution order.
+  const ordered = (rt.execution_sequence ?? []).map((s) => s.module_id)
+    .filter((id) => statusById.has(id));
+  for (const id of statusById.keys()) if (!ordered.includes(id)) ordered.push(id);
+
+  const plan: PlanStep[] = ordered.map((id) => {
+    const m = statusById.get(id)!;
+    const outcome = liveOutcome(m);
+    return {
+      id,
+      deps: (depsById.get(id) ?? []).filter((d) => statusById.has(d)),
+      dur: 1,
+      outcome,
+      event: `${id} ${m.module_name} — ${m.committee_status} · ${m.confidence}`,
+    };
+  });
+
+  const events: SimEvent[] = plan
+    .filter((p) => p.event)
+    .map((p) => ({ t: "", sev: p.outcome === "pass" ? "ok" : p.outcome, text: p.event }));
+
+  const cleared = (s: string) => s === "pass" || s === "warning" || s === "held";
+  return {
+    runId: run.id,
+    gateStatus: rt.gate_status ?? run.committee_status,
+    committeeStatus: run.committee_status,
+    summary: rt.summary ?? "",
+    sim: { mods, events, tick: 0, done: true },
+    plan,
+    scope: new Set(statusById.keys()),
+    completed: plan.filter((p) => cleared(p.outcome)).length,
+    total: plan.length,
+  };
+}
+
 export function useLivePipeline(issuerId: string): LivePipeline | null {
   const [live, setLive] = useState<LivePipeline | null>(null);
 
@@ -64,64 +121,7 @@ export function useLivePipeline(issuerId: string): LivePipeline | null {
           getRun(latest.id),
           getModule(latest.id, "CP-X").catch(() => null),
         ]);
-
-        const statusById = new Map(run.modules.map((m) => [m.module_id, m]));
-        const rt = (cpx?.runtime_output ?? {}) as {
-          gate_status?: string;
-          summary?: string;
-          execution_sequence?: RouteStep[];
-        };
-        const depsById = new Map(
-          (rt.execution_sequence ?? []).map((s) => [s.module_id, s.depends_on ?? []]),
-        );
-
-        // Node states: every graph node defaults idle, overridden by what the run
-        // actually produced. Unproduced infra/export nodes stay idle.
-        const mods: Sim["mods"] = {};
-        for (const node of MODULES) {
-          const m = statusById.get(node.id);
-          mods[node.id] = { state: m ? liveOutcome(m) : "idle", prog: m ? 1 : 0 };
-        }
-
-        // Inspector reads plan.find(id) for per-module detail; synthesize one
-        // entry per produced module, ordered by the route plan's execution order.
-        const ordered = (rt.execution_sequence ?? []).map((s) => s.module_id)
-          .filter((id) => statusById.has(id));
-        for (const id of statusById.keys()) if (!ordered.includes(id)) ordered.push(id);
-
-        const plan: PlanStep[] = ordered.map((id) => {
-          const m = statusById.get(id)!;
-          const outcome = liveOutcome(m);
-          return {
-            id,
-            deps: (depsById.get(id) ?? []).filter((d) => statusById.has(d)),
-            dur: 1,
-            outcome,
-            event: `${id} ${m.module_name} — ${m.committee_status} · ${m.confidence}`,
-          };
-        });
-
-        const events: SimEvent[] = plan
-          .filter((p) => p.event)
-          .map((p) => ({ t: "", sev: p.outcome === "pass" ? "ok" : p.outcome, text: p.event }));
-
-        const scope = new Set(statusById.keys());
-        const cleared = (s: string) => s === "pass" || s === "warning" || s === "held";
-        const completed = plan.filter((p) => cleared(p.outcome)).length;
-
-        if (!cancelled) {
-          setLive({
-            runId: latest.id,
-            gateStatus: rt.gate_status ?? run.committee_status,
-            committeeStatus: run.committee_status,
-            summary: rt.summary ?? "",
-            sim: { mods, events, tick: 0, done: true },
-            plan,
-            scope,
-            completed,
-            total: plan.length,
-          });
-        }
+        if (!cancelled) setLive(buildLiveSnapshot(run, cpx));
       } catch {
         if (!cancelled) setLive(null); // no backend / error → static sim fallback
       }

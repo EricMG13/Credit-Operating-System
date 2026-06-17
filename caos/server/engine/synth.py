@@ -245,7 +245,7 @@ class LiveSynthesizer:
             raise SynthesisError(f"Active prompt not found for {module_id} at {path}")
         return path.read_text(encoding="utf-8")
 
-    async def _call(self, system: str, messages: list, tool: dict):
+    async def _call(self, system: str, messages: list, tool: dict, module_id: str):
         """One forced-tool Claude call; accrues token usage onto the run budget."""
         resp = await self._get_client().messages.create(
             model=self._settings.anthropic_model,
@@ -256,6 +256,11 @@ class LiveSynthesizer:
             messages=messages,
         )
         budget.record_usage(resp)
+        # Per-call output-token visibility: a module near the ceiling is the
+        # truncation signal (CP-1's full spread is the one that hits it).
+        out = int(getattr(getattr(resp, "usage", None), "output_tokens", 0) or 0)
+        logger.info("%s synth call: output_tokens=%d/%d%s", module_id, out, _MAX_TOKENS,
+                    " (NEAR LIMIT — raise max_tokens)" if out >= _MAX_TOKENS * 0.9 else "")
         return resp
 
     async def synthesize(self, module_id, *, issuer_name, upstream, retrieve):
@@ -288,7 +293,7 @@ class LiveSynthesizer:
             f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"
         )
 
-        resp = await self._call(system, [{"role": "user", "content": user}], tool)
+        resp = await self._call(system, [{"role": "user", "content": user}], tool, module_id)
         payload, error = _extract_payload(module_id, resp)
         if error is None:
             return payload
@@ -305,7 +310,7 @@ class LiveSynthesizer:
             + "\nCall `emit_module_payload` again with a complete, corrected payload; "
             "ground every claim in the SOURCE CHUNKS above."
         )
-        resp2 = await self._call(system, [{"role": "user", "content": repair_user}], tool)
+        resp2 = await self._call(system, [{"role": "user", "content": repair_user}], tool, module_id)
         payload, error2 = _extract_payload(module_id, resp2)
         if error2 is not None:
             raise SynthesisError(f"{module_id}: payload still invalid after one repair ({error2})")
