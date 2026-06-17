@@ -29,7 +29,9 @@ _PROVISIONS: Tuple[Tuple[str, int, str], ...] = (
     ("Chewy / drop-down (non-pro-rata)", 2, r"chewy|pluralsight|drop[-\s]?down"),
     ("uptier / priming capacity", 2, r"uptier|prim(?:e|ing)\b"),
     ("MFN sunset / soft-call carve-out", 1, r"\bmfn\b|most[-\s]favou?red[-\s]nation"),
-    ("free-and-clear incremental basket", 1, r"free[-\s]and[-\s]clear|incremental (?:facilit|equivalent)"),
+    ("uncapped EBITDA add-backs", 2, r"uncapped|no cap on .{0,20}add[-\s]?back"),
+    ("free-and-clear / day-one incremental capacity", 1,
+     r"free[-\s]and[-\s]clear|day[-\s]?one incremental|incremental (?:facilit|equivalent|incurrence|capacity)"),
     ("builder / available-amount RP basket", 1, r"builder basket|available amount"),
 )
 

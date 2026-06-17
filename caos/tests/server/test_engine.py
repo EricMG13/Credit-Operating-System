@@ -195,6 +195,25 @@ def test_cpx_route_plan_persisted(client, atlf_run):
     assert detail["qa_status"] == "Passed" and detail["owned_object"] == "route_plan"
 
 
+def test_doc_scanners_light_up_on_atlf_corpus(client, atlf_run):
+    """The document-grounded scanners produce real, evidence-resolved output on the
+    ATLF agreement corpus — proving the retrieve→scan→persist path end to end."""
+    cp4 = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-4").json()
+    # The indenture's uncapped add-backs + day-one incremental capacity are flagged.
+    assert cp4["runtime_output"]["aggressiveness_score"] is not None
+    assert cp4["runtime_output"]["provisions_flagged"]
+    assert any(ev["document_chunk_id"] for c in cp4["claims"] for ev in c["evidence"])
+
+    # CP-3B maps at least the senior secured notes tranche from the offering docs.
+    cp3b = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-3B").json()
+    assert "SSN" in cp3b["runtime_output"]["seniority_order"]
+
+    # Honest gap: ATLF has no governance/liquidity disclosure, so those scanners
+    # abstain rather than fabricate (they need their own doc types ingested).
+    cp2d = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-2D").json()
+    assert cp2d["runtime_output"].get("governance_risk_score") is None
+
+
 def test_qa_endpoint_reports_findings(client, atlf_run):
     qa = client.get(f"/api/runs/{atlf_run['id']}/qa").json()
     assert qa["qa_status"] == "Restricted"
