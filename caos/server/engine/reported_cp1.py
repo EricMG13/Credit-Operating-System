@@ -72,29 +72,55 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
     return round(val, 1), cur, period
 
 
+# Recency of a chunk — so the *latest* disclosed figure wins when several quarterly
+# filings are present. Read ONLY the reporting-period date ("...ended <date>" / "as at
+# <date>" / "results to <date>"): financial text is dense with maturity / projection
+# years ("Senior Notes due 2033") that a bare-year scan would mistake for the period.
+_MONTHS = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+           "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12}
+_REPORT_DATE = re.compile(
+    r"(?:(?:period|months?|quarter|year)\s+ended|ended|as\s+at|as\s+of|results\s+to|period\s+to)"
+    r"\s+(?:\d{1,2}\s+)?(" + "|".join(_MONTHS) + r")\s+(20[0-4]\d)",
+    re.IGNORECASE,
+)
+
+
+def _recency(text: str) -> float:
+    """Reporting-period recency (year + month/12) from period-end cues only, or 0.0."""
+    best = 0.0
+    for m in _REPORT_DATE.finditer(text):
+        best = max(best, int(m.group(2)) + _MONTHS[m.group(1).lower()] / 12)
+    return best
+
+
+def _pick_recent(chunks: Sequence[Tuple[str, str]], extract):
+    """(value, chunk_id) for ``extract(text)`` from the most recently dated chunk."""
+    best = None  # (recency, value, cid)
+    for cid, text in chunks:
+        v = extract(text)
+        if v is not None:
+            r = _recency(text)
+            if best is None or r > best[0]:
+                best = (r, v, cid)
+    return (best[1], best[2]) if best else None
+
+
 def extract_reported_metrics(
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Issuer-disclosed {net_leverage:(val,cid), adj_ebitda:(val,cur,period,cid),
-    revenue:(...)} from document chunks, or None when no leverage is disclosed."""
-    leverage: Optional[Tuple[float, str]] = None
-    ebitda = revenue = None
-    for cid, text in chunks:
-        if leverage is None:
-            v = _leverage(text)
-            if v is not None:
-                leverage = (v, cid)
-        if ebitda is None:
-            a = _amount(_EBITDA_AMOUNT, text)
-            if a is not None:
-                ebitda = (*a, cid)
-        if revenue is None:
-            a = _amount(_REVENUE_AMOUNT, text)
-            if a is not None:
-                revenue = (*a, cid)
+    revenue:(...)} — the *most recently dated* chunk's figure for each — or None when
+    no leverage is disclosed."""
+    leverage = _pick_recent(chunks, _leverage)
     if leverage is None:
         return None
-    return {"net_leverage": leverage, "adj_ebitda": ebitda, "revenue": revenue}
+    eb = _pick_recent(chunks, lambda t: _amount(_EBITDA_AMOUNT, t))
+    rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
+    return {
+        "net_leverage": leverage,
+        "adj_ebitda": (*eb[0], eb[1]) if eb else None,
+        "revenue": (*rv[0], rv[1]) if rv else None,
+    }
 
 
 async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> Optional[ModulePayload]:
