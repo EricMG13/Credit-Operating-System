@@ -14,7 +14,7 @@ import re
 from typing import List, Optional, Tuple
 
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
-from engine.textscan import scan
+from engine.textscan import amount_musd, scan
 
 _QUERY = "liquidity revolving credit facility undrawn availability cash and cash equivalents maturity"
 
@@ -25,32 +25,42 @@ _SOURCES: Tuple[Tuple[str, str], ...] = (
     ("Maturity wall", r"matur(?:es|ity|ities)|debt maturit"),
 )
 
-# "$1,234.5 million / billion / m / bn" → normalised to $M.
-_AMOUNT = re.compile(r"\$?\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
 
-
-def _amount_musd(text: str, keyword: re.Pattern) -> Optional[float]:
-    """First dollar amount within ~120 chars of a keyword hit, normalised to $M."""
-    m = keyword.search(text)
-    if not m:
-        return None
-    window = text[max(0, m.start() - 120): m.end() + 120]
-    a = _AMOUNT.search(window)
-    if not a:
-        return None
-    val = float(a.group(1).replace(",", ""))
-    return round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
+def _latest(series: dict) -> Optional[float]:
+    """Value at the period with the largest trailing year (canonical $M series)."""
+    def year(p: str) -> int:
+        nums = re.findall(r"\d{2,4}", p or "")
+        return int(nums[-1]) if nums else -1
+    vals = [(p, v) for p, v in (series or {}).items() if isinstance(v, (int, float))]
+    return max(vals, key=lambda kv: year(kv[0]))[1] if vals else None
 
 
 def scan_liquidity(chunks: List[Tuple[str, str]]) -> List[dict]:
     """Flag each liquidity source (once), capturing a nearby amount when present."""
     return [{"source": label,
-             "amount_musd": _amount_musd(text, re.compile(pattern, re.IGNORECASE)),
+             "amount_musd": amount_musd(text, re.compile(pattern, re.IGNORECASE)),
              "chunk_id": cid}
             for (label, pattern), cid, text in scan(chunks, _SOURCES)]
 
 
-async def synthesize_liquidity(retrieve) -> ModulePayload:
+def _interest_runway_months(disclosed_liquidity: Optional[float], cp1: Optional[ModulePayload]):
+    """Months the disclosed liquidity alone would service cash interest, from CP-1's
+    canonical financials. A liquidity-stress lens (EBITDA→0), NOT a full
+    months-to-empty — that needs amort/capex/maturity uses we don't source. Returns
+    (annual_cash_interest_musd, months) or (None, None) when inputs are absent."""
+    if not isinstance(disclosed_liquidity, (int, float)) or cp1 is None:
+        return None, None
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    eb, cov = _latest(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
+    if not (isinstance(eb, (int, float)) and isinstance(cov, (int, float)) and cov):
+        return None, None
+    cash_interest = round(eb / cov, 1)
+    if not cash_interest:
+        return None, None
+    return cash_interest, round(disclosed_liquidity * 12 / cash_interest, 1)
+
+
+async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:
     """Build the CP-2E payload by scanning retrieved liquidity disclosures."""
     hits = await retrieve(_QUERY, 6)
     found = scan_liquidity([(h.chunk_id, h.text) for h in hits])
@@ -65,17 +75,23 @@ async def synthesize_liquidity(retrieve) -> ModulePayload:
             downstream_consumers=["CP-6A"],
         )
 
-    total = round(sum(f["amount_musd"] for f in found if isinstance(f["amount_musd"], (int, float))), 1)
     quantified = [f for f in found if isinstance(f["amount_musd"], (int, float))]
+    total = round(sum(f["amount_musd"] for f in quantified), 1) if quantified else None
+    cash_interest, runway = _interest_runway_months(total, cp1)
+
     summary = (f"~${total:g}M of disclosed liquidity across {len(quantified)} quantified source(s)"
                if quantified else f"{len(found)} liquidity source(s) disclosed (amounts not parsed)")
+    if runway is not None:
+        summary += f" — covers ~{runway:g} months of cash interest"
     return ModulePayload(
         module_id="CP-2E", module_name="LiquidityMaturityAnalysis",
         owned_object="liquidity_maturity_analysis",
         runtime_output={
             "sources": [{"source": f["source"], "amount_musd": f["amount_musd"], "chunk_id": f["chunk_id"]}
                         for f in found],
-            "disclosed_liquidity_musd": total if quantified else None,
+            "disclosed_liquidity_musd": total,
+            "annual_cash_interest_musd": cash_interest,
+            "months_liquidity_covers_interest": runway,
             "register_basis": "keyword scan of ingested financial / agreement chunks",
         },
         confidence="High" if quantified else "Medium", downstream_consumers=["CP-6A"],

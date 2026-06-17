@@ -141,9 +141,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         # CP-2D scans offering/governance text for sponsor red flags.
         if module_id == "CP-2D":
             return await synthesize_sponsor_review(retrieve)
-        # CP-2E scans financial/agreement text for liquidity sources.
+        # CP-2E scans financial/agreement text for liquidity sources, and prices
+        # the runway against CP-1's cash interest.
         if module_id == "CP-2E":
-            return await synthesize_liquidity(retrieve)
+            return await synthesize_liquidity(retrieve, upstream.get("CP-1"))
         # CP-2F stresses CP-1's debt stack for base-rate sensitivity.
         if module_id == "CP-2F":
             return await synthesize_macro(upstream["CP-1"])

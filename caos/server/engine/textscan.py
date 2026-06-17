@@ -9,7 +9,30 @@ scan-and-dedupe loop lives here.
 from __future__ import annotations
 
 import re
-from typing import Iterable, Iterator, Sequence, Tuple
+from typing import Iterable, Iterator, Optional, Sequence, Tuple
+
+# "$1,234.5 million / billion / m / bn" → normalised to $M.
+_AMOUNT = re.compile(r"\$?\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
+
+
+def amount_musd(text: str, keyword: re.Pattern) -> Optional[float]:
+    """First dollar amount within ~120 chars of a keyword hit, normalised to $M.
+
+    Returns None when the keyword or an adjacent amount is absent — the caller
+    records the qualitative hit and leaves the quantum null (never invented).
+    """
+    # ponytail: nearest-amount-in-window heuristic — two keywords+amounts co-located
+    # in one sentence misattribute. Real agreement packs chunk tranches separately;
+    # upgrade to table/clause parsing only if a real pack needs tighter precision.
+    m = keyword.search(text)
+    if not m:
+        return None
+    window = text[max(0, m.start() - 120): m.end() + 120]
+    a = _AMOUNT.search(window)
+    if not a:
+        return None
+    val = float(a.group(1).replace(",", ""))
+    return round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
 
 
 def scan(chunks: Iterable[Tuple[str, str]], patterns: Sequence[tuple], key: int = 0

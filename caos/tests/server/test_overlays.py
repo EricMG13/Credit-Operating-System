@@ -163,3 +163,50 @@ def test_overlays_feed_the_ic_debate():
     }
     bull, bear = debate._ic_signals(up)
     assert {"CP-2D", "CP-2F", "CP-3D"} <= {p.source for p in bear}
+
+
+# ── Phase 5: quantum capture (sizes / ledger / runway) ───────────────────────────
+
+def test_textscan_amount_musd():
+    import re as _re
+    from engine.textscan import amount_musd
+    assert amount_musd("a $1.2 billion revolver", _re.compile("revolver")) == 1200.0
+    assert amount_musd("a revolver of $250 million", _re.compile("revolver")) == 250.0
+    assert amount_musd("a revolver, size undisclosed", _re.compile("revolver")) is None
+
+
+def test_capstructure_sizes_tranches_and_pct():
+    # One tranche per chunk so each amount is unambiguous (the ±120-char proximity
+    # heuristic can't disambiguate two tranches+amounts in the same sentence).
+    p = _run(synthesize_capital_structure(_retrieve(
+        "The revolving credit facility is $200 million.",
+        "The first-lien term loan B is $800 million.",
+        "The second-lien term loan is $200 million.")))
+    _ok(p, "CP-3B")
+    assert p.runtime_output["total_debt_musd"] == 1200.0
+    by = {t["code"]: t for t in p.runtime_output["tranches"]}
+    assert by["1L"]["amount_musd"] == 800.0
+    assert by["1L"]["pct_of_structure"] == round(100 * 800 / 1200, 1)
+
+
+def test_sponsor_ledger_captures_quantum():
+    p = _run(synthesize_sponsor_review(_retrieve(
+        "An annual management fee of $5 million is payable to the sponsor.")))
+    _ok(p, "CP-2D")
+    assert any(e["amount_musd"] == 5.0 for e in p.runtime_output["ledger"])
+
+
+def test_liquidity_runway_priced_off_cp1():
+    # $300M liquidity; CP-1 EBITDA 421 / coverage 2.1 → cash interest 200.5 → ~18 months.
+    p = _run(synthesize_liquidity(
+        _retrieve("$300 million of undrawn revolving credit facility availability"), _cp1()))
+    _ok(p, "CP-2E")
+    rt = p.runtime_output
+    assert rt["disclosed_liquidity_musd"] == 300.0
+    assert rt["annual_cash_interest_musd"] == 200.5
+    assert 17.0 <= rt["months_liquidity_covers_interest"] <= 19.0
+
+
+def test_liquidity_runway_absent_without_cp1():
+    p = _run(synthesize_liquidity(_retrieve("$300 million undrawn revolving credit facility")))
+    assert p.runtime_output["months_liquidity_covers_interest"] is None

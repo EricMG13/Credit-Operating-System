@@ -9,10 +9,11 @@ ingested.
 
 from __future__ import annotations
 
+import re
 from typing import List, Tuple
 
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
-from engine.textscan import scan
+from engine.textscan import amount_musd, scan
 
 _QUERY = "sponsor dividend distribution management fee related party board governance permitted holders"
 
@@ -29,9 +30,10 @@ _MAX_SCORE = 10
 
 
 def scan_governance(chunks: List[Tuple[str, str]]) -> List[dict]:
-    """Flag each governance red flag (once) across ``(chunk_id, text)`` pairs."""
-    return [{"flag": label, "weight": weight, "chunk_id": cid}
-            for (label, weight, _), cid, _ in scan(chunks, _FLAGS)]
+    """Flag each governance red flag (once), with its quantum ($M) when stated."""
+    return [{"flag": label, "weight": weight,
+             "amount_musd": amount_musd(text, re.compile(pattern, re.IGNORECASE)), "chunk_id": cid}
+            for (label, weight, pattern), cid, text in scan(chunks, _FLAGS)]
 
 
 async def synthesize_sponsor_review(retrieve) -> ModulePayload:
@@ -56,7 +58,8 @@ async def synthesize_sponsor_review(retrieve) -> ModulePayload:
         owned_object="sponsor_governance_review",
         runtime_output={
             "governance_risk_score": score,
-            "flags": [{"flag": f["flag"], "chunk_id": f["chunk_id"]} for f in flagged],
+            "ledger": [{"flag": f["flag"], "amount_musd": f["amount_musd"], "chunk_id": f["chunk_id"]}
+                       for f in flagged],
             "register_basis": "keyword scan of ingested offering / governance chunks",
         },
         confidence="High", downstream_consumers=["CP-6A"],
