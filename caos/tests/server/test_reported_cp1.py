@@ -21,6 +21,14 @@ def test_extract_leverage_alternate_forms():
     assert extract_reported_metrics([("c", "ended the period at 3.2x net leverage")])["net_leverage"][0] == 3.2
 
 
+def test_extract_leverage_bare_forms_no_connector():
+    # Real releases write the number right after "leverage" with no of/was — bare
+    # space, a colon, or "ratio". These used to miss and fall through to the LLM.
+    assert extract_reported_metrics([("c", "Adjusted net leverage 5.68x")])["net_leverage"][0] == 5.68
+    assert extract_reported_metrics([("c", "net leverage: 5.68x")])["net_leverage"][0] == 5.68
+    assert extract_reported_metrics([("c", "net leverage ratio 4.2x")])["net_leverage"][0] == 4.2
+
+
 def test_extract_amounts_currency_and_scale():
     m = extract_reported_metrics([("c", "Total Net Debt to EBITDA of 5.0x. Adjusted EBITDA was "
                                         "£901.7 million. Total revenue of €2.6 billion.")])

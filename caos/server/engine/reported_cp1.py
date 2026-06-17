@@ -34,8 +34,11 @@ _RETRIEVE_QUERY = (
 _LEVERAGE_PATTERNS = (
     re.compile(r"net\s+(?:total\s+)?debt\s+to\s+(?:annualised\s+|annualized\s+)?(?:adjusted\s+)?"
                r"ebitda\s+(?:ratio\s+)?(?:of\s+|was\s+|:\s*)?(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
-    re.compile(r"(?:consolidated\s+)?(?:net\s+)?leverage\s+(?:ratio\s+)?(?:of\s+|was\s+|:\s*)"
-               r"(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
+    # Connector ("of"/"was"/"at") is OPTIONAL, and the metric→number gap may be a
+    # bare space, a colon, or "ratio" — real releases write "net leverage 5.68x",
+    # "net leverage: 5.68x", "net leverage ratio 5.68x", not only "leverage of N".
+    re.compile(r"(?:consolidated\s+)?(?:net\s+)?leverage(?:\s+ratio)?(?:\s+(?:of|was|at))?"
+               r"[\s:=]+(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
     re.compile(r"(\d+(?:\.\d+)?)\s*x\s+(?:consolidated\s+)?(?:net\s+)?leverage", re.IGNORECASE),
 )
 # A disclosed amount: currency + number (+ scale). period token captured if nearby.
