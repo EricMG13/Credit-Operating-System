@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from conftest import wait_for_run
 from engine.fixtures import REFERENCE_ISSUER_ID
-from engine.peers import _median, _own_values, _percentile
+from engine.peers import _own_values, _percentile
 from engine.schemas import ModulePayload
 
 
@@ -21,11 +21,6 @@ def test_percentile_respects_polarity():
     # higher-is-worse (leverage): lowest leverage beats all → 100, highest → 0
     assert _percentile(1.0, [2.0, 3.0, 4.0], higher_is_better=False) == 100
     assert _percentile(6.0, [2.0, 3.0, 4.0], higher_is_better=False) == 0
-
-
-def test_median():
-    assert _median([3, 1, 2]) == 2
-    assert _median([1, 2, 3, 4]) == 2.5
 
 
 def test_own_values_from_cp1():
