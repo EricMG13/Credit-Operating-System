@@ -56,7 +56,10 @@ MODULAR_OS_DIR = SERVER_DIR.parent.parent / "Modular OS"
 
 RetrieveFn = Callable[[str, int], Awaitable[list]]
 
-_MAX_TOKENS = 4096
+# A full CP-1 spread (multi-period financials + KPI register + claims) does not
+# fit in 4096 output tokens — it truncated, and the one-shot repair re-truncates
+# at the same ceiling. 8192 fits the richest module with headroom.
+_MAX_TOKENS = 8192
 
 # Structured-output contract: the model fills this schema instead of authoring
 # free-text JSON. Closed enums mirror engine.schemas so most schema violations
