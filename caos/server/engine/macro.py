@@ -8,27 +8,18 @@ the conservative read. No documents, no LLM (the idiom of [earnings.py]).
 
 from __future__ import annotations
 
-import re
 from typing import Optional
 
+from engine.periods import latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 _SHOCKS_BPS = (100, 200)
 
 
-def _latest(d: dict) -> Optional[float]:
-    """Value at the period with the largest trailing year, or None."""
-    def year(p: str) -> int:
-        nums = re.findall(r"\d{2,4}", p or "")
-        return int(nums[-1]) if nums else -1
-    vals = [(p, v) for p, v in (d or {}).items() if isinstance(v, (int, float))]
-    return max(vals, key=lambda kv: year(kv[0]))[1] if vals else None
-
-
 def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
     """Interest / coverage under base-rate shocks, or None if CP-1 lacks net debt."""
     net_debt = nf.get("net_debt_ltm")
-    eb = _latest(nf.get("adj_ebitda") or {})
+    eb = latest(nf.get("adj_ebitda") or {})
     if not isinstance(net_debt, (int, float)) or not isinstance(eb, (int, float)) or not eb:
         return None
     cov = nf.get("interest_coverage_ltm")

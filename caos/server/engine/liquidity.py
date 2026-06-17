@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
+from engine.periods import latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -24,15 +25,6 @@ _SOURCES: Tuple[Tuple[str, str], ...] = (
     ("Cash and cash equivalents", r"cash and cash equivalents|cash on hand|cash balance"),
     ("Maturity wall", r"matur(?:es|ity|ities)|debt maturit"),
 )
-
-
-def _latest(series: dict) -> Optional[float]:
-    """Value at the period with the largest trailing year (canonical $M series)."""
-    def year(p: str) -> int:
-        nums = re.findall(r"\d{2,4}", p or "")
-        return int(nums[-1]) if nums else -1
-    vals = [(p, v) for p, v in (series or {}).items() if isinstance(v, (int, float))]
-    return max(vals, key=lambda kv: year(kv[0]))[1] if vals else None
 
 
 def scan_liquidity(chunks: List[Tuple[str, str]]) -> List[dict]:
@@ -51,7 +43,7 @@ def _interest_runway_months(disclosed_liquidity: Optional[float], cp1: Optional[
     if not isinstance(disclosed_liquidity, (int, float)) or cp1 is None:
         return None, None
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    eb, cov = _latest(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
+    eb, cov = latest(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
     if not (isinstance(eb, (int, float)) and isinstance(cov, (int, float)) and cov):
         return None, None
     cash_interest = round(eb / cov, 1)

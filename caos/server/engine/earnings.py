@@ -12,19 +12,14 @@ watch, not a defect that should block committee export.
 
 from __future__ import annotations
 
-import re
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
+from engine.periods import year
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
 _MARGIN_COMPRESSION_PP = 1.0
-
-
-def _year(period: str) -> int:
-    nums = re.findall(r"\d{2,4}", period)
-    return int(nums[-1]) if nums else -1
 
 
 def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
@@ -43,7 +38,7 @@ def compute_deltas(normalized_financials: dict) -> dict:
     """Period rows + the YoY delta summary + monitoring signals (pure)."""
     rev = normalized_financials.get("revenue") or {}
     eb = normalized_financials.get("adj_ebitda") or {}
-    periods = sorted(set(rev) | set(eb), key=_year)
+    periods = sorted(set(rev) | set(eb), key=year)
 
     rows: List[dict] = []
     for p in periods:
