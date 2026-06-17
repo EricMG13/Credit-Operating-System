@@ -31,10 +31,23 @@ def test_extract_leverage_bare_forms_no_connector():
 
 def test_extract_leverage_covenant_metric_with_parenthetical_wins():
     # VMO2's real shape: the covenant metric is qualified in parens and disclosed
-    # first; the broader figure comes later and must NOT win.
+    # first; the broader figure comes later and must NOT win the headline.
     t = ("Net Total Debt to Annualised Adjusted EBITDA (last two quarters annualised) "
          "of 4.38x. Total Net Debt to Annualised Adjusted EBITDA of 5.86x.")
     assert extract_reported_metrics([("vmo2", t)])["net_leverage"][0] == 4.38
+
+
+def test_captures_both_leverage_figures():
+    t = ("Net Total Debt to Annualised Adjusted EBITDA (last two quarters annualised) "
+         "of 4.38x. Total Net Debt to Annualised Adjusted EBITDA of 5.86x.")
+    m = extract_reported_metrics([("vmo2", t)])
+    assert m["net_leverage"][0] == 4.38           # covenant headline
+    assert m["additional_leverage"][0][0] == 5.86  # broader total, captured too
+    p = asyncio.run(build_reported_cp1_payload("Virgin Media O2", _retrieve(t)))
+    nf = p.runtime_output["normalized_financials"]
+    assert nf["net_leverage_adj_ltm"] == 4.38
+    assert nf["additional_disclosed_leverage"][0]["value"] == 5.86
+    assert any(c.claim_id == "C-RPT-LEV2" for c in p.claims)  # second figure is cited
 
 
 def test_extract_amounts_currency_and_scale():

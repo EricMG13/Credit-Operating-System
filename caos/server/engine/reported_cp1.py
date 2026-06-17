@@ -63,6 +63,22 @@ def _leverage(text: str) -> Optional[float]:
     return None
 
 
+def _all_leverage(text: str) -> List[Tuple[float, str]]:
+    """Every distinct disclosed leverage figure as (value, ~as-disclosed phrase), in
+    document order. Lets reported-CP1 surface a second measure alongside the headline
+    — e.g. VMO2 reports both a covenant net leverage and a broader total."""
+    found: List[Tuple[int, float, str]] = []
+    seen: set = set()
+    for pat in _LEVERAGE_PATTERNS:
+        for m in pat.finditer(text):
+            v = float(m.group(1))
+            if 0.5 <= v <= 15.0 and v not in seen:
+                seen.add(v)
+                found.append((m.start(), v, " ".join(text[max(0, m.start() - 18): m.end()].split())))
+    found.sort(key=lambda x: x[0])
+    return [(v, ph) for _, v, ph in found]
+
+
 def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
     """(value_in_units, currency, period) for the first disclosed amount, or None.
     'billion' is scaled to the same unit as 'million' (×1000)."""
@@ -123,10 +139,16 @@ def extract_reported_metrics(
     leverage = _pick_recent(chunks, _leverage)
     if leverage is None:
         return None
+    lev_val, lev_cid = leverage
+    # Other leverage measures disclosed in the same (headline) chunk — the broader
+    # total beside the covenant figure, etc. Captured, not chosen between.
+    chunk_text = next((t for c, t in chunks if c == lev_cid), "")
+    additional = [(v, ph) for v, ph in _all_leverage(chunk_text) if v != lev_val]
     eb = _pick_recent(chunks, lambda t: _amount(_EBITDA_AMOUNT, t))
     rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
     return {
         "net_leverage": leverage,
+        "additional_leverage": additional or None,
         "adj_ebitda": (*eb[0], eb[1]) if eb else None,
         "revenue": (*rv[0], rv[1]) if rv else None,
     }
@@ -151,6 +173,20 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
                                "Issuer disclosure (quarterly investor report / earnings release)", "High",
                                resolved_chunk_id=lev_cid)],
     )]
+
+    # Surface any other leverage measure the issuer disclosed (the broader total
+    # beside the covenant headline), quoting the wording so the basis is not mislabelled.
+    add = metrics.get("additional_leverage")
+    if add:
+        nf["additional_disclosed_leverage"] = [{"value": v, "as_disclosed": ph} for v, ph in add]  # type: ignore[misc]
+        listed = "; ".join(f"{v:g}x ({ph})" for v, ph in add)  # type: ignore[misc]
+        claims.append(ClaimSpec(
+            claim_id="C-RPT-LEV2",
+            claim_text=f"Issuer also discloses {listed} — captured alongside the headline {lev_val:g}x.",
+            evidence=[EvidenceSpec("E-RPT-LEV2", "table_value", "Directly Sourced",
+                                   "Issuer disclosure (additional leverage measure)", "High",
+                                   resolved_chunk_id=lev_cid)],
+        ))
 
     eb = metrics.get("adj_ebitda")
     if eb:
