@@ -172,8 +172,27 @@ def test_run_per_module_status(atlf_run):
     assert by_id["CP-0"]["qa_status"] == "Passed"
     assert by_id["CP-0"]["committee_status"] == "Committee Ready"
     assert by_id["CP-1"]["qa_status"] == "Restricted"
-    # CP-5B / CP-5 auditors ran and persisted.
-    assert "CP-5B" in by_id and "CP-5" in by_id
+    # CP-X routed the run; CP-5B / CP-5 auditors ran and persisted.
+    assert "CP-X" in by_id and "CP-5B" in by_id and "CP-5" in by_id
+
+
+def test_cpx_route_plan_persisted(client, atlf_run):
+    """CP-X persists an auditable route plan: the wired slice routes Full Run and
+    the spec-only modules are shown as Not Implemented but never executed."""
+    detail = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-X").json()
+    rt = detail["runtime_output"]
+    assert rt["gate_status"] == "Full Run"  # ATLF has all four source categories
+    by_mod = {r["module_id"]: r for r in rt["readiness_register"]}
+    # Every routed analytical module is now wired — all Full Run, none spec-only.
+    for mid in ("CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-2B", "CP-2C",
+                "CP-2D", "CP-2E", "CP-2F", "CP-3", "CP-3B", "CP-3C", "CP-3D",
+                "CP-4", "CP-4C", "CP-6A", "CP-6E"):
+        assert by_mod[mid]["readiness"] == "Full Run", mid
+    assert all(r["readiness"] != "Not Implemented" for r in rt["readiness_register"])
+    # A node the route plan never executes (an infra/export node) has no output row.
+    assert client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER").status_code == 404
+    # CP-X is an orchestration record, not gated content.
+    assert detail["qa_status"] == "Passed" and detail["owned_object"] == "route_plan"
 
 
 def test_qa_endpoint_reports_findings(client, atlf_run):
@@ -198,7 +217,8 @@ def test_run_unknown_issuer_404(client):
 
 
 def test_module_not_in_run_404(client, atlf_run):
-    r = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-4")
+    # CP-RENDER is an export node the engine never persists as a module output.
+    r = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER")
     assert r.status_code == 404
 
 

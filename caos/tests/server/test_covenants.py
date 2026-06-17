@@ -117,6 +117,16 @@ def test_derive_terms_senior_secured_single_threshold():
     assert derive_covenant_terms([("c-ss", text)])["leverage_covenant_x"] == (4.5, "c-ss")
 
 
+def test_derive_terms_captures_leverage_basis():
+    # The covenant's leverage basis is carried separately (senior_secured vs total),
+    # so CP-4C can tell a secured TLB covenant from a total/consolidated one.
+    ss = ("The Borrower shall not permit the Senior Secured Leverage Ratio as of the last "
+          "day of any fiscal quarter to exceed 4.50 to 1.00.")
+    assert derive_covenant_terms([("c-ss", ss)])["leverage_covenant_basis"] == "senior_secured"
+    assert derive_covenant_terms([("c-sfa", _MAINT)])["leverage_covenant_basis"] == "total"
+    assert derive_covenant_terms([("c-cc", _COMPLIANCE)])["leverage_covenant_basis"] is None  # cert: no basis word
+
+
 def test_synthesize_headroom_ratio_format():
     p = asyncio.run(synthesize_covenants(_cp1(5.68, 2391.0), _retrieve(_MAINT_RATIO, "c-ag")))
     assert p.runtime_output["covenant_structure"] == "maintenance"
@@ -133,6 +143,29 @@ def test_synthesize_headroom_from_reported_leverage_no_net_debt():
     p = asyncio.run(synthesize_covenants(cp1, _retrieve(_MAINT_RATIO, "c-ag")))  # covenant 5.75
     calc = next(c for c in p.runtime_output["calculations"] if c["name"].startswith("Net leverage covenant"))
     assert calc["value"] == pytest.approx(0.25, abs=0.01)  # 5.75 − 5.5
+
+
+def test_synthesize_flags_secured_covenant_against_total_leverage():
+    # VMO2-style: a Senior Secured covenant but CP-1 carries TOTAL net leverage. The
+    # headroom math is unchanged (flag-only), but the basis mismatch is labeled + flagged
+    # so the conservative cushion isn't mistaken for a like-for-like read.
+    ss = ("The Borrower shall not permit the Senior Secured Leverage Ratio as of the last "
+          "day of any fiscal quarter to exceed 4.50 to 1.00.")
+    p = asyncio.run(synthesize_covenants(_cp1(4.20, None), _retrieve(ss, "c-ss")))
+    assert validate_payload(p) == []
+    calc = next(c for c in p.runtime_output["calculations"] if c["name"].startswith("Net leverage covenant"))
+    assert calc["value"] == pytest.approx(0.30, abs=0.01)  # 4.50 − 4.20, math NOT changed
+    assert p.runtime_output["covenant_basis"] == "senior_secured"
+    assert any("conservative" in f.lower() and "secured" in f.lower() for f in p.limitation_flags)
+    assert any("senior secured leverage covenant" in c.claim_text.lower() for c in p.claims)
+
+
+def test_synthesize_total_covenant_not_flagged():
+    # A total/consolidated covenant matches CP-1's basis — no mismatch flag, wording stays "total".
+    p = asyncio.run(synthesize_covenants(_cp1(), _retrieve(_MAINT, "c-sfa")))
+    assert "covenant_basis" not in p.runtime_output  # basis "total" is the default, not surfaced
+    assert not any("conservative" in f.lower() for f in p.limitation_flags)
+    assert any("total leverage covenant" in c.claim_text.lower() for c in p.claims)
 
 
 def test_synthesize_sources_covenant_without_cp1_leverage():

@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # at the cost of a second LLM fan-out. No effect unless council_enabled.
     council_peer_round: bool = False
 
+    # CP-6A/6E adversarial debate (engine/debate.py). The structured debate and
+    # its verdict are always computed deterministically from upstream outputs;
+    # this flag only enables the LiveDebater, which authors each advocate's
+    # *narrative* via an LLM (one call per side). Off by default (costs tokens,
+    # needs anthropic_api_key); when unset the deterministic prose is used.
+    debate_enabled: bool = False
+
     # Upload cap (MB).
     max_upload_mb: int = 250
 
