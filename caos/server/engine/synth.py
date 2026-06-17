@@ -29,6 +29,7 @@ code, so it is hardened on three axes —
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -123,6 +124,79 @@ _PAYLOAD_TOOL = {
     },
 }
 
+# CP-1 is the canonical data foundation: every deterministic overlay reads these
+# exact keys off ``runtime_output.normalized_financials``. The fixture / EDGAR /
+# reported producers emit this shape because they are code; the LLM producer
+# does not unless we pin it — so a live CP-1 used to land its figures under
+# whatever keys the model chose, and the overlays silently went Insufficient.
+# This is the *output* contract (normalization), independent of how messy the
+# *input* filing is: map the issuer's disclosed figures into these slots, and
+# leave any metric the sources do not disclose as null (NEVER invent — a missing
+# metric must read as missing, not fabricated). runtime_output stays open
+# (no additionalProperties:false) so CP-1's richer narrative output is preserved.
+_CP1_RUNTIME_SCHEMA = {
+    "type": "object",
+    "description": (
+        "CP-1 canonical output. Fill normalized_financials by mapping the issuer's "
+        "disclosed credit metrics into the canonical keys below, regardless of how "
+        "the source labels them. Set any metric the documents do not disclose to "
+        "null — never invent. You may add other keys (KPI register, coverage gates, "
+        "notes) alongside these."
+    ),
+    "properties": {
+        "normalized_financials": {
+            "type": "object",
+            "description": "The canonical normalized financials every downstream module reads.",
+            "properties": {
+                "revenue": {
+                    "type": "object",
+                    "additionalProperties": {"type": ["number", "null"]},
+                    "description": 'Period label (e.g. "FY24", "LTM_Q1_26") -> revenue in $M.',
+                },
+                "adj_ebitda": {
+                    "type": "object",
+                    "additionalProperties": {"type": ["number", "null"]},
+                    "description": "Period label -> adjusted EBITDA in $M (same labels as revenue).",
+                },
+                "net_debt_ltm": {"type": ["number", "null"], "description": "Net debt, $M, LTM."},
+                "net_leverage_adj_ltm": {
+                    "type": ["number", "null"],
+                    "description": "Headline net leverage = net debt / adj. EBITDA, in turns.",
+                },
+                "interest_coverage_ltm": {
+                    "type": ["number", "null"],
+                    "description": "Adj. EBITDA / cash interest, in turns.",
+                },
+                "leverage_basis": {
+                    "type": ["string", "null"],
+                    "description": "What net_leverage_adj_ltm is measured on, if stated: "
+                    "one of total | senior_secured | first_lien | net.",
+                },
+            },
+        },
+        "distress": {
+            "type": "object",
+            "description": "Distress model output, if computable from the sources.",
+            "properties": {
+                "altman_z": {"type": ["number", "null"]},
+                "zone": {"type": ["string", "null"]},
+                "model": {"type": ["string", "null"]},
+            },
+        },
+    },
+}
+
+
+def _payload_tool(module_id: str) -> dict:
+    """The forced-tool schema. CP-1 gets its ``runtime_output`` pinned to the
+    canonical normalized-financials contract; every other module keeps the
+    free-form object (their shapes are deterministic / module-specific)."""
+    if module_id != "CP-1":
+        return _PAYLOAD_TOOL
+    tool = copy.deepcopy(_PAYLOAD_TOOL)
+    tool["input_schema"]["properties"]["runtime_output"] = _CP1_RUNTIME_SCHEMA
+    return tool
+
 
 class SynthesisError(RuntimeError):
     """Raised when a module cannot produce a valid payload (runner gates it)."""
@@ -171,14 +245,14 @@ class LiveSynthesizer:
             raise SynthesisError(f"Active prompt not found for {module_id} at {path}")
         return path.read_text(encoding="utf-8")
 
-    async def _call(self, system: str, messages: list):
+    async def _call(self, system: str, messages: list, tool: dict):
         """One forced-tool Claude call; accrues token usage onto the run budget."""
         resp = await self._get_client().messages.create(
             model=self._settings.anthropic_model,
             max_tokens=_MAX_TOKENS,
             system=system,
-            tools=[_PAYLOAD_TOOL],
-            tool_choice={"type": "tool", "name": _PAYLOAD_TOOL["name"]},
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
             messages=messages,
         )
         budget.record_usage(resp)
@@ -194,6 +268,7 @@ class LiveSynthesizer:
             {mid: p.runtime_output for mid, p in upstream.items()}, default=str
         )
 
+        tool = _payload_tool(module_id)
         system = (
             active_prompt
             + "\n\n---\nCall the `emit_module_payload` tool exactly once with this module's "
@@ -201,12 +276,19 @@ class LiveSynthesizer:
             'confidence "Insufficient Information" where the sources do not support a claim.\n\n'
             + UNTRUSTED_RULE
         )
+        if module_id == "CP-1":
+            system += (
+                "\n\n---\nCP-1 is the canonical data foundation. Fill "
+                "`runtime_output.normalized_financials` with the canonical keys in the "
+                "tool schema, mapping the issuer's disclosed figures into them; set any "
+                "metric the sources do not disclose to null."
+            )
         user = (
             f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
             f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"
         )
 
-        resp = await self._call(system, [{"role": "user", "content": user}])
+        resp = await self._call(system, [{"role": "user", "content": user}], tool)
         payload, error = _extract_payload(module_id, resp)
         if error is None:
             return payload
@@ -223,7 +305,7 @@ class LiveSynthesizer:
             + "\nCall `emit_module_payload` again with a complete, corrected payload; "
             "ground every claim in the SOURCE CHUNKS above."
         )
-        resp2 = await self._call(system, [{"role": "user", "content": repair_user}])
+        resp2 = await self._call(system, [{"role": "user", "content": repair_user}], tool)
         payload, error2 = _extract_payload(module_id, resp2)
         if error2 is not None:
             raise SynthesisError(f"{module_id}: payload still invalid after one repair ({error2})")

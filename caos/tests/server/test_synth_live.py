@@ -255,3 +255,34 @@ def test_payload_from_data_is_defensive_on_empty():
     assert p.module_id == "CP-1"
     assert p.confidence == "Insufficient Information"
     assert p.claims == []
+
+
+# ── CP-1 canonical runtime-output schema (so live CP-1 matches the overlays) ──
+def _runtime_schema(synth):
+    return synth._client.messages.calls[0]["tools"][0]["input_schema"]["properties"]["runtime_output"]
+
+
+@pytest.mark.asyncio
+async def test_cp1_forces_canonical_normalized_financials_schema():
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth, module_id="CP-1")
+    nf = _runtime_schema(synth)["properties"]["normalized_financials"]["properties"]
+    assert {"net_leverage_adj_ltm", "net_debt_ltm", "interest_coverage_ltm",
+            "revenue", "adj_ebitda", "leverage_basis"} <= set(nf)
+    # canonical metrics are nullable — a missing disclosure must read as null, not invented
+    assert "null" in nf["net_leverage_adj_ltm"]["type"]
+
+
+@pytest.mark.asyncio
+async def test_non_cp1_keeps_freeform_runtime_schema():
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth, module_id="CP-2")
+    assert "properties" not in _runtime_schema(synth)  # generic open object
+
+
+def test_payload_tool_does_not_mutate_the_shared_tool():
+    from engine.synth import _PAYLOAD_TOOL, _payload_tool
+
+    _payload_tool("CP-1")  # builds a CP-1 variant
+    # the shared generic tool stays free-form for every other module
+    assert "properties" not in _PAYLOAD_TOOL["input_schema"]["properties"]["runtime_output"]
