@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, caos-app]
+    branches: [main]
   pull_request:
+
+# Cancel superseded runs on the same ref (rapid re-pushes to a PR branch).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   frontend:
@@ -20,7 +25,7 @@ jobs:
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       - run: npm ci
-      - run: npm run lint
+      - run: npm run lint -- --max-warnings=0
       - run: npx tsc --noEmit
       - run: npm test
       - run: npx next build
@@ -123,3 +128,19 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  fallow:
+    name: Fallow — new dead-code & duplication (PR gate)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so fallow can diff the PR against its base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Fails the PR only on dead code / duplication INTRODUCED by the diff
+      # (--gate new-only ignores the existing backlog). JS/TS only; run from the
+      # repo root so .fallowrc.json (ignores the design-sync dirs) is picked up.
+      - run: npx --yes fallow audit --base "origin/${{ github.base_ref }}" --gate new-only --fail-on-issues
