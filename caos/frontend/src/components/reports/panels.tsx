@@ -9,8 +9,6 @@ import { MODULE_NAMES } from "@/lib/reports/deal";
 import { EvChip } from "./EvidenceModal";
 import { Panel } from "@/components/shared/Panel";
 
-export { Panel };
-
 function StatusTag({ held }: { held: boolean }) {
   const c = held ? "var(--caos-warning)" : "var(--caos-success)";
   return (
