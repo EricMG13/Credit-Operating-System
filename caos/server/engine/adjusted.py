@@ -24,7 +24,6 @@ Two extractors behind one interface, mirroring [synth.py] / [coststructure.py]:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import List, Optional, Sequence, Tuple
@@ -32,8 +31,8 @@ from typing import List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
-from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
-from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
 
@@ -90,13 +89,6 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     """Claude reads the credit-agreement/OM chunks and returns the add-back load
     as a fraction of EBITDA + categories. Defensive: any failure → None (the
     caller falls back to the deterministic path)."""
-    import anthropic
-
-    settings = get_settings()
-    hits = await retrieve(_RETRIEVE_QUERY, 6)
-    if not hits:
-        return None
-    grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
     system = (
         "You read leveraged-finance credit documents and quantify EBITDA add-backs. "
         "From the SOURCE CHUNKS, return ONLY a JSON object: {\"addback_pct\": number "
@@ -105,18 +97,10 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
         "not disclose an add-back load, return {\"addback_pct\": null}. Never invent a figure.\n\n"
         + UNTRUSTED_RULE
     )
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    resp = await client.messages.create(
-        model=settings.anthropic_model, max_tokens=400,
-        system=system,
-        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
-    )
-    budget.record_usage(resp)
-    text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=6, system=system)
+    if res is None:
         return None
-    data = json.loads(match.group(0))
+    data, hits = res
     pct = data.get("addback_pct")
     if not isinstance(pct, (int, float)) or not (0 < float(pct) < 1):
         return None
@@ -139,28 +123,19 @@ async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     return derive_addbacks([(h.chunk_id, h.text) for h in hits])
 
 
-def _cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
-    """(current net leverage, net debt) from a CP-1 payload, or (None, None)."""
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    lev = nf.get("net_leverage_adj_ltm")
-    nd = nf.get("net_debt_ltm")
-    if isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd:
-        return float(lev), float(nd)
-    return None, None
-
-
 async def synthesize_adjusted(cp1: ModulePayload, retrieve) -> ModulePayload:
     """Build the CP-1A payload: reconcile CP-1's leverage against what it would be
     excluding the disclosed add-backs. ``retrieve(query, k)`` is the runner's
     issuer-scoped BM25."""
-    lev, nd = _cp1_leverage(cp1)
+    lev, nd = cp1_leverage(cp1)
     res = await extract_addbacks(retrieve)
 
-    if res is None or lev is None:
-        # Ran cleanly but no add-back disclosure (or no CP-1 leverage to compare):
-        # no metric, no claim (so no orphan finding), just a logged limitation.
+    if res is None or lev is None or nd is None:
+        # Ran cleanly but no add-back disclosure (or no CP-1 leverage/net debt to
+        # reconstruct EBITDA): no metric, no claim (so no orphan finding), just a
+        # logged limitation.
         reason = ("No EBITDA add-back disclosure found in ingested sources."
-                  if res is None else "CP-1 did not provide a reported net leverage to reconcile.")
+                  if res is None else "CP-1 did not provide reported net leverage and net debt to reconcile.")
         return ModulePayload(
             module_id="CP-1A", module_name="AdjustedEBITDABridge",
             owned_object="adjusted_ebitda_reconciliation",

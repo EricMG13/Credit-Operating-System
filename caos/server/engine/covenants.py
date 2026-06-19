@@ -20,7 +20,6 @@ chunks), with an LLM seam for real agreements, mirroring [adjusted.py]/[coststru
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -28,8 +27,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
-from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
-from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
 
@@ -129,13 +128,6 @@ def derive_covenant_terms(
 async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     """Claude reads the agreement chunks and returns the covenant terms. Defensive:
     any failure → None (caller falls back to the deterministic path)."""
-    import anthropic
-
-    settings = get_settings()
-    hits = await retrieve(_RETRIEVE_QUERY, 10)
-    if not hits:
-        return None
-    grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
     system = (
         "You read leveraged-finance credit agreements / indentures. From the SOURCE "
         "CHUNKS return ONLY a JSON object: {\"incremental_musd\": number|null (day-one "
@@ -145,18 +137,10 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
         "|null (the leverage basis that covenant is measured on), \"leverage_chunk_id\": "
         "id|null}. Use null when a term is not present. Never invent a figure.\n\n" + UNTRUSTED_RULE
     )
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    resp = await client.messages.create(
-        model=settings.anthropic_model, max_tokens=400,
-        system=system,
-        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
-    )
-    budget.record_usage(resp)
-    text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=10, system=system)
+    if res is None:
         return None
-    data = json.loads(match.group(0))
+    data, hits = res
     incr = data.get("incremental_musd")
     lev = data.get("leverage_covenant_x")
     lev_cov = ((float(lev), safe_chunk_id(data.get("leverage_chunk_id"), hits))
@@ -184,21 +168,10 @@ async def extract_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     return derive_covenant_terms([(h.chunk_id, h.text) for h in hits])
 
 
-def _cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
-    # Leverage and net debt independently: a reported-disclosure CP-1 (non-EDGAR
-    # issuer) carries net_leverage_adj_ltm without net_debt, and headroom only needs
-    # leverage; net debt is only required for the incremental pro-forma calc.
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    lev = float(lev) if isinstance(lev, (int, float)) and lev else None
-    nd = float(nd) if isinstance(nd, (int, float)) and nd else None
-    return lev, nd
-
-
 async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
     """Build the CP-4C payload: capacity / headroom calculations against CP-1's
     leverage, each source-traced. ``retrieve(query, k)`` is the runner's BM25."""
-    lev, nd = _cp1_leverage(cp1)
+    lev, nd = cp1_leverage(cp1)
     terms = await extract_covenant_terms(retrieve)
 
     if terms is None:

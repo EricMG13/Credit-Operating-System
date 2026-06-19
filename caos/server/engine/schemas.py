@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 # ── Canonical vocabularies (frozensets so membership checks are O(1)) ────────
 EXTRACTION_TYPES = frozenset({
@@ -111,3 +111,19 @@ def validate_payload(p: ModulePayload) -> List[str]:
             if e.confidence not in CONFIDENCE:
                 errors.append(f"{c.claim_id}: evidence confidence {e.confidence!r} invalid")
     return errors
+
+
+def cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
+    """(net leverage, net debt) from a CP-1 payload — each read *independently*.
+
+    A reported-disclosure CP-1 (non-EDGAR issuer) can carry ``net_leverage_adj_ltm``
+    without ``net_debt_ltm`` (headroom only needs leverage; net debt is only needed
+    to reconstruct EBITDA). A missing / zero / non-numeric value comes back as None,
+    so a caller that needs *both* (e.g. CP-1A's EBITDA reconstruction) must check
+    each one — do not assume leverage-present implies net-debt-present.
+    """
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
+    lev = float(lev) if isinstance(lev, (int, float)) and lev else None
+    nd = float(nd) if isinstance(nd, (int, float)) and nd else None
+    return lev, nd
