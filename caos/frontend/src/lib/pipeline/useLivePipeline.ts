@@ -7,9 +7,9 @@
 // offline sim demo unchanged ("prefer live, static fallback", same contract as
 // useLiveRun).
 
-import { useEffect, useState } from "react";
-import { getModule, getRun, listRuns } from "@/lib/api";
+import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
+import { useLatestRun } from "@/lib/engine/useLatestRun";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
 import type { Sim, SimEvent } from "./sim";
 
@@ -105,31 +105,11 @@ export function buildLiveSnapshot(run: RunSummaryDTO, cpx: ModuleDetailDTO | nul
 }
 
 export function useLivePipeline(issuerId: string): LivePipeline | null {
-  const [live, setLive] = useState<LivePipeline | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const runs = await listRuns(issuerId);
-        const latest = runs.find((r) => r.status === "complete");
-        if (!latest) {
-          if (!cancelled) setLive(null);
-          return;
-        }
-        const [run, cpx] = await Promise.all([
-          getRun(latest.id),
-          getModule(latest.id, "CP-X").catch(() => null),
-        ]);
-        if (!cancelled) setLive(buildLiveSnapshot(run, cpx));
-      } catch {
-        if (!cancelled) setLive(null); // no backend / error → static sim fallback
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [issuerId]);
-
-  return live;
+  return useLatestRun<LivePipeline | null>(issuerId, null, null, async (latest) => {
+    const [run, cpx] = await Promise.all([
+      getRun(latest.id),
+      getModule(latest.id, "CP-X").catch(() => null),
+    ]);
+    return buildLiveSnapshot(run, cpx);
+  });
 }

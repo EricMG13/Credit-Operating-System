@@ -4,9 +4,9 @@
 // run, and on no run / no backend / any error returns {live:false, anchor:null}
 // so the offline Model Builder falls back to its seeded constants unchanged.
 
-import { useEffect, useState } from "react";
-import { getModule, listRuns } from "@/lib/api";
+import { getModule } from "@/lib/api";
 import { cp1ToAnchor, type ModelAnchor } from "./modelAnchor";
+import { useLatestRun } from "./useLatestRun";
 
 export interface ModelEngineState {
   anchor: ModelAnchor | null;
@@ -21,36 +21,14 @@ const EMPTY: ModelEngineState = {
 };
 
 export function useModelEngine(issuerId: string): ModelEngineState {
-  const [state, setState] = useState<ModelEngineState>({ ...EMPTY, loading: true });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const runs = await listRuns(issuerId);
-        const latest = runs.find((r) => r.status === "complete");
-        if (!latest) {
-          if (!cancelled) setState(EMPTY);
-          return;
-        }
-        const anchor = cp1ToAnchor(await getModule(latest.id, "CP-1"));
-        if (!cancelled) {
-          setState({
-            anchor,
-            runId: latest.id,
-            committeeStatus: latest.committee_status,
-            live: anchor != null, // a run with no usable CP-1 anchor still falls back
-            loading: false,
-          });
-        }
-      } catch {
-        if (!cancelled) setState(EMPTY); // no backend / network error → static fallback
-      }
-    })();
-    return () => {
-      cancelled = true;
+  return useLatestRun<ModelEngineState>(issuerId, { ...EMPTY, loading: true }, EMPTY, async (latest) => {
+    const anchor = cp1ToAnchor(await getModule(latest.id, "CP-1"));
+    return {
+      anchor,
+      runId: latest.id,
+      committeeStatus: latest.committee_status,
+      live: anchor != null, // a run with no usable CP-1 anchor still falls back
+      loading: false,
     };
-  }, [issuerId]);
-
-  return state;
+  });
 }
