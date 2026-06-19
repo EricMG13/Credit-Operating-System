@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, edgar, health, ingestion, issuers, query, runs, scenario
+from routes import auth, chat, edgar, health, ingestion, issuers, query, research, runs, scenario, settings as settings_routes
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -101,6 +101,22 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     return response
 
 
+# ─── Error monitoring ───────────────────────────────────────────────────────
+# Log-based: every unhandled exception is logged with request context (method,
+# path, caller) before a clean 500 goes back. The pilot's monitoring surface is
+# `docker compose logs app` (LAUNCH_PHASE1 §8) — no external APM, by design
+# (no-paid-services). HTTPException keeps its own handler; this catches the rest.
+@app.exception_handler(Exception)
+async def log_unhandled(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
+    logger.exception(
+        "unhandled exception: %s %s (caller=%s)",
+        request.method,
+        request.url.path,
+        request.headers.get("X-Forwarded-Email", "?"),
+    )
+    return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+
+
 # ─── API routes ───────────────────────────────────────────────────────────
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
@@ -111,6 +127,8 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
+app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)
