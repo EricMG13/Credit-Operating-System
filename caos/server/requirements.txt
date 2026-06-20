@@ -1,7 +1,8 @@
 fastapi==0.115.*
 uvicorn[standard]==0.30.*
-# 0.0.18+ required: CVE-2024-53981 (multipart parsing DoS)
-python-multipart==0.0.20
+# 0.0.31+ required: multipart DoS (CVE-2024-53981 + GHSA unbounded headers /
+# excessive form-field parsing)
+python-multipart==0.0.31
 sqlalchemy[asyncio]==2.0.*
 alembic==1.13.*
 aiosqlite==0.20.*
