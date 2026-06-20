@@ -296,7 +296,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                 background: isDragActive ? "rgba(79,140,255,0.06)" : files.length ? "rgba(34,197,94,0.04)" : "var(--caos-bg)",
               }}
             >
-              <input {...getInputProps()} />
+              <input {...getInputProps()} aria-label="Upload deal documents (PDF or XLSX)" />
               <div className="text-caos-lg text-caos-text/85">
                 Drop all deal documents here, or click to browse
               </div>

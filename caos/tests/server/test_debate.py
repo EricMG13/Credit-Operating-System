@@ -1,0 +1,120 @@
+"""CP-6A/6E adversarial debate (engine/debate.py).
+
+Offline/deterministic: ANTHROPIC_API_KEY is "" in conftest, so get_debater()
+returns the FixtureDebater and synthesize_debate never calls an LLM.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from engine import debate
+from engine.lineage import validate_lineage
+from engine.schemas import ModulePayload, validate_payload
+
+
+def _cp1(leverage: float) -> ModulePayload:
+    return ModulePayload(
+        module_id="CP-1", module_name="CanonicalDataFoundation",
+        owned_object="canonical_financials",
+        runtime_output={"normalized_financials": {"net_leverage_adj_ltm": leverage}},
+    )
+
+
+def _cp1b(*, ebitda_growth=None, signals=()) -> ModulePayload:
+    return ModulePayload(
+        module_id="CP-1B", module_name="EarningsDelta", owned_object="earnings_delta",
+        runtime_output={"summary": {"ebitda_growth_pct": ebitda_growth},
+                        "monitoring_signals": list(signals)},
+    )
+
+
+def _cp1c(*, outliers=()) -> ModulePayload:
+    return ModulePayload(
+        module_id="CP-1C", module_name="PeerBenchmark", owned_object="peer_benchmark",
+        runtime_output={"outlier_metrics": list(outliers), "comparisons": [{"metric": "x"}],
+                        "peer_scope": "sector peers"},
+    )
+
+
+def _cp4c(*, structure=None, headroom=None) -> ModulePayload:
+    calcs = []
+    if headroom is not None:
+        calcs.append({"name": "Net leverage covenant headroom", "value": headroom, "unit": "turns"})
+    return ModulePayload(
+        module_id="CP-4C", module_name="CovenantCapacityCalculator",
+        owned_object="covenant_capacity_calculation",
+        runtime_output={"covenant_structure": structure, "calculations": calcs},
+    )
+
+
+def _run(module_id, upstream):
+    return asyncio.run(debate.synthesize_debate(module_id, upstream))
+
+
+# ── signal extraction ────────────────────────────────────────────────────────
+
+def test_ic_signals_bear_on_high_leverage_and_monitoring():
+    up = {"CP-1": _cp1(6.5), "CP-1B": _cp1b(signals=["Revenue declined 8% YoY."]),
+          "CP-1C": _cp1c(outliers=["EBITDA margin"]), "CP-4C": _cp4c(structure="cov-lite")}
+    bull, bear = debate._ic_signals(up)
+    assert bull == []
+    bear_text = " ".join(p.text for p in bear)
+    assert "6.5x" in bear_text and "Revenue declined" in bear_text
+    assert "Bottom-quartile" in bear_text and "Cov-lite" in bear_text
+
+
+def test_ic_signals_bull_on_low_leverage_and_growth():
+    up = {"CP-1": _cp1(3.2), "CP-1B": _cp1b(ebitda_growth=11.0),
+          "CP-1C": _cp1c(outliers=[]), "CP-4C": _cp4c(structure="maintenance", headroom=1.8)}
+    bull, bear = debate._ic_signals(up)
+    assert bear == []
+    bull_text = " ".join(p.text for p in bull)
+    assert "3.2x" in bull_text and "grew 11% YoY" in bull_text and "1.8 turns" in bull_text
+
+
+# ── deterministic chair ────────────────────────────────────────────────────────
+
+def test_ic_verdict_leans_track_net_score():
+    assert debate._ic_verdict([debate.Point("a", "CP-1", 3)], [])["lean"] == "CONSTRUCTIVE"
+    assert debate._ic_verdict([], [debate.Point("b", "CP-1", 3)])["lean"] == "CAUTIOUS"
+    assert debate._ic_verdict([debate.Point("a", "CP-1", 1)],
+                              [debate.Point("b", "CP-1", 1)])["lean"] == "BALANCED"
+
+
+def test_ic_verdict_greatest_uncertainty_is_top_bear():
+    v = debate._ic_verdict([], [debate.Point("minor risk", "CP-1B", 1),
+                                debate.Point("the big one", "CP-1", 3)])
+    assert v["greatest_uncertainty"] == "the big one"
+
+
+# ── payload assembly ───────────────────────────────────────────────────────────
+
+def test_cp6a_payload_is_valid_and_lineage_clean():
+    up = {"CP-1": _cp1(6.5), "CP-2": ModulePayload("CP-2", "CostStructure", "cost_structure", {}),
+          "CP-1B": _cp1b(signals=["EBITDA margin compressed 2pp YoY."]),
+          "CP-4C": _cp4c(structure="cov-lite")}
+    p = _run("CP-6A", up)
+    assert p.module_id == "CP-6A" and p.owned_object == "ic_debate_challenge"
+    assert validate_payload(p) == []
+    # Debate points are calculated from gated upstreams → no CP-5B findings.
+    assert validate_lineage([p]) == []
+    assert p.runtime_output["verdict"]["lean"] == "CAUTIOUS"
+    assert "CP-6E" in p.downstream_consumers
+
+
+def test_cp6e_reads_cp6a_verdict():
+    cp6a = _run("CP-6A", {"CP-1": _cp1(3.2), "CP-2": ModulePayload("CP-2", "", "", {}),
+                          "CP-1B": _cp1b(ebitda_growth=11.0), "CP-4C": _cp4c(structure="maintenance", headroom=2.0)})
+    assert cp6a.runtime_output["verdict"]["lean"] == "CONSTRUCTIVE"
+    p = _run("CP-6E", {"CP-6A": cp6a, "CP-4C": _cp4c(structure="maintenance")})
+    assert validate_payload(p) == [] and validate_lineage([p]) == []
+    assert p.runtime_output["verdict"]["sizing_posture"].startswith("Add —")
+
+
+def test_no_signals_degrades_confidence_but_stays_valid():
+    p = _run("CP-6A", {"CP-1": ModulePayload("CP-1", "", "canonical_financials", {})})
+    assert p.confidence == "Low" and p.limitation_flags
+    assert validate_payload(p) == [] and validate_lineage([p]) == []
+    # Verdict still present (neutral default) and gate-clean.
+    assert p.runtime_output["verdict"]["lean"] == "BALANCED"

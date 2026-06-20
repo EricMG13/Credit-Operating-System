@@ -56,11 +56,32 @@ def llm_allowed() -> bool:
     return b is None or not b.exhausted()
 
 
+def _input_tokens(u) -> int:
+    """Total input tokens processed, cached or not. With prompt caching the cached
+    prefix leaves ``input_tokens`` (it moves to cache_read/cache_creation), so summing
+    all three keeps the budget invariant to caching — ``run_token_budget`` measures the
+    same processed-token total whether or not a prefix was cached."""
+    return (
+        (getattr(u, "input_tokens", 0) or 0)
+        + (getattr(u, "cache_read_input_tokens", 0) or 0)
+        + (getattr(u, "cache_creation_input_tokens", 0) or 0)
+    )
+
+
 def record_usage(resp) -> None:
-    """Accrue an Anthropic response's token usage onto the active run budget."""
+    """Accrue an Anthropic response's token usage onto the active run budget.
+
+    Top-level usage is the executor's tokens. When the advisor tool ran, the
+    advisor sub-inference bills separately and is reported only in
+    ``usage.iterations`` (type ``advisor_message``) — accrue those too so the run
+    budget reflects the true spend."""
     b = _budget_var.get()
     if b is None:
         return
     usage = getattr(resp, "usage", None)
-    if usage is not None:
-        b.record(getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0)
+    if usage is None:
+        return
+    b.record(_input_tokens(usage), getattr(usage, "output_tokens", 0) or 0)
+    for it in getattr(usage, "iterations", None) or []:
+        if getattr(it, "type", None) == "advisor_message":
+            b.record(_input_tokens(it), getattr(it, "output_tokens", 0) or 0)

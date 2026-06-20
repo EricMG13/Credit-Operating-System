@@ -1,11 +1,19 @@
-"""The module runner — executes the analytical slice and enforces the gate.
+"""The module runner — routes via CP-X and enforces the gate.
 
-Per module: input gate -> retrieve -> synthesize -> validate -> persist, then a
-QA phase runs CP-5B (lineage) over the produced outputs and CP-5 (the
-deterministic gate) rolls the findings up into per-module and run-level status.
+Flow: run CP-0 (source readiness) first, then **CP-X** ([planner.py]) consumes it
+with the module registry ([registry.py]) to build a route plan — a
+dependency-ordered execution sequence, per-module readiness verdicts,
+one-owner-per-object validation, and limitation propagation. The runner persists
+the plan as the CP-X module output, then executes the routed modules in the
+plan's order (input gate -> retrieve -> synthesize -> validate -> persist). A QA
+phase runs CP-5B (lineage) and CP-5C (committee review) over the produced
+outputs; CP-5 (the deterministic gate) rolls the findings up into per-module and
+run-level status.
 
-The slice is CP-0 -> CP-1 (analytical) followed by CP-5B -> CP-5 (QA). CP-X's
-full DAG routing is a later tier; here the order and dependencies are explicit.
+CP-X replaces the previously hardcoded slice/dependencies: which analytical
+modules run, and in what order, is now derived from CP-0 + the registry. Modules
+without a wired synthesizer are routed and shown as ``Not Implemented`` but never
+executed.
 """
 
 from __future__ import annotations
@@ -13,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,9 +32,22 @@ from database import (
     ModuleOutput, QAFinding, Run,
 )
 from engine import budget, edgar_cp1, reported_cp1
-from engine.adjusted import reconciliation_finding, synthesize_adjusted
+from engine.fixtures import REFERENCE_ISSUER_ID
+from engine.adjusted import reconcile_adjusted_ebitda, reconciliation_finding
+from engine.factpack import synthesize_fact_pack
 from engine.council import get_reviewer
 from engine.covenants import covlite_finding, synthesize_covenants
+from engine.capstructure import synthesize_recovery_preference
+from engine.catalysts import synthesize_catalysts
+from engine.debate import synthesize_debate
+from engine.downside import synthesize_downside
+from engine.legal import synthesize_legal_review
+from engine.liquidity import synthesize_liquidity
+from engine.macro import synthesize_macro
+from engine.portfoliofit import synthesize_portfolio_fit
+from engine.refinancing import synthesize_refinancing
+from engine.relval import synthesize_relative_value
+from engine.sponsor import synthesize_sponsor_review
 from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
@@ -40,22 +61,138 @@ from engine.gate import (
     worst_confidence,
 )
 from engine.lineage import validate_lineage
+from engine.planner import BLOCKED as ROUTE_BLOCKED, EXCLUDED as ROUTE_EXCLUDED, RoutePlan, build_route_plan
+from engine.registry import REGISTRY
 from engine.schemas import ModulePayload, validate_payload
 from engine.synth import SynthesisError, get_synthesizer
 from retrieval import build_issuer_index, rank_with_index
 
 logger = logging.getLogger("caos.engine")
 
-ANALYTICAL_SLICE = ["CP-0", "CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-4C"]
-DEPENDENCIES: Dict[str, List[str]] = {
-    "CP-0": [], "CP-1": ["CP-0"], "CP-1A": ["CP-1"], "CP-1B": ["CP-1"],
-    "CP-1C": ["CP-1"], "CP-2": ["CP-1"], "CP-4C": ["CP-1"],
-}
 PROMPT_VERSION = "v2.0"
+
+# The only analytical synthesizers that read/write the AsyncSession during
+# synthesis. An AsyncSession is not safe for concurrent use, so these run
+# serially within their layer while the pure (retrieve-only) modules fan out.
+# CP-0 reads the issuer's vaulted docs; CP-1 may vault EDGAR XBRL; CP-1C reads
+# the metric store for peers.
+_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C"}
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
+    """Group ``module_ids`` into CP-X dependency layers: layer N holds the modules
+    whose in-set registry deps are all in layers < N. Modules with no in-set deps
+    land in layer 0. Within a layer no module depends on another, so a layer's
+    synthesis can run concurrently; input order (topological) is preserved inside a
+    layer so execution stays deterministic. Deps outside the set (CP-0, Not
+    Implemented, Excluded) don't gate layering — the runner's input gate does."""
+    in_set = set(module_ids)
+    placed: Dict[str, int] = {}
+    layers: List[List[str]] = []
+    remaining = list(module_ids)
+    while remaining:
+        layer = [
+            m for m in remaining
+            if all(d in placed for d in REGISTRY[m].depends_on if d in in_set)
+        ]
+        if not layer:  # ponytail: cycle fallback — the registry is a DAG, but never spin
+            layer = list(remaining)
+        for m in layer:
+            placed[m] = len(layers)
+        layers.append(layer)
+        remaining = [m for m in remaining if m not in placed]
+    return layers
+
+
+async def synthesize_module(
+    module_id: str, session: AsyncSession, issuer: Optional[Issuer],
+    issuer_name: str, synthesizer, upstream: Dict[str, ModulePayload], retrieve,
+) -> ModulePayload:
+    """Dispatch one module to its wired synthesizer (the engine's slice). Reads run
+    state (issuer / upstream / retrieve) but writes none, so a layer's pure-synth
+    modules run concurrently; the if-chain wires each module's own arg shape."""
+    # CP-0 reads the issuer's own vaulted documents (no fixture), so a fresh
+    # issuer reports its real source pack, not a canned one.
+    if module_id == "CP-0" and issuer is not None:
+        return await synthesize_source_readiness(session, issuer)
+    # CP-2 = FundamentalCreditSynthesizer. Live mode runs the corpus Active Prompt
+    # (full qualitative synthesis grounded in retrieved chunks + upstream); the
+    # offline/fixture path falls back to the deterministic cost-structure read, so
+    # the engine stays fully exercisable without a model key.
+    if module_id == "CP-2":
+        if synthesizer.name == "live":
+            return await synthesizer.synthesize(
+                "CP-2", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
+            )
+        return await synthesize_cost_structure(issuer_name, retrieve)
+    # CP-1 prefers a deterministic EDGAR reported foundation for any public
+    # filer, falling back to the LLM/fixture synthesizer; then it embeds the
+    # reported-vs-adjusted (add-back) reconciliation it adjusts.
+    if module_id == "CP-1":
+        cp1 = await _synthesize_cp1(
+            session, issuer, issuer_name, synthesizer, upstream, retrieve
+        )
+        res = await reconcile_adjusted_ebitda(cp1, retrieve)
+        if res is not None:
+            recon, claim = res
+            (cp1.runtime_output or {})["adjusted_ebitda_reconciliation"] = recon
+            cp1.claims.append(claim)
+        return cp1
+    # CP-1A is the BusinessTransactionFactPack: scan offering/transaction text.
+    if module_id == "CP-1A":
+        return await synthesize_fact_pack(retrieve)
+    # CP-1B is a pure period-over-period delta off CP-1 (no docs/LLM).
+    if module_id == "CP-1B":
+        return synthesize_earnings_delta(upstream["CP-1"])
+    # CP-1C benchmarks the issuer vs peers from the metric store.
+    if module_id == "CP-1C" and issuer is not None:
+        return await synthesize_peer_benchmark(session, issuer, upstream["CP-1"])
+    # CP-4C computes covenant capacity / headroom against CP-1's leverage.
+    if module_id == "CP-4C":
+        return await synthesize_covenants(upstream["CP-1"], retrieve)
+    # CP-2B stresses CP-1's leverage/coverage into downside pathways.
+    if module_id == "CP-2B":
+        return await synthesize_downside(upstream["CP-1"])
+    # CP-2C registers forward catalysts from upstream monitoring signals.
+    if module_id == "CP-2C":
+        return await synthesize_catalysts(upstream)
+    # CP-2D scans offering/governance text for sponsor red flags.
+    if module_id == "CP-2D":
+        return await synthesize_sponsor_review(retrieve)
+    # CP-2E scans financial/agreement text for liquidity sources, and prices
+    # the runway against CP-1's cash interest.
+    if module_id == "CP-2E":
+        return await synthesize_liquidity(retrieve, upstream.get("CP-1"))
+    # CP-2F stresses CP-1's debt stack for base-rate sensitivity and scans for an
+    # interest-rate hedge register / FX exposure.
+    if module_id == "CP-2F":
+        return await synthesize_macro(upstream["CP-1"], retrieve)
+    # CP-3 scores the issuer's fundamentals vs peers from CP-1C.
+    if module_id == "CP-3":
+        return await synthesize_relative_value(upstream["CP-1C"])
+    # CP-3B scans agreement/offering text for the debt tranches, then waterfalls
+    # CP-1's distressed EV over them for expected recovery / instrument preference.
+    if module_id == "CP-3B":
+        return await synthesize_recovery_preference(retrieve, upstream.get("CP-1"))
+    # CP-3C maps CP-3's RV recommendation to a portfolio sleeve/sizing.
+    if module_id == "CP-3C":
+        return await synthesize_portfolio_fit(upstream["CP-3"], upstream.get("CP-1"))
+    # CP-3D scores refinancing/LME vulnerability from leverage + fragility.
+    if module_id == "CP-3D":
+        return await synthesize_refinancing(upstream["CP-1"], upstream.get("CP-2B"))
+    # CP-4 scans ingested agreement/covenant text for aggressive provisions.
+    if module_id == "CP-4":
+        return await synthesize_legal_review(retrieve)
+    # CP-6A/6E are the L6 adversarial debate over the produced upstream outputs.
+    if module_id in ("CP-6A", "CP-6E"):
+        return await synthesize_debate(module_id, upstream)
+    return await synthesizer.synthesize(
+        module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
+    )
 
 
 async def execute_run(session: AsyncSession, run: Run) -> None:
@@ -86,90 +223,137 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     upstream: Dict[str, ModulePayload] = {}
     module_status: Dict[str, str] = {}
     output_rows: Dict[str, ModuleOutput] = {}
+    plan: Optional[RoutePlan] = None
+
+    sem = asyncio.Semaphore(max(1, settings.synth_concurrency))
+
+    def _block_reason(module_id: str) -> Optional[str]:
+        """Why ``module_id`` can't run now, or None if it's runnable: a CP-X
+        route-plan block, or a required upstream that is missing/Blocked (the input
+        gate)."""
+        if plan is not None and plan.verdict(module_id) == ROUTE_BLOCKED:
+            return plan.blocking_reason(module_id) or "Blocked by CP-X route plan."
+        spec = REGISTRY.get(module_id)
+        deps = spec.depends_on if spec is not None else ()
+        blocked_dep = next(
+            (d for d in deps if module_status.get(d) in (None, "Blocked")), None
+        )
+        if blocked_dep is not None:
+            return f"Input gate: required upstream {blocked_dep} is missing or Blocked."
+        return None
+
+    async def _attempt_synth(module_id: str):
+        """Synthesize one module; return its payload, or the SynthesisError it
+        raised (any other exception propagates to fail the run). No DB writes here,
+        so pure-synth modules in a layer run concurrently on the shared session."""
+        async with sem:
+            try:
+                return await synthesize_module(
+                    module_id, session, issuer, issuer_name,
+                    synthesizer, upstream, retrieve,
+                )
+            except SynthesisError as e:
+                return e
+
+    async def _persist_synth_result(module_id: str, result) -> None:
+        """Validate -> propagate flags -> resolve evidence -> persist one synth
+        result. Sequential (single AsyncSession): the fan-in after a layer's
+        concurrent synthesis."""
+        if isinstance(result, SynthesisError):
+            logger.warning("synthesis failed for %s: %s", module_id, result)
+            output_rows[module_id] = _persist_blocked(
+                session, run.id, module_id, f"Synthesis failed: {result}"
+            )
+            module_status[module_id] = "Blocked"
+            return
+        payload = result
+        errors = validate_payload(payload)
+        if errors:
+            logger.warning("payload validation failed for %s: %s", module_id, errors)
+            output_rows[module_id] = _persist_blocked(
+                session, run.id, module_id,
+                "Payload failed schema validation: " + "; ".join(errors),
+                validation_status="Blocked",
+            )
+            module_status[module_id] = "Blocked"
+            return
+        # CP-X limitation propagation: carry CP-0 source-gap flags onto the module.
+        if plan is not None:
+            for flag in plan.propagated_flags(module_id):
+                if flag not in payload.limitation_flags:
+                    payload.limitation_flags.append(flag)
+        await _resolve_evidence(payload, retrieve)
+        output_rows[module_id] = await _persist_output(
+            session, run.id, payload, validation_status="Passed"
+        )
+        upstream[module_id] = payload
+        module_status[module_id] = "Pending"
+
+    async def _run_layer(layer: List[str]) -> None:
+        """Run one CP-X dependency layer. Gate the un-runnable first (sequential DB
+        writes), then synthesize the rest — session-touching modules serially, the
+        pure ones concurrently — and persist every result in deterministic order.
+        Within a layer no module depends on another, so concurrent synthesis is
+        safe; persistence is always sequential on the single session."""
+        runnable: List[str] = []
+        for module_id in layer:
+            reason = _block_reason(module_id)
+            if reason is not None:
+                output_rows[module_id] = _persist_blocked(session, run.id, module_id, reason)
+                module_status[module_id] = "Blocked"
+            else:
+                runnable.append(module_id)
+        results: List[Tuple[str, object]] = []
+        for module_id in (m for m in runnable if m in _SESSION_SYNTH):
+            results.append((module_id, await _attempt_synth(module_id)))
+        parallel = [m for m in runnable if m not in _SESSION_SYNTH]
+        if parallel:
+            # ponytail: concurrent synth can let two modules pass llm_allowed() before
+            # either records usage, overshooting run_token_budget by ~one call — fine,
+            # the budget is a runaway guard, not a hard cap. Tighten only if it matters.
+            gathered = await asyncio.gather(*(_attempt_synth(m) for m in parallel))
+            results.extend(zip(parallel, gathered))
+        for module_id, result in results:
+            await _persist_synth_result(module_id, result)
 
     try:
-        # ── Analytical modules ───────────────────────────────────────────
-        for module_id in ANALYTICAL_SLICE:
-            blocked_dep = next(
-                (d for d in DEPENDENCIES.get(module_id, [])
-                 if module_status.get(d) in (None, "Blocked")),
-                None,
-            )
-            if blocked_dep is not None:
-                output_rows[module_id] = _persist_blocked(
-                    session, run.id, module_id,
-                    f"Input gate: required upstream {blocked_dep} is missing or Blocked.",
-                )
-                module_status[module_id] = "Blocked"
-                continue
+        # ── CP-0: source readiness (always first; CP-X routes off it) ──────
+        # plan is still None, so _run_layer treats CP-0 as a plain runnable (no
+        # route-block), synthesizes it on the session, and persists it.
+        await _run_layer(["CP-0"])
 
-            try:
-                # CP-0 reads the issuer's own vaulted documents (no fixture), so a
-                # fresh issuer reports its real source pack, not a canned one.
-                if module_id == "CP-0" and issuer is not None:
-                    payload = await synthesize_source_readiness(session, issuer)
-                # CP-2 is a deterministic, document-grounded module (no fixture /
-                # LLM) so it derives from the issuer's own sources for any issuer.
-                elif module_id == "CP-2":
-                    payload = await synthesize_cost_structure(issuer_name, retrieve)
-                # CP-1 prefers a deterministic EDGAR reported foundation for any
-                # public filer, falling back to the LLM/fixture synthesizer.
-                elif module_id == "CP-1":
-                    payload = await _synthesize_cp1(
-                        session, issuer, issuer_name, synthesizer, upstream, retrieve
-                    )
-                # CP-1A reconciles CP-1's reported leverage against the disclosed
-                # add-backs (deterministic / LLM over the issuer's documents).
-                elif module_id == "CP-1A":
-                    payload = await synthesize_adjusted(upstream["CP-1"], retrieve)
-                # CP-1B is a pure period-over-period delta off CP-1 (no docs/LLM).
-                elif module_id == "CP-1B":
-                    payload = synthesize_earnings_delta(upstream["CP-1"])
-                # CP-1C benchmarks the issuer vs peers from the metric store.
-                elif module_id == "CP-1C" and issuer is not None:
-                    payload = await synthesize_peer_benchmark(session, issuer, upstream["CP-1"])
-                # CP-4C computes covenant capacity / headroom against CP-1's
-                # leverage from the issuer's governing documents.
-                elif module_id == "CP-4C":
-                    payload = await synthesize_covenants(upstream["CP-1"], retrieve)
-                else:
-                    payload = await synthesizer.synthesize(
-                        module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
-                    )
-            except SynthesisError as e:
-                logger.warning("synthesis failed for %s: %s", module_id, e)
-                output_rows[module_id] = _persist_blocked(
-                    session, run.id, module_id, f"Synthesis failed: {e}"
-                )
-                module_status[module_id] = "Blocked"
-                continue
+        # ── CP-X: build and persist the route plan ────────────────────────
+        cp0_payload = upstream.get("CP-0") or ModulePayload(
+            module_id="CP-0", module_name="SourceReadiness",
+            owned_object="source_readiness_assessment", runtime_output={},
+            confidence="Insufficient Information",
+        )
+        plan = build_route_plan(cp0_payload)
+        await _persist_cpx(session, run.id, plan)
 
-            errors = validate_payload(payload)
-            if errors:
-                logger.warning("payload validation failed for %s: %s", module_id, errors)
-                row = _persist_blocked(
-                    session, run.id, module_id,
-                    "Payload failed schema validation: " + "; ".join(errors),
-                    validation_status="Blocked",
-                )
-                output_rows[module_id] = row
-                module_status[module_id] = "Blocked"
-                continue
+        # ── Routed analytical modules, executed in dependency LAYERS ───────
+        # CP-X already ordered the DAG; modules in the same layer have no
+        # dependency on each other, so their synthesis fans out concurrently and
+        # the layer's wall-clock approaches its slowest module, not the sum.
+        # Spec-only (Not Implemented) and ownership-excluded modules are shown in
+        # the route plan but never executed.
+        routed = [
+            r.module_id for r in plan.readiness
+            if r.module_id != "CP-0"
+            and REGISTRY[r.module_id].implemented
+            and r.readiness != ROUTE_EXCLUDED
+        ]
+        for layer in _dependency_layers(routed):
+            await _run_layer(layer)
 
-            await _resolve_evidence(payload, retrieve)
-            output_rows[module_id] = await _persist_output(
-                session, run.id, payload, validation_status="Passed"
-            )
-            upstream[module_id] = payload
-            module_status[module_id] = "Pending"
-
-        produced = [upstream[m] for m in ANALYTICAL_SLICE if m in upstream]
+        analytical_ids = ["CP-0"] + routed
+        produced = [upstream[m] for m in analytical_ids if m in upstream]
 
         # ── CP-5B: evidence lineage validation ───────────────────────────
         findings = validate_lineage(produced)
-        # CP-1A reported-vs-adjusted reconciliation → an informational finding
-        # the deterministic CP-5 gate consumes alongside the lineage findings.
-        recon = reconciliation_finding(upstream.get("CP-1A"))
+        # CP-1's embedded reported-vs-adjusted reconciliation → an informational
+        # finding the deterministic CP-5 gate consumes alongside lineage findings.
+        recon = reconciliation_finding(upstream.get("CP-1"))
         if recon is not None:
             findings.append(recon)
         covlite = covlite_finding(upstream.get("CP-4C"))
@@ -206,7 +390,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         await _persist_cp5c(session, run.id, produced, council)
 
         # ── CP-5: the deterministic gate ──────────────────────────────────
-        for mid in ANALYTICAL_SLICE:
+        for mid in analytical_ids:
             if module_status.get(mid) == "Blocked":
                 continue  # already gated by a structural failure
             mod_findings = [f for f in findings if f.module_id == mid]
@@ -241,7 +425,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             )
 
         # ── Run-level roll-up ─────────────────────────────────────────────
-        statuses = [module_status[m] for m in ANALYTICAL_SLICE if m in module_status]
+        statuses = [module_status[m] for m in analytical_ids if m in module_status]
         run.qa_status = roll_up_qa_status(statuses)
         run.committee_status = committee_status_from(
             run.qa_status, worst_confidence([p.confidence for p in produced])
@@ -323,13 +507,18 @@ async def _synthesize_cp1(
                     e.resolved_chunk_id = chunk_id
             logger.info("CP-1 grounded in EDGAR for %s (CIK %s)", issuer_name, build.cik)
             return build.payload
-    # Non-EDGAR issuers (non-US / IFRS / bond-only): try a reported-disclosure CP-1
-    # from the issuer's own bond report / earnings before the LLM/fixture path. Its
-    # evidence already resolves to the source (uploaded) chunk.
-    reported = await reported_cp1.build_reported_cp1_payload(issuer_name, retrieve)
-    if reported is not None:
-        logger.info("CP-1 grounded in issuer-disclosed reported metrics for %s", issuer_name)
-        return reported
+    # Non-EDGAR issuers (non-US / IFRS, no SEC XBRL): try a reported-disclosure CP-1
+    # from the issuer's own quarterly investor report / earnings before the LLM/fixture
+    # path. Its evidence already resolves to the source (uploaded) chunk.
+    #
+    # The reference/demo issuer is excluded: its docs are stub text with curated
+    # fixture financials, so the thin headline-only reported extractor would preempt
+    # the rich fixture (offline) or a full LLM spread (live) with a single number.
+    if issuer is None or issuer.id != REFERENCE_ISSUER_ID:
+        reported = await reported_cp1.build_reported_cp1_payload(issuer_name, retrieve)
+        if reported is not None:
+            logger.info("CP-1 grounded in issuer-disclosed reported metrics for %s", issuer_name)
+            return reported
     return await synthesizer.synthesize(
         "CP-1", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
     )
@@ -379,6 +568,29 @@ async def _resolve_evidence(payload: ModulePayload, retrieve) -> None:
         for e in c.evidence:
             if e.resolved_chunk_id is None:
                 e.resolved_chunk_id = top
+
+
+def _cpx_confidence(gate_status: str) -> str:
+    return {"Full Run": "High", "Ready with Limitations": "Medium"}.get(gate_status, "Low")
+
+
+async def _persist_cpx(session: AsyncSession, run_id: str, plan: RoutePlan) -> None:
+    """Record the CP-X route plan as an auditable orchestration output.
+
+    CP-X owns ``route_plan`` (one-owner-per-object): it routes and governs, it
+    does not analyse, so it is never gated (always a Passed process record) and
+    is excluded from the run-level roll-up. The plan it carries — the execution
+    sequence, readiness verdicts, ownership validation, and limitation
+    propagation — is the orchestrator's "show your work".
+    """
+    session.add(ModuleOutput(
+        run_id=run_id, module_id="CP-X", module_name="PlannerRouter",
+        owned_object="route_plan", schema_family="Infrastructure",
+        confidence=_cpx_confidence(plan.gate_status),
+        qa_status="Passed", committee_status="Committee Ready", validation_status="Passed",
+        runtime_output=plan.to_runtime_output(),
+        downstream_consumers=plan.routed_module_ids(),
+    ))
 
 
 async def _persist_cp5b(

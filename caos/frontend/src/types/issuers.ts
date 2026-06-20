@@ -6,14 +6,3 @@ export interface Issuer {
   country?: string;
   figi?: string;
 }
-
-export interface Document {
-  id: string;
-  issuer_id: string;
-  doc_type: string;
-  file_name: string;
-  minio_key: string;
-  mnpi_flag: boolean;
-  uploaded_at: string;
-  fiscal_period?: string;
-}

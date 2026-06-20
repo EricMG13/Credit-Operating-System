@@ -20,7 +20,6 @@ chunks), with an LLM seam for real agreements, mirroring [adjusted.py]/[coststru
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -28,8 +27,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
-from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
-from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
 
@@ -52,35 +51,63 @@ _MAINT_COVENANT_PATTERNS = (
     re.compile(r"maximum\s+permitted\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*:\s*1(?:\.0+)?", re.IGNORECASE),
     re.compile(
         r"shall\s+not\s+permit[^.]{0,160}?"
-        r"(?:total|consolidated|net|senior\s+secured|first[\s-]?lien)\s+leverage\s+ratio"
+        r"(total|consolidated|net|senior\s+secured|first[\s-]?lien)\s+leverage\s+ratio"
         r"[^.]{0,90}?(?:greater\s+than|exceed)\s*"
         r"(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|x\b|times\b|\s+to\s+1(?:\.0+)?)",
         re.IGNORECASE | re.DOTALL,
     ),
 )
+# A secured-basis cue anywhere in a covenant chunk — used for the compliance-cert
+# shape, whose threshold match ("Maximum Permitted: N:1.00") carries no basis word.
+_SECURED_BASIS = re.compile(r"(senior\s+secured|first[\s-]?lien)\s+(?:net\s+)?leverage", re.IGNORECASE)
 
 
-def _maintenance_leverage_threshold(text: str) -> Optional[float]:
-    """The financial maintenance leverage covenant threshold (turns) if present —
-    matched on the compliance-certificate or covenant-clause shape, not an
-    incurrence ratio test. Range-guarded to plausible covenant levels."""
-    for pat in _MAINT_COVENANT_PATTERNS:
-        m = pat.search(text)
-        if m:
-            v = float(m.group(1))
-            if 1.0 <= v <= 12.0:
-                return v
+def _normalize_basis(raw: object) -> Optional[str]:
+    """Map a leverage-basis qualifier to {senior_secured, first_lien, total} or None.
+    Tolerant of regex captures ('Senior Secured') and LLM tokens ('senior_secured')."""
+    key = re.sub(r"[\s\-_]+", " ", (raw if isinstance(raw, str) else "").strip().lower())
+    if key.startswith("senior secured"):
+        return "senior_secured"
+    if key.startswith("first lien"):
+        return "first_lien"
+    if key in ("total", "consolidated", "net", "total net", "consolidated net"):
+        return "total"
+    return None
+
+
+def _maintenance_leverage_threshold(text: str) -> Optional[Tuple[float, Optional[str]]]:
+    """(threshold turns, leverage basis) for the financial maintenance leverage
+    covenant if present — matched on the compliance-certificate or covenant-clause
+    shape, not an incurrence ratio test. Basis is 'senior_secured' / 'first_lien' /
+    'total', or None when the matched shape carries no qualifier. Range-guarded."""
+    # Compliance-certificate shape: the threshold match has no basis word; infer a
+    # secured basis only when the chunk states one nearby, else leave it unknown.
+    m = _MAINT_COVENANT_PATTERNS[0].search(text)
+    if m:
+        v = float(m.group(1))
+        if 1.0 <= v <= 12.0:
+            sec = _SECURED_BASIS.search(text)
+            return v, (_normalize_basis(sec.group(1)) if sec else None)
+    # Covenant-clause shape: the basis qualifier is captured directly.
+    m = _MAINT_COVENANT_PATTERNS[1].search(text)
+    if m:
+        v = float(m.group(2))
+        if 1.0 <= v <= 12.0:
+            return v, _normalize_basis(m.group(1))
     return None
 
 
 def derive_covenant_terms(
     chunks: Sequence[Tuple[str, str]]
-) -> Optional[Dict[str, Optional[Tuple[float, str]]]]:
+) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
     text)``. Returns ``{incremental_musd, leverage_covenant_x}`` (each a
-    ``(value, chunk_id)`` or None), or None if neither is found. Deterministic."""
+    ``(value, chunk_id)`` or None) plus ``leverage_covenant_basis`` — the leverage
+    basis the maintenance covenant is measured on (senior_secured / first_lien /
+    total / None) — or None if neither term is found. Deterministic."""
     incremental: Optional[Tuple[float, str]] = None
     leverage_cov: Optional[Tuple[float, str]] = None
+    leverage_basis: Optional[str] = None
     for cid, text in chunks:
         low = text.lower()
         if incremental is None and "incremental" in low and ("capacity" in low or "incurrence" in low):
@@ -88,56 +115,46 @@ def derive_covenant_terms(
             if m:
                 incremental = (float(m.group(1).replace(",", "")), cid)
         if leverage_cov is None and "leverage" in low:
-            v = _maintenance_leverage_threshold(text)
-            if v is not None:
-                leverage_cov = (v, cid)
+            res = _maintenance_leverage_threshold(text)
+            if res is not None:
+                val, leverage_basis = res
+                leverage_cov = (val, cid)
     if incremental is None and leverage_cov is None:
         return None
-    return {"incremental_musd": incremental, "leverage_covenant_x": leverage_cov}
+    return {"incremental_musd": incremental, "leverage_covenant_x": leverage_cov,
+            "leverage_covenant_basis": leverage_basis}
 
 
-async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[float, str]]]]:
+async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     """Claude reads the agreement chunks and returns the covenant terms. Defensive:
     any failure → None (caller falls back to the deterministic path)."""
-    import anthropic
-
-    settings = get_settings()
-    hits = await retrieve(_RETRIEVE_QUERY, 10)
-    if not hits:
-        return None
-    grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
     system = (
         "You read leveraged-finance credit agreements / indentures. From the SOURCE "
         "CHUNKS return ONLY a JSON object: {\"incremental_musd\": number|null (day-one "
         "incremental / incurrence debt capacity in $millions), \"incremental_chunk_id\": "
         "id|null, \"leverage_covenant_x\": number|null (maximum net leverage maintenance "
-        "covenant, in turns), \"leverage_chunk_id\": id|null}. Use null when a term is not "
-        "present. Never invent a figure.\n\n" + UNTRUSTED_RULE
+        "covenant, in turns), \"leverage_basis\": \"total\"|\"senior_secured\"|\"first_lien\""
+        "|null (the leverage basis that covenant is measured on), \"leverage_chunk_id\": "
+        "id|null}. Use null when a term is not present. Never invent a figure.\n\n" + UNTRUSTED_RULE
     )
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    resp = await client.messages.create(
-        model=settings.anthropic_model, max_tokens=400,
-        system=system,
-        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
-    )
-    budget.record_usage(resp)
-    text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=10, system=system)
+    if res is None:
         return None
-    data = json.loads(match.group(0))
+    data, hits = res
     incr = data.get("incremental_musd")
     lev = data.get("leverage_covenant_x")
-    out: Dict[str, Optional[Tuple[float, str]]] = {
+    lev_cov = ((float(lev), safe_chunk_id(data.get("leverage_chunk_id"), hits))
+               if isinstance(lev, (int, float)) and lev > 0 else None)
+    out: Dict[str, object] = {
         "incremental_musd": (float(incr), safe_chunk_id(data.get("incremental_chunk_id"), hits))
         if isinstance(incr, (int, float)) and incr > 0 else None,
-        "leverage_covenant_x": (float(lev), safe_chunk_id(data.get("leverage_chunk_id"), hits))
-        if isinstance(lev, (int, float)) and lev > 0 else None,
+        "leverage_covenant_x": lev_cov,
+        "leverage_covenant_basis": _normalize_basis(data.get("leverage_basis")) if lev_cov else None,
     }
     return out if (out["incremental_musd"] or out["leverage_covenant_x"]) else None
 
 
-async def extract_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[float, str]]]]:
+async def extract_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     """Covenant terms via the LLM when a key is set and budget remains (else the
     deterministic regex fallback)."""
     if get_settings().anthropic_api_key and budget.llm_allowed():
@@ -151,21 +168,10 @@ async def extract_covenant_terms(retrieve) -> Optional[Dict[str, Optional[Tuple[
     return derive_covenant_terms([(h.chunk_id, h.text) for h in hits])
 
 
-def _cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
-    # Leverage and net debt independently: a reported-disclosure CP-1 (non-EDGAR
-    # issuer) carries net_leverage_adj_ltm without net_debt, and headroom only needs
-    # leverage; net debt is only required for the incremental pro-forma calc.
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    lev = float(lev) if isinstance(lev, (int, float)) and lev else None
-    nd = float(nd) if isinstance(nd, (int, float)) and nd else None
-    return lev, nd
-
-
 async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
     """Build the CP-4C payload: capacity / headroom calculations against CP-1's
     leverage, each source-traced. ``retrieve(query, k)`` is the runner's BM25."""
-    lev, nd = _cp1_leverage(cp1)
+    lev, nd = cp1_leverage(cp1)
     terms = await extract_covenant_terms(retrieve)
 
     if terms is None:
@@ -219,6 +225,12 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
             ))
 
     lev_cov = terms.get("leverage_covenant_x")
+    # CP-1's net_leverage_adj_ltm is a total/consolidated headline metric. A TLB issuer's
+    # maintenance covenant is often a *senior secured* / first-lien ratio (a narrower debt
+    # basis) — comparing the two understates headroom, so label by basis and flag the
+    # mismatch rather than silently calling everything a "total leverage covenant".
+    cov_basis = terms.get("leverage_covenant_basis")
+    cov_label = {"senior_secured": "senior secured", "first_lien": "first-lien"}.get(cov_basis, "total")
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
         thr, cid = lev_cov
@@ -235,17 +247,23 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
                 claim_text=(
-                    f"The total leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
+                    f"The {cov_label} leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
                     f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA cushion to a breach)."
                 ),
                 evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
                                        "Financial maintenance covenant threshold + CP-1 leverage",
                                        "High", resolved_chunk_id=cid)],
             ))
+            if cov_basis in ("senior_secured", "first_lien"):
+                limitations.append(
+                    f"Covenant is {cov_label} net leverage ({thr:g}x) but CP-1 net leverage is "
+                    f"total/consolidated ({lev:g}x): the covenant tests a narrower (secured) debt "
+                    "basis, so the computed headroom is conservative (overstates breach risk)."
+                )
         else:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
-                claim_text=f"The agreement sets a maximum total leverage covenant of {thr:g}x (financial maintenance).",
+                claim_text=f"The agreement sets a maximum {cov_label} leverage covenant of {thr:g}x (financial maintenance).",
                 evidence=[EvidenceSpec("E-CAP2", "table_value", "Directly Sourced",
                                        "Financial maintenance covenant threshold (governing document)",
                                        "High", resolved_chunk_id=cid)],
@@ -265,6 +283,8 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
         runtime_output["current_net_leverage"] = round(lev, 2)
     if lev_cov:
         runtime_output["leverage_covenant_x"] = lev_cov[0]
+        if cov_basis in ("senior_secured", "first_lien"):
+            runtime_output["covenant_basis"] = cov_basis
 
     return ModulePayload(
         module_id="CP-4C", module_name="CovenantCapacityCalculator",

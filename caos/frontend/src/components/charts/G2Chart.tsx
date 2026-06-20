@@ -16,10 +16,6 @@ const CAOS_G2_THEMES = {
   paper: { type: "classic", view: { viewFill: "transparent" } },
 } as const;
 
-// Tranche palettes live in lib/chart-colors (the single source for canvas hex);
-// re-exported here for the historical import path.
-export { TRANCHE_HEX, TRANCHE_HEX_PAPER } from "@/lib/chart-colors";
-
 // G2 specs are loosely-typed option trees; keep them as plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type G2Spec = Record<string, any>;

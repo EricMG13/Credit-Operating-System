@@ -75,7 +75,7 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
 function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite: OpenCite }) {
   return (
     <div className="overflow-auto" style={{ maxHeight: 260 }}>
-      <table className="w-full border-collapse">
+      <table aria-label="Ranked query results" className="w-full border-collapse">
         <thead>
           <tr className="text-left">
             <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">#</th>

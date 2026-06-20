@@ -56,8 +56,32 @@ class Settings(BaseSettings):
     # at the cost of a second LLM fan-out. No effect unless council_enabled.
     council_peer_round: bool = False
 
+    # CP-6A/6E adversarial debate (engine/debate.py). The structured debate and
+    # its verdict are always computed deterministically from upstream outputs;
+    # this flag only enables the LiveDebater, which authors each advocate's
+    # *narrative* via an LLM (one call per side). Off by default (costs tokens,
+    # needs anthropic_api_key); when unset the deterministic prose is used.
+    debate_enabled: bool = False
+
+    # CP synthesizer advisor tool (engine/synth.py). Beta (advisor-tool-2026-03-01).
+    # When on, the live synthesizer's reasoning-heavy call runs on a cheaper executor
+    # (synth_executor_model) and consults a stronger advisor model (advisor_model)
+    # mid-generation via client.beta.messages — close to advisor-solo quality at
+    # executor rates. Off by default: it is a beta API and changes the cost profile.
+    # When off, synth uses anthropic_model on the plain Messages API (unchanged).
+    advisor_enabled: bool = False
+    synth_executor_model: str = "claude-sonnet-4-6"
+    advisor_model: str = "claude-opus-4-8"
+
     # Upload cap (MB).
     max_upload_mb: int = 250
+
+    # Within a run, independent analytical modules (same CP-X dependency layer)
+    # synthesize concurrently — the LLM-backed ones (CP-1A, CP-4C, …) then run in
+    # parallel instead of summing their latencies. This caps how many synth calls
+    # are in flight at once per run, so a wide layer can't burst past Anthropic
+    # rate limits. Peak concurrent API calls ≈ caos_run_concurrency × this.
+    synth_concurrency: int = 4
 
     # Async run executor.
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
@@ -86,10 +110,14 @@ class Settings(BaseSettings):
     edgar_timeout_s: int = 30
     edgar_max_exhibit_mb: int = 25
 
-    # Per-run LLM token budget (engine/budget.py). 0 = unlimited (default). When
-    # set, a run that spends its budget degrades later LLM modules to their
-    # deterministic path (or gates them) instead of spending beyond the cap.
-    run_token_budget: int = 0
+    # Per-run LLM token budget (engine/budget.py). 0 = unlimited. When set, a run
+    # that spends its budget degrades later LLM modules to their deterministic
+    # path (or gates them) instead of spending beyond the cap. 120k is a runaway
+    # guard sized above a normal multi-module run (synth ~8k out + several modules
+    # + their inputs), not a tight cap — only the heaviest tail runs feel it. Tune
+    # off the per-call "output_tokens=…" logs in engine/synth.py; lower to squeeze
+    # cost (at some quality risk on the heaviest deals), 0 to disable.
+    run_token_budget: int = 120000
 
 
 @lru_cache

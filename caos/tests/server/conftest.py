@@ -22,7 +22,6 @@ os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
 os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
 
-import pytest
 import pytest_asyncio
 
 

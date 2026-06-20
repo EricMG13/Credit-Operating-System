@@ -1,5 +1,10 @@
-"""CP-1A AdjustedEBITDABridge — the covenant-adjusted counterpart to CP-1's
-reported foundation, and the reported-vs-adjusted reconciliation.
+"""Adjusted-EBITDA bridge — the reported-vs-adjusted reconciliation, folded into
+CP-1 (the canonical foundation it adjusts).
+
+Since the v2 taxonomy re-sync CP-1A is the BusinessTransactionFactPack
+([factpack.py]); this reconciliation is embedded in CP-1's payload
+(``runtime_output.adjusted_ebitda_reconciliation`` + the C-ADJ1 claim) and feeds
+the materiality-gated CP-5 finding below.
 
 CP-1 (EDGAR) gives leverage on a **reported GAAP basis**. The leverage an
 issuer markets rests on **add-backs** (synergies, run-rate cost savings,
@@ -24,7 +29,6 @@ Two extractors behind one interface, mirroring [synth.py] / [coststructure.py]:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import List, Optional, Sequence, Tuple
@@ -32,8 +36,8 @@ from typing import List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
-from engine.llm_safety import UNTRUSTED_RULE, safe_chunk_id, wrap_untrusted
-from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
 
@@ -90,13 +94,6 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     """Claude reads the credit-agreement/OM chunks and returns the add-back load
     as a fraction of EBITDA + categories. Defensive: any failure → None (the
     caller falls back to the deterministic path)."""
-    import anthropic
-
-    settings = get_settings()
-    hits = await retrieve(_RETRIEVE_QUERY, 6)
-    if not hits:
-        return None
-    grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
     system = (
         "You read leveraged-finance credit documents and quantify EBITDA add-backs. "
         "From the SOURCE CHUNKS, return ONLY a JSON object: {\"addback_pct\": number "
@@ -105,18 +102,10 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
         "not disclose an add-back load, return {\"addback_pct\": null}. Never invent a figure.\n\n"
         + UNTRUSTED_RULE
     )
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    resp = await client.messages.create(
-        model=settings.anthropic_model, max_tokens=400,
-        system=system,
-        messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
-    )
-    budget.record_usage(resp)
-    text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=6, system=system)
+    if res is None:
         return None
-    data = json.loads(match.group(0))
+    data, hits = res
     pct = data.get("addback_pct")
     if not isinstance(pct, (int, float)) or not (0 < float(pct) < 1):
         return None
@@ -139,35 +128,22 @@ async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     return derive_addbacks([(h.chunk_id, h.text) for h in hits])
 
 
-def _cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
-    """(current net leverage, net debt) from a CP-1 payload, or (None, None)."""
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    lev = nf.get("net_leverage_adj_ltm")
-    nd = nf.get("net_debt_ltm")
-    if isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd:
-        return float(lev), float(nd)
-    return None, None
+async def reconcile_adjusted_ebitda(
+    cp1: ModulePayload, retrieve
+) -> Optional[Tuple[dict, ClaimSpec]]:
+    """Reconcile CP-1's reported leverage against what it would be excluding the
+    disclosed add-backs. Returns ``(reconciliation_dict, claim)`` for CP-1 to embed
+    in its own payload (``runtime_output.adjusted_ebitda_reconciliation`` + claims),
+    or None when there is no add-back disclosure or no CP-1 leverage/net debt to
+    reconstruct EBITDA. ``retrieve(query, k)`` is the runner's issuer-scoped BM25.
 
-
-async def synthesize_adjusted(cp1: ModulePayload, retrieve) -> ModulePayload:
-    """Build the CP-1A payload: reconcile CP-1's leverage against what it would be
-    excluding the disclosed add-backs. ``retrieve(query, k)`` is the runner's
-    issuer-scoped BM25."""
-    lev, nd = _cp1_leverage(cp1)
+    Folded into CP-1 (the canonical foundation) per the v2 taxonomy re-sync: CP-1A
+    is now the BusinessTransactionFactPack ([factpack.py]); the reported-vs-adjusted
+    bridge belongs with the reported basis it adjusts."""
+    lev, nd = cp1_leverage(cp1)
     res = await extract_addbacks(retrieve)
-
-    if res is None or lev is None:
-        # Ran cleanly but no add-back disclosure (or no CP-1 leverage to compare):
-        # no metric, no claim (so no orphan finding), just a logged limitation.
-        reason = ("No EBITDA add-back disclosure found in ingested sources."
-                  if res is None else "CP-1 did not provide a reported net leverage to reconcile.")
-        return ModulePayload(
-            module_id="CP-1A", module_name="AdjustedEBITDABridge",
-            owned_object="adjusted_ebitda_reconciliation",
-            runtime_output={"addback_pct": None, "note": reason},
-            confidence="Insufficient Information", limitation_flags=[reason],
-            downstream_consumers=["CP-2", "CP-3", "CP-4C", "CP-RENDER"],
-        )
+    if res is None or lev is None or nd is None:
+        return None
 
     pct, categories, chunk_id = res
     ebitda = nd / lev                       # the EBITDA behind CP-1's leverage
@@ -175,52 +151,48 @@ async def synthesize_adjusted(cp1: ModulePayload, retrieve) -> ModulePayload:
     lev_excl = round(nd / ebitda_excl, 2)
     gap = round(lev_excl - lev, 2)
 
-    return ModulePayload(
-        module_id="CP-1A", module_name="AdjustedEBITDABridge",
-        owned_object="adjusted_ebitda_reconciliation",
-        runtime_output={
-            "addback_pct": round(pct, 4),
-            "addback_categories": categories,
-            "leverage_current": round(lev, 2),
-            "ebitda_excl_addbacks": round(ebitda_excl, 1),
-            "leverage_excl_addbacks": lev_excl,
-            "leverage_gap_turns": gap,
-            "basis": "credit_agreement_disclosure",
-        },
-        confidence="High",
-        downstream_consumers=["CP-2", "CP-3", "CP-4C", "CP-RENDER"],
-        claims=[ClaimSpec(
-            claim_id="C-ADJ1",
-            claim_text=(
-                f"Disclosed EBITDA add-backs are approximately {pct * 100:g}% of EBITDA; excluding "
-                f"them, net leverage would be about {lev_excl:g}x versus {lev:g}x reported — a "
-                f"{gap:g}-turn quality-of-EBITDA gap."
-            ),
-            evidence=[EvidenceSpec(
-                evidence_id="E-ADJ1", extraction_type="documentary_fact",
-                lineage_class="Directly Sourced",
-                source_locator="Add-back disclosure (ingested credit agreement / OM chunk)",
-                confidence="High", resolved_chunk_id=chunk_id,
-            )],
+    recon = {
+        "addback_pct": round(pct, 4),
+        "addback_categories": categories,
+        "leverage_current": round(lev, 2),
+        "ebitda_excl_addbacks": round(ebitda_excl, 1),
+        "leverage_excl_addbacks": lev_excl,
+        "leverage_gap_turns": gap,
+        "basis": "credit_agreement_disclosure",
+    }
+    claim = ClaimSpec(
+        claim_id="C-ADJ1",
+        claim_text=(
+            f"Disclosed EBITDA add-backs are approximately {pct * 100:g}% of EBITDA; excluding "
+            f"them, net leverage would be about {lev_excl:g}x versus {lev:g}x reported — a "
+            f"{gap:g}-turn quality-of-EBITDA gap."
+        ),
+        evidence=[EvidenceSpec(
+            evidence_id="E-ADJ1", extraction_type="documentary_fact",
+            lineage_class="Directly Sourced",
+            source_locator="Add-back disclosure (ingested credit agreement / OM chunk)",
+            confidence="High", resolved_chunk_id=chunk_id,
         )],
     )
+    return recon, claim
 
 
-def reconciliation_finding(cp1a: Optional[ModulePayload]) -> Optional[Finding]:
+def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     """A CP-5 finding when the reported-vs-adjusted gap is material, else None.
 
-    MINOR by design — aggressive add-backs are a risk to scrutinise, not a defect
-    that should block committee export."""
-    if cp1a is None:
+    Reads the reconciliation CP-1 now embeds (``runtime_output
+    .adjusted_ebitda_reconciliation``). MINOR by design — aggressive add-backs are a
+    risk to scrutinise, not a defect that should block committee export."""
+    if cp1 is None:
         return None
-    ro = cp1a.runtime_output or {}
+    ro = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
     pct, gap = ro.get("addback_pct"), ro.get("leverage_gap_turns")
     if pct is None or gap is None:
         return None
     if pct < _MATERIAL_PCT and abs(gap) < _MATERIAL_GAP_TURNS:
         return None  # immaterial — no noise
     return Finding(
-        finding_id="CP-1A-RECON", severity="MINOR", lane=2, module_id="CP-1A",
+        finding_id="CP-1A-RECON", severity="MINOR", lane=2, module_id="CP-1",
         affected_claim_id="C-ADJ1",
         description=(
             f"Add-backs are {pct * 100:.1f}% of EBITDA; excluding them net leverage would be "

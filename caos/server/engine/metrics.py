@@ -15,6 +15,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from engine.periods import year
 from engine.schemas import ModulePayload
 
 
@@ -84,11 +85,6 @@ def _is_ltm(period: str) -> bool:
     return period.upper().startswith("LTM")
 
 
-def _period_year(period: str) -> int:
-    nums = re.findall(r"\d{2,4}", period)
-    return int(nums[-1]) if nums else -1
-
-
 def _headline_period(periods: Sequence[str]) -> Optional[str]:
     """The period whose value is the cross-issuer headline: an explicit LTM /
     trailing period if one exists (the fixture/LLM case), else the most recent
@@ -98,7 +94,7 @@ def _headline_period(periods: Sequence[str]) -> Optional[str]:
     ltm = [p for p in periods if _is_ltm(p)]
     if ltm:
         return ltm[0]
-    return max(periods, key=_period_year) if periods else None
+    return max(periods, key=year) if periods else None
 
 
 def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:

@@ -71,7 +71,7 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} sub={s.sub} ctx={ctx} />
-      <table className="rd-table">
+      <table aria-label={s.title} className="rd-table">
         <thead>
           <tr>
             {s.cols.map((c, i) => (

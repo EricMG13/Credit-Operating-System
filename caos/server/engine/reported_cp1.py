@@ -1,13 +1,14 @@
 """Reported-disclosure CP-1 for non-EDGAR issuers.
 
-For issuers with no SEC XBRL — non-US / IFRS / private bond-only (e.g. Virgin Media
-O2) — the deterministic EDGAR lane (edgar_cp1.py) doesn't apply: the runner would
-otherwise fall straight to the LLM/fixture CP-1. But HY bond reporters *disclose*
-their own headline credit metrics — net leverage (their covenant metric), Adjusted
-EBITDA, revenue — in the quarterly bond report / earnings release. This extracts
-those issuer-disclosed figures into a reported-basis CP-1, cited to the source
-chunk, so the keyless path produces real numbers (not the ATLF fixture) and CP-4C
-has a leverage to work against.
+For issuers with no SEC XBRL — non-US / IFRS filers (e.g. Virgin Media O2, a mixed
+bond + senior-secured-term-loan credit) — the deterministic EDGAR lane
+(edgar_cp1.py) doesn't apply: the runner would otherwise fall straight to the
+LLM/fixture CP-1. But HY leveraged-finance issuers *disclose* their own headline
+credit metrics — net leverage (their covenant metric), Adjusted EBITDA, revenue —
+in the quarterly investor report / earnings release. This extracts those
+issuer-disclosed figures into a reported-basis CP-1, cited to the source chunk, so
+the keyless path produces real numbers (not the ATLF fixture) and CP-4C has a
+leverage to work against.
 
 These are figures the issuer disclosed *about itself*, taken as reported — not
 independently re-derived from the primary statements (flagged in limitations). Net
@@ -31,10 +32,18 @@ _RETRIEVE_QUERY = (
 
 # Issuer-disclosed net leverage, most precise first. Currency-agnostic (a ratio).
 _LEVERAGE_PATTERNS = (
+    # Tolerate a parenthetical between EBITDA and the number ("... Annualised Adjusted
+    # EBITDA (last two quarters annualised) of 4.38x"). Without this the covenant
+    # metric is skipped and a broader figure later in the text wins — real disclosures
+    # (e.g. VMO2) lead with the covenant leverage, so this also makes it the one picked.
     re.compile(r"net\s+(?:total\s+)?debt\s+to\s+(?:annualised\s+|annualized\s+)?(?:adjusted\s+)?"
-               r"ebitda\s+(?:ratio\s+)?(?:of\s+|was\s+|:\s*)?(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
-    re.compile(r"(?:consolidated\s+)?(?:net\s+)?leverage\s+(?:ratio\s+)?(?:of\s+|was\s+|:\s*)"
-               r"(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
+               r"ebitda\s*(?:\([^)]*\))?\s*(?:ratio\s+)?(?:of\s+|was\s+|:\s*)?(\d+(?:\.\d+)?)\s*x",
+               re.IGNORECASE),
+    # Connector ("of"/"was"/"at") is OPTIONAL, and the metric→number gap may be a
+    # bare space, a colon, or "ratio" — real releases write "net leverage 5.68x",
+    # "net leverage: 5.68x", "net leverage ratio 5.68x", not only "leverage of N".
+    re.compile(r"(?:consolidated\s+)?(?:net\s+)?leverage(?:\s+ratio)?(?:\s+(?:of|was|at))?"
+               r"[\s:=]+(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
     re.compile(r"(\d+(?:\.\d+)?)\s*x\s+(?:consolidated\s+)?(?:net\s+)?leverage", re.IGNORECASE),
 )
 # A disclosed amount: currency + number (+ scale). period token captured if nearby.
@@ -52,6 +61,22 @@ def _leverage(text: str) -> Optional[float]:
             if 0.5 <= v <= 15.0:  # plausible HY leverage; reject stray multiples
                 return v
     return None
+
+
+def _all_leverage(text: str) -> List[Tuple[float, str]]:
+    """Every distinct disclosed leverage figure as (value, ~as-disclosed phrase), in
+    document order. Lets reported-CP1 surface a second measure alongside the headline
+    — e.g. VMO2 reports both a covenant net leverage and a broader total."""
+    found: List[Tuple[int, float, str]] = []
+    seen: set = set()
+    for pat in _LEVERAGE_PATTERNS:
+        for m in pat.finditer(text):
+            v = float(m.group(1))
+            if 0.5 <= v <= 15.0 and v not in seen:
+                seen.add(v)
+                found.append((m.start(), v, " ".join(text[max(0, m.start() - 18): m.end()].split())))
+    found.sort(key=lambda x: x[0])
+    return [(v, ph) for _, v, ph in found]
 
 
 def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
@@ -114,10 +139,16 @@ def extract_reported_metrics(
     leverage = _pick_recent(chunks, _leverage)
     if leverage is None:
         return None
+    lev_val, lev_cid = leverage
+    # Other leverage measures disclosed in the same (headline) chunk — the broader
+    # total beside the covenant figure, etc. Captured, not chosen between.
+    chunk_text = next((t for c, t in chunks if c == lev_cid), "")
+    additional = [(v, ph) for v, ph in _all_leverage(chunk_text) if v != lev_val]
     eb = _pick_recent(chunks, lambda t: _amount(_EBITDA_AMOUNT, t))
     rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
     return {
         "net_leverage": leverage,
+        "additional_leverage": additional or None,
         "adj_ebitda": (*eb[0], eb[1]) if eb else None,
         "revenue": (*rv[0], rv[1]) if rv else None,
     }
@@ -136,12 +167,26 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
     currency = None
     claims: List[ClaimSpec] = [ClaimSpec(
         claim_id="C-RPT-LEV",
-        claim_text=(f"Issuer-disclosed net leverage is {lev_val:g}x (as reported in the bond "
-                    "report / earnings release; not independently re-derived)."),
+        claim_text=(f"Issuer-disclosed net leverage is {lev_val:g}x (as reported in the issuer's "
+                    "quarterly investor report / earnings release; not independently re-derived)."),
         evidence=[EvidenceSpec("E-RPT-LEV", "table_value", "Directly Sourced",
-                               "Issuer disclosure (bond report / earnings release)", "High",
+                               "Issuer disclosure (quarterly investor report / earnings release)", "High",
                                resolved_chunk_id=lev_cid)],
     )]
+
+    # Surface any other leverage measure the issuer disclosed (the broader total
+    # beside the covenant headline), quoting the wording so the basis is not mislabelled.
+    add = metrics.get("additional_leverage")
+    if add:
+        nf["additional_disclosed_leverage"] = [{"value": v, "as_disclosed": ph} for v, ph in add]  # type: ignore[misc]
+        listed = "; ".join(f"{v:g}x ({ph})" for v, ph in add)  # type: ignore[misc]
+        claims.append(ClaimSpec(
+            claim_id="C-RPT-LEV2",
+            claim_text=f"Issuer also discloses {listed} — captured alongside the headline {lev_val:g}x.",
+            evidence=[EvidenceSpec("E-RPT-LEV2", "table_value", "Directly Sourced",
+                                   "Issuer disclosure (additional leverage measure)", "High",
+                                   resolved_chunk_id=lev_cid)],
+        ))
 
     eb = metrics.get("adj_ebitda")
     if eb:
@@ -171,13 +216,13 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
         owned_object="canonical_financials",
         runtime_output={
             "basis": "reported_disclosure",
-            "source": "Issuer disclosure (non-EDGAR: bond report / earnings)",
+            "source": "Issuer disclosure (non-EDGAR: quarterly investor report / earnings)",
             "currency": currency,
             "normalized_financials": nf,
         },
         confidence="Medium",
         limitation_flags=[
-            "Figures are issuer-disclosed headline metrics (bond report / earnings release), "
+            "Figures are issuer-disclosed headline metrics (quarterly investor report / earnings release), "
             "taken as reported — not independently re-derived from the primary financial "
             "statements, and not covenant-adjusted. For non-US/IFRS issuers with no SEC XBRL.",
         ],

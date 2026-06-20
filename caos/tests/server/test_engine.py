@@ -59,6 +59,51 @@ def test_prebuilt_index_matches_one_shot_bm25():
         assert reuse == oneshot, f"mismatch for {q!r}: {reuse} != {oneshot}"
 
 
+# ── CP-X dependency layering (intra-run parallelism) ─────────────────────────
+def test_dependency_layers_respects_deps_and_groups_independents():
+    from engine.registry import REGISTRY
+    from engine.runner import _dependency_layers
+
+    routed = [m for m in REGISTRY if m != "CP-0"]  # all implemented analytical modules
+    layers = _dependency_layers(routed)
+
+    # Every routed module is placed exactly once.
+    flat = [m for layer in layers for m in layer]
+    assert sorted(flat) == sorted(routed)
+    assert len(flat) == len(set(flat))
+
+    # A module never shares a layer with (or precedes) an in-set dependency.
+    layer_of = {m: i for i, layer in enumerate(layers) for m in layer}
+    for m in routed:
+        for d in REGISTRY[m].depends_on:
+            if d in layer_of:
+                assert layer_of[d] < layer_of[m], f"{m} must run after its dep {d}"
+
+    # CP-1A and CP-1B both depend only on CP-1, so they land in the same layer —
+    # i.e. independent modules are grouped, which is what lets them run concurrently.
+    assert layer_of["CP-1A"] == layer_of["CP-1B"]
+    assert layer_of["CP-1"] < layer_of["CP-1A"]
+    # CP-1A (BusinessTransactionFactPack) and CP-4C (covenant capacity) both depend
+    # only on CP-1, so they share a layer — the concrete pair the fan-out overlaps.
+    assert layer_of["CP-1A"] == layer_of["CP-4C"]
+
+
+def test_dependency_layers_degraded_routing_and_edges():
+    # When CP-0 comes back thin, `routed` can exclude the foundation (CP-1) or be
+    # tiny. Layering must still produce a valid order and never loop/crash.
+    from engine.runner import _dependency_layers
+
+    assert _dependency_layers([]) == []
+    assert _dependency_layers(["CP-2C"]) == [["CP-2C"]]  # dep (CP-1) outside set → layer 0
+    # CP-3C depends on CP-3; with CP-1/CP-1C absent, CP-3 has no in-set dep (layer 0)
+    # and CP-3C still sequences after it.
+    layers = _dependency_layers(["CP-3C", "CP-3"])  # order shouldn't matter
+    flat = [m for layer in layers for m in layer]
+    assert sorted(flat) == ["CP-3", "CP-3C"]
+    li = {m: i for i, layer in enumerate(layers) for m in layer}
+    assert li["CP-3"] < li["CP-3C"]
+
+
 # ── The deterministic CP-5 gate ──────────────────────────────────────────────
 def _f(sev: str) -> Finding:
     return Finding(finding_id="F", severity=sev, description="x")
@@ -172,8 +217,46 @@ def test_run_per_module_status(atlf_run):
     assert by_id["CP-0"]["qa_status"] == "Passed"
     assert by_id["CP-0"]["committee_status"] == "Committee Ready"
     assert by_id["CP-1"]["qa_status"] == "Restricted"
-    # CP-5B / CP-5 auditors ran and persisted.
-    assert "CP-5B" in by_id and "CP-5" in by_id
+    # CP-X routed the run; CP-5B / CP-5 auditors ran and persisted.
+    assert "CP-X" in by_id and "CP-5B" in by_id and "CP-5" in by_id
+
+
+def test_cpx_route_plan_persisted(client, atlf_run):
+    """CP-X persists an auditable route plan: the wired slice routes Full Run and
+    the spec-only modules are shown as Not Implemented but never executed."""
+    detail = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-X").json()
+    rt = detail["runtime_output"]
+    assert rt["gate_status"] == "Full Run"  # ATLF has all four source categories
+    by_mod = {r["module_id"]: r for r in rt["readiness_register"]}
+    # Every routed analytical module is now wired — all Full Run, none spec-only.
+    for mid in ("CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-2B", "CP-2C",
+                "CP-2D", "CP-2E", "CP-2F", "CP-3", "CP-3B", "CP-3C", "CP-3D",
+                "CP-4", "CP-4C", "CP-6A", "CP-6E"):
+        assert by_mod[mid]["readiness"] == "Full Run", mid
+    assert all(r["readiness"] != "Not Implemented" for r in rt["readiness_register"])
+    # A node the route plan never executes (an infra/export node) has no output row.
+    assert client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER").status_code == 404
+    # CP-X is an orchestration record, not gated content.
+    assert detail["qa_status"] == "Passed" and detail["owned_object"] == "route_plan"
+
+
+def test_doc_scanners_light_up_on_atlf_corpus(client, atlf_run):
+    """The document-grounded scanners produce real, evidence-resolved output on the
+    ATLF agreement corpus — proving the retrieve→scan→persist path end to end."""
+    cp4 = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-4").json()
+    # The indenture's uncapped add-backs + day-one incremental capacity are flagged.
+    assert cp4["runtime_output"]["aggressiveness_score"] is not None
+    assert cp4["runtime_output"]["provisions_flagged"]
+    assert any(ev["document_chunk_id"] for c in cp4["claims"] for ev in c["evidence"])
+
+    # CP-3B maps at least the senior secured notes tranche from the offering docs.
+    cp3b = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-3B").json()
+    assert "SSN" in cp3b["runtime_output"]["seniority_order"]
+
+    # Honest gap: ATLF has no governance/liquidity disclosure, so those scanners
+    # abstain rather than fabricate (they need their own doc types ingested).
+    cp2d = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-2D").json()
+    assert cp2d["runtime_output"].get("governance_risk_score") is None
 
 
 def test_qa_endpoint_reports_findings(client, atlf_run):
@@ -198,7 +281,8 @@ def test_run_unknown_issuer_404(client):
 
 
 def test_module_not_in_run_404(client, atlf_run):
-    r = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-4")
+    # CP-RENDER is an export node the engine never persists as a module output.
+    r = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER")
     assert r.status_code == 404
 
 

@@ -1,8 +1,9 @@
 # CAOS — Phase-1 Launch Runbook (self-hosted Docker)
 
 **Profile:** Durable internal pilot · **Target:** self-hosted Docker stack
-(`caos/deploy/`) · **Ships from:** `caos-app` (EDGAR engine stack + DM/loans
-re-model integrated via #13/#14) · **Last updated:** 2026-06-15
+(`caos/deploy/`) · **Ships from:** `main` (EDGAR engine stack + DM/loans
+re-model integrated via #13/#14; trunk migrated 2026-06-16) · **Last updated:**
+2026-06-17
 
 Step-by-step instruction to stand CAOS up for the first real internal pilot —
 3–5 credit analysts doing live work, data that survives restarts. Databricks is
@@ -42,16 +43,17 @@ by live runs, dev-chain `npm audit` advisories.
 
 All green **before** you provision the host.
 
-1. **The analytical stack is already integrated on `caos-app`.** The EDGAR engine
+1. **The analytical stack is already integrated on `main`.** The EDGAR engine
    slice (CP-0 → CP-5C) and the DM/loans re-model were merged via #13 and #14
-   (2026-06-15); the old `feat/edgar-cp1` lane is folded in and retired. Just sync
-   to the merged tip:
+   (2026-06-15); the old `feat/edgar-cp1` lane is folded in and retired, and the
+   `caos-app` branch was fast-forwarded into `main` (now the sole trunk). Just
+   sync to the merged tip:
    ```bash
    cd caos
-   git checkout caos-app && git pull
+   git checkout main && git pull
    ```
    Confirm CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) is
-   green on `caos-app`: frontend lint + `tsc --noEmit` + vitest + `next build`,
+   green on `main`: frontend lint + `tsc --noEmit` + vitest + `next build`,
    and server pytest. (Green as of the `#13`/`#14` merge commits.)
 
 2. **Re-run the gate locally** (mirrors CI; the image build also type-checks):
@@ -160,6 +162,15 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 - [ ] **A real run produces evidence.** Onboard an issuer, attach a document,
   trigger a run; confirm CP-1 output with click-to-source citations and the
   CP-5 QA gate status.
+- [ ] **Encryption at rest.** The host disk (or the cloud volume backing it) is
+  encrypted — LUKS / cloud provider volume encryption / FileVault. The Postgres
+  and vault data live on host-mounted Docker volumes, so at-rest protection is a
+  host control, not an app one. TLS in transit is handled by Caddy.
+- [ ] **Error monitoring reachable.** `docker compose logs app` streams; force a
+  404 (`curl -s $APP/api/does-not-exist`) and confirm it's visible. Unhandled
+  exceptions log with method/path/caller (`main.py` `log_unhandled`).
+- [ ] **Performance smoke.** `python caos/tests/perf/smoke.py --url $APP/api/health`
+  passes (p95 under threshold, no errors) at the expected concurrency.
 
 ---
 
@@ -191,22 +202,28 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 
 ---
 
-## 8. Known limits carried into Phase-1
+## 8. Operational posture & known limits
 
-| Ref | Limit | Posture for the pilot |
-|-----|-------|-----------------------|
+| Ref | Item | Posture for the pilot |
+|-----|------|-----------------------|
 | S-4 | No per-issuer / row-level authorization | Acceptable — single coverage team, one workspace. |
 | §1 | Header-based identity trusts the proxy | Safe **only** because the app has no published port and Caddy strips client `X-Forwarded-*`. Never publish the app port. |
 | A-1 | Mock-vs-engine gap (some UI seeded, overlaid by live runs) | Trust the provenance/click-to-source numbers; flag any panel that lacks them. |
 | DATA-1 | `metric_facts` run-derived rows | **Resolved** — each completed run prunes the issuer's older run rows to the latest (`test_retention.py`); seed facts kept. Fine at scale. |
-| D-1 | `npm audit` advisories in the **dev/build** chain only | None ship in the static export; never `audit fix --force`. |
+| D-1 | `npm audit` advisories in the **dev/build** chain only | None ship in the static export; never `audit fix --force`. Runtime deps are scanned by Dependabot (`.github/dependabot.yml`). |
+| ENC-1 | Encryption at rest | Host control — encrypt the host disk / cloud volume (LUKS / provider encryption). App data lives on host-mounted volumes; TLS in transit via Caddy. Verified in §5. |
+| MON-1 | Error monitoring | Log-based: unhandled exceptions logged with context (`main.py` `log_unhandled`); watch `docker compose logs app`. No external APM — by design (no-paid-services). |
+| PERF-1 | Performance | Single-process baseline checked by `caos/tests/perf/smoke.py` (p95 gate). Not load-characterised; sized for 3–5 analysts. |
+| FB-1 | User feedback loop | Pilot feedback via the team channel + GitHub issues, triaged weekly into the backlog. |
+| AB-1 | A/B testing | **N/A** for a single-team pilot — no traffic to split, no cohort metric. Add cohort flags only if a multi-cohort rollout becomes real. |
+| SCALE-1 | Scale-out | Single process by design; the Postgres `SKIP LOCKED` run worker (`test_async_runs.py`) already supports horizontal app replicas when load requires. |
 | — | On-host backups only | The `backup` service runs daily `pg_dump` + vault tarball with rotation (P7-1). **Copy `/backups` off-host** (rsync / object storage) for host-loss protection. |
 
 ---
 
 ## 9. Sign-off
 
-Launch is complete when: CI green on `caos-app` (§1) · OAuth client + `.env`
+Launch is complete when: CI green on `main` (§1) · OAuth client + `.env`
 configured (§2) · stack deployed (§4) · **all §5 boxes checked** · backups
 scheduled (§7) · pilot team briefed on §6.
 

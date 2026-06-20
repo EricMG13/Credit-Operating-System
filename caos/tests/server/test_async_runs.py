@@ -74,6 +74,52 @@ import asyncio
 
 
 @pytest.mark.asyncio
+async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch):
+    """Proof the layer fan-out actually overlaps I/O, not just that it looks like it.
+
+    CP-1A (BusinessTransactionFactPack) and CP-4C (covenant capacity) both depend
+    only on CP-1, so they share a CP-X dependency layer. Replace each with a synth
+    that sleeps SLEEP seconds, then run the whole pipeline: if the layer runs them
+    concurrently the two sleeps overlap (total ≈ 1×SLEEP); if it regressed to serial
+    they'd sum (≈ 2×SLEEP)."""
+    import time
+    from database import AsyncSessionLocal, Run
+    from engine import runner
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import execute_run_by_id
+
+    SLEEP = 0.5
+    real_fp, real_cov = runner.synthesize_fact_pack, runner.synthesize_covenants
+
+    async def slow_fp(retrieve):
+        await asyncio.sleep(SLEEP)
+        return await real_fp(retrieve)
+
+    async def slow_cov(cp1, retrieve):
+        await asyncio.sleep(SLEEP)
+        return await real_cov(cp1, retrieve)
+
+    monkeypatch.setattr(runner, "synthesize_fact_pack", slow_fp)
+    monkeypatch.setattr(runner, "synthesize_covenants", slow_cov)
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    t0 = time.perf_counter()
+    await execute_run_by_id(run_id)
+    elapsed = time.perf_counter() - t0
+
+    async with AsyncSessionLocal() as s:
+        assert (await s.get(Run, run_id)).status == "complete"
+    # Concurrent ⇒ ≈1×SLEEP; serial would be ≥2×SLEEP. Generous margin for the
+    # rest of the (fast, fixture) pipeline + CI jitter.
+    assert elapsed < 1.5 * SLEEP, f"layer did not overlap: {elapsed:.2f}s ≥ {1.5*SLEEP}s (serial≈{2*SLEEP}s)"
+
+
+@pytest.mark.asyncio
 async def test_inprocess_executor_runs_enqueued(seeded_db):
     from database import AsyncSessionLocal, Run
     from engine.fixtures import REFERENCE_ISSUER_ID
@@ -104,7 +150,8 @@ import os
 
 requires_pg = pytest.mark.skipif(
     not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
-    reason="worker claim/lease requires Postgres (SKIP LOCKED)",
+    reason="worker claim/lease requires Postgres (SKIP LOCKED) — run in the CI server "
+           "job's Postgres step, or locally via DATABASE_URL=postgresql+asyncpg://...",
 )
 
 

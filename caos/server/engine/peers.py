@@ -13,7 +13,7 @@ Bases can differ (EDGAR reported vs modeled adjusted) — flagged, like the NL q
 
 from __future__ import annotations
 
-import re
+from statistics import median
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -22,22 +22,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, MetricFact
 from engine.gate import Finding
 from engine.metrics import CATALOG_BY_KEY
+from engine.periods import year
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Headline metrics worth a peer read (those CP-1 / distress produce).
 _BENCH = ("net_leverage", "interest_coverage", "ebitda_margin", "altman_z")
 _WORST_QUARTILE = 25  # percentile at/below this = bottom-quartile outlier
-
-
-def _year(period: str) -> int:
-    nums = re.findall(r"\d{2,4}", period or "")
-    return int(nums[-1]) if nums else -1
-
-
-def _median(vals: List[float]) -> float:
-    s = sorted(vals)
-    n = len(s)
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
 
 
 def _percentile(iv: float, peer_vals: List[float], higher_is_better: bool) -> int:
@@ -59,7 +49,7 @@ def _own_values(cp1: ModulePayload) -> Dict[str, float]:
     rev, eb = nf.get("revenue") or {}, nf.get("adj_ebitda") or {}
     common = [p for p in rev if p in eb and rev[p]]
     if common:
-        p = max(common, key=_year)
+        p = max(common, key=year)
         out["ebitda_margin"] = round(100 * eb[p] / rev[p], 1)
     return out
 
@@ -125,7 +115,7 @@ async def synthesize_peer_benchmark(
         flag = percentile <= _WORST_QUARTILE
         comparisons.append({
             "metric": mk, "label": md.label, "unit": md.unit, "issuer_value": iv,
-            "peer_median": round(_median(peer_vals), 2), "peer_count": len(peer_vals),
+            "peer_median": round(median(peer_vals), 2), "peer_count": len(peer_vals),
             "percentile": percentile, "higher_is_better": md.higher_is_better, "outlier": flag,
         })
         if flag:

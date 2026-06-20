@@ -1,0 +1,21 @@
+# Dependency scanning (Phase-4 launch gate). Native GitHub feature — surfaces
+# security alerts and opens update PRs; no CI runtime, no blocking gate.
+# Three ecosystems: frontend (npm), server (pip), and the CI workflows themselves.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /caos/frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: pip
+    directory: /caos/server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

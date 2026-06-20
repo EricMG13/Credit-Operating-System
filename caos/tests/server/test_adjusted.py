@@ -1,6 +1,7 @@
-"""Tests for CP-1A AdjustedEBITDABridge: deterministic add-back extraction, the
-reported-vs-adjusted reconciliation, the materiality-gated CP-5 finding, and the
-runner wiring on the seeded ATLF deal.
+"""CP-1A is the BusinessTransactionFactPack; the adjusted-EBITDA reconciliation is
+folded into CP-1. Tests cover deterministic add-back extraction, the reconciliation
+(now embedded in CP-1), the materiality-gated CP-5 finding, the fact-pack scan, and
+the runner wiring on the seeded ATLF deal.
 """
 
 from __future__ import annotations
@@ -13,9 +14,10 @@ from fastapi.testclient import TestClient
 
 from engine.adjusted import (
     derive_addbacks,
+    reconcile_adjusted_ebitda,
     reconciliation_finding,
-    synthesize_adjusted,
 )
+from engine.factpack import scan_facts, synthesize_fact_pack
 from conftest import wait_for_run
 from engine.fixtures import REFERENCE_ISSUER_ID
 from engine.schemas import ModulePayload, validate_payload
@@ -43,7 +45,7 @@ def test_derive_addbacks_none_without_disclosure():
     assert derive_addbacks([("c2", "Various add-backs are permitted under the agreement.")]) is None
 
 
-# ── Reconciliation math ──────────────────────────────────────────────────────
+# ── Reconciliation (folded into CP-1) ─────────────────────────────────────────
 def _cp1(lev=5.68, nd=2391.0):
     return ModulePayload(
         module_id="CP-1", module_name="X", owned_object="o",
@@ -52,53 +54,79 @@ def _cp1(lev=5.68, nd=2391.0):
     )
 
 
-def test_synthesize_adjusted_reconciles():
+def test_reconcile_adjusted_ebitda_returns_dict_and_claim():
     async def retrieve(query, k=6):
         return [SimpleNamespace(
             chunk_id="c-om",
             text="Adjusted EBITDA add-backs represent 18.2 percent of adjusted EBITDA.")]
 
-    p = asyncio.run(synthesize_adjusted(_cp1(), retrieve))
-    assert p.module_id == "CP-1A" and validate_payload(p) == []
-    ro = p.runtime_output
-    assert ro["addback_pct"] == pytest.approx(0.182)
-    assert ro["leverage_current"] == 5.68
+    res = asyncio.run(reconcile_adjusted_ebitda(_cp1(), retrieve))
+    assert res is not None
+    recon, claim = res
+    assert recon["addback_pct"] == pytest.approx(0.182)
+    assert recon["leverage_current"] == 5.68
     # excluding 18.2% add-backs, leverage rises from 5.68x toward ~6.9x
-    assert ro["leverage_excl_addbacks"] == pytest.approx(6.94, abs=0.05)
-    assert ro["leverage_gap_turns"] == pytest.approx(1.26, abs=0.05)
-    assert p.claims[0].evidence[0].resolved_chunk_id == "c-om"
+    assert recon["leverage_excl_addbacks"] == pytest.approx(6.94, abs=0.05)
+    assert recon["leverage_gap_turns"] == pytest.approx(1.26, abs=0.05)
+    assert claim.claim_id == "C-ADJ1" and claim.evidence[0].resolved_chunk_id == "c-om"
 
 
-def test_synthesize_adjusted_no_disclosure_is_insufficient():
+def test_reconcile_none_without_disclosure():
     async def retrieve(query, k=6):
         return [SimpleNamespace(chunk_id="c1", text="No add-back disclosure here.")]
 
-    p = asyncio.run(synthesize_adjusted(_cp1(), retrieve))
-    assert p.runtime_output["addback_pct"] is None
-    assert p.confidence == "Insufficient Information"
-    assert not p.claims  # no claim → no orphan finding
+    assert asyncio.run(reconcile_adjusted_ebitda(_cp1(), retrieve)) is None
 
 
-# ── The materiality-gated CP-5 finding ───────────────────────────────────────
-def _cp1a(pct, gap, lev=5.68, lev_excl=6.94):
+# ── The materiality-gated CP-5 finding (reads CP-1's embedded reconciliation) ──
+def _cp1_recon(pct, gap, lev=5.68, lev_excl=6.94):
     return ModulePayload(
-        module_id="CP-1A", module_name="X", owned_object="o",
-        runtime_output={"addback_pct": pct, "leverage_gap_turns": gap,
-                        "leverage_current": lev, "leverage_excl_addbacks": lev_excl},
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"adjusted_ebitda_reconciliation": {
+            "addback_pct": pct, "leverage_gap_turns": gap,
+            "leverage_current": lev, "leverage_excl_addbacks": lev_excl}},
     )
 
 
 def test_reconciliation_finding_fires_when_material():
-    f = reconciliation_finding(_cp1a(0.182, 1.26))
+    f = reconciliation_finding(_cp1_recon(0.182, 1.26))
     assert f is not None
-    assert f.severity == "MINOR" and f.lane == 2 and f.module_id == "CP-1A"
-    assert f.finding_id == "CP-1A-RECON"
+    assert f.severity == "MINOR" and f.lane == 2 and f.module_id == "CP-1"
+    assert f.finding_id == "CP-1A-RECON" and f.affected_claim_id == "C-ADJ1"
 
 
 def test_reconciliation_finding_silent_when_immaterial():
-    assert reconciliation_finding(_cp1a(0.05, 0.2)) is None
+    assert reconciliation_finding(_cp1_recon(0.05, 0.2)) is None
     assert reconciliation_finding(None) is None
-    assert reconciliation_finding(_cp1a(None, None)) is None
+    # CP-1 with no reconciliation embedded → nothing to flag
+    assert reconciliation_finding(ModulePayload("CP-1", "X", "o", {})) is None
+
+
+# ── CP-1A BusinessTransactionFactPack (doc scan) ──────────────────────────────
+def test_factpack_scans_credit_relevant_areas():
+    facts = scan_facts([
+        ("c1", "The leveraged buyout of the company by its financial sponsor closed in 2021."),
+        ("c2", "The group is headquartered in Frankfurt and operates in 12 countries."),
+    ])
+    codes = {f["code"] for f in facts}
+    assert {"transaction", "ownership", "geography"} <= codes
+
+
+def test_synthesize_fact_pack_payload_and_insufficient():
+    async def found(query, k=8):
+        return [SimpleNamespace(
+            chunk_id="c1",
+            text="Acquisition of the target by its private equity sponsor; headquartered in Berlin.")]
+
+    p = asyncio.run(synthesize_fact_pack(found))
+    assert p.module_id == "CP-1A" and p.owned_object == "business_transaction_fact_register"
+    assert validate_payload(p) == [] and p.runtime_output["fact_areas"]
+
+    async def empty(query, k=8):
+        return [SimpleNamespace(chunk_id="c1", text="nothing notable in this chunk")]
+
+    p2 = asyncio.run(synthesize_fact_pack(empty))
+    assert p2.confidence == "Insufficient Information"
 
 
 # ── Runner wiring on the ATLF deal ───────────────────────────────────────────
@@ -110,14 +138,19 @@ def client():
         yield c
 
 
-def test_run_produces_cp1a_and_reconciliation_finding(client):
+def test_run_folds_reconciliation_into_cp1_and_factpack_is_cp1a(client):
     run = wait_for_run(client, client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID}).json()["id"])
-    detail = client.get(f"/api/runs/{run['id']}/modules/CP-1A").json()
-    assert detail["runtime_output"]["addback_pct"] == pytest.approx(0.182, abs=0.001)
-    assert detail["runtime_output"]["leverage_gap_turns"] > 0
+
+    cp1 = client.get(f"/api/runs/{run['id']}/modules/CP-1").json()
+    recon = cp1["runtime_output"]["adjusted_ebitda_reconciliation"]
+    assert recon["addback_pct"] == pytest.approx(0.182, abs=0.001)
+    assert recon["leverage_gap_turns"] > 0
+
+    cp1a = client.get(f"/api/runs/{run['id']}/modules/CP-1A").json()
+    assert cp1a["owned_object"] == "business_transaction_fact_register"
 
     qa = client.get(f"/api/runs/{run['id']}/qa").json()
-    recon = [f for f in qa["findings"] if f["finding_id"] == "CP-1A-RECON"]
-    assert recon and recon[0]["severity"] == "MINOR"
+    recon_f = [f for f in qa["findings"] if f["finding_id"] == "CP-1A-RECON"]
+    assert recon_f and recon_f[0]["severity"] == "MINOR"
     # An informational add-back finding must not by itself escalate the gate.
     assert qa["findings_by_severity"]["CRITICAL"] == 0

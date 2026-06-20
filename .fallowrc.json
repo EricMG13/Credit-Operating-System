@@ -1,0 +1,5 @@
+{
+  "$schema": "https://docs.fallow.tools/fallow.schema.json",
+  "ignorePatterns": ["ds-bundle/**", ".ds-sync/**", ".design-sync/**"],
+  "ignoreExportsUsedInFile": true
+}

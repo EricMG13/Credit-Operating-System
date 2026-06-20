@@ -44,7 +44,7 @@ _CONTENT_MARKERS = {
     "financials": ("form 10-k", "form 10-q", "annual report pursuant to section 13",
                    "quarterly report pursuant to section 13", "consolidated balance sheet",
                    "consolidated statements of operations",
-                   # IFRS / non-US filers + interim bond reports (e.g. Virgin Media O2):
+                   # IFRS / non-US filers + interim quarterly investor reports (e.g. Virgin Media O2):
                    "consolidated financial statements", "condensed consolidated",
                    "statement of financial position", "statement of profit or loss",
                    "income statement"),

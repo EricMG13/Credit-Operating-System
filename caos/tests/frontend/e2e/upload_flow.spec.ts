@@ -49,17 +49,17 @@ test.describe("CAOS single-process app", () => {
     });
     await page.getByRole("button", { name: new RegExp(issuerName) }).click();
     await expect(page.getByText("Drop all deal documents", { exact: false })).toBeVisible();
-    await expect(page.getByText("Full IC Committee")).toBeVisible();
-    await expect(page.getByText("Earnings Update")).toBeVisible();
-    await expect(page.getByText("Relative Value")).toBeVisible();
-    await expect(page.getByText("Legal Review")).toBeVisible();
+    await expect(page.getByText("Full IC Committee", { exact: true })).toBeVisible();
+    await expect(page.getByText("Earnings Update", { exact: true })).toBeVisible();
+    await expect(page.getByText("Relative Value", { exact: true })).toBeVisible();
+    await expect(page.getByText("Legal Review", { exact: true })).toBeVisible();
   });
 
   test("concept switcher navigates between concepts", async ({ page }) => {
     await page.goto(`${BASE_URL}/issuers/`);
-    await page.getByTitle("Deep-Dive").click();
+    await page.getByTitle("Deep-Dive", { exact: true }).click();
     await expect(page).toHaveURL(/\/deepdive/);
-    await page.getByTitle("Command Center").click();
+    await page.getByTitle("Command", { exact: true }).click();
     await expect(page).toHaveURL(/\/command/);
   });
 

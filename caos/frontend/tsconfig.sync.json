@@ -1,0 +1,11 @@
+{
+  "comment": "design-sync only — aliases the app's @/* plus browser-safe next/* shims so the bundle has no Next.js runtime. Not used by the app build.",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "next/link": ["./.ds-shims/next-link.tsx"],
+      "next/navigation": ["./.ds-shims/next-navigation.tsx"]
+    }
+  }
+}

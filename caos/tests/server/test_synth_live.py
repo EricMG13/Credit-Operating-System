@@ -255,3 +255,141 @@ def test_payload_from_data_is_defensive_on_empty():
     assert p.module_id == "CP-1"
     assert p.confidence == "Insufficient Information"
     assert p.claims == []
+
+
+# ── CP-1 canonical runtime-output schema (so live CP-1 matches the overlays) ──
+def _runtime_schema(synth):
+    return synth._client.messages.calls[0]["tools"][0]["input_schema"]["properties"]["runtime_output"]
+
+
+@pytest.mark.asyncio
+async def test_cp1_forces_canonical_normalized_financials_schema():
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth, module_id="CP-1")
+    nf = _runtime_schema(synth)["properties"]["normalized_financials"]["properties"]
+    assert {"net_leverage_adj_ltm", "net_debt_ltm", "interest_coverage_ltm",
+            "revenue", "adj_ebitda", "leverage_basis"} <= set(nf)
+    # canonical metrics are nullable — a missing disclosure must read as null, not invented
+    assert "null" in nf["net_leverage_adj_ltm"]["type"]
+
+
+@pytest.mark.asyncio
+async def test_non_cp1_keeps_freeform_runtime_schema():
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth, module_id="CP-2")
+    assert "properties" not in _runtime_schema(synth)  # generic open object
+
+
+def test_payload_tool_does_not_mutate_the_shared_tool():
+    from engine.synth import _PAYLOAD_TOOL, _payload_tool
+
+    _payload_tool("CP-1")  # builds a CP-1 variant
+    # the shared generic tool stays free-form for every other module
+    assert "properties" not in _PAYLOAD_TOOL["input_schema"]["properties"]["runtime_output"]
+
+
+# ── Advisor tool (config.advisor_enabled): Sonnet executor + Opus advisor ─────
+import types  # noqa: E402
+
+
+class _Iter:
+    def __init__(self, type, input_tokens=0, output_tokens=0):
+        self.type = type
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _UsageIters(_Usage):
+    def __init__(self, input_tokens=10, output_tokens=20, iterations=None):
+        super().__init__(input_tokens, output_tokens)
+        self.iterations = iterations or []
+
+
+class _FakeBetaClient:
+    """A client whose calls land on ``.beta.messages.create`` (the advisor path)."""
+
+    def __init__(self, responses):
+        self.beta = _FakeClient(responses)
+
+
+def _advisor_resp(data):
+    """A beta response: advisor server-tool blocks THEN the payload tool_use, with the
+    advisor sub-inference reported only under usage.iterations."""
+    return _Resp(
+        [
+            _Block("server_tool_use", id="srv1", name="advisor", input={}),
+            _Block("advisor_tool_result", tool_use_id="srv1",
+                   content=_Block("advisor_result", text="Lead with the leverage trajectory.")),
+            _Block("tool_use", id="t1", name="emit_module_payload", input=data),
+        ],
+        usage=_UsageIters(input_tokens=300, output_tokens=500,
+                          iterations=[_Iter("advisor_message", 800, 600)]),
+    )
+
+
+def _make_advisor_synth(responses):
+    s = LiveSynthesizer()
+    s._client = _FakeBetaClient(responses)
+    s._active_prompt = lambda module_id: "ACTIVE PROMPT (stub)"
+    # SimpleNamespace, not the cached real Settings — mutating that would leak across tests.
+    s._settings = types.SimpleNamespace(
+        advisor_enabled=True,
+        synth_executor_model="claude-sonnet-4-6",
+        advisor_model="claude-opus-4-8",
+        anthropic_model="claude-opus-4-8",
+        anthropic_api_key="",
+    )
+    return s
+
+
+@pytest.mark.asyncio
+async def test_advisor_enabled_builds_beta_request_with_sonnet_executor_and_opus_advisor():
+    synth = _make_advisor_synth([_advisor_resp(_good_payload())])
+    payload = await _run(synth)  # advisor + payload blocks present → still extracts the payload
+
+    assert payload.confidence == "High"
+    call = synth._client.beta.messages.calls[0]
+    assert call["model"] == "claude-sonnet-4-6"
+    assert call["betas"] == ["advisor-tool-2026-03-01"]
+    assert call["tool_choice"] == {"type": "any"}  # not a single forced tool — advisor can run first
+    advisor = next(t for t in call["tools"] if t.get("name") == "advisor")
+    assert advisor["type"] == "advisor_20260301" and advisor["model"] == "claude-opus-4-8"
+    assert any(t.get("name") == "emit_module_payload" for t in call["tools"])
+
+
+def test_record_usage_accrues_executor_and_advisor_tokens():
+    b = budget.RunBudget(limit=0)  # unlimited; we only assert what was accrued
+    budget.set_budget(b)
+    usage = _UsageIters(
+        input_tokens=100, output_tokens=200,
+        iterations=[
+            _Iter("message", 100, 50),          # executor — already in the top-level totals
+            _Iter("advisor_message", 800, 600),  # advisor — NOT in the top-level totals
+            _Iter("message", 0, 150),
+        ],
+    )
+    budget.record_usage(_Resp([], usage=usage))
+    # top-level executor (100+200) + advisor iteration (800+600); executor iters not re-summed
+    assert b.used == 100 + 200 + 800 + 600
+
+
+# ── Prompt caching: stable tools+system prefix ────────────────────────────────
+@pytest.mark.asyncio
+async def test_system_prompt_is_sent_as_a_cached_block():
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth)
+    system = synth._client.messages.calls[0]["system"]
+    assert isinstance(system, list)  # block list, not a bare string
+    assert system[-1]["cache_control"] == {"type": "ephemeral"}
+    assert "ACTIVE PROMPT (stub)" in system[-1]["text"]
+
+
+def test_record_usage_folds_cache_tokens_so_budget_is_caching_invariant():
+    b = budget.RunBudget(limit=0)
+    budget.set_budget(b)
+    usage = _Usage(input_tokens=50, output_tokens=200)
+    usage.cache_read_input_tokens = 1800   # cached prefix was a hit
+    usage.cache_creation_input_tokens = 0
+    budget.record_usage(_Resp([], usage=usage))
+    # 50 uncached + 1800 cached + 200 output — same total the run would spend uncached
+    assert b.used == 50 + 1800 + 200

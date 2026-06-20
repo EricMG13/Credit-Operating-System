@@ -106,7 +106,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
   });
 
   return (
-    <table className="border-collapse text-caos-sm min-w-[1760px] w-full">
+    <table aria-label="Sector relative value" className="border-collapse text-caos-sm min-w-[1760px] w-full">
       <thead>
         <tr className="border-b border-caos-border">
           <SortTh label="Company" col="company" sort={sort} onSort={handleSort} />
@@ -229,7 +229,7 @@ export function SectorRV() {
           right={<span className="tabular text-caos-xs text-caos-muted">Bloomberg US Leveraged Loan Index</span>}
         >
           <div className="overflow-auto h-full">
-            <table className="border-collapse text-caos-sm w-full min-w-[760px]">
+            <table aria-label="Index statistics" className="border-collapse text-caos-sm w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
@@ -265,7 +265,7 @@ export function SectorRV() {
           right={<span className="tabular text-caos-xs text-caos-muted">computed from peer set</span>}
         >
           <div className="overflow-auto h-full">
-            <table className="border-collapse text-caos-sm w-full min-w-[760px]">
+            <table aria-label="Sector ratings average" className="border-collapse text-caos-sm w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />

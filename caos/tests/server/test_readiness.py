@@ -44,14 +44,15 @@ def test_categorize_by_content_head():
     assert _categorize(_doc("Document", "deck.pdf"), "Q4 FY2026 Earnings Results May 28, 2026") == set()
 
 
-def test_categorize_ifrs_bond_report():
-    # Non-US / IFRS issuers (e.g. Virgin Media O2) file bond reports headed "Condensed
-    # Consolidated Financial Statements" / IFRS "Statement of Financial Position" — these
-    # are financials despite carrying no US-10-K markers.
-    bond = _doc("Document", "VMO2-IFRS-Quarterly-Bond-Report-Q1-2025.pdf")
-    assert _categorize(bond, "Quarterly Bond Report and Condensed Consolidated Financial "
-                             "Statements 31 March 2025. Condensed Consolidated Statement of "
-                             "Financial Position") == {"financials"}
+def test_categorize_ifrs_quarterly_report():
+    # Non-US / IFRS issuers (e.g. Virgin Media O2, a mixed bond + term-loan credit) file
+    # quarterly investor reports headed "Condensed Consolidated Financial Statements" /
+    # IFRS "Statement of Financial Position" — these are financials despite carrying no
+    # US-10-K markers.
+    rpt = _doc("Document", "VMO2-IFRS-Quarterly-Report-Q1-2025.pdf")
+    assert _categorize(rpt, "Quarterly Report and Condensed Consolidated Financial "
+                            "Statements 31 March 2025. Condensed Consolidated Statement of "
+                            "Financial Position") == {"financials"}
 
 
 @pytest.fixture(scope="module")

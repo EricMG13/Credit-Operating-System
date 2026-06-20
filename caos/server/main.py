@@ -101,6 +101,22 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     return response
 
 
+# ─── Error monitoring ───────────────────────────────────────────────────────
+# Log-based: every unhandled exception is logged with request context (method,
+# path, caller) before a clean 500 goes back. The pilot's monitoring surface is
+# `docker compose logs app` (LAUNCH_PHASE1 §8) — no external APM, by design
+# (no-paid-services). HTTPException keeps its own handler; this catches the rest.
+@app.exception_handler(Exception)
+async def log_unhandled(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
+    logger.exception(
+        "unhandled exception: %s %s (caller=%s)",
+        request.method,
+        request.url.path,
+        request.headers.get("X-Forwarded-Email", "?"),
+    )
+    return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
+
+
 # ─── API routes ───────────────────────────────────────────────────────────
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

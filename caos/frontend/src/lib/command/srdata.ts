@@ -4,7 +4,6 @@
 // sector view (held names + monitored peers).
 
 export const TIMEFRAMES = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
-export type Timeframe = (typeof TIMEFRAMES)[number];
 
 // US Leveraged Loan index DM move (bps) per timeframe — comparison baseline.
 export const INDEX_MOVE: number[] = [-4, -12, 18, 9, 6, -22];
