@@ -18,9 +18,8 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from config import get_settings
 

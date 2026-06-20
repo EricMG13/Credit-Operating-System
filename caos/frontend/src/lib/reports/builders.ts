@@ -2,17 +2,14 @@
 // + ATLF module outputs (port of design bundle concept-e-reports.js).
 
 import { buildModel, type Model, type ModelCol, type Overrides } from "./model";
-import { buildGrid, fmtVal, type SheetState } from "@/lib/model/sheet";
 import { CAPACITY, COVENANTS, DEAL, DEBATE, SIZING, TRIGGERS } from "./deal";
 import type { G2Spec } from "@/components/charts/G2Chart";
 
-// Concept D state (severity / cell overrides / analyst sheet) — when passed,
-// deliverable figures recompute on the edited model and analyst rows surface
-// in the Credit Snapshot financials.
+// Concept D state (severity / cell overrides) — when passed, deliverable
+// figures recompute on the edited model.
 export interface ModelInputs {
   severity?: number;
   overrides?: Overrides;
-  sheet?: SheetState;
 }
 
 /* ---------- section DSL ---------- */
@@ -66,7 +63,7 @@ const FIN_KEYS = ["f22", "f23", "f24", "f25", "y0", "y1", "l1"] as const;
 const FIN_LBL = ["FY22", "FY23", "FY24", "FY25", "PYTD", "YTD", "LTM"];
 const PRIOR: Record<string, string> = { f23: "f22", f24: "f23", f25: "f24", y1: "y0" };
 
-function finSections(model: Model, sheet?: SheetState): Section[] {
+function finSections(model: Model): Section[] {
   const C = FIN_KEYS.map((k) => model.cols[k]);
   const row = (label: string, f: (c: ModelCol) => number | null, fmt: (v: number | null) => string, opt?: Partial<TableRow>): TableRow =>
     ({ cells: [label, ...C.map((c) => fmt(f(c)))], ...opt });
@@ -99,18 +96,6 @@ function finSections(model: Model, sheet?: SheetState): Section[] {
       row("Net Δ in cash", (c) => c.ncf, fm, { b: 1 }),
     ],
   };
-  // analyst rows from the Concept D sheet, evaluated for the report columns
-  if (sheet && sheet.rows.length) {
-    const grid = buildGrid(model, sheet);
-    let first = true;
-    sheet.rows.forEach((r) => {
-      const vals = FIN_KEYS.map((k) => grid.get(k, r.id));
-      if (vals.every((c) => c.v == null && !c.err)) return; // nothing in report columns
-      fin.rows.push({ cells: [r.label, ...vals.map((c) => fmtVal(c))], it: 1, ...(first ? { gap: 1 as const } : {}) });
-      first = false;
-    });
-    if (!first) fin.note = "Italic rows — analyst additions from model M-118 (Concept D sheet).";
-  }
   const bs: Section = {
     t: "table", title: "BALANCE SHEET", cols: ["", ...FIN_LBL], align: [0, 1, 1, 1, 1, 1, 1, 1], rows: [
       row("Cash", (c) => c.cash, fm),
@@ -131,7 +116,7 @@ function finSections(model: Model, sheet?: SheetState): Section[] {
 }
 
 /* ---------- Credit Snapshot ---------- */
-function creditSnapshot(model: Model, sheet?: SheetState): Report {
+function creditSnapshot(model: Model): Report {
   const l1 = model.cols.l1;
   const reported = l1.ebitda, addbacks = l1.ab, adj = l1.adj;
   const haircut = 35, structEbitda = adj - haircut;
@@ -232,7 +217,7 @@ function creditSnapshot(model: Model, sheet?: SheetState): Report {
           ] },
           { t: "text", subhead: "Historical Performance", body: "Revenue compounded ~6.9% FY22–LTM with adj. margin pinned at 14.9–15.1% through an input-cost spike cycle. Deleveraging from 6.7x to 5.68x came entirely from EBITDA growth — net debt flat at ~$2.4B across four capital-structure events. Q1-26 tracked −4.2% below the sponsor model (Fluid Systems volume); conflict logged, model demoted to upside case." },
         ],
-        finSections(model, sheet),
+        finSections(model),
       ] },
     ],
   };
@@ -403,7 +388,7 @@ function monitoringDigest(): Report {
 
 export function buildReports(inputs?: ModelInputs): Report[] {
   const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {});
-  return [creditSnapshot(model, inputs?.sheet), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest()];
+  return [creditSnapshot(model), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest()];
 }
 
 export function citeCount(rep: Report): number {

@@ -26,6 +26,14 @@ __pycache__/
 # Test artifacts
 .pytest_cache/
 coverage/
+caos/frontend/test-results/
+caos/frontend/playwright-report/
 
 # Superpowers brainstorming specs / scratch (local only)
 docs/superpowers/
+/ds-bundle/
+/.ds-sync/
+/.design-sync/.cache/
+/.design-sync/node_modules
+/.design-sync/learnings/
+caos/frontend/.ds-tailwind.css

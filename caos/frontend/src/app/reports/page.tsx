@@ -6,14 +6,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
 import { buildReports, type ModelInputs } from "@/lib/reports/builders";
-import { loadSheet } from "@/lib/model/sheet";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -55,8 +53,8 @@ export default function ReportsPage() {
 }
 
 function ReportStudio() {
-  // Concept D model state (overrides / severity / analyst sheet) feeds the
-  // deliverables — loaded once on mount so D edits carry into E.
+  // Concept D model state (overrides / severity) feeds the deliverables —
+  // loaded once on mount so D edits carry into E.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
   useEffect(() => {
     try {
@@ -65,7 +63,6 @@ function ReportStudio() {
       setModelInputs({
         overrides: overrides && typeof overrides === "object" ? overrides : {},
         severity: s >= 0.5 && s <= 1.5 ? s : 1,
-        sheet: loadSheet(),
       });
     } catch { /* no model edits yet */ }
   }, []);
@@ -139,13 +136,7 @@ function ReportStudio() {
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
+      <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
         <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
@@ -227,7 +218,7 @@ function ReportStudio() {
         >
           CP-5 CONDITIONAL — QA-117
         </span>
-      </div>
+      </PageSubHeader>
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex gap-2 p-2">

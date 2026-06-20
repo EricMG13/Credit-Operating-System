@@ -13,6 +13,7 @@
 // leaving historicals and the forecast on the seeded build.
 
 import type { ModelAnchor } from "@/lib/engine/modelAnchor";
+import { type Assumptions, DEFAULT_ASSUMPTIONS } from "./assumptions";
 
 export interface ModelCol {
   key: string;
@@ -124,7 +125,8 @@ type Ctx = Record<string, unknown> & Partial<ModelCol>;
 function finishFlows(c: any) {
   c.cogs = c.rev - c.gp;
   c.ebitda = c.adj - c.ab;
-  c.da = c.rev * 0.046;
+  // D&A is 4.6% of sales unless a forecast column sets its own assumption (daPct).
+  c.da = c.rev * (typeof c.daPct === "number" ? c.daPct : 0.046);
   c.ebit = c.ebitda - c.da;
   c.opex = c.gp - c.ebit;
   c.ffo = c.adj - c.int - c.leases - c.tax - c.oth;
@@ -248,7 +250,7 @@ function fCtx(key: string, label: string, kind: "b" | "d", p: Ctx, prevCash: num
   return finishBalances(c);
 }
 
-export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAnchor): Model {
+export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAnchor, asmp: Assumptions = DEFAULT_ASSUMPTIONS): Model {
   const s = Math.max(0.25, Math.min(1.6, sev || 1));
   const g = (col: string, f: string, dflt: number) => {
     const v = OV[col + ":" + f];
@@ -330,24 +332,59 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
     { g: { d: 0.050, f: 0.040, a: 0.050 }, adjK: 0.12, ab: 35, gpmF: 0.263, int: 186 + 4 * s, tax: 24, oth: 6, wc: -8, capexPct: 0.040, acq: 0, diss: -34, othf: -4, rcfD: 55 + 20 * s, tlb: 1374, sofr: 3.0, days: { dso: 54, dsi: 80, dpo: 44 } },
   ];
   const fLabels = ["FY26e", "FY27e", "FY28e"];
+
+  type Segs = { a: number; d: number; f: number };
+  type FcastRow = (typeof BASE)[number] | (typeof DOWN)[number];
+
+  // Agent-baseline revenue per forecast year (segments grown with the agent's
+  // own growth, no analyst delta). Used to hold the implied adj-EBITDA margin
+  // fixed as the growth sliders move revenue, so a margin slider is the *only*
+  // thing that moves the margin.
+  const baseRevOf = (rows: { g: { a: number; d: number; f: number } }[]): number[] => {
+    let sg = segs25;
+    return rows.map((p) => { sg = { a: sg.a * (1 + p.g.a), d: sg.d * (1 + p.g.d), f: sg.f * (1 + p.g.f) }; return sg.a + sg.d + sg.f; });
+  };
+
+  // Build a forecast column applying a case's assumptions. `agentAdj` is the
+  // agent's baseline adj. EBITDA for the year; we re-express it as a margin on
+  // the agent-baseline revenue, then re-apply on the slider-adjusted revenue.
+  const fcast = (
+    key: string, kind: "b" | "d", i: number, p: FcastRow, A: typeof asmp.base,
+    agentAdj: number, baseRev: number, prevSeg: Segs, pc: number, prior: ModelCol, rcf: number,
+  ): ModelCol => {
+    const seg = {
+      a: prevSeg.a * (1 + p.g.a + A.gAfter),
+      d: prevSeg.d * (1 + p.g.d + A.gDrive),
+      f: prevSeg.f * (1 + p.g.f + A.gFluid),
+    };
+    const rev = seg.a + seg.d + seg.f;
+    const adj = rev * (agentAdj / baseRev + A.dAdjm);
+    return fCtx(key, fLabels[i], kind, {
+      ab: p.ab, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: p.sofr, days: p.days,
+      adj, gpmF: p.gpmF + A.dGpm, daPct: A.daPct,
+      int: p.int * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
+      capexPct: p.capexPct * A.mCapex, acq: p.acq * A.mAcq, diss: p.diss * A.mDiss, div: A.divDelta,
+      segA: seg.a, segD: seg.d, segF: seg.f, rcf, ssn: 900, sub: 200,
+    }, pc, prior);
+  };
+
+  const baseRevB = baseRevOf(BASE);
   const base: ModelCol[] = [];
   let pc = l1.cash;
-  let prevSeg = segs25;
+  let prevSeg: Segs = segs25;
   let prior: ModelCol = f25;
   BASE.forEach((p, i) => {
-    const seg = { a: prevSeg.a * (1 + p.g.a), d: prevSeg.d * (1 + p.g.d), f: prevSeg.f * (1 + p.g.f) };
-    const { g: _g, ...rest } = p;
-    const c = fCtx("b" + i, fLabels[i], "b", { ...rest, segA: seg.a, segD: seg.d, segF: seg.f, rcf: 55, ssn: 900, sub: 200 }, pc, prior);
-    base.push(c); pc = c.cash; prevSeg = seg; prior = c;
+    const c = fcast("b" + i, "b", i, p, asmp.base, p.adj, baseRevB[i], prevSeg, pc, prior, 55);
+    base.push(c); pc = c.cash; prevSeg = { a: c.segA, d: c.segD, f: c.segF }; prior = c;
   });
+
+  const baseRevD = baseRevOf(DOWN);
   const down: ModelCol[] = [];
   pc = l1.cash; prevSeg = segs25; prior = f25;
   DOWN.forEach((p, i) => {
-    const seg = { a: prevSeg.a * (1 + p.g.a), d: prevSeg.d * (1 + p.g.d), f: prevSeg.f * (1 + p.g.f) };
-    const adj = BASE[i].adj * (1 - p.adjK * s);
-    const { g: _g, adjK: _k, rcfD, ...rest } = p;
-    const c = fCtx("d" + i, fLabels[i], "d", { ...rest, adj, segA: seg.a, segD: seg.d, segF: seg.f, rcf: rcfD, ssn: 900, sub: 200 }, pc, prior);
-    down.push(c); pc = c.cash; prevSeg = seg; prior = c;
+    const agentAdj = BASE[i].adj * (1 - p.adjK * s); // agent downside adj before sliders
+    const c = fcast("d" + i, "d", i, p, asmp.down, agentAdj, baseRevD[i], prevSeg, pc, prior, p.rcfD);
+    down.push(c); pc = c.cash; prevSeg = { a: c.segA, d: c.segD, f: c.segF }; prior = c;
   });
 
   const cols: Record<string, ModelCol> = {};

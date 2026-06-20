@@ -49,6 +49,10 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: caos/server/requirements.txt
+      # Lint gate first — fails fast on dead imports / quality regressions
+      # before the heavier dependency install (config: ruff.toml).
+      - run: pip install ruff==0.15.18
+      - run: ruff check caos/server caos/tests
       - run: pip install -r caos/server/requirements.txt pytest pytest-asyncio httpx
       # Default suite on SQLite (the existing tests + async; Postgres-only tests skipped).
       - run: python -m pytest caos/tests/server -q

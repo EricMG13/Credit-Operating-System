@@ -46,6 +46,8 @@ import type {
   RunSummaryDTO,
 } from "@/lib/engine/types";
 
+// API-client surface for POST /api/runs — kept ahead of its UI consumer.
+// fallow-ignore-next-line unused-export
 export const createRun = (issuerId: string, asOfDate?: string): Promise<RunSummaryDTO> =>
   api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate }).then((r) => r.data);
 
@@ -62,6 +64,8 @@ export const getQA = (runId: string): Promise<QAReportDTO> =>
   api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
 
 // Committee export — rejects (409) unless the run is Committee Ready.
+// Surface ahead of its UI consumer (Report Studio).
+// fallow-ignore-next-line unused-export
 export const exportReport = (runId: string): Promise<unknown> =>
   api.post(`/api/runs/${runId}/report`).then((r) => r.data);
 
@@ -78,6 +82,8 @@ import type { ChunkDTO, MetricDef, NlQueryResult } from "@/lib/query/types";
 export const nlQuery = (question: string): Promise<NlQueryResult> =>
   api.post("/api/query/nl", { question }).then((r) => r.data);
 
+// Catalog for the NL-query lane — surface ahead of its UI consumer.
+// fallow-ignore-next-line unused-export
 export const getMetricCatalog = (): Promise<MetricDef[]> =>
   api.get("/api/query/catalog").then((r) => r.data.metrics);
 
@@ -142,3 +148,45 @@ export const edgarVaultExhibit = (
   api
     .post("/api/edgar/vault-exhibit", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
+
+// ─── Deep Research (autonomous web research, credit lens) ─────────────────────
+export interface ResearchBrief {
+  subject: string;
+  mode: "sector" | "issuer";
+  ai_mode?: "max" | "standard" | "lite";
+  persona?: string;
+  audience?: string;
+  decision?: string;
+  timeframe?: string;
+  focus?: string;
+  exclusions?: string;
+  criteria?: string[];
+  source_directives?: string;
+}
+export interface ResearchSource {
+  title: string;
+  url: string;
+}
+export interface ResearchResult {
+  report: string;
+  sources: ResearchSource[];
+  demo: boolean;
+}
+
+// Web-grounded research runs for minutes — no client timeout (the server holds
+// the connection until the report is complete or it degrades to the demo).
+export const deepResearch = (brief: ResearchBrief): Promise<ResearchResult> =>
+  api.post("/api/research", brief, { timeout: 0 }).then((r) => r.data);
+
+// ─── Workspace settings (read-only snapshot of server config) ─────────────────
+export interface WorkspaceSettings {
+  model: string;
+  llm_configured: boolean;
+  governance: { council_enabled: boolean; council_seats: number; council_peer_round: boolean; debate_enabled: boolean };
+  engine_cost: { run_token_budget: number; advisor_enabled: boolean; synth_executor_model: string; advisor_model: string };
+  deep_research: { effort: string; max_searches: number; max_tokens: number };
+  retrieval: { edgar_enabled: boolean; markitdown_enabled: boolean };
+  workspace: { environment: string; demo_seed: boolean; max_upload_mb: number; run_concurrency: number };
+}
+export const getSettings = (): Promise<WorkspaceSettings> =>
+  api.get("/api/settings").then((r) => r.data);

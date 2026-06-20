@@ -320,13 +320,13 @@ function ScenarioBuilder({
   );
 }
 
-// Anchored on the model's pro-forma (PF) column, so the lens re-bases on the
-// same live CP-1 run the grid does (and falls back to the seeded PF offline).
-// The Scenario Builder re-centers the lens (base + downside) on a custom
-// scenario; Reset reverts to the module forecasts.
+// Derived from the model's assumptions-adjusted forecast: base = the BASE
+// columns, worst = the DOWNSIDE columns, so both the base- and downside-case
+// Assumptions sliders re-center the lens (best/base/worst + tornado). The
+// Scenario Builder layers a custom scenario on top; Reset reverts to it.
 export function ScenarioPanel({ model }: { model: Model }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
-  const sc = useMemo(() => buildScenarios(model.cols.pf, active?.deltas), [model, active]);
+  const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
     <Panel title="Scenario & Sensitivity · forward cash-flow lens" className="w-[372px] shrink-0">
       <div className="p-2.5 flex flex-col gap-3.5">

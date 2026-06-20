@@ -1,5 +1,6 @@
 {
   "$schema": "https://docs.fallow.tools/fallow.schema.json",
   "ignorePatterns": ["ds-bundle/**", ".ds-sync/**", ".design-sync/**"],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "entry": ["caos/tests/frontend/e2e/**/*.spec.ts"]
 }

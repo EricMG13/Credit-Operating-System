@@ -1,11 +1,12 @@
 "use client";
 
-// Concept switcher — the six concept links, shown in every sub-header so users
+// Concept switcher — the seven concept links, shown in every sub-header so users
 // can jump between concepts from anywhere. `compact` renders icon-only chips
 // (with tooltips) for the dense concept-page headers; the directory uses the
 // icon+label variant. Glyphs are small inline SVGs (stroke = currentColor) — no
 // icon-font dependency, consistent with the terminal chrome. The five-concept
-// scheme grew a sixth (Monitor), so chips key off an icon, not an A–E letter.
+// scheme grew a sixth (Monitor) and a seventh (Research), so chips key off an
+// icon, not an A–E letter.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -45,6 +46,14 @@ const ICONS: Record<string, Icon> = {
   model: svg(<><rect x="1.8" y="2.6" width="10.4" height="8.8" rx="1" /><path d="M1.8 5.6h10.4M5.4 5.6v5.8" /></>),
   report: svg(<><path d="M3.6 1.9h4.6L11 4.7v7.4H3.6z" /><path d="M5.4 6.6h4M5.4 8.8h4" /></>),
   monitor: svg(<path d="M1.5 7.4h2.6l1.6-4 2.2 7 1.5-3h3.1" />),
+  research: svg(<>
+    <path d="M5.5 1.8v3.3L2.5 10.8a1 1 0 0 0 .9 1.5h7.2a1 1 0 0 0 .9-1.5L8.5 5.1V1.8" />
+    <path d="M4.5 1.8h5M4.4 8.2h5.2" />
+  </>),
+  settings: svg(<>
+    <circle cx="7" cy="7" r="2.1" />
+    <path d="M7 1.5v1.6M7 10.9v1.6M12.5 7h-1.6M3.1 7H1.5M10.9 3.1 9.8 4.2M4.2 9.8l-1.1 1.1M10.9 10.9 9.8 9.8M4.2 4.2 3.1 3.1" />
+  </>),
 };
 
 const SECTIONS = [
@@ -54,33 +63,54 @@ const SECTIONS = [
   { href: "/model", icon: "model", label: "Model" },
   { href: "/reports", icon: "report", label: "Report" },
   { href: "/monitor", icon: "monitor", label: "Monitor" },
+  { href: "/research", icon: "research", label: "Research" },
 ];
 
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
+  const Gear = ICONS.settings;
+  const settingsActive = pathname.startsWith("/settings");
   return (
-    <nav aria-label="Concepts" className="flex items-center gap-1 shrink-0" title="Tip: hold SPACE + ← / → to switch concepts">
-      {SECTIONS.map((s) => {
-        const active = pathname.startsWith(s.href);
-        const Glyph = ICONS[s.icon];
-        return (
-          <Link
-            key={s.href}
-            href={s.href}
-            title={s.label}
-            aria-label={s.label}
-            className={
-              "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
-              (active
-                ? "bg-caos-elevated text-caos-text border-caos-accent"
-                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-            }
-          >
-            <Glyph className={active ? "text-caos-accent" : ""} />
-            {compact ? null : <span>{s.label}</span>}
-          </Link>
-        );
-      })}
-    </nav>
+    <span className="flex items-center gap-1 shrink-0">
+      <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold SPACE + ← / → to switch concepts">
+        {SECTIONS.map((s) => {
+          const active = pathname.startsWith(s.href);
+          const Glyph = ICONS[s.icon];
+          return (
+            <Link
+              key={s.href}
+              href={s.href}
+              title={s.label}
+              aria-label={s.label}
+              className={
+                "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+                (active
+                  ? "bg-caos-elevated text-caos-text border-caos-accent"
+                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+              }
+            >
+              <Glyph className={active ? "text-caos-accent" : ""} />
+              {compact ? null : <span>{s.label}</span>}
+            </Link>
+          );
+        })}
+      </nav>
+      {/* Settings is utility chrome, not a concept — kept outside the Concepts nav. */}
+      <span className="h-4 w-px bg-caos-border mx-0.5" />
+      <Link
+        href="/settings"
+        title="Settings"
+        aria-label="Settings"
+        className={
+          "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+          (settingsActive
+            ? "bg-caos-elevated text-caos-text border-caos-accent"
+            : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+        }
+      >
+        <Gear className={settingsActive ? "text-caos-accent" : ""} />
+        {compact ? null : <span>Settings</span>}
+      </Link>
+    </span>
   );
 }

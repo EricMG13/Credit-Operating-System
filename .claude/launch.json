@@ -3,15 +3,15 @@
   "configurations": [
     {
       "name": "app",
-      "runtimeExecutable": "/tmp/caos-server.sh",
-      "runtimeArgs": [],
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/server' && exec .venv/bin/python run.py"],
       "autoPort": false,
       "port": 8000
     },
     {
       "name": "frontend-dev",
-      "runtimeExecutable": "/tmp/caos-frontend.sh",
-      "runtimeArgs": [],
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/frontend' && exec npm run dev"],
       "autoPort": false,
       "port": 3000
     }

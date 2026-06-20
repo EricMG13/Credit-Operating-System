@@ -6,6 +6,7 @@ import { SectionHeader } from "./SectionHeader";
 import { StatusGlyph } from "./StatusGlyph";
 import { RailShell } from "./RailShell";
 import { FlashOnChange } from "./FlashOnChange";
+import { ScopeToggle } from "./ScopeToggle";
 
 afterEach(cleanup);
 
@@ -68,6 +69,17 @@ describe("RailShell", () => {
     expect(screen.getByText("strip")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Expand source rail" }));
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ScopeToggle", () => {
+  it("marks the selected scope pressed and emits the other on click", () => {
+    const onChange = vi.fn();
+    render(<ScopeToggle value="sector" onChange={onChange} label="Scope" />);
+    expect(screen.getByRole("button", { name: "sector" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "issuer" }).getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "issuer" }));
+    expect(onChange).toHaveBeenCalledWith("issuer");
   });
 });
 
