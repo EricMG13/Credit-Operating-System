@@ -6,7 +6,8 @@ from __future__ import annotations
 import asyncio
 
 from engine import debate
-from engine.capstructure import scan_tranches, synthesize_capital_structure
+from engine.capstructure import (
+    recovery_waterfall, scan_tranches, synthesize_recovery_preference)
 from engine.catalysts import synthesize_catalysts
 from engine.lineage import validate_lineage
 from engine.liquidity import scan_liquidity, synthesize_liquidity
@@ -78,6 +79,16 @@ def test_macro_payload_and_no_net_debt_insufficient():
     assert p.confidence == "Insufficient Information"
 
 
+def test_macro_hedge_and_fx_register_from_scan():
+    p = _run(synthesize_macro(_cp1(), _retrieve(
+        "The group entered a pay-fixed interest-rate swap.",
+        "A portion of revenue is foreign-currency denominated, creating an FX exposure.")))
+    _ok(p, "CP-2F")
+    kinds = {r["kind"] for r in p.runtime_output["hedge_register"]}
+    assert p.runtime_output["rate_hedge_disclosed"] is True
+    assert p.runtime_output["fx_exposure_flagged"] is True and "fx_exposure" in kinds
+
+
 # ── CP-3C portfolio fit ──────────────────────────────────────────────────────────
 
 def _cp3(rec, composite=55):
@@ -141,14 +152,36 @@ def test_liquidity_none_insufficient():
     assert p.confidence == "Insufficient Information"
 
 
-# ── CP-3B capital structure (doc scan) ───────────────────────────────────────────
+# ── CP-3B recovery / instrument preference (doc scan + waterfall) ────────────────
 
 def test_capstructure_orders_by_seniority():
     found = scan_tranches([("c1", "a subordinated note"), ("c2", "first-lien term loan B and a revolving credit facility")])
     assert [t["code"] for t in found] == ["RCF", "1L", "SUB"]  # senior → junior
-    p = _run(synthesize_capital_structure(_retrieve("revolving credit facility, first-lien term loan, second-lien")))
+    p = _run(synthesize_recovery_preference(_retrieve("revolving credit facility, first-lien term loan, second-lien")))
     _ok(p, "CP-3B")
     assert p.runtime_output["seniority_order"][0] == "RCF"
+
+
+def test_recovery_waterfall_absolute_priority():
+    # $1000M EV over RCF 200 / 1L 800 / 2L 200: senior fully recover, 2L wiped.
+    rows = recovery_waterfall(
+        [{"code": "RCF", "seniority_rank": 0, "amount_musd": 200.0},
+         {"code": "1L", "seniority_rank": 1, "amount_musd": 800.0},
+         {"code": "2L", "seniority_rank": 3, "amount_musd": 200.0}], 1000.0)
+    by = {r["code"]: r for r in rows}
+    assert by["RCF"]["recovery_pct"] == 100.0 and by["1L"]["recovery_pct"] == 100.0
+    assert by["2L"]["recovery_pct"] == 0.0
+
+
+def test_recovery_preference_ranks_by_recovery():
+    # CP-1 EBITDA 421 → distressed EV 2105; sized stack fully covered → senior preferred.
+    p = _run(synthesize_recovery_preference(_retrieve(
+        "The revolving credit facility is $200 million.",
+        "The first-lien term loan B is $800 million.",
+        "The second-lien term loan is $200 million."), _cp1()))
+    _ok(p, "CP-3B")
+    assert p.runtime_output["distressed_ev_musd"] == round(421.0 * 5.0, 1)
+    assert p.runtime_output["preference"][0]["recovery_pct"] == 100.0
 
 
 # ── debate integration ─────────────────────────────────────────────────────────
@@ -178,7 +211,7 @@ def test_textscan_amount_musd():
 def test_capstructure_sizes_tranches_and_pct():
     # One tranche per chunk so each amount is unambiguous (the ±120-char proximity
     # heuristic can't disambiguate two tranches+amounts in the same sentence).
-    p = _run(synthesize_capital_structure(_retrieve(
+    p = _run(synthesize_recovery_preference(_retrieve(
         "The revolving credit facility is $200 million.",
         "The first-lien term loan B is $800 million.",
         "The second-lien term loan is $200 million.")))

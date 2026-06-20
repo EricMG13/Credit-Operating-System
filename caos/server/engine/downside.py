@@ -65,7 +65,7 @@ async def synthesize_downside(cp1: ModulePayload) -> ModulePayload:
     p = compute_pathways(nf)
     if p is None:
         return ModulePayload(
-            module_id="CP-2B", module_name="DownsidePathwayAnalysis",
+            module_id="CP-2B", module_name="DownsidePathway",
             owned_object="downside_pathway",
             runtime_output={"scenarios": [], "note": "CP-1 provided no leverage to stress."},
             confidence="Insufficient Information",
@@ -78,7 +78,7 @@ async def synthesize_downside(cp1: ModulePayload) -> ModulePayload:
                   if sb is not None
                   else f"net leverage stays below {_BREACH_X:g}x through a 30% EBITDA decline")
     return ModulePayload(
-        module_id="CP-2B", module_name="DownsidePathwayAnalysis",
+        module_id="CP-2B", module_name="DownsidePathway",
         owned_object="downside_pathway", runtime_output=p, confidence="High",
         downstream_consumers=["CP-6A"],
         claims=[ClaimSpec(

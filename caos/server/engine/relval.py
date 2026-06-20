@@ -43,7 +43,7 @@ async def synthesize_relative_value(cp1c: ModulePayload) -> ModulePayload:
     sc = build_scorecard(cp1c.runtime_output or {})
     if sc is None:
         return ModulePayload(
-            module_id="CP-3", module_name="RelativeValueAnalysis",
+            module_id="CP-3", module_name="RelativeValueSecuritySelection",
             owned_object="relative_value_analysis",
             runtime_output={"scorecard": [], "note": "CP-1C produced no peer comparisons to score."},
             confidence="Insufficient Information",
@@ -51,7 +51,7 @@ async def synthesize_relative_value(cp1c: ModulePayload) -> ModulePayload:
             downstream_consumers=["CP-6A", "CP-6E"],
         )
     return ModulePayload(
-        module_id="CP-3", module_name="RelativeValueAnalysis",
+        module_id="CP-3", module_name="RelativeValueSecuritySelection",
         owned_object="relative_value_analysis", runtime_output=sc, confidence="High",
         downstream_consumers=["CP-6A", "CP-6E"],
         claims=[ClaimSpec(

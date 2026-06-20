@@ -42,7 +42,7 @@ async def synthesize_portfolio_fit(cp3: ModulePayload, cp1: Optional[ModulePaylo
     fit = assess_fit(cp3.runtime_output or {}, leverage)
     if fit is None:
         return ModulePayload(
-            module_id="CP-3C", module_name="PortfolioFitAnalysis",
+            module_id="CP-3C", module_name="PortfolioFitPositionSizing",
             owned_object="portfolio_fit_analysis",
             runtime_output={"note": "CP-3 produced no relative-value recommendation to size."},
             confidence="Insufficient Information",
@@ -50,7 +50,7 @@ async def synthesize_portfolio_fit(cp3: ModulePayload, cp1: Optional[ModulePaylo
             downstream_consumers=["CP-6E"],
         )
     return ModulePayload(
-        module_id="CP-3C", module_name="PortfolioFitAnalysis",
+        module_id="CP-3C", module_name="PortfolioFitPositionSizing",
         owned_object="portfolio_fit_analysis", runtime_output=fit, confidence="High",
         downstream_consumers=["CP-6E"],
         claims=[ClaimSpec(

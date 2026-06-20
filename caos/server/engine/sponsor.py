@@ -43,7 +43,7 @@ async def synthesize_sponsor_review(retrieve) -> ModulePayload:
 
     if not flagged:
         return ModulePayload(
-            module_id="CP-2D", module_name="SponsorGovernanceReview",
+            module_id="CP-2D", module_name="GovernanceSponsorScore",
             owned_object="sponsor_governance_review",
             runtime_output={"flags": [], "governance_risk_score": None,
                             "note": "No sponsor-governance red flags detected in ingested offering text."},
@@ -54,7 +54,7 @@ async def synthesize_sponsor_review(retrieve) -> ModulePayload:
 
     score = min(_MAX_SCORE, sum(f["weight"] for f in flagged))
     return ModulePayload(
-        module_id="CP-2D", module_name="SponsorGovernanceReview",
+        module_id="CP-2D", module_name="GovernanceSponsorScore",
         owned_object="sponsor_governance_review",
         runtime_output={
             "governance_risk_score": score,

@@ -1,4 +1,4 @@
-"""CP-3D TradingLiquidityAnalysis — refinancing / LME vulnerability score.
+"""CP-3D RefinancingLMERisk — refinancing / LME vulnerability score.
 
 Deterministic: scores how exposed the credit is to coercive liability management
 (uptier / drop-down) and a hard refinancing, from CP-1 leverage and CP-2B
@@ -44,8 +44,8 @@ async def synthesize_refinancing(cp1: ModulePayload, cp2b: Optional[ModulePayloa
 
     if not isinstance(leverage, (int, float)):
         return ModulePayload(
-            module_id="CP-3D", module_name="TradingLiquidityAnalysis",
-            owned_object="trading_liquidity_analysis",
+            module_id="CP-3D", module_name="RefinancingLMERisk",
+            owned_object="refinancing_lme_risk",
             runtime_output={"note": "CP-1 provided no leverage; no refinancing/LME read computed."},
             confidence="Insufficient Information",
             limitation_flags=["CP-1 provided no leverage; LME vulnerability not scored."],
@@ -54,8 +54,8 @@ async def synthesize_refinancing(cp1: ModulePayload, cp2b: Optional[ModulePayloa
 
     score, band, drivers = score_vulnerability(leverage, fragility)
     return ModulePayload(
-        module_id="CP-3D", module_name="TradingLiquidityAnalysis",
-        owned_object="trading_liquidity_analysis",
+        module_id="CP-3D", module_name="RefinancingLMERisk",
+        owned_object="refinancing_lme_risk",
         runtime_output={
             "lme_vulnerability_score": score, "lme_vulnerability_band": band,
             "drivers": drivers,

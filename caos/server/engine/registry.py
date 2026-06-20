@@ -11,9 +11,11 @@ Two populations:
 
   - **Implemented** modules have a synthesizer wired in the runner today. Their
     ``owned_object`` is exactly what the synthesizer's payload emits, so the
-    one-owner-per-object check validates real output (not a corpus label). Note
-    the engine's CP-2 is the cost-structure synthesizer and CP-4C the covenant-
-    capacity calculator — the registry follows the *code*, hence the names below.
+    one-owner-per-object check validates real output. Names are canonical
+    Taxonomy A (re-synced to the corpus 2026-06-20). Two notes: CP-2
+    (FundamentalCreditSynthesizer) runs the full LLM synthesis in live mode and a
+    deterministic cost-structure read offline; CP-1A is the BusinessTransactionFactPack
+    and the adjusted-EBITDA bridge it used to own is folded into CP-1.
   - **Spec-only** modules (``implemented=False``) are the rest of the designed
     graph. CP-X routes to them and marks them ``Not Implemented`` so the route
     plan reflects the full mesh honestly; they are never executed and never
@@ -80,8 +82,8 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     ModuleSpec("CP-1", "CanonicalDataFoundation", "L1", "canonical_financials",
                depends_on=("CP-0",), required_sources=frozenset({FINANCIALS}),
                implemented=True, edgar_fallback=True),
-    ModuleSpec("CP-1A", "AdjustedEBITDABridge", "L1", "adjusted_ebitda_reconciliation",
-               depends_on=("CP-1",), required_sources=frozenset({FINANCIALS}),
+    ModuleSpec("CP-1A", "BusinessTransactionFactPack", "L1", "business_transaction_fact_register",
+               depends_on=("CP-1",), required_sources=frozenset({OFFERING}),
                implemented=True),
     ModuleSpec("CP-1B", "EarningsDelta", "L1", "earnings_delta",
                depends_on=("CP-1",), implemented=True),
@@ -91,31 +93,31 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     ModuleSpec("CP-2", "CostStructure", "L2", "cost_structure",
                depends_on=("CP-1",), required_sources=frozenset({FINANCIALS}),
                implemented=True),
-    ModuleSpec("CP-2B", "DownsidePathwayAnalysis", "L2", "downside_pathway",
+    ModuleSpec("CP-2B", "DownsidePathway", "L2", "downside_pathway",
                depends_on=("CP-1", "CP-2"), required_sources=frozenset({FINANCIALS}),
                implemented=True),
     ModuleSpec("CP-2C", "EventCatalystRegister", "L2", "event_catalyst_register",
                depends_on=("CP-1",), implemented=True),
-    ModuleSpec("CP-2D", "SponsorGovernanceReview", "L2", "sponsor_governance_review",
+    ModuleSpec("CP-2D", "GovernanceSponsorScore", "L2", "sponsor_governance_review",
                depends_on=("CP-1",), required_sources=frozenset({OFFERING}),
                implemented=True),
-    ModuleSpec("CP-2E", "LiquidityMaturityAnalysis", "L2", "liquidity_maturity_analysis",
+    ModuleSpec("CP-2E", "LiquidityCashFlowBridge", "L2", "liquidity_maturity_analysis",
                depends_on=("CP-1",), required_sources=frozenset({FINANCIALS, AGREEMENT}),
                implemented=True),
-    ModuleSpec("CP-2F", "MacroSectorOverlay", "L2", "macro_sector_overlay",
+    ModuleSpec("CP-2F", "MacroFXHedgingSensitivity", "L2", "macro_sector_overlay",
                depends_on=("CP-1",), implemented=True),
     # ── L3 — relative value ────────────────────────────────────────────────
-    ModuleSpec("CP-3", "RelativeValueAnalysis", "L3", "relative_value_analysis",
+    ModuleSpec("CP-3", "RelativeValueSecuritySelection", "L3", "relative_value_analysis",
                depends_on=("CP-1", "CP-1C"), implemented=True),
-    ModuleSpec("CP-3B", "CapitalStructureMap", "L3", "capital_structure_map",
+    ModuleSpec("CP-3B", "RecoveryInstrumentPreference", "L3", "recovery_instrument_preference",
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT}),
                implemented=True),
-    ModuleSpec("CP-3C", "PortfolioFitAnalysis", "L3", "portfolio_fit_analysis",
+    ModuleSpec("CP-3C", "PortfolioFitPositionSizing", "L3", "portfolio_fit_analysis",
                depends_on=("CP-3",), implemented=True),
-    ModuleSpec("CP-3D", "TradingLiquidityAnalysis", "L3", "trading_liquidity_analysis",
+    ModuleSpec("CP-3D", "RefinancingLMERisk", "L3", "refinancing_lme_risk",
                depends_on=("CP-1",), implemented=True),
     # ── L4 — legal / recovery ──────────────────────────────────────────────
-    ModuleSpec("CP-4", "LegalCovenantReview", "L4", "legal_covenant_review",
+    ModuleSpec("CP-4", "LegalCovenantInterpreter", "L4", "legal_covenant_review",
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT, COVENANT}),
                implemented=True),
     ModuleSpec("CP-4C", "CovenantCapacityCalculator", "L4", "covenant_capacity_calculation",

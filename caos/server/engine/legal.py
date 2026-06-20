@@ -51,7 +51,7 @@ async def synthesize_legal_review(retrieve) -> ModulePayload:
 
     if not flagged:
         return ModulePayload(
-            module_id="CP-4", module_name="LegalCovenantReview",
+            module_id="CP-4", module_name="LegalCovenantInterpreter",
             owned_object="legal_covenant_review",
             runtime_output={"provisions_flagged": [], "aggressiveness_score": None,
                             "note": "No aggressive covenant provisions detected in ingested agreement text."},
@@ -64,7 +64,7 @@ async def synthesize_legal_review(retrieve) -> ModulePayload:
     structure = ("cov-lite" if any("cov-lite" in f["provision"] for f in flagged)
                  else "maintenance or undetermined")
     return ModulePayload(
-        module_id="CP-4", module_name="LegalCovenantReview",
+        module_id="CP-4", module_name="LegalCovenantInterpreter",
         owned_object="legal_covenant_review",
         runtime_output={
             "aggressiveness_score": score,

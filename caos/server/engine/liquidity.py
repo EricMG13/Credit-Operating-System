@@ -59,7 +59,7 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
 
     if not found:
         return ModulePayload(
-            module_id="CP-2E", module_name="LiquidityMaturityAnalysis",
+            module_id="CP-2E", module_name="LiquidityCashFlowBridge",
             owned_object="liquidity_maturity_analysis",
             runtime_output={"sources": [], "note": "No liquidity-source disclosure detected in ingested sources."},
             confidence="Insufficient Information",
@@ -76,7 +76,7 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
     if runway is not None:
         summary += f" — covers ~{runway:g} months of cash interest"
     return ModulePayload(
-        module_id="CP-2E", module_name="LiquidityMaturityAnalysis",
+        module_id="CP-2E", module_name="LiquidityCashFlowBridge",
         owned_object="liquidity_maturity_analysis",
         runtime_output={
             "sources": [{"source": f["source"], "amount_musd": f["amount_musd"], "chunk_id": f["chunk_id"]}

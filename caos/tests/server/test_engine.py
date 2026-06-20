@@ -59,6 +59,51 @@ def test_prebuilt_index_matches_one_shot_bm25():
         assert reuse == oneshot, f"mismatch for {q!r}: {reuse} != {oneshot}"
 
 
+# ── CP-X dependency layering (intra-run parallelism) ─────────────────────────
+def test_dependency_layers_respects_deps_and_groups_independents():
+    from engine.registry import REGISTRY
+    from engine.runner import _dependency_layers
+
+    routed = [m for m in REGISTRY if m != "CP-0"]  # all implemented analytical modules
+    layers = _dependency_layers(routed)
+
+    # Every routed module is placed exactly once.
+    flat = [m for layer in layers for m in layer]
+    assert sorted(flat) == sorted(routed)
+    assert len(flat) == len(set(flat))
+
+    # A module never shares a layer with (or precedes) an in-set dependency.
+    layer_of = {m: i for i, layer in enumerate(layers) for m in layer}
+    for m in routed:
+        for d in REGISTRY[m].depends_on:
+            if d in layer_of:
+                assert layer_of[d] < layer_of[m], f"{m} must run after its dep {d}"
+
+    # CP-1A and CP-1B both depend only on CP-1, so they land in the same layer —
+    # i.e. independent modules are grouped, which is what lets them run concurrently.
+    assert layer_of["CP-1A"] == layer_of["CP-1B"]
+    assert layer_of["CP-1"] < layer_of["CP-1A"]
+    # CP-1A (BusinessTransactionFactPack) and CP-4C (covenant capacity) both depend
+    # only on CP-1, so they share a layer — the concrete pair the fan-out overlaps.
+    assert layer_of["CP-1A"] == layer_of["CP-4C"]
+
+
+def test_dependency_layers_degraded_routing_and_edges():
+    # When CP-0 comes back thin, `routed` can exclude the foundation (CP-1) or be
+    # tiny. Layering must still produce a valid order and never loop/crash.
+    from engine.runner import _dependency_layers
+
+    assert _dependency_layers([]) == []
+    assert _dependency_layers(["CP-2C"]) == [["CP-2C"]]  # dep (CP-1) outside set → layer 0
+    # CP-3C depends on CP-3; with CP-1/CP-1C absent, CP-3 has no in-set dep (layer 0)
+    # and CP-3C still sequences after it.
+    layers = _dependency_layers(["CP-3C", "CP-3"])  # order shouldn't matter
+    flat = [m for layer in layers for m in layer]
+    assert sorted(flat) == ["CP-3", "CP-3C"]
+    li = {m: i for i, layer in enumerate(layers) for m in layer}
+    assert li["CP-3"] < li["CP-3C"]
+
+
 # ── The deterministic CP-5 gate ──────────────────────────────────────────────
 def _f(sev: str) -> Finding:
     return Finding(finding_id="F", severity=sev, description="x")
