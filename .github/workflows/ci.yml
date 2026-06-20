@@ -69,3 +69,13 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  corpus:
+    name: Corpus — taxonomy consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Stdlib-only drift check: each module_name must agree across schema filename,
+      # ACTIVE_PROMPT, CP-X route graph, and the onboarding doc (Taxonomy A).
+      - name: Module taxonomy drift check
+        run: python3 "Modular OS/tools/check_module_consistency.py"
