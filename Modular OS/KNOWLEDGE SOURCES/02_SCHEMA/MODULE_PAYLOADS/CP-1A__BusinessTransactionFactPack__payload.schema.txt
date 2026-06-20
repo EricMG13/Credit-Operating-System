@@ -1,7 +1,7 @@
 allOf $ref CP_MODULE_PAYLOAD_BASE.schema.txt
 properties
   module_id const CP-1A
-  module_name const BusinessTransactionSummary
+  module_name const BusinessTransactionFactPack
   owned_object const business_transaction_fact_register
   schema_family const Nested
   runtime_output type object properties

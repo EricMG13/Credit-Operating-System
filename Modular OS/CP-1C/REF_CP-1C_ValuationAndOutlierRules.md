@@ -62,4 +62,24 @@ Each implied-EV calculation must state: the multiple source, the borrower metric
 - Currency stated for every absolute figure.
 - Rounding matches the precision established by CP-1 or the peer source.
 - Null handling: if any input to a formula is null, the result is null — not zero, not estimated.
+
+## Label Taxonomies (closed sets — use only these values)
+- **Comparability Status** (REF_CP-1C_03 `Comparability Status`): `Comparable` | `Comparable with Limitations` | `Not Comparable` | `Insufficient Information`.
+- **Calculation Status** (any computed peer/borrower metric): `Reported` | `Calculated` | `Derived` | `Provisional` | `Not Comparable` | `Insufficient Information`.
+- **Outlier Direction** (REF_CP-1C_05 `Direction`, the "5 labels"): `Favorable` | `Unfavorable` | `Mixed` | `Non-Comparable` | `Insufficient Information`.
+  - Where an outlier arises from a comparability limitation (definition / accounting standard / perimeter), classify `Non-Comparable`, not `Favorable`/`Unfavorable`.
+  - Each outlier maps to the 6 credit-translation dimensions in REF_CP-1C_05's output: operating, cash-flow, leverage/liquidity, refinancing, valuation-context, and downstream handoff.
+
+## 11-Point Metric Alignment Standard (AP1–AP11, REF_CP-1C_03)
+Every planned comparison records: AP1 borrower definition · AP2 peer definition · AP3 source period ·
+AP4 currency · AP5 accounting basis (IFRS/US GAAP) · AP6 actual vs pro forma basis · AP7 reported vs
+adjusted basis · AP8 LTM/YTD/quarterly/annualized basis · AP9 source quality / provenance · AP10
+normalization treatment · AP11 resulting comparability status. Any unbridged mismatch on AP1–AP10
+drives AP11 to `Not Comparable` or `Comparable with Limitations`.
+
+## Peer Statistic Rules
+Do not calculate average, median, quartile, range, standard deviation, or percentile unless sufficient
+comparable datapoints exist (minimum 2 for any "range"/"average" label; minimum 3 for a meaningful
+sector multiple). Exclude non-comparable datapoints from summary statistics and state why. Do not rank
+the borrower where the peer set is incomplete or definitions differ materially.
 </library_reference>

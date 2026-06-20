@@ -1,7 +1,7 @@
 # CP Module Taxonomy Reconciliation
 Version: 1.0 | Created: 2026-06-08
 Resolves: Audit F-2 (conflicting module taxonomies)
-Status: **RESOLVED 2026-06-08** — owner ratified Taxonomy A (v2 Canonical). Corrective rewrite applied: all 24 `REF_CP-EMAIL_SourceRoutingMatrix.md` copies updated to v2.0; `CP-COMMON_PREAMBLE.md` module_manifest re-synced (v3.3) with L7 + infra and `Feeds:TBD` resolved. Recommendation and mapping retained below for the record.
+Status: **RESOLVED 2026-06-08; FULLY APPLIED 2026-06-20.** Owner ratified Taxonomy A (v2 Canonical). 2026-06-08 rewrite covered the email matrix (24 `REF_CP-EMAIL_SourceRoutingMatrix.md` copies → v2.0) and `CP-COMMON_PREAMBLE.md` module_manifest (v3.3, L7 + infra, `Feeds:TBD` resolved) — but it **did not reach `CP-X/SYSTEM_REFERENCE.md` (the route graph), `CP-X/REF_CP-X_ExampleOutputPattern.md`, or `CP_ONBOARDING_DOCUMENTATION_v2.txt`**, which still carried legacy names for ~18 modules (incl. lane-swaps CP-3B/CP-3D/CP-4C). 2026-06-20: those three files re-synced to Taxonomy A, CP-1A schema `module_name` corrected (`BusinessTransactionSummary` → `BusinessTransactionFactPack`), and L5/L7 rows added to the CP-X route graph. Verified by `tools/check_module_consistency.py` (24/24, 0 drift across schema / ACTIVE_PROMPT / CP-X route / onboarding). Recommendation and mapping retained below for the record.
 
 ## 1. The conflict
 

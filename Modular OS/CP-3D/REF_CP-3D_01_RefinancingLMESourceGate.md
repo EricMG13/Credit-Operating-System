@@ -15,3 +15,5 @@
 ## Output
 T3D.1: `source_document_id`|`source_document_name`|`source_quality`|`period / date`|`entity_covered`|`data_supplied`|`limitation`|`downstream_use`
 + Module Status: Full Run / Ready with Limitations / Blocked
+
+<!-- Upstream re-anchor (common_rules #10): at this gate, re-import and verify the specific upstream module outputs this module consumes (CP-1/CP-1A financials, CP-2B downside, CP-2E liquidity bridge, CP-4/CP-4C legal/covenant, CP-2D sponsor) with their run_id/period. If a required upstream value is absent or its run_id/period mismatches this run, mark [Insufficient Information] and gate the dependent step — do not re-derive or infer the upstream value from memory. -->
