@@ -9,7 +9,7 @@ structured summary and, crucially, enforces the gate.
 
 from __future__ import annotations
 
-from typing import List, Sequence
+from typing import Sequence
 
 # Modules that are auditors / infrastructure, not committee-pack content.
 _NON_CONTENT = {"CP-5", "CP-5B", "CP-X"}

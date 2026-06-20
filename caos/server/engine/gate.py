@@ -13,7 +13,7 @@ from ``SYSTEM_ROUTE_MAP_v2.md``:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 SEVERITY_RANK = {"MINOR": 1, "MATERIAL": 2, "CRITICAL": 3}
 _QA_RANK = {"Not Reviewed": -1, "Passed": 0, "Restricted": 1, "Blocked": 2}

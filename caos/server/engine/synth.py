@@ -33,7 +33,6 @@ import copy
 import json
 import logging
 import re
-from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 
 from config import SERVER_DIR, get_settings
@@ -57,10 +56,22 @@ MODULAR_OS_DIR = SERVER_DIR.parent.parent / "Modular OS"
 
 RetrieveFn = Callable[[str, int], Awaitable[list]]
 
+# Per-module grounding focus for the live synthesize() path. CP-1 is the canonical
+# financial foundation, so steer its retrieval at the income/leverage/coverage
+# disclosures it normalizes. Anything not listed uses the broad default.
+_RETRIEVAL_FOCUS = {
+    "CP-1": "revenue EBITDA net debt leverage interest coverage margin cash flow financial statements",
+}
+
 # A full CP-1 spread (multi-period financials + KPI register + claims) does not
 # fit in 4096 output tokens — it truncated, and the one-shot repair re-truncates
 # at the same ceiling. 8192 fits the richest module with headroom.
 _MAX_TOKENS = 8192
+
+# Advisor tool (config.advisor_enabled). The synthesizer's call is reasoning-heavy
+# and a fit for a cheaper executor consulting a stronger advisor mid-generation.
+_ADVISOR_BETA = "advisor-tool-2026-03-01"
+_ADVISOR_MAX_TOKENS = 2048  # Anthropic's recommended cap: ~7x less advisor output, ~0% truncation.
 
 # Structured-output contract: the model fills this schema instead of authoring
 # free-text JSON. Closed enums mirror engine.schemas so most schema violations
@@ -246,15 +257,46 @@ class LiveSynthesizer:
         return path.read_text(encoding="utf-8")
 
     async def _call(self, system: str, messages: list, tool: dict, module_id: str):
-        """One forced-tool Claude call; accrues token usage onto the run budget."""
-        resp = await self._get_client().messages.create(
-            model=self._settings.anthropic_model,
-            max_tokens=_MAX_TOKENS,
-            system=system,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": tool["name"]},
-            messages=messages,
-        )
+        """One Claude call that must emit ``emit_module_payload``; accrues token usage.
+
+        With ``advisor_enabled`` the call runs on the cheaper executor and exposes the
+        advisor tool, so the model consults a stronger model before emitting the
+        payload — ``tool_choice: any`` lets it call the advisor first yet still keeps
+        the payload tool mandatory. Otherwise it is the original single forced-tool
+        call on ``anthropic_model``."""
+        s = self._settings
+        # Cache the stable prefix (tools + system). A cache_control breakpoint on the
+        # system block also caches the preceding tools, so this covers the whole
+        # tools+system prefix — identical between the initial call and the one-shot
+        # repair (guaranteed hit), and across re-runs of this module within the 5-min
+        # window. The per-module Active Prompt (~2k tokens) clears the 1024 floor.
+        system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        if s.advisor_enabled:
+            advisor = {
+                "type": "advisor_20260301",
+                "name": "advisor",
+                "model": s.advisor_model,
+                "max_uses": 1,
+                "max_tokens": _ADVISOR_MAX_TOKENS,
+            }
+            resp = await self._get_client().beta.messages.create(
+                betas=[_ADVISOR_BETA],
+                model=s.synth_executor_model,
+                max_tokens=_MAX_TOKENS,
+                system=system_blocks,
+                tools=[advisor, tool],
+                tool_choice={"type": "any"},  # advisor (model's choice), then the payload tool
+                messages=messages,
+            )
+        else:
+            resp = await self._get_client().messages.create(
+                model=s.anthropic_model,
+                max_tokens=_MAX_TOKENS,
+                system=system_blocks,
+                tools=[tool],
+                tool_choice={"type": "tool", "name": tool["name"]},
+                messages=messages,
+            )
         budget.record_usage(resp)
         # Per-call output-token visibility: a module near the ceiling is the
         # truncation signal (CP-1's full spread is the one that hits it).
@@ -267,7 +309,12 @@ class LiveSynthesizer:
         if not budget.llm_allowed():
             raise SynthesisError(f"{module_id}: per-run token budget exhausted")
         active_prompt = self._active_prompt(module_id)
-        hits = await retrieve(f"{issuer_name} {module_id} financials covenants leverage liquidity", 8)
+        # Module-focused grounding query (in practice this generic path is CP-1's
+        # live fallback): point retrieval at the metrics CP-1 normalizes rather than
+        # a one-size covenants/liquidity string. Falls back to the broad query for
+        # any other module that reaches this path.
+        focus = _RETRIEVAL_FOCUS.get(module_id, "financials covenants leverage liquidity")
+        hits = await retrieve(f"{issuer_name} {focus}", 8)
         grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits) or "(no documents)"
         upstream_json = json.dumps(
             {mid: p.runtime_output for mid, p in upstream.items()}, default=str

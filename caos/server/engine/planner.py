@@ -154,11 +154,11 @@ class RoutePlan:
             ],
             "limitation_propagation": [
                 {
-                    "limitation": l.limitation, "source": l.source,
-                    "affected_modules": l.affected_modules, "impact": l.impact,
-                    "propagated_flag": l.propagated_flag,
+                    "limitation": lim.limitation, "source": lim.source,
+                    "affected_modules": lim.affected_modules, "impact": lim.impact,
+                    "propagated_flag": lim.propagated_flag,
                 }
-                for l in self.limitations
+                for lim in self.limitations
             ] or [{"limitation": "No limitations to propagate.", "source": "CP-0",
                    "affected_modules": [], "impact": "—", "propagated_flag": "—"}],
         }
