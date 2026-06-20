@@ -136,6 +136,17 @@ function finishFlows(c: any) {
   return c;
 }
 
+// The annual credit KPIs, derived from the column's debt stack + adj. EBITDA.
+// Shared by finishBalances (build) and applyAnchor (live re-base) so the two
+// stay in lockstep.
+function deriveCreditKpis(c: any) {
+  c.srsec = (c.rcf + c.tlb + c.ssn - c.cash) / c.adj;
+  c.totlev = c.tdebt / c.adj;
+  c.netlev = c.ndebt / c.adj;
+  c.intcov = c.adj / c.int;
+  c.fcfdebt = c.fcf / c.tdebt;
+}
+
 function finishBalances(c: any) {
   c.secured = c.rcf + c.tlb + c.ssn;
   c.tdebt = c.secured + c.sub;
@@ -148,11 +159,7 @@ function finishBalances(c: any) {
   c.ap = (c.cogs * m * c.days.dpo) / 365;
   const annual = ["fy", "ltm", "pf", "b", "d"].includes(c.kind);
   if (annual) {
-    c.srsec = (c.rcf + c.tlb + c.ssn - c.cash) / c.adj;
-    c.totlev = c.tdebt / c.adj;
-    c.netlev = c.ndebt / c.adj;
-    c.intcov = c.adj / c.int;
-    c.fcfdebt = c.fcf / c.tdebt;
+    deriveCreditKpis(c);
     const ebt = c.ebit - c.int;
     c.taxrate = ebt > 5 ? c.tax / ebt : null;
   } else {
@@ -178,11 +185,7 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   c.adjm = c.adj / c.rev;
   c.ndebt = a.netDebt;
   c.cash = c.tdebt - c.ndebt;
-  c.srsec = (c.rcf + c.tlb + c.ssn - c.cash) / c.adj;
-  c.totlev = c.tdebt / c.adj;
-  c.netlev = c.ndebt / c.adj;
-  c.intcov = c.adj / c.int;
-  c.fcfdebt = c.fcf / c.tdebt;
+  deriveCreditKpis(c);
 }
 
 function qCtx(i: number, prevCash: number, A: Record<string, number[]>, capexOv: Record<number, number>): ModelCol {

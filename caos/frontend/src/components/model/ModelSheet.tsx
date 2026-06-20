@@ -198,6 +198,10 @@ export function Sheet({
 }
 
 /* ---------- formula bar ---------- */
+// Flat sequence of conditional readouts (address, value, override badge, case
+// note, source chips) — cyclomatic is inflated by display branches, not control
+// flow. Extracting would scatter the bar's layout for no real simplification.
+// fallow-ignore-next-line complexity
 export function FormulaBar({
   model, sel, severity, overrides, onResetCell, onOpenEvidence,
 }: {
