@@ -17,7 +17,6 @@ fields (parties, %, dates) rather than evidence-anchored statements.
 
 from __future__ import annotations
 
-import re
 from typing import List, Tuple
 
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload

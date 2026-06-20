@@ -15,7 +15,6 @@ the floating base if you ingest a structured hedge schedule.
 
 from __future__ import annotations
 
-import re
 from typing import List, Optional, Tuple
 
 from engine.periods import latest
