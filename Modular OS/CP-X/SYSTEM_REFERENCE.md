@@ -4,7 +4,7 @@
 module_id: CP-X | module_name: PlannerRouter | schema_family: Nested | layer: Orch
 
 ## Dependencies
-UP: CP-0 | DOWN (Analytical): CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4C, CP-6A, CP-6E | DOWN (Infra): CP-5B, CP-5, CP-RENDER, CP-EXTRACT
+UP: CP-0 | DOWN (Analytical): CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4C, CP-6A, CP-6E | DOWN (QA, L5): CP-5B, CP-5 | DOWN (Sector/Monitor, L7): CP-SR, CP-MON | DOWN (Infra): CP-RENDER, CP-EXTRACT
 
 ## Governance Rules
 1. CP-X routes by CP-0 content-based readiness — never by filename or assumption.
@@ -27,32 +27,37 @@ Yes | Partial | No
 - VE-009: OWNERSHIP_VIOLATION — two modules claim the same owned_object → exclude conflicting module
 
 ## Layer Ordering (execution precedence)
-L0 → Orch → L1 → L2 → L3 → L4 → L5/L6 → Infrastructure
-CP-5B before CP-5 | CP-6A before CP-6E | Infrastructure after all analytical modules
+L0 → Orch → L1 → L2 → L3 → L4 → L5 → L6 → L7 → Infrastructure
+CP-5B before CP-5 | CP-6A before CP-6E | L7 (CP-SR, CP-MON) after L6 | Infrastructure after all analytical modules
 
 ## Route Graph — All Modules
+<!-- Module names are canonical Taxonomy A (per MODULES_REFERENCE_v2 + module ACTIVE_PROMPTs + payload-schema consts). Re-synced 2026-06-20 to finish TAXONOMY_RECONCILIATION.md §5. -->
 | Module ID | Module Name | Layer |
 |-----------|------------|-------|
 | CP-0 | SourceReadiness | L0 |
 | CP-X | PlannerRouter | Orch |
-| CP-1 | FinancialDataFoundation | L1 |
-| CP-1A | BusinessTransactionSummary | L1 |
-| CP-1B | EarningsPerformanceUpdate | L1 |
+| CP-1 | CanonicalDataFoundation | L1 |
+| CP-1A | BusinessTransactionFactPack | L1 |
+| CP-1B | EarningsDelta | L1 |
 | CP-1C | PeerBenchmark | L1 |
-| CP-2 | FundamentalCreditReview | L2 |
-| CP-2B | DownsidePathwayAnalysis | L2 |
+| CP-2 | FundamentalCreditSynthesizer | L2 |
+| CP-2B | DownsidePathway | L2 |
 | CP-2C | EventCatalystRegister | L2 |
-| CP-2D | SponsorGovernanceReview | L2 |
-| CP-2E | LiquidityMaturityAnalysis | L2 |
-| CP-2F | MacroSectorOverlay | L2 |
-| CP-3 | RelativeValueAnalysis | L3 |
-| CP-3B | CapitalStructureMap | L3 |
-| CP-3C | PortfolioFitAnalysis | L3 |
-| CP-3D | TradingLiquidityAnalysis | L3 |
-| CP-4 | LegalCovenantReview | L4 |
-| CP-4C | RecoveryAnalysis | L4 |
+| CP-2D | GovernanceSponsorScore | L2 |
+| CP-2E | LiquidityCashFlowBridge | L2 |
+| CP-2F | MacroFXHedgingSensitivity | L2 |
+| CP-3 | RelativeValueSecuritySelection | L3 |
+| CP-3B | RecoveryInstrumentPreference | L3 |
+| CP-3C | PortfolioFitPositionSizing | L3 |
+| CP-3D | RefinancingLMERisk | L3 |
+| CP-4 | LegalCovenantInterpreter | L4 |
+| CP-4C | CovenantCapacityCalculator | L4 |
+| CP-5B | EvidenceTraceValidator | L5 |
+| CP-5 | ResearchIntegrityQA | L5 |
 | CP-6A | ICDebateChallenge | L6 |
 | CP-6E | PortfolioDebateChallenge | L6 |
+| CP-SR | SectorReview | L7 |
+| CP-MON | CreditPulse | L7 |
 
 ## Fail/Restrict
 - **Blocked:** CP-0 unavailable or critically incomplete → CP-X Status = Blocked, STOP. No route_plan produced.

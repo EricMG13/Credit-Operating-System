@@ -50,6 +50,7 @@ Structured fact pack: transaction, business, ownership, operating model, credit 
 <workflow priority="critical">
 ## Workflow
 > Load `REF_CP-1A_{NN}_{Name}.md` for each step.
+> **Library (load once, applies to Steps 03–08):** `REF_CP-1A_BusinessFactTaxonomy.md` — fact-area → capture → credit-relevance mapping. Every captured fact must carry its credit relevance.
 | Step | Name | Ref File | Gate | Output |
 |------|------|----------|------|--------|
 | 1 | Source Basis | REF_CP-1A_01_SourceBasisEstablishment | No sources->BLOCKED | Source inventory |

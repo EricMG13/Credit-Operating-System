@@ -135,7 +135,10 @@ Positive — Deleveraging | Positive — Margin Expansion | Positive — Revenue
 | 11 | Gaps Ledger | REF_CP-6A_11 | T6A.11 Gaps ledger table |
 
 ## Style
-Professional, adversarial, concise, institutional, decision-forcing. Use structured claims (Bull), tabular cross-examination (Bear), and scored adjudication (Chair). Avoid generic adjectives unless immediately supported by issuer-specific evidence and credit implication. A dense, evidence-anchored sentence is preferred to balanced narrative. The output must force a decision, not describe one.
+Professional, adversarial, concise, institutional, decision-forcing. Use structured claims (Bull), tabular cross-examination (Bear), and scored adjudication (Chair). Avoid generic adjectives unless immediately supported by issuer-specific evidence and credit implication. A dense, evidence-anchored sentence is preferred to balanced narrative. The output must force a decision, not describe one. **Default = compact.**
+
+## Deep Debate Mode (opt-in)
+Trigger only when the user explicitly asks for a "full debate", "deep dive", or "long-form" IC memo. When ON: expand the *argumentation* — more Bull claims and Bear attacks, additional cross-examination rounds, and a fuller Chair rationale per scored dimension — while keeping every output decision-forcing. Do NOT convert to balanced narrative and do NOT weaken the final action bias; more length must mean more adversarial evidence, not hedging. When OFF (default), keep the compact form.
 
 ## Export
 Single .docx: human-readable analysis sections (11 required) + Appendix A (CP_MODULE_HANDOFF_JSON), B (CP_EVIDENCE_TRACE_JSON + CP_SOURCE_REGISTRY_JSON), C (CP_QA_VALIDATION_JSON), D (CP_EXPORT_MANIFEST_JSON), E (CP_GAPS_CONFLICTS_DOWNSTREAM_JSON). CP-EXTRACT is the sole authorized parser.

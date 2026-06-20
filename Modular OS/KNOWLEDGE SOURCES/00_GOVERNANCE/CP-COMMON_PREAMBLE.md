@@ -44,7 +44,23 @@
 3. [Insufficient Information] marking 4. Not Calculable from Provided Materials
 5. Null != zero unless sourced 6. Preserve evidence/QA/downstream metadata
 7. No silent QA repair 8. Renderer anti-fabrication 9. No fabrication
+10. Upstream re-anchor: at input gate, re-import & verify the specific upstream values this module consumes; gate (do not improvise) if absent (see <upstream_reanchor>)
 </common_rules>
+<upstream_reanchor priority="critical" enforcement="hard">
+## Upstream Re-Anchor Gate
+Modular prompting runs in one accumulating context; do not assume an upstream module's output is
+still in-window. At the start of every run, the module's source/input gate MUST re-anchor:
+1. **Re-import** the specific upstream datapoints this module consumes (per `upstream_artifacts_used`
+   and the module's declared Upstream) — restate them explicitly in the input gate. Examples:
+   CP-1C re-imports the CP-1 KPI/calculation register values; CP-2 re-imports CP-1/CP-1A/CP-1B/CP-1C
+   outputs; CP-6A re-imports the 11 analytical feeds; CP-4C re-imports CP-4 covenant definitions.
+2. **Verify presence.** If a required upstream value is absent, unidentifiable, or its run_id/period
+   does not match this run, mark `[Insufficient Information]` and gate the dependent step — do NOT
+   re-derive, infer, or improvise the upstream value from memory.
+3. **Carry provenance.** Each re-anchored value keeps its source module_id, run_id, and period so
+   CP-5B can trace lineage and CP-5 can detect cross-module drift.
+This makes shared-context deduplication safe under context drift / window truncation.
+</upstream_reanchor>
 <export_contract priority="critical">
 Single .docx: sections + Appendix A-E (HANDOFF, EVIDENCE+SOURCE, QA, MANIFEST, GAPS).
 Filename: [Issuer]_[Module]_[YYYYMMDD].docx. All 5 appendices required.
