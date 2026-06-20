@@ -18,4 +18,5 @@
 ## Output
 T4C.1: Source gate register (input inventory + availability + quality + limitations)
 + Module Status: Completed / Completed with Limitations / Blocked
+<!-- Upstream re-anchor (common_rules #10): at this gate, re-import and verify the specific upstream module outputs this module consumes (per declared Upstream); restate the exact datapoints/run_id/period used. If a required upstream value is absent or its run_id/period mismatches this run, mark [Insufficient Information] and gate the dependent step — do not re-derive or infer the upstream value from memory. -->
 </step_reference>

@@ -144,3 +144,13 @@ jobs:
       # (--gate new-only ignores the existing backlog). JS/TS only; run from the
       # repo root so .fallowrc.json (ignores the design-sync dirs) is picked up.
       - run: npx --yes fallow audit --base "origin/${{ github.base_ref }}" --gate new-only --fail-on-issues
+
+  corpus:
+    name: Corpus — taxonomy consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Stdlib-only drift check: each module_name must agree across schema filename,
+      # ACTIVE_PROMPT, CP-X route graph, and the onboarding doc (Taxonomy A).
+      - name: Module taxonomy drift check
+        run: python3 "Modular OS/tools/check_module_consistency.py"

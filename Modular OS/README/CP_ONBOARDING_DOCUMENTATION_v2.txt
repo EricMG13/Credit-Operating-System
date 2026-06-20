@@ -49,12 +49,12 @@ The system is organised into **8 analytical layers** (L0 through L7), an **orche
 |---|---|---|
 | L0 | Source readiness | CP-0 |
 | LX | Orchestration & routing | CP-X |
-| L1 | Issuer intake & business profile | CP-1 |
-| L2 | Financial analysis | CP-2, CP-2E |
-| L3 | Capital structure & debt dynamics | CP-3, CP-3C, CP-3D |
-| L4 | Covenant & legal | CP-4, CP-4C |
-| L5 | Relative value & market | CP-5, CP-5B |
-| L6 | Debate & portfolio | CP-6A, CP-6E |
+| L1 | Data foundation | CP-1, CP-1A, CP-1B, CP-1C |
+| L2 | Fundamental credit synthesis | CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F |
+| L3 | Valuation, portfolio & refinancing | CP-3, CP-3B, CP-3C, CP-3D |
+| L4 | Legal & covenant | CP-4, CP-4C |
+| L5 | Quality assurance | CP-5B, CP-5 |
+| L6 | Debate & decision | CP-6A, CP-6E |
 | L7 | Sector & monitoring | CP-SR, CP-MON |
 | Infra | Rendering & extraction | CP-RENDER, CP-EXTRACT, CP-PROMPT |
 
@@ -97,19 +97,27 @@ The system is organised into **8 analytical layers** (L0 through L7), an **orche
 | Module ID | Name | Layer | Purpose |
 |---|---|---|---|
 | CP-0 | SourceReadiness | L0 | Validate and classify source documents before analysis |
-| CP-X | ExecutionRouter | LX | Route execution to appropriate modules based on task |
-| CP-1 | IssuerIntake | L1 | Structured issuer profile and business risk assessment |
-| CP-2 | FinancialSynthesis | L2 | Detailed financial analysis and metric extraction |
-| CP-2E | EBITDAQuality | L2 | EBITDA addback challenge and earnings quality review |
-| CP-3 | CapitalStructure | L3 | Full capital structure mapping and instrument analysis |
-| CP-3C | MaturityProfile | L3 | Maturity wall analysis and refinancing timeline |
-| CP-3D | DebtDynamics | L3 | Refinancing and LME pathway classification |
-| CP-4 | CovenantAnalysis | L4 | Covenant package review and key term extraction |
-| CP-4C | CovenantCompliance | L4 | Basket capacity and compliance calculations |
-| CP-5 | RelativeValue | L5 | Issuer-level relative value assessment |
-| CP-5B | MarketContext | L5 | Broader market context and technical backdrop |
-| CP-6A | AdversarialDebate | L6 | Bull/Bear/IC Chair structured credit debate |
-| CP-6E | PortfolioDebate | L6 | Portfolio allocation challenge and sizing |
+| CP-X | PlannerRouter | LX | Route execution to appropriate modules based on CP-0 readiness |
+| CP-1 | CanonicalDataFoundation | L1 | Normalise financial statements into canonical financials and KPIs |
+| CP-1A | BusinessTransactionFactPack | L1 | Extract business, transaction, ownership, and operating-model facts |
+| CP-1B | EarningsDelta | L1 | Compare current vs prior period performance |
+| CP-1C | PeerBenchmark | L1 | Compare issuer to peers (core formulas, 6-level peer hierarchy) |
+| CP-2 | FundamentalCreditSynthesizer | L2 | Integrated fundamental credit synthesis and committee memo |
+| CP-2B | DownsidePathway | L2 | Model stress transmission from operating drivers to credit consequences |
+| CP-2C | EventCatalystRegister | L2 | Identify event catalysts and trigger events with timing |
+| CP-2D | GovernanceSponsorScore | L2 | Assess governance quality and sponsor / management strength |
+| CP-2E | LiquidityCashFlowBridge | L2 | Liquidity assessment and cash-flow bridge |
+| CP-2F | MacroFXHedgingSensitivity | L2 | Macro sensitivity, FX exposure, and hedging assessment |
+| CP-3 | RelativeValueSecuritySelection | L3 | Spread, relative value, and security selection |
+| CP-3B | RecoveryInstrumentPreference | L3 | Recovery waterfall, instrument preference, and LGD estimates |
+| CP-3C | PortfolioFitPositionSizing | L3 | Portfolio fit and position-sizing recommendation |
+| CP-3D | RefinancingLMERisk | L3 | Refinancing risk, LME risk, and maturity-wall analysis |
+| CP-4 | LegalCovenantInterpreter | L4 | Interpret covenants, covenant aggressiveness, legal/credit implications |
+| CP-4C | CovenantCapacityCalculator | L4 | Calculate covenant capacity and headroom |
+| CP-5 | ResearchIntegrityQA | L5 | Audit research integrity and gate module outputs |
+| CP-5B | EvidenceTraceValidator | L5 | Validate evidence lineage and identify orphan claims |
+| CP-6A | ICDebateChallenge | L6 | Bull/Bear/IC Chair structured credit debate |
+| CP-6E | PortfolioDebateChallenge | L6 | Portfolio allocation challenge and sizing |
 | CP-SR | SectorReview | L7 | Sector-level credit review with 7-section output, 6 investigation dimensions, comparative peer table, early warning dashboard, and email intelligence integration |
 | CP-MON | CreditPulse | L7 | Continuous credit monitoring, alert generation, rating action tracking, email-driven trigger detection, and early warning flag management |
 | CP-RENDER | OutputRenderer | Infra | Final output formatting (markdown, JSON, Word) |
