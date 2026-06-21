@@ -35,15 +35,8 @@
   --tranche-eq: #64748b;
 
   /* ===== Design tokens — Phase 0 foundation ===== */
-  /* Type scale: deliberate steps replacing the ad-hoc 8.5–12px band. Adopted
-     via Tailwind `text-caos-*`; vars exposed for chart / paper code that can't
-     reach the utility classes. */
-  --fs-micro: 8.5px;
-  --fs-label: 9.5px;
-  --fs-body: 10.5px;
-  --fs-row: 12px;
-  --fs-metric: 16px;
-  --fs-hero: 22px;
+  /* Type scale lives in tailwind.config.js (`text-caos-*`); it is the single
+     source. Charts/paper code use the px literals directly. */
 
   /* Semantic status — single naming for the severity palette. */
   --sev-critical: var(--caos-critical);

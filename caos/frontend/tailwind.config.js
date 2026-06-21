@@ -30,19 +30,23 @@ module.exports = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
-      // Type scale — font-size only for the dense band (line-height inherits the
-      // 1.5 base; the dense UI tunes leading per context), so the named steps are
-      // drop-in for the ad-hoc text-[Npx] they replace. Headings keep a tight
-      // line-height. Steps mirror the sizes actually used across the workspace.
+      // Type scale. The dense workspace band is physically 8.5–12px: 3.5px can't
+      // hold 8 perceptible steps, so the legacy 0.5px-apart names snap to FOUR
+      // honest tiers — micro / label / body / row — that the eye can actually
+      // tell apart (~1px ≈ 11% per step). Names are kept as drop-in aliases so
+      // the ~830 existing `text-caos-*` uses need no edit; the in-between names
+      // (3xs/sm/lg/2xl) are deprecated duplicates — prefer 2xs/xs/md/xl in new
+      // code. Headings keep a tight line-height; font-size otherwise inherits the
+      // 1.5 base and the dense UI tunes leading per context.
       fontSize: {
-        "caos-3xs": "8px",
-        "caos-2xs": "8.5px",
-        "caos-xs": "9px",
-        "caos-sm": "9.5px",
-        "caos-md": "10px",
-        "caos-lg": "10.5px",
-        "caos-xl": "11px",
-        "caos-2xl": "12px",
+        "caos-3xs": "8.5px", // micro  (alias of 2xs)
+        "caos-2xs": "8.5px", // micro
+        "caos-xs": "9.5px", //  label
+        "caos-sm": "9.5px", //  label  (alias of xs)
+        "caos-md": "10.5px", // body
+        "caos-lg": "10.5px", // body   (alias of md)
+        "caos-xl": "12px", //   row
+        "caos-2xl": "12px", //  row    (alias of xl)
         "caos-metric": ["16px", { lineHeight: "1.15" }],
         "caos-hero": ["22px", { lineHeight: "1.1" }],
       },

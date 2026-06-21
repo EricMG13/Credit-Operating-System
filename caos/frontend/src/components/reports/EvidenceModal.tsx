@@ -140,7 +140,7 @@ export function EvidenceModal({
             <div className="px-6 py-5 max-w-[640px]">
               <div className="tabular text-caos-sm uppercase tracking-widest text-caos-muted mb-3">{ev.section}</div>
               {ev.excerpt.map((p, i) => (
-                <p key={i} className={"text-[11.5px] leading-[1.75] mb-3 " + (p.hit ? "clause-highlight px-2.5 py-2 text-caos-text" : "text-caos-text/70")}>
+                <p key={i} className={"text-caos-xl leading-[1.75] mb-3 " + (p.hit ? "clause-highlight px-2.5 py-2 text-caos-text" : "text-caos-text/70")}>
                   {p.t}
                 </p>
               ))}
