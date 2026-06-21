@@ -94,6 +94,17 @@ export const getMetricCatalog = (): Promise<MetricDef[]> =>
 export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
+// ─── Query concept (graph traversals over the run-derived store) ─────────────
+import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
+
+// The capability rail: which graph edges are runnable now (+ grey reasons).
+export const queryCapabilities = (): Promise<CapabilitiesResult> =>
+  api.get("/api/query/capabilities").then((r) => r.data);
+
+// Run one capability → a positioned node-link graph.
+export const queryGraph = (capabilityId: string, issuerId?: string): Promise<GraphResult> =>
+  api.post("/api/query/graph", { capability_id: capabilityId, issuer_id: issuerId }).then((r) => r.data);
+
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.
 export interface ScenarioSpec {

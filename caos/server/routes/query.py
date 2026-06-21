@@ -3,11 +3,16 @@
 A question is translated into a constrained QuerySpec (validated against the
 metric dictionary), executed as a parameterized query, and returned as ranked,
 evidence-cited rows. Backs the Command Center NL query bar.
+
+The same router also backs the standalone **Query** concept: ``/capabilities``
+reports which graph traversals are runnable from what's stored (so the rail greys
+honestly), and ``/graph`` dispatches one capability to its builder ([querygraph.py]).
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -16,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import Document, DocumentChunk, Issuer, get_db
+from engine import querygraph
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
 from nlquery import QueryError, execute, execute_semantic, plan
@@ -46,6 +52,40 @@ async def get_catalog(caller: CallerIdentity = Depends(get_identity)):
     """The metric dictionary — keys, labels, units, polarity, descriptions."""
     _read_rate_guard(caller)
     return {"metrics": catalog_dicts()}
+
+
+@router.get("/capabilities")
+async def get_capabilities(
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The Query rail: capability groups with each entry's enabled state and, when
+    greyed, the reason its edge can't be walked from what's stored."""
+    _read_rate_guard(caller)
+    return await querygraph.capabilities(db)
+
+
+class GraphRequest(BaseModel):
+    capability_id: str = Field(min_length=1, max_length=64)
+    issuer_id: Optional[str] = Field(default=None, max_length=36)
+
+
+@router.post("/graph")
+async def query_graph(
+    body: GraphRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Run one capability and return its positioned node-link graph. Reads only —
+    no LLM, no writes — so it shares the looser read rate guard."""
+    _read_rate_guard(caller)
+    try:
+        return await querygraph.build_graph(db, body.capability_id, body.issuer_id)
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown capability {body.capability_id!r}. See /api/query/capabilities.",
+        ) from e
 
 
 class ChunkResponse(BaseModel):

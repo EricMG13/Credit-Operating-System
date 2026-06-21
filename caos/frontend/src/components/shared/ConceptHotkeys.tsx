@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-const CONCEPTS = ["/command", "/pipeline", "/deepdive", "/model", "/reports", "/monitor", "/research"];
+const CONCEPTS = ["/command", "/pipeline", "/deepdive", "/model", "/reports", "/monitor", "/research", "/query"];
 
 function isEditable(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
