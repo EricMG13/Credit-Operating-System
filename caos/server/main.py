@@ -8,7 +8,9 @@ dev identity, SQLite, and on-disk storage.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from access_log import access_event, client_source, principal
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
@@ -25,6 +28,7 @@ from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("caos")
+access_logger = logging.getLogger("caos.access")
 settings = get_settings()
 
 
@@ -108,6 +112,35 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     return response
 
 
+# ─── Access log (threat-detection app/auth feed) ────────────────────────────
+# One structured JSON line per /api request on `caos.access`. Feeds the
+# threat_signal_analyzer anomaly hunt: 401-by-source = brute force, auth_ok-by-
+# entity off-hours = account abuse, response-volume-by-entity = bulk pull/exfil.
+# /api only — static-asset requests are noise. See access_log.py for the
+# jq that extracts the analyzer events schema from these lines.
+@app.middleware("http")
+async def access_log(request: Request, call_next):  # type: ignore[no-untyped-def]
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)  # static-asset requests are noise — no timing/log
+    start = time.perf_counter()
+    response = await call_next(request)
+    try:
+        volume = int(response.headers.get("content-length", 0))
+    except (TypeError, ValueError):
+        volume = 0  # streaming/chunked responses omit Content-Length
+    access_logger.info(json.dumps(access_event(
+        method=request.method,
+        path=path,
+        status=response.status_code,
+        entity=principal(request.headers),
+        source=client_source(request.headers, request.client.host if request.client else None),
+        volume=volume,
+        dur_ms=round((time.perf_counter() - start) * 1000, 1),
+    )))
+    return response
+
+
 # ─── Error monitoring ───────────────────────────────────────────────────────
 # Log-based: every unhandled exception is logged with request context (method,
 # path, caller) before a clean 500 goes back. The pilot's monitoring surface is
@@ -119,7 +152,7 @@ async def log_unhandled(request: Request, exc: Exception):  # type: ignore[no-un
         "unhandled exception: %s %s (caller=%s)",
         request.method,
         request.url.path,
-        request.headers.get("X-Forwarded-Email", "?"),
+        principal(request.headers),  # same canonical caller id as the access log
     )
     return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
@@ -136,6 +169,19 @@ app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+
+
+# Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that
+# mount is a sub-app whose own 404 (404.html) bypasses our exception_handler, so
+# without this an unknown API path returns the SPA HTML and logs a large access
+# `volume`. ponytail: catch-all route beats the mount by registration order.
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+)
+async def api_not_found(path: str):  # type: ignore[no-untyped-def]
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)

@@ -265,3 +265,14 @@ def test_chunk_endpoint_returns_text_and_404(client):
     body = r.json()
     assert body["chunk_id"] == chunk_id and body["text"] and body["doc"] and body["issuer_name"]
     assert client.get("/api/query/chunk/does-not-exist").status_code == 404
+
+
+# ── Unmatched /api/* → JSON 404, not the SPA 404.html ────────────────────────
+def test_unknown_api_path_returns_json_404(client):
+    # The "/" StaticFiles(html=True) mount would otherwise serve the ~9KB SPA
+    # 404 page for any unmatched path, skewing the caos.access volume feed.
+    r = client.get("/api/nope")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.json() == {"detail": "Not Found"}
+    assert len(r.content) < 100   # small JSON body, not the SPA HTML page
