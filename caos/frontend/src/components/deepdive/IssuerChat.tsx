@@ -139,7 +139,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         {msgs.length ? (
           <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">⌫</button>
         ) : null}
-        <button onClick={onClose} title="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md">✕</button>
+        <button onClick={onClose} title="Close chat" aria-label="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring">✕</button>
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg">

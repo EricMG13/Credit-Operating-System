@@ -122,7 +122,8 @@ export function SectorReview({
           <button
             onClick={onClose}
             title="Close (Esc)"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
+            aria-label="Close"
+            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
           >
             ✕
           </button>

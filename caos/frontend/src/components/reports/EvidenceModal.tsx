@@ -119,7 +119,7 @@ export function EvidenceModal({
           <span className="tabular text-caos-md" style={{ color: confColor }}>{(ev.conf * 100).toFixed(0)}%</span>
           <button
             onClick={onClose}
-            className="ml-2 w-6 h-6 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+            className="ml-2 w-6 h-6 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
             aria-label="Close"
           >
             ✕
