@@ -13,11 +13,9 @@
 
 import { test, expect } from "@playwright/test";
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000";
-
 test.describe("Deep Research", () => {
   test("renders the brief form with an empty report", async ({ page }) => {
-    await page.goto(`${BASE_URL}/research/`);
+    await page.goto("/research/");
 
     await expect(page.getByRole("heading", { name: "Research brief" })).toBeVisible({
       timeout: 10000,
@@ -29,7 +27,7 @@ test.describe("Deep Research", () => {
   });
 
   test("scope toggle swaps the subject field between sector and issuer", async ({ page }) => {
-    await page.goto(`${BASE_URL}/research/`);
+    await page.goto("/research/");
 
     // Default scope is sector.
     const sector = page.getByRole("button", { name: "sector" });
@@ -54,7 +52,7 @@ test.describe("Deep Research", () => {
       }),
     );
 
-    await page.goto(`${BASE_URL}/research/`);
+    await page.goto("/research/");
     await page.getByLabel("Sector / theme").fill("Enterprise Software");
     const run = page.getByRole("button", { name: /Run (deep|example) research/ });
     await expect(run).toBeEnabled();

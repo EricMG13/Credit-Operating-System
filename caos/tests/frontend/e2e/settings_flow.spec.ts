@@ -8,8 +8,6 @@
 
 import { test, expect, type Page } from "@playwright/test";
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000";
-
 // Fill the Audience default, save, and wait for the confirmation.
 async function saveAudience(page: Page, value: string) {
   await page.getByLabel("Audience").fill(value);
@@ -20,7 +18,7 @@ async function saveAudience(page: Page, value: string) {
 
 test.describe("Settings", () => {
   test("mirrors the server workspace configuration", async ({ page }) => {
-    await page.goto(`${BASE_URL}/settings/`);
+    await page.goto("/settings/");
 
     await expect(page.getByRole("heading", { name: /Research defaults/ })).toBeVisible({
       timeout: 10000,
@@ -32,7 +30,7 @@ test.describe("Settings", () => {
   });
 
   test("research defaults persist to localStorage across reloads", async ({ page }) => {
-    await page.goto(`${BASE_URL}/settings/`);
+    await page.goto("/settings/");
 
     const value = `Test IC ${Date.now()}`;
     await saveAudience(page, value);
@@ -42,13 +40,13 @@ test.describe("Settings", () => {
   });
 
   test("saved defaults seed a new Research brief", async ({ page }) => {
-    await page.goto(`${BASE_URL}/settings/`);
+    await page.goto("/settings/");
 
     const value = `Seeded IC ${Date.now()}`;
     await saveAudience(page, value);
 
     // Same browser context → localStorage carries the standing lens to Research.
-    await page.goto(`${BASE_URL}/research/`);
+    await page.goto("/research/");
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 });
