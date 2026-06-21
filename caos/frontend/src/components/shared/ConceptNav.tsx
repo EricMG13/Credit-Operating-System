@@ -90,11 +90,11 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
               className={
                 "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
                 (active
-                  ? "bg-caos-elevated text-caos-text border-caos-accent"
+                  ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
                   : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
               }
             >
-              <Glyph className={active ? "text-caos-accent" : ""} />
+              <Glyph className={active ? "text-caos-bg" : ""} />
               {/* Labels: always in the directory (non-compact). The dense concept
                   headers are too tight for 7 full labels (they'd push the live
                   KPIs off-screen), so there we label only the active chip
@@ -113,11 +113,11 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         className={
           "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
           (settingsActive
-            ? "bg-caos-elevated text-caos-text border-caos-accent"
+            ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
             : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
         }
       >
-        <Gear className={settingsActive ? "text-caos-accent" : ""} />
+        <Gear className={settingsActive ? "text-caos-bg" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
     </span>

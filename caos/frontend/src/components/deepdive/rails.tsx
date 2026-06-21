@@ -192,7 +192,18 @@ export function DecisionRail({
       <Panel title="IC Verdict · CP-6A" className="shrink-0">
         <div className="px-3 py-2.5">
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Recommendation bias</div>
-          <div className="text-caos-metric font-semibold leading-tight" style={{ color: "var(--caos-success)" }}>{DEBATE.bias}</div>
+          {/* The committee's call — the climax of the whole platform. Hero it:
+              the rating word at display tier, the qualifier as a quiet sub-line. */}
+          {(() => {
+            const [head, ...rest] = DEBATE.bias.split(" — ");
+            const tail = rest.join(" — ");
+            return (
+              <>
+                <div className="text-caos-display font-bold" style={{ color: "var(--caos-success-bright)" }}>{head}</div>
+                {tail ? <div className="text-caos-md text-caos-text mt-1 leading-snug">— {tail}</div> : null}
+              </>
+            );
+          })()}
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mt-3 mb-1">Single greatest uncertainty</div>
           <div className="text-caos-lg text-caos-text leading-snug">{DEBATE.uncertainty}</div>
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mt-3 mb-1">Chair final memo</div>
@@ -231,7 +242,7 @@ export function DecisionRail({
             <div key={i} className="text-caos-lg text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-success)" }}>+</span>{x}</div>
           ))}
           {SIZING.trimTriggers.map((x, i) => (
-            <div key={i} className="text-caos-lg text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-critical)" }}>−</span>{x}</div>
+            <div key={i} className="text-caos-lg text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-critical-bright)" }}>−</span>{x}</div>
           ))}
         </div>
       </Panel>

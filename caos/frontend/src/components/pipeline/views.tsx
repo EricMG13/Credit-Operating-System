@@ -109,7 +109,7 @@ export function GraphView({
             <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
               <Dot sev={st} pulse={st === "running"} />
               <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
-              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
+              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
               {st === "held" ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
             </div>
@@ -254,7 +254,7 @@ export function Inspector({
       ) : null}
       {qa ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical)" }}>QA finding · CP-5</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical-bright)" }}>QA finding · CP-5</div>
           <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{qa.sev}</Tag><span className="tabular text-caos-md text-caos-accent">{qa.id}</span></div>
           <div className="text-caos-lg text-caos-text leading-snug">{qa.text}</div>
         </div>
@@ -309,7 +309,7 @@ export function Inspector({
         <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
         <div className="flex flex-wrap gap-1">
           {consumers.length ? consumers.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg" style={{ color: "#c4b5fd" }}>
+            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg text-caos-consumer">
               {d}
             </span>
           )) : <span className="text-caos-md text-caos-muted">— terminal node</span>}

@@ -98,7 +98,7 @@ function ErrorView({ error }: { error: string }) {
     <div role="alert" className="caos-enter h-full flex items-center justify-center px-6">
       <div className="w-full max-w-xs">
         <div className="border-b pb-2 mb-4" style={{ borderColor: "var(--caos-critical)" }}>
-          <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-critical)" }}>Research failed</span>
+          <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-critical-bright)" }}>Research failed</span>
         </div>
         <p className="tabular text-caos-sm text-caos-text leading-snug">{error}</p>
         <p className="tabular text-caos-2xs text-caos-muted leading-snug mt-3">Adjust the brief and run again.</p>

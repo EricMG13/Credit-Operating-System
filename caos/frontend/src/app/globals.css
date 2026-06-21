@@ -13,6 +13,9 @@
   --caos-text: #e6e6ef;
   --caos-muted: #8a8a9a;
   --caos-accent: #4f8cff;
+  /* Downstream-consumer signal — pairs with --caos-accent (upstream lineage) in
+     the Query graph legend and the Pipeline consumers list. */
+  --caos-consumer: #c4b5fd;
 
   --caos-warning: #f5a524;
   --caos-critical: #ef4444;

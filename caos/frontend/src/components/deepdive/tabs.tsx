@@ -25,10 +25,10 @@ import { type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 
 const PERSONA: Record<string, { color: string; glyph: string; label: string }> = {
   BULL: { color: "var(--caos-success)", glyph: "▲", label: "Bull Analyst" },
-  BEAR: { color: "var(--caos-critical)", glyph: "▼", label: "Bear Analyst" },
+  BEAR: { color: "var(--caos-critical-bright)", glyph: "▼", label: "Bear Analyst" },
   CHAIR: { color: "var(--caos-accent)", glyph: "⚖", label: "IC Chair" },
   RV: { color: "var(--caos-success)", glyph: "▲", label: "RV Trader" },
-  COMPLIANCE: { color: "var(--caos-critical)", glyph: "▼", label: "Compliance" },
+  COMPLIANCE: { color: "var(--caos-critical-bright)", glyph: "▼", label: "Compliance" },
   CIO: { color: "var(--caos-accent)", glyph: "⚖", label: "CIO" },
 };
 
@@ -120,9 +120,9 @@ export function DebateTab({ onOpenEvidence, layout = "base", variant = "CP-6A" }
                 <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
                 <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
               </span>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
+              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
             </span>
-            <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical)" : "var(--caos-muted)" }}>{w.verdict}</span>
+            <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
             <span className="flex flex-wrap gap-1">
               {w.ev.split(" · ").map((tok) => {
                 const eid = tok.split(" ")[0];

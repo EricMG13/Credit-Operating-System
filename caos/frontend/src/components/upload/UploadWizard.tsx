@@ -204,7 +204,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       {error ? (
         <div className="rounded border px-3 py-2 flex items-center gap-2" style={{ borderColor: "rgba(239,68,68,0.5)", background: "rgba(239,68,68,0.07)" }}>
           <Dot sev="critical" />
-          <span className="text-caos-lg" style={{ color: "var(--caos-critical)" }}>{error}</span>
+          <span className="text-caos-lg" style={{ color: "var(--caos-critical-bright)" }}>{error}</span>
         </div>
       ) : null}
 

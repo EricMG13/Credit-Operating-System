@@ -91,7 +91,7 @@ export function PortfolioTable({
             className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
           >
             <span className="flex items-center gap-1.5 min-w-0">
-              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical)" }}>▲</span> : <span className="w-[10px]"></span>}
+              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>▲</span> : <span className="w-[10px]"></span>}
               <span className="tabular text-caos-accent">{p.code}</span>
               <span className="text-caos-text truncate text-caos-lg">{p.name}</span>
             </span>

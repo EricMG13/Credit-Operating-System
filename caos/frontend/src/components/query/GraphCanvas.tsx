@@ -8,10 +8,12 @@
 
 import { useMemo } from "react";
 import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
+import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 
 // Categorical hues for issuer grouping (industry/country). Distinct, no banding —
-// pairs with the always-present text label, so meaning is never color-only.
-const CATEGORICAL = ["#2dd4bf", "#4f8cff", "#f5a524", "#a78bfa", "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
+// pairs with the always-present text label, so meaning is never color-only. The
+// first three mirror tokens (via chart-colors); the rest are graph-only hues.
+const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, "#a78bfa", "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
 
 function hueFor(group: string | null | undefined): string {
   if (!group) return "#6b7280";
@@ -21,29 +23,31 @@ function hueFor(group: string | null | undefined): string {
 }
 
 // kind → fill/stroke for non-issuer nodes. Issuer/sector nodes color by group.
+// Node strokes mirror semantic tokens (via chart-colors); fills are graph-only
+// dark tints with no token twin, so they stay literal.
 const KIND: Record<string, { fill: string; stroke: string }> = {
-  driver: { fill: "#2a1f08", stroke: "#f5a524" },
+  driver: { fill: "#2a1f08", stroke: CHART_HEX.warning },
   module: { fill: "#15151d", stroke: "#3a4a6a" },
-  claim: { fill: "#15151d", stroke: "#4f8cff" },
+  claim: { fill: "#15151d", stroke: CHART_HEX.accent },
   evidence: { fill: "#15151d", stroke: "#33333f" },
-  chunk: { fill: "#0f1a12", stroke: "#22c55e" },
-  metric: { fill: "#15151d", stroke: "#4f8cff" },
-  "point-bull": { fill: "#0f2417", stroke: "#22c55e" },
-  "point-bear": { fill: "#2a1212", stroke: "#ef4444" },
-  "finding-crit": { fill: "#2a1212", stroke: "#ef4444" },
-  "finding-mat": { fill: "#2a1f08", stroke: "#f5a524" },
+  chunk: { fill: "#0f1a12", stroke: CHART_HEX.success },
+  metric: { fill: "#15151d", stroke: CHART_HEX.accent },
+  "point-bull": { fill: "#0f2417", stroke: CHART_HEX.success },
+  "point-bear": { fill: "#2a1212", stroke: CHART_HEX.critical },
+  "finding-crit": { fill: "#2a1212", stroke: CHART_HEX.critical },
+  "finding-mat": { fill: "#2a1f08", stroke: CHART_HEX.warning },
   "finding-min": { fill: "#1a1a24", stroke: "#3f3f46" },
 };
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
-  cite: { stroke: "#4f8cff", width: 1.2 },
-  driver: { stroke: "#f5a524", width: 2.4 },
+  cite: { stroke: CHART_HEX.accent, width: 1.2 },
+  driver: { stroke: CHART_HEX.warning, width: 2.4 },
   member: { stroke: "#2a2a36", width: 1 },
-  seq: { stroke: "#4f8cff", width: 1.8 },
-  bull: { stroke: "#22c55e", width: 1.5, dash: "4 3" },
-  bear: { stroke: "#ef4444", width: 1.5, dash: "4 3" },
-  finding: { stroke: "#f5a524", width: 1.2 },
+  seq: { stroke: CHART_HEX.accent, width: 1.8 },
+  bull: { stroke: CHART_HEX.success, width: 1.5, dash: "4 3" },
+  bear: { stroke: CHART_HEX.critical, width: 1.5, dash: "4 3" },
+  finding: { stroke: CHART_HEX.warning, width: 1.2 },
 };
 
 const W = 1000;
@@ -193,11 +197,11 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
   const isCircle = n.kind === "issuer" || n.kind === "center";
   let fill: string, stroke: string, r: number, sw: number;
   if (n.kind === "center") {
-    fill = "#10131f"; stroke = n.flag ? "#f5a524" : "#4f8cff"; r = 19; sw = 2.6;
+    fill = "#10131f"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
   } else if (n.kind === "issuer") {
-    fill = groupColor + "33"; stroke = n.exposed ? "#f5a524" : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
+    fill = groupColor + "33"; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
   } else {
-    fill = palette?.fill ?? "#15151d"; stroke = n.flag ? "#f5a524" : palette?.stroke ?? "#33333f"; r = 13; sw = 1.4;
+    fill = palette?.fill ?? "#15151d"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "#33333f"; r = 13; sw = 1.4;
   }
   const isMono = n.kind === "claim" || n.kind === "evidence" || n.kind === "metric" || n.kind === "module";
 
@@ -206,7 +210,7 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
       {isCircle ? (
         <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth={sw} />
       ) : n.kind === "sector" ? (
-        <NodePill cx={cx} cy={cy} label={n.label} color={n.flag ? "#f5a524" : groupColor} />
+        <NodePill cx={cx} cy={cy} label={n.label} color={n.flag ? CHART_HEX.warning : groupColor} />
       ) : (
         <RectMark cx={cx} cy={cy} fill={fill} stroke={stroke} sw={sw} />
       )}
@@ -253,16 +257,16 @@ function legendFor(nodes: GraphNode[]): { label: string; color: string }[] {
   for (const n of nodes) {
     if (n.kind === "issuer" || n.kind === "center" || n.kind === "sector") {
       if (n.group) add(n.group, hueFor(n.group));
-      if (n.exposed) add("exposed", "#f5a524");
-    } else if (n.kind === "chunk") add("source chunk", "#22c55e");
-    else if (n.kind === "claim") add("claim", "#4f8cff");
+      if (n.exposed) add("exposed", CHART_HEX.warning);
+    } else if (n.kind === "chunk") add("source chunk", CHART_HEX.success);
+    else if (n.kind === "claim") add("claim", CHART_HEX.accent);
     else if (n.kind === "evidence") add("evidence", "#8a8a9a");
     else if (n.kind === "module") add("module", "#3a4a6a");
-    else if (n.kind === "driver") add("risk driver", "#f5a524");
-    else if (n.kind === "point-bull") add("bull point", "#22c55e");
-    else if (n.kind === "point-bear") add("bear point", "#ef4444");
-    else if (n.kind.startsWith("finding")) add("QA finding", "#f5a524");
-    else if (n.kind === "metric") add("metric", "#4f8cff");
+    else if (n.kind === "driver") add("risk driver", CHART_HEX.warning);
+    else if (n.kind === "point-bull") add("bull point", CHART_HEX.success);
+    else if (n.kind === "point-bear") add("bear point", CHART_HEX.critical);
+    else if (n.kind.startsWith("finding")) add("QA finding", CHART_HEX.warning);
+    else if (n.kind === "metric") add("metric", CHART_HEX.accent);
   }
   return out.slice(0, 8);
 }

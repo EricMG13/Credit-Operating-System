@@ -12,9 +12,12 @@ module.exports = {
           text: "#e6e6ef",
           muted: "#8a8a9a",
           accent: "#4f8cff",
+          consumer: "#c4b5fd", // downstream-consumer signal (mirrors --caos-consumer)
           // Semantic status — previously only reachable as CSS vars / inline styles.
           warning: "#f5a524",
           critical: "#ef4444",
+          // -bright twin for critical *text* on dark surfaces (500 reads ~4.6:1).
+          "critical-bright": "#f87171",
           success: "#22c55e",
           idle: "#3f3f46",
         },
@@ -49,6 +52,11 @@ module.exports = {
         "caos-2xl": "12px", //  row    (alias of xl)
         "caos-metric": ["16px", { lineHeight: "1.15" }],
         "caos-hero": ["22px", { lineHeight: "1.1" }],
+        // Display tier — the single focal "answer" on a surface (committee
+        // verdict, anchor metric). ~3x body so one element genuinely commands
+        // the eye; opt-in, never for dense fields. Pairs with a small mono label
+        // above for scale+weight contrast.
+        "caos-display": ["30px", { lineHeight: "1.04", letterSpacing: "-0.01em" }],
       },
       // Semantic z-index scale — named layers instead of magic numbers, so
       // stacking is intentional: sticky < raised < overlay < modal < toast.
