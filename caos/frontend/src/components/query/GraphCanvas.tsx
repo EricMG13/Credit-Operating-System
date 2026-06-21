@@ -206,7 +206,7 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
       {isCircle ? (
         <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth={sw} />
       ) : n.kind === "sector" ? (
-        <Pill cx={cx} cy={cy} label={n.label} color={n.flag ? "#f5a524" : groupColor} />
+        <NodePill cx={cx} cy={cy} label={n.label} color={n.flag ? "#f5a524" : groupColor} />
       ) : (
         <RectMark cx={cx} cy={cy} fill={fill} stroke={stroke} sw={sw} />
       )}
@@ -229,7 +229,7 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
   );
 }
 
-function Pill({ cx, cy, label, color }: { cx: number; cy: number; label: string; color: string }) {
+function NodePill({ cx, cy, label, color }: { cx: number; cy: number; label: string; color: string }) {
   const text = short(label, 26);
   const w = Math.max(64, text.length * 8.2 + 22);
   return (
