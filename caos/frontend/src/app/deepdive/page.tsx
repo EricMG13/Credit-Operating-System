@@ -23,7 +23,7 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
 import { CovenantsTab, DebateTab, ModuleView, RecoveryTab } from "@/components/deepdive/tabs";
-import { loadLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
+import { loadLayout, saveLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
@@ -66,9 +66,10 @@ function DeepDive() {
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
   const [evModal, setEvModal] = useState<string | null>(null);
-  // Layout (core / dense) is chosen in Settings; read on mount (localStorage).
+  // Layout (core / base / dense) — toggled from the sub-header; browser-local.
   const [layout, setLayout] = useState<DeepDiveLayout>(DEFAULT_LAYOUT);
   useEffect(() => setLayout(loadLayout()), []);
+  const pickLayout = (l: DeepDiveLayout) => { setLayout(l); saveLayout(l); };
 
   // Module-launcher accordion: each layer collapses to its name + status dots to
   // save space; clicking a layer reveals its modules (by name). The active tab's
@@ -137,6 +138,30 @@ function DeepDive() {
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
         <div className="flex-1"></div>
         <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
+        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
+          {([
+            { v: "core" as const, t: "Workflow register, then sections in source order" },
+            { v: "base" as const, t: "Conclusion first; steps in up to 4 stretched columns" },
+            { v: "dense" as const, t: "Conclusion first; steps in packed newspaper columns" },
+          ]).map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              aria-pressed={layout === o.v}
+              onClick={() => pickLayout(o.v)}
+              title={o.t}
+              className={
+                "tabular text-caos-2xs capitalize px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                (layout === o.v
+                  ? "bg-caos-elevated text-caos-text border-caos-accent"
+                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+              }
+            >
+              {o.v}
+            </button>
+          ))}
+        </div>
         {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
         <span className="hidden 2xl:flex items-center shrink-0"><SimControls run={run} /></span>
       </div>

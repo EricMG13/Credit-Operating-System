@@ -17,7 +17,6 @@ import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { getSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
-import { DEFAULT_LAYOUT, loadLayout, saveLayout, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 
 export default function SettingsPage() {
@@ -109,10 +108,6 @@ function Settings() {
   const [saved, setSaved] = useState(false);
   useEffect(() => setPrefs(loadPrefs()), []);
 
-  // ── Deep-Dive layout (browser-local, instant-apply) ──
-  const [ddLayout, setDdLayout] = useState<DeepDiveLayout>(DEFAULT_LAYOUT);
-  useEffect(() => setDdLayout(loadLayout()), []);
-  const pickLayout = (l: DeepDiveLayout) => { setDdLayout(l); saveLayout(l); };
   const set = <K extends keyof ResearchPrefs>(k: K, v: ResearchPrefs[K]) => {
     setPrefs((p) => ({ ...p, [k]: v }));
     setSaved(false);
@@ -203,38 +198,6 @@ function Settings() {
                   className={INPUT_BASE + " w-full px-2 py-1.5 text-caos-md resize-y leading-snug"}
                 />
               </label>
-            </div>
-          </Panel>
-
-          {/* Deep-Dive layout */}
-          <Panel title="Deep-Dive layout · saved in this browser">
-            <div className="p-3 flex flex-col gap-2">
-              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
-                How each module view in the Analytical Deep-Dive is laid out.
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { v: "core" as const, title: "Core", desc: "Original layout — the workflow register, then the module's sections in source order." },
-                  { v: "base" as const, title: "Base", desc: "Conclusion first, then workflow steps in up to four columns stretched to fill the width." },
-                  { v: "dense" as const, title: "Dense", desc: "Conclusion first, then every workflow step packed into newspaper columns (maximum density)." },
-                ]).map((o) => {
-                  const on = ddLayout === o.v;
-                  return (
-                    <button
-                      key={o.v}
-                      onClick={() => pickLayout(o.v)}
-                      aria-pressed={on}
-                      className={"text-left rounded border px-3 py-2.5 transition-caos focus-ring " + (on ? "border-caos-accent bg-caos-elevated" : "border-caos-border hover:border-caos-accent/50")}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: on ? "var(--caos-accent)" : "var(--caos-idle)" }} />
-                        <span className="tabular text-caos-md font-semibold text-caos-text">{o.title}</span>
-                      </div>
-                      <p className="text-caos-sm text-caos-muted leading-snug mt-1">{o.desc}</p>
-                    </button>
-                  );
-                })}
-              </div>
             </div>
           </Panel>
 
