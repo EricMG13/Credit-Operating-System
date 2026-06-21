@@ -65,7 +65,7 @@ export function CapabilityRail({
                 <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{g.label}</span>
                 <span className="ml-auto tabular text-caos-3xs text-caos-muted/60">{g.ready}/{g.total}</span>
               </div>
-              {g.capabilities.map((c) =>
+              {[...g.capabilities].sort((a, b) => Number(b.enabled) - Number(a.enabled)).map((c) =>
                 c.enabled ? (
                   <button
                     key={c.id}

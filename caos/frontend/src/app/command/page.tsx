@@ -76,7 +76,7 @@ function CommandCenter() {
             (Watch/QA/Alerts). ≥1536: portfolio context KPIs. ≥1780: demo
             sim controls + clock. The title truncates rather than push KPIs off. */}
         <div className="hidden 2xl:flex items-center gap-5 shrink-0">
-          {headStat("Sleeve NAV", "$2.41B")}
+          {headStat("Sleeve NAV", "$2.41B", undefined, true)}
           {headStat("Avg 3Y DM", "+504bps")}
           {headStat("Names", "10")}
         </div>
