@@ -1,0 +1,19 @@
+# gitleaks config for the CI secret-scan gate (.github/workflows/ci.yml → security).
+# Extends the built-in ruleset; the only customization is a path allowlist so the
+# gate stays green on content that legitimately contains *example* secrets or
+# high-entropy noise — never real credentials.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Prose/vendored/built trees: example tokens + minified noise, not real secrets"
+paths = [
+  # Compiled Next.js export shipped for the single-app deploy — minified bundles
+  # read as high entropy and false-positive the generic rule.
+  '''caos/server/static/.*''',
+  # Methodology prompt corpus (prose) and vendored agent-skill docs whose
+  # examples include placeholder API keys (e.g. "sk-1234...").
+  '''Modular OS/.*''',
+  '''\.agents/skills/.*''',
+  '''\.claude/skills/.*''',
+]

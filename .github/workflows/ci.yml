@@ -158,3 +158,40 @@ jobs:
       # ACTIVE_PROMPT, CP-X route graph, and the onboarding doc (Taxonomy A).
       - name: Module taxonomy drift check
         run: python3 "Modular OS/tools/check_module_consistency.py"
+
+  security:
+    name: Security — deps, SAST, secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks scans past commits, not just the tree
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: caos/frontend/package-lock.json
+      # OSS-only gate — no paid SaaS (project policy: no-paid-services). Each
+      # step below exits nonzero on a finding, failing the PR.
+      - run: pip install pip-audit==2.7.3 bandit==1.7.10
+      # Python deps vs live OSV data — authoritative, unlike an offline CVE table.
+      - name: Dependency CVEs (pip-audit)
+        run: pip-audit -r caos/server/requirements.txt
+      # Python SAST — high severity, medium+ confidence. server/ + scripts/ only;
+      # the test dirs live under caos/tests and are out of scope here.
+      - name: Python SAST (bandit)
+        run: bandit -r caos/server caos/scripts --severity-level high --confidence-level medium
+      # Frontend deps straight from the lockfile — no install needed.
+      - name: Frontend deps (npm audit)
+        working-directory: caos/frontend
+        run: npm audit --audit-level=high
+      # Secret scan over the repo + history. OSS image (no GITLEAKS_LICENSE — that
+      # is only required by the org-gated Action, which we deliberately avoid).
+      # .gitleaks.toml allowlists prose/vendored trees that carry example tokens.
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner
