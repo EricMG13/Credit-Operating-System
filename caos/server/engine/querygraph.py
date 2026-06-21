@@ -512,7 +512,6 @@ async def _percentile(session: AsyncSession, issuer_id: Optional[str], cap: dict
     nodes = [_node(target, tgt.name, "center", 0.08, 0.5, center=True, sub=tgt.industry)]
     edges = []
     keys = [k for k in _PROFILE_KEYS if k in vals[target]]
-    ys = _spread(len(keys), y=0.5, x0=0.2, x1=0.8)  # reuse for vertical spacing via index
     for idx, k in enumerate(keys):
         md = CATALOG_BY_KEY[k]
         peer_vals = [vals[i][k] for i in vals if k in vals[i] and i != target]
