@@ -44,13 +44,39 @@ def _yaml_block(fields: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# Keys whose values may carry raw extracted source text (vs. the module's own
+# analysis). Redacted before a value reaches the vault, so a module that ever
+# echoes a document chunk / transcript into its output can't leak it into a file
+# that might sync off-machine. Substring, case-insensitive — kept specific to
+# avoid eating legitimate analytical keys (no bare "text"/"raw").
+_RAW_CONTENT_MARKERS = (
+    "raw_text", "source_text", "chunk_text", "full_text", "excerpt",
+    "snippet", "transcript", "verbatim", "ocr",
+)
+_REDACTED = "[redacted: raw source text kept out of the vault]"
+
+
+def _is_raw_key(key: str) -> bool:
+    kl = key.lower()
+    return any(m in kl for m in _RAW_CONTENT_MARKERS)
+
+
+def _redact(obj: Any) -> Any:
+    """Recursively blank values under raw-content keys; leave everything else."""
+    if isinstance(obj, dict):
+        return {k: (_REDACTED if _is_raw_key(k) else _redact(v)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(x) for x in obj]
+    return obj
+
+
 def _output_md(output: dict[str, Any]) -> str:
     """Render a module's *full* runtime_output — nothing truncated, so the agent's
     analysis is captured whole for retrieval (the vault is a corpus, not a
     preview). Scalars inline; long/multiline prose on its own lines; nested
-    structures as a fenced JSON block."""
+    structures as a fenced JSON block. Raw-source-text keys are redacted first."""
     out: List[str] = []
-    for k, v in (output or {}).items():
+    for k, v in _redact(output or {}).items():
         if isinstance(v, (dict, list)):
             out.append(f"- **{k}:**\n\n```json\n{json.dumps(v, ensure_ascii=False, indent=2)}\n```")
         else:

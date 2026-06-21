@@ -34,6 +34,23 @@ def test_render_links_and_frontmatter_match():
     assert "[[Industrials]]" in hub and "[[US]]" in hub
 
 
+def test_raw_source_text_is_redacted():
+    """#10: raw-content keys (even nested) are blanked before reaching the vault;
+    analytical values are preserved."""
+    issuer = {"name": "R Co", "industry": "Tech", "country": "US"}
+    run = {"id": "r1", "as_of_date": "2026-01-01", "qa_status": "Pass", "committee_status": "Draft Only"}
+    sections = [{
+        "module_id": "CP-1", "module_name": "Foundation", "confidence": "High", "qa_status": "Pass",
+        "summary": {"net_leverage": 3.2, "source_excerpt": "SECRET RAW DOC",
+                    "nested": {"chunk_text": "SECRET TWO", "ratio": 1.1}},
+        "claims": [],
+    }]
+    spoke = render_run_spoke(issuer, run, sections)
+    assert "SECRET RAW DOC" not in spoke and "SECRET TWO" not in spoke  # raw text gone
+    assert "[redacted" in spoke
+    assert "net_leverage" in spoke and "3.2" in spoke and "1.1" in spoke  # analysis preserved
+
+
 @pytest.mark.asyncio
 async def test_export_run_writes_hub_and_spoke(seeded_db, tmp_path):
     from database import (

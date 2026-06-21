@@ -61,6 +61,12 @@ gate's output (severity, lane, description, remediation). The hub note links the
 issuer's `[[Industry]]` and `[[Country]]` so Obsidian's Graph view clusters
 issuers by sector and geography.
 
+Raw source text is redacted on the way out: values under raw-content keys
+(`raw_text`, `source_text`, `chunk_text`, `excerpt`, `transcript`, …) are blanked
+recursively before a module's output is written, so a module that ever echoes a
+document chunk into its output can't leak it into a vault file that might sync
+off-machine. Analytical values are untouched.
+
 | File | Change |
 |---|---|
 | `server/vault_export.py` | New. Pure renderers (`render_run_spoke`, `render_issuer_hub`) + DB orchestrator `export_run`. Stores full module output + QA findings; emits sector/geo graph links. `python vault_export.py` runs a self-check. |
