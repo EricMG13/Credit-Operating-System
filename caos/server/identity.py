@@ -16,11 +16,15 @@ bypassed, so it is rejected (401) — enforced when ENVIRONMENT is "production"
 (a vestigial belt-and-suspenders trigger from the old Databricks path).
 
 Trusting these headers is safe only because the edge proxy is the sole network
-path to the app; see caos/docs/SECURITY.md §1.
+path to the app; see caos/docs/SECURITY.md §1. As defense-in-depth, set
+EDGE_PROXY_SECRET (and have the proxy inject X-Edge-Authorization) to *enforce*
+that every deployed-context request actually came through the proxy, rather than
+relying on network isolation alone.
 """
 
 from __future__ import annotations
 
+import hmac
 import os
 from dataclasses import dataclass
 
@@ -51,12 +55,31 @@ _LEGACY_PLATFORM_PORT = os.environ.get("DATABRICKS_APP_PORT") is not None
 
 def get_identity(request: Request) -> CallerIdentity:
     """FastAPI dependency: resolve the caller from forwarded headers."""
+    settings = get_settings()
+    deployed = settings.environment == "production" or _LEGACY_PLATFORM_PORT
+
+    # Defense-in-depth: the X-Forwarded-* identity below is only trustworthy
+    # because the edge proxy is the sole network path to the app. When an edge
+    # secret is configured, require it on every deployed-context request — this
+    # proves the request actually transited the proxy and didn't reach the app
+    # port directly with forged X-Forwarded-* headers. Constant-time compare.
+    # Empty secret = enforcement off (main.py logs a startup warning in prod);
+    # identity then rests on network isolation alone. See SECURITY.md §1.
+    if deployed and settings.edge_proxy_secret:
+        presented = request.headers.get("x-edge-authorization", "")
+        # Compare as bytes: header values decode latin-1, so a non-ASCII presented
+        # secret would make compare_digest raise TypeError on str (→ 500 not 401).
+        if not hmac.compare_digest(
+            presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
+        ):
+            raise HTTPException(401, "Request did not carry a valid edge credential.")
+
     email = request.headers.get("x-forwarded-email")
     user = request.headers.get("x-forwarded-user")
     if not email and not user:
         # Fail closed: reject a header-less (un-proxied) request in any deployed
         # context; fall back to the dev identity only for a genuine local run.
-        if get_settings().environment == "production" or _LEGACY_PLATFORM_PORT:
+        if deployed:
             raise HTTPException(
                 401, "No forwarded identity — request did not pass the auth proxy / edge."
             )

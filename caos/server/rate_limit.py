@@ -1,8 +1,12 @@
 """In-process fixed-window rate limiter.
 
-A Databricks App runs as a single process, so an in-memory counter is
-sufficient — no Redis. Used by the chat endpoint to keep rapid-fire
-questions from burning model quota.
+The app runs as a single process (self-hosted Docker, one app container behind
+Caddy/oauth2-proxy), so an in-memory counter is sufficient — no Redis. Used by
+the chat endpoint to keep rapid-fire questions from burning model quota.
+
+Caveat: the window is per-process. If the deploy is ever scaled to multiple app
+replicas, the effective limit multiplies by the replica count (each holds its
+own `_windows`); move to a shared store (Redis) before horizontal scale-out.
 """
 
 from __future__ import annotations

@@ -46,6 +46,13 @@ class IssuerDocumentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# Issuers and their documents are a *shared coverage universe* — every
+# authenticated analyst sees every issuer (per the buy-side-desk model). The
+# `caller` dependency below is therefore load-bearing for authentication (it
+# enforces the 401 edge-auth gate in identity.py) but intentionally NOT used to
+# scope queries: there is no per-user ownership boundary here by design. If
+# need-to-know access control is ever required (e.g. an MNPI information
+# barrier — see review W2), scope these queries by `caller` then.
 @router.get("/", response_model=List[IssuerResponse])
 async def list_issuers(
     q: Optional[str] = Query(

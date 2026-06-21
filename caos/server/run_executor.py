@@ -127,6 +127,11 @@ class QueueWorker:
         queued ──claim──► running ──execute_run──► complete / failed
         running & lease<now & attempts<MAX ──re-claim──► running
         running & lease<now & attempts>=MAX ──reap──► failed
+
+    Multi-worker claim safety relies on Postgres row locking (FOR UPDATE SKIP
+    LOCKED). On the SQLite dev default that clause is a no-op, so concurrent
+    workers would NOT be safe there — dev is single-process, which is why it's
+    fine. Do not run multiple workers against SQLite.
     """
 
     name = "queue_worker"

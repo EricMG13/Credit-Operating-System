@@ -31,6 +31,13 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
+    if settings.environment == "production" and not settings.edge_proxy_secret:
+        logger.warning(
+            "EDGE_PROXY_SECRET is unset in production — forwarded-identity trust "
+            "rests on network isolation alone (no proxy-origin check). Set "
+            "EDGE_PROXY_SECRET and have the edge inject X-Edge-Authorization to "
+            "enforce that requests came through the proxy. See SECURITY.md §1."
+        )
     await init_db()
     if settings.caos_demo_seed:
         if settings.environment == "production":
