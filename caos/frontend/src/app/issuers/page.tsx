@@ -49,22 +49,25 @@ function IssuersDirectory() {
   // debounced so typing doesn't fire a request per keystroke.
   useEffect(() => {
     let stale = false;
+    // Empty registry OR a failed fetch → fall back to the demo universe, filtered
+    // client-side so search still works against it.
+    const demoFiltered = () => {
+      const q = query.trim().toLowerCase();
+      return q
+        ? DEMO_UNIVERSE.filter((i) =>
+            `${i.name} ${i.ticker ?? ""} ${i.industry ?? ""}`.toLowerCase().includes(q)
+          )
+        : DEMO_UNIVERSE;
+    };
     const t = setTimeout(() => {
       getIssuers(query)
         .then((rows) => {
           if (stale) return;
-          if (rows.length > 0) { setIssuers(rows); return; }
-          // Empty registry → fall back to the demo universe, filtered client-side
-          // so search still works against it.
-          const q = query.trim().toLowerCase();
-          setIssuers(
-            q
-              ? DEMO_UNIVERSE.filter((i) =>
-                  `${i.name} ${i.ticker ?? ""} ${i.industry ?? ""}`.toLowerCase().includes(q)
-                )
-              : DEMO_UNIVERSE
-          );
+          setIssuers(rows.length > 0 ? rows : demoFiltered());
         })
+        // Network/500 → degrade to the demo directory instead of a blank table
+        // and an unhandled rejection.
+        .catch(() => { if (!stale) setIssuers(demoFiltered()); })
         .finally(() => { if (!stale) setLoading(false); });
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
@@ -270,7 +273,7 @@ function NewIssuerModal({
           <span className="tabular text-caos-xl text-caos-text">New Issuer</span>
           <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
           <div className="flex-1" />
-          <button type="button" onClick={onClose} className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md">✕</button>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring">✕</button>
         </div>
         <div className="p-3 flex flex-col gap-2.5">
           {([
@@ -294,7 +297,7 @@ function NewIssuerModal({
           ))}
         </div>
         {createError ? (
-          <div className="px-3 pb-1 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>{createError}</div>
+          <div role="alert" className="px-3 pb-1 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>{createError}</div>
         ) : null}
         <div className="px-3 pb-3 flex gap-2">
           <button type="submit" disabled={creating} className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">

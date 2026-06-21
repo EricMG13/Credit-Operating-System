@@ -146,7 +146,7 @@ export function EdgarImport({
         ) : null}
 
         {error ? (
-          <div className="flex items-center gap-2">
+          <div role="alert" className="flex items-center gap-2">
             <Dot sev="critical" />
             <span className="text-caos-md" style={{ color: "var(--caos-critical)" }}>{error}</span>
           </div>
