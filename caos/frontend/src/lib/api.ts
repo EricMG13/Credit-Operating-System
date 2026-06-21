@@ -65,6 +65,13 @@ export const getQA = (runId: string): Promise<QAReportDTO> =>
 export const exportReport = (runId: string): Promise<unknown> =>
   api.post(`/api/runs/${runId}/report`).then((r) => r.data);
 
+// One-way Markdown export of a run into the Obsidian vault (hub + spoke notes).
+// 503s when VAULT_EXPORT_DIR is unset. Not gated on Committee Ready — status is
+// stamped into the note frontmatter instead.
+// fallow-ignore-next-line unused-export
+export const exportToVault = (runId: string): Promise<{ written: string[]; vault_dir: string }> =>
+  api.post(`/api/runs/${runId}/vault`).then((r) => r.data);
+
 // ─── Cross-issuer natural-language query ─────────────────────────────────────
 import type { ChunkDTO, MetricDef, NlQueryResult } from "@/lib/query/types";
 

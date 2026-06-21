@@ -7,6 +7,7 @@ import type { Report, Section } from "@/lib/reports/builders";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { EvChip } from "./EvidenceModal";
+import { ExportToVaultButton } from "./ExportToVaultButton";
 import { Panel } from "@/components/shared/Panel";
 
 function StatusTag({ held }: { held: boolean }) {
@@ -156,7 +157,7 @@ export function ComposePanel({
 }
 
 /* ---------- right rail: export ---------- */
-export function ExportPanel({ rep, omitCount, editCount }: { rep: Report; omitCount: number; editCount?: number }) {
+export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report; omitCount: number; editCount?: number; runId?: string }) {
   const rows: [string, string][] = [
     ["Format", "PDF · US Letter"],
     ["Renderer", "CP-RENDER v2.2"],
@@ -187,6 +188,7 @@ export function ExportPanel({ rep, omitCount, editCount }: { rep: Report; omitCo
         >
           ⎙ PRINT / SAVE PDF
         </button>
+        {runId ? <ExportToVaultButton runId={runId} /> : null}
         {rep.watermark ? (
           <div className="flex items-start gap-2">
             <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1" style={{ background: "var(--caos-warning)" }} />
