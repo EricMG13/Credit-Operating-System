@@ -10,6 +10,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
@@ -40,12 +41,6 @@ function CommandCenter() {
   const tick = run.sim.tick;
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
-  const headStat = (l: string, v: string, c?: string, big?: boolean) => (
-    <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
-    </span>
-  );
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
