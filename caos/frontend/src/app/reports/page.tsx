@@ -119,6 +119,10 @@ function ReportStudio() {
     setEdits((e) => ({ ...e, [rep.id]: { ...e[rep.id], [path]: text } }));
   };
   const resetEdits = () => {
+    // Irreversible: drops every analyst edit on this deliverable (and the
+    // localStorage mirror with it). Confirm before discarding manual committee work.
+    const plural = editCount === 1 ? "" : "s";
+    if (!window.confirm(`Discard ${editCount} analyst edit${plural} on this deliverable? This can't be undone.`)) return;
     setEdits((e) => {
       const next = { ...e };
       delete next[rep.id];
