@@ -52,7 +52,7 @@ export function ReportList({
                   : "border-transparent hover:border-caos-border hover:bg-caos-elevated/60")
               }
             >
-              <span className={"text-[13px] leading-none mt-px " + (sel ? "text-caos-accent" : "text-caos-muted")}>
+              <span className={"text-caos-xl leading-none mt-px " + (sel ? "text-caos-accent" : "text-caos-muted")}>
                 {REPORT_GLYPH[r.icon] || "▤"}
               </span>
               <span className="flex-1 min-w-0 flex flex-col gap-0.5">

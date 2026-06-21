@@ -231,7 +231,7 @@ export function Inspector({
       <div className="px-3 py-2.5 border-b border-caos-border">
         <div className="flex items-center gap-2">
           <Dot sev={st} pulse={st === "running"} />
-          <span className="tabular text-[13px] text-caos-text">{m.id}</span>
+          <span className="tabular text-caos-xl text-caos-text">{m.id}</span>
           <Tag sev={st}>{st === "idle" ? "queued" : st}</Tag>
         </div>
         <div className="text-caos-2xl text-caos-text mt-1 font-medium">{m.name}</div>

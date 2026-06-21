@@ -202,9 +202,9 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
     { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 mat.", on: true, fs: "text-caos-hero", color: SEV_COLOR.critical },
     { k: "high", label: "High", n: EMAIL_TILES.high, sub: "70–89", on: true, fs: "text-[18px]", color: SEV_COLOR.high },
     { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / 2), sub: "40–69", on: true, fs: "text-caos-metric", color: SEV_COLOR.medium },
-    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-[13px]", color: "var(--caos-muted)" },
-    { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-[13px]", color: "var(--caos-muted)" },
-    { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-[13px]", color: "var(--caos-text)" },
+    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-caos-xl", color: "var(--caos-muted)" },
+    { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-caos-xl", color: "var(--caos-muted)" },
+    { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-caos-xl", color: "var(--caos-text)" },
   ];
   const list = EMAILS.filter((e) => !filter || e.sev === filter);
   return (

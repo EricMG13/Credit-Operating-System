@@ -213,7 +213,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           onClick={() => send()}
           disabled={busy || !input.trim()}
           title="Send"
-          className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-[13px]"
+          className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-caos-xl"
           style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
         >
           ↑
