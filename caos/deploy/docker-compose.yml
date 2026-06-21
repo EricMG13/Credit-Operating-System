@@ -60,6 +60,9 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       EDGAR_USER_AGENT: ${EDGAR_USER_AGENT:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-250}
+      # Structure-preserving extraction via the markitdown CLI baked into the image
+      # (Dockerfile). Empty = built-in pypdf/openpyxl fallback. Set in .env.
+      CAOS_MARKITDOWN_CMD: ${CAOS_MARKITDOWN_CMD:-}
       # Defense-in-depth (SECURITY.md §1): require Caddy's injected edge secret so
       # forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on
       # the internal net) is rejected. Empty = enforcement off (app logs a warning).
