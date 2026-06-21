@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 :root {
+  /* Dark single-mode: fixes native scrollbars, inputs, and form controls. */
+  color-scheme: dark;
   /* CAOS dark theme (Blueprint §5.1) */
   --caos-bg: #0a0a0f;
   --caos-panel: #12121a;

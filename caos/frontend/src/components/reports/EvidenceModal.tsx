@@ -95,7 +95,7 @@ export function EvidenceModal({
         role="dialog"
         aria-modal="true"
         aria-label={"Source evidence " + id}
-        className="bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden w-full max-w-[1150px]"
+        className="bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden overscroll-contain w-full max-w-[1150px]"
         style={{ maxHeight: "86vh", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
       >

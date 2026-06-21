@@ -159,7 +159,7 @@ export function StepOutputModal({
         role="dialog"
         aria-modal="true"
         aria-label="Module output register"
-        className="caos-enter bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden"
+        className="caos-enter bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden overscroll-contain"
         style={{ width: 1080, maxWidth: "94vw", maxHeight: "min(840px, 92vh)", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
       >

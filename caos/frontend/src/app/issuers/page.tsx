@@ -177,6 +177,9 @@ function IssuersDirectory() {
                   <span key={i} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
                 ))}
               </div>
+              {/* ponytail: native content-visibility skips paint/layout for off-screen rows
+                  — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book
+                  ever holds thousands. intrinsic-size ≈ one row height, avoids scrollbar CLS. */}
               {issuers.map((issuer) => (
                 <div
                   key={issuer.id}
@@ -185,7 +188,7 @@ function IssuersDirectory() {
                   onClick={() => router.push("/deepdive")}
                   onKeyDown={onActivate(() => router.push("/deepdive"))}
                   aria-label={`Open deep-dive for ${issuer.name}`}
-                  className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring group"}
+                  className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
                   <span className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
@@ -266,7 +269,7 @@ function NewIssuerModal({
         aria-label="New issuer"
         onSubmit={handleCreate}
         onClick={(e) => e.stopPropagation()}
-        className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden"
+        className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-md overflow-hidden overscroll-contain"
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">

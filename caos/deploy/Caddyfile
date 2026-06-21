@@ -6,6 +6,16 @@
 {$CAOS_DOMAIN} {
 	encode gzip
 
+	# Proxy-feed access log (threat-detection): structured JSON to stdout →
+	# `docker compose logs caddy`. Caddy is the public edge, so request>remote_ip
+	# is the real client; status + size feed the scanning/brute (T1595/T1110) and
+	# response-volume hunts. Pair with the app `caos.access` log and oauth2-proxy
+	# auth_logging for the full three-feed picture.
+	log {
+		output stdout
+		format json
+	}
+
 	# SECURITY.md §1: the header-trust model is safe only if the edge is the
 	# sole setter of identity. Strip any client-supplied identity headers so a
 	# caller cannot spoof them; only oauth2-proxy may set them downstream.
