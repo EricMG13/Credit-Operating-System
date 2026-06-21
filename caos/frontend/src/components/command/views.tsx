@@ -5,6 +5,7 @@
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
 import { useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { useModalA11y } from "@/lib/use-modal-a11y";
@@ -144,14 +145,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
             CP-MON · mat {email.mat}
           </span>
           <div className="flex-1" />
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            aria-label="Close"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} title="Close (Esc)" />
         </div>
 
         {/* envelope */}

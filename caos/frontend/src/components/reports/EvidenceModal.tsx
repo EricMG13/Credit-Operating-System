@@ -5,6 +5,7 @@
 // metadata, extraction anchor, CP-5B trace status, and cited-by trail.
 
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { CloseButton } from "@/components/shared/CloseButton";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
@@ -117,13 +118,7 @@ export function EvidenceModal({
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">confidence</span>
           <div className="w-20"><Bar pct={ev.conf * 100} color={confColor} /></div>
           <span className="tabular text-caos-md" style={{ color: confColor }}>{(ev.conf * 100).toFixed(0)}%</span>
-          <button
-            onClick={onClose}
-            className="ml-2 w-6 h-6 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} size="md" className="ml-2" />
         </div>
         {/* body */}
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_300px]">

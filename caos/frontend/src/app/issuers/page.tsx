@@ -4,6 +4,7 @@
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
 import { useEffect, useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer } from "@/lib/api";
@@ -276,7 +277,7 @@ function NewIssuerModal({
           <span className="tabular text-caos-xl text-caos-text">New Issuer</span>
           <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
           <div className="flex-1" />
-          <button type="button" onClick={onClose} aria-label="Close" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring">✕</button>
+          <CloseButton onClick={onClose} />
         </div>
         <div className="p-3 flex flex-col gap-2.5">
           {([

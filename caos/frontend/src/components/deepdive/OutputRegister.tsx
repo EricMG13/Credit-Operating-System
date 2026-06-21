@@ -5,6 +5,7 @@
 // the Modular OS REF templates (port of design bundle concept-c-views.jsx).
 
 import { useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -170,7 +171,7 @@ export function StepOutputModal({
           <span className="text-caos-md text-caos-muted truncate">{meta?.name}</span>
           <div className="flex-1"></div>
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">RUN #2641 · ATLF</span>
-          <button onClick={onClose} aria-label="Close" className="ml-2 w-6 h-6 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring">✕</button>
+          <CloseButton onClick={onClose} size="md" className="ml-2" />
         </div>
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_272px]">
           <div className="min-h-0 overflow-auto border-r border-caos-border bg-caos-bg p-3 flex flex-col gap-3">

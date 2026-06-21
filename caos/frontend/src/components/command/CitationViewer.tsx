@@ -5,6 +5,7 @@
 // cross-issuer query results). Esc / ✕ / backdrop to close.
 
 import { useEffect, useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import { getChunk } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -51,13 +52,7 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
           <span className="tabular text-caos-md uppercase tracking-wider text-caos-muted">Source</span>
           {label ? <span className="tabular text-caos-xs px-1.5 py-px rounded border border-caos-accent/50 text-caos-accent">{label}</span> : null}
           <div className="flex-1" />
-          <button
-            onClick={onClose}
-            aria-label="Close source viewer"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} label="Close source viewer" />
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto px-3.5 py-3">

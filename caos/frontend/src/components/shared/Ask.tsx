@@ -8,6 +8,7 @@
 // `open` from this context, so the launcher never double-mounts a chat there.
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import { usePathname } from "next/navigation";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { NlQueryBody } from "@/components/command/NlQuery";
@@ -111,14 +112,7 @@ function AskModal({ onClose }: { onClose: () => void }) {
             grounded in the metric store · cited where run-derived
           </span>
           <div className="flex-1" />
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            aria-label="Close"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} title="Close (Esc)" />
         </div>
         <div className="flex-1 min-h-0 overflow-auto p-3">
           <NlQueryBody />
