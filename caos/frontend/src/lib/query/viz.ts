@@ -72,10 +72,13 @@ export function narrate(res: NlQueryResult): string {
     const p = r.metrics[res.rank_by]?.provenance;
     return p === "run" || p === "derived";
   }).length;
+  // State the metric's polarity explicitly so "leads the result" isn't misread as
+  // good/bad — for net leverage higher is weaker, for coverage higher is stronger.
+  const dir = col.higher_is_better ? "higher = stronger" : "higher = weaker";
   const lead =
     typeof topV === "number"
-      ? `${top.issuer.name} tops the ranking on ${col.label.toLowerCase()} at ${fmtMetric(topV, col.unit)}`
-      : `${top.issuer.name} tops the ranking on ${col.label.toLowerCase()}`;
+      ? `${top.issuer.name} leads the result on ${col.label.toLowerCase()} at ${fmtMetric(topV, col.unit)} (${dir})`
+      : `${top.issuer.name} leads the result on ${col.label.toLowerCase()} (${dir})`;
   const med = median(vals);
   const vsMed =
     typeof topV === "number" && vals.length > 2

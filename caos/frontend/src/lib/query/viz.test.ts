@@ -41,9 +41,10 @@ describe("barSpecFor", () => {
 });
 
 describe("narrate", () => {
-  it("summarizes a ranked result with leader, median and citation count", () => {
+  it("summarizes a ranked result with leader, polarity, median and citation count", () => {
     const s = narrate(structured([{ name: "Acme", v: 5.8 }, { name: "Beta", v: 4.4, p: "seed" }, { name: "Gamma", v: 2.3, p: "seed" }]));
-    expect(s).toContain("Acme tops the ranking");
+    expect(s).toContain("Acme leads the result");
+    expect(s).toContain("higher = weaker"); // net leverage: higher_is_better=false (#6)
     expect(s).toContain("median");
     expect(s).toContain("1/3 cited");
   });

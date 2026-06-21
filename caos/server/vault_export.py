@@ -63,8 +63,13 @@ def _output_md(output: dict[str, Any]) -> str:
 
 
 def spoke_title(issuer_name: str, run: dict) -> str:
-    tag = run.get("as_of_date") or str(run.get("id", ""))[:8]
-    return _title(f"{issuer_name} - {tag}")
+    # Always carry the run id (short) so two runs with the same as_of_date can't
+    # collide to one filename and silently overwrite each other; keep as_of_date
+    # in the name when present for human readability. Same run id -> same file is
+    # intentional (re-export is idempotent).
+    rid = str(run.get("id", ""))[:8] or "run"
+    base = run.get("as_of_date")
+    return _title(f"{issuer_name} - {base} - {rid}" if base else f"{issuer_name} - {rid}")
 
 
 def hub_title(issuer_name: str) -> str:

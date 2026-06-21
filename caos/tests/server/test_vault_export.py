@@ -68,18 +68,109 @@ async def test_export_run_writes_hub_and_spoke(seeded_db, tmp_path):
         s.add(QAFinding(run_id=run.id, module_id="CP-1", finding_id="QA-117", severity="MINOR",
                         lane=6, description="Stale citation.", required_remediation="Re-pull source."))
         await s.commit()
+        run_id = run.id
 
-        paths = await vault_export.export_run(s, run.id, str(tmp_path))
+        paths = await vault_export.export_run(s, run_id, str(tmp_path))
 
-    names = sorted(p.name for p in paths)
-    assert names == ["Testco PLC - 2026-03-31.md", "Testco PLC.md"]
-    spoke = (tmp_path / "Runs" / "Testco PLC - 2026-03-31.md").read_text()
+    # filename carries the run id so same-as_of runs can't collide (#5)
+    title = spoke_title("Testco PLC", {"id": run_id, "as_of_date": "2026-03-31"})
+    assert title.startswith("Testco PLC - 2026-03-31 - ")
+    assert sorted(p.name for p in paths) == sorted([f"{title}.md", "Testco PLC.md"])
+    spoke = (tmp_path / "Runs" / f"{title}.md").read_text()
     hub = (tmp_path / "Issuers" / "Testco PLC.md").read_text()
     assert "## Financial Foundation (CP-1)" in spoke
     assert "QA Gate" not in spoke  # auditor module excluded
     assert "```json" in spoke and "rcf_undrawn" in spoke  # nested agent output stored whole
     assert "Margins held. `[E-09]`" in spoke
     assert "## QA findings" in spoke and "Re-pull source." in spoke  # gate output stored
-    assert "[[Testco PLC - 2026-03-31]]" in hub  # hub links the spoke by exact basename
+    assert f"[[{title}]]" in hub  # hub links the spoke by exact basename
     assert "[[Software]]" in hub and "[[UK]]" in hub  # sector/geo graph links
     assert "## Related issuers" in hub and "[[Rival Industries]]" in hub  # CP-1C peer edges
+
+
+async def _mk_run(committee_status: str):
+    """Persist a minimal complete run and return (run_id). Helper for the hook tests."""
+    from database import AsyncSessionLocal, Issuer, ModuleOutput, Run
+
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="AutoCo", industry="Tech", country="US")
+        s.add(issuer)
+        await s.flush()
+        run = Run(issuer_id=issuer.id, as_of_date="2026-09-30", status="complete",
+                  qa_status="Passed", committee_status=committee_status)
+        s.add(run)
+        await s.flush()
+        s.add(ModuleOutput(run_id=run.id, module_id="CP-1", module_name="Financial Foundation",
+                           runtime_output={"net_leverage": 3.0}, confidence="High", qa_status="Passed"))
+        await s.commit()
+        return run.id
+
+
+class _Settings:
+    def __init__(self, auto, dir_):
+        self.vault_export_auto = auto
+        self.vault_export_dir = dir_
+
+
+@pytest.mark.asyncio
+async def test_auto_export_hook_writes_on_committee_ready(seeded_db, tmp_path, monkeypatch):
+    """The executor auto-hook fires for a Committee-Ready run when the flag is on —
+    exercises the gate + the post-commit session reuse the manual route doesn't."""
+    import run_executor
+    from database import AsyncSessionLocal
+
+    monkeypatch.setattr(run_executor, "get_settings", lambda: _Settings(True, str(tmp_path)))
+    run_id = await _mk_run("Committee Ready")
+    async with AsyncSessionLocal() as s:  # fresh session, mirroring the executor
+        await run_executor._maybe_export_to_vault(s, run_id)
+
+    title = spoke_title("AutoCo", {"id": run_id, "as_of_date": "2026-09-30"})
+    assert (tmp_path / "Runs" / f"{title}.md").exists()
+    assert (tmp_path / "Issuers" / "AutoCo.md").exists()
+
+
+def test_spoke_title_unique_per_run_same_as_of():
+    """#5 regression: two runs with the same issuer + as_of_date must not collide
+    to one filename (would silently overwrite)."""
+    issuer = "Atlas Forge Industrials"
+    a = spoke_title(issuer, {"id": "aaaa1111-x", "as_of_date": "2026-03-31"})
+    b = spoke_title(issuer, {"id": "bbbb2222-y", "as_of_date": "2026-03-31"})
+    assert a != b
+    assert a.startswith("Atlas Forge Industrials - 2026-03-31 - ")
+
+
+@pytest.mark.asyncio
+async def test_auto_export_hook_skips_when_not_ready_or_flag_off(seeded_db, tmp_path, monkeypatch):
+    """No write when the run isn't Committee Ready, nor when the flag is off."""
+    import run_executor
+    from database import AsyncSessionLocal
+
+    # flag on, but run is Restricted → skip
+    monkeypatch.setattr(run_executor, "get_settings", lambda: _Settings(True, str(tmp_path)))
+    restricted = await _mk_run("Restricted")
+    async with AsyncSessionLocal() as s:
+        await run_executor._maybe_export_to_vault(s, restricted)
+    assert not (tmp_path / "Runs").exists()
+
+    # Committee Ready, but flag off → skip
+    monkeypatch.setattr(run_executor, "get_settings", lambda: _Settings(False, str(tmp_path)))
+    ready = await _mk_run("Committee Ready")
+    async with AsyncSessionLocal() as s:
+        await run_executor._maybe_export_to_vault(s, ready)
+    assert not (tmp_path / "Runs").exists()
+
+
+@pytest.mark.asyncio
+async def test_auto_export_hook_never_raises(seeded_db, tmp_path, monkeypatch):
+    """Any failure inside the hook — even the settings/gate read, not just the
+    export call — must be swallowed, or it would mark a completed run failed."""
+    import run_executor
+    from database import AsyncSessionLocal
+
+    def boom():
+        raise RuntimeError("settings blew up")
+
+    monkeypatch.setattr(run_executor, "get_settings", boom)
+    run_id = await _mk_run("Committee Ready")
+    async with AsyncSessionLocal() as s:
+        await run_executor._maybe_export_to_vault(s, run_id)  # must not raise

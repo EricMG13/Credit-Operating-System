@@ -53,13 +53,17 @@ async def _maybe_export_to_vault(session, run_id: str) -> None:
     """After a run finishes, mirror it to the Obsidian vault iff auto-export is on
     and the run came out Committee Ready. Best-effort: an export failure is logged
     and swallowed so it can never fail an otherwise-good run."""
-    settings = get_settings()
-    if not (settings.vault_export_auto and settings.vault_export_dir):
-        return
-    run = await session.get(Run, run_id)
-    if run is None or run.committee_status != "Committee Ready":
-        return
+    # The whole body is guarded: this runs after the run is committed, so ANY
+    # error here (incl. the settings read / gate query) must be swallowed —
+    # otherwise it escapes to execute_run_by_id's handler and marks an
+    # already-successful run failed. Best-effort: the run is the source of truth.
     try:
+        settings = get_settings()
+        if not (settings.vault_export_auto and settings.vault_export_dir):
+            return
+        run = await session.get(Run, run_id)
+        if run is None or run.committee_status != "Committee Ready":
+            return
         import vault_export
 
         paths = await vault_export.export_run(session, run_id, settings.vault_export_dir)
