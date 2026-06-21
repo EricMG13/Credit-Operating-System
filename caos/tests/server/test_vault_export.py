@@ -1,7 +1,5 @@
 """vault_export: pure-render link integrity + a DB round-trip through export_run."""
 
-from pathlib import Path
-
 import pytest
 
 import vault_export
