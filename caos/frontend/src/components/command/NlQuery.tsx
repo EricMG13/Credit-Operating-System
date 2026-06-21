@@ -113,7 +113,7 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
                   <td className="tabular text-caos-md text-caos-muted py-1.5 pr-2 align-top">{i + 1}</td>
                   <td className="py-1.5 pr-2 align-top">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-caos-md text-caos-text whitespace-nowrap">{row.issuer.name}</span>
+                      <span className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</span>
                       {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
                       <Pill text={badge.text} color={badge.color} title={badge.title} />
                       <GateBadge qa={qa} />
@@ -165,9 +165,9 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
     <div className="flex flex-col gap-2 overflow-auto" style={{ maxHeight: 300 }}>
       {res.rows.map((row, i) => (
         <div key={row.issuer.id} className="rounded border border-caos-border/70 bg-caos-bg/40">
-          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-caos-border/50">
-            <span className="tabular text-caos-md text-caos-muted">{i + 1}</span>
-            <span className="text-caos-md text-caos-text whitespace-nowrap">{row.issuer.name}</span>
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-caos-border/50 min-w-0">
+            <span className="tabular text-caos-md text-caos-muted shrink-0">{i + 1}</span>
+            <span className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</span>
             {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
             {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
