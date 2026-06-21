@@ -16,6 +16,23 @@ export interface CellRef {
   col: string;
 }
 
+// KPI distress shading: leverage worsens up (orange 6.0x → red 8.0x), interest
+// coverage worsens down (orange 2.0x → red 0.5x). Returns null when the metric
+// is benign (below/above the band) so normal cell color applies.
+const LEV_ROWS = new Set(["srsec", "totlev", "netlev"]);
+const ORANGE = [245, 165, 36];
+const RED = [239, 68, 68];
+function kpiDistressColor(rowId: string, v: number | null): string | null {
+  if (v == null) return null;
+  let t: number | null = null;
+  if (LEV_ROWS.has(rowId)) t = (v - 6) / 2;        // 6x → 0 (orange), 8x → 1 (red)
+  else if (rowId === "intcov") t = (2 - v) / 1.5;  // 2x → 0 (orange), 0.5x → 1 (red)
+  if (t == null || t < 0) return null;
+  t = Math.min(1, t);
+  const c = ORANGE.map((o, i) => Math.round(o + (RED[i] - o) * t));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
 interface ColDef {
   key: string;
   group: string;
@@ -46,11 +63,13 @@ function CellInput({ initial, onCommit }: { initial: string; onCommit: (v: strin
 
 /* ---------- the sheet ---------- */
 export function Sheet({
-  model, showQ, hl, sel, onSel, editing, onEdit, onCommit,
+  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit,
 }: {
   model: Model;
   showQ: boolean;
   hl: string | null;
+  /** "rowId:colKey" cells to flash while an assumption driver is being scrubbed. */
+  hlCells?: Set<string> | null;
   sel: CellRef | null;
   onSel: (s: CellRef) => void;
   editing: CellRef | null;
@@ -83,6 +102,7 @@ export function Sheet({
   const renderCell = (rowId: string, c: ColDef, opts: { bold?: 1; pct?: 1; shade?: 1; line?: 1; isHl?: boolean }) => {
     const isSel = sel != null && sel.row === rowId && sel.col === c.key;
     const colHl = hlGroup === c.group;
+    const cellHl = !!hlCells && hlCells.has(rowId + ":" + c.key);
     const isEditing = editing != null && editing.row === rowId && editing.col === c.key;
 
     const row = ROWS.find((r) => r.id === rowId)!;
@@ -91,7 +111,7 @@ export function Sheet({
     const editable = isEditable(rowId, c.key);
     const isOv = editable && !!c.ctx.ov && !!c.ctx.ov[field];
     const display = fmt(v, row.f);
-    const color = isOv ? "var(--caos-warning)" : opts.pct ? "rgba(79,140,255,0.9)" : v != null && v < 0 && row.f === "m" ? "var(--caos-muted)" : opts.bold ? "var(--caos-text)" : "rgba(230,230,239,0.82)";
+    const color = kpiDistressColor(rowId, v) ?? (isOv ? "var(--caos-warning)" : opts.pct ? (v != null && v < 0 ? "var(--caos-critical)" : "rgba(79,140,255,0.9)") : v != null && v < 0 && row.f === "m" ? "var(--caos-muted)" : opts.bold ? "var(--caos-text)" : "rgba(230,230,239,0.82)");
 
     return (
       <div
@@ -102,9 +122,9 @@ export function Sheet({
         className="shrink-0 text-right pr-1.5 cursor-cell"
         style={{
           width: c.w, marginLeft: c.gap ? 8 : 0,
-          background: isSel ? "rgba(79,140,255,0.22)" : colHl || opts.isHl ? "rgba(79,140,255,0.08)" : opts.shade ? "rgba(255,255,255,0.025)" : "transparent",
+          background: isSel ? "rgba(79,140,255,0.22)" : cellHl ? "rgba(79,140,255,0.28)" : colHl || opts.isHl ? "rgba(79,140,255,0.08)" : opts.shade ? "rgba(255,255,255,0.025)" : "transparent",
           borderTop: opts.line ? "1px solid var(--caos-border)" : "none",
-          boxShadow: isSel ? "inset 0 0 0 1px var(--caos-accent)" : "none",
+          boxShadow: isSel ? "inset 0 0 0 1px var(--caos-accent)" : cellHl ? "inset 0 0 0 1px rgba(79,140,255,0.6)" : "none",
         }}
       >
         {isEditing ? (

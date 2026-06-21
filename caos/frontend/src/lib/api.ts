@@ -10,7 +10,10 @@ export const api = axios.create({
 // ─── Identity ─────────────────────────────────────────────────────────────
 // Authentication is platform-managed (Databricks workspace OAuth at the
 // edge). /api/auth/me reflects the forwarded identity.
-export const getMe = () => api.get("/api/auth/me").then((r) => r.data);
+// Bounded: a down/hung API (or proxy to a dead :8000) must not strand the whole
+// app on the RequireAuth "Loading…" gate — on timeout the request rejects and
+// the error card (with RETRY) shows instead. Long-running calls set their own.
+export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
 // ─── Issuers ──────────────────────────────────────────────────────────────
 // `q` searches name, ticker, industry, country, and FIGI (case-insensitive).

@@ -72,6 +72,26 @@ describe("buildModel — forecast assumptions", () => {
     expect(hi.cols.b0.ebit).toBeLessThan(base.cols.b0.ebit);
     expect(hi.cols.b0.ebitda).toBeCloseTo(base.cols.b0.ebitda, 9); // EBITDA = adj − addbacks
   });
+
+  it("disallowing an add-back deducts the unrealised amount from Adj. EBITDA, EBITDA flat", () => {
+    const base = buildModel();
+    const cut = buildModel(1, {}, undefined, withBase({ abSbc: 0 })); // reject stock-based comp
+    const gross = base.cols.b0.abAccts[2];
+    expect(cut.cols.b0.abAccts[2]).toBeCloseTo(gross, 9);          // gross register unchanged
+    expect(cut.cols.b0.ab).toBeCloseTo(base.cols.b0.ab - gross, 9); // net add-backs drop by that account
+    expect(cut.cols.b0.adj).toBeCloseTo(base.cols.b0.adj - gross, 9); // unrealised amount deducted
+    expect(cut.cols.b0.ebitda).toBeCloseTo(base.cols.b0.ebitda, 9); // reported EBITDA unchanged
+    expect(cut.cols.b0.netlev!).toBeGreaterThan(base.cols.b0.netlev!); // leverage rises
+  });
+
+  it("a year override applies to that forecast year only (FY27e), not its siblings", () => {
+    const base = buildModel();
+    const y = buildModel(1, {}, undefined, { base: { ...DEFAULT_CASE }, down: { ...DEFAULT_CASE }, baseYears: { 1: { dAdjm: 0.03 } } });
+    expect(y.cols.b0.adjm).toBeCloseTo(base.cols.b0.adjm, 9); // FY26e untouched
+    expect(y.cols.b1.adjm).toBeCloseTo(base.cols.b1.adjm + 0.03, 9); // FY27e moved
+    expect(y.cols.b2.adjm).toBeCloseTo(base.cols.b2.adjm, 9); // FY28e untouched
+    expect(y.cols.d1.adjm).toBeCloseTo(base.cols.d1.adjm, 9); // downside untouched
+  });
 });
 
 describe("buildModel — live CP-1 anchor", () => {

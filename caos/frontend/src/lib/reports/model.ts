@@ -13,7 +13,7 @@
 // leaving historicals and the forecast on the seeded build.
 
 import type { ModelAnchor } from "@/lib/engine/modelAnchor";
-import { type Assumptions, DEFAULT_ASSUMPTIONS } from "./assumptions";
+import { type Assumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, effectiveYear } from "./assumptions";
 
 export interface ModelCol {
   key: string;
@@ -34,10 +34,15 @@ export interface ModelCol {
   da: number;
   ebitda: number;
   ab: number;
+  abAccts: number[]; // add-back register decomposed by account (sums to ab)
   adj: number;
   adjm: number;
   gRev: number | null;
   gAdj: number | null;
+  // per-business-unit YoY revenue growth (Drivetrain / Fluid / Aftermarket)
+  gSegD: number | null;
+  gSegF: number | null;
+  gSegA: number | null;
   // cash flow
   int: number;
   leases: number;
@@ -169,6 +174,9 @@ function finishBalances(c: any) {
   c.sga = (c.opex - c.da) / c.rev;
   c.dapc = c.da / c.rev;
   c.capexrev = c.capex / c.rev;
+  // Default: split add-backs across the register by weight (forecast columns
+  // pass their own per-account amounts, reflecting analyst acceptance).
+  if (!c.abAccts) c.abAccts = ADDBACKS.map((a) => c.ab * a.w);
   if (!c.ov) c.ov = {};
   return c as ModelCol;
 }
@@ -200,17 +208,23 @@ function qCtx(i: number, prevCash: number, A: Record<string, number[]>, capexOv:
     rcfSize: 250, rcf: 55, tlb: TLBQ[i], ssn: 900, sub: 200, sofr: SOFRQ[i], days: DAYS_H,
     gRev: i >= 4 ? A.rev[i] / A.rev[i - 4] - 1 : null,
     gAdj: i >= 4 ? A.adj[i] / A.adj[i - 4] - 1 : null,
+    gSegD: i >= 4 ? (A.rev[i] * DRV[i]) / (A.rev[i - 4] * DRV[i - 4]) - 1 : null,
+    gSegF: i >= 4 ? (A.rev[i] * (1 - AFT[i] - DRV[i])) / (A.rev[i - 4] * (1 - AFT[i - 4] - DRV[i - 4])) - 1 : null,
+    gSegA: i >= 4 ? (A.rev[i] * AFT[i]) / (A.rev[i - 4] * AFT[i - 4]) - 1 : null,
   };
   finishFlows(c);
   c.cash = prevCash + (c.ncf as number);
   return finishBalances(c);
 }
 
+type Prior = { rev: number; adj: number; segD?: number; segF?: number; segA?: number };
+
 function sumCtx(
   key: string, label: string, kind: "fy" | "ytd" | "ltm",
-  qs: ModelCol[], balOf: ModelCol, prior: { rev: number; adj: number } | null,
+  qs: ModelCol[], balOf: ModelCol, prior: Prior | null,
 ): ModelCol {
   const S = (f: keyof ModelCol) => qs.reduce((s, q) => s + (q[f] as number), 0);
+  const gSeg = (sum: number, p?: number) => (prior && p != null ? sum / p - 1 : null);
   const c: Ctx = {
     key, label, kind, mult: kind === "ytd" ? 4 : 1, derived: qs.some((q) => q.derived),
     rev: S("rev"), segA: S("segA"), segD: S("segD"), segF: S("segF"), gp: S("gp"),
@@ -220,6 +234,7 @@ function sumCtx(
     sofr: qs[qs.length - 1].sofr, days: DAYS_H,
     gRev: prior ? S("rev") / prior.rev - 1 : null,
     gAdj: prior ? S("adj") / prior.adj - 1 : null,
+    gSegD: gSeg(S("segD"), prior?.segD), gSegF: gSeg(S("segF"), prior?.segF), gSegA: gSeg(S("segA"), prior?.segA),
   };
   finishFlows(c);
   return finishBalances(c);
@@ -231,6 +246,9 @@ function fyManual(key: string, label: string, p: Ctx, prior: ModelCol | null): M
     key, label, kind: "fy", mult: 1, derived: false, rcfSize: 250, days: DAYS_H,
     gRev: prior ? (p.rev as number) / prior.rev - 1 : null,
     gAdj: prior ? (p.adj as number) / prior.adj - 1 : null,
+    gSegD: prior ? (p.segD as number) / prior.segD - 1 : null,
+    gSegF: prior ? (p.segF as number) / prior.segF - 1 : null,
+    gSegA: prior ? (p.segA as number) / prior.segA - 1 : null,
     ...p,
   };
   finishFlows(c);
@@ -248,6 +266,9 @@ function fCtx(key: string, label: string, kind: "b" | "d", p: Ctx, prevCash: num
   c.capex = (c.rev as number) * (c.capexPct as number);
   c.gRev = prior ? (c.rev as number) / prior.rev - 1 : null;
   c.gAdj = prior ? (c.adj as number) / prior.adj - 1 : null;
+  c.gSegD = prior ? (c.segD as number) / prior.segD - 1 : null;
+  c.gSegF = prior ? (c.segF as number) / prior.segF - 1 : null;
+  c.gSegA = prior ? (c.segA as number) / prior.segA - 1 : null;
   finishFlows(c);
   c.cash = prevCash + (c.ncf as number);
   return finishBalances(c);
@@ -310,8 +331,8 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
   const f24 = sumCtx("f24", "FY24", "fy", q.slice(0, 4), q[3], f23);
   const f25 = sumCtx("f25", "FY25", "fy", q.slice(4, 8), q[7], f24);
 
-  const y0 = sumCtx("y0", "Mar-25", "ytd", [q[4]], q[4], { rev: q[0].rev, adj: q[0].adj });
-  const y1 = sumCtx("y1", "Mar-26", "ytd", [q[8]], q[8], { rev: q[4].rev, adj: q[4].adj });
+  const y0 = sumCtx("y0", "Mar-25", "ytd", [q[4]], q[4], { rev: q[0].rev, adj: q[0].adj, segD: q[0].segD, segF: q[0].segF, segA: q[0].segA });
+  const y1 = sumCtx("y1", "Mar-26", "ytd", [q[8]], q[8], { rev: q[4].rev, adj: q[4].adj, segD: q[4].segD, segF: q[4].segF, segA: q[4].segA });
   const l0 = sumCtx("l0", "Mar-25", "ltm", q.slice(1, 5), q[4], f24);
   const l1 = sumCtx("l1", "Mar-26", "ltm", q.slice(5, 9), q[8], l0);
 
@@ -362,9 +383,14 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
     };
     const rev = seg.a + seg.d + seg.f;
     const adj = rev * (agentAdj / baseRev + A.dAdjm);
+    // Add-back register. `abAccts` is the sponsor's gross claim per account.
+    // Acceptance (A[account]) credits only the realised portion to Adj. EBITDA;
+    // the unrealised remainder is deducted, leaving reported EBITDA unchanged.
+    const abAccts = ADDBACKS.map((a) => p.ab * a.w);
+    const abAdj = ADDBACKS.reduce((s, a, i) => s + abAccts[i] * A[a.key], 0);
     return fCtx(key, fLabels[i], kind, {
-      ab: p.ab, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: p.sofr, days: p.days,
-      adj, gpmF: p.gpmF + A.dGpm, daPct: A.daPct,
+      ab: abAdj, abAccts, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: p.sofr, days: p.days,
+      adj: adj + (abAdj - p.ab), gpmF: p.gpmF + A.dGpm, daPct: A.daPct,
       int: p.int * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
       capexPct: p.capexPct * A.mCapex, acq: p.acq * A.mAcq, diss: p.diss * A.mDiss, div: A.divDelta,
       segA: seg.a, segD: seg.d, segF: seg.f, rcf, ssn: 900, sub: 200,
@@ -377,7 +403,8 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
   let prevSeg: Segs = segs25;
   let prior: ModelCol = f25;
   BASE.forEach((p, i) => {
-    const c = fcast("b" + i, "b", i, p, asmp.base, p.adj, baseRevB[i], prevSeg, pc, prior, 55);
+    const A = effectiveYear(asmp.base, asmp.baseYears?.[i as FY]);
+    const c = fcast("b" + i, "b", i, p, A, p.adj, baseRevB[i], prevSeg, pc, prior, 55);
     base.push(c); pc = c.cash; prevSeg = { a: c.segA, d: c.segD, f: c.segF }; prior = c;
   });
 
@@ -386,7 +413,8 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
   pc = l1.cash; prevSeg = segs25; prior = f25;
   DOWN.forEach((p, i) => {
     const agentAdj = BASE[i].adj * (1 - p.adjK * s); // agent downside adj before sliders
-    const c = fcast("d" + i, "d", i, p, asmp.down, agentAdj, baseRevD[i], prevSeg, pc, prior, p.rcfD);
+    const A = effectiveYear(asmp.down, asmp.downYears?.[i as FY]);
+    const c = fcast("d" + i, "d", i, p, A, agentAdj, baseRevD[i], prevSeg, pc, prior, p.rcfD);
     down.push(c); pc = c.cash; prevSeg = { a: c.segA, d: c.segD, f: c.segF }; prior = c;
   });
 

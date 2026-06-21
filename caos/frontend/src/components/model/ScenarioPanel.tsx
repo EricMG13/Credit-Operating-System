@@ -324,11 +324,24 @@ function ScenarioBuilder({
 // columns, worst = the DOWNSIDE columns, so both the base- and downside-case
 // Assumptions sliders re-center the lens (best/base/worst + tornado). The
 // Scenario Builder layers a custom scenario on top; Reset reverts to it.
-export function ScenarioPanel({ model }: { model: Model }) {
+export function ScenarioPanel({ model, onCollapse }: { model: Model; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
-    <Panel title="Scenario & Sensitivity · forward cash-flow lens" className="w-[372px] shrink-0">
+    <Panel
+      title="Scenario & Sensitivity · forward cash-flow lens"
+      className="w-[372px] shrink-0"
+      right={onCollapse ? (
+        <button
+          onClick={onCollapse}
+          title="Collapse the Scenario & Sensitivity panel"
+          aria-label="Collapse Scenario panel"
+          className="tabular text-caos-xs px-1 text-caos-muted hover:text-caos-text transition-caos"
+        >
+          ›
+        </button>
+      ) : undefined}
+    >
       <div className="p-2.5 flex flex-col gap-3.5">
         <ScenarioComparison sc={sc} active={active?.label ?? null} />
         <div className="border-t border-caos-border" />
