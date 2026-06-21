@@ -87,9 +87,10 @@ body {
   .caos-running, .caos-enter, .caos-flash { animation: none; }
 }
 
-/* Selected card ring (cross-pane selection feedback) */
+/* Selected card ring (cross-pane selection feedback) — the 1px accent ring is
+   the signal; no glow halo (color is signal, not decoration). */
 .caos-selected {
-  box-shadow: 0 0 0 1px var(--caos-accent), 0 4px 16px -8px var(--caos-accent);
+  box-shadow: 0 0 0 1px var(--caos-accent);
 }
 
 /* Keyboard focus ring — visible only for keyboard users (:focus-visible).

@@ -248,7 +248,7 @@ function ResultHeader({ graph, running }: { graph: GraphResult | null; running: 
         {graph.mode}
       </span>
       <span className="tabular text-caos-md text-caos-text">{graph.title}</span>
-      {running && <span className="tabular text-caos-2xs text-caos-muted animate-pulse">running…</span>}
+      {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running…</span>}
       <span className="flex-1" />
       {graph.meta.map((m, i) => (
         <span key={i} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap">{m}{i < graph.meta.length - 1 ? " ·" : ""}</span>
