@@ -1,9 +1,9 @@
 "use client";
 
 // Concept switcher — the seven concept links, shown in every sub-header so users
-// can jump between concepts from anywhere. `compact` renders icon-only chips
-// (with tooltips) for the dense concept-page headers; the directory uses the
-// icon+label variant. Glyphs are small inline SVGs (stroke = currentColor) — no
+// can jump between concepts from anywhere. `compact` (dense concept-page headers)
+// labels only the active chip (you-are-here); the rest are icon + tooltip.
+// the directory always shows labels. Glyphs are small inline SVGs (stroke = currentColor) — no
 // icon-font dependency, consistent with the terminal chrome. The five-concept
 // scheme grew a sixth (Monitor) and a seventh (Research), so chips key off an
 // icon, not an A–E letter.
@@ -90,7 +90,11 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
               }
             >
               <Glyph className={active ? "text-caos-accent" : ""} />
-              {compact ? null : <span>{s.label}</span>}
+              {/* Labels: always in the directory (non-compact). The dense concept
+                  headers are too tight for 7 full labels (they'd push the live
+                  KPIs off-screen), so there we label only the active chip
+                  (you-are-here); the rest are icon + tooltip. */}
+              <span className={compact ? (active ? "inline" : "hidden") : "inline"}>{s.label}</span>
             </Link>
           );
         })}
@@ -109,7 +113,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         }
       >
         <Gear className={settingsActive ? "text-caos-accent" : ""} />
-        {compact ? null : <span>Settings</span>}
+        <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
     </span>
   );

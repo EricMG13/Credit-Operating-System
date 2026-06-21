@@ -23,6 +23,7 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
 import { CovenantsTab, DebateTab, ModuleView, RecoveryTab } from "@/components/deepdive/tabs";
+import { loadLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
@@ -65,7 +66,26 @@ function DeepDive() {
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
   const [evModal, setEvModal] = useState<string | null>(null);
-  const [railOpen, setRailOpen] = useState(true);
+  // Layout (core / dense) is chosen in Settings; read on mount (localStorage).
+  const [layout, setLayout] = useState<DeepDiveLayout>(DEFAULT_LAYOUT);
+  useEffect(() => setLayout(loadLayout()), []);
+
+  // Module-launcher accordion: each layer collapses to its name + status dots to
+  // save space; clicking a layer reveals its modules (by name). The active tab's
+  // layer always stays open; wide screens (≥2xl) open every layer.
+  const activeLayer = GROUPS.find((g) => g.mods.includes(tab))?.label ?? null;
+  const [openLayers, setOpenLayers] = useState<Set<string>>(() => new Set(activeLayer ? [activeLayer] : []));
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 1536) setOpenLayers(new Set(GROUPS.map((g) => g.label)));
+  }, []);
+  useEffect(() => {
+    if (activeLayer) setOpenLayers((prev) => (prev.has(activeLayer) ? prev : new Set(prev).add(activeLayer)));
+  }, [activeLayer]);
+  const toggleLayer = (l: string) => setOpenLayers((prev) => { const n = new Set(prev); if (n.has(l)) n.delete(l); else n.add(l); return n; });
+  // Evidence/source rail starts collapsed: traceability is on-demand (the E-xx
+  // citation chips open the source directly), so it shouldn't hold prime
+  // analytical real estate by default. The analyst expands it when they want it.
+  const [railOpen, setRailOpen] = useState(false);
   const [decisionOpen, setDecisionOpen] = useState(true);
   // Issuer Q&A open-state is owned by the global Ask launcher (⌘K), so the
   // in-panel ASK ATLF button and the shortcut drive the same chat.
@@ -76,19 +96,18 @@ function DeepDive() {
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(ATLF_REFERENCE_ISSUER_ID);
 
-  // Adaptivity: the three-pane layout needs room. Below ~1280px the side rails
-  // crush the analysis column, so auto-collapse them when the viewport crosses
-  // into the narrow band and restore on the way back out. Acts on threshold
-  // crossings only, so a manual toggle within a band is respected.
+  // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
+  // earns its space and restores on wide screens, but auto-collapses below
+  // ~1280px so it doesn't crush the analysis column. The evidence rail is left
+  // user-controlled (default collapsed, see above) — width goes to analysis.
   useEffect(() => {
     const NARROW = 1280;
     let narrow = window.innerWidth < NARROW;
-    if (narrow) { setRailOpen(false); setDecisionOpen(false); }
+    if (narrow) setDecisionOpen(false);
     const onResize = () => {
       const now = window.innerWidth < NARROW;
       if (now !== narrow) {
         narrow = now;
-        setRailOpen(!now);
         setDecisionOpen(!now);
       }
     };
@@ -114,42 +133,71 @@ function DeepDive() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">{DEAL.deal}</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">RUN #2641 · {run.completed}/{run.total} modules complete</span>
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{DEAL.deal}</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
         <div className="flex-1"></div>
         <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
         {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
-        <SimControls run={run} />
+        <span className="hidden 2xl:flex items-center shrink-0"><SimControls run={run} /></span>
       </div>
 
-      {/* module launcher strip */}
-      <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-3 overflow-x-auto">
-        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Module outputs</span>
-        {GROUPS.map((g) => (
-          <div key={g.label} className="flex items-center gap-1 pl-3 border-l border-caos-border">
-            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap mr-0.5">{g.label}</span>
-            {g.mods.map((id) => {
-              const st = gateState(GATE[id] || id);
-              const ok = isCleared(st);
-              const sel = tab === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => setTab(id)}
-                  title={MODULES.find((m) => m.id === id)?.name}
-                  className={
-                    "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
-                    (sel ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-                  }
-                  style={{ opacity: ok || sel ? 1 : 0.55 }}
-                >
-                  {!ok ? <StatusGlyph kind="locked" /> : <Dot sev={st} pulse={st === "running"} />}
-                  {BESPOKE[id] ? BESPOKE[id].code : id}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+      {/* module launcher strip — each layer collapses to its name + status dots;
+          click a layer to reveal its modules (named; short label on smaller panes). */}
+      <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto">
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline">Module outputs</span>
+        {GROUPS.map((g) => {
+          const open = openLayers.has(g.label);
+          return (
+            <div key={g.label} className="flex items-center gap-1.5 pl-2.5 border-l border-caos-border shrink-0">
+              <button
+                onClick={() => toggleLayer(g.label)}
+                aria-expanded={open}
+                title={(open ? "Collapse " : "Expand ") + g.label}
+                className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
+              >
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.label}</span>
+                {!open ? (
+                  <span className="flex items-center gap-0.5">
+                    {g.mods.map((id) => {
+                      const st = gateState(GATE[id] || id);
+                      return isCleared(st)
+                        ? <Dot key={id} sev={st} pulse={st === "running"} />
+                        : <StatusGlyph key={id} kind="locked" />;
+                    })}
+                  </span>
+                ) : null}
+                <span className="tabular text-caos-2xs text-caos-muted">{open ? "▾" : "▸"}</span>
+              </button>
+              {open ? (
+                <span className="flex items-center gap-1">
+                  {g.mods.map((id) => {
+                    const st = gateState(GATE[id] || id);
+                    const ok = isCleared(st);
+                    const sel = tab === id;
+                    const name = MODULES.find((m) => m.id === id)?.name ?? id;
+                    const short = name.split(" ")[0];
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setTab(id)}
+                        title={name}
+                        className={
+                          "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+                          (sel ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+                        }
+                        style={{ opacity: ok || sel ? 1 : 0.55 }}
+                      >
+                        {!ok ? <StatusGlyph kind="locked" /> : <Dot sev={st} pulse={st === "running"} />}
+                        <span className="hidden 2xl:inline">{name}</span>
+                        <span className="2xl:hidden">{short}</span>
+                      </button>
+                    );
+                  })}
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
       <FirstRunHint id="deepdive-panes" className="mx-2 mt-2 shrink-0">
@@ -184,10 +232,11 @@ function DeepDive() {
           }
         >
           {unlocked ? (
-            tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} /> :
-            tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} /> :
-            tab === "CP-4" ? <CovenantsTab onOpenEvidence={setEvModal} /> :
-            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} />
+            tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} layout={layout} /> :
+            tab === "CP-6E" ? <DebateTab variant="CP-6E" onOpenEvidence={setEvModal} layout={layout} /> :
+            tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
+            tab === "CP-4" ? <CovenantsTab onOpenEvidence={setEvModal} layout={layout} /> :
+            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} layout={layout} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />

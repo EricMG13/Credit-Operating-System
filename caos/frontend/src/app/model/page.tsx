@@ -163,23 +163,27 @@ function ModelBuilder() {
       {/* sub-header */}
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Atlas Forge — cash-flow model</span>
         <ModelProvenance eng={eng} model={model} />
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
           dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
-        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
-          <span className="text-caos-muted">BASE · net lev FY27e</span>
-          <span style={{ color: "var(--caos-success)" }}>{b1.netlev?.toFixed(2) ?? "—"}x</span>
+        {/* Net-lev status chips duplicate the Scenario panel — drop them first on
+            narrow screens; the panel toggles + Export stay reachable. */}
+        <span className="hidden 2xl:flex items-center gap-3 shrink-0">
+          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
+            <span className="text-caos-muted">BASE · net lev FY27e</span>
+            <span style={{ color: "var(--caos-success)" }}>{b1.netlev?.toFixed(2) ?? "—"}x</span>
+          </span>
+          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
+            <span className="text-caos-muted">DOWNSIDE · peak</span>
+            <span style={{ color: "var(--caos-warning)" }}>{d0.netlev?.toFixed(2) ?? "—"}x</span>
+          </span>
+          <span className="h-4 w-px bg-caos-border" />
         </span>
-        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
-          <span className="text-caos-muted">DOWNSIDE · peak</span>
-          <span style={{ color: "var(--caos-warning)" }}>{d0.netlev?.toFixed(2) ?? "—"}x</span>
-        </span>
-        <span className="h-4 w-px bg-caos-border" />
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={

@@ -72,6 +72,59 @@ export function OutputRegister({
   );
 }
 
+/* ---------- inline workflow-step outputs ----------
+   Surfaces the per-step analytical output that the register otherwise gates
+   behind a modal. Both modes pack newspaper-style — cards flow top→bottom and
+   pack tight, so empty space only ever appears at the bottom of the last column.
+   The only difference is the column count:
+     base  — capped at 4 columns (column-count), each stretched to fill; fewer on
+             narrow panes.
+     dense — as many ~360px columns as the pane fits (maximum density).
+   Each card clips its own overflow (overflow-x-auto + min-w-0) so a wide table
+   scrolls inside the card instead of spilling across columns. */
+export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: string; onOpenEvidence: (id: string) => void; mode?: "base" | "dense" }) {
+  const steps = MODULE_STEPS[id];
+  if (!steps) return null;
+  const cards = steps
+    .map((s) => ({ s, data: STEP_OUTPUTS[id + ":" + s[1]], narr: STEP_NOTES[id + ":" + s[1]] }))
+    .filter((c) => c.data || c.narr);
+  if (!cards.length) return null;
+  // column-width is a minimum; multicol stretches the columns to fill the pane.
+  // base also sets column-count to cap at 4 even on an ultrawide display.
+  const containerStyle: React.CSSProperties = mode === "base"
+    ? { columns: "280px 4", columnGap: 8 }
+    : { columns: "360px", columnGap: 8 };
+  const cardCls = "rounded border border-caos-border bg-caos-panel/40 p-2 flex flex-col gap-2 overflow-x-auto min-w-0 break-inside-avoid mb-2";
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-0.5">
+        {id} workflow step outputs · {cards.length} of {steps.length} produced detail
+      </div>
+      <div style={containerStyle}>
+        {cards.map(({ s, data, narr }, i) => {
+          const sev = s[2] === "gap" ? "critical" : (s[2] as string);
+          return (
+            <div key={i} className={cardCls}>
+              <div className="flex items-center gap-2 px-0.5">
+                <Dot sev={sev} />
+                {s[0] !== "—" ? <span className="tabular text-caos-2xs text-caos-muted shrink-0">{s[0]}</span> : null}
+                <span className="text-caos-md font-semibold text-caos-text leading-snug">{s[1]}</span>
+              </div>
+              {narr ? (
+                <div className="text-caos-md text-caos-text/90 leading-relaxed px-0.5">
+                  {narr.body}
+                  {narr.ev && narr.ev.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</span> : null}
+                </div>
+              ) : null}
+              {data ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ---------- step output viewer (full analytical output per REF template) ---------- */
 export function StepOutputModal({
   id,

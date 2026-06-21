@@ -142,13 +142,13 @@ function ReportStudio() {
       {/* sub-header */}
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Report Studio — committee deliverables</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden xl:inline">
           assembled from RUN #2641 outputs · figures on M-118 model basis
         </span>
         <span className="flex-1" />
-        {/* paper tone */}
-        <span className="flex items-center gap-1">
+        {/* paper tone — decorative, drops first on narrow screens */}
+        <span className="hidden 2xl:flex items-center gap-1 shrink-0">
           {PAPERS.map((p) => (
             <button
               key={p.v}
