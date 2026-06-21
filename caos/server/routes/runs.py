@@ -16,6 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+import vault_export
+from config import get_settings
 from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
@@ -298,3 +300,34 @@ async def export_committee_report(
 
     modules = await _modules_for(db, run_id)
     return assemble_report(run, modules)
+
+
+@router.post("/{run_id}/vault")
+async def export_to_vault(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Write this run to the Obsidian-style vault as Markdown (hub + spoke).
+
+    One-way, analyst-initiated. Unlike the committee report this is *not* gated on
+    Committee Ready — it's a derived artifact and the run's qa/committee status is
+    stamped into the note's frontmatter, so a draft exports labelled as a draft.
+    Returns 503 when no vault dir is configured (VAULT_EXPORT_DIR unset), 500 when
+    the configured dir can't be written.
+    """
+    if not rate_limit.hit(f"vault:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Vault export rate limit reached — try again in a minute.")
+
+    settings = get_settings()
+    if not settings.vault_export_dir:
+        raise HTTPException(503, "Vault export not configured (set VAULT_EXPORT_DIR).")
+    if await db.get(Run, run_id) is None:
+        raise HTTPException(404, "Run not found")
+
+    try:
+        paths = await vault_export.export_run(db, run_id, settings.vault_export_dir)
+    except OSError as e:  # unwritable / bad VAULT_EXPORT_DIR — a config issue, not a server fault
+        logger.warning("vault export write failed for run %s: %s", run_id, e)
+        raise HTTPException(500, "Vault export failed — check VAULT_EXPORT_DIR exists and is writable.") from e
+    return {"written": [p.name for p in paths], "vault_dir": settings.vault_export_dir}

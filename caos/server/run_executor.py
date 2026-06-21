@@ -35,6 +35,7 @@ async def execute_run_by_id(run_id: str) -> None:
         try:
             await execute_run(session, run)
             await session.commit()
+            await _maybe_export_to_vault(session, run_id)
         except asyncio.CancelledError:
             # Shutdown cancellation. CancelledError is BaseException, not Exception,
             # so the guard below would miss it and strand the run in 'running'
@@ -46,6 +47,29 @@ async def execute_run_by_id(run_id: str) -> None:
         except Exception as e:  # noqa: BLE001 — last-resort guard so a run is never stranded
             logger.exception("run %s failed in executor", run_id)
             await _mark_run_failed(session, run_id, str(e)[:2000])
+
+
+async def _maybe_export_to_vault(session, run_id: str) -> None:
+    """After a run finishes, mirror it to the Obsidian vault iff auto-export is on
+    and the run came out Committee Ready. Best-effort: an export failure is logged
+    and swallowed so it can never fail an otherwise-good run."""
+    # The whole body is guarded: this runs after the run is committed, so ANY
+    # error here (incl. the settings read / gate query) must be swallowed —
+    # otherwise it escapes to execute_run_by_id's handler and marks an
+    # already-successful run failed. Best-effort: the run is the source of truth.
+    try:
+        settings = get_settings()
+        if not (settings.vault_export_auto and settings.vault_export_dir):
+            return
+        run = await session.get(Run, run_id)
+        if run is None or run.committee_status != "Committee Ready":
+            return
+        import vault_export
+
+        paths = await vault_export.export_run(session, run_id, settings.vault_export_dir)
+        logger.info("run %s exported to vault (%s)", run_id, ", ".join(p.name for p in paths))
+    except Exception:  # noqa: BLE001 — export is derived; never fail the run on it
+        logger.exception("vault export failed for run %s (run unaffected)", run_id)
 
 
 async def _mark_run_failed(session, run_id: str, reason: str) -> None:

@@ -103,6 +103,17 @@ async def synthesize_peer_benchmark(
     if not distinct:
         return _insufficient("No peers with comparable metrics in coverage.")
 
+    # Persist the peer set (id + name) so downstream consumers can reference the
+    # actual peers, not just a count — e.g. the vault export turns these into
+    # issuer↔issuer graph links. The ids are already in hand; names are one read.
+    peer_names = dict(
+        (await session.execute(select(Issuer.id, Issuer.name).where(Issuer.id.in_(list(distinct))))).all()
+    )
+    peer_set = sorted(
+        ({"issuer_id": iid, "name": peer_names.get(iid, iid)} for iid in distinct),
+        key=lambda p: p["name"],
+    )
+
     comparisons: List[dict] = []
     outliers: List[str] = []
     for mk in keys:
@@ -122,7 +133,7 @@ async def synthesize_peer_benchmark(
             outliers.append(md.label)
 
     runtime = {
-        "peer_scope": scope, "peer_count": len(distinct),
+        "peer_scope": scope, "peer_count": len(distinct), "peers": peer_set,
         "comparisons": comparisons, "outlier_metrics": outliers,
         "basis_note": "Leverage/EBITDA may mix reported (EDGAR) and adjusted bases across peers.",
     }

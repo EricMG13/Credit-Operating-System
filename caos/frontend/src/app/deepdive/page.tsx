@@ -13,6 +13,7 @@ import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
+import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import { buildReports } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
@@ -117,6 +118,7 @@ function DeepDive() {
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">RUN #2641 · {run.completed}/{run.total} modules complete</span>
         <div className="flex-1"></div>
         <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
+        {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
         <SimControls run={run} />
       </div>
 

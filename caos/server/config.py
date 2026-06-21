@@ -110,6 +110,16 @@ class Settings(BaseSettings):
     edgar_timeout_s: int = 30
     edgar_max_exhibit_mb: int = 25
 
+    # Optional: one-way Markdown export of finished runs into an Obsidian-style
+    # vault (vault_export.py). Empty = disabled (no files written, route 503s).
+    # When set to a directory, the manual "Export to vault" route writes there on
+    # demand; if vault_export_auto is on, a run that finishes Committee Ready is
+    # also exported automatically (export failures never fail the run). Derived,
+    # write-only mirror — CAOS stays canonical. No new deps, no vector DB. See
+    # caos/docs/OBSIDIAN_DATABANK.md.
+    vault_export_dir: str = ""
+    vault_export_auto: bool = False
+
     # Per-run LLM token budget (engine/budget.py). 0 = unlimited. When set, a run
     # that spends its budget degrades later LLM modules to their deterministic
     # path (or gates them) instead of spending beyond the cap. 120k is a runaway

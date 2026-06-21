@@ -11,6 +11,8 @@ import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
 import { fmtMetric } from "@/lib/query/format";
+import { barSpecFor, narrate } from "@/lib/query/viz";
+import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult } from "@/lib/query/types";
 
@@ -271,6 +273,29 @@ export function NlQueryBody() {
               <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5">Reading</span>
               {res.interpretation}
             </div>
+
+            {/* auto-generated narrative — the so-what, always shown */}
+            {(() => {
+              const summary = narrate(res);
+              return summary ? (
+                <div className="text-caos-md text-caos-text/90 leading-snug">
+                  <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5">Summary</span>
+                  {summary}
+                </div>
+              ) : null;
+            })()}
+
+            {/* auto-selected visualization — bar chart for rankable multi-row results */}
+            {(() => {
+              const spec = barSpecFor(res);
+              if (!spec) return null;
+              const h = Math.max(150, Math.min(280, (spec.data as unknown[]).length * 34 + 56));
+              return (
+                <div className="rounded border border-caos-border/60 bg-caos-bg/30 p-1.5">
+                  <G2Chart spec={spec} height={h} />
+                </div>
+              );
+            })()}
 
             {res.mode === "semantic"
               ? <SemanticView res={res} onOpenCite={openCite} />
