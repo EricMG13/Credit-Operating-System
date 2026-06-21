@@ -59,7 +59,7 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
                   <div key={j} className="flex gap-2">
                     <span className="tabular text-caos-2xs mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
                     <div>
-                      <span className="text-caos-lg text-caos-text leading-snug">{pt.text}</span>
+                      <span className="text-caos-lg text-caos-text leading-relaxed">{pt.text}</span>
                       {pt.ev.length ? (
                         <span className="inline-flex gap-1 ml-1.5 align-middle">
                           {pt.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
