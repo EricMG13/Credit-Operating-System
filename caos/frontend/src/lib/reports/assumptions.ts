@@ -52,7 +52,6 @@ export const ADDBACKS = [
   { key: "abSyn", label: "Run-rate synergies", w: 0.18 },
   { key: "abOther", label: "Pro forma", w: 0.10 },
 ] as const;
-export type AddbackKey = (typeof ADDBACKS)[number]["key"];
 
 // Forecast years, in build order (FY26e/FY27e/FY28e = forecast cols 0/1/2).
 export type FY = 0 | 1 | 2;

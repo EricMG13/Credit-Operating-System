@@ -75,7 +75,6 @@ export const exportReport = (runId: string): Promise<unknown> =>
 // One-way Markdown export of a run into the Obsidian vault (hub + spoke notes).
 // 503s when VAULT_EXPORT_DIR is unset. Not gated on Committee Ready — status is
 // stamped into the note frontmatter instead.
-// fallow-ignore-next-line unused-export
 export const exportToVault = (runId: string): Promise<{ written: string[]; vault_dir: string }> =>
   api.post(`/api/runs/${runId}/vault`).then((r) => r.data);
 
