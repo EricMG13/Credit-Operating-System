@@ -13,6 +13,11 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
+    # read_only is unset — the postgres entrypoint starts as root, drops to the
+    # postgres user, and writes its data/socket dirs.
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
     environment:
       POSTGRES_USER: caos
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -34,6 +39,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Hardening: non-root already (Dockerfile USER caos). Drop all caps (the app
+    # needs none), block priv-escalation, run an immutable rootfs. It writes only
+    # to /vault (volume) and /tmp (upload tempfiles → tmpfs); PYTHONDONTWRITEBYTECODE
+    # means no .pyc writes into the read-only /app.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    mem_limit: 2g
     environment:
       ENVIRONMENT: production
       HOST: 0.0.0.0
@@ -46,6 +60,10 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       EDGAR_USER_AGENT: ${EDGAR_USER_AGENT:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-250}
+      # Defense-in-depth (SECURITY.md §1): require Caddy's injected edge secret so
+      # forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on
+      # the internal net) is rejected. Empty = enforcement off (app logs a warning).
+      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:-}
     volumes:
       - vault-data:/vault
     networks: [internal]
@@ -57,6 +75,13 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    # Hardening: stateless (sessions are client cookies), so drop all caps + run
+    # an immutable rootfs with a tmpfs for any scratch writes.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    mem_limit: 256m
     command: ["--config=/etc/oauth2-proxy.cfg"]
     environment:
       OAUTH2_PROXY_CLIENT_ID: ${OAUTH2_PROXY_CLIENT_ID:?set in .env}
@@ -72,11 +97,19 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on: [oauth2-proxy]
+    # Hardening: drop all caps but keep NET_BIND_SERVICE (binds :80/:443) and block
+    # priv-escalation. Not read_only — Caddy writes provisioned certs to /data.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
+    mem_limit: 256m
     ports:
       - "80:80"
       - "443:443"
     environment:
       CAOS_DOMAIN: ${CAOS_DOMAIN:?set in .env}
+      # Edge secret injected toward the app (see Caddyfile). Empty = W1 off.
+      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -93,6 +126,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Hardening: block priv-escalation + cap memory. Caps kept (pg_dump/tar) and
+    # writable rootfs (writes /backups).
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}

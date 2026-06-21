@@ -14,6 +14,15 @@
 	request_header -X-Forwarded-Preferred-Username
 	request_header -X-Forwarded-Groups
 	request_header -X-Forwarded-Access-Token
+	# Also strip the edge credential so a client can't supply it (we set it below).
+	request_header -X-Edge-Authorization
 
-	reverse_proxy oauth2-proxy:4180
+	# Defense-in-depth (W1): inject the shared edge secret so the app can prove a
+	# request actually transited the edge, not a direct hit to app:8000 with forged
+	# headers. oauth2-proxy forwards this header to the upstream app. Empty when
+	# EDGE_PROXY_SECRET is unset → the app leaves enforcement off. Verify on first
+	# deploy that the app sees X-Edge-Authorization (oauth2-proxy passthrough).
+	reverse_proxy oauth2-proxy:4180 {
+		header_up X-Edge-Authorization {$EDGE_PROXY_SECRET}
+	}
 }
