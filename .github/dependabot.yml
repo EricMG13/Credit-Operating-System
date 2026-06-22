@@ -1,6 +1,10 @@
 # Dependency scanning (Phase-4 launch gate). Native GitHub feature — surfaces
 # security alerts and opens update PRs; no CI runtime, no blocking gate.
-# Three ecosystems: frontend (npm), server (pip), and the CI workflows themselves.
+# Five ecosystems: frontend (npm), server (pip), the CI workflows (github-actions),
+# the deploy Dockerfile base images (docker), and the compose service image pins
+# (docker-compose). The two docker ecosystems close the gap that let
+# oauth2-proxy drift behind its CVE-fixed release: the security CI job audits pip
+# and npm dependencies but never scans container image tags.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -19,3 +23,18 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # Dockerfile base images (node:20-slim, python:3.11-slim).
+  - package-ecosystem: docker
+    directory: /caos/deploy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Compose service image pins (oauth2-proxy, postgres, caddy). docker-compose
+  # support is GA since Feb 2025; scans the `image:` tags docker can't see.
+  - package-ecosystem: docker-compose
+    directory: /caos/deploy
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

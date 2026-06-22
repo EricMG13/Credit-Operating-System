@@ -13,6 +13,7 @@ out/
 # CAOS server build artifacts / local state
 caos/server/static/
 caos/server/data/
+caos/data/
 
 # Python
 __pycache__/
