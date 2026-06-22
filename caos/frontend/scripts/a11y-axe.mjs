@@ -14,6 +14,16 @@ const TAGS = ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa'];
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+// Sign in first — the app gates every route behind an analyst profile, so without
+// this the scan would only ever see the login landing. The POST sets the signed
+// cookie in this context's jar, which the page navigations below then carry.
+const CODE = process.env.ANALYST_SIGNUP_CODE || '131113';
+try {
+  const r = await page.request.post(BASE + '/api/auth/profile', { data: { code: CODE, name: 'A11y Bot' } });
+  if (!r.ok()) console.error(`a11y login failed (${r.status()}) — scanning the login wall instead`);
+} catch (e) { console.error('a11y login error:', e.message); }
+
 const out = {};
 for (const route of ROUTES) {
   try {

@@ -6,6 +6,7 @@ clients poll GET /runs/{id} to completion. These endpoints create and inspect ru
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -24,6 +25,24 @@ from identity import CallerIdentity, get_identity
 
 logger = logging.getLogger("caos")
 router = APIRouter()
+
+# Serializes the dedup check→insert in create_run so two simultaneous POSTs for
+# the same issuer can't both pass the "is one already active?" SELECT before
+# either commits. One process, one event loop → one lock suffices.
+# ponytail: global lock, fine for one process. If ever scaled to multiple app
+# replicas, move the guard to a partial unique index on (issuer_id) WHERE
+# status='queued' (a per-replica lock won't coordinate across processes).
+# Lazy-init: on py3.9 asyncio.Lock() binds the loop at construction, which fails
+# at import time (no running loop). First create_run call builds it in the app loop.
+_CREATE_RUN_LOCK: "asyncio.Lock | None" = None
+
+
+def _create_run_lock() -> asyncio.Lock:
+    global _CREATE_RUN_LOCK
+    if _CREATE_RUN_LOCK is None:
+        _CREATE_RUN_LOCK = asyncio.Lock()
+    return _CREATE_RUN_LOCK
+
 
 _RUNS_MAX_PER_MINUTE = 12
 
@@ -52,6 +71,7 @@ class RunSummary(BaseModel):
     qa_status: str
     committee_status: str
     as_of_date: Optional[str]
+    analyst_id: Optional[str] = None
     model_id: Optional[str]
     prompt_version: Optional[str]
     error: Optional[str] = None
@@ -66,6 +86,7 @@ class RunListItem(BaseModel):
     qa_status: str
     committee_status: str
     as_of_date: Optional[str]
+    analyst_id: Optional[str] = None
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
@@ -136,7 +157,8 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
     return RunSummary(
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
-        as_of_date=run.as_of_date, model_id=run.model_id, prompt_version=run.prompt_version,
+        as_of_date=run.as_of_date, analyst_id=run.analyst_id,
+        model_id=run.model_id, prompt_version=run.prompt_version,
         error=run.error, tokens_used=run.tokens_used,
         modules=[ModuleStatus.model_validate(m) for m in modules],
     )
@@ -156,9 +178,24 @@ async def create_run(
     if await db.get(Issuer, body.issuer_id) is None:
         raise HTTPException(404, "Issuer not found")
 
-    run = Run(issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id)
-    db.add(run)
-    await db.commit()  # persist the queued run so the executor can see it
+    # Dedup: refuse a second run while one is already active for this issuer, so
+    # two analysts (or a double-click) don't kick off duplicate work that then
+    # races on the issuer's headline metric_facts (runner.py supersedes other
+    # runs' facts → last-writer-wins). Re-runs once the prior one is terminal are
+    # allowed. The lock makes the check→insert atomic against a concurrent POST.
+    async with _create_run_lock():
+        active = (await db.execute(
+            select(Run.id)
+            .where(Run.issuer_id == body.issuer_id, Run.status.in_(("queued", "running")))
+            .limit(1)
+        )).scalar_one_or_none()
+        if active:
+            raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
+
+        run = Run(issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id)
+        db.add(run)
+        await db.commit()  # persist the queued run so the executor can see it
+
     await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
 

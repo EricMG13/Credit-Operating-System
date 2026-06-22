@@ -2,15 +2,17 @@
 
 import { type ReactNode } from "react";
 import { useAuth } from "@/components/shared/AuthProvider";
+import { LoginLanding } from "@/components/shared/LoginLanding";
 
 /**
- * Gates content on a resolved identity. Authentication happens at the
- * Databricks Apps platform edge, so an unreachable /api/auth/me means the
- * API server is down (or a local dev server isn't running) — not that the
- * user needs to log in.
+ * Gates content on a signed-in analyst profile. Three terminal states:
+ *  - needsLogin → the code-gated login landing (create / re-attach a profile);
+ *  - error      → the API is unreachable (down server / dead proxy), not a login
+ *                 problem, so we show a retry card rather than the login form;
+ *  - profile    → render the app.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, refresh } = useAuth();
+  const { user, loading, error, needsLogin, refresh } = useAuth();
 
   if (loading) {
     return (
@@ -20,7 +22,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (needsLogin) {
+    return <LoginLanding onSuccess={refresh} />;
+  }
+
+  if (error || !user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-caos-bg text-center px-4">
         <p className="text-caos-text text-sm font-medium">Can&apos;t reach the CAOS API</p>

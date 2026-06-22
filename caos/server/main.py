@@ -1,9 +1,10 @@
 """CAOS — single-process Databricks App.
 
 One FastAPI service serves both the JSON API (under /api) and the static
-Next.js frontend export (everything else). Databricks Apps handles TLS and
-authentication at the platform edge; locally the same process runs with a
-dev identity, SQLite, and on-disk storage.
+Next.js frontend export (everything else). The edge (Caddy + oauth2-proxy)
+terminates TLS and authenticates the caller; on top of that, analysts hold a
+code-gated in-app profile (routes/auth.py) that supplies the app-level identity.
+Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 """
 
 from __future__ import annotations
@@ -41,6 +42,14 @@ async def lifespan(app: FastAPI):
             "rests on network isolation alone (no proxy-origin check). Set "
             "EDGE_PROXY_SECRET and have the edge inject X-Edge-Authorization to "
             "enforce that requests came through the proxy. See SECURITY.md §1."
+        )
+    if settings.environment == "production" and settings.session_secret in ("", "dev-insecure-session-secret"):
+        # Fail closed: the dev default is public (in source), so it would let
+        # anyone forge an analyst login cookie. Refuse to start without a real one.
+        raise RuntimeError(
+            "SESSION_SECRET must be set to a random value in production — the dev "
+            "default lets analyst login cookies be forged. Generate one with: "
+            'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
     await init_db()
     if settings.caos_demo_seed:

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # EDGE_PROXY_SECRET. Generate with e.g. `python -c "import secrets;print(secrets.token_urlsafe(32))"`.
     edge_proxy_secret: str = ""
 
+    # In-app analyst login (routes/auth.py). A single shared access code gates
+    # self-registration of named analyst profiles; the profile id is signed into
+    # the caos_analyst cookie (session_secret) and stamped on every run. Env:
+    # ANALYST_SIGNUP_CODE, SESSION_SECRET. The session_secret default is dev-only
+    # — set a real one in production (startup warns otherwise).
+    analyst_signup_code: str = "131113"
+    session_secret: str = "dev-insecure-session-secret"
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"

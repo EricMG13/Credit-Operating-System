@@ -15,6 +15,12 @@ export const api = axios.create({
 // the error card (with RETRY) shows instead. Long-running calls set their own.
 export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
+// In-app login: the shared access code mints (or re-attaches to) a named analyst
+// profile and sets the signed identity cookie. logout clears it.
+export const createProfile = (code: string, name: string) =>
+  api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
+export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
+
 // ─── Issuers ──────────────────────────────────────────────────────────────
 // `q` searches name, ticker, industry, country, and FIGI (case-insensitive).
 export const getIssuers = (q?: string) =>

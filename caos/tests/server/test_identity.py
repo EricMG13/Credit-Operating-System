@@ -9,15 +9,16 @@ from fastapi import HTTPException
 from starlette.datastructures import Headers
 
 
-def _req(headers: dict):
-    """Minimal stand-in for a Starlette Request — get_identity only reads
-    .headers.get(...), and Headers is case-insensitive like the real thing."""
+def _req(headers: dict, cookies: dict | None = None):
+    """Minimal stand-in for a Starlette Request — get_identity reads .headers.get()
+    and .cookies.get(); Headers is case-insensitive like the real thing."""
 
     class _R:
         pass
 
     r = _R()
     r.headers = Headers(headers)
+    r.cookies = cookies or {}
     return r
 
 
@@ -67,6 +68,26 @@ def test_edge_secret_required_when_configured(monkeypatch):
             _req({"x-forwarded-email": "ceo@firm.com", "x-edge-authorization": "sécret"})
         )
     assert nonascii.value.status_code == 401
+
+
+def test_cookie_does_not_bypass_edge_secret(monkeypatch):
+    """A profile cookie must NOT skip the edge-origin check: a deployed request
+    with a valid cookie but no X-Edge-Authorization is still 401 (the check runs
+    before cookie resolution)."""
+    identity = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t")
+    token = identity.make_session_token(
+        {"id": "x", "name": "X", "email": ""}, "dev-insecure-session-secret"
+    )
+
+    with pytest.raises(HTTPException) as e:
+        identity.get_identity(_req({}, cookies={identity.COOKIE_NAME: token}))
+    assert e.value.status_code == 401
+
+    # With the edge credential, the same cookie resolves to the profile.
+    ident = identity.get_identity(
+        _req({"x-edge-authorization": "s3cr3t"}, cookies={identity.COOKIE_NAME: token})
+    )
+    assert ident.source == "profile" and ident.full_name == "X"
 
 
 def test_unset_secret_keeps_prior_fail_closed(monkeypatch):

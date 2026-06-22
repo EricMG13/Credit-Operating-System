@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AnalystBadge } from "./AnalystBadge";
 
 type Icon = (props: { className?: string }) => React.ReactElement;
 
@@ -120,6 +121,9 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         <Gear className={settingsActive ? "text-caos-bg" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
+      {/* Signed-in analyst initials — to the right of the nav on every page. */}
+      <span className="h-4 w-px bg-caos-border mx-0.5" />
+      <AnalystBadge />
     </span>
   );
 }

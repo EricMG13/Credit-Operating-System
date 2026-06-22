@@ -239,10 +239,12 @@ def api_client():
 
 
 def test_post_runs_returns_queued_fast(api_client):
+    from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
     r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
     assert r.status_code == 201, r.text
     assert r.json()["status"] == "queued"
+    wait_for_run(api_client, r.json()["id"])  # drain so the dedup guard doesn't 409 later tests
 
 
 def test_post_runs_then_polls_to_complete(api_client):
@@ -267,6 +269,33 @@ def test_failed_run_surfaces_error(api_client, monkeypatch):
     body = wait_for_run(api_client, r.json()["id"])
     assert body["status"] == "failed"
     assert "kaboom" in (body["error"] or "")
+
+
+def test_duplicate_active_run_rejected(api_client, monkeypatch):
+    """Two runs for one issuer can't be active at once: the second POST gets 409
+    while the first is queued/running; a re-run is allowed once it's terminal."""
+    import asyncio
+
+    import run_executor
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    async def hold(session, run):  # mimic execute_run's status lifecycle, stalled mid-run
+        run.status = "running"
+        await session.commit()
+        await asyncio.sleep(0.3)
+        run.status = "complete"
+
+    monkeypatch.setattr(run_executor, "execute_run", hold)
+    first = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert first.status_code == 201, first.text
+    dup = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert dup.status_code == 409, dup.text  # blocked while the first is active
+
+    wait_for_run(api_client, first.json()["id"])  # let the first finish, then re-run is fine
+    again = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert again.status_code == 201, again.text
+    wait_for_run(api_client, again.json()["id"])  # drain
 
 
 @pytest.mark.asyncio
