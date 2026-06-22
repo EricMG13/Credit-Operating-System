@@ -45,6 +45,21 @@ def test_validate_rejects_noop():
         validate_scenario(ScenarioSpec())
 
 
+def test_validate_drops_nonfinite_deltas():
+    # json.loads/pydantic admit NaN/±Inf; NaN defeats max/min so it would slip the clamp
+    # and poison the projection (renders NaN). Non-finite deltas must coerce to 0.0.
+    import math
+
+    s = validate_scenario(ScenarioSpec(
+        rev_growth_delta=float("nan"), rate_delta=float("inf"), margin_delta=-0.04))
+    assert s.rev_growth_delta == 0.0 and s.rate_delta == 0.0  # non-finite → 0
+    assert math.isfinite(s.rev_growth_delta) and math.isfinite(s.rate_delta)
+    assert s.margin_delta == -0.04  # a real, in-band delta still survives
+    # a scenario of only non-finite deltas collapses to a no-op → rejected, not NaN
+    with pytest.raises(ScenarioError):
+        validate_scenario(ScenarioSpec(capex_delta=float("nan")))
+
+
 # ── Endpoint ─────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
 def client():

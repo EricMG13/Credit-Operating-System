@@ -9,6 +9,7 @@
 import { useMemo } from "react";
 import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
+import { onActivate } from "@/lib/a11y";
 
 // Categorical hues for issuer grouping (industry/country). Distinct, no banding —
 // pairs with the always-present text label, so meaning is never color-only. The
@@ -175,9 +176,10 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
       opacity={n.dim ? 0.5 : 1}
       style={clickable ? { cursor: "pointer" } : undefined}
       onClick={onClick}
+      className={clickable ? "graph-node" : undefined}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
-      onKeyDown={clickable ? (ev) => { if (ev.key === "Enter") onClick?.(); } : undefined}
+      onKeyDown={clickable ? onActivate(() => onClick?.()) : undefined}
       aria-label={clickable ? `Open source for ${n.label}` : undefined}
     >
       <title>{n.title || n.label}</title>

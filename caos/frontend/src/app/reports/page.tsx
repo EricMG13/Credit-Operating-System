@@ -228,7 +228,7 @@ function ReportStudio() {
       <div className="flex-1 min-h-0 flex gap-2 p-2">
         <ReportList reports={reports} active={rep.id} onSel={setActiveId} />
 
-        <div ref={scrollRef} className="flex-1 min-w-0 rounded border border-caos-border overflow-auto" style={{ background: "#08080c" }}>
+        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
             <div style={{ zoom }}>
               <ReportDoc

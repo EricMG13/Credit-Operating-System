@@ -104,6 +104,15 @@ body {
   outline-offset: -2px;
 }
 
+/* SVG graph node focus — .focus-ring's -2px inset outline doesn't render on an
+   SVG <g> (no box model), so keyboard focus on Query-graph nodes used an
+   outward-offset outline around the node bbox instead. */
+.graph-node:focus-visible {
+  outline: 2px solid var(--caos-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Source-vault clause highlight (Evidence Sync target) */
 .clause-highlight {
   background: rgba(245, 165, 36, 0.14);
@@ -157,7 +166,7 @@ body {
 .rd-table tr.rd-it td.rd-num { font-size: 8.2px; }
 .rd-table tr.rd-line td { border-top: 1px solid #8e8c80; }
 .rd-table tr.rd-gapr td { padding-top: 8px; }
-.rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #8a887c; font-style: normal; padding-left: 10px; }
+.rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; font-style: normal; padding-left: 10px; }
 .rd-note { font-size: 8px; font-style: italic; color: #6c6c76; margin-top: 4px; }
 
 .rd-profile { display: flex; flex-direction: column; }
@@ -267,7 +276,7 @@ body {
 .rdoc-sources-h { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #5c5c66; margin-bottom: 9px; }
 .rdoc-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: src; }
 .rdoc-sources li { counter-increment: src; display: flex; gap: 9px; font-size: 11px; line-height: 1.45; }
-.rdoc-sources li::before { content: counter(src, decimal-leading-zero); font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 600; color: #8a887c; padding-top: 1px; }
+.rdoc-sources li::before { content: counter(src, decimal-leading-zero); font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 600; color: #5c5c66; padding-top: 1px; }
 .rdoc-sources a { color: #16161e; text-decoration: none; border-bottom: 1px solid rgba(22,22,30,0.25); word-break: break-word; }
 .rdoc-sources a:hover { border-bottom-color: #16161e; }
 

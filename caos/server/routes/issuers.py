@@ -53,6 +53,11 @@ class IssuerDocumentResponse(BaseModel):
 # scope queries: there is no per-user ownership boundary here by design. If
 # need-to-know access control is ever required (e.g. an MNPI information
 # barrier — see review W2), scope these queries by `caller` then.
+# Slash-tolerant: prod serves FastAPI directly (frontend calls `/api/issuers/`),
+# but `next dev` proxies and strips the trailing slash → `/api/issuers`, which the
+# `/api/{path:path}` catch-all in main.py would 404 (it shadows redirect_slashes).
+# Register both so the collection resolves with or without the slash. (See QA BUG-001.)
+@router.get("", response_model=List[IssuerResponse], include_in_schema=False)
 @router.get("/", response_model=List[IssuerResponse])
 async def list_issuers(
     q: Optional[str] = Query(
@@ -79,6 +84,7 @@ async def list_issuers(
     return result.scalars().all()
 
 
+@router.post("", response_model=IssuerResponse, status_code=201, include_in_schema=False)
 @router.post("/", response_model=IssuerResponse, status_code=201)
 async def create_issuer(
     body: IssuerCreate,

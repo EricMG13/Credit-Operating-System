@@ -207,7 +207,7 @@ export function Inspector({
       <div className="p-4 text-caos-xl text-caos-muted leading-relaxed">
         <div className="text-caos-text font-medium mb-2">Select a module</div>
         Click any node to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span> and{" "}
-        <span style={{ color: "var(--tranche-sub)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
+        <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
         status, QA findings and propagated limitations.
         <div className="mt-3 tabular text-caos-sm text-caos-muted">
           {modeLabel} route · {scope.size} modules in scope.
@@ -361,7 +361,7 @@ export function LineagePanel({
 /* ---------- event log ---------- */
 export function EventLog({ events }: { events: SimEvent[] }) {
   return (
-    <div className="h-full overflow-auto">
+    <div tabIndex={0} aria-label="Execution trace log" className="h-full overflow-auto focus-ring">
       {events.length === 0 ? <div className="px-3 py-2 text-caos-md text-caos-muted">Awaiting run start…</div> : null}
       {events.map((e, i) => (
         <div key={events.length - i} className={"flex items-center gap-2 px-3 py-[3.5px] border-b border-caos-border/40 " + (i === 0 ? "caos-enter" : "")}>

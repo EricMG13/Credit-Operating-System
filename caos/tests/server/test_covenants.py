@@ -28,13 +28,13 @@ _MAINT = "The borrower shall not permit the consolidated net leverage ratio to e
 def test_derive_terms_incremental_and_covlite():
     terms = derive_covenant_terms([("c-ind", _INDENTURE)])
     assert terms is not None
-    assert terms["incremental_musd"] == (612.0, "c-ind")
+    assert terms["incremental_musd"] == (612.0, "c-ind", True)  # exact: regex-matched in this chunk
     assert terms["leverage_covenant_x"] is None  # none present → cov-lite
 
 
 def test_derive_terms_maintenance_covenant():
     terms = derive_covenant_terms([("c-sfa", _MAINT)])
-    assert terms["leverage_covenant_x"] == (7.0, "c-sfa")
+    assert terms["leverage_covenant_x"] == (7.0, "c-sfa", True)
     assert terms["incremental_musd"] is None
 
 
@@ -95,12 +95,12 @@ _INCURRENCE = ("The Borrower may incur Incremental Facilities if, on a Pro Forma
 
 def test_derive_terms_ratio_format_covenant_clause():
     terms = derive_covenant_terms([("c-ag", _MAINT_RATIO)])
-    assert terms["leverage_covenant_x"] == (5.75, "c-ag")  # "to 1.00" form, not "x"
+    assert terms["leverage_covenant_x"] == (5.75, "c-ag", True)  # "to 1.00" form, not "x"
 
 
 def test_derive_terms_compliance_certificate_ratio():
     terms = derive_covenant_terms([("c-cc", _COMPLIANCE)])
-    assert terms["leverage_covenant_x"] == (5.75, "c-cc")  # "Maximum Permitted: N:1.00"
+    assert terms["leverage_covenant_x"] == (5.75, "c-cc", True)  # "Maximum Permitted: N:1.00"
 
 
 def test_derive_terms_ignores_incurrence_ratio_tests():
@@ -114,7 +114,7 @@ def test_derive_terms_senior_secured_single_threshold():
     # threshold — the qualifier must be recognized, not only Total/Consolidated/Net.
     text = ("The Borrower shall not permit the Senior Secured Leverage Ratio as of the last "
             "day of any fiscal quarter to exceed 4.50 to 1.00.")
-    assert derive_covenant_terms([("c-ss", text)])["leverage_covenant_x"] == (4.5, "c-ss")
+    assert derive_covenant_terms([("c-ss", text)])["leverage_covenant_x"] == (4.5, "c-ss", True)
 
 
 def test_derive_terms_captures_leverage_basis():
@@ -183,6 +183,36 @@ def test_synthesize_sources_covenant_without_cp1_leverage():
     assert p.claims[0].evidence[0].lineage_class == "Directly Sourced"
     assert all(c["name"] != "Net leverage covenant headroom" for c in p.runtime_output["calculations"])
     assert any("headroom is not computed" in f for f in p.limitation_flags)
+
+
+# ── Citation provenance honesty (LLM path) ───────────────────────────────────
+def test_inexact_chunk_id_downgrades_citation(monkeypatch):
+    """When the model didn't pin a real retrieved chunk (safe_chunk_id exact=False),
+    the covenant citation must NOT claim 'Directly Sourced / High' — it downgrades to
+    Inferred/Medium so a substituted/absent source never overstates provenance."""
+    import engine.covenants as cov
+
+    cp1_no_lev = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {"revenue": {"FY25": 4520}}},
+    )
+
+    async def terms_inexact(retrieve):
+        return {"incremental_musd": (612.0, "c-sub", False),
+                "leverage_covenant_x": None, "leverage_covenant_basis": None}
+    monkeypatch.setattr(cov, "extract_covenant_terms", terms_inexact)
+    p = asyncio.run(cov.synthesize_covenants(cp1_no_lev, _retrieve(_INDENTURE, "c-sub")))
+    ev = p.claims[0].evidence[0]
+    assert ev.lineage_class == "Inferred" and ev.confidence == "Medium"
+    assert ev.resolved_chunk_id == "c-sub"  # still points at the chunk for navigation
+
+    async def terms_exact(retrieve):
+        return {"incremental_musd": (612.0, "c-real", True),
+                "leverage_covenant_x": None, "leverage_covenant_basis": None}
+    monkeypatch.setattr(cov, "extract_covenant_terms", terms_exact)
+    p2 = asyncio.run(cov.synthesize_covenants(cp1_no_lev, _retrieve(_INDENTURE, "c-real")))
+    ev2 = p2.claims[0].evidence[0]
+    assert ev2.lineage_class == "Directly Sourced" and ev2.confidence == "High"
 
 
 # ── Cov-lite finding ─────────────────────────────────────────────────────────

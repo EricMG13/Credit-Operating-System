@@ -18,10 +18,13 @@ def _hit(cid):
 
 def test_safe_chunk_id_rejects_fabricated_ids():
     hits = [_hit("c1"), _hit("c2")]
-    assert safe_chunk_id("c2", hits) == "c2"               # a real retrieved id is kept
-    assert safe_chunk_id("c-injected", hits) == "c1"       # fabricated → falls back to top hit
-    assert safe_chunk_id(None, hits) == "c1"
-    assert safe_chunk_id("c1", []) == ""                   # no hits → empty, never a made-up id
+    # (chunk_id, exact): exact True ONLY when the model pinned a real retrieved chunk,
+    # so a substituted/absent source can never be presented as "Directly Sourced / High".
+    assert safe_chunk_id("c2", hits) == ("c2", True)         # a real retrieved id is kept, exact
+    assert safe_chunk_id("c-injected", hits) == ("c1", False)  # fabricated → top hit, flagged inexact
+    assert safe_chunk_id(None, hits) == ("c1", False)        # null/absent → no claim of source, inexact
+    assert safe_chunk_id("", hits) == ("c1", False)          # empty string is also "no claim"
+    assert safe_chunk_id("c1", []) == ("", False)            # no hits → empty, never a made-up id
 
 
 def test_wrap_untrusted_delimits_and_rule_present():

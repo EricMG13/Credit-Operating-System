@@ -33,9 +33,10 @@ def test_derive_addbacks_finds_load_not_cap():
     ]
     res = derive_addbacks(chunks)
     assert res is not None
-    pct, categories, chunk_id = res
+    pct, categories, chunk_id, exact = res
     assert pct == pytest.approx(0.182)
     assert chunk_id == "c-om"
+    assert exact is True  # deterministic: figure regex-matched in that exact chunk
     assert "run-rate" in categories and "cost savings" in categories
 
 

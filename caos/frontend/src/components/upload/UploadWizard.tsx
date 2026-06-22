@@ -182,7 +182,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
                     ? "border-caos-accent bg-caos-elevated text-caos-text"
                     : state === "done"
                       ? "border-caos-border text-caos-text"
-                      : "border-caos-border text-caos-muted opacity-60")
+                      : "border-caos-border text-caos-muted")
                 }
               >
                 {state === "done" ? (

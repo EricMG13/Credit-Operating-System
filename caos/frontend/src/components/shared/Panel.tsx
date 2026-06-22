@@ -26,7 +26,10 @@ export function Panel({
         <div className="flex-1" />
         {right}
       </div>
-      <div className="flex-1 min-h-0 overflow-auto">{children}</div>
+      {/* Body is keyboard-focusable so a clipping panel can be scrolled without a
+          mouse (WCAG 2.1.1; axe scrollable-region-focusable). Labeled by the panel
+          title so the focused region is announced. */}
+      <div tabIndex={0} aria-label={title} className="flex-1 min-h-0 overflow-auto focus-ring">{children}</div>
     </div>
   );
 }

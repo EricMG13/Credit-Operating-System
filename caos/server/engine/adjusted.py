@@ -73,11 +73,12 @@ def _categories(text: str) -> List[str]:
 
 def derive_addbacks(
     chunks: Sequence[Tuple[str, str]]
-) -> Optional[Tuple[float, List[str], str]]:
+) -> Optional[Tuple[float, List[str], str, bool]]:
     """Extract the add-back load as a fraction of EBITDA from an issuer's document
     chunks. ``chunks`` is ``(chunk_id, text)``. Returns ``(pct, categories,
-    chunk_id)`` for the first chunk that both mentions an add-back and states an
-    "N% of EBITDA" load, else None. Deterministic and offline."""
+    chunk_id, exact)`` for the first chunk that both mentions an add-back and states
+    an "N% of EBITDA" load, else None. Deterministic path: the figure is regex-matched
+    in that exact chunk, so ``exact`` is always True."""
     for chunk_id, text in chunks:
         low = text.lower()
         if not any(kw in low for kw in _ADDBACK_KW):
@@ -86,11 +87,11 @@ def derive_addbacks(
         if m:
             pct = float(m.group(1)) / 100.0
             if 0 < pct < 1:
-                return pct, _categories(text), chunk_id
+                return pct, _categories(text), chunk_id, True
     return None
 
 
-async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
+async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]]:
     """Claude reads the credit-agreement/OM chunks and returns the add-back load
     as a fraction of EBITDA + categories. Defensive: any failure → None (the
     caller falls back to the deterministic path)."""
@@ -109,12 +110,12 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
     pct = data.get("addback_pct")
     if not isinstance(pct, (int, float)) or not (0 < float(pct) < 1):
         return None
-    chunk_id = safe_chunk_id(data.get("chunk_id"), hits)  # reject fabricated ids
+    chunk_id, exact = safe_chunk_id(data.get("chunk_id"), hits)  # reject fabricated/absent ids
     cats = [str(c) for c in (data.get("categories") or []) if isinstance(c, str)]
-    return float(pct), cats, chunk_id
+    return float(pct), cats, chunk_id, exact
 
 
-async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str]]:
+async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]]:
     """Add-back load via the LLM when a key is set and budget remains (else the
     deterministic regex fallback)."""
     if get_settings().anthropic_api_key and budget.llm_allowed():
@@ -145,7 +146,7 @@ async def reconcile_adjusted_ebitda(
     if res is None or lev is None or nd is None:
         return None
 
-    pct, categories, chunk_id = res
+    pct, categories, chunk_id, exact = res
     ebitda = nd / lev                       # the EBITDA behind CP-1's leverage
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
     lev_excl = round(nd / ebitda_excl, 2)
@@ -169,9 +170,11 @@ async def reconcile_adjusted_ebitda(
         ),
         evidence=[EvidenceSpec(
             evidence_id="E-ADJ1", extraction_type="documentary_fact",
-            lineage_class="Directly Sourced",
+            # Only a model-pinned, actually-retrieved chunk earns "Directly Sourced / High";
+            # a substituted/absent id is downgraded so it never overstates provenance.
+            lineage_class="Directly Sourced" if exact else "Inferred",
             source_locator="Add-back disclosure (ingested credit agreement / OM chunk)",
-            confidence="High", resolved_chunk_id=chunk_id,
+            confidence="High" if exact else "Medium", resolved_chunk_id=chunk_id,
         )],
     )
     return recon, claim

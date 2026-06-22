@@ -143,7 +143,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         <CloseButton onClick={onClose} label="Close chat" title="Close chat" />
       </div>
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg">
+      <div ref={scrollRef} tabIndex={0} aria-label="Conversation history" className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg focus-ring">
         {!msgs.length ? (
           <div className="flex flex-col gap-2">
             <div className="text-caos-md text-caos-muted leading-relaxed">

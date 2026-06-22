@@ -145,7 +145,7 @@ export function Sheet({
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg">
+    <div tabIndex={0} aria-label="Model worksheet" className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring">
       <div style={{ width: "max-content", minWidth: "100%" }}>
         {/* group bar */}
         <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>

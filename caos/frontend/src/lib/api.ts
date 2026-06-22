@@ -21,6 +21,10 @@ export const getIssuers = (q?: string) =>
   api.get("/api/issuers/", { params: q && q.trim() ? { q: q.trim() } : {} }).then((r) => r.data);
 export const createIssuer = (data: Record<string, unknown>) =>
   api.post("/api/issuers/", data).then((r) => r.data);
+// Single issuer by id — used by Deep-Dive to label the chrome for the issuer
+// opened from the directory (the live run overlay is keyed off the same id).
+export const getIssuer = (id: string) =>
+  api.get(`/api/issuers/${id}`).then((r) => r.data);
 
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {

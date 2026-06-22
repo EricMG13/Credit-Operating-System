@@ -102,23 +102,24 @@ def derive_covenant_terms(
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
     text)``. Returns ``{incremental_musd, leverage_covenant_x}`` (each a
-    ``(value, chunk_id)`` or None) plus ``leverage_covenant_basis`` — the leverage
-    basis the maintenance covenant is measured on (senior_secured / first_lien /
-    total / None) — or None if neither term is found. Deterministic."""
-    incremental: Optional[Tuple[float, str]] = None
-    leverage_cov: Optional[Tuple[float, str]] = None
+    ``(value, chunk_id, exact)`` or None) plus ``leverage_covenant_basis`` — the
+    leverage basis the maintenance covenant is measured on (senior_secured /
+    first_lien / total / None) — or None if neither term is found. Deterministic
+    path: each figure is regex-matched in that exact chunk, so ``exact`` is True."""
+    incremental: Optional[Tuple[float, str, bool]] = None
+    leverage_cov: Optional[Tuple[float, str, bool]] = None
     leverage_basis: Optional[str] = None
     for cid, text in chunks:
         low = text.lower()
         if incremental is None and "incremental" in low and ("capacity" in low or "incurrence" in low):
             m = _MILLION.search(text)
             if m:
-                incremental = (float(m.group(1).replace(",", "")), cid)
+                incremental = (float(m.group(1).replace(",", "")), cid, True)
         if leverage_cov is None and "leverage" in low:
             res = _maintenance_leverage_threshold(text)
             if res is not None:
                 val, leverage_basis = res
-                leverage_cov = (val, cid)
+                leverage_cov = (val, cid, True)
     if incremental is None and leverage_cov is None:
         return None
     return {"incremental_musd": incremental, "leverage_covenant_x": leverage_cov,
@@ -143,11 +144,19 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     data, hits = res
     incr = data.get("incremental_musd")
     lev = data.get("leverage_covenant_x")
-    lev_cov = ((float(lev), safe_chunk_id(data.get("leverage_chunk_id"), hits))
-               if isinstance(lev, (int, float)) and lev > 0 else None)
+    # Each term carries (value, chunk_id, exact); exact is False when the model
+    # fabricated/omitted the id (safe_chunk_id substitutes the top hit) so the
+    # caller can downgrade the citation instead of overstating provenance.
+    lev_cov = None
+    if isinstance(lev, (int, float)) and lev > 0:
+        cid, exact = safe_chunk_id(data.get("leverage_chunk_id"), hits)
+        lev_cov = (float(lev), cid, exact)
+    incr_t = None
+    if isinstance(incr, (int, float)) and incr > 0:
+        cid, exact = safe_chunk_id(data.get("incremental_chunk_id"), hits)
+        incr_t = (float(incr), cid, exact)
     out: Dict[str, object] = {
-        "incremental_musd": (float(incr), safe_chunk_id(data.get("incremental_chunk_id"), hits))
-        if isinstance(incr, (int, float)) and incr > 0 else None,
+        "incremental_musd": incr_t,
         "leverage_covenant_x": lev_cov,
         "leverage_covenant_basis": _normalize_basis(data.get("leverage_basis")) if lev_cov else None,
     }
@@ -194,7 +203,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
 
     incr = terms.get("incremental_musd")
     if incr:
-        amt, cid = incr
+        amt, cid, incr_exact = incr
         if ebitda is not None:
             pf_nd = nd + amt
             pf_lev = round(pf_nd / ebitda, 2)
@@ -213,15 +222,16 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
                 ),
                 evidence=[EvidenceSpec("E-CAP1", "calculated_metric", "Calculated",
                                        "Incremental capacity (governing document) + CP-1 net debt / EBITDA",
-                                       "High", resolved_chunk_id=cid)],
+                                       "High" if incr_exact else "Medium", resolved_chunk_id=cid)],
             ))
         else:
             claims.append(ClaimSpec(
                 claim_id="C-CAP1",
                 claim_text=f"The governing document provides ${amt:g}M of day-one incremental debt capacity.",
-                evidence=[EvidenceSpec("E-CAP1", "table_value", "Directly Sourced",
+                evidence=[EvidenceSpec("E-CAP1", "table_value",
+                                       "Directly Sourced" if incr_exact else "Inferred",
                                        "Incremental capacity (governing document)",
-                                       "High", resolved_chunk_id=cid)],
+                                       "High" if incr_exact else "Medium", resolved_chunk_id=cid)],
             ))
 
     lev_cov = terms.get("leverage_covenant_x")
@@ -233,7 +243,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
     cov_label = {"senior_secured": "senior secured", "first_lien": "first-lien"}.get(cov_basis, "total")
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
-        thr, cid = lev_cov
+        thr, cid, cov_exact = lev_cov
         if lev is not None:
             headroom = round(thr - lev, 2)
             cushion = round((1 - lev / thr) * 100, 1) if thr else 0.0
@@ -252,7 +262,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
                 ),
                 evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
                                        "Financial maintenance covenant threshold + CP-1 leverage",
-                                       "High", resolved_chunk_id=cid)],
+                                       "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
             ))
             if cov_basis in ("senior_secured", "first_lien"):
                 limitations.append(
@@ -264,9 +274,10 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
                 claim_text=f"The agreement sets a maximum {cov_label} leverage covenant of {thr:g}x (financial maintenance).",
-                evidence=[EvidenceSpec("E-CAP2", "table_value", "Directly Sourced",
+                evidence=[EvidenceSpec("E-CAP2", "table_value",
+                                       "Directly Sourced" if cov_exact else "Inferred",
                                        "Financial maintenance covenant threshold (governing document)",
-                                       "High", resolved_chunk_id=cid)],
+                                       "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
             ))
             limitations.append(
                 "CP-1 did not provide net leverage — covenant threshold is sourced, but headroom is not computed."

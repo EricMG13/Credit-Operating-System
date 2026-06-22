@@ -1,0 +1,41 @@
+// Local axe-core a11y scan over the running dev server. No remote code:
+// axe source is injected from node_modules. WCAG 2.0/2.1/2.2 A+AA only.
+// ponytail: one-off audit script, deleted-or-kept at user's call.
+// fallow-ignore-file unused-file
+// (run via `node scripts/a11y-axe.mjs`, not imported — invisible to the import graph.)
+import { chromium } from 'playwright';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const axePath = require.resolve('axe-core/axe.min.js');
+
+const BASE = process.env.BASE || 'http://localhost:3000';
+const ROUTES = (process.env.ROUTES || '/,/command,/issuers,/deepdive,/pipeline,/model,/reports,/research,/upload,/settings,/query,/monitor').split(',');
+const TAGS = ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa'];
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const out = {};
+for (const route of ROUTES) {
+  try {
+    await page.goto(BASE + route, { waitUntil: 'networkidle', timeout: 30000 });
+  } catch { await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+  await page.waitForTimeout(700);
+  await page.addScriptTag({ path: axePath });
+  const res = await page.evaluate(async (tags) => {
+    const r = await window.axe.run(document, { runOnly: { type: 'tag', values: tags } });
+    return {
+      url: location.pathname,
+      violations: r.violations.map(v => ({
+        id: v.id, impact: v.impact, help: v.help, wcag: v.tags.filter(t=>t.startsWith('wcag')),
+        n: v.nodes.length,
+        nodes: v.nodes.slice(0,4).map(n => ({ target: n.target, summary: n.failureSummary }))
+      }))
+    };
+  }, TAGS);
+  out[route] = res;
+}
+await browser.close();
+// totals
+let total = 0; const byImpact = {};
+for (const r of Object.values(out)) for (const v of r.violations) { total += v.n; byImpact[v.impact]=(byImpact[v.impact]||0)+v.n; }
+console.log(JSON.stringify({ base: BASE, tags: TAGS, total_nodes: total, byImpact, routes: out }, null, 2));

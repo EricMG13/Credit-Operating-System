@@ -29,6 +29,7 @@ import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { useAsk } from "@/components/shared/Ask";
+import { getIssuer } from "@/lib/api";
 
 export default function DeepDivePage() {
   return (
@@ -61,7 +62,25 @@ const GROUPS = [
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
-  const [tab, setTab] = useState(modParam || "CP-6A");
+  // Issuer opened from the directory (?issuer=). Absent → the ATLF reference deal
+  // (the bespoke showcase). The live engine overlay is keyed off this id; the
+  // bespoke debate/recovery/covenant tabs and DEAL narrative are ATLF fixtures,
+  // so for a non-reference issuer we land on a live module and mark them as the
+  // reference template rather than implying they are that issuer's own analysis.
+  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const [issuerMeta, setIssuerMeta] = useState<{ name: string; ticker?: string | null } | null>(null);
+  useEffect(() => {
+    if (isReference) { setIssuerMeta(null); return; }
+    let stale = false;
+    getIssuer(issuerId)
+      .then((d) => { if (!stale) setIssuerMeta({ name: d.name, ticker: d.ticker }); })
+      .catch(() => { if (!stale) setIssuerMeta(null); });
+    return () => { stale = true; };
+  }, [issuerId, isReference]);
+  const code = isReference ? DEAL.code : (issuerMeta?.ticker || "—");
+  const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? "Loading issuer…");
+  const [tab, setTab] = useState(modParam || (isReference ? "CP-6A" : "CP-1"));
   // keep the open module in sync when the ?mod= param changes (back/forward,
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
@@ -95,7 +114,7 @@ function DeepDive() {
   const reports = useMemo(() => buildReports(), []);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
-  const live = useLiveRun(ATLF_REFERENCE_ISSUER_ID);
+  const live = useLiveRun(issuerId);
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
@@ -134,8 +153,14 @@ function DeepDive() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{DEAL.deal}</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{dealLabel}</span>
+        {isReference ? (
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
+        ) : (
+          <span className="tabular text-caos-xs whitespace-nowrap hidden xl:inline" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; the bespoke debate / recovery / covenant tabs illustrate the ATLF reference deal">
+            live engine output · bespoke tabs show the ATLF reference template
+          </span>
+        )}
         <div className="flex-1"></div>
         <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
         <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
@@ -240,7 +265,7 @@ function DeepDive() {
           title={title}
           right={
             <span className="flex items-center gap-3">
-              <span className="tabular text-caos-xs text-caos-muted">ATLF</span>
+              <span className="tabular text-caos-xs text-caos-muted">{code}</span>
               {live.runId ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
                   ● LIVE
@@ -251,7 +276,7 @@ function DeepDive() {
                 title="Ask follow-up questions about this issuer"
                 className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
-                ASK ATLF
+                ASK {code}
               </button>
             </span>
           }

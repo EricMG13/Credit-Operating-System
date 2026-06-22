@@ -132,7 +132,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
             key={m.key}
             onClick={() => setMetric(m.key)}
             className={
-              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border transition-caos focus-ring " +
               (metric === m.key ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -149,7 +149,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
             onClick={() => setIntensity(v)}
             title={"Driver swing intensity ×" + v}
             className={
-              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border transition-caos focus-ring " +
               (intensity === v ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -271,7 +271,7 @@ function ScenarioBuilder({
             <span className="w-1.5 h-1.5 rounded-sm shrink-0" style={{ background: "var(--caos-accent)" }} />
             <span className="text-caos-md text-caos-text font-medium truncate">{active.label}</span>
             <span className="flex-1" />
-            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
+            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
           </div>
           <div className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }}>{deltaSummary(active.deltas) || "no driver change"}</div>
           {active.rationale ? <div className="text-caos-xs text-caos-muted leading-snug">{active.rationale}</div> : null}
@@ -287,7 +287,7 @@ function ScenarioBuilder({
             key={p.label}
             onClick={() => onApply(p.deltas, p.label, "")}
             title={deltaSummary(p.deltas)}
-            className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+            className="tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
           >
             {p.label}
           </button>

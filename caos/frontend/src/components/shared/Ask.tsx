@@ -69,7 +69,7 @@ export function AskLauncher() {
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
       <span className="text-caos-2xl">✦</span> Ask
-      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border opacity-80">⌘K</span>
+      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border">⌘K</span>
     </button>
   ) : null;
 

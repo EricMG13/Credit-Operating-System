@@ -32,7 +32,7 @@ export function CapabilityRail({
       <div className="h-9 shrink-0 px-2.5 flex items-center border-b border-caos-border">
         {!collapsed && (
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-            Capabilities <span className="text-caos-muted/60">· {totalReady} ready</span>
+            Capabilities <span className="text-caos-muted">· {totalReady} ready</span>
           </span>
         )}
         <button
@@ -63,7 +63,7 @@ export function CapabilityRail({
             <div key={g.id}>
               <div className="px-2.5 pt-2.5 pb-1 flex items-center gap-1.5">
                 <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{g.label}</span>
-                <span className="ml-auto tabular text-caos-3xs text-caos-muted/60">{g.ready}/{g.total}</span>
+                <span className="ml-auto tabular text-caos-3xs text-caos-muted">{g.ready}/{g.total}</span>
               </div>
               {[...g.capabilities].sort((a, b) => Number(b.enabled) - Number(a.enabled)).map((c) =>
                 c.enabled ? (
@@ -72,7 +72,7 @@ export function CapabilityRail({
                     onClick={() => onPick(c.id)}
                     title={c.label}
                     className={
-                      "w-full text-left flex items-center gap-2 px-2.5 py-1 rounded transition-caos focus-ring " +
+                      "w-full text-left flex items-center gap-2 px-2.5 py-1 min-h-[24px] rounded transition-caos focus-ring " +
                       (c.id === activeId ? "bg-caos-elevated" : "hover:bg-caos-elevated/60")
                     }
                   >

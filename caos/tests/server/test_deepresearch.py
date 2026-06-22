@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from deepresearch import _AI_MODES, ResearchBrief, build_brief, _demo_report
+from types import SimpleNamespace
+
+from deepresearch import _AI_MODES, ResearchBrief, _collect_sources, build_brief, _demo_report
 
 
 # ── Brief assembly ───────────────────────────────────────────────────────────
@@ -49,6 +51,27 @@ def test_brief_rejects_unknown_ai_mode():
 
     with pytest.raises(ValueError):
         ResearchBrief(subject="Atlas Forge", ai_mode="turbo")
+
+
+# ── Source-URL scheme guard (web-sourced URL → analyst-clickable href) ────────
+def test_collect_sources_drops_non_http_schemes():
+    """A web_search result carries model/web-sourced URLs straight to a clickable
+    href under CSP script-src 'unsafe-inline'. Anything not http(s) (javascript:,
+    data:, leading whitespace) must be dropped so it can't become a click-to-exec."""
+    block = SimpleNamespace(
+        type="web_search_tool_result",
+        content=[
+            SimpleNamespace(url="https://sec.gov/ok", title="Good"),
+            SimpleNamespace(url="http://example.com/also-ok", title="Good2"),
+            SimpleNamespace(url="javascript:alert(1)", title="Evil"),
+            SimpleNamespace(url="JavaScript:alert(1)", title="EvilCase"),
+            SimpleNamespace(url=" javascript:alert(1)", title="EvilSpace"),
+            SimpleNamespace(url="data:text/html,<script>1</script>", title="EvilData"),
+        ],
+    )
+    out: list = []
+    _collect_sources(block, out)
+    assert [s.url for s in out] == ["https://sec.gov/ok", "http://example.com/also-ok"]
 
 
 # ── Endpoint (demo path — no ANTHROPIC_API_KEY in tests) ──────────────────────

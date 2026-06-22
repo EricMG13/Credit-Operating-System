@@ -82,6 +82,21 @@ def test_demo_issuers_seeded(client):
     assert len(names) >= 3
 
 
+def test_issuers_collection_slash_tolerant(client):
+    """Regression (QA BUG-001): the issuers collection must resolve with AND
+    without a trailing slash. `next dev` proxies /api and strips the trailing
+    slash, so `/api/issuers/` arrives at the backend as `/api/issuers`; the
+    `/api/{path:path}` catch-all would 404 it unless both paths are registered.
+    Prod calls `/api/issuers/`; dev-proxied calls land on `/api/issuers`."""
+    with_slash = client.get("/api/issuers/")
+    no_slash = client.get("/api/issuers")
+    assert with_slash.status_code == 200
+    assert no_slash.status_code == 200
+    assert no_slash.json() == with_slash.json()
+    # POST collection is reachable both ways too (createIssuer uses the slash form).
+    assert client.post("/api/issuers", json={"name": "Slash Tolerant Co"}).status_code == 201
+
+
 def test_create_and_get_issuer(client):
     r = client.post(
         "/api/issuers/",

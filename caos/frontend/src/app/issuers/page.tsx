@@ -14,7 +14,7 @@ import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { onActivate } from "@/lib/a11y";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { PORTFOLIO } from "@/lib/command/data";
 
 export default function IssuersPage() {
@@ -45,6 +45,12 @@ function IssuersDirectory() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
+  // True only when the registry fetch *failed* (network/500) — distinct from an
+  // empty registry. We still show the demo universe so the page isn't a dead end,
+  // but a banner makes the degraded state explicit rather than passing fabricated
+  // issuers off as real coverage (trust-through-transparency). See QA BUG-002.
+  const [degraded, setDegraded] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -64,15 +70,16 @@ function IssuersDirectory() {
       getIssuers(query)
         .then((rows) => {
           if (stale) return;
+          setDegraded(false);
           setIssuers(rows.length > 0 ? rows : demoFiltered());
         })
-        // Network/500 → degrade to the demo directory instead of a blank table
-        // and an unhandled rejection.
-        .catch(() => { if (!stale) setIssuers(demoFiltered()); })
+        // Network/500 → degrade to the demo directory (so it's not a blank table
+        // or an unhandled rejection) AND flag it, so the banner can say so.
+        .catch(() => { if (!stale) { setDegraded(true); setIssuers(demoFiltered()); } })
         .finally(() => { if (!stale) setLoading(false); });
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
-  }, [query]);
+  }, [query, reloadKey]);
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
 
@@ -110,6 +117,24 @@ function IssuersDirectory() {
           + NEW ISSUER
         </button>
       </div>
+
+      {/* degraded banner — registry fetch failed; demo coverage shown is NOT live */}
+      {degraded ? (
+        <div
+          role="alert"
+          className="shrink-0 mx-2 mt-2 flex items-center gap-2 px-3 py-1.5 rounded border tabular text-caos-sm"
+          style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 12%, transparent)", color: "var(--caos-text)" }}
+        >
+          <StatusGlyph kind="warning" />
+          <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+          <button
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="ml-1 tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+          >
+            RETRY
+          </button>
+        </div>
+      ) : null}
 
       {/* directory */}
       <div className="flex-1 min-h-0 p-2">
@@ -184,13 +209,17 @@ function IssuersDirectory() {
               {issuers.map((issuer) => (
                 <div
                   key={issuer.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => router.push("/deepdive")}
-                  onKeyDown={onActivate(() => router.push("/deepdive"))}
-                  aria-label={`Open deep-dive for ${issuer.name}`}
-                  className={cols + " px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
+                  className={cols + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
+                  {/* Stretched primary link: whole row is the click target for mouse,
+                      and a single keyboard/SR-focusable control per row. Replaces the
+                      former role="button" row, which nested the Upload button inside an
+                      interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
+                  <Link
+                    href={"/deepdive?issuer=" + encodeURIComponent(issuer.id)}
+                    aria-label={`Open deep-dive for ${issuer.name}`}
+                    className="absolute inset-0 z-0 focus-ring"
+                  />
                   <span className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
@@ -199,9 +228,9 @@ function IssuersDirectory() {
                   <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
                   <span className="tabular text-caos-muted text-caos-sm truncate">{issuer.figi || "—"}</span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); router.push("/upload?issuer=" + encodeURIComponent(issuer.id)); }}
+                    onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
                     aria-label={`Upload documents for ${issuer.name}`}
-                    className="tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 py-0.5 w-fit transition-caos focus-ring"
+                    className="relative z-[1] inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
                   >
                     + UPLOAD
                   </button>
