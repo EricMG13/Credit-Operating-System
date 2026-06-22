@@ -297,3 +297,19 @@ parity verified on the real pinned stack. Gates:
 ### Still untouched (user's parallel WIP — flagged, not modified)
 - `frontend/src/app/globals.css`, `components/pipeline/views.tsx`, `components/query/GraphCanvas.tsx`,
   `components/.../Ask.tsx` (OBS-002 lives here)
+
+---
+
+## Session 4 (2026-06-22) — watchdog re-verification (no tree drift)
+
+`/loop` re-entry. Working tree is **byte-identical to commit `183b459`** (only untracked
+`caos/data/` QA db) — no parallel WIP since the Session 3 clean pass. Re-ran the gates as the
+regression proof; **skipped the full live UI re-walk** — with zero tree change it adds no
+information (Session 3's live surface walk still applies verbatim).
+
+- **py3.9 baseline** (offline, key cleared): server **315 passed / 2 skipped**.
+- **Frontend**: `tsc --noEmit` clean (exit 0) · **127 vitest passed**.
+
+**Verdict: clean pass holds.** No new findings, no code change this iteration. The 10-min loop
+now acts as a watchdog — a future iteration becomes meaningful only when the tree changes; until
+then it re-confirms green. Cancel with `CronDelete` when no longer wanted.
