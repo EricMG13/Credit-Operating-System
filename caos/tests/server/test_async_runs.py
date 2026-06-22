@@ -125,14 +125,18 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import InProcessExecutor
 
+    # Match real lifespan ordering: the executor starts at boot, then runs are
+    # created and enqueued. (start() now sweeps stranded non-terminal runs, so a
+    # run created *before* start() would be swept — that's the hard-crash path.)
+    ex = InProcessExecutor()
+    await ex.start()
+
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
 
-    ex = InProcessExecutor()
-    await ex.start()
     await ex.enqueue(run_id)
     # let the fire-and-forget task finish
     for _ in range(100):
@@ -143,6 +147,31 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
         await asyncio.sleep(0.05)
     await ex.stop()
     assert run.status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
+    """Hard-crash recovery: a run left 'running'/'queued' by a SIGKILL (no stop())
+    must be swept to 'failed' on the next start() — SQLite has no reaper."""
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import InProcessExecutor
+
+    async with AsyncSessionLocal() as s:
+        stranded_running = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="running")
+        stranded_queued = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="queued")
+        done = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="complete")
+        s.add_all([stranded_running, stranded_queued, done])
+        await s.commit()
+        ids = (stranded_running.id, stranded_queued.id, done.id)
+
+    await InProcessExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        r_running, r_queued, r_done = [await s.get(Run, i) for i in ids]
+        assert r_running.status == "failed" and "process restart" in (r_running.error or "")
+        assert r_queued.status == "failed"
+        assert r_done.status == "complete"  # terminal runs are untouched
 
 
 # These exercise the SKIP LOCKED claim path and only run against Postgres.

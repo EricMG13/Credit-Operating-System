@@ -72,7 +72,7 @@ Severity: **S1** blocker/data-integrity · **S2** broken feature · **S3** degra
 ### OBS-003 — offline deterministic runs project reference-fixture financials for every issuer — S4
 - A live run on GPHC returns CP-1 numbers **identical** to ATLF (revenue 2410/2588/2742/2801, adj_ebitda 358/392/415/421). In demo-fallback/offline mode the engine projects the reference-deal fixture, not the issuer's seeded metrics/docs — the documented "mock vs engine" reality. With a real LLM + uploaded docs, CP-1 would extract issuer-specific financials. The BUG-003 caveat covers the bespoke tabs; this OBS records that even the "live" generic-module numbers are reference-derived offline. Not a regression; surfaced by issuer-scoped Deep-Dive.
 
-### OBS-001 — venv has fastapi 0.115.14, repo pinned 0.138 (CVE fix 8c11066) — S4
+### OBS-001 — venv has fastapi 0.115.14, repo pinned 0.138 (CVE fix 8c11066) — S4 — ⚠ CORRECTED in Session 3 (do NOT "reinstall the venv" / downgrade — see below)
 - The server `.venv` was not reinstalled after the starlette-CVE bump. Runtime boots fine on 0.115 but the deployed image (built from requirements) will differ from local. Reinstall venv from `server/requirements.txt` before trusting local security posture.
 
 ### OBS-002 — Ask/NL leverage ranking shows "10 issuers ranked" against a 34-issuer store — S4
@@ -176,13 +176,124 @@ is the regression proof.
 - No frontend change → frontend gates unchanged from Session 1.
 
 ### Remaining handoff (deliberately not fixed — out of the trust cluster)
-- **OBS-001** — local `server/.venv` has `fastapi 0.115.14`; repo pins `0.138` (CVE bump 8c11066).
-  Env drift, not code: reinstall the venv from `server/requirements.txt` before trusting local
-  security posture. Not reinstalled mid-sweep to avoid disturbing the suite's environment.
+- **OBS-001** — ⚠ **CORRECTED in Session 3.** The "reinstall the venv" advice is wrong: the pin
+  is valid but needs **Python ≥ 3.10**, and the local venv is **py3.9.6** — it can't host the
+  pinned stack, and downgrading the pin to match would re-open the CVEs. No deploy blocker
+  (Docker is py3.11). See Session 3 → "OBS-001 — CORRECTED".
 - **Audit #6 / #245** — SQLite `InProcessExecutor` has no startup orphan-sweep; a hard-crashed
   run strands `running` forever. **Dev-only** (Postgres prod self-heals via the lease reaper);
   cosmetic zombie row, blocks nothing. One-liner if wanted: reset `running→failed` in `start()`.
 - **OBS-002** — Ask/NL leverage ranking reads "10 issuers ranked" against a 34-issuer store;
   label as "top 10 of N" or compute the median over the full universe. Lives in frontend WIP
   area (`Ask.tsx`) — left for the user's branch.
-</content>
+
+---
+
+## Session 3 (2026-06-22) — fresh-session re-verification + OBS-001 correction
+
+Re-ran the inventory in a clean session (parallel user edits could have moved the tree).
+The Session 1–2 verdict **still holds**, one prior code item closed, and one prior finding
+was found to be **materially mis-logged** — corrected below.
+
+### Re-verification (gates + live surface)
+- Server suite **315 passed / 2 skipped** (314 + the FIX-D regression test). Frontend
+  **tsc clean · 127 vitest**. No regression from the parallel WIP.
+- Live route walk against `data/caos_qa.db` (35 issuers, 4 complete runs): **all 12 HTML
+  routes 200**, all GET API paths 200 (`/api/auth/me`, issuers, issuer docs, run summary,
+  run module detail, run QA, query catalog/capabilities, settings), `query/nl` + `scenario/nl`
+  + `query/graph` (real capability ids) 200, EDGAR 503 (expected no-`EDGAR_USER_AGENT` gate),
+  bogus capability 404 (guard), malformed bodies 422 (validation). **No 5xx, no tracebacks.**
+- **Closed two prior `▢` items to `✅`:**
+  - *Research demo contract* — `POST /api/research` with the key **cleared** returns **200 in
+    6.5 ms** with a `demo` report. (With the key **set**, it correctly takes the documented
+    multi-minute keyed web-search path — the earlier "25 s no response" was that path, not a hang.)
+  - *Report Studio committee-export gate* — `POST /api/runs/{id}/report` on a Restricted run
+    returns **409** carrying the 2 MATERIAL blocking findings (module + description) — the
+    "gate with teeth" refuses and explains what to remediate.
+
+### FIX-D — `InProcessExecutor` strands a hard-crashed run in `running` forever — S3 (dev robustness)
+- **Cause** (Audit #6/#245): a SIGKILL/power-loss skips `stop()`'s mark-failed handler, so a
+  run left `running`/`queued` zombies forever — SQLite/`InProcessExecutor` has no reaper
+  (the Postgres `QueueWorker` self-heals via `_reap_orphans`). Demonstrated live this session:
+  the QA server was `pkill`-ed mid-walk (the exact strand path).
+- **Fix**: `InProcessExecutor.start()` now sweeps any non-terminal run (`running`/`queued`) to
+  `failed` on boot. start() runs in lifespan **before any request is served** and the executor
+  has no in-flight tasks yet, so every non-terminal row is provably a strand — safe to sweep
+  ([server/run_executor.py](../server/run_executor.py)). Terminal runs (`complete`/`failed`) are
+  untouched.
+- **Test**: `test_inprocess_start_sweeps_stranded_runs` (running+queued → failed, complete
+  preserved). Reordered `test_inprocess_executor_runs_enqueued` to start the executor **before**
+  creating the run, matching real lifespan ordering (it previously relied on start() being a no-op).
+
+### OBS-001 — CORRECTED: not a deploy blocker, and "reinstall the venv" is wrong advice
+The Session 1–2 entry ("venv has fastapi 0.115.14, repo pins 0.138 — reinstall the venv")
+is misleading and acting on it would **re-open the 7 starlette CVEs**:
+- `fastapi==0.138.*` is **valid and installable** — but **only on Python ≥ 3.10** (0.138 caps
+  starlette to 1.x; starlette ≥ 1.3.1 needs py3.10+, exactly as the `requirements.txt` comment
+  states). The **local venv is Python 3.9.6**, so it *physically cannot* host the pinned stack —
+  the reinstall fails, and there is **no deploy blocker** (Docker runtime is `python:3.11-slim`,
+  installs 0.138 fine; `server/static` is rebuilt fresh in-image — verified in `deploy/Dockerfile`).
+- The local pip's "max fastapi 0.128.8 / max starlette 0.49.3" listing is a **Python-3.9 filter
+  artifact**, not the real ceiling (PyPI `/json`: fastapi latest 0.138.0, starlette latest 1.3.1).
+  **Do not downgrade the pin to match the old venv** — that reverts the CVE fix (8c11066).
+- **Right action**: leave the pin; for a production-faithful local run, use a **py3.10+
+  interpreter or Docker**.
+
+### Production-dependency-parity — RESOLVED (py3.11 parity venv, user-approved)
+The suite's earlier "production-like" claim ran on the local **py3.9.6 + fastapi 0.115 +
+starlette 0.46** venv, while prod runs **py3.11 + fastapi 0.138 + starlette 1.x** — a *major*
+starlette jump (0.46 → 1.x). With user approval, installed **python@3.11** (Homebrew) and built a
+parity venv (`server/.venv311`) from `server/requirements.txt`:
+- The pinned stack resolves cleanly: **python 3.11.15 · fastapi 0.138.0 · starlette 1.3.1** —
+  definitively confirming the pin is valid + installable (re-settling OBS-001).
+- **Full suite on the prod stack: 315 passed / 2 skipped.** The starlette 0.46→1.x breaking
+  changes do **not** break tested behavior. Parity gate **closed.**
+- 3 deprecation *warnings* (forward-compat only, all in fastapi/starlette internals, not app code):
+  `TestClient`+httpx deprecation (install `httpx2` eventually), and `HTTP_422_UNPROCESSABLE_ENTITY`
+  → `_CONTENT` rename (×2, raised from `fastapi/routing.py`). Cosmetic now; tidy before a future
+  starlette removes them.
+
+### FIX-E — LLM-call-site security guard's venv exclusion is brittle — S4 (test robustness)
+- **Cause** (surfaced by the parity run): `test_no_unreviewed_llm_call_sites` scans `server/**/*.py`
+  excluding only path components named **exactly** `.venv`. The parity venv `.venv311` slipped the
+  filter, so the anthropic SDK's own `.messages.create(` / `.stream(` sites leaked into the scan and
+  failed the guard. Any venv under `server/` not named `.venv` (or a vendored dep) silently breaks
+  this AML.T0051.001 guard.
+- **Fix**: exclude by `site-packages` — the universal, naming-agnostic marker of installed code
+  ([tests/server/test_llm_safety.py](../../caos/tests/server/test_llm_safety.py)). Green on both
+  py3.9 `.venv` and py3.11 `.venv311`.
+
+### Deterministic-QA caveat (process note, not a defect)
+`server/.env` carries a real `ANTHROPIC_API_KEY`, and `config.py` reads `env_file=".env"` — so a
+server started from `server/` **loads the key** and the LLM lanes (chat, research, live runs) go
+**live (token spend)**, contradicting the Session 1 "key unset → deterministic" premise. For
+offline/deterministic QA, start with the key explicitly cleared:
+`ANTHROPIC_API_KEY="" … python run.py`.
+
+### Local artifact note (not a code defect)
+`server/static/` was **stale** (built before the `/query` route existed) → `/query` 404'd in the
+single-process server. It is **gitignored** and **rebuilt fresh by the Docker image**, so this is
+**local-only** — no prod impact. Refreshed locally from the current `frontend/out`. Reminder:
+run `scripts/build_frontend.sh` (or rebuild) after adding a route before testing the static-served app.
+
+### Session 3 verdict
+**Clean pass — no blocked items remain.** Two code fixes added with regression coverage (FIX-D
+orphan sweep, FIX-E guard robustness); one prior finding corrected (OBS-001); production-dependency
+parity verified on the real pinned stack. Gates:
+- **py3.11 prod-parity** (fastapi 0.138 / starlette 1.3.1): server **315 / 2 skip**
+- **py3.9 baseline** (fastapi 0.115): server **315 / 2 skip**
+- frontend **tsc clean + 127 vitest**; live surface walk **zero 5xx / zero tracebacks**
+
+### What changed (Claude, Session 3)
+- `server/run_executor.py` — orphan-run sweep on `InProcessExecutor.start()` [FIX-D]
+- `tests/server/test_async_runs.py` — `test_inprocess_start_sweeps_stranded_runs` regression test;
+  reordered `test_inprocess_executor_runs_enqueued` to real lifespan ordering [FIX-D]
+- `tests/server/test_llm_safety.py` — exclude `site-packages` (not just `.venv`) so the LLM-call-site
+  guard is venv-name-agnostic [FIX-E]
+- `docs/QA_FULL_SWEEP.md` — this Session 3 section (re-verification, OBS-001 correction, parity gate,
+  FIX-D/E)
+- *(env, not committed)* `server/.venv311` — py3.11 prod-parity venv for local parity runs (gitignored)
+
+### Still untouched (user's parallel WIP — flagged, not modified)
+- `frontend/src/app/globals.css`, `components/pipeline/views.tsx`, `components/query/GraphCanvas.tsx`,
+  `components/.../Ask.tsx` (OBS-002 lives here)

@@ -17,7 +17,7 @@ caos/server/data/
 # Python
 __pycache__/
 *.pyc
-.venv/
+.venv*/
 
 # Secrets / local env
 .env

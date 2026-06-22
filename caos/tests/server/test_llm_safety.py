@@ -94,8 +94,11 @@ def test_no_unreviewed_llm_call_sites():
     pat = re.compile(r"\.(?:beta\.)?messages\.(?:create|stream)\(")
     found = {
         str(p.relative_to(server))
+        # Exclude installed third-party code by its universal marker, not by a
+        # single venv name — a venv called anything but `.venv` (e.g. `.venv311`)
+        # would otherwise leak the anthropic SDK's own `.messages.create(` sites in.
         for p in server.rglob("*.py")
-        if ".venv" not in p.parts and pat.search(p.read_text(encoding="utf-8"))
+        if "site-packages" not in p.parts and pat.search(p.read_text(encoding="utf-8"))
     }
     assert found == _REVIEWED_LLM_CALL_SITES, (
         "Anthropic call sites changed. A new document/web-grounded call MUST route "

@@ -100,7 +100,20 @@ class InProcessExecutor:
         self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:  # no background loop needed
-        return None
+        # Hard-crash recovery. A SIGKILL/power-loss skips stop()'s mark-failed
+        # handler, stranding a run in 'running' (or 'queued') forever — SQLite
+        # has no reaper (the Postgres QueueWorker self-heals via _reap_orphans).
+        # start() runs in lifespan before any request is served and this executor
+        # has no in-flight tasks yet, so every non-terminal run is provably such a
+        # strand. Sweep them so they don't zombie.
+        # ponytail: sweep-on-boot, not a heartbeat — sound for one process.
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(Run)
+                .where(Run.status.in_(("running", "queued")))
+                .values(status="failed", error="abandoned (process restart)")
+            )
+            await session.commit()
 
     async def stop(self) -> None:
         tasks = list(self._tasks)
