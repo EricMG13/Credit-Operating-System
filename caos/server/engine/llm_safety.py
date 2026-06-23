@@ -38,14 +38,20 @@ def wrap_untrusted(grounding: str) -> str:
     return f"<<<BEGIN UNTRUSTED DOCUMENT CONTENT>>>\n{grounding}\n<<<END UNTRUSTED DOCUMENT CONTENT>>>"
 
 
-def safe_chunk_id(returned, hits: Sequence) -> str:
-    """The model-returned chunk id only if it is one of the retrieved chunks, else
-    the top hit's id — so injected text can't cite a fabricated source."""
+def safe_chunk_id(returned, hits: Sequence) -> Tuple[str, bool]:
+    """Resolve a model-returned chunk id to ``(chunk_id, exact)``.
+
+    ``exact`` is True only when the model pinned an id that is actually one of the
+    retrieved chunks. When the model fabricated an id, returned null, or omitted it,
+    we still fall back to the top hit (a real retrieved chunk, for navigation) but
+    flag ``exact=False`` so the caller never presents a substituted/unpinned source
+    as "Directly Sourced / High" — a wrong citation is worse than a soft one on a
+    show-your-work tool."""
     valid = {h.chunk_id for h in hits}
     r = str(returned or "")
     if r in valid:
-        return r
-    return hits[0].chunk_id if hits else ""
+        return r, True
+    return (hits[0].chunk_id if hits else ""), False
 
 
 async def extract_json(

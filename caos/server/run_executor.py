@@ -100,7 +100,20 @@ class InProcessExecutor:
         self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:  # no background loop needed
-        return None
+        # Hard-crash recovery. A SIGKILL/power-loss skips stop()'s mark-failed
+        # handler, stranding a run in 'running' (or 'queued') forever — SQLite
+        # has no reaper (the Postgres QueueWorker self-heals via _reap_orphans).
+        # start() runs in lifespan before any request is served and this executor
+        # has no in-flight tasks yet, so every non-terminal run is provably such a
+        # strand. Sweep them so they don't zombie.
+        # ponytail: sweep-on-boot, not a heartbeat — sound for one process.
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(Run)
+                .where(Run.status.in_(("running", "queued")))
+                .values(status="failed", error="abandoned (process restart)")
+            )
+            await session.commit()
 
     async def stop(self) -> None:
         tasks = list(self._tasks)
@@ -127,6 +140,11 @@ class QueueWorker:
         queued ──claim──► running ──execute_run──► complete / failed
         running & lease<now & attempts<MAX ──re-claim──► running
         running & lease<now & attempts>=MAX ──reap──► failed
+
+    Multi-worker claim safety relies on Postgres row locking (FOR UPDATE SKIP
+    LOCKED). On the SQLite dev default that clause is a no-op, so concurrent
+    workers would NOT be safe there — dev is single-process, which is why it's
+    fine. Do not run multiple workers against SQLite.
     """
 
     name = "queue_worker"
@@ -206,6 +224,7 @@ class QueueWorker:
     async def _run_loop(self) -> None:
         poll = self._settings.caos_run_poll_seconds
         cap = self._settings.caos_run_concurrency
+        fails = 0
         while not self._stop.is_set():
             try:
                 await self._reap_orphans()
@@ -216,8 +235,18 @@ class QueueWorker:
                     task = asyncio.create_task(execute_run_by_id(run_id))
                     self._inflight.add(task)
                     task.add_done_callback(self._inflight.discard)
+                fails = 0
             except Exception:  # noqa: BLE001 — never let the loop die
-                logger.exception("worker loop tick failed")
+                fails += 1
+                # A loop that throws every tick (e.g. DB unreachable) is alive but
+                # silently idle — queued runs never execute. Escalate to error so a
+                # stalled queue is distinguishable from an empty one (no APM here). C6.
+                if fails >= 3:
+                    logger.error(
+                        "worker loop failing repeatedly (%d consecutive ticks) — queue stalled", fails
+                    )
+                else:
+                    logger.exception("worker loop tick failed")
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=poll)
             except asyncio.TimeoutError:

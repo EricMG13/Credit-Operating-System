@@ -99,8 +99,12 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
             m for m in remaining
             if all(d in placed for d in REGISTRY[m].depends_on if d in in_set)
         ]
-        if not layer:  # ponytail: cycle fallback — the registry is a DAG, but never spin
-            layer = list(remaining)
+        if not layer:
+            # The registry is asserted to be a DAG; an empty layer with modules
+            # still remaining means a dependency cycle. Fail loudly instead of
+            # running them in arbitrary order (which degraded to silent
+            # input-gate "Blocked" cascades — a non-DAG should surface, not hide). C3.
+            raise RuntimeError(f"CP-X registry dependency cycle among: {sorted(remaining)}")
         for m in layer:
             placed[m] = len(layers)
         layers.append(layer)

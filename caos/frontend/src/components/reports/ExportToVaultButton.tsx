@@ -44,7 +44,7 @@ export function ExportToVaultButton({ runId, className = "" }: { runId: string; 
     : "⬓ EXPORT TO VAULT";
 
   const tone =
-    state.kind === "error" ? "border-caos-critical text-caos-critical hover:bg-caos-critical hover:text-caos-bg"
+    state.kind === "error" ? "border-caos-critical text-caos-critical-bright hover:bg-caos-critical hover:text-caos-bg"
     : state.kind === "done" ? "border-caos-success text-caos-success"
     : "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg";
 

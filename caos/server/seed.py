@@ -1,4 +1,6 @@
-"""Demo seed — the three demo issuers, inserted once on an empty database.
+"""Demo seed — the three demo issuers, ensured present per-entity (insert if
+missing) rather than gated on an empty database, so they survive whatever else
+has been written first.
 
 Also backfills demo-row fields (e.g. FIGI) added after a database was first
 seeded, so existing local/dev databases pick them up on restart.
@@ -41,17 +43,16 @@ DEMO_ISSUERS = [
 
 
 async def seed_demo_data() -> None:
+    # Ensure each demo issuer exists by id (insert if missing, else backfill newer
+    # demo fields). A per-issuer guard, not a table-emptiness one, so the demo
+    # issuers are present regardless of what else has been written first.
     async with AsyncSessionLocal() as session:
-        count = (await session.execute(select(func.count()).select_from(Issuer))).scalar()
-        if not count:
-            for row in DEMO_ISSUERS:
+        for row in DEMO_ISSUERS:
+            issuer = await session.get(Issuer, row["id"])
+            if issuer is None:
                 session.add(Issuer(**row))
-        else:
-            # Backfill newer demo fields on already-seeded databases.
-            for row in DEMO_ISSUERS:
-                issuer = await session.get(Issuer, row["id"])
-                if issuer is not None and not issuer.figi:
-                    issuer.figi = row["figi"]
+            elif not issuer.figi:
+                issuer.figi = row["figi"]
         await session.commit()
 
 
@@ -154,13 +155,17 @@ async def seed_metrics() -> None:
     The remaining metrics stay illustrative seed until a module produces them.
     """
     async with AsyncSessionLocal() as session:
-        existing = (await session.execute(
-            select(func.count()).select_from(MetricFact)
-            .where(MetricFact.provenance.in_(["seed", "derived"]))
-        )).scalar()
-        if existing:
-            return
         for issuer_id, values in SEED_METRICS.items():
+            # Per-issuer guard: skip only issuers that already carry seed/derived
+            # headline metrics, so a demo issuer seeded later still gets its facts
+            # regardless of what other metrics exist first.
+            already = (await session.execute(
+                select(func.count()).select_from(MetricFact)
+                .where(MetricFact.issuer_id == issuer_id)
+                .where(MetricFact.provenance.in_(["seed", "derived"]))
+            )).scalar()
+            if already:
+                continue
             # Pull this issuer's chunks once and try to derive energy exposure.
             chunks = (await session.execute(
                 select(DocumentChunk.id, Document.file_name, DocumentChunk.text)

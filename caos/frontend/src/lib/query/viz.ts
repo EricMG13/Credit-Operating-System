@@ -80,9 +80,17 @@ export function narrate(res: NlQueryResult): string {
       ? `${top.issuer.name} leads the result on ${col.label.toLowerCase()} at ${fmtMetric(topV, col.unit)} (${dir})`
       : `${top.issuer.name} leads the result on ${col.label.toLowerCase()} (${dir})`;
   const med = median(vals);
+  // The cohort is capped at the top-N; the median is therefore of the shown rows,
+  // not the coverage universe. Say so when capped so "above the median" isn't read
+  // as an absolute universe statistic.
+  const capped = res.total_ranked > res.rows.length;
+  const medLabel = capped ? "median of these" : "median across";
   const vsMed =
     typeof topV === "number" && vals.length > 2
-      ? `, ${fmtMetric(Math.abs(topV - med), col.unit)} ${topV >= med ? "above" : "below"} the ${fmtMetric(med, col.unit)} median`
+      ? `, ${fmtMetric(Math.abs(topV - med), col.unit)} ${topV >= med ? "above" : "below"} the ${fmtMetric(med, col.unit)} ${medLabel} ${res.rows.length}`
       : "";
-  return `${lead}${vsMed}. ${res.rows.length} issuers ranked · ${cited}/${res.rows.length} cited (run/derived), the rest seed.`;
+  const ranked = capped
+    ? `Top ${res.rows.length} of ${res.total_ranked} ranked`
+    : `${res.rows.length} issuers ranked`;
+  return `${lead}${vsMed}. ${ranked} · ${cited}/${res.rows.length} cited (run/derived), the rest seed.`;
 }

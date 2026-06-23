@@ -6,6 +6,7 @@
 // backend /api/chat/issuer endpoint forwards the conversation to Claude.
 
 import { useEffect, useRef, useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import { TextInput } from "@/components/shared/TextInput";
 import { askIssuer, type ChatMessage } from "@/lib/api";
 import { CAPACITY, CAPSTACK, COVENANTS, DEAL, DEBATE, RECOVERY, SIZING, TRIGGERS } from "@/lib/reports/deal";
@@ -139,10 +140,10 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         {msgs.length ? (
           <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">⌫</button>
         ) : null}
-        <button onClick={onClose} title="Close chat" className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md">✕</button>
+        <CloseButton onClick={onClose} label="Close chat" title="Close chat" />
       </div>
 
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg">
+      <div ref={scrollRef} tabIndex={0} aria-label="Conversation history" className="flex-1 min-h-0 overflow-auto px-3 py-3 flex flex-col gap-2.5 bg-caos-bg focus-ring">
         {!msgs.length ? (
           <div className="flex flex-col gap-2">
             <div className="text-caos-md text-caos-muted leading-relaxed">
@@ -213,7 +214,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           onClick={() => send()}
           disabled={busy || !input.trim()}
           title="Send"
-          className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-[13px]"
+          className="shrink-0 w-8 h-8 rounded flex items-center justify-center transition-caos disabled:opacity-40 text-caos-xl"
           style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
         >
           ↑

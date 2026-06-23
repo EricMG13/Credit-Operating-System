@@ -38,6 +38,25 @@ class Settings(BaseSettings):
     # Seed the three demo issuers on first boot.
     caos_demo_seed: bool = True
 
+    # Defense-in-depth for the forwarded-identity trust (identity.py / SECURITY.md
+    # §1). Caller identity comes from the edge proxy's X-Forwarded-* headers, which
+    # are only trustworthy because the proxy is the sole network path to the app.
+    # When this is set, the proxy injects it on every request and the app rejects
+    # any deployed-context request whose X-Edge-Authorization does not match —
+    # turning "sole ingress" from an operational assumption into an enforced check,
+    # so a directly-reachable app port can't be hit with forged identity headers.
+    # Empty = enforcement off (a loud startup warning fires in production). Env:
+    # EDGE_PROXY_SECRET. Generate with e.g. `python -c "import secrets;print(secrets.token_urlsafe(32))"`.
+    edge_proxy_secret: str = ""
+
+    # In-app analyst login (routes/auth.py). A single shared access code gates
+    # self-registration of named analyst profiles; the profile id is signed into
+    # the caos_analyst cookie (session_secret) and stamped on every run. Env:
+    # ANALYST_SIGNUP_CODE, SESSION_SECRET. The session_secret default is dev-only
+    # — set a real one in production (startup warns otherwise).
+    analyst_signup_code: str = "131113"
+    session_secret: str = "dev-insecure-session-secret"
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"

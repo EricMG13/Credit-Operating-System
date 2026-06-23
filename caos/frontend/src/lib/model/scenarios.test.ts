@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { buildScenarios, metricValue, METRICS } from "./scenarios";
 import { buildModel } from "@/lib/reports/model";
-import type { ModelAnchor } from "@/lib/engine/modelAnchor";
+import { DEFAULT_CASE, type Assumptions } from "@/lib/reports/assumptions";
 
-// The default lens anchors on the seeded build's PF column (offline fallback).
+// The default lens derives from the seeded BASE forecast (offline fallback).
 const lens = buildScenarios();
+
+// An Assumptions with one base-case field patched (downside left at agent baseline).
+const withBase = (patch: Partial<typeof DEFAULT_CASE>): Assumptions => ({
+  base: { ...DEFAULT_CASE, ...patch },
+  down: { ...DEFAULT_CASE },
+});
 const scen = (k: "best" | "base" | "worst") => lens.scenarios.find((s) => s.key === k)!.drivers;
 
 describe("project (cash-flow lens)", () => {
@@ -69,65 +75,65 @@ describe("tornado (adjustable sensitivity)", () => {
   });
 });
 
-describe("live CP-1 anchor re-bases the lens", () => {
-  // A live anchor deliberately offset from the seeded build, so the test proves
-  // the lens re-bases on the PF column (rather than coinciding by construction).
-  const ANCHOR: ModelAnchor = {
-    ltmRevenue: 2850,
-    ltmAdjEbitda: 450,
-    netDebt: 2500,
-    netLeverage: 5.9,
-    intCov: 2.0,
-  };
-
-  it("defaults to the same PF column as the seeded build", () => {
-    const seeded = buildScenarios(buildModel(1).cols.pf);
-    expect(lens.base).toEqual(seeded.base);
+describe("lens follows the BASE forecast assumptions", () => {
+  it("defaults to the seeded BASE forecast", () => {
+    expect(lens.base).toEqual(buildScenarios(buildModel(1)).base);
   });
 
-  it("derives base drivers from the anchored PF, not the seeded one", () => {
-    const pf = buildModel(1, {}, ANCHOR).cols.pf;
-    const live = buildScenarios(pf);
-    // adj margin re-bases onto the live LTM (450 / 2850), diverging from seeded.
-    expect(live.base.adjMargin).toBeCloseTo(ANCHOR.ltmAdjEbitda / ANCHOR.ltmRevenue, 6);
-    expect(live.base.adjMargin).not.toBeCloseTo(lens.base.adjMargin, 4);
+  it("lifts base revGrowth when the growth assumption rises", () => {
+    const up = buildScenarios(buildModel(1, {}, undefined, withBase({ gDrive: 0.05, gFluid: 0.05, gAfter: 0.05 })));
+    expect(up.base.revGrowth).toBeGreaterThan(lens.base.revGrowth);
   });
 
-  it("rolls the projection forward from the live PF revenue", () => {
-    const pf = buildModel(1, {}, ANCHOR).cols.pf;
-    const live = buildScenarios(pf);
-    const p = live.project(live.base);
-    // Year 1 revenue = live PF revenue grown one year at the base growth rate.
-    expect(p.revenue[0]).toBeCloseTo(ANCHOR.ltmRevenue * (1 + live.base.revGrowth), 6);
+  it("lifts base adjMargin by the margin-assumption delta", () => {
+    const up = buildScenarios(buildModel(1, {}, undefined, withBase({ dAdjm: 0.02 })));
+    expect(up.base.adjMargin).toBeCloseTo(lens.base.adjMargin + 0.02, 4);
   });
 
-  it("shifts the tornado base off the seeded value", () => {
-    const pf = buildModel(1, {}, ANCHOR).cols.pf;
-    const live = buildScenarios(pf);
-    const liveBase = live.tornado("netLevExit").base;
-    const seededBase = lens.tornado("netLevExit").base;
-    expect(liveBase).not.toBeCloseTo(seededBase, 3);
+  it("shifts the tornado base when an assumption changes", () => {
+    const up = buildScenarios(buildModel(1, {}, undefined, withBase({ dAdjm: 0.02 })));
+    expect(up.tornado("netLevExit").base).not.toBeCloseTo(lens.tornado("netLevExit").base, 3);
+  });
+
+  it("rolls the projection forward from FY25 revenue at the base growth", () => {
+    const m = buildModel(1);
+    const l = buildScenarios(m);
+    const p = l.project(l.base);
+    expect(p.revenue[0]).toBeCloseTo(m.cols.f25.rev * (1 + l.base.revGrowth), 6);
+  });
+
+  it("wires downside-case assumptions into the worst scenario only", () => {
+    const exit = (l: ReturnType<typeof buildScenarios>, k: "base" | "worst") =>
+      metricValue(l.project(l.scenarios.find((s) => s.key === k)!.drivers), "netLevExit");
+    // tighten the downside margin; base case untouched
+    const m = buildModel(1, {}, undefined, {
+      base: { ...DEFAULT_CASE },
+      down: { ...DEFAULT_CASE, dAdjm: -0.03 },
+    });
+    const l = buildScenarios(m);
+    expect(exit(l, "worst")).toBeGreaterThan(exit(lens, "worst")); // worse downside → higher worst leverage
+    expect(exit(l, "base")).toBeCloseTo(exit(lens, "base"), 6);    // base unchanged
   });
 });
 
 describe("scenario builder adjust re-centers base & downside", () => {
-  const pf = buildModel(1).cols.pf;
+  const model = buildModel(1);
   const exitLev = (l: ReturnType<typeof buildScenarios>, k: "best" | "base" | "worst") =>
     metricValue(l.project(l.scenarios.find((s) => s.key === k)!.drivers), "netLevExit");
 
-  it("a downside scenario raises base AND worst exit leverage vs the module lens", () => {
-    const stressed = buildScenarios(pf, { adjMargin: -0.03, rate: 0.01 });
+  it("a downside scenario raises base AND worst exit leverage vs the assumption lens", () => {
+    const stressed = buildScenarios(model, { adjMargin: -0.03, rate: 0.01 });
     expect(exitLev(stressed, "base")).toBeGreaterThan(exitLev(lens, "base"));
     expect(exitLev(stressed, "worst")).toBeGreaterThan(exitLev(lens, "worst"));
   });
 
-  it("applies deltas to the base drivers", () => {
-    const adjusted = buildScenarios(pf, { revGrowth: -0.05, adjMargin: -0.02 });
+  it("applies deltas on top of the assumption-derived base drivers", () => {
+    const adjusted = buildScenarios(model, { revGrowth: -0.05, adjMargin: -0.02 });
     expect(adjusted.base.revGrowth).toBeCloseTo(lens.base.revGrowth - 0.05, 6);
     expect(adjusted.base.adjMargin).toBeCloseTo(lens.base.adjMargin - 0.02, 6);
   });
 
-  it("reset (no adjust) equals the module forecasts", () => {
-    expect(buildScenarios(pf, undefined).base).toEqual(buildScenarios(pf).base);
+  it("reset (no adjust) equals the assumption forecast", () => {
+    expect(buildScenarios(model, undefined).base).toEqual(buildScenarios(model).base);
   });
 });

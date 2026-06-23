@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
-from typing import Tuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from config import get_settings
 
@@ -52,7 +52,10 @@ class ScenarioError(ValueError):
 def validate_scenario(spec: ScenarioSpec) -> ScenarioSpec:
     """Clamp each delta to its band; reject a no-op scenario."""
     for field, (lo, hi) in _BOUNDS.items():
-        setattr(spec, field, max(lo, min(hi, float(getattr(spec, field) or 0.0))))
+        v = float(getattr(spec, field) or 0.0)
+        if not math.isfinite(v):  # NaN/±Inf (json.loads/pydantic admit them) defeat max/min → poison the projection
+            v = 0.0
+        setattr(spec, field, max(lo, min(hi, v)))
     if not any(getattr(spec, f) for f in _BOUNDS):
         raise ScenarioError("no recognizable driver movement in the scenario")
     spec.label = (spec.label or "Custom scenario").strip()[:60]

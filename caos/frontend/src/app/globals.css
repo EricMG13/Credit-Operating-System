@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 :root {
+  /* Dark single-mode: fixes native scrollbars, inputs, and form controls. */
+  color-scheme: dark;
   /* CAOS dark theme (Blueprint §5.1) */
   --caos-bg: #0a0a0f;
   --caos-panel: #12121a;
@@ -11,6 +13,9 @@
   --caos-text: #e6e6ef;
   --caos-muted: #8a8a9a;
   --caos-accent: #4f8cff;
+  /* Downstream-consumer signal — pairs with --caos-accent (upstream lineage) in
+     the Query graph legend and the Pipeline consumers list. */
+  --caos-consumer: #c4b5fd;
 
   --caos-warning: #f5a524;
   --caos-critical: #ef4444;
@@ -35,15 +40,8 @@
   --tranche-eq: #64748b;
 
   /* ===== Design tokens — Phase 0 foundation ===== */
-  /* Type scale: deliberate steps replacing the ad-hoc 8.5–12px band. Adopted
-     via Tailwind `text-caos-*`; vars exposed for chart / paper code that can't
-     reach the utility classes. */
-  --fs-micro: 8.5px;
-  --fs-label: 9.5px;
-  --fs-body: 10.5px;
-  --fs-row: 12px;
-  --fs-metric: 16px;
-  --fs-hero: 22px;
+  /* Type scale lives in tailwind.config.js (`text-caos-*`); it is the single
+     source. Charts/paper code use the px literals directly. */
 
   /* Semantic status — single naming for the severity palette. */
   --sev-critical: var(--caos-critical);
@@ -92,9 +90,10 @@ body {
   .caos-running, .caos-enter, .caos-flash { animation: none; }
 }
 
-/* Selected card ring (cross-pane selection feedback) */
+/* Selected card ring (cross-pane selection feedback) — the 1px accent ring is
+   the signal; no glow halo (color is signal, not decoration). */
 .caos-selected {
-  box-shadow: 0 0 0 1px var(--caos-accent), 0 4px 16px -8px var(--caos-accent);
+  box-shadow: 0 0 0 1px var(--caos-accent);
 }
 
 /* Keyboard focus ring — visible only for keyboard users (:focus-visible).
@@ -103,6 +102,15 @@ body {
 .focus-ring:focus-visible {
   outline: 2px solid var(--caos-accent);
   outline-offset: -2px;
+}
+
+/* SVG graph node focus — .focus-ring's -2px inset outline doesn't render on an
+   SVG <g> (no box model), so keyboard focus on Query-graph nodes used an
+   outward-offset outline around the node bbox instead. */
+.graph-node:focus-visible {
+  outline: 2px solid var(--caos-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 /* Source-vault clause highlight (Evidence Sync target) */
@@ -158,7 +166,7 @@ body {
 .rd-table tr.rd-it td.rd-num { font-size: 8.2px; }
 .rd-table tr.rd-line td { border-top: 1px solid #8e8c80; }
 .rd-table tr.rd-gapr td { padding-top: 8px; }
-.rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #8a887c; font-style: normal; padding-left: 10px; }
+.rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; font-style: normal; padding-left: 10px; }
 .rd-note { font-size: 8px; font-style: italic; color: #6c6c76; margin-top: 4px; }
 
 .rd-profile { display: flex; flex-direction: column; }
@@ -191,6 +199,89 @@ body {
 
 .rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; display: flex; flex-direction: column; justify-content: space-around; align-items: center; transform: rotate(-16deg); }
 .rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: rgba(190,84,16,0.09); }
+
+/* ===== Deep Research: the report files as a paper tear-sheet =====
+   A deliverable, so it's the deliberate LIGHT counterpoint to the dark
+   workspace (Design Context · Output) — ink on cream, mono masthead, floated
+   over a dark gutter. Shares Report Studio's paper palette (#16161e ink /
+   #f7f5ee cream / #5c5c66 meta, rd-* above). The react-markdown output is
+   styled by element; the masthead / sources / colophon are JSX hooks. */
+.research-paper-shell {
+  min-height: 100%; padding: 22px 22px 32px;
+  display: flex; justify-content: center; align-items: flex-start;
+}
+/* Same float as Report Studio's rd-paper — the two paper deliverables sit
+   identically over the dark workspace. Entrance uses the shared .caos-enter. */
+.research-doc {
+  width: 100%; max-width: 760px;
+  background: #f7f5ee; color: #16161e;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 13px; line-height: 1.6; overflow-wrap: break-word;
+  padding: 38px 44px 30px;
+  box-shadow: 0 24px 70px -24px rgba(0,0,0,0.85);
+}
+
+/* masthead */
+.rdoc-mast { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  border-bottom: 2px solid #16161e; padding-bottom: 8px; margin-bottom: 20px; }
+.rdoc-brand { display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono), monospace; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; white-space: nowrap; }
+.rdoc-mark { width: 15px; height: 15px; border-radius: 2px; background: #16161e; color: #f7f5ee;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; letter-spacing: 0; }
+.rdoc-meta { font-family: var(--font-mono), monospace; font-size: 8.5px; font-weight: 500;
+  letter-spacing: 0.12em; color: #5c5c66; text-transform: uppercase; white-space: nowrap; }
+
+/* report body — semantic markdown elements */
+.research-doc > :first-child { margin-top: 0; }
+.research-doc h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.012em; line-height: 1.2; margin: 0 0 6px; text-wrap: balance; }
+.research-doc h2 { font-size: 14px; font-weight: 650; letter-spacing: 0.01em; margin: 26px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #16161e; }
+.research-doc h3 { font-size: 12px; font-weight: 650; letter-spacing: 0.02em; margin: 18px 0 7px; }
+.research-doc h4 { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #5c5c66; margin: 14px 0 6px; }
+.research-doc p { margin: 0 0 11px; text-wrap: pretty; }
+.research-doc strong { color: #16161e; font-weight: 650; }
+.research-doc em { color: #16161e; }
+.research-doc a { color: #16161e; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(22,22,30,0.35); }
+.research-doc a:hover { text-decoration-color: #16161e; }
+/* lists — ledger marks (filled square / mono index), not browser bullets */
+.research-doc ul, .research-doc ol { margin: 0 0 11px; padding-left: 0; list-style: none; }
+.research-doc li { position: relative; margin: 0 0 4px; padding-left: 16px; }
+.research-doc ul > li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 4px; height: 4px; background: #16161e; }
+.research-doc ol { counter-reset: rdoc-ol; }
+.research-doc ol > li { counter-increment: rdoc-ol; }
+.research-doc ol > li::before { content: counter(rdoc-ol) "."; position: absolute; left: 0; top: 0; font-family: var(--font-mono), monospace; font-size: 10px; font-weight: 600; color: #5c5c66; }
+.research-doc hr { border: 0; border-top: 1px solid rgba(22,22,30,0.18); margin: 18px 0; }
+.research-doc code { font-family: var(--font-mono), monospace; font-size: 0.88em; background: rgba(22,22,30,0.05); border: 1px solid rgba(22,22,30,0.12); border-radius: 3px; padding: 0.5px 4px; }
+.research-doc pre { background: rgba(22,22,30,0.04); border: 1px solid rgba(22,22,30,0.12); border-radius: 5px; padding: 10px 12px; overflow-x: auto; margin: 0 0 12px; }
+.research-doc pre code { background: none; border: 0; padding: 0; }
+/* QC / conflict callouts the model emits as blockquotes — amber that reads on cream */
+.research-doc blockquote { margin: 0 0 13px; padding: 9px 13px; border-left: 3px solid #b45309; background: rgba(180,83,9,0.06); color: #16161e; border-radius: 0 3px 3px 0; font-size: 12px; }
+.research-doc blockquote p { margin: 0; }
+.research-doc blockquote strong { color: #8a3d08; }
+/* tables — filed-document ruling: mono header underline, row hairlines, no grid.
+   A model can emit a wide/many-column table; the nowrap mono headers would then
+   push past the sheet, so the table override (JSX) wraps it in .rdoc-table-scroll
+   which scrolls horizontally instead of breaking the page. */
+.rdoc-table-scroll { overflow-x: auto; margin: 4px 0 16px; }
+.research-doc table { width: 100%; border-collapse: collapse; margin: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.research-doc th, .research-doc td { text-align: left; padding: 5px 14px 5px 0; vertical-align: top; }
+.research-doc th:last-child, .research-doc td:last-child { padding-right: 0; }
+.research-doc thead th { font-family: var(--font-mono), monospace; font-weight: 600; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: #5c5c66; border-bottom: 1px solid #16161e; white-space: nowrap; }
+.research-doc tbody td { border-bottom: 1px solid rgba(22,22,30,0.1); line-height: 1.4; overflow-wrap: break-word; }
+.research-doc tbody tr:last-child td { border-bottom: 0; }
+
+/* cited sources, set on the sheet as a numbered footnote register */
+.rdoc-sources { margin-top: 22px; padding-top: 12px; border-top: 1px solid #16161e; }
+.rdoc-sources-h { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #5c5c66; margin-bottom: 9px; }
+.rdoc-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: src; }
+.rdoc-sources li { counter-increment: src; display: flex; gap: 9px; font-size: 11px; line-height: 1.45; }
+.rdoc-sources li::before { content: counter(src, decimal-leading-zero); font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 600; color: #5c5c66; padding-top: 1px; }
+.rdoc-sources a { color: #16161e; text-decoration: none; border-bottom: 1px solid rgba(22,22,30,0.25); word-break: break-word; }
+.rdoc-sources a:hover { border-bottom-color: #16161e; }
+
+/* colophon */
+.rdoc-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 8px; border-top: 1px solid #16161e; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; letter-spacing: 0.08em; color: #5c5c66; text-transform: uppercase; }
 
 /* ===== Report Studio: print only the document ===== */
 .print-root { display: none; }

@@ -28,7 +28,7 @@ export function OutSections({
                 ))}
               </div>
               {s.rows.map((r, ri) => (
-                <div key={ri} className="grid gap-x-3 px-3 py-[5.5px] items-center border-b border-caos-border/50 hover:bg-caos-elevated/40 transition-caos" style={{ gridTemplateColumns: gridCols }}>
+                <div key={ri} className="grid gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/40 transition-caos" style={{ gridTemplateColumns: gridCols }}>
                   {r.map((cell, ci) => (
                     <span key={ci} className={(ci === 0 ? "text-caos-lg text-caos-text" : "tabular text-caos-lg text-caos-text/90") + (s.align && s.align[ci] ? " text-right" : "") + " leading-snug"}>{cell}</span>
                   ))}
@@ -42,7 +42,7 @@ export function OutSections({
             <div key={si} className="rounded border border-caos-border bg-caos-bg">
               <div className="px-3 py-2 border-b border-caos-border tabular text-caos-xs uppercase tracking-wider text-caos-muted">{s.title}</div>
               {s.items.map((f, fi) => (
-                <div key={fi} className="px-3 py-[7px] border-b border-caos-border/50 flex items-start gap-2">
+                <div key={fi} className="px-3 py-1.5 border-b border-caos-border/50 flex items-start gap-2">
                   <Dot sev={f.sev} />
                   <span className="text-caos-lg text-caos-text leading-snug flex-1">
                     {f.text}

@@ -1,0 +1,287 @@
+"use client";
+
+// Concept D — Assumptions panel. Lets the analyst nudge the agent's forecast
+// drivers (segment growth, margins, D&A, cash-flow lines); changes flow into
+// buildModel and recompute the grid + scenario lens. Centered = the agent's own
+// call; derived lines (FFO/CFO/FCF/NCF/cash/leverage) move dynamically.
+//
+// Layout: one case at a time (BASE / DOWNSIDE toggle), each driver edited
+// side-by-side across years. The ALL column broadcasts to every year; a year
+// column (FY26e/FY27e/FY28e) pins that year only and overrides ALL for it.
+
+import { useRef, useState } from "react";
+import { Panel } from "@/components/shared/Panel";
+import {
+  type CaseAssumptions, type FY, type YearOverrides, type Assumptions,
+  ADDBACKS, DEFAULT_CASE, FORECAST_LABELS, caseModifiedCount, yearModifiedCount,
+} from "@/lib/reports/assumptions";
+
+interface DriverSpec {
+  key: keyof CaseAssumptions;
+  label: string;
+  min: number;  // model units
+  max: number;
+  step: number;
+  scale: number; // model → display multiplier
+  dp: number;    // display decimals
+  unit: string;
+}
+
+// Driver groups, in display order. Cash flow lists every line except the derived
+// ones (FFO/CFO/FCF/NCF) and the two "Other" lines, which stay on the baseline.
+const GROUPS: { title: string; items: DriverSpec[] }[] = [
+  { title: "Revenue growth (Δ / yr)", items: [
+    { key: "gDrive", label: "Drivetrain", min: -0.1, max: 0.1, step: 0.0025, scale: 100, dp: 2, unit: "pp" },
+    { key: "gFluid", label: "Fluid Systems", min: -0.1, max: 0.1, step: 0.0025, scale: 100, dp: 2, unit: "pp" },
+    { key: "gAfter", label: "Aftermarket", min: -0.1, max: 0.1, step: 0.0025, scale: 100, dp: 2, unit: "pp" },
+  ] },
+  { title: "Margins", items: [
+    { key: "dGpm", label: "Gross margin Δ", min: -0.05, max: 0.05, step: 0.0025, scale: 100, dp: 2, unit: "pp" },
+    { key: "dAdjm", label: "Adj. EBITDA margin Δ", min: -0.05, max: 0.05, step: 0.0025, scale: 100, dp: 2, unit: "pp" },
+    { key: "daPct", label: "D&A % of sales", min: 0.02, max: 0.08, step: 0.0025, scale: 100, dp: 1, unit: "%" },
+  ] },
+  { title: "Cash flow (× agent baseline)", items: [
+    { key: "mInt", label: "Cash interest", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mLeases", label: "Leases", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mTax", label: "Cash taxes", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mWc", label: "Changes in WC", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mCapex", label: "Capex", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mAcq", label: "Acquisitions", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "mDiss", label: "Debt issue/(repay)", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
+    { key: "divDelta", label: "Dividends", min: -150, max: 0, step: 5, scale: 1, dp: 0, unit: "$" },
+  ] },
+  { title: "Add-backs (× agent register · 1 = accept)", items: ADDBACKS.map(
+    (a): DriverSpec => ({ key: a.key, label: a.label, min: 0, max: 1.5, step: 0.05, scale: 1, dp: 2, unit: "×" }),
+  ) },
+];
+
+const GRID = "grid grid-cols-[1fr_repeat(4,40px)] gap-1 items-center";
+const CELL =
+  "w-full h-5 px-1 text-right tabular text-caos-2xs rounded border bg-caos-elevated cursor-ew-resize select-none " +
+  "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none " +
+  "focus:outline-none focus:border-caos-accent";
+
+// Horizontal drag sensitivity: px of travel per one driver step.
+const PX_PER_STEP = 4;
+
+// A value cell that is both a number input (click to type) and a horizontal
+// scrubber (drag left/right to step the value, like a Figma/Blender field).
+// Drag only engages past a 3px threshold, so a plain click still focuses to type.
+function Cell({ spec, model, modified, accent, label, onChange, onReset, onScrub, onScrubEnd }: {
+  spec: DriverSpec;
+  model: number;
+  modified: boolean;
+  accent: string;
+  label: string;
+  onChange: (v: number) => void;
+  onReset: () => void;
+  onScrub?: () => void;
+  onScrubEnd?: () => void;
+}) {
+  const disp = +(model * spec.scale).toFixed(spec.dp);
+  const drag = useRef<{ x: number; v: number; moved: boolean } | null>(null);
+  const set = (raw: number) => onChange(Math.max(spec.min, Math.min(spec.max, Math.round(raw * 1e6) / 1e6)));
+  return (
+    <input
+      type="number"
+      value={disp}
+      step={spec.step * spec.scale}
+      min={spec.min * spec.scale}
+      max={spec.max * spec.scale}
+      aria-label={label}
+      title={`${label} — drag to adjust, type, or double-click to reset`}
+      onChange={(e) => {
+        const d = parseFloat(e.target.value);
+        if (!Number.isNaN(d)) set(d / spec.scale);
+      }}
+      onDoubleClick={onReset}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        drag.current = { x: e.clientX, v: model, moved: false };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        const dx = e.clientX - d.x;
+        if (!d.moved && Math.abs(dx) < 3) return;
+        if (!d.moved) { d.moved = true; e.currentTarget.blur(); onScrub?.(); } // stop caret + flag affected sheet cells
+        e.preventDefault();
+        set(d.v + Math.round(dx / PX_PER_STEP) * spec.step);
+      }}
+      onPointerUp={(e) => {
+        if (drag.current) { try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {} }
+        if (drag.current?.moved) onScrubEnd?.();
+        drag.current = null;
+      }}
+      onPointerCancel={() => { if (drag.current?.moved) onScrubEnd?.(); drag.current = null; }}
+      className={CELL}
+      style={{
+        borderColor: modified ? accent : "var(--caos-border)",
+        color: modified ? accent : "var(--caos-text)",
+        touchAction: "none",
+      }}
+    />
+  );
+}
+
+function DriverRow({ spec, caseKey, ca, yearsOv, accent, onChange, onChangeYear, onResetYearCell, onScrub, onScrubEnd }: {
+  spec: DriverSpec;
+  caseKey: "base" | "down";
+  ca: CaseAssumptions;
+  yearsOv: YearOverrides;
+  accent: string;
+  onChange: (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) => void;
+  onChangeYear: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions, value: number) => void;
+  onResetYearCell: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions) => void;
+  onScrub?: (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) => void;
+  onScrubEnd?: () => void;
+}) {
+  return (
+    <div className={GRID}>
+      <span className="flex items-baseline gap-1 min-w-0">
+        <span className="tabular text-caos-2xs text-caos-text/80 truncate">{spec.label}</span>
+        <span className="tabular text-caos-3xs text-caos-muted shrink-0">{spec.unit}</span>
+      </span>
+      <Cell
+        spec={spec}
+        model={ca[spec.key]}
+        modified={ca[spec.key] !== DEFAULT_CASE[spec.key]}
+        accent={accent}
+        label={`${spec.label} — all years`}
+        onChange={(v) => onChange(caseKey, spec.key, v)}
+        onReset={() => onChange(caseKey, spec.key, DEFAULT_CASE[spec.key])}
+        onScrub={() => onScrub?.(caseKey, spec.key, "all")}
+        onScrubEnd={onScrubEnd}
+      />
+      {([0, 1, 2] as FY[]).map((y) => {
+        const ov = yearsOv[y]?.[spec.key];
+        return (
+          <Cell
+            key={y}
+            spec={spec}
+            model={ov ?? ca[spec.key]}
+            modified={ov !== undefined}
+            accent={accent}
+            label={`${spec.label} — ${FORECAST_LABELS[y]}`}
+            onChange={(v) => onChangeYear(caseKey, y, spec.key, v)}
+            onReset={() => onResetYearCell(caseKey, y, spec.key)}
+            onScrub={() => onScrub?.(caseKey, spec.key, y)}
+            onScrubEnd={onScrubEnd}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetCase, onResetYearCell, onScrub, onScrubEnd, onCollapse }: {
+  assumptions: Assumptions;
+  onChange: (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) => void;
+  onChangeYear: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions, value: number) => void;
+  onResetCase: (caseKey: "base" | "down") => void;
+  onResetYearCell: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions) => void;
+  onScrub?: (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) => void;
+  onScrubEnd?: () => void;
+  onCollapse?: () => void;
+}) {
+  const [caseKey, setCaseKey] = useState<"base" | "down">("base");
+  const ca = assumptions[caseKey];
+  const yearsOv = (caseKey === "base" ? assumptions.baseYears : assumptions.downYears) ?? {};
+  const accent = caseKey === "base" ? "var(--caos-success)" : "var(--caos-warning)";
+  const changed = caseModifiedCount(ca) + ([0, 1, 2] as FY[]).reduce<number>((s, y) => s + yearModifiedCount(yearsOv[y]), 0);
+
+  const tab = (key: "base" | "down") =>
+    "flex-1 flex items-center justify-center gap-1.5 tabular text-caos-2xs uppercase tracking-wider py-1 rounded border transition-caos " +
+    (caseKey === key ? "bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text");
+
+  return (
+    <Panel
+      title="Assumptions · forecast drivers"
+      className="w-[348px] shrink-0"
+      right={onCollapse ? (
+        <button
+          onClick={onCollapse}
+          title="Collapse the Assumptions panel"
+          aria-label="Collapse Assumptions panel"
+          className="tabular text-caos-xs px-1 text-caos-muted hover:text-caos-text transition-caos"
+        >
+          ‹
+        </button>
+      ) : undefined}
+    >
+      <div className="p-2.5 flex flex-col gap-3">
+        <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+          Nudge the agent&apos;s forecast. ALL broadcasts to every year; a year column pins that year only.
+        </p>
+
+        {/* case toggle */}
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setCaseKey("base")}
+            aria-pressed={caseKey === "base"}
+            className={tab("base")}
+            style={caseKey === "base" ? { borderColor: "var(--caos-success)", color: "var(--caos-success)" } : undefined}
+          >
+            <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} />
+            Base
+          </button>
+          <button
+            onClick={() => setCaseKey("down")}
+            aria-pressed={caseKey === "down"}
+            className={tab("down")}
+            style={caseKey === "down" ? { borderColor: "var(--caos-warning)", color: "var(--caos-warning)" } : undefined}
+          >
+            <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-warning)" }} />
+            Downside
+          </button>
+        </div>
+
+        {/* column headers */}
+        <div className={GRID + " sticky top-0"}>
+          <span className="flex items-center">
+            {changed > 0 ? (
+              <button
+                onClick={() => onResetCase(caseKey)}
+                title={`Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
+                className="tabular text-caos-3xs px-1.5 py-px rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+              >
+                ↶ {changed}
+              </button>
+            ) : null}
+          </span>
+          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">All</span>
+          {([0, 1, 2] as FY[]).map((y) => (
+            <span key={y} className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">
+              {FORECAST_LABELS[y].replace("FY", "")}
+            </span>
+          ))}
+        </div>
+
+        {GROUPS.map((g) => (
+          <div key={g.title} className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.title}</span>
+              <span className="h-px flex-1 bg-caos-border/60" />
+            </div>
+            {g.items.map((spec) => (
+              <DriverRow
+                key={spec.key}
+                spec={spec}
+                caseKey={caseKey}
+                ca={ca}
+                yearsOv={yearsOv}
+                accent={accent}
+                onChange={onChange}
+                onChangeYear={onChangeYear}
+                onResetYearCell={onResetYearCell}
+                onScrub={onScrub}
+                onScrubEnd={onScrubEnd}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}

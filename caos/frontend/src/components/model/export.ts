@@ -8,7 +8,6 @@
 
 import type { Model } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
-import type { Grid, SheetState } from "@/lib/model/sheet";
 import { GROUPS_META, ROWS } from "./rows";
 
 function csvCell(v: string | number | null | undefined): string {
@@ -17,43 +16,27 @@ function csvCell(v: string | number | null | undefined): string {
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-export function exportModel(model: Model, showQ: boolean, overrides: Overrides, sheet?: SheetState, grid?: Grid): void {
-  const colDefs: { key: string; group: string; ctx?: import("@/lib/reports/model").ModelCol; label?: string }[] = model.columns
+export function exportModel(model: Model, showQ: boolean, overrides: Overrides): void {
+  const colDefs = model.columns
     .filter((c) => showQ || c.group !== "Q")
     .map((c) => ({ ...c, ctx: model.cols[c.key] }));
-  if (sheet) sheet.cols.forEach((cc) => colDefs.push({ key: cc.key, group: "CUSTOM", label: cc.label }));
 
   const round3 = (v: number | null | undefined): string | number =>
     v == null || Number.isNaN(v) ? "" : Math.round(v * 1000) / 1000;
-  const customVal = (colKey: string, rowId: string): string | number => {
-    if (!grid) return "";
-    const cv = grid.get(colKey, rowId);
-    return cv.err ? cv.err : round3(cv.v);
-  };
 
   const lines: string[] = [];
   lines.push(["Atlas Forge Industrials — cash-flow model M-118", ...colDefs.map((c) => GROUPS_META[c.group])].map(csvCell).join(","));
-  lines.push(["YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", ...colDefs.map((c) => (c.ctx ? c.ctx.label + (c.ctx.derived ? "*" : "") : c.label || c.key))].map(csvCell).join(","));
+  lines.push(["YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", ...colDefs.map((c) => c.ctx.label + (c.ctx.derived ? "*" : ""))].map(csvCell).join(","));
 
   ROWS.forEach((row) => {
     if (row.sec) {
       lines.push(csvCell(row.sec));
       return;
     }
-    const cells = colDefs.map((c) => {
-      if (!c.ctx) return customVal(c.key, row.id!);
-      // percent-format rows exported as decimals (matches the design's raw values)
-      return round3(row.g!(c.ctx));
-    });
+    // percent-format rows exported as decimals (matches the design's raw values)
+    const cells = colDefs.map((c) => round3(row.g!(c.ctx)));
     lines.push([(row.ind ? "   " : "") + row.l + (row.sub ? " (" + row.sub + ")" : ""), ...cells].map(csvCell).join(","));
   });
-
-  if (sheet && sheet.rows.length) {
-    lines.push(csvCell("Analyst Rows"));
-    sheet.rows.forEach((r) => {
-      lines.push([r.label, ...colDefs.map((c) => customVal(c.key, r.id))].map(csvCell).join(","));
-    });
-  }
 
   const ovKeys = Object.keys(overrides || {});
   if (ovKeys.length) {

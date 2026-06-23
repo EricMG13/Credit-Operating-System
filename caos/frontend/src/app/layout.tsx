@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/shared/AuthProvider";
@@ -11,6 +11,10 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mon
 export const metadata: Metadata = {
   title: "Credit Agent OS (CAOS)",
   description: "Enterprise leveraged finance credit analysis platform",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0a0a0f", // matches --caos-bg
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

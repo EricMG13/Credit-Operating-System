@@ -40,6 +40,9 @@ _DEMO_REPLY = (
 )
 
 
+_TRUNCATION_NOTE = "[reply truncated at the length cap — ask a narrower question]"
+
+
 class ChatTurn(BaseModel):
     role: str  # "user" | "assistant"
     content: str
@@ -69,7 +72,16 @@ async def ask_issuer(messages: List[ChatTurn]) -> str:
         system=SYSTEM_PROMPT,
         messages=[{"role": m.role, "content": m.content} for m in messages],
     )
-    for block in response.content:
-        if block.type == "text":
-            return block.text
-    raise RuntimeError(f"Model returned no text (stop_reason={response.stop_reason}).")
+    text = next((b.text for b in response.content if b.type == "text"), None)
+    truncated = response.stop_reason == "max_tokens"
+    if text is None:
+        # No text at all: a max_tokens cut before any prose still gets a usable
+        # reply rather than a 502; otherwise it's a genuine empty response.
+        if truncated:
+            return _TRUNCATION_NOTE
+        raise RuntimeError(f"Model returned no text (stop_reason={response.stop_reason}).")
+    # Flag a reply cut off at the 1024-token cap so a partial desk note isn't read
+    # as complete (same class as the deep-research truncation). Plain text, no emoji.
+    if truncated:
+        return text.rstrip() + "\n\n" + _TRUNCATION_NOTE
+    return text

@@ -6,7 +6,10 @@ const cell = (value: number, provenance: "run" | "derived" | "seed" = "run") => 
   value, unit: "x", provenance, qa_status: "Pass", period: "LTM", citation: null,
 });
 
-const structured = (rows: Array<{ name: string; v: number; p?: "run" | "derived" | "seed" }>): StructuredResult => ({
+const structured = (
+  rows: Array<{ name: string; v: number; p?: "run" | "derived" | "seed" }>,
+  total?: number, // universe before the top-N cap; defaults to uncapped
+): StructuredResult => ({
   mode: "structured",
   interpretation: "rank by net leverage",
   spec: null,
@@ -17,6 +20,7 @@ const structured = (rows: Array<{ name: string; v: number; p?: "run" | "derived"
     rank_value: r.v,
     metrics: { net_leverage: cell(r.v, r.p ?? "run") },
   })),
+  total_ranked: total ?? rows.length,
   caveats: [],
 });
 
@@ -47,6 +51,20 @@ describe("narrate", () => {
     expect(s).toContain("higher = weaker"); // net leverage: higher_is_better=false (#6)
     expect(s).toContain("median");
     expect(s).toContain("1/3 cited");
+    // uncapped: the cohort IS the universe, so no "top N of M" framing
+    expect(s).toContain("3 issuers ranked");
+    expect(s).not.toContain("Top 3 of");
+  });
+
+  // Regression (OBS-002): when the result is a top-N slice of a larger universe,
+  // the count must say "Top N of M" and the median must be scoped to the shown
+  // rows — not presented as the coverage-universe median.
+  it("labels a capped ranking as top-N of the universe and scopes the median", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ name: `I${i}`, v: 8 - i * 0.3 }));
+    const s = narrate(structured(rows, 36));
+    expect(s).toContain("Top 10 of 36 ranked");
+    expect(s).toContain("median of these 10");
+    expect(s).not.toContain("10 issuers ranked");
   });
 
   it("summarizes semantic evidence matches", () => {

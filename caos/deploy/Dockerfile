@@ -26,6 +26,16 @@ WORKDIR /app
 COPY server/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Structure-preserving document extraction (covenant tables, multi-column credit
+# agreements). The dev venv is 3.9 so the app shells out to markitdown via
+# CAOS_MARKITDOWN_CMD; this runtime is 3.11, so the CLI installs straight onto
+# PATH (/usr/local/bin/markitdown). [pdf] also covers EDGAR .htm exhibits; xlsx
+# falls back to the built-in openpyxl path. ponytail: [pdf] not [all] — PDF pilot.
+# D9 (deferred): can't pin this install against requirements.txt via `-c` — that
+# file carries an [extra], and pip constraint files reject extras. Proper integrity
+# fix is a pip-compiled lockfile (hashes + a single resolution); follow-up.
+RUN pip install --no-cache-dir 'markitdown[pdf]'
+
 # App source, then the built UI from stage 1 (served by StaticFiles at /).
 COPY server/ ./
 COPY --from=frontend /frontend/out ./static

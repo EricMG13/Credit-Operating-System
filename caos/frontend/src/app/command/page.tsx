@@ -10,11 +10,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { SimControls } from "@/components/pipeline/atoms";
+import { SimControls, ToggleGroup } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
 import { NlQuery } from "@/components/command/NlQuery";
@@ -40,12 +41,6 @@ function CommandCenter() {
   const tick = run.sim.tick;
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
-  const headStat = (l: string, v: string, c?: string, big?: boolean) => (
-    <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
-      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
-    </span>
-  );
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -57,29 +52,34 @@ function CommandCenter() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
-          {([{ k: "cio", l: "PORTFOLIO" }, { k: "res", l: "RESEARCH" }, { k: "rv", l: "SECTOR RV" }] as const).map((v) => (
-            <button
-              key={v.k}
-              onClick={() => setView(v.k)}
-              className={"tabular whitespace-nowrap text-caos-md px-3 py-1.5 transition-caos " + (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")}
-            >
-              {v.l}
-            </button>
-          ))}
-        </div>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">
+        <ToggleGroup
+          className="shrink-0"
+          value={view}
+          onChange={setView}
+          options={[
+            { k: "cio", l: "PORTFOLIO" },
+            { k: "res", l: "RESEARCH" },
+            { k: "rv", l: "SECTOR RV" },
+          ] as const}
+        />
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">
           {view === "cio"
             ? "Portfolio Posture — US HY Sleeve"
             : view === "res"
             ? "Coverage Health — US HY Sleeve"
             : "Sector Relative Value — Loan Universe"}
         </span>
-        <div className="flex-1"></div>
-        {headStat("Sleeve NAV", "$2.41B")}
-        {headStat("Avg 3Y DM", "+504bps")}
-        {headStat("Names", "10")}
-        <div className="h-4 w-px bg-caos-border" />
+        <div className="flex-1 min-w-0"></div>
+        {/* Progressive disclosure by value (header is too dense to show all at
+            laptop widths). Always: the live "what changed" signal
+            (Watch/QA/Alerts). ≥1536: portfolio context KPIs. ≥1780: demo
+            sim controls + clock. The title truncates rather than push KPIs off. */}
+        <div className="hidden 2xl:flex items-center gap-5 shrink-0">
+          {headStat("Sleeve NAV", "$2.41B", undefined, true)}
+          {headStat("Avg 3Y DM", "+504bps")}
+          {headStat("Names", "10")}
+        </div>
+        <div className="h-4 w-px bg-caos-border hidden 2xl:block shrink-0" />
         {headStat("Watch", "3", "var(--caos-critical)", true)}
         {headStat("QA open", "5", "var(--caos-warning)", true)}
         <Link
@@ -91,8 +91,10 @@ function CommandCenter() {
           <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
           <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
         </Link>
-        <SimControls run={run} />
-        <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
+        <div className="hidden min-[1780px]:flex items-center gap-5 shrink-0">
+          <SimControls run={run} />
+          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
+        </div>
       </div>
 
       {/* workspace — single column for every lens; CP-MON intake/alerts moved

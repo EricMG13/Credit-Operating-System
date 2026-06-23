@@ -1,6 +1,7 @@
 // Model Builder row + source-manifest definitions (port of design bundle concept-d.jsx).
 
 import type { ModelCol } from "@/lib/reports/model";
+import { ADDBACKS } from "@/lib/reports/assumptions";
 
 /* ---------- build manifest: module outputs consumed by the model ---------- */
 export interface SrcDef {
@@ -48,8 +49,11 @@ export interface RowDef {
 export const ROWS: RowDef[] = [
   { sec: "Income Statement" },
   { id: "segD", l: "Drivetrain", g: (c) => c.segD, f: "m", ind: 1, shade: 1, src: "cp1a" },
+  { id: "gsegD", l: "% growth", g: (c) => c.gSegD, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "segF", l: "Fluid Systems", g: (c) => c.segF, f: "m", ind: 1, shade: 1, src: "cp1a" },
+  { id: "gsegF", l: "% growth", g: (c) => c.gSegF, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "segA", l: "Aftermarket & Services", g: (c) => c.segA, f: "m", ind: 1, shade: 1, src: "cp1a" },
+  { id: "gsegA", l: "% growth", g: (c) => c.gSegA, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "rev", l: "Revenues", g: (c) => c.rev, f: "m", bold: 1, line: 1, src: "cp1", formula: "Revenues = Σ divisions · CP-1 T4.7 normalized financials" },
   { id: "grev", l: "% growth", g: (c) => c.gRev, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "cogs", l: "COGS", g: (c) => -c.cogs, f: "m", ind: 1, shade: 1, src: "cp1" },
@@ -59,7 +63,9 @@ export const ROWS: RowDef[] = [
   { id: "ebit", l: "EBIT", g: (c) => c.ebit, f: "m", bold: 1 },
   { id: "da", l: "D&A", g: (c) => c.da, f: "m", ind: 1, shade: 1, src: "cp1" },
   { id: "ebitda", l: "EBITDA", g: (c) => c.ebitda, f: "m", bold: 1, formula: "EBITDA = EBIT + D&A (reported, pre add-backs)" },
-  { id: "ab", l: "Adjustments", g: (c) => c.ab, f: "m", ind: 1, shade: 1, src: "cp1ab", formula: "Add-backs per CP-1 K-09 register — 18.2% of LTM Adj. EBITDA" },
+  ...ADDBACKS.map((a, i): RowDef => ({ id: a.key, l: a.label, g: (c) => c.abAccts[i], f: "m", ind: 1, shade: 1, src: "cp1ab", formula: `${a.label} add-back — illustrative split of the CP-1 K-09 register (engine discloses aggregate % + categories, not per-account amounts)` })),
+  { id: "abunreal", l: "less: unrealised (deducted)", g: (c) => c.ab - c.abAccts.reduce((s, x) => s + x, 0), f: "m", ind: 1, shade: 1, src: "cp1ab", formula: "Unrealised sponsor add-backs deducted to a defensible buy-side basis — Σ gross × (1 − acceptance)" },
+  { id: "ab", l: "Total add-backs (net)", g: (c) => c.ab, f: "m", ind: 1, src: "cp1ab", formula: "Net realised add-backs credited to Adj. EBITDA — CP-1 K-09 register less unrealised" },
   { id: "adj", l: "Adj. EBITDA", g: (c) => c.adj, f: "m", bold: 1, line: 1, src: "cp1ab" },
   { id: "adjm", l: "% margin", g: (c) => c.adjm, f: "p", ind: 1, pct: 1 },
   { id: "gadj", l: "% growth", g: (c) => c.gAdj, f: "p", ind: 1, pct: 1, src: "cp1b" },

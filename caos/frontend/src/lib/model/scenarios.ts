@@ -2,18 +2,21 @@
 //
 // A simplified credit cash-flow projection that stays true to the Model Builder:
 // revenue → adj EBITDA → free cash flow → cash build / deleveraging → net
-// leverage. Anchored to the model's own pro-forma (PF) figures so it ties out
-// to the grid. Adds best/base/worst scenarios and an adjustable 1-way tornado.
+// leverage. Derived from the model's *assumptions-adjusted forecast*, so it
+// follows the Assumptions panel: base reads the BASE columns (b0/b1/b2), worst
+// reads the DOWNSIDE columns (d0/d1/d2), and best is an optimistic swing off
+// base (there is no separate upside-assumptions case). Move a slider and the
+// best/base/worst set + the tornado re-center on the new forecast.
 //
 // Not a DCF/valuation — total debt is held static and FCF accumulates to cash
 // (the deleveraging story), so the only outputs are credit metrics.
 //
-// The lens is built from a passed-in PF column via `buildScenarios(pf)`, so it
-// re-bases on whatever the grid is anchored to: pass the live-anchored model's
-// `pf` and best/base/worst + the tornado follow the live CP-1 run; omit it (or
-// pass the seeded build's pf) and the offline demo is unchanged.
+// The lens is built from a passed-in Model via `buildScenarios(model)`: its base
+// drivers (growth, margin, capex %, rate) are the average of the BASE forecast
+// columns, so analyst assumptions flow straight through; the roll-forward starts
+// from FY25 revenue and the LTM cash close.
 
-import { buildModel, type ModelCol } from "@/lib/reports/model";
+import { buildModel, type Model, type ModelCol } from "@/lib/reports/model";
 
 export interface Drivers {
   revGrowth: number; // annual revenue growth (e.g. 0.035)
@@ -22,9 +25,8 @@ export interface Drivers {
   rate: number;      // blended cash interest rate on total debt
 }
 
-// Anchor parts the PF column does not carry (model-basis assumptions).
-const DA_PCT = 0.046;  // D&A as % of revenue (model basis)
-const LEASES = 10;
+// Cash-tax rate the lens applies to pre-tax income (model basis); D&A % and
+// leases are read off the BASE forecast columns instead.
 const TAX_RATE = 0.25;
 
 // The starting balances the projection rolls forward, pinned to the PF column.
@@ -110,32 +112,43 @@ export interface ScenarioLens {
   tornado: (m: MetricKey, intensity?: number) => { base: number; bars: TornadoBar[] };
 }
 
-/** Build the forward scenario lens anchored on a model's pro-forma (PF) column.
- *  Pass the live-anchored model's `cols.pf` so best/base/worst + the tornado
- *  re-base on the live CP-1 run; omit it for the seeded offline demo.
+/** Build the forward scenario lens from a model's assumptions-adjusted forecast.
+ *  base drivers = the average realized growth / margin / capex% / rate of the
+ *  BASE columns (b0/b1/b2); worst = the same off the DOWNSIDE columns (d0/d1/d2);
+ *  best = an optimistic swing off base. So both the base- and downside-case
+ *  Assumptions sliders flow straight through and the lens re-centers live.
  *
- *  `adjust` applies analyst-supplied driver deltas (the Scenario Builder) to the
- *  base before deriving best/base/worst — re-centering the whole lens (base AND
- *  downside) on a custom scenario. Omit it to get the module forecasts. */
+ *  `adjust` applies analyst-supplied driver deltas (the Scenario Builder) on top
+ *  of base AND worst before building the set — re-centering the whole lens on a
+ *  custom scenario. Omit it to follow the assumptions only. */
 export function buildScenarios(
-  pf: ModelCol = buildModel(1).cols.pf,
+  model: Model = buildModel(1),
   adjust?: Partial<Drivers>,
 ): ScenarioLens {
+  const f25 = model.cols.f25, l1 = model.cols.l1;
+  const B = [model.cols.b0, model.cols.b1, model.cols.b2];
+  const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
   const anchor: Anchor = {
-    rev0: pf.rev,
-    totalDebt: pf.tdebt,
-    cash0: pf.cash,
-    daPct: DA_PCT,
-    leases: LEASES,
+    rev0: f25.rev,                          // BASE forecast grows off FY25
+    totalDebt: avg(B.map((c) => c.tdebt)),  // forecast debt stack
+    cash0: l1.cash,                         // forecast cash rolls from the LTM close
+    daPct: avg(B.map((c) => c.da / c.rev)), // = base-case D&A assumption
+    leases: avg(B.map((c) => c.leases)),    // = base-case leases assumption
     taxRate: TAX_RATE,
   };
 
-  const base: Drivers = {
-    revGrowth: 0.035 + (adjust?.revGrowth ?? 0),
-    adjMargin: pf.adjm + (adjust?.adjMargin ?? 0),
-    capexPct: Math.max(0, pf.capex / pf.rev + (adjust?.capexPct ?? 0)),
-    rate: Math.max(0, pf.int / pf.tdebt + (adjust?.rate ?? 0)),
-  };
+  // Average realized drivers of a forecast case's columns, with the Scenario
+  // Builder deltas layered on. Base reads the BASE columns; worst reads DOWN, so
+  // the downside-case assumption sliders flow straight into the worst scenario.
+  const driversOf = (cols: ModelCol[]): Drivers => ({
+    revGrowth: avg(cols.map((c) => c.gRev ?? 0)) + (adjust?.revGrowth ?? 0),
+    adjMargin: avg(cols.map((c) => c.adjm)) + (adjust?.adjMargin ?? 0),
+    capexPct: Math.max(0, avg(cols.map((c) => c.capex / c.rev)) + (adjust?.capexPct ?? 0)),
+    rate: Math.max(0, avg(cols.map((c) => c.int / c.tdebt)) + (adjust?.rate ?? 0)),
+  });
+  const base = driversOf(B);
+  const worst = driversOf([model.cols.d0, model.cols.d1, model.cols.d2]);
 
   function project(d: Drivers): Projection {
     const p: Projection = {
@@ -178,17 +191,10 @@ export function buildScenarios(
       },
     },
     { key: "base", label: "Base", color: "var(--caos-accent)", drivers: { ...base } },
-    {
-      key: "worst",
-      label: "Worst",
-      color: "var(--caos-critical)",
-      drivers: {
-        revGrowth: base.revGrowth - 0.035,
-        adjMargin: base.adjMargin - 0.018,
-        capexPct: base.capexPct + 0.004,
-        rate: base.rate + 0.01,
-      },
-    },
+    // Worst = the DOWNSIDE forecast (CP-2B pathway + the downside-case sliders),
+    // so the panel's downside assumptions drive the worst case directly rather
+    // than a fixed swing off base.
+    { key: "worst", label: "Worst", color: "var(--caos-critical)", drivers: { ...worst } },
   ];
 
   /** 1-way sensitivity of `m` to each driver, swung ± its base swing × intensity,

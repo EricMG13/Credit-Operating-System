@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -360,6 +360,10 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
         })
 
     results.sort(key=lambda r: r["rank_value"], reverse=(spec.direction == "desc"))
+    # Universe of issuers that could be ranked (had a value for rank_by and passed
+    # the filters) BEFORE the top-N display cap — so the UI can say "top N of M"
+    # instead of implying the returned cohort is the whole population.
+    total_ranked = len(results)
     results = results[: spec.limit]
 
     # Hybrid: corroborate each ranked issuer with the top supporting excerpt from
@@ -413,6 +417,7 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
         "rank_by": spec.rank_by,
         "columns": columns,
         "rows": results,
+        "total_ranked": total_ranked,
         "caveats": caveats,
     }
 

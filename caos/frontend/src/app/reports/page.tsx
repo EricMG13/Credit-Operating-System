@@ -6,14 +6,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
 import { buildReports, type ModelInputs } from "@/lib/reports/builders";
-import { loadSheet } from "@/lib/model/sheet";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -55,8 +53,8 @@ export default function ReportsPage() {
 }
 
 function ReportStudio() {
-  // Concept D model state (overrides / severity / analyst sheet) feeds the
-  // deliverables — loaded once on mount so D edits carry into E.
+  // Concept D model state (overrides / severity) feeds the deliverables —
+  // loaded once on mount so D edits carry into E.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
   useEffect(() => {
     try {
@@ -65,7 +63,6 @@ function ReportStudio() {
       setModelInputs({
         overrides: overrides && typeof overrides === "object" ? overrides : {},
         severity: s >= 0.5 && s <= 1.5 ? s : 1,
-        sheet: loadSheet(),
       });
     } catch { /* no model edits yet */ }
   }, []);
@@ -122,6 +119,10 @@ function ReportStudio() {
     setEdits((e) => ({ ...e, [rep.id]: { ...e[rep.id], [path]: text } }));
   };
   const resetEdits = () => {
+    // Irreversible: drops every analyst edit on this deliverable (and the
+    // localStorage mirror with it). Confirm before discarding manual committee work.
+    const plural = editCount === 1 ? "" : "s";
+    if (!window.confirm(`Discard ${editCount} analyst edit${plural} on this deliverable? This can't be undone.`)) return;
     setEdits((e) => {
       const next = { ...e };
       delete next[rep.id];
@@ -139,21 +140,15 @@ function ReportStudio() {
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
+      <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Report Studio — committee deliverables</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Report Studio — committee deliverables</span>
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden xl:inline">
           assembled from RUN #2641 outputs · figures on M-118 model basis
         </span>
         <span className="flex-1" />
-        {/* paper tone */}
-        <span className="flex items-center gap-1">
+        {/* paper tone — decorative, drops first on narrow screens */}
+        <span className="hidden 2xl:flex items-center gap-1 shrink-0">
           {PAPERS.map((p) => (
             <button
               key={p.v}
@@ -227,13 +222,13 @@ function ReportStudio() {
         >
           CP-5 CONDITIONAL — QA-117
         </span>
-      </div>
+      </PageSubHeader>
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex gap-2 p-2">
         <ReportList reports={reports} active={rep.id} onSel={setActiveId} />
 
-        <div ref={scrollRef} className="flex-1 min-w-0 rounded border border-caos-border overflow-auto" style={{ background: "#08080c" }}>
+        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
             <div style={{ zoom }}>
               <ReportDoc

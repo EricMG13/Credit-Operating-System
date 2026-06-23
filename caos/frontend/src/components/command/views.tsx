@@ -5,6 +5,7 @@
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
 import { useState } from "react";
+import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { useModalA11y } from "@/lib/use-modal-a11y";
@@ -90,7 +91,7 @@ export function PortfolioTable({
             className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
           >
             <span className="flex items-center gap-1.5 min-w-0">
-              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical)" }}>▲</span> : <span className="w-[10px]"></span>}
+              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>▲</span> : <span className="w-[10px]"></span>}
               <span className="tabular text-caos-accent">{p.code}</span>
               <span className="text-caos-text truncate text-caos-lg">{p.name}</span>
             </span>
@@ -144,13 +145,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
             CP-MON · mat {email.mat}
           </span>
           <div className="flex-1" />
-          <button
-            onClick={onClose}
-            title="Close (Esc)"
-            className="w-5 h-5 rounded border border-caos-border flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md"
-          >
-            ✕
-          </button>
+          <CloseButton onClick={onClose} title="Close (Esc)" />
         </div>
 
         {/* envelope */}
@@ -201,9 +196,9 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
     { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 mat.", on: true, fs: "text-caos-hero", color: SEV_COLOR.critical },
     { k: "high", label: "High", n: EMAIL_TILES.high, sub: "70–89", on: true, fs: "text-[18px]", color: SEV_COLOR.high },
     { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / 2), sub: "40–69", on: true, fs: "text-caos-metric", color: SEV_COLOR.medium },
-    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-[13px]", color: "var(--caos-muted)" },
-    { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-[13px]", color: "var(--caos-muted)" },
-    { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-[13px]", color: "var(--caos-text)" },
+    { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-caos-xl", color: "var(--caos-muted)" },
+    { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-caos-xl", color: "var(--caos-muted)" },
+    { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-caos-xl", color: "var(--caos-text)" },
   ];
   const list = EMAILS.filter((e) => !filter || e.sev === filter);
   return (

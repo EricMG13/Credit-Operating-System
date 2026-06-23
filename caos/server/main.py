@@ -1,14 +1,17 @@
 """CAOS — single-process Databricks App.
 
 One FastAPI service serves both the JSON API (under /api) and the static
-Next.js frontend export (everything else). Databricks Apps handles TLS and
-authentication at the platform edge; locally the same process runs with a
-dev identity, SQLite, and on-disk storage.
+Next.js frontend export (everything else). The edge (Caddy + oauth2-proxy)
+terminates TLS and authenticates the caller; on top of that, analysts hold a
+code-gated in-app profile (routes/auth.py) that supplies the app-level identity.
+Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,21 +19,38 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from access_log import access_event, client_source, principal
 from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, edgar, health, ingestion, issuers, query, runs, scenario
+from routes import auth, chat, edgar, health, ingestion, issuers, query, research, runs, scenario, settings as settings_routes
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("caos")
+access_logger = logging.getLogger("caos.access")
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
+    if settings.environment == "production" and not settings.edge_proxy_secret:
+        logger.warning(
+            "EDGE_PROXY_SECRET is unset in production — forwarded-identity trust "
+            "rests on network isolation alone (no proxy-origin check). Set "
+            "EDGE_PROXY_SECRET and have the edge inject X-Edge-Authorization to "
+            "enforce that requests came through the proxy. See SECURITY.md §1."
+        )
+    if settings.environment == "production" and settings.session_secret in ("", "dev-insecure-session-secret"):
+        # Fail closed: the dev default is public (in source), so it would let
+        # anyone forge an analyst login cookie. Refuse to start without a real one.
+        raise RuntimeError(
+            "SESSION_SECRET must be set to a random value in production — the dev "
+            "default lets analyst login cookies be forged. Generate one with: "
+            'python -c "import secrets;print(secrets.token_urlsafe(32))"'
+        )
     await init_db()
     if settings.caos_demo_seed:
         if settings.environment == "production":
@@ -98,6 +118,44 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     response = await call_next(request)
     for key, value in _SECURITY_HEADERS.items():
         response.headers.setdefault(key, value)
+    # Static-asset caching: Next's content-hashed bundles are immutable and safe
+    # to cache forever; HTML documents must revalidate so a redeploy's new
+    # index.html isn't served stale (pointing at chunks that no longer exist). D6.
+    path = request.url.path
+    if not path.startswith("/api/"):
+        if path.startswith("/_next/static/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
+            response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
+# ─── Access log (threat-detection app/auth feed) ────────────────────────────
+# One structured JSON line per /api request on `caos.access`. Feeds the
+# threat_signal_analyzer anomaly hunt: 401-by-source = brute force, auth_ok-by-
+# entity off-hours = account abuse, response-volume-by-entity = bulk pull/exfil.
+# /api only — static-asset requests are noise. See access_log.py for the
+# jq that extracts the analyzer events schema from these lines.
+@app.middleware("http")
+async def access_log(request: Request, call_next):  # type: ignore[no-untyped-def]
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)  # static-asset requests are noise — no timing/log
+    start = time.perf_counter()
+    response = await call_next(request)
+    try:
+        volume = int(response.headers.get("content-length", 0))
+    except (TypeError, ValueError):
+        volume = 0  # streaming/chunked responses omit Content-Length
+    access_logger.info(json.dumps(access_event(
+        method=request.method,
+        path=path,
+        status=response.status_code,
+        entity=principal(request.headers),
+        source=client_source(request.headers, request.client.host if request.client else None),
+        volume=volume,
+        dur_ms=round((time.perf_counter() - start) * 1000, 1),
+    )))
     return response
 
 
@@ -112,7 +170,7 @@ async def log_unhandled(request: Request, exc: Exception):  # type: ignore[no-un
         "unhandled exception: %s %s (caller=%s)",
         request.method,
         request.url.path,
-        request.headers.get("X-Forwarded-Email", "?"),
+        principal(request.headers),  # same canonical caller id as the access log
     )
     return JSONResponse({"detail": "Internal Server Error"}, status_code=500)
 
@@ -127,6 +185,21 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
+app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+
+
+# Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that
+# mount is a sub-app whose own 404 (404.html) bypasses our exception_handler, so
+# without this an unknown API path returns the SPA HTML and logs a large access
+# `volume`. ponytail: catch-all route beats the mount by registration order.
+@app.api_route(
+    "/api/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+)
+async def api_not_found(path: str):  # type: ignore[no-untyped-def]
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
 _static = Path(settings.caos_static_dir)

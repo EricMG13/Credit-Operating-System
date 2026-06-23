@@ -109,7 +109,7 @@ export function GraphView({
             <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
               <Dot sev={st} pulse={st === "running"} />
               <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
-              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical)" }}>⛨</span> : null}
+              {inScope && NODE_QA[m.id] ? <span className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
               {st === "held" ? <span className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
             </div>
@@ -207,7 +207,7 @@ export function Inspector({
       <div className="p-4 text-caos-xl text-caos-muted leading-relaxed">
         <div className="text-caos-text font-medium mb-2">Select a module</div>
         Click any node to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span> and{" "}
-        <span style={{ color: "var(--tranche-sub)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
+        <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span> through the CP-X route graph, inspect payload
         status, QA findings and propagated limitations.
         <div className="mt-3 tabular text-caos-sm text-caos-muted">
           {modeLabel} route · {scope.size} modules in scope.
@@ -231,7 +231,7 @@ export function Inspector({
       <div className="px-3 py-2.5 border-b border-caos-border">
         <div className="flex items-center gap-2">
           <Dot sev={st} pulse={st === "running"} />
-          <span className="tabular text-[13px] text-caos-text">{m.id}</span>
+          <span className="tabular text-caos-xl text-caos-text">{m.id}</span>
           <Tag sev={st}>{st === "idle" ? "queued" : st}</Tag>
         </div>
         <div className="text-caos-2xl text-caos-text mt-1 font-medium">{m.name}</div>
@@ -254,7 +254,7 @@ export function Inspector({
       ) : null}
       {qa ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical)" }}>QA finding · CP-5</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical-bright)" }}>QA finding · CP-5</div>
           <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{qa.sev}</Tag><span className="tabular text-caos-md text-caos-accent">{qa.id}</span></div>
           <div className="text-caos-lg text-caos-text leading-snug">{qa.text}</div>
         </div>
@@ -309,7 +309,7 @@ export function Inspector({
         <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
         <div className="flex flex-wrap gap-1">
           {consumers.length ? consumers.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg" style={{ color: "#c4b5fd" }}>
+            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg text-caos-consumer">
               {d}
             </span>
           )) : <span className="text-caos-md text-caos-muted">— terminal node</span>}
@@ -361,7 +361,7 @@ export function LineagePanel({
 /* ---------- event log ---------- */
 export function EventLog({ events }: { events: SimEvent[] }) {
   return (
-    <div className="h-full overflow-auto">
+    <div tabIndex={0} aria-label="Execution trace log" className="h-full overflow-auto focus-ring">
       {events.length === 0 ? <div className="px-3 py-2 text-caos-md text-caos-muted">Awaiting run start…</div> : null}
       {events.map((e, i) => (
         <div key={events.length - i} className={"flex items-center gap-2 px-3 py-[3.5px] border-b border-caos-border/40 " + (i === 0 ? "caos-enter" : "")}>

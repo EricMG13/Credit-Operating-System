@@ -125,14 +125,18 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import InProcessExecutor
 
+    # Match real lifespan ordering: the executor starts at boot, then runs are
+    # created and enqueued. (start() now sweeps stranded non-terminal runs, so a
+    # run created *before* start() would be swept — that's the hard-crash path.)
+    ex = InProcessExecutor()
+    await ex.start()
+
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
 
-    ex = InProcessExecutor()
-    await ex.start()
     await ex.enqueue(run_id)
     # let the fire-and-forget task finish
     for _ in range(100):
@@ -143,6 +147,31 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
         await asyncio.sleep(0.05)
     await ex.stop()
     assert run.status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
+    """Hard-crash recovery: a run left 'running'/'queued' by a SIGKILL (no stop())
+    must be swept to 'failed' on the next start() — SQLite has no reaper."""
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from run_executor import InProcessExecutor
+
+    async with AsyncSessionLocal() as s:
+        stranded_running = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="running")
+        stranded_queued = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="queued")
+        done = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="complete")
+        s.add_all([stranded_running, stranded_queued, done])
+        await s.commit()
+        ids = (stranded_running.id, stranded_queued.id, done.id)
+
+    await InProcessExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        r_running, r_queued, r_done = [await s.get(Run, i) for i in ids]
+        assert r_running.status == "failed" and "process restart" in (r_running.error or "")
+        assert r_queued.status == "failed"
+        assert r_done.status == "complete"  # terminal runs are untouched
 
 
 # These exercise the SKIP LOCKED claim path and only run against Postgres.
@@ -210,10 +239,12 @@ def api_client():
 
 
 def test_post_runs_returns_queued_fast(api_client):
+    from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
     r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
     assert r.status_code == 201, r.text
     assert r.json()["status"] == "queued"
+    wait_for_run(api_client, r.json()["id"])  # drain so the dedup guard doesn't 409 later tests
 
 
 def test_post_runs_then_polls_to_complete(api_client):
@@ -223,6 +254,24 @@ def test_post_runs_then_polls_to_complete(api_client):
     body = wait_for_run(api_client, r.json()["id"])
     assert body["status"] == "complete"
     assert body["error"] is None
+
+
+def test_list_runs_is_bounded(api_client):
+    """list_runs must clamp page size — an unbounded SELECT grows into a DoS as
+    runs accumulate (P4). Validate the bounds and that limit truncates."""
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    # Two terminal runs so there is something to truncate (drain each past the
+    # dedup guard before re-running the same issuer).
+    for _ in range(2):
+        r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+        wait_for_run(api_client, r.json()["id"])
+
+    assert len(api_client.get("/api/runs?limit=1").json()) == 1
+    assert api_client.get("/api/runs?limit=0").status_code == 422       # ge=1
+    assert api_client.get("/api/runs?limit=5000").status_code == 422    # le=1000
+    assert api_client.get("/api/runs?offset=-1").status_code == 422     # ge=0
 
 
 def test_failed_run_surfaces_error(api_client, monkeypatch):
@@ -238,6 +287,33 @@ def test_failed_run_surfaces_error(api_client, monkeypatch):
     body = wait_for_run(api_client, r.json()["id"])
     assert body["status"] == "failed"
     assert "kaboom" in (body["error"] or "")
+
+
+def test_duplicate_active_run_rejected(api_client, monkeypatch):
+    """Two runs for one issuer can't be active at once: the second POST gets 409
+    while the first is queued/running; a re-run is allowed once it's terminal."""
+    import asyncio
+
+    import run_executor
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    async def hold(session, run):  # mimic execute_run's status lifecycle, stalled mid-run
+        run.status = "running"
+        await session.commit()
+        await asyncio.sleep(0.3)
+        run.status = "complete"
+
+    monkeypatch.setattr(run_executor, "execute_run", hold)
+    first = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert first.status_code == 201, first.text
+    dup = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert dup.status_code == 409, dup.text  # blocked while the first is active
+
+    wait_for_run(api_client, first.json()["id"])  # let the first finish, then re-run is fine
+    again = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert again.status_code == 201, again.text
+    wait_for_run(api_client, again.json()["id"])  # drain
 
 
 @pytest.mark.asyncio

@@ -6,22 +6,22 @@
 // severity control, and model export.
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
+import { AssumptionsPanel } from "@/components/model/AssumptionsPanel";
 import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum } from "@/components/model/rows";
 import { buildModel, type Model, type Overrides } from "@/lib/reports/model";
+import {
+  type Assumptions, type CaseAssumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, DEFAULT_CASE, loadAssumptions, saveAssumptions,
+} from "@/lib/reports/assumptions";
 import { buildReports } from "@/lib/reports/builders";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
-import {
-  buildGrid, cellKey, EMPTY_SHEET, loadSheet, newColKey, newRowId, type SheetState,
-} from "@/lib/model/sheet";
 
 export default function ModelPage() {
   return (
@@ -31,16 +31,50 @@ export default function ModelPage() {
   );
 }
 
+// Which sheet rows each assumption driver feeds — used to flash the affected
+// forecast cells while a driver is scrubbed. Keyed by CaseAssumptions field;
+// includes the directly-edited line(s) plus every KPI the change recomputes
+// (leverage/coverage key off adj-EBITDA & cash; SG&A/tax/capex ratios off their
+// own inputs). Cross-year cash roll-forward is not chased — same-column only.
+const DRIVER_ROWS: Record<string, string[]> = {
+  gDrive: ["segD", "srsec", "totlev", "netlev", "intcov", "fcfd", "sga", "taxr"],
+  gFluid: ["segF", "srsec", "totlev", "netlev", "intcov", "fcfd", "sga", "taxr"],
+  gAfter: ["segA", "srsec", "totlev", "netlev", "intcov", "fcfd", "sga", "taxr"],
+  dGpm: ["gp", "gpm", "sga"],
+  dAdjm: ["adj", "adj2", "adjm", "srsec", "totlev", "netlev", "intcov", "fcfd", "sga", "taxr"],
+  daPct: ["da", "dapc", "taxr"],
+  mInt: ["int", "intcov", "fcfd", "netlev", "srsec", "taxr"],
+  mLeases: ["leases", "fcfd", "netlev", "srsec"],
+  mTax: ["tax", "fcfd", "netlev", "srsec", "taxr"],
+  mWc: ["wc", "fcfd", "netlev", "srsec"],
+  mCapex: ["capex", "cpr", "fcfd", "netlev", "srsec"],
+  mAcq: ["acq", "netlev", "srsec"],
+  mDiss: ["diss", "netlev", "srsec"],
+  divDelta: ["div", "netlev", "srsec"],
+  // each add-back account moves Adj. EBITDA → leverage & coverage KPIs
+  ...Object.fromEntries(ADDBACKS.map((a) => [a.key,
+    [a.key, "abunreal", "ab", "adj", "adj2", "adjm", "srsec", "totlev", "netlev", "intcov", "fcfd"]])),
+};
+
+// Cash-based KPI rows that roll forward: a year-scoped change to a cash-affecting
+// driver moves these in that year AND every later forecast year (cash carries).
+const CASCADE_ROWS = new Set(["netlev", "srsec"]);
+// Drivers that never touch the cash-flow statement (D&A is non-cash; gross-margin
+// only reshapes opex) — their KPI impact stays in the scrubbed year.
+const NON_CASH_DRIVERS = new Set(["dGpm", "daPct"]);
+
 function ModelBuilder() {
   const [hl, setHl] = useState<string | null>(null);
   const [sel, setSel] = useState<CellRef | null>({ row: "netlev", col: "l1" });
   const [evModal, setEvModal] = useState<string | null>(null);
-  const [severity, setSeverity] = useState(1);
+  const severity = 1; // downside built at CP-2B base pathway (P1); no analyst severity dial
   const [showQuarters, setShowQuarters] = useState(true);
   const [showScenarios, setShowScenarios] = useState(true);
+  const [showAssumptions, setShowAssumptions] = useState(true);
   const [editing, setEditing] = useState<CellRef | null>(null);
+  const [hlCells, setHlCells] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({});
-  const [sheet, setSheet] = useState<SheetState>(EMPTY_SHEET);
+  const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [hydrated, setHydrated] = useState(false);
 
   // evidence modal cited-by needs the report set
@@ -50,112 +84,105 @@ function ModelBuilder() {
     try {
       const o = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
       if (o && typeof o === "object") setOverrides(o);
-      const s = parseFloat(localStorage.getItem("caos-d-severity") || "");
-      if (s >= 0.5 && s <= 1.5) setSeverity(s);
-      setSheet(loadSheet());
+      setAssumptions(loadAssumptions());
     } catch { /* first visit */ }
     setHydrated(true);
   }, []);
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-severity", String(severity)); } catch {} }, [hydrated, severity]);
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-sheet", JSON.stringify(sheet)); } catch {} }, [hydrated, sheet]);
+  useEffect(() => { if (hydrated) saveAssumptions(assumptions); }, [hydrated, assumptions]);
 
   // Prefer a live CP-1 run for the LTM/PF anchor; falls back to the seeded
   // model when no run / no backend (offline demo unaffected).
   const eng = useModelEngine(ATLF_REFERENCE_ISSUER_ID);
   const model = useMemo(
-    () => buildModel(severity, overrides, eng.anchor ?? undefined),
-    [severity, overrides, eng.anchor],
+    () => buildModel(severity, overrides, eng.anchor ?? undefined, assumptions),
+    [severity, overrides, eng.anchor, assumptions],
   );
-  const grid = useMemo(() => buildGrid(model, sheet), [model, sheet]);
   const b1 = model.cols.b1, d0 = model.cols.d0;
   const ovCount = Object.keys(overrides).length;
-
-  const isCustomCell = (ref: CellRef) =>
-    sheet.cols.some((c) => c.key === ref.col) || sheet.rows.some((r) => r.id === ref.row);
 
   const commitEdit = (txt: string | null) => {
     if (!editing) return;
     if (txt != null) {
-      if (isCustomCell(editing)) {
-        const key = cellKey(editing.col, editing.row);
-        const t = txt.trim();
-        setSheet((s) => {
-          const cells = { ...s.cells };
-          if (t === "") delete cells[key];
-          else cells[key] = t;
-          return { ...s, cells };
-        });
+      const v = parseNum(txt);
+      if (v != null) {
+        const field = ovField(editing.row);
+        const key = editing.col + ":" + field;
+        setOverrides((o) => ({ ...o, [key]: v * OV_SIGN[field] }));
         setSel({ row: editing.row, col: editing.col });
-      } else {
-        const v = parseNum(txt);
-        if (v != null) {
-          const field = ovField(editing.row);
-          const key = editing.col + ":" + field;
-          const modelVal = v * OV_SIGN[field];
-          setOverrides((o) => ({ ...o, [key]: modelVal }));
-          setSel({ row: editing.row, col: editing.col });
-        }
       }
     }
     setEditing(null);
   };
   const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
   const resetAll = () => setOverrides({});
-  const clearCell = (key: string) => setSheet((s) => { const cells = { ...s.cells }; delete cells[key]; return { ...s, cells }; });
 
-  const addRow = () => setSheet((s) => ({ ...s, rows: [...s.rows, { id: newRowId(), label: "Analyst row " + (s.rows.length + 1) }] }));
-  const addCol = () => setSheet((s) => ({ ...s, cols: [...s.cols, { key: newColKey(), label: "Custom " + (s.cols.length + 1) }] }));
-  const renameRow = (id: string, label: string) => setSheet((s) => ({ ...s, rows: s.rows.map((r) => (r.id === id ? { ...r, label } : r)) }));
-  const renameCol = (key: string, label: string) => setSheet((s) => ({ ...s, cols: s.cols.map((c) => (c.key === key ? { ...c, label } : c)) }));
-  const deleteRow = (id: string) => setSheet((s) => {
-    const cells = Object.fromEntries(Object.entries(s.cells).filter(([k]) => k.split(":")[1] !== id));
-    return { ...s, rows: s.rows.filter((r) => r.id !== id), cells };
-  });
-  const deleteCol = (key: string) => setSheet((s) => {
-    const cells = Object.fromEntries(Object.entries(s.cells).filter(([k]) => k.split(":")[0] !== key));
-    return { ...s, cols: s.cols.filter((c) => c.key !== key), cells };
-  });
+  const yearsKey = (caseKey: "base" | "down"): "baseYears" | "downYears" => (caseKey === "base" ? "baseYears" : "downYears");
+  const setAsmp = (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) =>
+    setAssumptions((a) => ({ ...a, [caseKey]: { ...a[caseKey], [field]: value } }));
+  const setAsmpYear = (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions, value: number) =>
+    setAssumptions((a) => {
+      const yk = yearsKey(caseKey);
+      const years = a[yk] ?? {};
+      return { ...a, [yk]: { ...years, [year]: { ...years[year], [field]: value } } };
+    });
+  const resetCase = (caseKey: "base" | "down") =>
+    setAssumptions((a) => ({ ...a, [caseKey]: { ...DEFAULT_CASE }, [yearsKey(caseKey)]: {} }));
+  // Flash the sheet cells a driver feeds while it is scrubbed: its row(s) ×
+  // the case's forecast columns. ALL → all three years. A single year → that
+  // column, except cash-based KPIs (net/sr-sec leverage) which roll forward via
+  // cash, so a year-scoped change to a cash-affecting driver also moves them in
+  // every LATER year — highlight those too.
+  const scrubHighlight = (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) => {
+    const rows = DRIVER_ROWS[field] ?? [];
+    const pre = caseKey === "base" ? "b" : "d";
+    const cascades = !NON_CASH_DRIVERS.has(field as string);
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      const yrs = scope === "all" ? [0, 1, 2]
+        : cascades && CASCADE_ROWS.has(r) ? [0, 1, 2].filter((y) => y >= scope)
+          : [scope];
+      yrs.forEach((y) => set.add(r + ":" + pre + y));
+    });
+    setHlCells(set);
+  };
+  // Clear one year's override for a single driver (cell tracks the ALL value again).
+  const clearYearDriver = (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions) =>
+    setAssumptions((a) => {
+      const yk = yearsKey(caseKey);
+      const years = { ...(a[yk] ?? {}) };
+      const yo = { ...(years[year] ?? {}) };
+      delete yo[field];
+      if (Object.keys(yo).length) years[year] = yo; else delete years[year];
+      return { ...a, [yk]: years };
+    });
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
+      <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Atlas Forge — cash-flow model</span>
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Atlas Forge — cash-flow model</span>
         <ModelProvenance eng={eng} model={model} />
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
           dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
-        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
-          <span className="text-caos-muted">BASE · net lev FY27e</span>
-          <span style={{ color: "var(--caos-success)" }}>{b1.netlev!.toFixed(2)}x</span>
-        </span>
-        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-          <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
-          <span className="text-caos-muted">DOWNSIDE · peak</span>
-          <span style={{ color: "var(--caos-warning)" }}>{d0.netlev!.toFixed(2)}x</span>
-        </span>
-        <span className="h-4 w-px bg-caos-border" />
-        {/* downside severity */}
-        <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted">
-          SEVERITY
-          <input
-            type="range" min={0.5} max={1.5} step={0.05} value={severity}
-            onChange={(e) => setSeverity(parseFloat(e.target.value))}
-            className="w-20 accent-[var(--caos-accent)]"
-            title="Downside severity multiplier (CP-2B pathway P1)"
-          />
-          <span className="text-caos-text w-9">×{severity.toFixed(2)}</span>
+        {/* Net-lev status chips duplicate the Scenario panel — drop them first on
+            narrow screens; the panel toggles + Export stay reachable. */}
+        <span className="hidden 2xl:flex items-center gap-3 shrink-0">
+          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
+            <span className="text-caos-muted">BASE · net lev FY27e</span>
+            <span style={{ color: "var(--caos-success)" }}>{b1.netlev?.toFixed(2) ?? "—"}x</span>
+          </span>
+          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
+            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
+            <span className="text-caos-muted">DOWNSIDE · peak</span>
+            <span style={{ color: "var(--caos-warning)" }}>{d0.netlev?.toFixed(2) ?? "—"}x</span>
+          </span>
+          <span className="h-4 w-px bg-caos-border" />
         </span>
         <button
           onClick={() => setShowQuarters(!showQuarters)}
@@ -167,6 +194,16 @@ function ModelBuilder() {
           QUARTERS
         </button>
         <button
+          onClick={() => setShowAssumptions(!showAssumptions)}
+          title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
+          className={
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+          }
+        >
+          ASSUMPTIONS
+        </button>
+        <button
           onClick={() => setShowScenarios(!showScenarios)}
           title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
           className={
@@ -175,20 +212,6 @@ function ModelBuilder() {
           }
         >
           SCENARIOS
-        </button>
-        <button
-          onClick={addRow}
-          title="Add an analyst row at the bottom of the sheet — cells accept numbers or =formulas"
-          className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
-        >
-          + ROW
-        </button>
-        <button
-          onClick={addCol}
-          title="Add an analyst column at the right of the sheet — cells accept numbers or =formulas"
-          className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
-        >
-          + COL
         </button>
         {ovCount ? (
           <button
@@ -201,7 +224,7 @@ function ModelBuilder() {
           </button>
         ) : null}
         <button
-          onClick={() => exportModel(model, showQuarters, overrides, sheet, grid)}
+          onClick={() => exportModel(model, showQuarters, overrides)}
           title="Export the model grid (CSV — opens in Excel)"
           className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
@@ -213,48 +236,80 @@ function ModelBuilder() {
         >
           forecast cells unaudited — CP-5 scope is actuals only
         </span>
-      </div>
+      </PageSubHeader>
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2">
         <Manifest hl={hl} setHl={setHl} />
         <FormulaBar
           model={model}
-          sheet={sheet}
-          grid={grid}
           sel={sel}
           severity={severity}
           overrides={overrides}
           onResetCell={resetCell}
-          onClearCell={clearCell}
           onOpenEvidence={setEvModal}
         />
         <div className="flex-1 min-h-0 flex gap-2">
+          {showAssumptions ? (
+            <AssumptionsPanel
+              assumptions={assumptions}
+              onChange={setAsmp}
+              onChangeYear={setAsmpYear}
+              onResetCase={resetCase}
+              onResetYearCell={clearYearDriver}
+              onScrub={scrubHighlight}
+              onScrubEnd={() => setHlCells(null)}
+              onCollapse={() => setShowAssumptions(false)}
+            />
+          ) : (
+            <CollapsedRail side="left" label="Assumptions" onExpand={() => setShowAssumptions(true)} />
+          )}
           <div className="flex-1 min-w-0 min-h-0 flex">
             <Sheet
               model={model}
-              sheet={sheet}
-              grid={grid}
               showQ={showQuarters}
               hl={hl}
+              hlCells={hlCells}
               sel={sel}
               onSel={setSel}
               editing={editing}
               onEdit={setEditing}
               onCommit={commitEdit}
-              onAddRow={addRow}
-              onRenameRow={renameRow}
-              onDeleteRow={deleteRow}
-              onRenameCol={renameCol}
-              onDeleteCol={deleteCol}
             />
           </div>
-          {showScenarios ? <ScenarioPanel model={model} /> : null}
+          {showScenarios ? (
+            <ScenarioPanel model={model} onCollapse={() => setShowScenarios(false)} />
+          ) : (
+            <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
+          )}
         </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
     </div>
+  );
+}
+
+// Thin expandable rail shown in place of a collapsed side panel: a vertical
+// label + chevron that restores the full panel. Keeps the workspace bounds
+// stable so the sheet doesn't reflow jarringly on collapse.
+function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; label: string; onExpand: () => void }) {
+  return (
+    <button
+      onClick={onExpand}
+      title={`Expand the ${label} panel`}
+      aria-label={`Expand ${label} panel`}
+      className="w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center gap-2 py-2 text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+    >
+      <span aria-hidden className="tabular text-caos-xs">{side === "left" ? "›" : "‹"}</span>
+      <span
+        aria-hidden
+        className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap"
+        style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+      >
+        {label}
+      </span>
+    </button>
   );
 }
 
@@ -288,7 +343,7 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
         title={`Anchored to live CP-1 from run ${eng.runId} · committee: ${eng.committeeStatus ?? "—"}`}
       >
         <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} />
-        CP-1 LIVE · RUN {eng.runId!.slice(0, 8)}
+        CP-1 LIVE · RUN {eng.runId?.slice(0, 8) ?? "—"}
       </span>
       <span
         className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"

@@ -132,7 +132,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
             key={m.key}
             onClick={() => setMetric(m.key)}
             className={
-              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border transition-caos focus-ring " +
               (metric === m.key ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -149,7 +149,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
             onClick={() => setIntensity(v)}
             title={"Driver swing intensity ×" + v}
             className={
-              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              "tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border transition-caos focus-ring " +
               (intensity === v ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
@@ -271,7 +271,7 @@ function ScenarioBuilder({
             <span className="w-1.5 h-1.5 rounded-sm shrink-0" style={{ background: "var(--caos-accent)" }} />
             <span className="text-caos-md text-caos-text font-medium truncate">{active.label}</span>
             <span className="flex-1" />
-            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
+            <button onClick={onReset} title="Revert to module forecasts" className="tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap">↶ RESET</button>
           </div>
           <div className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }}>{deltaSummary(active.deltas) || "no driver change"}</div>
           {active.rationale ? <div className="text-caos-xs text-caos-muted leading-snug">{active.rationale}</div> : null}
@@ -287,7 +287,7 @@ function ScenarioBuilder({
             key={p.label}
             onClick={() => onApply(p.deltas, p.label, "")}
             title={deltaSummary(p.deltas)}
-            className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+            className="tabular text-caos-2xs px-1.5 min-h-[24px] inline-flex items-center rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
           >
             {p.label}
           </button>
@@ -320,15 +320,28 @@ function ScenarioBuilder({
   );
 }
 
-// Anchored on the model's pro-forma (PF) column, so the lens re-bases on the
-// same live CP-1 run the grid does (and falls back to the seeded PF offline).
-// The Scenario Builder re-centers the lens (base + downside) on a custom
-// scenario; Reset reverts to the module forecasts.
-export function ScenarioPanel({ model }: { model: Model }) {
+// Derived from the model's assumptions-adjusted forecast: base = the BASE
+// columns, worst = the DOWNSIDE columns, so both the base- and downside-case
+// Assumptions sliders re-center the lens (best/base/worst + tornado). The
+// Scenario Builder layers a custom scenario on top; Reset reverts to it.
+export function ScenarioPanel({ model, onCollapse }: { model: Model; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
-  const sc = useMemo(() => buildScenarios(model.cols.pf, active?.deltas), [model, active]);
+  const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
-    <Panel title="Scenario & Sensitivity · forward cash-flow lens" className="w-[372px] shrink-0">
+    <Panel
+      title="Scenario & Sensitivity · forward cash-flow lens"
+      className="w-[372px] shrink-0"
+      right={onCollapse ? (
+        <button
+          onClick={onCollapse}
+          title="Collapse the Scenario & Sensitivity panel"
+          aria-label="Collapse Scenario panel"
+          className="tabular text-caos-xs px-1 text-caos-muted hover:text-caos-text transition-caos"
+        >
+          ›
+        </button>
+      ) : undefined}
+    >
       <div className="p-2.5 flex flex-col gap-3.5">
         <ScenarioComparison sc={sc} active={active?.label ?? null} />
         <div className="border-t border-caos-border" />

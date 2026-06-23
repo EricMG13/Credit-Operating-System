@@ -2,21 +2,40 @@
 
 How CAOS authenticates, authorizes, and protects data, and the boundaries of
 its current threat model. Companion to [AUDIT.md](AUDIT.md). Last reviewed
-2026-06-16.
+2026-06-22.
 
 ## 1. Authentication & identity
 
-**Proxy-managed, edge-terminated.** CAOS has no in-app login. On the self-hosted
-stack ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)) every request is authenticated at the
-edge by **oauth2-proxy** (Google Workspace OIDC) behind **Caddy** (TLS); the
-verified identity arrives as forwarded headers (`X-Forwarded-User`,
-`X-Forwarded-Email`, `X-Forwarded-Preferred-Username`), surfaced by
-[identity.py](../server/identity.py) and reflected at `/api/auth/me`. This
-reproduces the edge-auth trust model the Databricks Apps platform previously
-provided.
+**Two layers: edge SSO (network gate) + in-app profile (app identity).** On the
+self-hosted stack ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)) every request is first
+authenticated at the edge by **oauth2-proxy** (Google Workspace OIDC) behind
+**Caddy** (TLS); the verified identity arrives as forwarded headers
+(`X-Forwarded-User`, `X-Forwarded-Email`, `X-Forwarded-Preferred-Username`). On
+top of that, each analyst holds a **code-gated in-app profile**
+([routes/auth.py](../server/routes/auth.py)): a shared access code mints a named
+profile whose id is stamped on every run and whose initials show across the UI.
+The profile is the app-level identity, surfaced by
+[identity.py](../server/identity.py) and reflected at `/api/auth/me` (`source` =
+`profile` | `proxy` | `local`).
 
-**Fail-closed gate.** A request with no identity headers means the edge was
-bypassed. [identity.py](../server/identity.py) rejects it (401) when
+**Profile bound to the verified SSO identity.** When `X-Forwarded-Email` is
+present, the profile is keyed on it: a caller can only ever resolve to their own
+profile (rename allowed, impersonation not — a display name already held by
+another email is refused). So the self-chosen name can't diverge from the
+verified person. The access log ([access_log.py](../server/access_log.py)) keeps
+using the verified `X-Forwarded-*` identity as the security principal.
+
+**Cookie integrity (S-5).** The profile rides a `caos_analyst` cookie signed
+(HMAC-SHA256) with `SESSION_SECRET`. **Production refuses to start** if
+`SESSION_SECRET` is unset or the dev default ([main.py](../server/main.py)) —
+otherwise the public default would let anyone forge a login cookie. The
+edge-origin check (below) runs *before* cookie resolution, so a cookie cannot be
+used to bypass the proxy-origin proof. Brute-forcing the access code is throttled
+per source IP and a wrong code returns 401 (so the access-log brute heuristic
+catches it).
+
+**Fail-closed gate.** A request with no profile cookie and no identity headers
+means the edge was bypassed. [identity.py](../server/identity.py) rejects it (401) when
 `ENVIRONMENT == "production"` — which the Docker stack bakes in — or when the
 legacy `DATABRICKS_APP_PORT` is set. So the gate fails closed in production;
 `DATABRICKS_APP_PORT` is now a vestigial trigger carried over from the Databricks

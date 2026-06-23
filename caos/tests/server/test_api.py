@@ -38,6 +38,7 @@ def test_health(client):
     body = r.json()
     assert body["status"] == "ok"
     assert body["llm"] == "demo-fallback"
+    assert body["db"] == "ok"  # readiness probe hit the DB (D3)
 
 
 def test_me_local_dev_identity(client):
@@ -80,6 +81,29 @@ def test_demo_issuers_seeded(client):
     names = {i["name"] for i in r.json()}
     assert "Acme Holdings Corp." in names
     assert len(names) >= 3
+
+
+def test_issuers_list_is_bounded(client):
+    """list_issuers must clamp page size (P4 same-class sweep)."""
+    assert client.get("/api/issuers/?limit=1").status_code == 200
+    assert len(client.get("/api/issuers/?limit=1").json()) == 1
+    assert client.get("/api/issuers/?limit=0").status_code == 422       # ge=1
+    assert client.get("/api/issuers/?limit=99999").status_code == 422   # le=2000
+
+
+def test_issuers_collection_slash_tolerant(client):
+    """Regression (QA BUG-001): the issuers collection must resolve with AND
+    without a trailing slash. `next dev` proxies /api and strips the trailing
+    slash, so `/api/issuers/` arrives at the backend as `/api/issuers`; the
+    `/api/{path:path}` catch-all would 404 it unless both paths are registered.
+    Prod calls `/api/issuers/`; dev-proxied calls land on `/api/issuers`."""
+    with_slash = client.get("/api/issuers/")
+    no_slash = client.get("/api/issuers")
+    assert with_slash.status_code == 200
+    assert no_slash.status_code == 200
+    assert no_slash.json() == with_slash.json()
+    # POST collection is reachable both ways too (createIssuer uses the slash form).
+    assert client.post("/api/issuers", json={"name": "Slash Tolerant Co"}).status_code == 201
 
 
 def test_create_and_get_issuer(client):

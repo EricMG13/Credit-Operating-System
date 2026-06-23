@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtNum, fmtUsdM, fmtPct, fmtMult } from "./format";
+import { fmtNum, fmtUsdM, fmtPct, fmtMult, initials } from "./format";
 
 describe("format helpers", () => {
   it("fmtNum groups thousands and respects decimals", () => {
@@ -30,5 +30,13 @@ describe("format helpers", () => {
     expect(fmtUsdM(Infinity)).toBe("—");
     expect(fmtPct(NaN)).toBe("—");
     expect(fmtMult(0 / 0)).toBe("—");
+  });
+
+  it("initials: first+last for multi-word, first two chars for single, upper-cased", () => {
+    expect(initials("Eric Gub")).toBe("EG");
+    expect(initials("eric gub")).toBe("EG");
+    expect(initials("  Mary Jane Watson ")).toBe("MW");
+    expect(initials("Eric")).toBe("ER");
+    expect(initials("")).toBe("?");
   });
 });

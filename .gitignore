@@ -13,11 +13,12 @@ out/
 # CAOS server build artifacts / local state
 caos/server/static/
 caos/server/data/
+caos/data/
 
 # Python
 __pycache__/
 *.pyc
-.venv/
+.venv*/
 
 # Secrets / local env
 .env
@@ -26,6 +27,17 @@ __pycache__/
 # Test artifacts
 .pytest_cache/
 coverage/
+caos/frontend/test-results/
+caos/frontend/playwright-report/
 
 # Superpowers brainstorming specs / scratch (local only)
 docs/superpowers/
+/ds-bundle/
+/.ds-sync/
+/.design-sync/.cache/
+/.design-sync/node_modules
+/.design-sync/learnings/
+caos/frontend/.ds-tailwind.css
+
+# Playwright E2E auth state (created by global-setup)
+caos/tests/frontend/e2e/.auth/

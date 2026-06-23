@@ -8,6 +8,8 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,7 +108,9 @@ async def upload_document(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_pdf(content)
-    text = ingest.extract_pdf_text(content, file.filename or "upload.pdf")
+    # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
+    # large upload doesn't block the event loop for every other request.
+    text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
 
 
@@ -122,5 +126,7 @@ async def upload_pricing_sheet(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_xlsx(content)
-    text = ingest.extract_xlsx_text(content, file.filename or "upload.xlsx")
+    # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
+    # upload_document) so a large workbook doesn't stall the single event loop.
+    text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
     return await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)

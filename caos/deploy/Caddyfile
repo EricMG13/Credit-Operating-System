@@ -6,6 +6,16 @@
 {$CAOS_DOMAIN} {
 	encode gzip
 
+	# Proxy-feed access log (threat-detection): structured JSON to stdout →
+	# `docker compose logs caddy`. Caddy is the public edge, so request>remote_ip
+	# is the real client; status + size feed the scanning/brute (T1595/T1110) and
+	# response-volume hunts. Pair with the app `caos.access` log and oauth2-proxy
+	# auth_logging for the full three-feed picture.
+	log {
+		output stdout
+		format json
+	}
+
 	# SECURITY.md §1: the header-trust model is safe only if the edge is the
 	# sole setter of identity. Strip any client-supplied identity headers so a
 	# caller cannot spoof them; only oauth2-proxy may set them downstream.
@@ -14,6 +24,15 @@
 	request_header -X-Forwarded-Preferred-Username
 	request_header -X-Forwarded-Groups
 	request_header -X-Forwarded-Access-Token
+	# Also strip the edge credential so a client can't supply it (we set it below).
+	request_header -X-Edge-Authorization
 
-	reverse_proxy oauth2-proxy:4180
+	# Defense-in-depth (W1): inject the shared edge secret so the app can prove a
+	# request actually transited the edge, not a direct hit to app:8000 with forged
+	# headers. oauth2-proxy forwards this header to the upstream app. Empty when
+	# EDGE_PROXY_SECRET is unset → the app leaves enforcement off. Verify on first
+	# deploy that the app sees X-Edge-Authorization (oauth2-proxy passthrough).
+	reverse_proxy oauth2-proxy:4180 {
+		header_up X-Edge-Authorization {$EDGE_PROXY_SECRET}
+	}
 }

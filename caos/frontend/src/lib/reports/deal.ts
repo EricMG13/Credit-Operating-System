@@ -46,12 +46,34 @@ export interface DebatePoint {
 }
 
 export interface DebateRound {
-  who: "BULL" | "BEAR" | "CHAIR";
+  // CP-6A personas (Bull/Bear/Chair) + CP-6E personas (RV Trader/Compliance/CIO)
+  who: "BULL" | "BEAR" | "CHAIR" | "RV" | "COMPLIANCE" | "CIO";
   phase: string;
   points: DebatePoint[];
 }
 
-export const DEBATE = {
+export interface DebateWeight {
+  claim: string;
+  /** weight to the "pro" side (bull / RV trader), 0–1 */
+  bull: number;
+  /** weight to the "con" side (bear / compliance), 0–1 */
+  bear: number;
+  verdict: string;
+  /** which side the chair/CIO landed on — drives the verdict color */
+  lean: "pro" | "con" | "split";
+  ev: string;
+}
+
+export interface DebateData {
+  thesis: string;
+  rounds: DebateRound[];
+  weighting: DebateWeight[];
+  bias: string;
+  uncertainty: string;
+  memo: string;
+}
+
+export const DEBATE: DebateData = {
   thesis:
     "Long 2L TL '31 at 96.4 (+388bps DM). Engineered-components platform with sticky aftermarket mix (44% of gross profit), 5.7x net leverage through the 2L TL, sponsor equity cushion ≈ 42% of capitalization at entry multiple.",
   rounds: [
@@ -73,17 +95,54 @@ export const DEBATE = {
     ] },
   ] as DebateRound[],
   weighting: [
-    { claim: "EBITDA quality / true leverage", bull: 0.35, bear: 0.65, verdict: "BEAR — haircut adj. EBITDA by $35M in base case", ev: "E-09 · E-87 · E-103" },
-    { claim: "Aftermarket stickiness & FCF", bull: 0.8, bear: 0.2, verdict: "BULL — strongest evidenced claim in record", ev: "E-12 · E-22 · E-31" },
-    { claim: "RV cheapness vs peers", bull: 0.45, bear: 0.55, verdict: "SPLIT — pending QA-117; use ex-E-44 band", ev: "E-44 (open)" },
-    { claim: "Documentation / priming risk", bull: 0.25, bear: 0.75, verdict: "BEAR — capacity is real; price it via sizing, not exclusion", ev: "E-63 · E-64" },
-    { claim: "Sponsor alignment", bull: 0.55, bear: 0.45, verdict: "NEUTRAL — Fund VI close supports, recap history offsets", ev: "E-91" },
+    { claim: "EBITDA quality / true leverage", bull: 0.35, bear: 0.65, verdict: "BEAR — haircut adj. EBITDA by $35M in base case", lean: "con", ev: "E-09 · E-87 · E-103" },
+    { claim: "Aftermarket stickiness & FCF", bull: 0.8, bear: 0.2, verdict: "BULL — strongest evidenced claim in record", lean: "pro", ev: "E-12 · E-22 · E-31" },
+    { claim: "RV cheapness vs peers", bull: 0.45, bear: 0.55, verdict: "SPLIT — pending QA-117; use ex-E-44 band", lean: "split", ev: "E-44 (open)" },
+    { claim: "Documentation / priming risk", bull: 0.25, bear: 0.75, verdict: "BEAR — capacity is real; price it via sizing, not exclusion", lean: "con", ev: "E-63 · E-64" },
+    { claim: "Sponsor alignment", bull: 0.55, bear: 0.45, verdict: "NEUTRAL — Fund VI close supports, recap history offsets", lean: "split", ev: "E-91" },
   ],
   bias: "CONSTRUCTIVE — add on weakness",
   uncertainty:
     "Sustainability of the $41M closed-plant savings inside the add-back stack: if Q3-26 run-rate slips, true leverage re-rates to ~6.4x and the deleveraging narrative fails.",
   memo:
     "The Chair finds the bear case on EBITDA quality persuasive but fully priced at +388bps; the bull case on aftermarket durability survives cross-examination intact. Initiate at modest size with hard add/trim triggers tied to add-back realization (Q3-26 compliance cert) and resolution of QA-117. Escalate to IC re-vote if Meridian-platform contract renewal terms degrade.",
+};
+
+// CP-6E Portfolio Debate — same adversarial shape as CP-6A (DEBATE), but the
+// personas are RV Trader (pro) vs Compliance (con) with the CIO as chair, and
+// the contest is sizing/posture rather than the credit verdict. Sourced from the
+// CP-6E workflow step outputs (RV pitch / compliance attack / RV defense / CIO
+// weighting + allocation matrix + final memo).
+export const DEBATE_6E: DebateData = {
+  thesis:
+    "Carry-adjusted return on the 2L TL '31 clears the hurdle at any size — the contest is conviction (max now at +388 DM) vs constraints: the B3-or-below quality bucket at 91% utilization, the E-44-dependent entry band, and SXAA correlation overlap. Three contested points, each with a named owner.",
+  rounds: [
+    { who: "RV", phase: "Trader's Pitch — max size now", points: [
+      { text: "+388 entry clears the hurdle hold-to-maturity with zero tightening assumed.", ev: [] },
+      { text: "Two-way depth ($4.2M avg prints) supports building the full position inside two weeks — live marks Jun 8 at 96.25 / 96.75.", ev: ["E-71"] },
+      { text: "The catalyst calendar is front-loaded — being underweight into the Jul 28 print wastes the entry.", ev: [] },
+    ] },
+    { who: "COMPLIANCE", phase: "Compliance Attack", points: [
+      { text: "B3-or-below bucket at 91% utilization — max size leaves 0.3% headroom for the entire book.", ev: [] },
+      { text: "The entry band leans on the open E-44 finding — this is sizing off a contested signal.", ev: ["E-44"] },
+      { text: "SXAA correlation overlap — same OEM exposure class; the cluster sits at 14% of the 16% limit.", ev: [] },
+    ] },
+    { who: "RV", phase: "Trader's Defense", points: [
+      { text: "Concede staging — propose the standing constraint: 75bps now at +388 or wider, max gated on T-1 plus a same-day bucket re-test.", ev: [] },
+      { text: "Standing limit order at +400bps; no concurrent SXAA adds.", ev: [] },
+      { text: "Each objection converts into a wired rule rather than a debate point.", ev: [] },
+    ] },
+  ],
+  weighting: [
+    { claim: "Size at max immediately (+388 entry)", bull: 0.35, bear: 0.65, verdict: "COMPLIANCE — start 75bps; max requires a bucket-headroom check", lean: "con", ev: "E-71" },
+    { claim: "RV signal validity", bull: 0.45, bear: 0.55, verdict: "SPLIT — size off the ex-E-44 band (+20–25bps) until QA-117 clears", lean: "split", ev: "E-44 (open)" },
+    { claim: "Correlation with auto/industrial cluster", bull: 0.5, bear: 0.5, verdict: "MANAGED — no concurrent SXAA adds; monitor weekly", lean: "split", ev: "—" },
+  ],
+  bias: "ADD-ON-WEAKNESS — 75bps initial, 125bps max",
+  uncertainty:
+    "Whether the B3-or-below bucket frees up before the entry window closes — at 91% utilization the path to max size depends on book-level turnover, not the credit itself.",
+  memo:
+    "Approve 75bps initial at +388 or wider; standing limit order at +400bps. The path to the 125bps max is gated on the Q3-26 add-back certificate (trigger T-1) and same-day B3-bucket headroom. Trim on RP-basket activation (T-4) or a CP-3 re-rank below 4/7. The position is sized so that being wrong costs a quarter's carry, not the year's budget.",
 };
 
 export const COVENANTS = [

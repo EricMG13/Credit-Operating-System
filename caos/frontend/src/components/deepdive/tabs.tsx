@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CAPACITY, CAPSTACK, COVENANTS, DEBATE, RECOVERY } from "@/lib/reports/deal";
+import { CAPACITY, CAPSTACK, COVENANTS, DEBATE, DEBATE_6E, RECOVERY, type DebateData } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS, type ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { SEV_COLOR, type Sim } from "@/lib/pipeline/sim";
@@ -19,13 +19,37 @@ import { fmtNum, fmtPct } from "@/lib/format";
 import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
-import { OutputRegister } from "./OutputRegister";
+import { OutputRegister, StepOutputGrid } from "./OutputRegister";
 import { ModuleCharts } from "./ModuleCharts";
+import { type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 
 const PERSONA: Record<string, { color: string; glyph: string; label: string }> = {
   BULL: { color: "var(--caos-success)", glyph: "▲", label: "Bull Analyst" },
-  BEAR: { color: "var(--caos-critical)", glyph: "▼", label: "Bear Analyst" },
+  BEAR: { color: "var(--caos-critical-bright)", glyph: "▼", label: "Bear Analyst" },
   CHAIR: { color: "var(--caos-accent)", glyph: "⚖", label: "IC Chair" },
+  RV: { color: "var(--caos-success)", glyph: "▲", label: "RV Trader" },
+  COMPLIANCE: { color: "var(--caos-critical-bright)", glyph: "▼", label: "Compliance" },
+  CIO: { color: "var(--caos-accent)", glyph: "⚖", label: "CIO" },
+};
+
+// CP-6A and CP-6E share the adversarial-debate layout (DebateTab); only the
+// data, persona labels and the matrix chrome differ.
+type DebateVariant = "CP-6A" | "CP-6E";
+const DEBATE_CFG: Record<DebateVariant, {
+  id: string; data: DebateData; thesisCode: string;
+  matrixTitle: string; matrixCode: string;
+  weightHeader: string; verdictHeader: string; proLabel: string; conLabel: string;
+}> = {
+  "CP-6A": {
+    id: "CP-6A", data: DEBATE, thesisCode: "CP-6A-02",
+    matrixTitle: "IC Chair · Evidence Weighting & Resolution Matrix", matrixCode: "CP-6A-06 / 07",
+    weightHeader: "Weighting (bull ◂ ▸ bear)", verdictHeader: "Chair verdict", proLabel: "bull", conLabel: "bear",
+  },
+  "CP-6E": {
+    id: "CP-6E", data: DEBATE_6E, thesisCode: "CP-6E-02",
+    matrixTitle: "CIO · Allocation Weighting & Decision Matrix", matrixCode: "CP-6E-06 / 07",
+    weightHeader: "Weighting (RV ◂ ▸ compliance)", verdictHeader: "CIO ruling", proLabel: "RV", conLabel: "compliance",
+  },
 };
 const TRANCHE: Record<string, string> = {
   "1l": "var(--tranche-1l)", "2l": "var(--tranche-2l)", unsec: "var(--tranche-unsec)",
@@ -34,18 +58,24 @@ const TRANCHE: Record<string, string> = {
 
 type OpenEv = (id: string) => void;
 
-/* ---------- Debate tab ---------- */
-export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
+// The module's conclusion is reliably its final text section ("Overall … view",
+// "Clearance decision", "CIO final memo", …). Promote it to a lead block so the
+// view reads like a report — takeaway first, supporting work below.
+const LEAD_TITLE = /overall|view|conclusion|summary|memo|clearance|readiness|selection/i;
+
+/* ---------- Debate tab (CP-6A IC debate · CP-6E portfolio debate) ---------- */
+export function DebateTab({ onOpenEvidence, layout = "base", variant = "CP-6A" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout; variant?: DebateVariant }) {
+  const cfg = DEBATE_CFG[variant];
+  const d = cfg.data;
   return (
     <div className="p-3 flex flex-col gap-3">
-      <OutputRegister id="CP-6A" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
-        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">CP-6A-02 · Pre-debate thesis map</div>
-        <div className="text-[11.5px] text-caos-text leading-relaxed">{DEBATE.thesis}</div>
+        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · Pre-debate thesis map</div>
+        <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        {DEBATE.rounds.map((r, i) => {
+        {d.rounds.map((r, i) => {
           const p = PERSONA[r.who];
           return (
             <div key={i} className="rounded border border-caos-border bg-caos-bg flex flex-col">
@@ -59,7 +89,7 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
                   <div key={j} className="flex gap-2">
                     <span className="tabular text-caos-2xs mt-px shrink-0" style={{ color: p.color }}>{String(j + 1).padStart(2, "0")}</span>
                     <div>
-                      <span className="text-caos-lg text-caos-text leading-snug">{pt.text}</span>
+                      <span className="text-caos-lg text-caos-text leading-relaxed">{pt.text}</span>
                       {pt.ev.length ? (
                         <span className="inline-flex gap-1 ml-1.5 align-middle">
                           {pt.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
@@ -75,28 +105,24 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
       </div>
 
       <div className="rounded border border-caos-border bg-caos-bg">
-        <div className="px-3 py-2 border-b border-caos-border flex items-center gap-2">
-          <span className="text-caos-2xl text-caos-accent">⚖</span>
-          <span className="text-caos-xl font-semibold text-caos-text">IC Chair — Evidence Weighting & Resolution Matrix</span>
-          <span className="tabular text-caos-xs text-caos-muted ml-auto">CP-6A-06 / 07</span>
-        </div>
+        <SectionHeader title={<><span className="text-caos-accent">⚖</span> {cfg.matrixTitle}</>} right={cfg.matrixCode} />
         <div className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
-          {["Contested claim", "Weighting (bull ◂ ▸ bear)", "Chair verdict", "Evidence"].map((h) => (
+          {["Contested claim", cfg.weightHeader, cfg.verdictHeader, "Evidence"].map((h) => (
             <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
           ))}
         </div>
-        {DEBATE.weighting.map((w, i) => (
-          <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-[7px] items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
+        {d.weighting.map((w, i) => (
+          <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
             <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
-            <span className="flex items-center gap-1.5" aria-label={`bull ${(w.bull * 100).toFixed(0)} versus bear ${(w.bear * 100).toFixed(0)}`}>
+            <span className="flex items-center gap-1.5" aria-label={`${cfg.proLabel} ${(w.bull * 100).toFixed(0)} versus ${cfg.conLabel} ${(w.bear * 100).toFixed(0)}`}>
               <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
               <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
                 <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
                 <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
               </span>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
+              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
             </span>
-            <span className="text-caos-md leading-snug" style={{ color: w.verdict.startsWith("BULL") ? "var(--caos-success)" : w.verdict.startsWith("BEAR") ? "var(--caos-critical)" : "var(--caos-muted)" }}>{w.verdict}</span>
+            <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
             <span className="flex flex-wrap gap-1">
               {w.ev.split(" · ").map((tok) => {
                 const eid = tok.split(" ")[0];
@@ -108,6 +134,7 @@ export function DebateTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           </div>
         ))}
       </div>
+      <OutputRegister key={cfg.id + layout} id={cfg.id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
@@ -169,17 +196,16 @@ const CAPSTACK_CHART_SPEC: G2Spec = {
   }],
 };
 
-export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
+export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
   const total = CAPSTACK.reduce((s, c) => s + (c.key !== "eq" ? c.claim : 0), 0);
   const ebitdas = [421, 360, 295], mults = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
   return (
     <div className="p-3 flex flex-col gap-3">
-      <OutputRegister id="CP-3B" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <div className="grid grid-cols-[440px_1fr] gap-3">
         <div className="rounded border border-caos-border bg-caos-bg">
           <SectionHeader title="CP-3B-02 · Capital structure ($M)" />
           {CAPSTACK.map((c) => (
-            <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px] border-b border-caos-border/50">
+            <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-1.5 border-b border-caos-border/50">
               <span className="w-2 h-2 rounded-sm" style={{ background: TRANCHE[c.key] }}></span>
               <span className="text-caos-lg text-caos-text">{c.cls}</span>
               <span className="tabular text-caos-md text-caos-muted">{c.rate}</span>
@@ -187,7 +213,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
               <span className="tabular text-caos-sm text-right text-caos-muted">{c.key === "eq" ? "—" : fmtPct(c.claim / total, 1)}</span>
             </div>
           ))}
-          <div className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-[6px]">
+          <div className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-1.5">
             <span></span><span className="text-caos-md font-semibold text-caos-text">Total debt</span><span></span>
             <span className="tabular text-caos-lg text-right text-caos-text font-semibold">{fmtNum(total)}</span>
             <span className="tabular text-caos-sm text-right text-caos-muted">5.7x</span>
@@ -201,7 +227,7 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
         <div className="rounded border border-caos-border bg-caos-bg">
           <SectionHeader title="CP-3B-06 · Recovery waterfall by scenario" right="claims: 1L $1,970 · 2L $900 · Sub $400" />
           {RECOVERY.map((s) => (
-            <div key={s.scen} className="flex items-center gap-3 px-3 py-[5px] border-b border-caos-border/50">
+            <div key={s.scen} className="flex items-center gap-3 px-3 py-1.5 border-b border-caos-border/50">
               <span className="text-caos-lg font-medium text-caos-text w-24">{s.scen}</span>
               <span className="tabular text-caos-sm text-caos-muted">{s.mult} × ${s.ebitda}M = <span className="text-caos-text">${(s.ev / 1000).toFixed(2)}B EV</span></span>
               <span className="text-caos-xs text-caos-muted ml-auto">{s.note}</span>
@@ -239,12 +265,13 @@ export function RecoveryTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           </div>
         </div>
       </div>
+      <OutputRegister key={"CP-3B" + layout} id="CP-3B" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
 
 /* ---------- Covenants tab ---------- */
-export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
+export function CovenantsTab({ onOpenEvidence, layout = "base" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
   const [open, setOpen] = useState<string | null>(COVENANTS[1].ref);
   const seg = (n: number) => (
     <span className="flex gap-px" role="img" aria-label={`aggressiveness ${n} of 10`}>
@@ -255,8 +282,6 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
   );
   return (
     <div className="p-3 flex flex-col gap-3">
-      <OutputRegister id="CP-4" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
-      <OutputRegister id="CP-4C" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       <StatCard
         size="hero"
         sev="critical"
@@ -292,7 +317,7 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
               <button
                 onClick={() => setOpen(open === c.ref ? null : c.ref)}
                 aria-expanded={isOpen}
-                className="w-full text-left grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 py-[7px] items-center hover:bg-caos-elevated/50 transition-caos focus-ring"
+                className="w-full text-left grid grid-cols-[230px_1fr_120px_150px_60px] gap-x-3 px-3 py-1.5 items-center hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-caos-sm text-caos-accent">{c.ref}</span>
                 <span className="text-caos-lg text-caos-text flex items-center gap-2"><Dot sev={c.flag} />{c.name}</span>
@@ -316,6 +341,8 @@ export function CovenantsTab({ onOpenEvidence }: { onOpenEvidence: OpenEv }) {
           );
         })}
       </div>
+      <OutputRegister key={"CP-4" + layout} id="CP-4" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+      <OutputRegister key={"CP-4C" + layout} id="CP-4C" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
@@ -326,6 +353,7 @@ export function ModuleView({
   sim,
   onOpenEvidence,
   liveOut,
+  layout = "base",
 }: {
   id: string;
   sim: Sim;
@@ -333,6 +361,7 @@ export function ModuleView({
   // Live, adapted module output (from a real run). Falls back to the seeded
   // demo register when absent, so the offline sim is unaffected.
   liveOut?: ModuleOutput;
+  layout?: DeepDiveLayout;
 }) {
   const meta = MODULES.find((m) => m.id === id);
   const plan = SIM_PLAN.find((m) => m.id === id);
@@ -358,6 +387,18 @@ export function ModuleView({
       </div>
     );
   }
+  // Two layouts, chosen in Settings (browser-local):
+  //   core  — original: workflow register (collapsed), then sections in source
+  //           order (conclusion last), then charts.
+  //   dense — conclusion-first: leading "Overall … view", supporting tables,
+  //           charts, every workflow step packed into newspaper columns, then
+  //           the full register. Evidence stays inline as E-xx chips.
+  const secs = out.sections;
+  const lead = secs.length && secs[secs.length - 1].type === "text" && LEAD_TITLE.test(secs[secs.length - 1].title)
+    ? (secs[secs.length - 1] as Extract<typeof secs[number], { type: "text" }>)
+    : null;
+  const rest = lead ? secs.slice(0, -1) : secs;
+
   return (
     <div className="p-3 flex flex-col gap-3">
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 flex items-start gap-3">
@@ -365,7 +406,7 @@ export function ModuleView({
           <div className="flex items-center gap-2">
             <Dot sev={st} />
             <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
-            <span className="text-[11.5px] font-semibold text-caos-text">{meta.name}</span>
+            <span className="text-caos-2xl font-semibold text-caos-text">{meta.name}</span>
             <Tag sev={st}>{st}</Tag>
           </div>
           <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
@@ -373,17 +414,47 @@ export function ModuleView({
         </div>
       </div>
 
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${out.kpis.length}, 1fr)` }}>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         {out.kpis.map((k) => (
           <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
         ))}
       </div>
 
-      <OutputRegister id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
+      {layout === "core" ? (
+        <>
+          <OutSections sections={out.sections} onOpenEvidence={onOpenEvidence} />
+          <ModuleCharts id={id} />
+        </>
+      ) : (
+        <>
+          {lead ? (
+            <div className="rounded border border-caos-accent/40 bg-caos-elevated px-3 py-2.5">
+              <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent mb-1">▸ {lead.title}</div>
+              <div className="text-caos-xl text-caos-text leading-relaxed">
+                {lead.body}
+                {lead.ev && lead.ev.length ? (
+                  <span className="inline-flex gap-1 ml-1.5 align-middle">
+                    {lead.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
-      <OutSections sections={out.sections} onOpenEvidence={onOpenEvidence} />
+          <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />
 
-      <ModuleCharts id={id} />
+          <ModuleCharts id={id} />
+
+          {/* Workflow-step outputs — newspaper packing both ways; base caps at 4
+              columns, dense fits as many as the pane allows. */}
+          <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode={layout === "dense" ? "dense" : "base"} />
+        </>
+      )}
+
+      {/* Workflow completeness register — bottom backstop on every module view
+          (bespoke + generic); collapsed only in the legacy core layout. layout is
+          in the key so the open-state re-seeds when the pref resolves on mount. */}
+      <OutputRegister key={id + layout} id={id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }

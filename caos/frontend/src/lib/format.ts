@@ -25,3 +25,11 @@ export function fmtPct(ratio: number, dp = 0): string {
 export function fmtMult(n: number, dp = 1): string {
   return Number.isFinite(n) ? fmtNum(n, dp) + "x" : "—";
 }
+
+/** Analyst initials for the identity badge: "Eric Gub" → "EG", "Eric" → "ER". */
+export function initials(name: string): string {
+  const w = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (w.length === 0) return "?";
+  if (w.length === 1) return w[0].slice(0, 2).toUpperCase();
+  return (w[0][0] + w[w.length - 1][0]).toUpperCase();
+}

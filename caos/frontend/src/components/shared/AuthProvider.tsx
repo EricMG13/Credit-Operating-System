@@ -1,10 +1,14 @@
 "use client";
 
-// Identity context. Authentication itself is platform-managed (Databricks
-// Apps workspace OAuth at the edge) — this provider just resolves who the
-// signed-in user is via /api/auth/me. There is no login flow in the app.
+// Identity context. Network access is governed at the edge proxy; on top of that
+// the analyst self-registers a named profile via the code-gated login (see
+// LoginLanding). This provider resolves the active identity via /api/auth/me:
+// `source === "profile"` means a profile is signed in; anything else (proxy SSO,
+// local dev, or a 401) means the login landing should show. A network/API error
+// is kept distinct so RequireAuth shows "can't reach API", not the login form.
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import axios from "axios";
 import { getMe } from "@/lib/api";
 
 interface AuthUser {
@@ -13,12 +17,14 @@ interface AuthUser {
   full_name: string;
   role: string;
   is_active: boolean;
+  source: string; // "profile" | "proxy" | "local"
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   loading: boolean;
-  error: boolean;
+  error: boolean; // API unreachable (not "needs login")
+  needsLogin: boolean; // resolved, but no analyst profile yet
   refresh: () => Promise<void>;
 }
 
@@ -26,6 +32,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   error: false,
+  needsLogin: false,
   refresh: async () => {},
 });
 
@@ -37,14 +44,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const refresh = async () => {
     try {
-      setUser(await getMe());
+      const me: AuthUser = await getMe();
+      setUser(me);
       setError(false);
-    } catch {
+      setNeedsLogin(me.source !== "profile"); // proxy/local resolve, but still need a profile
+    } catch (e) {
       setUser(null);
-      setError(true);
+      // 401 = no identity yet → show the login landing. Anything else = API down.
+      const unauthorized = axios.isAxiosError(e) && e.response?.status === 401;
+      setNeedsLogin(unauthorized);
+      setError(!unauthorized);
     } finally {
       setLoading(false);
     }
@@ -55,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, refresh }}>
+    <AuthContext.Provider value={{ user, loading, error, needsLogin, refresh }}>
       {children}
     </AuthContext.Provider>
   );

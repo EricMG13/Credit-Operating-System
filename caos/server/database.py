@@ -84,6 +84,23 @@ class Issuer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class Analyst(Base):
+    """A named analyst profile, self-registered via the shared access code. The
+    identity shown across the app (initials) and stamped on every Run.analyst_id.
+
+    `email` is the verified edge-proxy identity (X-Forwarded-Email) when present:
+    behind SSO the profile is keyed on it so a user can only ever be their own
+    profile (rename allowed, impersonation not). Null on a proxy-less / local run,
+    where the profile is keyed on name alone."""
+
+    __tablename__ = "analysts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -238,7 +255,9 @@ class MetricFact(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
-    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"))
+    # Standalone index: uq_fact leads with issuer_id, so run-scoped fact reads
+    # would otherwise scan the table as volume grows. D8 (migration 0009).
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
     module_id: Mapped[Optional[str]] = mapped_column(String(16))
     metric_key: Mapped[str] = mapped_column(String(64), nullable=False)
     period: Mapped[str] = mapped_column(String(64), nullable=False)
