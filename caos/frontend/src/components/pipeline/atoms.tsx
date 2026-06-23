@@ -2,7 +2,8 @@
 
 // Shared status atoms for the Pipeline Visualizer (port of design bundle shared/ui.jsx).
 
-import { SEV_COLOR, type SimRun } from "@/lib/pipeline/sim";
+import { type SimRun } from "@/lib/pipeline/sim";
+import { SEV_COLOR } from "@/lib/pipeline/sev";
 
 export function Dot({ sev, pulse }: { sev: string; pulse?: boolean }) {
   return (
