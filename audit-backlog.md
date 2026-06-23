@@ -1,401 +1,741 @@
-# Audit Backlog
+# Audit Backlog — Round 2
 
-Areas of the CAOS frontend + system design I'm **least confident about** —
-ranked, within each section, least-confident first. Each item names a location
-and the specific doubt. Not yet investigated; this is the to-check list.
+Areas of the CAOS frontend + system design investigated this round. Within each
+section, items were ordered least-confident first. Each carries a verdict and a
+root-cause finding with `file:line` evidence.
 
-Working tree has uncommitted edits to `issuers.py`, `views.tsx`,
-`GraphCanvas.tsx`, `globals.css`, `test_api.py` — treat findings touching those
-as "in flight, unreviewed."
+**Status: investigated 2026-06-23 (read-only; no code changed).** Verdicts:
+🟢 correct-as-designed · 🟡 real gap, bounded · 🔴 bug.
+
+**Net result:** 4 🔴 bugs — **S7** (CRLF log-injection in the exception
+logger), **P4** (`list_runs` returns all rows unbounded), **L2** (truncated
+deep-research report returned as complete), **D5** (failed `pg_dump` rotates
+out good backups). ~10 🟡 bounded gaps. The rest are correct-as-designed.
+Several of this backlog's own (unverified) premises turned out factually wrong
+— corrected inline (notably C2, C4, C5, P2, P3, L4, L5, D1, D4, D7, D10).
+
+**Excludes** the 24 items already resolved in
+[`audit-backlog.round1-resolved.md`](audit-backlog.round1-resolved.md) and
+[`audit-log.md`](audit-log.md).
+
+Branch `fix/vmo2-followups` has uncommitted WIP edited in parallel.
+
+### Remediation (2026-06-23) — the 4 🔴, fixed + adversarially verified
+
+- **S7** — `sanitize_field()` strips C0/DEL + caps 256 at every identity boundary:
+  `principal`/`client_source` ([access_log.py](caos/server/access_log.py)), both
+  `CallerIdentity` constructions ([identity.py](caos/server/identity.py)), and
+  the `Analyst` name/email persistence ([routes/auth.py](caos/server/routes/auth.py)
+  — added in the same-class sweep the verifier flagged).
+- **P4** — `limit`/`offset` clamps on `list_runs`
+  ([routes/runs.py](caos/server/routes/runs.py)) **and** the sibling unbounded
+  lists `list_issuers` + `list_issuer_documents`
+  ([routes/issuers.py](caos/server/routes/issuers.py)). `filing_exhibits` left
+  alone (bounded by one external filing; a cap would hide covenant docs).
+- **L2** — `truncated` flag + emoji-free in-report banner; empty-at-cap no longer
+  mislabeled as "model finished" ([deepresearch.py](caos/server/deepresearch.py)).
+- **D5** — rotation gated on `pg_dump … && [ -s file ]`; partial dropped on
+  failure ([backup.sh](caos/deploy/backup.sh)).
+
+Plus **L2-class:** `llm.py:ask_issuer` now flags a `max_tokens`-capped chat reply
+([llm.py](caos/server/llm.py)).
+
+### Remediation round 2 (2026-06-23) — 🟡 batch
+
+- **S2** empty `analyst_signup_code` → fail closed (503), not silent
+  ([routes/auth.py](caos/server/routes/auth.py)).
+- **S5** cookie `Secure` now rides `environment != "development"`, not the exact
+  label `"production"` ([routes/auth.py](caos/server/routes/auth.py)).
+- **C3** cyclic registry → `raise` instead of silent Blocked cascade
+  ([engine/runner.py](caos/server/engine/runner.py)).
+- **C6** worker loop escalates to error after 3 consecutive failed ticks — a
+  stalled queue is now distinguishable from an empty one
+  ([run_executor.py](caos/server/run_executor.py)).
+- **D6** static `Cache-Control` — immutable for `/_next/static/*`, `no-cache` for
+  HTML docs ([main.py](caos/server/main.py)).
+- **D8** `ix_metric_facts_run_id` index + model flag (migration 0009).
+- **P1/P2/L6** root: axios default `timeout: 20000`
+  ([api.ts](caos/frontend/src/lib/api.ts)) — long calls still override
+  (`deepResearch: 0`). Closes the hung-live-overlay / hung-settings-probe paths.
+
+Tests: **339 pass / 2 skip**; frontend `tsc --noEmit` clean. Still deferred:
+`Run.created_at` index for large-offset latency (low severity); L2 frontend
+`truncated` chrome chip (cosmetic — banner is in the report); **S6** rate-limiter
+(login key off spoofable XFF + per-process scaling); **D3** `/api/health` DB
+check; **D9** image digest pinning + `markitdown[pdf]` pin; **CI** deploy-asset
+lint (`shellcheck`/`compose config`); L6 residual (research page still treats an
+unknown `llmConfigured` as configured — now fails fast instead of hanging).
+
+### Remediation round 3 (2026-06-23)
+
+- **S6** — hard ceiling (`_MAX_ENTRIES`) evicts oldest windows so distinct-key
+  spraying can't grow the map unbounded ([rate_limit.py](caos/server/rate_limit.py)).
+  Login key left on the proxy-set XFF first hop (socket-peer would collapse all
+  users behind the shared proxy into one bucket); XFF-spoof + per-process scaling
+  remain deployment-bounded (off-proxy / multi-replica only).
+- **D3** — `/api/health` now probes the DB (`SELECT 1`) and returns 503 on
+  failure: readiness, not just liveness ([routes/health.py](caos/server/routes/health.py)).
+- **D9** — markitdown install constrained by the pinned set
+  (`pip install -c requirements.txt 'markitdown[pdf]'`,
+  [Dockerfile](caos/deploy/Dockerfile)) so it can't bump a shared transitive.
+  Still deferred (needs a built-image/registry pass, can't resolve offline):
+  pinning markitdown's own version + image `@sha256` digests.
+- **CI** — new `deploy-assets` job: `shellcheck caos/deploy/*.sh caos/scripts/*.sh`
+  + `docker compose config -q` ([ci.yml](.github/workflows/ci.yml)) — closes the
+  blind spot that let D5 through. (One intentional `SC2012` disable on the
+  mtime-sort rotation lines.)
+
+Tests: **341 pass / 2 skip**; ruff 0.15.18, `tsc`, shellcheck all clean. Compose
+validation runs in CI (no local docker). Remaining: `Run.created_at` index; L2
+frontend `truncated` chip; D9 version/digest pins; S6 (b)/(c) deployment-bounded;
+L6 demo-warning gate.
+
+Categories: `[security]` `[auth]` `[secrets]` `[dos]` `[concurrency]`
+`[logic]` `[error]` `[perf]` `[edge]` `[migration]` `[db]` `[deploy]`
+`[config]` `[data-loss]`.
 
 ---
 
-## Security
+## Security / auth / secrets
 
-- [x] **No per-caller authorization on issuer-scoped reads.** `/api/query/chunk/{chunk_id}` ([routes/query.py:101](caos/server/routes/query.py)) returns any chunk by id with no scoping; runs, modules, issuers are all readable by any authenticated caller. Single shared-workspace assumption — confirm that's actually the pilot's data model and not an IDOR if two analysts shouldn't see each other's uploads.
+- [x] **Session-secret HMAC over an empty key.** `read_session_token`
+  ([identity.py:130](caos/server/identity.py)) — confirm what happens when
+  `session_secret` is empty/unset: does an HMAC keyed on `b""` accept a
+  forge-able cookie, and does prod fail closed? `config.py:47-49` is said to
+  raise on the dev default in prod, but verify the empty-string and non-prod
+  paths. [auth]
 
-  **Investigated 2026-06-22 — by design, not a bug. Confirmed conditional risk; no code change for the pilot.**
+  **🟢 correct-as-designed (one retired-path nuance).** `read_session_token`
+  ([identity.py:69-81](caos/server/identity.py)) does a genuine constant-time
+  `hmac.compare_digest(sig, _sig(raw, secret))`, not a presence check — so an
+  empty key *would* verify an empty-key-signed forgery, but prod can't reach
+  that state: [main.py:46-53](caos/server/main.py) raises `RuntimeError` if
+  `environment=="production"` and `session_secret in ("", "dev-insecure-session-secret")`.
+  Fail-closed on both empty and default. **Residual:** the legacy
+  `DATABRICKS_APP_PORT`-only "deployed" path treats requests as deployed
+  ([identity.py:104](caos/server/identity.py)) but the SESSION_SECRET guard keys
+  only on `environment=="production"`, so a non-prod Databricks deploy would
+  trust the public dev-default secret. Dead code — Databricks was dropped — but
+  it shares the brittle exact-string `=="production"` root with S3/S5.
 
-  Root cause: it is a deliberate, documented architecture decision, not an oversight.
-  - Explicit design comment at [issuers.py:49-55](caos/server/routes/issuers.py): *"Issuers and their documents are a shared coverage universe — every authenticated analyst sees every issuer (per the buy-side-desk model). The `caller` dependency … is load-bearing for authentication … but intentionally NOT used to scope queries."* It even names the upgrade path: *"If need-to-know access control is ever required (e.g. an MNPI information barrier — see review W2), scope these queries by `caller` then."*
-  - **Data model has no tenant boundary to enforce.** [database.py](caos/server/database.py): `Issuer`, `DocumentChunk`, `MetricFact` carry no owner/org/tenant column. The two identity-stamped columns are nullable **audit metadata only** — `Document.uploaded_by` ([database.py:98](caos/server/database.py)) and `Run.analyst_id` ([database.py:130](caos/server/database.py)).
-  - **`caller.id` is never used as a query filter anywhere.** Swept all routes: it appears only as (a) rate-limit keys (`f"query:{caller.id}"`, `f"runs:{caller.id}"`, …), (b) the two audit stamps above, and (c) `/auth/me` reflection. `analyst_id` is *written* on run create ([runs.py:159](caos/server/routes/runs.py)) but **never read back** — `GET /runs` filters only by `issuer_id` ([runs.py:175](caos/server/routes/runs.py)); `GET /runs/{id}`, `/modules`, `/qa`, `/report`, `/vault` all `db.get(Run, run_id)` with no caller scoping.
+- [x] **Login code fails *open* on empty value.** `routes/auth.py:97` uses
+  `hmac.compare_digest` against `analyst_signup_code`, but if that setting is
+  empty there may be no fail-closed guard — every code would pass. Default
+  `131113` is also hardcoded in source ([config.py:57](caos/server/config.py)).
+  [auth]
 
-  **Verdict:** not an IDOR for the intended single-desk shared-coverage pilot — every analyst is *supposed* to see the whole universe; the edge-auth 401 gate (identity.py) is the only access boundary and that is intentional. It **becomes** an IDOR the moment two requirements appear: (1) multiple analyst groups who must not see each other's coverage, or (2) MNPI information barriers (the "W2" case the code already anticipates). Concrete pre-conditions to re-open this item: add an owner/org column to `Issuer`/`Document`/`Run`, then scope `list_issuers`, `get_chunk`, and the `runs` GETs by `caller`. No fix warranted now; this is a **known, accepted, documented limitation with a defined upgrade path**, not a latent defect.
-- [x] **Forwarded-identity trust fails *open* to network isolation.** `get_identity` ([identity.py:56](caos/server/identity.py)) trusts `X-Forwarded-Email` unless `EDGE_PROXY_SECRET` is set; when unset, anyone who can reach the app port directly forges any identity (and any rate-limit key). Verify the deploy actually sets the secret + proxy injects `X-Edge-Authorization`; the startup warning is the only guard.
+  **🟡 real gap, bounded (operator footgun).** Confirmed there is no
+  empty-`analyst_signup_code` guard at [auth.py:97](caos/server/routes/auth.py),
+  and `hmac.compare_digest("", "") → True`, so `ANALYST_SIGNUP_CODE=""` would let
+  an empty submitted code through. **Two mitigations stop it being a default
+  exploit:** the Pydantic body enforces `code: str = Field(min_length=1, …)`
+  ([auth.py:47](caos/server/routes/auth.py)) so a client *cannot* submit `""`
+  (422 before the compare), and the default is non-empty `131113`. So it only
+  bites if an operator explicitly exports an empty code — and unlike
+  `SESSION_SECRET` there's no startup guard against that. Secondary note: the
+  code is low-entropy (6 digits, in source), partly offset by 10/min per-IP
+  login throttling. **Fix:** `if not settings.analyst_signup_code: raise
+  HTTPException(503, "Login disabled")` (or extend the `main.py` prod startup
+  guard to reject an empty code).
 
-  **Investigated 2026-06-22 — defense-in-depth control that ships disabled. Primary vector well-mitigated by the base compose; one real residual + one design weakness.**
+- [x] **Asymmetric fail behavior on the two secrets.** Missing `SESSION_SECRET`
+  is said to *stop* the app in prod; missing `EDGE_PROXY_SECRET` only *warns*
+  ([main.py:38](caos/server/main.py)) and boots. Confirm this asymmetry is
+  intended. [config]
 
-  Topology traced end-to-end ([docker-compose.yml](caos/deploy/docker-compose.yml), [Caddyfile](caos/deploy/Caddyfile)): `Caddy(:443) → oauth2-proxy → app → db`, all on one `internal` docker network. The "anyone who can reach the app port" premise is **blocked three ways out of the box**, so the public-internet path is not actually open:
-  1. **App port is never published.** The `app` service has no `ports:` ([compose:73](caos/deploy/docker-compose.yml) — *"No `ports:` — the app must only be reachable via oauth2-proxy"*). `app:8000` is reachable only on the internal docker net; only `caddy` publishes 80/443.
-  2. **Caddy strips all client-supplied identity headers** before proxying ([Caddyfile:22-28](caos/deploy/Caddyfile)): `X-Forwarded-User/Email/Preferred-Username/Groups/Access-Token` **and** `X-Edge-Authorization`. A browser cannot smuggle spoofed identity through the front door — Caddy removes them, oauth2-proxy re-sets them only after real OAuth.
-  3. **`get_identity` already fails *closed* on header-less deployed requests** ([identity.py:79-85](caos/server/identity.py)) — a request with no `X-Forwarded-*` is 401'd in production regardless of the secret.
+  **🟢 correct-as-designed.** Both behaviors verified exactly:
+  missing/default `SESSION_SECRET` → `RuntimeError`
+  ([main.py:46-53](caos/server/main.py)); missing `EDGE_PROXY_SECRET` →
+  `logger.warning` + boot ([main.py:39-45](caos/server/main.py)). The asymmetry
+  is sound: `SESSION_SECRET` is the *sole* integrity control on the analyst
+  cookie (no safe fallback → must fail closed), whereas `EDGE_PROXY_SECRET` is
+  *defense-in-depth* over network isolation (app publishes no port; only the
+  proxy reaches it), so warn-and-boot is the right posture for an optional
+  hardening layer. The code comments at [config.py:41-50](caos/server/config.py)
+  and identity.py articulate this. Caveat: both gates key on the brittle exact
+  string `=="production"` (shared with S1/S5).
 
-  **So "fails open" reduces to exactly one residual vector, which the code names:** [compose:67-68](caos/deploy/docker-compose.yml) — *"forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on the internal net)."* When `EDGE_PROXY_SECRET` is unset, any **workload that can already reach the internal docker network** (a compromised/added sidecar, a future service on `internal`, or any topology where 8000 becomes reachable — k8s without NetworkPolicy, a host that publishes the port) can `POST` with `X-Forwarded-Email: ceo@firm.com` and be trusted as that user. In the shipped 5-service compose every other container is trusted, so the practical blast radius is low *today* — but it is purely a function of who else shares that network.
+- [x] **Vault/exhibit filename sanitization vs path traversal.** `_title()`
+  ([vault_export.py:31](caos/server/vault_export.py)) strips illegal chars;
+  vault writes ([vault_export.py:210](caos/server/vault_export.py)) +
+  `routes/edgar.py:181` (`file_name` from a URL basename) build paths from
+  issuer/run/exhibit names. [edge]
 
-  **The wiring is correct and tested when enabled.** Caddy injects `header_up X-Edge-Authorization {$EDGE_PROXY_SECRET}` ([Caddyfile:36](caos/deploy/Caddyfile)); the app does a constant-time `hmac.compare_digest` on bytes ([identity.py:72-74](caos/server/identity.py)); [test_identity.py](caos/tests/server/test_identity.py) covers match→ok, mismatch→401, and the non-ASCII-presented→401 (not 500) latin-1 edge.
+  **🟢 correct-as-designed (airtight).** Two independent sanitizers each
+  neutralize separators. `_title()` replaces every char in
+  `_ILLEGAL = '\\/:*?"<>|#^[]'` — **both `/` and `\`** — with `-`
+  ([vault_export.py:27-32](caos/server/vault_export.py)); confirmed
+  `"../../etc/passwd" → "..-..-etc-passwd"`. The upload/exhibit store runs
+  `re.sub(r"[^A-Za-z0-9._-]", "_", Path(file_name).name)`
+  ([ingest.py:76-77](caos/server/ingest.py)) — `Path().name` collapses any
+  directory part, whitelist kills residual backslashes; `"../../etc/passwd" →
+  "passwd"`. The EDGAR basename is re-sanitized by `store()`
+  ([routes/edgar.py:181-183](caos/server/routes/edgar.py)). A bare `".."`
+  survives `_title` but is always a single component under a fixed parent and
+  cannot climb without an embedded separator (and would hit a directory and fail
+  the write). No fix warranted.
 
-  **Root cause = it ships disabled and is gated only by an operator action.** `.env.example:15` is `EDGE_PROXY_SECRET=` (empty); compose defaults `${EDGE_PROXY_SECRET:-}` to empty; so out-of-the-box enforcement is **off**. The two genuine weaknesses:
-  - **Warn-don't-block.** Production boots fine with identity-spoofing protection disabled — [main.py:38](caos/server/main.py) only `logger.warning`s. For a control protecting the *entire* identity-trust model, relying on someone reading a startup log line (or the [LAUNCH_PHASE1.md:150](caos/docs/LAUNCH_PHASE1.md) "W1" checklist item) is the soft spot. **Candidate hardening: fail closed** — refuse to start in `production` when `edge_proxy_secret` is empty (or gate it behind an explicit `ALLOW_INSECURE_EDGE=true`).
-  - **No defense if the internal network is ever shared.** Acceptable for the single-tenant pilot; re-open if CAOS is co-located with untrusted workloads or moved to an orchestrator without enforced network policy.
+- [x] **Cookie `Secure` only in production.** `routes/auth.py:72` sets the
+  flag only when `environment == "production"`. [auth]
 
-  **Verdict:** not a live exploit in the shipped compose (app unpublished + header-strip + single-tenant net), but a **real latent gap**: a security-critical control that is opt-in and only warns when absent. Lowest-effort, highest-value fix is fail-closed-in-prod on the empty secret.
-- [x] **CSP allows `'unsafe-inline'` for `script-src`.** [main.py:87](caos/server/main.py). Stored document text / issuer names / report bodies flow into the DOM — confirm nothing uses `dangerouslySetInnerHTML` on untrusted text (check `ReportBody.tsx`, markdown rendering in research/report panes). With unsafe-inline, a stored-XSS sink is directly exploitable.
+  **🟡 real gap, bounded.** Confirmed at
+  [auth.py:69-73](caos/server/routes/auth.py): `httponly=True` and
+  `samesite="lax"` are always set (correct), but
+  `secure=settings.environment == "production"` — so any env-label mistype
+  (unset, `prod`, `Production`) drops the `Secure` attribute and the auth cookie
+  rides plaintext HTTP. Masked in the intended deploy by Caddy TLS + HSTS
+  ([main.py:112](caos/server/main.py)), but the cookie's own flag is the
+  last-line control and it silently degrades on a one-character env mismatch —
+  the same brittle `=="production"` that also governs SESSION_SECRET enforcement
+  and docs closure, so a single mistype downgrades several controls at once.
+  **Fix:** derive `Secure` from `request.url.scheme == "https"` (or
+  `environment != "development"`) instead of the exact literal.
 
-  **Investigated 2026-06-22 — no HTML-injection sink exists; markdown path is safe. One residual: an unsanitized `javascript:`-capable link from model/web-sourced URLs.**
+- [x] **Rate-limiter is per-process, unbounded, and IP-keyable to a constant.**
+  `rate_limit.py` — keys sweep only past 1024 entries; in-memory store isn't
+  shared (scaling bypass); login keyed by client IP that falls back to `"?"`
+  ([routes/auth.py:91](caos/server/routes/auth.py)). [dos]
 
-  *Why `unsafe-inline` is there (root cause of the CSP weakness):* it is structurally forced by the deployment shape, not laziness. [main.py:80-98](caos/server/main.py) explains — the Next.js **static export** ships inline bootstrap/RSC scripts and inline `style` attributes, and a static export *cannot* carry a per-request nonce, so `script-src`/`style-src` must include `'unsafe-inline'`. The other directives still constrain origins (`default-src 'self'`, `object-src 'none'`, `connect-src 'self'`, `frame-ancestors 'self'`). So CSP is **not** a reliable second line against script injection here — the first line (output encoding) must hold on its own.
+  **🟡 real gap, bounded (all three confirmed, by-design for the topology).**
+  (a) `_windows` grows until >1024 entries and the sweep evicts only *expired*
+  windows ([rate_limit.py:20-37](caos/server/rate_limit.py)), so 1024+ live
+  distinct keys stay resident — memory-pressure only (tiny entries). (b)
+  Per-process map, documented to multiply limits by replica count. (c) The
+  bigger issue isn't the `"?"` fallback (that *shares* one bucket — benign) but
+  that the login key derives from the **client-supplied first `X-Forwarded-For`
+  hop** ([access_log.py:37-39](caos/server/access_log.py)); off-proxy, each
+  forged XFF is a fresh key, fragmenting the 10/min budget. All bounded because
+  oauth2-proxy is the sole ingress and overwrites XFF in the supported topology.
+  **Fix:** key the login throttle on `request.client.host` (socket peer) rather
+  than the spoofable XFF.
 
-  *Does the first line hold? Yes, with one exception.* Exhaustive sink sweep:
-  - **No `dangerouslySetInnerHTML` on any untrusted text** anywhere in `src`. The only `innerHTML` is [G2Chart.tsx:54](caos/frontend/src/components/charts/G2Chart.tsx) `el.innerHTML = ""` — clearing the chart container before re-render (empty-string write, no data). Safe.
-  - **Markdown render is safe.** [ReportBody.tsx](caos/frontend/src/components/research/ReportBody.tsx) uses `react-markdown@9.1.0` with only `remark-gfm` — **no `rehype-raw`**, so raw HTML in model output is escaped/skipped, not rendered. Confirmed the installed lib applies `defaultUrlTransform` to every URL property ([node_modules/react-markdown/lib/index.js:377](caos/frontend/node_modules/react-markdown/lib/index.js)) *before* handing `href` to the custom `a` renderer, so even the overridden link component receives an already-sanitized href (strips `javascript:`/`vbscript:`/non-image `data:`). Issuer names, chunk text, metrics all reach the DOM as React text children → auto-escaped.
-  - **The one residual:** raw JSX `href={s.url}` at [ReportPane.tsx:125](caos/frontend/src/components/research/ReportPane.tsx). `s.url` is a Deep-Research **source URL taken straight from the model/web-search tool result** with no scheme validation server-side ([deepresearch.py:166-168](caos/server/deepresearch.py) — `url = getattr(item, "url", None)`; only de-duped at :213). This href bypasses react-markdown's `defaultUrlTransform` (it's hand-rolled JSX, not markdown). React does **not** block `javascript:` URLs (dev-only warning), and the app's `script-src 'unsafe-inline'` means CSP won't block a `javascript:` URI either — so a poisoned/fabricated source of the form `javascript:…` would be a click-to-execute vector. The third expression-bound href, [ConceptNav.tsx:87](caos/frontend/src/components/shared/ConceptNav.tsx) `s.href`, is static internal nav config — not untrusted.
+- [x] **Log injection / PII via forwarded + uploaded fields.**
+  `access_log.py:38` splits `X-Forwarded-For` on comma; `uploaded_by =
+  caller.email` is stored raw ([routes/ingestion.py:81](caos/server/routes/ingestion.py)).
+  [edge]
 
-  **Verdict:** the CSP `unsafe-inline` is an accepted, *documented* constraint of the static-export deploy — not independently exploitable because there is **no HTML/script injection sink** to pair it with. The genuine (low-probability) gap is the **unsanitized source link**: requires the web-search result to carry a `javascript:` URL *and* the analyst to click it. **Fix (one line):** validate the scheme on `Source.url` server-side in [deepresearch.py](caos/server/deepresearch.py) (drop anything not `http(s):`) — or guard the href client-side at [ReportPane.tsx:125](caos/frontend/src/components/research/ReportPane.tsx). Cheap, removes the only untrusted-URL→href path.
-- [x] **Prompt-injection blast radius claim is unverified across all sinks.** `llm_safety.wrap_untrusted` ([engine/llm_safety.py](caos/server/engine/llm_safety.py)) is the *intended* single choke point, but synth/covenants/adjusted each build their own grounding strings — confirm every document→LLM call routes through `extract_json`/`wrap_untrusted` and none concatenates raw chunks into a system prompt.
+  **🔴 bug (premise partly corrected).** The *access log* itself is safe — it
+  goes through `json.dumps`, which escapes CRLF
+  ([access_log.py:54-62](caos/server/access_log.py)), and it logs only the first
+  XFF hop, not the whole header (so S7(a) is *not* a bug). **The real sink:** the
+  unhandled-exception logger interpolates the raw principal into a plain-text
+  record — `logger.exception("unhandled exception: %s %s (caller=%s)", …,
+  principal(headers))` ([main.py:160-165](caos/server/main.py)) — and
+  `principal()` ([access_log.py:26-30](caos/server/access_log.py)) returns
+  `X-Forwarded-Email`/`-User` with no sanitization, so a `\r\n`-bearing header
+  forges log lines there. Separately `uploaded_by=caller.email` is persisted raw
+  ([routes/ingestion.py:81](caos/server/routes/ingestion.py),
+  [routes/edgar.py:193](caos/server/routes/edgar.py)). Bounded: oauth2-proxy
+  sets `X-Forwarded-Email` from the SSO session (not client-settable), so it
+  needs proxy misconfig or un-proxied access. **Fix:** strip control chars at the
+  identity boundary, e.g. `re.sub(r"[\x00-\x1f\x7f]", "", v)[:256]` in
+  `principal()`/`client_source()` and when assigning `uploaded_by`.
 
-  **Investigated 2026-06-22 — claim substantially holds. Coverage is complete (every untrusted-content sink has a guard; none puts untrusted text in a *system* prompt), but the guard is implemented two different ways and the blast-radius wording understates two surfaces.**
+- [x] **Stack traces to logs.** `logger.exception()`
+  ([main.py:160](caos/server/main.py)) — confirm this isn't reachable into a
+  client response. [edge]
 
-  Enumerated all 11 `messages.create`/`stream` call sites. Classified by trust of input:
-
-  **A. Untrusted document/web content → guarded (5 sinks):**
-  - `extract_json` ([llm_safety.py:77](caos/server/engine/llm_safety.py)) — the delimited choke point: `wrap_untrusted(grounding)` in user role + caller's system carries `UNTRUSTED_RULE`. Used by **covenants** ([covenants.py:140](caos/server/engine/covenants.py)) and **adjusted** ([adjusted.py:105](caos/server/engine/adjusted.py)). ✓ delimited.
-  - **synth** ([synth.py:343](caos/server/engine/synth.py)) — chunks wrapped via `wrap_untrusted(grounding)` ([synth.py:340](caos/server/engine/synth.py)) + `UNTRUSTED_RULE` in system ([synth.py:329](caos/server/engine/synth.py)). ✓ delimited.
-  - **debate** ([debate.py:289](caos/server/engine/debate.py)) — wraps `upstream.runtime_output` via `wrap_untrusted`. ✓ delimited (defensive).
-  - **issuer chat** ([llm.py:66](caos/server/llm.py)) — ✗ no `wrap_untrusted` delimiter; instead an **inline** injection rule in `SYSTEM_PROMPT` ([llm.py:27-32](caos/server/llm.py)). Run context arrives as client-supplied conversation messages.
-  - **deep research** ([deepresearch.py:190](caos/server/deepresearch.py)) — web_search server tool; ✗ no delimiter; **inline** injection rule in `SYSTEM_PROMPT` ([deepresearch.py:~90](caos/server/deepresearch.py), AML.T0051.001 note).
-  - **council** seats/votes ([council.py:143](caos/server/engine/council.py), [:196](caos/server/engine/council.py)) — review `produced` payloads; ✗ no delimiter; **inline** injection rule in both systems ([council.py:137-140](caos/server/engine/council.py), [:189-191](caos/server/engine/council.py)).
-
-  **B. Input is user text or the trusted catalog, output schema-clamped (3 sinks) — not a document-injection vector:** nlquery `_llm_translate`/`_llm_plan` ([nlquery.py:202](caos/server/nlquery.py),[:257](caos/server/nlquery.py)) (output `validate_spec`'d to the catalog) and scenario ([scenario.py:129](caos/server/scenario.py)) (output clamped to numeric deltas).
-
-  **Confirmed positives:** (1) **no sink places untrusted content in the `system` prompt** — every grounding string is user-role content; systems are static instructions. (2) Every document/web sink carries *some* injection guard.
-
-  **Two real refinements to the original claim:**
-  1. **The "applied in one place, can't be forgotten" design goal is only literally true for the `extract_json` family.** Three free-text sinks (issuer-chat, council, deep-research) **re-implement the injection rule inline** rather than calling `wrap_untrusted`/`UNTRUSTED_RULE`. Functionally guarded today, but this is exactly the drift surface the choke-point was meant to remove — a *new* free-text sink can be added with no delimiter and no one notices. Lower-risk but worth a lint/convention.
-  2. **The docstring's blast-radius claim — "a wrong-but-in-range *figure*, not a system compromise" — is accurate for the gated engine path but understates two surfaces.** synth/covenants/adjusted/council/debate all emit **JSON/tool payloads the deterministic CP-5 gate consumes**, so there an injection ≈ a clamped wrong number. But **issuer-chat and deep-research emit free-text prose (and, for research, source URLs) straight to the analyst — ungated, unclamped.** There the blast radius is *attacker-influenced prose/citations*, not an in-range figure. Both remain bounded by the load-bearing invariant — **no LLM lane has write-back tools** (deep-research's `web_search` is read-only) — so "not a system compromise" still holds. Accurate wording: *"a wrong figure (gated path) or misleading prose/sources (chat & research), never code execution, data exfiltration, or state mutation."* (Ties to the [ReportPane source-link finding above](audit-backlog.md) — the research prose path is the same one that emits unsanitized `s.url`.)
-
-  **Minor:** synth's `UPSTREAM OUTPUTS` ([synth.py:339](caos/server/engine/synth.py)) and council's `produced` payloads are passed **unwrapped**. They're engine-derived and schema-shaped, but transitively carry document-extracted strings (e.g. CP-4C covenant text) — a second-order, low-risk path that isn't delimited like the primary chunks.
-
-  **Verdict:** the core claim is sound — coverage is complete and nothing is system-compromising. The audit value is in the two precisions above (inline-guard drift risk; blast-radius wording must cover the two free-text surfaces).
-- [x] **`safe_chunk_id` silently mis-attributes.** [llm_safety.py:41](caos/server/engine/llm_safety.py) falls back to `hits[0].chunk_id` when the model returns an invalid id. For a "show your work" credit tool, a *wrong* citation is worse than a missing one — should it fail/flag instead?
-
-  **Investigated 2026-06-22 — confirmed: the fallback fires on a model-returned `null` too, and the substituted id reaches a user-facing "Directly Sourced / High" citation chip with no signal it was substituted. Real, LLM-path-only, low-probability but medium-on-trust; the fix the item asks for (flag/fail instead of silently substituting) is the right call.**
-
-  **Mechanism.** [llm_safety.py:41-48](caos/server/engine/llm_safety.py): `r = str(returned or "")`; if `r` isn't in the retrieved `{h.chunk_id}` set, it returns `hits[0].chunk_id`. Because `str(None or "") == ""`, a model that returns **`null`** for the chunk id — which both prompts explicitly permit (`"leverage_chunk_id": id|null` [covenants.py:137-138](caos/server/engine/covenants.py); `"chunk_id": the id of the chunk you used` with the model free to omit it [adjusted.py:101](caos/server/engine/adjusted.py)) — takes the *same* fallback as a fabricated id. So an honest "I won't pin a chunk" is silently upgraded to a concrete citation of the **top BM25 hit**.
-
-  **Where the substituted id lands (the teeth).** Both callers staple the returned id onto a figure only after the figure validates (`lev>0` / `incr>0` / `0<pct<1`), then emit it as a user-facing evidence citation:
-  - **adjusted** ([adjusted.py:112](caos/server/engine/adjusted.py) → [:163-176](caos/server/engine/adjusted.py)): `chunk_id` becomes `EvidenceSpec("E-ADJ1", "documentary_fact", lineage_class="Directly Sourced", confidence="High", resolved_chunk_id=chunk_id)` on claim `C-ADJ1`.
-  - **covenants** ([covenants.py:146,149](caos/server/engine/covenants.py) → [:214-224](caos/server/engine/covenants.py)): `cid` becomes `EvidenceSpec("E-CAP1", …, "Directly Sourced", "High", resolved_chunk_id=cid)` on `C-CAP1`.
-
-  Both are stamped `lineage_class="Directly Sourced"` + `confidence="High"` **unconditionally** — the EvidenceSpec is byte-identical whether the model pinned the chunk or `safe_chunk_id` substituted the top hit. The analyst clicking the E-ADJ1/E-CAP1 chip opens that chunk as "the source"; if the figure actually came from a different in-context chunk (or the model declined to cite), the chip shows source text that may not contain the cited number — exactly "a *wrong* citation is worse than a missing one," and it inverts design principle #3 ("show your work").
-
-  **Root cause:** `safe_chunk_id` was built for *one* job — block **fabricated/injected** ids (the "model invents a source" vector) — and it does that well: the fallback is always a **real, retrieved chunk** that was in the model's context for the same `_RETRIEVE_QUERY`, never an invented id. But it conflates two different inputs into that one fallback: (a) a fabricated id (substitute is reasonable) and (b) a `null`/absent id (substitute fabricates provenance the model didn't assert). It returns a bare `str`, so the caller has no way to tell a validated citation from a substituted one and can't downgrade it.
-
-  **Why bounded:** (1) **LLM-path only** — fires solely when `anthropic_api_key` is set *and* budget remains ([covenants.py:160](caos/server/engine/covenants.py), [adjusted.py:120](caos/server/engine/adjusted.py)); the default deterministic fallbacks (`derive_addbacks`/`derive_covenant_terms`, [adjusted.py:128](caos/server/engine/adjusted.py)/[covenants.py:168](caos/server/engine/covenants.py)) pair each figure with the *exact* chunk it was regex-matched in. (2) The ids are handed to the model in-context as `[chunk {id}]` ([llm_safety.py:75](caos/server/engine/llm_safety.py)), so a capable model usually echoes a valid id; the realistic trigger is a `null`/omitted id alongside a good figure. (3) The substituted chunk is the top-relevance hit for the covenant/add-back query, so it's plausibly on-topic — wrong-chunk, not wrong-document.
-
-  **Fix (matches the item's instinct):** make the substitution *visible* rather than silent. Either (a) return `Optional[str]` (None when the model didn't supply a valid id) and have the caller drop the citation or downgrade `lineage_class`→`"Inferred"`/`confidence`→`"Medium"`; or (b) return `(id, was_substituted: bool)` and let the EvidenceSpec reflect it. Keep `hits[0]` as the *value* if useful, but never present a substituted source as `"Directly Sourced" / "High"`. Distinguish `null` (no claim of source) from an invalid id (rejected fabrication) — only the latter deserves a silent best-effort substitute.
-- [x] **`markitdown` subprocess + temp-file suffix from upload filename.** [ingest.py:84](caos/server/ingest.py): `shlex.split(cmd)` is operator config (low), but `NamedTemporaryFile(suffix=Path(filename).suffix)` derives from the uploaded name — check suffix sanitization and that `cmd` can never interpolate user input.
-
-  **Investigated 2026-06-22 — both interpolation vectors are closed. No command injection (filename never enters argv; no shell), no path traversal (`Path.suffix` strips separators), empty-suffix guarded. The uploaded name only influences a cosmetic temp-file extension passed as a single argv element. Not a vulnerability; one truly-minor uncaught-`ValueError` nit.**
-
-  **Command injection — not reachable.** [ingest.py:97-101](caos/server/ingest.py) is `subprocess.run([*shlex.split(cmd), tmp.name], …)` — **list form, no `shell=True`, no `os.system`** (grep-confirmed this is the *only* subprocess call in the entire server, [ingest.py:97](caos/server/ingest.py)). `cmd = settings.markitdown_cmd` is operator env config (`CAOS_MARKITDOWN_CMD`), tokenized once by `shlex.split`. The **uploaded filename is never passed to the command** — only `tmp.name` (a tempfile-generated path) is appended as a discrete argv element. So even an operator command can't interpolate user input, and there is no shell to interpret metacharacters in any element.
-
-  **Suffix sanitization — safe.** The only attacker-influenced value is `suffix=Path(filename).suffix or ".bin"` ([ingest.py:94](caos/server/ingest.py)). Verified `Path(filename).suffix` empirically against hostile names:
-  - `'../../etc/passwd'` → `''` · `'a.b/c'` → `''` · `'evil; rm -rf'` → `''` · `'noext'` → `''` · `'.bashrc'` → `''` — all `''` → fall to `".bin"`.
-  - `'report.pdf'` → `'.pdf'` · `'a.tar.gz'` → `'.gz'` · `'a.p df'` → `'.p df'`.
-
-  `Path.suffix` only takes the **final path component's last `.`-segment**, so any `/` or `\` splits the path and never survives into the suffix → **no traversal** is expressible. A suffix can still hold odd chars (spaces, `;`) — but it's used in two harmless ways: (1) appended to the tempfile name (no `/` ⇒ no traversal in the temp path), and (2) carried inside the single `tmp.name` argv element to a no-shell exec ⇒ no arg-splitting / no injection. The `or ".bin"` guards the empty case. markitdown may use the extension as a type hint, so a mismatched suffix could mislead its parser → garbage extraction → silent fall-through to pypdf/openpyxl ([ingest.py:115-117](caos/server/ingest.py)); no security consequence.
-
-  **Cross-check — the *persisted* path is separately hardened.** The vault write `store()` ([ingest.py:74-81](caos/server/ingest.py)) doesn't reuse the raw name either: `re.sub(r"[^A-Za-z0-9._-]", "_", Path(file_name).name)` under a `uuid4().hex/` prefix. So neither the temp path nor the stored path trusts the upload name.
-
-  **Lone nit (low):** the `except (subprocess.SubprocessError, OSError)` ([ingest.py:109](caos/server/ingest.py)) does **not** catch `ValueError`. A filename carrying an embedded null byte would make `NamedTemporaryFile` raise `ValueError: embedded null byte`, which escapes the markitdown try/except and surfaces as a 500 instead of falling back. Practically unreachable — Starlette's multipart parsing doesn't deliver null-byte filenames — but if hardened, widen the except to include `ValueError` so a pathological name degrades to the built-in extractor like every other markitdown failure. (Tangential: the temp file lands on `tmpfs:/tmp` = RAM — already tracked under the 250 MB-upload RAM item.)
-
-  **Verdict:** the item's two concerns (suffix sanitization, `cmd` user-input interpolation) are both unfounded as exploits — list-form exec + `Path.suffix`'s separator-stripping close them. Only cleanup is the `ValueError` widening; no fix warranted for the pilot.
-- [x] **`/api/research` has client timeout 0 and runs for minutes.** [api.ts:191](caos/frontend/src/lib/api.ts) + research route — confirm server-side rate limiting / concurrency cap exists, else a few callers hold connections open (resource exhaustion).
-
-  **Investigated 2026-06-22 — confirmed: a per-caller rate limit exists but there is NO concurrency cap and NO wall-clock deadline. The synchronous multi-minute connection-hold is a documented pilot tradeoff. Real but low-severity for the trusted internal pilot — and because the handler is `async`+streamed, the exhausted resource is FDs / upstream quota / memory, not blocked worker threads (a meaningful correction to the item's framing).**
-
-  **What exists — rate, not concurrency.** [research.py:23,31-37](caos/server/routes/research.py): `rate_limit.hit(f"research:{caller.id}", max_attempts=3, window_seconds=60)` → **3 requests/minute *per caller*.** That bounds *arrival rate per identity*; it sets **no ceiling on concurrent in-flight calls**. Two gaps follow:
-  1. **Per-caller, not global.** The key is `research:{caller.id}`, so `N` distinct callers each get their own 3/min — `N × 3` long-running calls can overlap with no global limit.
-  2. **Rate ≠ concurrency.** Even one caller can hold **3 simultaneous** multi-minute calls (fire 3 within a minute; each runs for minutes → all concurrent). Swept `research.py` + `deepresearch.py`: **no `asyncio.Semaphore`, no in-flight counter, no global gate** anywhere on this path.
-
-  **Each call is a synchronous multi-minute hold — by design.** [deepresearch.py:13-15](caos/server/deepresearch.py) says so outright: *"synchronous request/response — the caller holds the HTTP connection for the full multi-minute research run. Fine for an internal pilot; if proxy timeouts bite, promote to a background job (run_executor-style) + polling."* The client never abandons it either — `deepResearch` sets `timeout: 0` ([api.ts:195-196](caos/frontend/src/lib/api.ts)), so a hung server call pins the browser side indefinitely too.
-
-  **Single-call work is bounded, but not its wall-clock.** [run_deep_research](caos/server/deepresearch.py) caps the *amount* of work — `_MAX_CONTINUATIONS=4` on the `pause_turn` resume loop ([deepresearch.py:36,189-211](caos/server/deepresearch.py)), `_MAX_TOKENS=16000` ([:37](caos/server/deepresearch.py)), `_MAX_SEARCHES=8` (max-mode 12, [:42,52](caos/server/deepresearch.py)) — so a runaway tool loop can't hold the request open forever. But there is **no `asyncio.timeout`/deadline** around `client.messages.stream(...)` ([:190-198](caos/server/deepresearch.py)) — duration is bounded only indirectly by those caps + upstream latency, realistically several minutes per call.
-
-  **Why the blast radius is smaller than "hold connections open" implies.** The handler is `async def` and the Anthropic call is `await client.messages.stream(...)` — a non-blocking coroutine awaiting network I/O on the single event loop. So `K` concurrent research runs do **not** consume `K` worker threads (the app isn't thread-per-request); they consume `K` upstream HTTPS sockets (FDs), `K` accumulating `text_parts`/`sources` buffers (≤16k tokens each), and `K` parked coroutines. Exhaustion is therefore an **FD / memory / upstream-quota** ceiling against the 2 GB-cgroup single-process container, not thread starvation — and the event loop keeps serving other endpoints throughout. Combined with the 3/min/caller throttle and a trusted-analyst pilot population, practical risk today is low.
-
-  **Root cause:** deliberate synchronous-hold architecture with a *rate* guard but no *concurrency* guard or deadline — explicitly flagged in-code as a pilot-stage choice. **Fixes (the code names the first):** (a) promote to a background job + polling (`run_executor`-style) so the HTTP request returns immediately; or, cheaper stopgaps that need no new infra — (b) a process-global `asyncio.Semaphore(2-3)` around `run_deep_research` to bound concurrent runs (excess → 429/“busy”), and (c) wrap the stream loop in `asyncio.timeout(...)` for a hard wall-clock ceiling. (a) also resolves the `timeout:0` client-hold and any edge/proxy idle-timeout fragility.
+  **🟢 correct-as-designed.** The handler `log_unhandled`
+  ([main.py:158-166](caos/server/main.py)) writes the trace to the server log
+  only and returns a fixed `JSONResponse({"detail": "Internal Server Error"},
+  status_code=500)` — the exception/traceback/internals never enter the response
+  body. App is built without `debug=True`; docs/openapi are `None` in prod
+  ([main.py:84-86](caos/server/main.py)). Textbook log-internally /
+  return-opaque pattern. (The principal *value* logged here is the S7 CRLF sink,
+  but the trace itself doesn't leak to clients.) No fix.
 
 ## Performance
 
-- [x] **Cross-issuer BM25 loads + re-tokenizes the entire chunk corpus per query.** `retrieve_corpus` / `retrieve_corpus_by_issuer` ([retrieval.py:139](caos/server/retrieval.py)) `SELECT` all `document_chunks` across all issuers and call one-shot `bm25_rank` (rebuilds the index every call). The per-run issuer index is cached; the cross-issuer NL-query path is **not**. Full-table scan + full re-tokenize on every `/api/query/nl` — won't hold at portfolio scale.
+- [x] **`useLiveRun` `Promise.all` has no short-circuit / timeout.**
+  [useLiveRun.ts:32](caos/frontend/src/lib/engine/useLiveRun.ts) — one slow
+  `getModule` blocks all live modules; no per-call timeout. [perf]
 
-  **Investigated 2026-06-22 — confirmed, and worse than "slow": the re-tokenize runs synchronously on the event loop, so at scale it head-of-line-blocks every other request, not just the caller.**
+  **🟡 real gap, bounded.** Each `getModule` has a per-module `try/catch`
+  ([useLiveRun.ts:32-40](caos/frontend/src/lib/engine/useLiveRun.ts)) so a
+  *rejection* is isolated, but `Promise.all` still waits for the slowest, and the
+  shared axios client has **no default timeout**
+  ([api.ts:6-8](caos/frontend/src/lib/api.ts)) — so one hung (never-rejecting)
+  module stalls the whole `await`, leaving `loading:true` and no live render.
+  Results commit once (no streaming) at
+  [useLatestRun.ts:29-30](caos/frontend/src/lib/engine/useLatestRun.ts). Bounded:
+  it's the live *overlay*; the seeded static demo shows underneath, so it
+  degrades rather than white-screens. **Root fix (shared with P2/L6):** give the
+  engine reads a bounded `timeout` so a stall rejects and the existing per-module
+  catch skips it.
 
-  Call chain verified: `POST /api/query/nl` → `nlquery.execute` / `execute_semantic` → `retrieve_corpus` / `retrieve_corpus_by_issuer` ([retrieval.py:139](caos/server/retrieval.py),[:163](caos/server/retrieval.py)) → `bm25_rank(query, corpus, k=…)` ([retrieval.py:97](caos/server/retrieval.py)) → **`build_index(corpus)` rebuilt every call** ([retrieval.py:100](caos/server/retrieval.py)).
+- [x] **`useLivePipeline` `getModule` can hang.**
+  [useLivePipeline.ts:108](caos/frontend/src/lib/pipeline/useLivePipeline.ts)
+  — no timeout on the poll call. [perf]
 
-  Four confirmed roots:
-  1. **No index reuse on this path.** The reuse machinery *exists and is used elsewhere*: the runner builds an issuer index once and reuses it — `build_issuer_index` + `rank_with_index` ([runner.py:218](caos/server/engine/runner.py)) (the P4-2 optimization). The cross-issuer NL path simply never adopted it — confirmed no `lru_cache`, no module-global, no `Bm25Index` reuse anywhere outside the runner. Every NL query re-tokenizes from scratch via `_TOKEN_RE.findall` + a `Counter` per chunk.
-  2. **Synchronous CPU work on the event loop.** `bm25_rank`/`build_index` are plain sync functions called inline (`return [... for h in bm25_rank(...)]`), **not** `asyncio.to_thread`'d — unlike the ingestion parsers, which deliberately off-thread exactly this kind of CPU-bound work ([ingestion.py:113](caos/server/routes/ingestion.py): *"synchronous and CPU-bound; off-thread it so a large upload doesn't block the event loop"*). So a large cross-issuer rank blocks the single worker's loop for its whole tokenize+score duration → stalls all concurrent callers. This is the real teeth.
-  3. **Unbounded fetch for the pure-semantic case.** `execute_semantic` with no `issuer_filter` calls `retrieve_corpus(issuer_ids=None)` → the `SELECT` has **no `WHERE`** ([retrieval.py:147-153](caos/server/retrieval.py)) → full `document_chunks` scan into memory each call. (Issuer-filtered fetches *are* index-supported — `ix_documents_issuer_id` + `ix_document_chunks_document_id` exist per [0001_baseline.py](caos/server/migrations/versions/0001_baseline.py) — so the SQL is only a problem for the unfiltered path; the Python tokenize + RAM + loop-block dominate regardless.)
-  4. **Compounds with the `k=len(corpus)` sort** in `retrieve_corpus_by_issuer` (tracked as the next item).
+  **🟢 correct-as-designed (premise wrong: there is no poll).**
+  `useLivePipeline` fires once per `issuerId` via `useLatestRun` — no polling
+  loop ([useLivePipeline.ts:108-114](caos/frontend/src/lib/pipeline/useLivePipeline.ts));
+  the CP-X fetch is guarded `getModule(...).catch(() => null)`. The page renders
+  the offline sim while `live` is `null` (`useLive = liveMode && live != null`,
+  [pipeline/page.tsx:52](caos/frontend/src/app/pipeline/page.tsx)) — no stuck
+  spinner. Only residual is the shared no-timeout hang (P1's root), whose effect
+  here is merely "stays on the offline demo." No correctness fix needed.
 
-  **Cost shape:** ~2400 chars/chunk (`CHUNK_CHARS`) ≈ ~400 tokens; at e.g. 50 issuers × 20 docs × 30 chunks ≈ 30k chunks ≈ ~70 MB of text regex-tokenized **per query**, inline on the loop, under a 20 req/min/caller cap. Fine at the current handful-of-issuers pilot; degrades super-linearly with coverage.
+- [x] **EDGAR rate lock is synchronous.** `_rate_lock` / `_http_get`
+  ([edgar.py:101](caos/server/edgar.py)) — a blocking lock + wall-clock
+  `sleep()` can stall the event loop. [perf]
 
-  **Fixes (cheapest first, all use existing machinery):** (a) `asyncio.to_thread` the `bm25_rank` calls in `execute`/`execute_semantic` — removes the loop-blocking immediately; (b) cache a process-global cross-issuer `Bm25Index`, invalidated on ingestion (reuses `build_index`/`rank_with_index` already present); (c) the docstring's own roadmap — swap the corpus fetch for a persistent inverted index / pgvector in the existing Postgres ([retrieval.py:10-12](caos/server/retrieval.py)). No new dependency needed for (a) or (b).
-- [x] **`retrieve_corpus_by_issuer` ranks with `k=len(corpus)`.** [retrieval.py:179](caos/server/retrieval.py) sorts the whole corpus to pick one chunk per issuer — O(n log n) over every chunk for a "top-1 each" result.
+  **🟢 correct-as-designed (premise wrong on the dangerous half).** It *is* a
+  `threading.Lock` + synchronous `time.sleep` ([edgar.py:48,100-104](caos/server/edgar.py))
+  — but it never runs on the event loop. Every async caller dispatches the sync
+  EDGAR functions to a worker thread: `await asyncio.to_thread(edgar_cp1.fetch_cp1, …)`
+  ([runner.py:502](caos/server/engine/runner.py)) and `await
+  run_in_threadpool(edgar.…)` for all four routes
+  ([routes/edgar.py:114,132,148,177](caos/server/routes/edgar.py)). So the
+  `threading.Lock`+`sleep` is the *correct* primitive — a cross-thread throttle
+  that serializes SEC requests ≥150 ms apart in worker threads, never touching
+  the loop. No fix.
 
-  **Investigated 2026-06-22 — confirmed. A structurally-unnecessary full sort: the consumer needs a per-issuer argmax (O(C)), not a globally sorted list (O(C log C)).**
+- [x] **No pagination on list/query results.** `list_runs`
+  ([routes/runs.py:213](caos/server/routes/runs.py)) returns all runs;
+  `nlquery.execute` ([nlquery.py](caos/server/nlquery.py)) can return all
+  matching `metric_facts`. [dos]
 
-  Mechanics: `rank_with_index` **always** does `hits.sort(key=score, reverse=True)` then `hits[:k]` ([retrieval.py:93-94](caos/server/retrieval.py)). Passing `k=len(corpus)` from `retrieve_corpus_by_issuer` ([retrieval.py:179](caos/server/retrieval.py)) means it sorts **every positive-scoring chunk** and returns the whole list, after which the caller walks it once keeping the *first* hit per issuer (`if iid not in best:` — relying on the comment-noted "hits are best-first" to make first-seen = top-scoring).
+  **🔴 bug (`list_runs`) / 🟢 (`nlquery`).** `GET /api/runs` issues
+  `select(Run).order_by(Run.created_at.desc())` with **no `.limit()`/offset** and
+  returns every row ([routes/runs.py:203-214](caos/server/routes/runs.py)); run
+  rows accumulate one-per-analysis forever → genuine unbounded
+  memory/latency/exfil-volume growth, unlike the sibling EDGAR/query endpoints
+  which clamp via `Query(..., le=...)`. `nlquery.execute` is **safe**: spec
+  `limit` is hard-clamped to `_MAX_LIMIT=50`
+  ([nlquery.py:37,92](caos/server/nlquery.py)), results truncated
+  ([nlquery.py:362-363](caos/server/nlquery.py)), and the SQL is pre-filtered to
+  `headline.is_(True)` × a handful of catalog metrics — bounded by curated data,
+  not attacker input. **Fix:** add `limit: int = Query(100, ge=1, le=500)` →
+  `stmt.limit(limit)` on `list_runs`.
 
-  Root cause: the function only needs **the single highest-scoring chunk per issuer**, which is a one-pass max-by-group reduction. The global sort is pure overhead for this consumer — and it also materializes the entire sorted hit list in memory.
+- [x] **Index-keyed source list + duplicate print portals.**
+  `ReportPane` index keys ([ReportPane.tsx:123](caos/frontend/src/components/research/ReportPane.tsx));
+  `PrintPortal` appends to `document.body` with no unique id
+  ([reports/page.tsx:38](caos/frontend/src/app/reports/page.tsx)). [perf]
 
-  Scope/severity: **one caller** — the hybrid NL-query corroboration path ([nlquery.py:371](caos/server/nlquery.py)), where the issuer set is already capped at `spec.limit` (≤50). So `C` = positive-scoring chunks across those ≤50 issuers — bounded by issuer count but **unbounded in per-issuer chunk depth**. The `O(C log C)`→`O(C)` win is real but **second-order** to the parent item: the dominant cost on this path is still `build_index` re-tokenizing the whole corpus, which `k` doesn't affect.
+  **🟢 correct-as-designed (both).** (a) The `sources` array is render-once,
+  append-only output of a completed run, never reordered/spliced, and the items
+  are stateless leaf `<li><a>` — index keys carry no identity-loss or perf
+  penalty here ([ReportPane.tsx:123-124](caos/frontend/src/components/research/ReportPane.tsx)).
+  (b) `PrintPortal` creates its div in a `useEffect` with empty deps and returns
+  `() => d.remove()` ([reports/page.tsx:36-42](caos/frontend/src/app/reports/page.tsx)),
+  rendered once at :254 — re-renders update portal *contents* via `createPortal`,
+  not the node, so no duplicate/leaked `.print-root` divs. No fix.
 
-  **Fix:** replace the `k=len(corpus)` + sort with an explicit per-issuer max during the score loop (track `best[iid]` by highest score, no sort) — requires a small variant of `rank_with_index` or a dedicated scorer, since the current dedup correctness depends on receiving pre-sorted hits. Low effort, removes both the sort and the full-list materialization. Best done together with the parent item's `to_thread` + index-reuse fix.
-- [x] **`metric_facts` query has no confirmed index.** `nlquery.execute` ([nlquery.py:308](caos/server/nlquery.py)) filters on `headline` + `metric_key.in_(...)` — check a composite index exists in the migrations, else it's a scan per NL query.
+## Concurrency / run lifecycle
 
-  **Investigated 2026-06-22 — confirmed no supporting index → full scan per cross-issuer NL query. But low severity: the table is small and `headline` is selective; a partial index is the clean fix.**
+- [x] **`_CREATE_RUN_LOCK` lazy-init race.**
+  [routes/runs.py:36](caos/server/routes/runs.py) — two requests could each
+  construct a `Lock` and one overwrites the other. [concurrency]
 
-  The hot query ([nlquery.py:308-312](caos/server/nlquery.py)):
-  ```
-  select(MetricFact, Issuer).join(Issuer, MetricFact.issuer_id == Issuer.id)
-    .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(needed))
-  ```
-  Note: **no `issuer_id` predicate** — it's a cross-issuer ranking; issuer filters apply to `Issuer` columns post-join.
+  **🟡 real gap, bounded (unreachable as written).** The check-then-set
+  `if _CREATE_RUN_LOCK is None: _CREATE_RUN_LOCK = asyncio.Lock()`
+  ([routes/runs.py:40-44](caos/server/routes/runs.py)) is non-atomic in
+  principle, but there is **no `await` between the read and the write**, so under
+  single-loop CPython asyncio no other coroutine can interleave — the race is
+  unreachable today. It would become real only if a future edit inserted an
+  `await` there, or the function were called from multiple threads. **Fix
+  (defensive):** initialize the lock eagerly in the lifespan/startup hook to
+  remove the check-then-set entirely.
 
-  Indexes that actually exist on `metric_facts` ([database.py](caos/server/database.py), [0003_metric_facts.py](caos/server/migrations/versions/0003_metric_facts.py)):
-  - `ix_metric_facts_issuer_id` (single col) — **unused on this path** (no issuer_id in WHERE).
-  - `uq_fact` UniqueConstraint `(issuer_id, run_id, metric_key, period)` → backing unique index **leads with `issuer_id`**, so it can't serve a `metric_key`-only seek either.
-  - **No index on `headline`; no index leading with `metric_key`.**
+- [x] **`asyncio.gather(return_exceptions=True)` result/ input order.**
+  [engine/runner.py:315](caos/server/engine/runner.py) — confirm results map to
+  the right module. [logic]
 
-  Root cause: the two filter columns the cross-issuer path uses (`headline`, `metric_key`) are not covered by any index whose leading column matches, so the planner **full-scans `metric_facts`** every NL query, filters in memory, then PK-joins `issuers`.
+  **🟢 correct-as-designed (premise wrong on two counts).** `asyncio.gather`
+  preserves awaitable order, and the code zips that result list against the
+  *same* source list: `gather(*(_attempt_synth(m) for m in parallel))` then
+  `zip(parallel, gathered)` ([runner.py:314-315](caos/server/engine/runner.py))
+  — `module_id` always lines up with its own result, no mispairing. The call
+  does **not** use `return_exceptions=True` and doesn't need to: `_attempt_synth`
+  catches `SynthesisError` and *returns* it as a value
+  ([runner.py:255-256](caos/server/engine/runner.py)), so expected failures
+  arrive as ordered elements; an unexpected exception intentionally propagates
+  and fails the whole run ([runner.py:436](caos/server/engine/runner.py)). No fix.
 
-  Severity = **low**, unlike the BM25 item: (1) `metric_facts` is far smaller than `document_chunks` (≈ issuers × ~8 catalog metrics × periods × run-history); (2) `headline` is *selective* — it flags the one current canonical fact per (issuer, metric), so once indexed it's a tight seek; (3) `needed` is ~2-4 keys. At the pilot's handful of issuers the scan is sub-millisecond; it only matters as run-history accumulates facts at portfolio scale.
+- [x] **Dependency-cycle fallback runs anyway.**
+  [engine/runner.py:102](caos/server/engine/runner.py) — remaining modules run
+  in arbitrary order instead of failing the run. [logic]
 
-  **Fix (one migration):** a partial index `CREATE INDEX ix_metric_facts_headline_key ON metric_facts (metric_key) WHERE headline` (Postgres prod + SQLite dev both support partial indexes), or a plain composite `(headline, metric_key)`. Turns the per-query scan into a seek; no code change.
-- [x] **`GraphCanvas` renders every node/edge as SVG with per-node text + halo, no virtualization.** [GraphCanvas.tsx:103](caos/frontend/src/components/query/GraphCanvas.tsx). Backend owns layout, but `k=len(corpus)` retrievals and "60-finding lanes" (per its own comments) can produce large graphs → heavy DOM, no windowing.
+  **🟡 real gap, bounded.** Confirmed: `_dependency_layers`
+  ([runner.py:97-108](caos/server/engine/runner.py)) does `if not layer: layer =
+  list(remaining)` on a layering stall, accepting all remaining modules as one
+  layer in input order rather than raising. Consequences are bounded — input
+  order is the planner's topo order (not truly arbitrary), and the per-module
+  input gate ([runner.py:238-242](caos/server/engine/runner.py)) still blocks any
+  module whose upstream hasn't produced — so a real cycle degrades to a run full
+  of "Blocked" modules, not wrong-but-green output. The gap: a genuinely cyclic
+  registry fails *silently* instead of surfacing "registry is not a DAG."
+  **Fix:** `raise RuntimeError(f"CP-X cycle among {remaining}")` in the fallback.
 
-  **Investigated 2026-06-22 — confirmed, and it's two-sided: several backend builders emit one node per row with no cap, and the frontend both renders all of them *and* mirrors every node+edge into an `sr-only` list, doubling the DOM. Client-side cost only (not shared like BM25); bites at scale.**
+- [x] **MetricFact delete-then-reinsert without dup guard.**
+  [engine/runner.py:408](caos/server/engine/runner.py) — empty extract could
+  wipe the issuer's facts; atomicity across partial failure? [error]
 
-  **Backend — some builders cap, the high-cardinality ones don't.** `querygraph.py` builders that *do* bound: `_top_peers(limit=6)` ([querygraph.py:247](caos/server/engine/querygraph.py)), impact analysis `hits[:12]` ([:802](caos/server/engine/querygraph.py)). But the high-cardinality builders project **entire unsliced result sets**, one node each:
-  - **Gate-lane / findings rollup** — `select(QAFinding).scalars().all()` → **every finding across every run**, one node per finding ([:623](caos/server/engine/querygraph.py),[:637](caos/server/engine/querygraph.py)) — the "60-finding lanes." No cap.
-  - **Concentration / cluster-by-field** — all covered issuers, one node per issuer ([:401](caos/server/engine/querygraph.py),[:418](caos/server/engine/querygraph.py)). No cap.
-  - **Committee-readiness board** — one node per run ([:603](caos/server/engine/querygraph.py),[:616](caos/server/engine/querygraph.py)). No cap.
-  - **Open-findings** — `select(QAFinding)` → node per finding + per module ([:815](caos/server/engine/querygraph.py)). No cap.
+  **🟢 correct-as-designed (premise wrong three ways).** (1) **Order:** facts are
+  *added first* ([runner.py:408-413](caos/server/engine/runner.py)) and the
+  supersede DELETE runs *after* (:419-425). (2) **Scope:** the DELETE excludes
+  the current run and seeds — `provenance=="run" AND run_id != run.id`
+  ([runner.py:421-424](caos/server/engine/runner.py)) — so it can't delete the
+  just-inserted rows. (3) **No-wipe-on-empty:** extractors are None-guarded;
+  empty/garbage financials yield zero new facts (transient gap until next good
+  run), not corruption. Atomic: adds+delete share one session committed together
+  ([run_executor.py:37](caos/server/run_executor.py)); partial failure rolls back.
+  `uq_fact` is the dup guard. No fix.
 
-  These are **global, not issuer-scoped** (no `issuer_id` filter), so they grow with total system run-history, not one deal. `_result` ([:203](caos/server/engine/querygraph.py)) packages nodes/edges as-is — no global cap anywhere.
+- [x] **`expire_on_commit=False` cross-session staleness.**
+  [database.py:59](caos/server/database.py) — worker vs request could serve
+  stale state. [concurrency]
 
-  **The `compact` flag is visual-only, not a DOM saving.** `compact=True` renders a small dot to avoid label-smear ([querygraph.py:443 comment](caos/server/engine/querygraph.py)), but on the frontend a compact node is **still a full `<g>` + `<circle>` + `<title>`** ([GraphCanvas.tsx:192-195](caos/frontend/src/components/query/GraphCanvas.tsx)). It declutters pixels, not the DOM.
+  **🟢 correct-as-designed.** Request and worker use **separate sessions with
+  separate identity maps** (worker: `AsyncSessionLocal()`
+  [run_executor.py:30](caos/server/run_executor.py); request: `get_db`
+  [database.py:314-322](caos/server/database.py)) — there is no shared live `Run`
+  object to go stale. The poll path `GET /runs/{id}` does `db.get(Run, run_id)`
+  in a fresh session ([routes/runs.py:223](caos/server/routes/runs.py)) → real
+  SELECT of whatever the worker last committed. `expire_on_commit=False` is in
+  fact *required* here (documented at
+  [database.py:36-40](caos/server/database.py)) — expiring triggers lazy reloads
+  that break under the test harness's cross-loop pooling. No fix.
 
-  **Frontend — no virtualization + the accessibility mirror doubles the node count.** [GraphCanvas.tsx:103-113](caos/frontend/src/components/query/GraphCanvas.tsx) maps **all** edges then **all** nodes to SVG elements (each node up to 2 haloed `<text>` with `paint-order:stroke` — extra raster cost). Then [GraphCanvas.tsx:117-131](caos/frontend/src/components/query/GraphCanvas.tsx) re-emits **every node as an `<li>` and every edge as an `<li>`** inside an `sr-only` `<ul>` for the screen-reader alternative. So a 500-node / 800-edge graph = 500 SVG groups **+ 500 `<li>` + 800 `<li>`** ≈ 1800 extra DOM nodes. No windowing, no canvas fallback, no count threshold.
+- [x] **Run-failure write paths can themselves fail silently.**
+  `_mark_run_failed` swallows nested exceptions
+  ([run_executor.py:78](caos/server/run_executor.py)); the worker loop never
+  re-raises/alerts ([run_executor.py:239](caos/server/run_executor.py)). [error]
 
-  Severity = **medium, and unlike BM25 it's client-only** — a heavy graph janks/freezes the tab for the *one* analyst viewing that capability, not a shared server resource. Fine at the pilot's tens-of-nodes; the all-findings / all-issuer-concentration capabilities are the ones that blow up as run-history accumulates.
-
-  **Fixes:** (a) backend — cap the high-cardinality builders top-N with an "+N more" summary node (the `limit=6`/`hits[:12]` pattern already exists to copy); (b) frontend — gate the `sr-only` full mirror behind a node-count threshold (summarize counts above it) and consider a canvas/windowed render above ~200 nodes.
-- [x] **250 MB upload read fully into RAM before write.** `read_capped` ([ingest.py:38](caos/server/ingest.py)) buffers up to the cap in a `bytearray`, then `store` writes it — peak RAM ≈ cap × concurrent uploads. Acceptable for the pilot? Streaming-to-disk would bound it.
-
-  **Investigated 2026-06-22 — confirmed, and the real peak is worse than "cap × concurrent": three compounding amplifiers stack copies of the full file in RAM, against a hard 2 GB cgroup limit with no concurrency cap → OOM-kills the whole app container, not just the upload.**
-
-  The streaming cap itself is *good* — `read_capped` aborts >cap early ([ingest.py:46-49](caos/server/ingest.py)) so input is bounded. The problem is everything downstream of hitting the cap:
-
-  1. **`bytes(buf)` doubles the peak transiently.** [ingest.py:52](caos/server/ingest.py) `return bytes(buf)` makes a **full copy** of the `bytearray` — both are alive during the copy → a ~500 MB spike for a 250 MB file before the `bytearray` is freed.
-  2. **`/tmp` is tmpfs = RAM, so the markitdown temp file is a *third* in-RAM copy.** When `markitdown_cmd` is set, `_markitdown_text` writes the whole content to `NamedTemporaryFile` ([ingest.py:94](caos/server/ingest.py)), and the app container mounts `tmpfs: ["/tmp"]` ([docker-compose.yml:49](caos/deploy/docker-compose.yml)) — so that "temp file" lives in RAM, not on disk. Plus the `markitdown` subprocess runs **in the same container**, so its own parse memory also counts against the 2 GB cgroup. (pypdf fallback wraps `io.BytesIO(content)` — shares the buffer, but still materializes page/text objects.)
-  3. **No upload concurrency cap.** Swept `ingestion.py` + `ingest.py`: **no `Semaphore`/gather guard**. The 20/min/caller rate limit ([ingestion.py:28](caos/server/routes/ingestion.py)) bounds *rate*, not *in-flight* count — one caller can burst 20, or N callers upload at once. Peak container RAM ≈ `concurrent_uploads × (2-3 × upload_size + parse overhead)`.
-
-  Against [`mem_limit: 2g`](caos/deploy/docker-compose.yml) + `read_only` rootfs + no swap, ~3 concurrent 250 MB uploads (esp. with markitdown) breaches 2 GB → the OS OOM-kills the app process, dropping **all** in-flight requests, not just the uploads.
-
-  **Verdict:** fine at the pilot's occasional single uploads; a latent OOM under concurrent large uploads. **Fixes (cheapest first):** (a) add an `asyncio.Semaphore(2-3)` around the upload/parse path — bounds peak regardless of callers, one-liner; (b) stream the body to a temp file on the **vault disk** (`/vault` is a named volume = disk, not tmpfs) and hand the *path* to the parsers — pypdf/openpyxl/markitdown all accept paths, and markitdown *needs* one anyway, so this also removes the tmpfs copy and the `bytes(buf)` copy; (c) lower `MAX_UPLOAD_MB` or raise `mem_limit` if large docs are routine.
-- [x] **`evidence-sync` publishes on hover.** [evidence-sync.tsx:27](caos/frontend/src/lib/evidence-sync.tsx) — `setActive` on mouseenter of any E-xx chip re-renders every subscriber on the dense Deep-Dive. Check for hover jank.
-
-  **Investigated 2026-06-22 — confirmed: textbook React-context fan-out. One hover re-renders *every* `EvChip` on the page even though only the chips sharing that id change appearance. Real but low-medium severity (cheap leaf renders); needs selector-based subscription to fix properly.**
-
-  Mechanism, end to end:
-  - The provider's value is `useMemo(() => ({ active, setActive }), [active])` ([evidence-sync.tsx:29](caos/frontend/src/lib/evidence-sync.tsx)) — so the value **reference changes on every `active` change**. (`setActive` from `useState` is already stable; `active` is the only moving part, and the deps are correct — the memo isn't the bug, the subscription model is.)
-  - Every `EvChip` calls `useEvidenceSync()` ([EvidenceModal.tsx:20](caos/frontend/src/components/reports/EvidenceModal.tsx)) → consumes that context. React re-renders **all** context consumers whenever the provider value reference changes. So one `setActive(id)` re-renders every `EvChip` mounted under the provider.
-  - The chips publish on `onMouseEnter`/`onMouseLeave`/`onFocus`/`onBlur` ([EvidenceModal.tsx:25-28](caos/frontend/src/components/reports/EvidenceModal.tsx)) — **and so does the source-driver rail** ([rails.tsx:131-134](caos/frontend/src/components/deepdive/rails.tsx)). So sweeping the mouse across a 20-chip row fires enter+leave per chip ≈ **40 full re-render passes**, each re-rendering *all* chips.
-  - Other consumers re-render too: `IssuerChat` reads `active` ([IssuerChat.tsx:89](caos/frontend/src/components/deepdive/IssuerChat.tsx)) and `rails` reads `active`+`setActive` ([rails.tsx:82](caos/frontend/src/components/deepdive/rails.tsx)).
-
-  **Scale of the waste:** Deep-Dive renders `EvChip` in many `.map()`s — OutputRegister ([×3](caos/frontend/src/components/deepdive/OutputRegister.tsx)), tabs ([×3](caos/frontend/src/components/deepdive/tabs.tsx)), OutSections, rails, panels, ModelSheet — easily dozens-to-100+ chips on a dense issuer. Of N chips re-rendering per hover, only the hovered chip and any chips citing the **same id** actually change (`synced = active === id`); the other N-1 produce **byte-identical output**. `EvChip` is a plain function (no `React.memo`) — and memo wouldn't even help here, because context-driven re-renders bypass prop comparison.
-
-  **Severity = low-medium.** Each `EvChip` render is cheap (compute `open`/`synced`, return a leaf `<button>` with inline-style objects) — no expensive children, no data fetch. React batches within an event. So tens of chips are fine; the densest views (100+ chips) under a fast mouse sweep are where the new inline-`style` object per render (forces style reconciliation) can show perceptible jank. The original "hover jank" worry is justified at the high end, not catastrophic.
-
-  **Fix (proper):** replace the raw-value context with **selector subscription** so a chip only re-renders when *its own* synced-state flips — e.g. a `useEvidenceActive(id)` hook over `useSyncExternalStore` returning just the boolean `active === id`, or a context-selector. Then a hover re-renders only the entering chip + the leaving chip + same-id siblings, not the whole page. (Plain `React.memo` is insufficient — it doesn't stop context re-renders.) Cheap stopgap: keep as-is at pilot density; revisit if a dense issuer profiles hot.
+  **🟡 real gap, bounded.** Both swallows are real. (a) `_mark_run_failed`
+  ([run_executor.py:75-86](caos/server/run_executor.py)) wraps
+  rollback+mark+commit in `try/except: logger.exception` — a persistently
+  unreachable DB leaves the run `running`. Bounded by recovery: Postgres
+  `_reap_orphans` ([run_executor.py:179-208](caos/server/run_executor.py)) flips
+  lease-expired runs to failed/re-claims them; SQLite `InProcessExecutor.start()`
+  fails non-terminal runs on next boot — so it self-heals within a lease window /
+  on restart, doesn't hang forever. (b) The worse half: `_run_loop` catches
+  `except Exception: logger.exception("worker loop tick failed")`
+  ([run_executor.py:237-238](caos/server/run_executor.py)) and continues with no
+  alert — a persistent per-tick DB error means the worker is **alive but silently
+  idle**, queued runs never execute, only log noise as signal. **Fix:** emit a
+  metric/alert on N consecutive failed ticks (and failed mark-failed commits).
 
 ## Logic / correctness
 
-- [x] **QueueWorker re-claims a still-running run after a fixed 600 s lease (no heartbeat).** [run_executor.py:179](caos/server/run_executor.py). A legitimately long run (deep research "runs for minutes" + synth fan-out) that crosses the lease while `attempts < max` gets claimed by a second worker → **same run executes twice concurrently** (double token spend, possible duplicate writes). Is 600 s really "longer than any plausible run"? Least confident item here.
+- [x] **Model-JSON specs admit NaN/Inf before clamping.** `nlquery.py:212`
+  and `scenario.py:143` build a Pydantic spec from `json.loads` of model
+  output; clamping happens after. [logic]
 
-  **Investigated 2026-06-22 — the race is real and nothing in the code prevents it. The *only* thing standing between "fine" and "double execution + status corruption" is the unverified assumption that a run never wall-clocks past 600 s. Safe today only because LLM features default off; a latent correctness bug the moment heavy runs are slow.**
+  **🟢 (`scenario.py`) / 🟡 (`nlquery.py`).** Premise confirmed: Python's
+  `json.loads` accepts `NaN`/`Infinity` by default (no `parse_constant`
+  anywhere), and Pydantic floats pass them through. **`scenario.py` is
+  correctly defended** — `validate_scenario` clamps with an explicit
+  `if not math.isfinite(v): v = 0.0` *before* `max/min`
+  ([scenario.py:56-58](caos/server/scenario.py)) — necessary because `max/min`
+  silently mis-clamp NaN. **`nlquery.py` 🟡:** `Filter.value` is typed `object`
+  and not finite-checked ([nlquery.py:42](caos/server/nlquery.py)), so a
+  `value: Infinity` survives validation — but at execution `_passes` does
+  `float(target)` then a comparison, where `x > inf` is just `False` (no crash,
+  no division); blast radius is "an over-restrictive filter quietly returns
+  fewer rows." Ranked numbers come from the DB, not the spec, so ranking can't be
+  poisoned. **Also:** neither path logs the raw hallucinated JSON on
+  validation failure ([nlquery.py:223](caos/server/nlquery.py),
+  [scenario.py:154](caos/server/scenario.py)) — diagnostic gap. **Fix:** mirror
+  the `math.isfinite` guard on `Filter.value`; log truncated raw JSON on
+  `QueryError`/`ScenarioError`.
 
-  Confirmed every link in the chain:
-  1. **Lease is set once, never renewed.** `_claim_one` stamps `lease_expires_at = now + 600 s` ([run_executor.py:207](caos/server/run_executor.py)); `execute_run` sets `status="running"` at start and terminal status at end ([runner.py:204](caos/server/engine/runner.py),[:429](caos/server/engine/runner.py)) but **never touches the lease** mid-run. No heartbeat anywhere.
-  2. **Re-claim eligibility includes a *live* long run.** The claim predicate ([run_executor.py:186-200](caos/server/run_executor.py)) is `status==queued OR (status==running AND lease_expires_at < now AND attempts < max)`. A run still executing past 600 s with `attempts < 3` matches — it can't tell "worker died" from "worker still chugging."
-  3. **No lock protects the in-flight run.** `execute_run_by_id` loads it with a plain `session.get(Run, run_id)` ([run_executor.py:31](caos/server/run_executor.py)) — no `FOR UPDATE` → the row is unlocked, so `_claim_one`'s `with_for_update(skip_locked=True)` freely re-locks and re-claims it.
-  4. **No inflight de-dup.** `_claim_one` selects purely on status/lease/attempts — it does **not** exclude `run_id`s already in this worker's `_inflight` set. So even a **single** worker re-claims its own slow run (not just a second worker).
-  5. **Budget is per-execution, not per-run.** `RunBudget` lives in a `ContextVar` installed by the runner per execution ([budget.py:40-46](caos/server/engine/budget.py)). Two concurrent executions of the same `run_id` are separate tasks with separate contexts → each gets its own fresh budget → **2× token spend** (the cap doesn't restrain the duplicate).
+- [x] **Deep-research partial report not flagged.**
+  [deepresearch.py:192](caos/server/deepresearch.py) — a report cut off at the
+  continuation cap is returned as if complete. [error]
 
-  **Corruption path, not just waste:** both executions run `execute_run` in separate sessions and write facts via `extract_facts`. `MetricFact` has `UniqueConstraint(issuer_id, run_id, metric_key, period)` = `uq_fact` ([database.py:13-14](caos/server/database.py)). The second execution's inserts collide → `IntegrityError` → `execute_run_by_id`'s guard calls `_mark_run_failed` ([run_executor.py:47](caos/server/run_executor.py)). If the **first** execution already committed `status="complete"`, the duplicate's failure handler **overwrites it `complete → failed`** — a successful committee-ready run reported as failed (or, with the opposite interleaving, last-writer-wins on `run.status` and duplicated module outputs).
+  **🔴 bug (bounded severity).** Confirmed: `for _ in range(_MAX_CONTINUATIONS)`
+  (cap 4, [deepresearch.py:36,192](caos/server/deepresearch.py)); if the model
+  is still `pause_turn` on the last iteration the loop exhausts and falls through
+  to `report = "".join(text_parts)` returned as a normal
+  `ResearchResult(report=…, demo=False)` ([deepresearch.py:220-230](caos/server/deepresearch.py))
+  with **no completeness flag**. The only guard fires on *zero* prose — a
+  present-but-truncated report (several sections then cut) passes as complete.
+  Same for a single turn hitting `max_tokens` (16000). `ResearchResult`
+  ([deepresearch.py:118-121](caos/server/deepresearch.py)) has no
+  `truncated`/`stop_reason` field to carry the signal. A committee-facing report
+  can be silently missing sections. **Fix:** track `break` (terminal) vs
+  range-exhaustion / `max_tokens`, add a `truncated` field, and append a
+  "⚠ truncated at the research cap" banner.
 
-  **Why it's safe *today*:** with the defaults — `council_enabled=False`, `debate_enabled=False`, `advisor_enabled=False`, and especially when `anthropic_api_key` is unset (every synth module takes its deterministic path) — runs complete in seconds, nowhere near 600 s, so re-claim never fires. The bug is armed only when LLM features are on **and** a wide deal (synth per module at `synth_concurrency=4` + council 4 seats + optional peer round + debate, under real API latency/retries) genuinely exceeds 10 min. The comment's "longer than any plausible run" is an **assumption**, config-dependent and unguarded.
+- [x] **Issuer search: no AbortController → stale clobber.**
+  [issuers/page.tsx:70](caos/frontend/src/app/issuers/page.tsx) — slow earlier
+  response could overwrite a newer one. [logic]
 
-  **Fixes (defense in depth):** (a) **heartbeat** — renew `lease_expires_at` every ~60 s inside `execute_run`, and only re-claim after ~2 missed beats; converts the lease back into a true liveness signal. (b) **compare-and-set on terminal write** — record the claiming `worker_id`/epoch and refuse to write terminal status if the run's `worker_id` no longer matches this execution (rejects a superseded duplicate's commit, killing the `complete→failed` clobber even if a double-claim slips through). (c) **inflight exclusion** in `_claim_one` (cheap, closes the single-worker self-reclaim). The lease-without-heartbeat is correct for crash recovery; it just needs to stop misfiring on slow-but-alive runs.
-- [x] **SQLite `InProcessExecutor` has no reaper.** [run_executor.py:89](caos/server/run_executor.py). The `CancelledError` path covers graceful shutdown, but a hard crash (SIGKILL) strands runs in `running` forever with no recovery on the SQLite/dev default.
+  **🟢 correct-as-designed.** No AbortController, but the standard `stale`-flag
+  pattern prevents any clobber: each `query` change re-runs the effect whose
+  cleanup flips the prior run's captured `stale = true`
+  ([issuers/page.tsx:81](caos/frontend/src/app/issuers/page.tsx)), and every
+  `setIssuers`/`setDegraded` is guarded by `if (stale) return`
+  ([issuers/page.tsx:70-79](caos/frontend/src/app/issuers/page.tsx)) — a
+  late-arriving older response no-ops. AbortController would only save bandwidth.
+  No fix.
 
-  **Investigated 2026-06-22 — confirmed, but narrow and low-severity: dev-only (prod is Postgres + self-healing), triggers on hard-kill only, and produces a cosmetic zombie row that doesn't block anything. Already acknowledged in-code.**
+- [x] **`sim.ts` interval runs stale closures.**
+  [sim.ts:159](caos/frontend/src/lib/pipeline/sim.ts) — `speed`/`complete`
+  change without re-scheduling. [logic]
 
-  Lifecycle traced: `create_run` persists `status="queued"` (model default, [database.py:9](caos/server/database.py)) then `executor.enqueue(run.id)` ([runs.py:159-163](caos/server/routes/runs.py)). `InProcessExecutor.enqueue` is just `asyncio.create_task(execute_run_by_id)` ([run_executor.py:115-118](caos/server/run_executor.py)); `execute_run` flips the row to `"running"` ([runner.py:204](caos/server/engine/runner.py)).
+  **🟢 correct-as-designed (premise wrong).** The interval effect's dep array
+  **is** `[playing, speed, sim.done, plan, complete, tickMs]`
+  ([sim.ts:157-161](caos/frontend/src/lib/pipeline/sim.ts)) — `speed`/`complete`
+  changes tear down (`clearInterval`) and reschedule. The body uses the
+  functional updater `setSim((s) => stepSim(s, plan, complete))` so it always
+  reads latest state, and `plan`/`complete` are current because the effect
+  re-ran. No stale closure. No fix.
 
-  Failure boundary, precisely:
-  - **Graceful shutdown is handled.** `stop()` cancels tasks → the `CancelledError` branch calls `_mark_run_failed` ([run_executor.py:39-46](caos/server/run_executor.py)). The comment there already names the hazard: *"strand the run in 'running' (fatal on SQLite/InProcessExecutor, which has no reaper)"* — they handle `CancelledError` **because** there's no reaper to clean up after.
-  - **Hard crash is not.** SIGKILL / OOM-kill / power loss runs no Python → no cancellation handler → the row stays `"running"`.
-  - **No boot recovery.** `InProcessExecutor.start()` is a no-op ([run_executor.py:102-103](caos/server/run_executor.py)); confirmed **no startup reconciliation** of stranded `running` rows anywhere in `lifespan`/`init_db`/`main.py`. So the zombie persists across restarts forever.
+- [x] **`localStorage` reads without shape/`NaN` guards.**
+  `reports/page.tsx:61` (`parseFloat`→`NaN`), `reports/page.tsx:89` (three
+  `JSON.parse` unverified), `IssuerChat.tsx:80` (parse in initializer). [logic]
 
-  **Blast radius is small:** `InProcessExecutor.enqueue` has **no concurrency cap** (the `len(_inflight) < cap` gate at [run_executor.py:217](caos/server/run_executor.py) is the **QueueWorker** loop, not this path), so a stuck `running` row consumes no slot and **does not block new runs**. The live hooks filter `status === "complete"` ([useLatestRun.ts](caos/frontend/src/lib/engine/useLatestRun.ts)), so they skip it — it only shows as a perpetual "running" on a direct run-list/detail view. A data wart, not a liveness failure.
+  **🟢 correct-as-designed (all three; premises wrong).** (a) `parseFloat("")
+  → NaN`, but the range check `s >= 0.5 && s <= 1.5 ? s : 1`
+  ([reports/page.tsx:62-65](caos/frontend/src/app/reports/page.tsx)) rejects NaN
+  (both comparisons false) → default `1`. (b) All three parses **are**
+  type-checked before assignment — `if (o && typeof o === "object") setOmit(o)`
+  ([reports/page.tsx:89-92](caos/frontend/src/app/reports/page.tsx)) — inside a
+  `try/catch`. (c) The `JSON.parse` **is** inside the `try` in the initializer
+  with `|| []` fallback ([IssuerChat.tsx:79-81](caos/frontend/src/components/deepdive/IssuerChat.tsx));
+  missing/malformed → `[]`. Only a hand-corrupted valid-JSON non-array would slip
+  through (app only ever writes arrays). No fix (defensive nicety:
+  `Array.isArray(x) ? x : []`).
 
-  **Scope:** SQLite/`InProcessExecutor` is the **local-dev default only** — the production compose sets `DATABASE_URL: postgresql+asyncpg://…` → `get_executor()` picks `QueueWorker`, whose `_reap_orphans` + lease re-claim **do** recover stranded runs ([run_executor.py:166-177](caos/server/run_executor.py)). So prod self-heals; only a SQLite-backed (dev) deployment is exposed, and only to a hard kill.
+- [x] **Settings/research config errors swallowed.**
+  `research/page.tsx:66` and `settings/page.tsx:66` — `getSettings()` failures
+  caught silently. [logic]
 
-  **Fix (one query):** in `lifespan` (or a real `InProcessExecutor.start()`), on boot mark any `status="running"` rows `failed` ("stranded by prior crash") — safe precisely because InProcess is single-process: if a run is `running` at startup, no task is executing it. Mirrors what the QueueWorker reaper does for Postgres. (Ties to the previous item — both are the executor's crash-recovery story; the heartbeat fix there and this boot-sweep are complementary.)
-- [x] **`liveOutcome` defaults unknown status to `"pass"` (green).** [useLivePipeline.ts:30](caos/frontend/src/lib/pipeline/useLivePipeline.ts). An unexpected `committee_status` silently renders as a passing/green node — wrong default for a defensible-credit tool; should be neutral/idle.
+  **🟡 (research) / 🟢 (settings).** **Research** `getSettings().then(s =>
+  setLlmConfigured(s.llm_configured)).catch(() => {})`
+  ([research/page.tsx:65-67](caos/frontend/src/app/research/page.tsx)) — on
+  failure *or* a hung untimed request, `llmConfigured` stays `null`, which is
+  treated as "configured": the demo banner only shows on `=== false`
+  ([research/page.tsx:164](caos/frontend/src/app/research/page.tsx)) and the
+  button reads "Run deep research." So a no-key/demo backend whose probe fails
+  gets *no* demo warning before a run — exactly the case the code meant to guard.
+  Bounded (the run still returns a canned report). **Settings** sets an explicit
+  `cfgErr` flag rendered as an error ([settings/page.tsx:124-126](caos/frontend/src/app/settings/page.tsx))
+  — correct. **Fix:** bounded `timeout` on `getSettings` + treat a failed probe
+  conservatively.
 
-  **Investigated 2026-06-22 — confirmed the default *direction* is wrong (fails open to green), but it is **not reachable today**: every `committee_status` the backend can write is explicitly cased. So it's a latent vocab-drift trap, not an active bug. Low severity, trivial fix.**
+## Edge cases — finance math
 
-  The switch ([useLivePipeline.ts:30-43](caos/frontend/src/lib/pipeline/useLivePipeline.ts)) cases `Committee Ready→pass`, `Blocked→blocked`, `Restricted`/`Draft Only`/`Insufficient Information→warning`, and `default → m.qa_status === "Blocked" ? "blocked" : "pass"` — i.e. **an unrecognized status with a non-blocked qa_status renders green**.
+- [x] **Division-by-zero across engine math.** `adjusted.py:150/152`,
+  `covenants.py:209`, `capstructure.py:99`, `liquidity.py:52`, `peers.py:38`,
+  `earnings.py:34`, `distress.py:36`. [edge]
 
-  Enumerated every backend writer of a *module's* `committee_status` — the default branch is unreachable for real data:
-  - `committee_status_from` ([gate.py:45-55](caos/server/engine/gate.py)) emits exactly `{Blocked, Restricted, Draft Only, Insufficient Information, Committee Ready}` — all cased. This is what the CP-5 gate loop stamps on every runnable module ([runner.py:400](caos/server/engine/runner.py)).
-  - `_persist_blocked` sets `committee_status="Blocked"` **and** `qa_status="Blocked"` ([runner.py:451-452](caos/server/engine/runner.py)) — so a blocked module is correctly `blocked` (red), *not* defaulted. (This disproves the obvious worry that a blocked module — skipped by the gate loop's `continue` at [runner.py:394](caos/server/engine/runner.py) — would fall through; it was already persisted as `"Blocked"`.)
-  - A runnable module persisted but **not yet gated** (run interrupted before CP-5) keeps the column default `"Draft Only"` ([database.py:17](caos/server/database.py)) → cased to `warning`, not the default branch. Fixture/seed rows write `"Committee Ready"` ([runner.py:590](caos/server/engine/runner.py) et al.) → cased.
+  **🟢 correct-as-designed (all eight guarded).** The shared upstream guard is
+  `cp1_leverage()` ([schemas.py:116-129](caos/server/engine/schemas.py)):
+  `lev = float(lev) if isinstance(lev,(int,float)) and lev else None` — the `and
+  lev` truthiness gate coerces `0`/`0.0` → `None`, making every `/lev` and
+  `/ebitda` denominator provably non-zero. The rest guard locally: `adjusted`
+  early-returns on `None` and `pct ∈ (0,1)` so `ebitda_excl ≠ 0`; `covenants`
+  computes `pf_lev` only when `ebitda is not None`; `capstructure`
+  `pct_of_structure` gated `if total and …`; `liquidity` returns `(None,None)
+  if not cash_interest`; `peers` `_percentile` skipped on empty `peer_vals`
+  ([peers.py:121](caos/server/engine/peers.py)); `earnings` `if not prev: return
+  None`; `distress` returns `None if total_assets<=0 or total_liabilities<=0`.
+  No fix. (Note: closes the *zero* case; the NaN/Inf case is F3.)
 
-  So no current path yields a `committee_status` outside the five cased values; the `qa_status` fallback inside `default` never executes today. **The exposure is purely forward-looking:** if a new committee status is ever added or renamed backend-side (e.g. "Conditionally Ready"), or a row is migrated/hand-edited to an unknown value, the frontend **silently paints it green** rather than failing loud. That inverts design principle #5 ("committee-ready by default" = when in doubt, choose what survives committee scrutiny) — an *unknown* readiness state should never assert a pass.
+- [x] **`0.0`-as-falsy masks valid zero-debt cases.**
+  [covenants.py:199](caos/server/engine/covenants.py) — a legitimate `0.0`
+  (zero net debt) treated as missing. [logic]
 
-  **Fix (one line):** change the `default` fallback from `"pass"` to `"idle"` (or `"warning"`) so an unrecognized status degrades safe. Keep the `qa_status === "Blocked"` red check if desired, but the non-blocked tail must not be green. Zero behavior change today (branch unreachable), removes the latent trap.
-- [x] **`_passes` returns `True` for non-numeric filter targets.** [nlquery.py:291](caos/server/nlquery.py) — if the LLM emits a non-float `value` for a metric filter, the filter is silently ignored (every issuer passes) rather than rejected. `validate_spec` doesn't type-check filter values or op/field compatibility (e.g. `ilike` on a numeric metric).
+  **🟡 real gap, bounded.** Confirmed: `cp1_leverage`
+  ([schemas.py:127-128](caos/server/engine/schemas.py)) and
+  `covenants.py:199` (`(nd/lev) if (lev and nd) else None`) use truthiness, not
+  `is not None`. A genuine zero-net-debt issuer (`net_debt_ltm == 0`, a real
+  credit state) has `nd` coerced to `None`, so headroom math degrades to "CP-1
+  did not provide net leverage" — a valid datum read as missing. Bounded:
+  zero-net-debt is uncommon in leveraged finance and the failure is conservative
+  (degrade-to-insufficient, never a wrong number). Same falsy pattern at
+  `liquidity.py:50`, `peers.py:49` (all bounded); `distress.py` correctly uses
+  `<= 0`. **Fix:** distinguish absent from zero at the `cp1_leverage` boundary
+  and add an explicit non-zero check at each division site.
 
-  **Investigated 2026-06-22 — confirmed, and it's broader than one line: filters fail *open* in three places, so a filter the user asked for can be silently dropped or mis-applied and the over-broad result is presented with no caveat. LLM-path only; low probability, but the failure mode (silent wrong answer) is the worst kind for a "show your work" credit tool.**
+- [x] **NaN/Inf propagate through `round()`.** `downside.py:36`
+  (`lev/(1-s)`); `ScenarioPanel.tsx:114` (Infinity rendered). [edge]
 
-  Three fail-open points, all confirmed:
-  1. **`_passes` non-coercible target → `True`.** [nlquery.py:296-297](caos/server/nlquery.py): `float(target)` raises → `return True` → the metric filter passes every issuer.
-  2. **`_passes` unknown/incompatible op → `True`.** [nlquery.py:298-299](caos/server/nlquery.py): `{…}.get(op, True)` — an op not in the comparison dict (notably `ilike`, which `validate_spec` *accepts*) returns `True`, so e.g. an `ilike` filter on a numeric metric silently no-ops.
-  3. **Issuer-filter SQL silently coerces any non-`ilike` op to equality.** [nlquery.py:315](caos/server/nlquery.py): `col.ilike(%v%) if op=="ilike" else col == value` — so `country > "US"` or `industry >= "Tech"` becomes `== ` (the operator is discarded, not honored or rejected).
+  **🟡 real gap, bounded.** The denominator `(1-s)` is safe — `s ∈ {0.10,0.20,
+  0.30}` hardcoded, never 1.0 ([downside.py:18](caos/server/engine/downside.py)).
+  The exposure is the *inputs*: `lev`/`cov` are read with only an `isinstance`
+  check, no `math.isfinite` ([downside.py:29-31](caos/server/engine/downside.py)),
+  and `round(nan)→nan`, `round(inf)→inf` (don't raise with `ndigits`). They're
+  guarded to finite on the deterministic CP-1 paths (`edgar_cp1`,
+  `reported_cp1`), but the **live LLM CP-1** path takes `runtime_output` verbatim
+  — `validate_payload` checks structure only, no numeric domain
+  ([schemas.py:85-113](caos/server/engine/schemas.py)). If a non-finite slipped
+  through it would persist (stdlib `json.dumps` permits NaN) then surface as a
+  **late Starlette `allow_nan=False` 500** on serialize — a hard error, not a
+  silent bad credit figure, but with no diagnostic of which value poisoned it.
+  Low probability (the model API normally rejects bare `NaN` tokens). **Fix:**
+  coerce non-finite numerics to `None` at `cp1_leverage`/`_payload_from_data`
+  (`v if isinstance(v,(int,float)) and math.isfinite(v) else None`) — closes F2
+  and F3 together at one boundary.
 
-  **Why `validate_spec` doesn't catch it:** it checks only *membership* — `field ∈ catalog/issuer-fields` and `op ∈ _FILTER_OPS` ([nlquery.py:85-89](caos/server/nlquery.py)) — never **op/field/value compatibility** (comparison ops need a numeric value + numeric field; `ilike` only makes sense on a string issuer field) and never that a metric-filter value is float-coercible.
+## Edge cases — frontend / hydration
 
-  **Scope:** the **demo/offline translator emits no filters at all** (`_demo_translate` builds `QuerySpec` without a `filters=` arg → empty — confirmed), so this is purely the **LLM path**. A well-formed question yields numeric metric-filter values and works; the trap springs only when the model emits a malformed filter (non-numeric value, or an op incompatible with the field). Failure mode = the filter is dropped/mis-applied → results include issuers that don't satisfy the user's stated constraint, while `interpretation` still claims the ranking — no error, no caveat, no "show your work" trace that the filter was skipped.
+- [x] **`window.innerWidth` + resize listener on mount.**
+  `deepdive/page.tsx:98-136` — SSR hydration-mismatch risk; listener cleanup?
+  [edge]
 
-  **Severity:** low probability, **medium on trust** — a silently-unfiltered answer presented as authoritative is exactly what design principle #3 ("show your work") and the buy-side-analyst persona can't tolerate.
+  **🟢 correct-as-designed.** No SSR mismatch: the `window.innerWidth` read sits
+  inside a `useEffect` ([deepdive/page.tsx:126-139](caos/frontend/src/app/deepdive/page.tsx))
+  which never runs during the static-export build-time prerender, so it can't
+  desync prerendered HTML from first client render (the earlier :99-101 read is
+  also effect-guarded + `typeof window` checked). The resize listener **is**
+  removed on unmount — add/remove target the same stable `onResize` in an empty-
+  deps effect ([deepdive/page.tsx:137-138](caos/frontend/src/app/deepdive/page.tsx)).
+  No leak, no fix.
 
-  **Fixes:** (a) `_passes` should **fail closed** — non-coercible target or unknown op → `return False` (don't show issuers you can't prove match); (b) `validate_spec` should enforce op/field/value compatibility (comparison ops ⇒ float value + numeric field; `ilike` ⇒ string issuer field) and raise `QueryError` on mismatch — the route already maps `QueryError → 422` with a clarification message ([routes/query.py:140-144](caos/server/routes/query.py)); (c) the issuer-filter SQL should honor or reject the op, not coerce to `==`; (d) at minimum, append a caveat when a requested filter couldn't be applied.
-- [x] **`useLatestRun` loads once per `issuerId`, doesn't poll.** [useLatestRun.ts](caos/frontend/src/lib/engine/useLatestRun.ts) finds the latest *complete* run on mount. Confirm whether live pipeline/Deep-Dive actually reflects an *in-progress* run, or only updates on manual navigation — possible "live" surface that isn't live.
+- [x] **localStorage-restored view state vs SSR markup.** `pipeline/page.tsx`
+  restores `view` without a hydration guard. [edge]
 
-  **Investigated 2026-06-22 — resolved: the UI is, by design, a *latest-complete-run viewer + offline sim*, not a real-time run monitor. The frontend never even creates a run. So "isn't live" is intentional — but it leaves two real latent gaps (session staleness; invisible non-complete runs) that become a feature gap the moment in-UI run creation is wired up.**
+  **🟢 correct-as-designed (cosmetic flash at most).** `view` initializes to the
+  constant `"graph"` ([pipeline/page.tsx:36](caos/frontend/src/app/pipeline/page.tsx)),
+  so prerendered HTML and first client render agree — no hydration mismatch. The
+  localStorage restore runs post-hydration in a `useEffect` then `setView`
+  ([pipeline/page.tsx:64-68](caos/frontend/src/app/pipeline/page.tsx)); the only
+  artifact is a possible one-frame `graph→lanes` flash for returning users. The
+  `viewHydrated` guard correctly prevents clobbering stored state with the
+  default. No fix (gating render on `viewHydrated` trades flash for delayed
+  paint — not worth it).
 
-  Confirmed end to end:
-  - **The frontend never starts a run.** `createRun` is **entirely unused** — only its definition + a `fallow-ignore-next-line unused-export` ([api.ts:53-55](caos/frontend/src/lib/api.ts)); no component calls it. Runs are produced out-of-band (seed/CLI/scripts). So there is **no in-product "click Run → watch it progress" flow** to be broken.
-  - **No polling exists anywhere.** Repo-wide `setInterval`/`poll`/`refetch` hits are all unrelated: research elapsed timer, settings toast, issuers debounce, `FlashOnChange`, `G2Chart` resize, `SectorReview` demo stepper, and **`sim.ts`** — the *offline simulation* stepper. None polls a run.
-  - **`useLatestRun` is load-once.** `useEffect` deps `[issuerId]` only ([useLatestRun.ts:40](caos/frontend/src/lib/engine/useLatestRun.ts)) — **no focus/visibility/interval refetch** — and it filters `runs.find(r => r.status === "complete")`, so queued/running/failed runs are dropped. Every live hook (`useLivePipeline`, `useLiveRun`, `useModelEngine`) routes through it.
-  - **A live run is rendered as a *terminal snapshot*, not animated progress.** `useLivePipeline` sets `sim: { …, tick: 0, done: true }` ([useLivePipeline.ts:99](caos/frontend/src/lib/pipeline/useLivePipeline.ts)) and its docstring is explicit: *"A run is terminal, so nothing is 'running'; idle is reserved for nodes the run never produced."* The animated pipeline feel is the **offline sim**; a real run only ever appears finished. (Matches the project's "seeded mock overlaid by live runs" model.)
+## System design / deploy / data integrity
 
-  **So it's not a broken-live-updates bug.** The load-once / cancel-safe contract is deliberate. But two genuine gaps remain:
-  1. **Stale within a session.** A run that completes (backend/CLI/seed) while the analyst has the page open is **not reflected until remount/reload** — no refetch-on-focus, no interval, no visible manual-refresh. "Latest complete run" can be stale for the whole session.
-  2. **Non-complete runs are invisible.** Filtering `status === "complete"` means a **queued/running/failed run produces no signal** — the user sees the prior complete run (or the demo sim) instead. A failed run (incl. the [item-11 `complete→failed` clobber](audit-backlog.md)) or a [stuck SQLite zombie (item 12)](audit-backlog.md) is silently swallowed. The one `/monitor` "running" dot ([monitor/page.tsx:63](caos/frontend/src/app/monitor/page.tsx)) is a cosmetic `pulse` flag, not a real run-status poll.
+- [x] **Migration ↔ ORM nullability drift.** `0005_run_tokens_used.py:22`
+  vs model `nullable=False`; `0001_baseline.py:36` `Documents.issuer_id`. [migration]
 
-  **Severity = low today** (no in-UI run creation → no "watch my run" expectation to violate). **But the plumbing for live monitoring doesn't exist:** `createRun` is already written and unused, so the instant a "Run" button is added, clicking it will show no progress and no completion until a manual reload — at which point this becomes a real missing feature (poll `getRun(runId)` until terminal; surface failed/running states). **Fix when interactive:** add a status-aware poll for an in-flight run id and a refetch-on-focus to `useLatestRun`; surface non-complete states instead of dropping them.
+  **🟢 correct-as-designed (premise wrong both ways).** Schema is created
+  **only by Alembic** (`init_db` → `upgrade head`; no `create_all` anywhere), so
+  migration DDL is ground truth and ORM `nullable=` is advisory. `0005` adds
+  `tokens_used` with `server_default="0"` and the ORM is
+  `mapped_column(Integer, default=0)` — **not** `nullable=False`
+  ([0005:22](caos/server/migrations/versions/0005_run_tokens_used.py),
+  [database.py:156](caos/server/database.py)) — they agree. `0001` explicitly
+  sets `issuer_id ... nullable=False`
+  ([0001:36](caos/server/migrations/versions/0001_baseline.py)) matching the ORM
+  ([database.py:108](caos/server/database.py)). No drift of consequence; no fix.
 
-## Edge cases
+- [x] **Partial-migration recovery path.** `_run_migrations`
+  ([database.py:294](caos/server/database.py)) baseline-stamps; crash mid-init
+  recovery? [migration]
 
-- [x] **Scanned/encrypted PDF ingests "successfully" with 0 chunks.** `extract_pdf_text` ([ingest.py:114](caos/server/ingest.py)) returns `""` on failure → upload returns 200, user believes the doc is searchable, retrieval finds nothing. No OCR (known). Should the response surface `chunks_created == 0` as a warning, not success?
+  **🟢 correct-as-designed (Postgres).** Alembic runs each migration in a
+  transaction ([env.py:48-53](caos/server/migrations/env.py)) and Postgres DDL
+  is transactional — a mid-`upgrade` crash rolls back, leaving `alembic_version`
+  at the last committed revision; restart resumes via idempotent `upgrade head`.
+  The baseline-stamp branch fires only when `alembic_version` is absent *and*
+  tables exist ([database.py:303-304](caos/server/database.py)), so it never
+  double-stamps. Caveat: SQLite (dev-only) auto-commits some DDL so a mid-crash
+  *can* strand a half-applied revision — but deploy is Postgres. No prod fix.
 
-  **Investigated 2026-06-22 — confirmed: a 0-chunk upload is rendered as a *success* (green dot, counted as "vaulted"), with the chunk count shown but never flagged. The document is silently inert — it contributes nothing to any run, query, or chat grounding — and nothing tells the analyst. Medium trust/data-integrity risk; the fix is cheap.**
+- [x] **Healthcheck doesn't gate on migration completion.**
+  app depends on `db: service_healthy`, but `/api/health` may not verify DB /
+  migrations. [deploy]
 
-  Server path: scanned/encrypted PDF → `extract_pdf_text` swallows the pypdf error and returns `""` ([ingest.py:124-125](caos/server/ingest.py)) → `chunk_text("")` returns `[]` ([ingest.py:178-180](caos/server/ingest.py)) → the `Document` is still **stored in the vault** with `chunk_count=0`, and `_vault_document` returns **HTTP 200** with `message="… chunked (0 chunks) …"` ([ingestion.py:89-96](caos/server/routes/ingestion.py)). (markitdown, when configured, also can't OCR → same 0-chunk result.)
+  **🟡 real gap, bounded.** `/api/health` is liveness-only — returns
+  `{"status":"ok"}` with no DB touch
+  ([routes/health.py:17-23](caos/server/routes/health.py)). **But migrations *do*
+  gate traffic today**: `init_db()` runs inside the FastAPI lifespan *before*
+  `yield` ([main.py:54](caos/server/main.py)), and uvicorn doesn't accept
+  connections until lifespan startup returns. The gap is that health reports "ok"
+  even if the DB later drops, or if a future change moved init after first-accept.
+  **Fix:** add a cached `SELECT 1` to `/api/health` so the probe reflects real
+  readiness, not just process liveness.
 
-  Frontend path — the count is shown but framed as success, not warning ([UploadWizard.tsx](caos/frontend/src/components/upload/UploadWizard.tsx)):
-  - A 0-chunk response still sets `o.result`, so it's counted in `okCount` ([:161](caos/frontend/src/components/upload/UploadWizard.tsx)) and the header reads "*N/N vaulted · 0 chunks*" ([:379](caos/frontend/src/components/upload/UploadWizard.tsx)).
-  - The per-file row renders `<Dot sev={o.result ? "ok" : "critical"} />` ([:393](caos/frontend/src/components/upload/UploadWizard.tsx)) — a **green "ok" dot** — with the text "`0 chunks`" ([:396](caos/frontend/src/components/upload/UploadWizard.tsx)). There is **no 0-chunk branch**: the only states are success (any `result`) and error (exception).
+- [x] **`DATABASE_URL` relative path → silent new empty DB.**
+  [config.py:30](caos/server/config.py) — changed CWD creates a fresh DB. [data-loss]
 
-  So the user's model — "uploaded the credit agreement, it went green, it's in the system" — is wrong: **0 chunks means the document is a binary blob with no searchable text**, invisible to BM25 retrieval, synth grounding, issuer chat, and cross-issuer query. A run proceeds *as if the source isn't there*, and the analyst gets no signal that the covenant/financials they uploaded never entered the analysis. The literal "0 chunks" is technically visible but reads as a benign stat next to a green checkmark, not "this failed to ingest."
+  **🟢 correct-as-designed (premise wrong).** The default SQLite URL is anchored
+  to an **absolute** path from the source-file location, not CWD: `SERVER_DIR =
+  Path(__file__).resolve().parent` then
+  `sqlite+aiosqlite:///{SERVER_DIR/'data'/'caos.db'}`
+  ([config.py:20,30](caos/server/config.py)) — a changed CWD can't repoint it.
+  Prod sets an explicit absolute Postgres `DATABASE_URL` in compose. No current
+  path triggers the risk; no fix (a hand-set *relative* URL would reintroduce it
+  — could guard by rejecting relative SQLite paths).
 
-  **Severity = medium** (trust / silent data gap — the whole product premise is grounding analysis in source docs). Probability is low for digital-native PDFs (most lev-fin docs), higher for scanned exhibits / older filings. No OCR is a known, accepted limitation (memory: *"no OCR → scanned PDFs = 0 chunks"*).
+- [x] **Backups can silently rot.** named volume (lost on teardown) + script
+  continues on `pg_dump` failure (`|| echo …`). [data-loss]
 
-  **Fix (cheap, both ends):** treat `chunks_created == 0` as a distinct **warning** state — server `message` should say "vaulted but no text extracted (scanned/encrypted? — not searchable)"; frontend should render a warning dot + that explanation instead of a green "ok". Optionally exclude 0-chunk docs from `okCount`. (Separately, OCR — e.g. an `ocrmypdf`/Tesseract pass before re-extract — is the real remediation, but that's a feature, not a fix.)
-- [x] **Fixed-char chunking splits tables/sentences mid-token.** `chunk_text` ([ingest.py:177](caos/server/ingest.py)) slices every 2400 chars — financial tables and covenant clauses fragment across chunk boundaries, degrading BM25 retrieval quality on exactly the structured content the tool cares about.
+  **🔴 bug.** Confirmed in `caos/deploy/backup.sh`: (1) `pg_dump -Fc -f
+  /backups/caos-db-$ts.dump` opens the output file before streaming, so a failed
+  dump leaves a 0-byte/truncated file matching the rotation glob; (2)
+  failure is swallowed (`if pg_dump … else echo "…FAILED" >&2`, no `exit`,
+  no removal — [backup.sh:23-28](caos/deploy/backup.sh)); (3) rotation runs
+  **unconditionally** afterward, keeping newest `$KEEP` by mtime regardless of
+  validity ([backup.sh:35-36](caos/deploy/backup.sh)). So failed nights write
+  `$KEEP` junk dumps that evict every good one, signalled only to stderr. Target
+  is a **named volume** (host-only, [docker-compose.yml:144](caos/deploy/docker-compose.yml)).
+  **Fix:** on failure `rm -f` the partial and skip rotation that cycle (rotate
+  only after `[ -s file ]`); surface failures off-box.
 
-  **Investigated 2026-06-22 — confirmed: `chunk_text` is a pure char-offset slice with zero structure awareness, and it re-shreds markitdown's structure-preserved Markdown. Medium *retrieval-quality* hit (not correctness) on precisely the table/covenant content the engine most needs. No test pins the behavior.**
+- [x] **Static-bundle staleness / divergence.** `out/` vs `server/static/`;
+  `StaticFiles(html=True)` ([main.py:196](caos/server/main.py)) no
+  `Cache-Control`. [deploy]
 
-  The chunker ([ingest.py:177-186](caos/server/ingest.py)) is `text[start : start+2400]`, step `2400-240 = 2160` — blind windows with a 240-char overlap. **No awareness** of paragraph breaks (`\n\n`), Markdown headings (`##`), table rows (`|…|` / tab-separated), or sentence boundaries.
+  **🟡 real gap, bounded (divergence impossible; caching real).**
+  `caos/server/static/` is **gitignored and uncommitted**, and the Dockerfile
+  rebuilds the export fresh and copies it
+  ([Dockerfile:13,38](caos/deploy/Dockerfile)) — there's no committed bundle to
+  go stale, so (D6/D10) divergence can't happen. **The real gap is caching:**
+  the mount sets no `Cache-Control` and the security middleware adds none
+  ([main.py:108-121,196-198](caos/server/main.py)), so a browser/proxy may serve
+  a stale `index.html` pointing at a hashed chunk that no longer exists after
+  redeploy → white screen until hard refresh. **Fix:** `Cache-Control: public,
+  max-age=31536000, immutable` for `/_next/static/*`, `no-cache` for HTML.
 
-  Both ingestion paths feed it the same way: upload ([ingestion.py:72](caos/server/routes/ingestion.py)) and EDGAR exhibits ([edgar.py:184](caos/server/routes/edgar.py)). Critically, **markitdown's output flows straight into it** — the extractors return Markdown (tables as `|`-rows, `##` sections) and `_vault_document` immediately char-slices it. So the whole reason markitdown was wired (structure-preserving extraction, commit 96b5351) is **undone at chunk time**: the preserved table is cut by character count, not by row.
+- [x] **SQLite pragma gating is string-fragile.**
+  [database.py:49](caos/server/database.py) — pragmas only fire on
+  `startswith("sqlite")`. [config]
 
-  Domain impact:
-  1. **Table fragmentation** — a table wider than 2400 chars splits so the column headers (top) and a given data row (lower) land in **different chunks**; BM25 then can't co-locate "Net leverage"/"EBITDA margin" (header) with the row's number → the metric query that needs both misses.
-  2. **Clause splitting** — covenant language ("the Leverage Ratio shall not exceed 4.50:1.00") cut mid-clause loses the term co-occurrence BM25 scores on.
-  3. **Mid-word splits** — mostly *recovered* by the 240 overlap (a token at the 2400 cut reappears intact ~240 chars into the next chunk), **except** when the label↔value distance exceeds the 240-char (~10% of chunk) overlap — common in tables. So the overlap mitigates word splits but not table label/value separation.
+  **🟢 correct-as-designed.** Canonical URLs are lowercase and start with
+  `sqlite` (`sqlite+aiosqlite:///…`, [config.py:30](caos/server/config.py)) /
+  `postgresql+asyncpg://…`; `startswith("sqlite")` matches the dialect+driver
+  form and correctly skips Postgres. SQLAlchemy requires lowercase dialect
+  tokens, so an uppercase `SQLITE://` isn't a reachable form. Same correct prefix
+  guards the pragma, the parent-dir `mkdir`, and the WAL listener. No fix.
 
-  No test exercises `chunk_text` (the `test_vault_export` match is an unrelated field-name string), so the behavior is unconstrained.
+- [x] **`metric_facts` lacks a `run_id`-only index.**
+  `0003_metric_facts.py:40` — `run_id` only inside a composite unique. [db]
 
-  **Severity = medium, retrieval-quality only** (no crash/incorrect-data path; it degrades recall on structured content — CP-1 financials, CP-4C covenants). **Fix:** boundary-aware chunking — pack up to ~`CHUNK_CHARS` but split preferentially on `\n\n`/`\n##` and never inside a table block (keep rows together, or repeat the header row with each table slice). Lazy version: snap each cut to the nearest preceding `\n\n`/`\n` within a window instead of a hard index. Known simplification (deterministic-engine-slice favoring simplicity); moderate effort, directly improves the markitdown payoff.
-- [x] **Most `api.ts` calls have no timeout.** [api.ts](caos/frontend/src/lib/api.ts) — only `getMe` (8 s) and `deepResearch` (0) set one. A hung run/module fetch leaves the relevant pane spinning with no error path. Confirm pages handle indefinite pending.
+  **🟡 real gap, bounded (latent).** Confirmed: only
+  `ix_metric_facts_issuer_id` + `uq_fact(issuer_id, run_id, metric_key, period)`
+  ([0003:40-42](caos/server/migrations/versions/0003_metric_facts.py)); the
+  composite leads with `issuer_id` so a `run_id`-alone filter can't use it. But
+  the hot retention delete leads with `issuer_id` (covered), and the querygraph
+  joins are driven from `Run` (PK side) with `headline` filters — so **no query
+  filters by `run_id` alone on a large table today**. Latent scalability gap, not
+  a current hot-path miss. **Fix (low priority):** `CREATE INDEX
+  ix_metric_facts_run_id ON metric_facts(run_id)` if run-scoped reads grow.
 
-  **Investigated 2026-06-22 — confirmed: no default timeout on the axios instance, and every consumer's `busy` flag is reset in a `finally` that only fires when the promise *settles*. So a connected-but-unresponsive server strands the pane in a permanent disabled-spinner with no error and no retry. Medium robustness gap; the team already hardened the *auth* path against exactly this but not the data paths.**
+- [x] **Image / dependency pinning gaps.** oauth2-proxy pinned by tag not
+  digest; `markitdown[pdf]` unpinned. [deploy]
 
-  - **No global timeout.** `api = axios.create({ headers })` ([api.ts:6-8](caos/frontend/src/lib/api.ts)) sets **no `timeout`** → axios default `0` = wait indefinitely. Only `getMe` overrides to 8000 ms ([api.ts:16](caos/frontend/src/lib/api.ts)) and `deepResearch` to `0` ([api.ts:196](caos/frontend/src/lib/api.ts)). **Every other call inherits `0`** — issuers, runs, modules, qa, chat, nlQuery, graph, scenario, edgar, settings, upload.
-  - **Consumers can't escape a non-settling request.** The standard pattern is `setBusy(true)` → `try { await call } catch {} finally { setBusy(false) }` (e.g. [NlQuery.tsx:210-220](caos/frontend/src/components/command/NlQuery.tsx), [IssuerChat.tsx:108-122](caos/frontend/src/components/deepdive/IssuerChat.tsx)). The `finally` runs **only on resolve/reject**. With no client timeout and **no `AbortController`/cancel**, a request that never settles never resets `busy` → the input stays `disabled={busy}`, the button stays "…" **forever**; reload is the only out.
+  **🟡 real gap, bounded.** (a) All service/base images use mutable tags
+  (`oauth2-proxy:v7.15.2`, `postgres:16-alpine`, `caddy:2-alpine`,
+  `node:20-slim`, `python:3.11-slim`) — a rebuild can pull a re-tagged image;
+  not reproducible, though CI rebuilds+scans. (b) `markitdown[pdf]` is installed
+  unpinned *after* `requirements.txt` with no constraints file
+  ([Dockerfile:27,34](caos/deploy/Dockerfile)). It can't pull a vulnerable
+  starlette (markitdown doesn't depend on fastapi/starlette; the `fastapi==0.138.*`
+  pin floors the transitive starlette), but it **can** silently upgrade a
+  *shared* transitive (`requests`/`anyio`/etc.) past the resolved set, and
+  CI pip-audit only scans `requirements.txt`. **Fix:** pin
+  `markitdown[pdf]==x.y.z -c requirements.txt`; pin images by `@sha256:` digest.
 
-  **Failure boundary (the nuance that makes "no timeout" matter):** a *dead* server (connection refused/reset) still rejects fast → `catch` → handled. The vulnerable case is **connected-but-unresponsive** — server accepted the request and never replies: deadlock, or the [item-5 synchronous BM25 monopolizing the single event loop](audit-backlog.md), or a slow LLM call with no server-side deadline. There the browser holds to its very-long idle default (minutes), i.e. effectively hung. So this compounds directly with the event-loop-blocking finding: one heavy NL query can stall the worker *and* leave every other in-flight pane spinning with no client-side timeout to break it.
+- [x] **CI doesn't commit `out/` but a stale `server/static/` could ship.**
+  `.github/workflows/ci.yml`. [ci]
 
-  **It's an inconsistency, not an oversight in principle:** the `getMe` comment reasons about precisely this — *"a down/hung API … must not strand the whole app on the RequireAuth 'Loading…' gate — on timeout the request rejects and the error card (with RETRY) shows"* ([api.ts:13-16](caos/frontend/src/lib/api.ts)). The auth gate got a timeout; the data calls didn't.
-
-  **Severity = medium** (UX/robustness; no data risk). **Fix:** set a sane default on the instance — `axios.create({ timeout: 30000, headers })` — then keep the existing per-call overrides (`getMe` 8 s; `deepResearch` 0). **Caveat:** large uploads can legitimately exceed 30 s, so `uploadDocument`/`uploadPricingSheet` must override to a larger value (or 0) or the default would regress big-file uploads. Optionally add `AbortController` + a Cancel affordance on the long-pole calls.
-- [x] **No visible React error boundary.** Confirm a thrown render error in a page (e.g. malformed run DTO) degrades gracefully instead of white-screening the workspace.
-
-  **Investigated 2026-06-22 — confirmed: zero error boundaries of any kind. A render-time throw isn't a literal white screen (Next's built-in default catches it), but it replaces the *entire workspace* with a generic, unstyled, no-recovery "Application error" page — no isolation, no retry. Medium severity for a dense multi-pane analyst UI.**
-
-  Confirmed absent across `frontend/src`: **no `error.tsx`, no `global-error.tsx`, no `not-found.tsx`**, and **no `ErrorBoundary` / `componentDidCatch` / `getDerivedStateFromError` / `react-error-boundary`** dependency. Nothing user-defined catches a render throw. The app is a **static export** (`output: "export"`, [next.config.js:6](caos/frontend/next.config.js)) rendered entirely client-side (every page is gated by the `"use client"` `RequireAuth`).
-
-  Actual behavior of an uncaught render throw (App Router, no boundaries): it bubbles to Next's **built-in default** `GlobalError` → the generic *"Application error: a client-side exception has occurred"* page. So **not a blank screen**, but:
-  - **No isolation** — there are no route-level (`error.tsx` per concept) or component-level boundaries, so a throw in *any* pane replaces the **whole** workspace, not just that panel.
-  - **No recovery** — the default page has no `reset()`/reload affordance and no branding; it's a dead end.
-
-  **What's actually at risk:** the live hooks already swallow *fetch* failures via the `empty`-fallback contract ([useLatestRun.ts](caos/frontend/src/lib/engine/useLatestRun.ts)), so network errors degrade gracefully. The exposure is **render-time exceptions on bad-but-present data** — which a boundary is the *only* thing that can catch (render isn't `try/catch`-able). Concrete candidates: `GraphCanvas` on a malformed graph, `ModelSheet` arithmetic on an unexpected null, any chart/table assuming a field exists, a malformed run/module DTO. One such throw anywhere → the entire dense, multi-window UI ("optimize for the buy-side analyst") goes to the generic error page.
-
-  **Severity = medium** (no data risk, but a whole-app outage from a single localized data-shape problem, with no graceful path). **Fix:** (a) add an App Router `error.tsx` at the app root — a branded, styled card with a `reset()` "try again" button (App Router passes `reset`) — plus `global-error.tsx` for layout-level catches; ideally per-concept `error.tsx` so a failure in one route doesn't sink the others. (b) wrap the heavy independent panes (`GraphCanvas`, `ModelSheet`, charts) in a tiny ~15-line `ErrorBoundary` class (no dependency) so one pane's crash degrades to an inline "couldn't render this panel" while the rest of the workspace stays usable.
-- [x] **Muted-label contrast.** `globals.css` (modified) + `--caos-muted #8a8a9a` — CLAUDE.md specifically calls out validating the small muted labels at 4.5:1. The smallest 9–11px uppercase labels are the risk; verify against the dark surfaces.
-
-  **Investigated 2026-06-22 — the flagged target *passes*; the real AA failure is elsewhere. Computed WCAG ratios: dark-workspace `--caos-muted` clears 4.5:1 on every surface, but the light Report Studio / research tear-sheet has a genuine sub-4.5 label (`.rd-lbl0`). Localized, low-medium.**
-
-  (WCAG relative-luminance math; contrast is **size-independent** — small text just doesn't get the 3:1 "large text" allowance, so these all need 4.5:1.)
-
-  **Dark workspace — PASSES.** `--caos-muted #8a8a9a` ([globals.css:14](caos/frontend/src/app/globals.css)) on the three surfaces ([:9-11](caos/frontend/src/app/globals.css)):
-  - on `--caos-bg #0a0a0f` → **5.8:1** ✓
-  - on `--caos-panel #12121a` → **5.5:1** ✓
-  - on `--caos-elevated #1a1a24` → **5.1:1** ✓ (worst case, still clears 4.5)
-
-  So the CLAUDE.md worry — "validate the small muted labels specifically" — is, on measurement, **satisfied**: even the 9–11px `text-caos-2xs`/`xs` labels colored `--caos-muted` meet AA, because the ratio doesn't depend on size. No dark-surface token dimmer than `#8a8a9a` is used for text (the dimmer `--caos-idle #3f3f46` / `--caos-border #262633` are status dots / borders, not labels).
-
-  **Light tear-sheet (`.rd-*`, Report Studio + `.research-doc`) — one real FAILURE + one thin pass**, all on cream `#f7f5ee` ([globals.css:217](caos/frontend/src/app/globals.css), ink `#16161e`):
-  - **`.rd-lbl0` `#8a887c` @ 8px → ≈3.3:1 — FAILS 4.5:1.** Weight 500 (not bold), 8px ⇒ no large-text exemption. And it's a **real functional row label**, rendered at [ReportDoc.tsx:94](caos/frontend/src/components/reports/ReportDoc.tsx), not decorative.
-  - `.rd-it` / `.rd-note` / `.rd-srcline` `#6c6c76` @ 7.8–8.4px → ≈4.8:1 — passes, but **thin margin** (and italic 8px is the hardest to read).
-  - `.rd-mast-meta` / `.rd-table th` / `.rd-subtitle` `#5c5c66` → ≈6.1:1 ✓; `.rd-subhead` `#44444e` → ≈8.8:1 ✓.
-
-  This is the "Output is a deliberate light counterpoint" surface — but CLAUDE.md's a11y section requires 4.5:1, and it's on-screen UI (rendered in Report Studio, also printed → matters for the "filed institutional document" goal). So `#8a887c` is a genuine AA miss the original note didn't point at.
-
-  **Fix:** darken `.rd-lbl0` from `#8a887c` to ≈`#5c5c66` or darker (needs luminance ≤ ~0.16 on this cream → `#5c5c66` at 0.109 clears it comfortably), and nudge the `#6c6c76` italics to `#5c5c66` for margin. One-CSS-file change in [globals.css](caos/frontend/src/app/globals.css). Dark workspace needs no change.
-- [x] **`ilike` filter values from the spec inject SQL wildcards.** [nlquery.py:315](caos/server/nlquery.py) — `f"%{f.value}%"` is parameterized (no SQLi), but `%`/`_` in the value act as wildcards, so a literal match can over-match. Minor.
-
-  **Investigated 2026-06-22 — confirmed Minor: no SQLi, no DoS, just occasional over-broad matches. Three unescaped `ilike` sites; the user-facing one is the issuer search box. One small helper fixes all.**
-
-  All three `.ilike(` sites, no escaping anywhere (confirmed: no `escape=`, no metachar-replace helper in the codebase):
-  - [nlquery.py:315](caos/server/nlquery.py) `col.ilike(f"%{f.value}%")` — issuer-field filter, value from the LLM `QuerySpec`.
-  - [nlquery.py:432](caos/server/nlquery.py) `col.ilike(f"%{spec.issuer_filter.value}%")` — from the LLM `SemanticSpec`.
-  - [issuers.py:73-80](caos/server/routes/issuers.py) `like = f"%{q.strip()}%"` over name/ticker/industry/country/figi — value is the **user's search box** (`getIssuers(q)`), the realistic surface.
-
-  **Not SQLi:** in every case the f-string builds the *pattern value*, which SQLAlchemy binds as a parameter — it is never concatenated into SQL text. So `%`/`_`/`\` affect only LIKE pattern semantics, not query structure. Verified there's no raw-SQL path.
-
-  **Not a DoS:** `LIKE`/`ILIKE` is not regex — `%`-heavy input doesn't backtrack exponentially, and a leading `%` already forces a seq scan regardless, so no ReDoS/perf cliff.
-
-  **Only effect:** a search/filter value containing `_` (any single char) or `%` (any sequence) silently behaves as a wildcard instead of a literal — e.g. typing `BRK_B` in the issuer search matches `BRKxB`. Cosmetic over-matching; trivial trust impact.
-
-  **Fix:** one helper — `def _like(v): return v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")` — then `.ilike(f"%{_like(value)}%", escape="\\")` at the three sites. Makes searches literal-substring. Low priority.
+  **🟢 correct-as-designed.** `caos/server/static/` is gitignored/uncommitted,
+  and CI rebuilds the frontend from source in both the image job
+  ([ci.yml:127-134](.github/workflows/ci.yml) → Dockerfile `npm run build`) and
+  E2E (`build_frontend.sh`) — no staged bundle to diverge. Full gate enforced:
+  frontend lint+typecheck+test+build, server pytest on SQLite **and** Postgres,
+  Docker build, fallow dead-code gate, corpus taxonomy check, and a security job
+  (pip-audit + bandit + npm audit + gitleaks). A broken build fails the
+  `frontend`/`e2e`/`image` jobs → blocks merge. **Residual (orthogonal):** CI
+  never lints the deploy assets (no `shellcheck backup.sh`, no `docker compose
+  config`), so the D5 backup bug and D9 digest gaps wouldn't be caught — worth a
+  small CI addition.
