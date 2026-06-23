@@ -75,11 +75,11 @@ unknown `llmConfigured` as configured — now fails fast instead of hanging).
   remain deployment-bounded (off-proxy / multi-replica only).
 - **D3** — `/api/health` now probes the DB (`SELECT 1`) and returns 503 on
   failure: readiness, not just liveness ([routes/health.py](caos/server/routes/health.py)).
-- **D9** — markitdown install constrained by the pinned set
-  (`pip install -c requirements.txt 'markitdown[pdf]'`,
-  [Dockerfile](caos/deploy/Dockerfile)) so it can't bump a shared transitive.
-  Still deferred (needs a built-image/registry pass, can't resolve offline):
-  pinning markitdown's own version + image `@sha256` digests.
+- **D9** — **deferred (attempted, reverted).** Tried `pip install -c
+  requirements.txt 'markitdown[pdf]'` but pip constraint files reject `[extras]`
+  (requirements.txt carries one) → image build failed, reverted. Proper integrity
+  fix = a pip-compiled lockfile (single resolution + hashes); plus markitdown
+  version + image `@sha256` digest pins. All follow-up (can't resolve offline).
 - **CI** — new `deploy-assets` job: `shellcheck caos/deploy/*.sh caos/scripts/*.sh`
   + `docker compose config -q` ([ci.yml](.github/workflows/ci.yml)) — closes the
   blind spot that let D5 through. (One intentional `SC2012` disable on the

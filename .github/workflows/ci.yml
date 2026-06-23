@@ -143,8 +143,10 @@ jobs:
       # preinstalled on ubuntu-latest; docker compose ships with the runner.
       - name: Shellcheck deploy scripts
         run: shellcheck caos/deploy/*.sh caos/scripts/*.sh
+      # --no-interpolate: validate structure/schema without resolving the runtime
+      # secrets (POSTGRES_PASSWORD etc.), which aren't present in CI (no .env).
       - name: Validate compose file
-        run: docker compose -f caos/deploy/docker-compose.yml config -q
+        run: docker compose -f caos/deploy/docker-compose.yml config -q --no-interpolate
 
   fallow:
     name: Fallow — new dead-code & duplication (PR gate)
