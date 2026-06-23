@@ -8,7 +8,8 @@
 
 import type { Model } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
-import { GROUPS_META, ROWS } from "./rows";
+import { ROWS } from "./rows";
+import { GROUPS_META } from "./model-format";
 
 function csvCell(v: string | number | null | undefined): string {
   if (v == null) return "";
