@@ -28,6 +28,7 @@ import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { useAsk } from "@/components/shared/Ask";
 import { getIssuer } from "@/lib/api";
 
@@ -115,6 +116,8 @@ function DeepDive() {
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(issuerId);
+  // Honesty caveat for the sub-header: reference deal · resolving · live · no-run.
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId });
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
@@ -154,11 +157,19 @@ function DeepDive() {
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
         <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{dealLabel}</span>
-        {isReference ? (
+        {caveatKind === "reference" ? (
           <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
-        ) : (
+        ) : caveatKind === "loading" ? (
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
+        ) : caveatKind === "live" ? (
           <span className="tabular text-caos-xs whitespace-nowrap hidden xl:inline" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; the bespoke debate / recovery / covenant tabs illustrate the ATLF reference deal">
             live engine output · bespoke tabs show the ATLF reference template
+          </span>
+        ) : (
+          // noRun: issuer exists but was never analysed. Every figure on screen is
+          // the ATLF reference template — say so, and don't hide it on narrow widths.
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Every figure shown is the ATLF reference template, not ${code}'s own analysis — run the issuer to populate live output.`}>
+            no run for {code} · figures are the ATLF reference template, not this issuer
           </span>
         )}
         <div className="flex-1"></div>

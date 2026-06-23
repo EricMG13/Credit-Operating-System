@@ -16,8 +16,9 @@ import { MODULES, RUN_MODES, type Driver } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { useLivePipeline } from "@/lib/pipeline/useLivePipeline";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
-import { Bar, Dot, SimControls, Tag } from "@/components/pipeline/atoms";
+import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
+import { deriveClearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 
 export default function PipelinePage() {
@@ -69,22 +70,7 @@ function PipelineVisualizer() {
   useEffect(() => { if (viewHydrated) try { localStorage.setItem("caos-b-view", view); } catch {} }, [viewHydrated, view]);
 
   const cp5 = sim.mods["CP-5"]?.state || "idle";
-  // Live: the headline is the run's QA verdict (committee_status), not the CP-X
-  // route gate — a Blocked run must never read "Full Run".
-  const liveClear = useLive
-    ? live!.committeeStatus === "Blocked"
-      ? { tag: "critical", text: "CLEARANCE: BLOCKED" }
-      : live!.committeeStatus === "Restricted"
-      ? { tag: "warning", text: "CLEARANCE: RESTRICTED" }
-      : live!.committeeStatus === "Committee Ready"
-      ? { tag: "ok", text: `CLEARANCE: COMMITTEE READY · ${live!.gateStatus}` }
-      : { tag: "idle", text: `CLEARANCE: ${live!.committeeStatus}` }
-    : null;
-  const clearance = liveClear
-    ? liveClear
-    : ["pass", "warning", "held"].includes(cp5) ? mode.done
-    : cp5 === "running" ? { tag: "running", text: "CP-5 QA audit in progress…" }
-    : { tag: "idle", text: "CLEARANCE: pending upstream completion" };
+  const clearance = deriveClearance({ useLive, live, cp5, modeDone: mode.done });
 
   const pickDriver = (d: Driver) => {
     const mod = d.lineage.match(/CP-[0-9A-Z]+/);
@@ -112,39 +98,26 @@ function PipelineVisualizer() {
         <div className="h-4 w-px bg-caos-border" />
         {/* Live vs. offline-demo source (only when a live run exists) */}
         {live ? (
-          <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
-            {([{ k: true, l: "LIVE" }, { k: false, l: "DEMO" }] as const).map((o) => (
-              <button
-                key={String(o.k)}
-                onClick={() => { setLiveMode(o.k); setSelected(null); }}
-                title={o.k ? "Live CP-X run for the reference issuer" : "Offline route-template demo"}
-                className={
-                  "tabular text-caos-sm px-2.5 py-[7px] transition-caos whitespace-nowrap " +
-                  (liveMode === o.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
-                }
-              >
-                {o.l}
-              </button>
-            ))}
-          </div>
+          <ToggleGroup
+            size="sm"
+            className="shrink-0"
+            value={liveMode}
+            onChange={(k) => { setLiveMode(k); setSelected(null); }}
+            options={[
+              { k: true, l: "LIVE", title: "Live CP-X run for the reference issuer" },
+              { k: false, l: "DEMO", title: "Offline route-template demo" },
+            ]}
+          />
         ) : null}
         {/* CP-X route template switcher (demo mode only) */}
         {!useLive ? (
-          <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
-            {RUN_MODES.map((m) => (
-              <button
-                key={m.k}
-                onClick={() => { setModeK(m.k); setSelected(null); }}
-                title={m.title}
-                className={
-                  "tabular text-caos-sm px-2.5 py-[7px] transition-caos whitespace-nowrap " +
-                  (modeK === m.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
-                }
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          <ToggleGroup
+            size="sm"
+            className="shrink-0"
+            value={modeK}
+            onChange={(k) => { setModeK(k); setSelected(null); }}
+            options={RUN_MODES.map((m) => ({ k: m.k, l: m.label, title: m.title }))}
+          />
         ) : null}
         <Link
           href="/upload"
@@ -164,23 +137,14 @@ function PipelineVisualizer() {
         <Tag sev={clearance.tag}>{clearance.text}</Tag>
         {!useLive ? <SimControls run={run} /> : null}
         {!useLive ? <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span> : null}
-        <div className="flex items-center rounded border border-caos-border overflow-hidden">
-          {([
+        <ToggleGroup
+          value={view}
+          onChange={setView}
+          options={[
             { k: "graph", l: "DAG" },
             { k: "lanes", l: "SWIMLANES" },
-          ] as const).map((v) => (
-            <button
-              key={v.k}
-              onClick={() => setView(v.k)}
-              className={
-                "tabular text-caos-md px-3 py-1.5 transition-caos " +
-                (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
-              }
-            >
-              {v.l}
-            </button>
-          ))}
-        </div>
+          ] as const}
+        />
         <button
           onClick={() => setDimCompleted(!dimCompleted)}
           title="Dim completed nodes"

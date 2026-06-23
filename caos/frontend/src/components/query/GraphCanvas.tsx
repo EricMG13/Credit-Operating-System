@@ -8,37 +8,9 @@
 
 import { useMemo } from "react";
 import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
-import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
+import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
-
-// Categorical hues for issuer grouping (industry/country). Distinct, no banding —
-// pairs with the always-present text label, so meaning is never color-only. The
-// first three mirror tokens (via chart-colors); the rest are graph-only hues.
-const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, "#a78bfa", "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
-
-function hueFor(group: string | null | undefined): string {
-  if (!group) return "#6b7280";
-  let h = 0;
-  for (let i = 0; i < group.length; i++) h = (h * 31 + group.charCodeAt(i)) >>> 0;
-  return CATEGORICAL[h % CATEGORICAL.length];
-}
-
-// kind → fill/stroke for non-issuer nodes. Issuer/sector nodes color by group.
-// Node strokes mirror semantic tokens (via chart-colors); fills are graph-only
-// dark tints with no token twin, so they stay literal.
-const KIND: Record<string, { fill: string; stroke: string }> = {
-  driver: { fill: "#2a1f08", stroke: CHART_HEX.warning },
-  module: { fill: "#15151d", stroke: "#3a4a6a" },
-  claim: { fill: "#15151d", stroke: CHART_HEX.accent },
-  evidence: { fill: "#15151d", stroke: "#33333f" },
-  chunk: { fill: "#0f1a12", stroke: CHART_HEX.success },
-  metric: { fill: "#15151d", stroke: CHART_HEX.accent },
-  "point-bull": { fill: "#0f2417", stroke: CHART_HEX.success },
-  "point-bear": { fill: "#2a1212", stroke: CHART_HEX.critical },
-  "finding-crit": { fill: "#2a1212", stroke: CHART_HEX.critical },
-  "finding-mat": { fill: "#2a1f08", stroke: CHART_HEX.warning },
-  "finding-min": { fill: "#1a1a24", stroke: "#3f3f46" },
-};
+import { hueFor, nodeStyle } from "./node-style";
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
@@ -168,8 +140,7 @@ function EdgeLine({ edge, a, b, px, py }: { edge: GraphEdge; a: GraphNode; b: Gr
 function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: number; onOpenChunk: OpenChunk }) {
   const clickable = !!n.chunk_id;
   const onClick = clickable ? () => onOpenChunk(n.chunk_id!, n.label) : undefined;
-  const groupColor = hueFor(n.group);
-  const palette = KIND[n.kind];
+  const s = nodeStyle(n);
 
   const wrap = (children: React.ReactNode) => (
     <g
@@ -189,44 +160,30 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
 
   // Compact cluster member: a small dot, name on hover only. Keeps a 12-issuer
   // sector (or a 60-finding lane) an orderly block instead of a smear of labels.
-  if (n.compact) {
-    const c = palette?.stroke ?? groupColor;
-    return wrap(<circle cx={cx} cy={cy} r={6} fill={palette?.fill ?? groupColor + "33"} stroke={c} strokeWidth={1.4} />);
+  if (s.shape === "compact") {
+    return wrap(<circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />);
   }
-
-  // Shape: issuers + center are circles colored by group; everything else is a
-  // small rounded rect tinted by kind. Sector/cluster nodes read as a pill.
-  const isCircle = n.kind === "issuer" || n.kind === "center";
-  let fill: string, stroke: string, r: number, sw: number;
-  if (n.kind === "center") {
-    fill = "#10131f"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
-  } else if (n.kind === "issuer") {
-    fill = groupColor + "33"; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
-  } else {
-    fill = palette?.fill ?? "#15151d"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "#33333f"; r = 13; sw = 1.4;
-  }
-  const isMono = n.kind === "claim" || n.kind === "evidence" || n.kind === "metric" || n.kind === "module";
 
   return wrap(
     <>
-      {isCircle ? (
-        <circle cx={cx} cy={cy} r={r} fill={fill} stroke={stroke} strokeWidth={sw} />
-      ) : n.kind === "sector" ? (
-        <NodePill cx={cx} cy={cy} label={n.label} color={n.flag ? CHART_HEX.warning : groupColor} />
+      {s.isCircle ? (
+        <circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />
+      ) : s.shape === "pill" ? (
+        <NodePill cx={cx} cy={cy} label={n.label} color={s.color} />
       ) : (
-        <RectMark cx={cx} cy={cy} fill={fill} stroke={stroke} sw={sw} />
+        <RectMark cx={cx} cy={cy} fill={s.fill} stroke={s.stroke} sw={s.sw} />
       )}
 
       {n.kind !== "sector" ? (
-        <text x={cx} y={cy + (isCircle ? r + 16 : 4.5)} textAnchor="middle"
-          fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={isCircle ? 13.5 : 12.5}
+        <text x={cx} y={cy + (s.isCircle ? s.r + 16 : 4.5)} textAnchor="middle"
+          fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={s.isCircle ? 13.5 : 12.5}
           fontWeight={n.kind === "center" ? 600 : 400}
-          fontFamily={isMono ? "var(--font-mono)" : undefined} {...HALO}>
+          fontFamily={s.isMono ? "var(--font-mono)" : undefined} {...HALO}>
           {short(n.label, n.kind === "module" ? 8 : 18)}
         </text>
       ) : null}
       {n.sub && n.kind !== "module" ? (
-        <text x={cx} y={cy + (isCircle ? r + 31 : 19)} textAnchor="middle"
+        <text x={cx} y={cy + (s.isCircle ? s.r + 31 : 19)} textAnchor="middle"
           fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>
           {short(n.sub, 24)}
         </text>

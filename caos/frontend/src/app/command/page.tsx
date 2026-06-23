@@ -15,7 +15,7 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { SimControls } from "@/components/pipeline/atoms";
+import { SimControls, ToggleGroup } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
 import { NlQuery } from "@/components/command/NlQuery";
@@ -52,17 +52,16 @@ function CommandCenter() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <div className="flex items-center rounded border border-caos-border overflow-hidden shrink-0">
-          {([{ k: "cio", l: "PORTFOLIO" }, { k: "res", l: "RESEARCH" }, { k: "rv", l: "SECTOR RV" }] as const).map((v) => (
-            <button
-              key={v.k}
-              onClick={() => setView(v.k)}
-              className={"tabular whitespace-nowrap text-caos-md px-3 py-1.5 transition-caos " + (view === v.k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")}
-            >
-              {v.l}
-            </button>
-          ))}
-        </div>
+        <ToggleGroup
+          className="shrink-0"
+          value={view}
+          onChange={setView}
+          options={[
+            { k: "cio", l: "PORTFOLIO" },
+            { k: "res", l: "RESEARCH" },
+            { k: "rv", l: "SECTOR RV" },
+          ] as const}
+        />
         <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">
           {view === "cio"
             ? "Portfolio Posture — US HY Sleeve"

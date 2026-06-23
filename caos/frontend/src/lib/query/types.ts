@@ -58,6 +58,9 @@ export interface StructuredResult {
   rank_by: string;
   columns: QueryColumn[];
   rows: QueryRow[];
+  // Issuers eligible to be ranked before the top-N display cap. rows.length when
+  // not capped; larger when the result is "top N of total_ranked".
+  total_ranked: number;
   caveats: string[];
 }
 

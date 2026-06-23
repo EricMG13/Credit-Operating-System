@@ -10,27 +10,11 @@ import type { Model, ModelCol } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { CW, fmt, GROUPS_META, isEditable, LBL, ovField, ROWS, SRC } from "./rows";
+import { cellBackground, cellBoxShadow, cellTextColor } from "./cell-style";
 
 export interface CellRef {
   row: string;
   col: string;
-}
-
-// KPI distress shading: leverage worsens up (orange 6.0x → red 8.0x), interest
-// coverage worsens down (orange 2.0x → red 0.5x). Returns null when the metric
-// is benign (below/above the band) so normal cell color applies.
-const LEV_ROWS = new Set(["srsec", "totlev", "netlev"]);
-const ORANGE = [245, 165, 36];
-const RED = [239, 68, 68];
-function kpiDistressColor(rowId: string, v: number | null): string | null {
-  if (v == null) return null;
-  let t: number | null = null;
-  if (LEV_ROWS.has(rowId)) t = (v - 6) / 2;        // 6x → 0 (orange), 8x → 1 (red)
-  else if (rowId === "intcov") t = (2 - v) / 1.5;  // 2x → 0 (orange), 0.5x → 1 (red)
-  if (t == null || t < 0) return null;
-  t = Math.min(1, t);
-  const c = ORANGE.map((o, i) => Math.round(o + (RED[i] - o) * t));
-  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
 interface ColDef {
@@ -111,7 +95,7 @@ export function Sheet({
     const editable = isEditable(rowId, c.key);
     const isOv = editable && !!c.ctx.ov && !!c.ctx.ov[field];
     const display = fmt(v, row.f);
-    const color = kpiDistressColor(rowId, v) ?? (isOv ? "var(--caos-warning)" : opts.pct ? (v != null && v < 0 ? "var(--caos-critical)" : "rgba(79,140,255,0.9)") : v != null && v < 0 && row.f === "m" ? "var(--caos-muted)" : opts.bold ? "var(--caos-text)" : "rgba(230,230,239,0.82)");
+    const color = cellTextColor({ rowId, v, isOv, pct: !!opts.pct, bold: !!opts.bold, rowFmt: row.f });
 
     return (
       <div
@@ -122,9 +106,9 @@ export function Sheet({
         className="shrink-0 text-right pr-1.5 cursor-cell"
         style={{
           width: c.w, marginLeft: c.gap ? 8 : 0,
-          background: isSel ? "rgba(79,140,255,0.22)" : cellHl ? "rgba(79,140,255,0.28)" : colHl || opts.isHl ? "rgba(79,140,255,0.08)" : opts.shade ? "rgba(255,255,255,0.025)" : "transparent",
+          background: cellBackground({ isSel, cellHl, colHl, isHl: !!opts.isHl, shade: !!opts.shade }),
           borderTop: opts.line ? "1px solid var(--caos-border)" : "none",
-          boxShadow: isSel ? "inset 0 0 0 1px var(--caos-accent)" : cellHl ? "inset 0 0 0 1px rgba(79,140,255,0.6)" : "none",
+          boxShadow: cellBoxShadow(isSel, cellHl),
         }}
       >
         {isEditing ? (
