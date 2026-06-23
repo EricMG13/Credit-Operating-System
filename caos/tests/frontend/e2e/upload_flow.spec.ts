@@ -5,23 +5,16 @@
  * on one port. Build the frontend first (scripts/build_frontend.sh), then run
  * the server: python caos/server/run.py
  *
- * Auth is platform-managed in deployment; the API tests use the `request`
- * fixture (dev identity, no login). The page tests navigate gated routes, so
- * they authenticate via the beforeEach below.
+ * Auth: page tests reuse the signed-in profile from global-setup
+ * (storageState). The "identity resolves without login" test opts out with a
+ * fresh context to exercise the un-authenticated dev identity.
  */
 
 import { test, expect } from "@playwright/test";
-import { loginAsAnalyst } from "./_auth";
 
 test.describe("CAOS single-process app", () => {
   // Unique per run so repeated runs against a stateful API don't collide.
   const issuerName = `E2E Test Corp ${Date.now()}`;
-
-  // Page tests gate on a signed-in profile; unique name per worker avoids a
-  // parallel create race. Harmless for the API-only tests (separate context).
-  test.beforeEach(async ({ page }, testInfo) => {
-    await loginAsAnalyst(page, `E2E W${testInfo.workerIndex}`);
-  });
 
   test.beforeAll(async ({ request }) => {
     const res = await request.post("/api/issuers/", {
@@ -30,11 +23,18 @@ test.describe("CAOS single-process app", () => {
     expect(res.ok()).toBeTruthy();
   });
 
-  test("identity resolves without login", async ({ request }) => {
-    const res = await request.get("/api/auth/me");
+  test("identity resolves without login", async ({ playwright }) => {
+    // Explicit empty storageState = no profile cookie, so this hits the dev
+    // identity (local-dev, which carries an email) rather than the seeded E2E
+    // profile (whose email is "").
+    const ctx = await playwright.request.newContext({
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000",
+      storageState: { cookies: [], origins: [] },
+    });
+    const res = await ctx.get("/api/auth/me");
     expect(res.ok()).toBeTruthy();
-    const me = await res.json();
-    expect(me.email).toBeTruthy();
+    expect((await res.json()).email).toBeTruthy();
+    await ctx.dispose();
   });
 
   test("issuer directory renders with seeded + created issuers", async ({ page }) => {

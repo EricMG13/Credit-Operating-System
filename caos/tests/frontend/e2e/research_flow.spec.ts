@@ -12,15 +12,9 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { loginAsAnalyst } from "./_auth";
 
+// Auth is handled once in global-setup (storageState); pages render signed-in.
 test.describe("Deep Research", () => {
-  // Pages gate on a signed-in profile; authenticate before navigating. Unique
-  // name per worker so parallel workers don't race to create the same profile.
-  test.beforeEach(async ({ page }, testInfo) => {
-    await loginAsAnalyst(page, `E2E W${testInfo.workerIndex}`);
-  });
-
   test("renders the brief form with an empty report", async ({ page }) => {
     await page.goto("/research/");
 

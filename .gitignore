@@ -38,3 +38,6 @@ docs/superpowers/
 /.design-sync/node_modules
 /.design-sync/learnings/
 caos/frontend/.ds-tailwind.css
+
+# Playwright E2E auth state (created by global-setup)
+caos/tests/frontend/e2e/.auth/
