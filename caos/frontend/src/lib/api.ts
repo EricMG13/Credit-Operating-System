@@ -5,6 +5,10 @@ import axios from "axios";
 // next.config.js proxies /api to the local server on :8000.
 export const api = axios.create({
   headers: { "Content-Type": "application/json" },
+  // Default timeout so a hung/dead API (or a proxy to a dead :8000) can't strand
+  // the UI forever — live-overlay module fetches, the settings probe, run polls.
+  // Long-running calls override per-request (deepResearch sets timeout: 0). P1/P2/L6.
+  timeout: 20000,
 });
 
 // ─── Identity ─────────────────────────────────────────────────────────────
