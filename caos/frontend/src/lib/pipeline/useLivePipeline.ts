@@ -11,7 +11,7 @@ import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
 import { useLatestRun } from "@/lib/engine/useLatestRun";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
-import type { Sim, SimEvent } from "./sim";
+import type { Sim, SimEvent } from "./sim-engine";
 
 export interface LivePipeline {
   runId: string;
