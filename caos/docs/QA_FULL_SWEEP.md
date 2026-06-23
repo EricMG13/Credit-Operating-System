@@ -313,3 +313,98 @@ information (Session 3's live surface walk still applies verbatim).
 **Verdict: clean pass holds.** No new findings, no code change this iteration. The 10-min loop
 now acts as a watchdog — a future iteration becomes meaningful only when the tree changes; until
 then it re-confirms green. Cancel with `CronDelete` when no longer wanted.
+
+---
+
+## Session 5 (2026-06-23) — deep real-user re-walk; 2 transparency bugs fixed
+
+Full re-walk against an **isolated, prod-parity QA stack**: FastAPI on `:8010`
+(`.venv311` — fastapi 0.138/starlette 1.3.1, the deployed pin) against
+`data/caos_qa.db` + `vault_qa`, deterministic (`ANTHROPIC_API_KEY=""`,
+council/debate off); Next.js dev on `:3010` (`NEXT_PUBLIC_API_URL` → `:8010`,
+new `qa-frontend` launch config). The user's parallel `:8000`/`caos.db` backend
+was left running and untouched. Every concept exercised as a real user via the
+browser preview — not structural-only this time: each ▢ from Sessions 1–3 was
+driven (clicks, form fills, real ingest, gate probes).
+
+This pass went past *render-clean* into *behaviour*: login (wrong + valid code),
+directory search/empty-state/modal-create→persist→redirect, pipeline node→inspector
+lineage, **vault export wrote 2 notes to disk**, Model Builder driver→97 recomputed
+cells (+ clamp/negative edges, no NaN), **committee-export 409 with 2 blocking
+findings**, Research demo report (honest DEMO banner), **real PDF ingest → 23 chunks**
+(pypdf fallback; markitdown CLI honestly off), EDGAR import → **503 gate**, Settings
+workspace panel = honest env mirror. Two real defects surfaced, sharing one root cause.
+
+### Shared root cause — *scoped data shown without disclosing its scope*
+Both bugs violate the platform's **trust-through-transparency** value the same way:
+a partial/reference dataset is presented as if it were the complete, issuer-specific
+truth. Fixed coherently as one theme.
+
+### BUG-004 — Deep-Dive of a **never-run** issuer shows ATLF reference financials as the issuer's own — S3 — FIXED
+- **Repro**: create issuer "Zephyr Synthetic Materials" (0 runs, 0 docs) → open
+  `/deepdive?issuer=<zsyn>`. Renders a full populated analysis (revenue 2410/2588…,
+  "41 KPIs, tie-out within 0.3%, GREEN for all consumers") — the ATLF reference
+  fixture — under "ASK ZSYN". The only caveat read *"live engine output · bespoke
+  tabs show the ATLF reference template"*, which **implies the live modules reflect
+  this issuer** when zero runs exist. `useLiveRun().runId === null` was not
+  distinguished from the has-a-run case.
+- **Root cause**: the sub-header caveat was binary (reference vs non-reference);
+  the dangerous *no-run* state fell into the non-reference branch and inherited
+  "live engine output" wording.
+- **Fix**: extracted a pure `deepDiveCaveatKind({isReference, loading, runId})` →
+  `reference | loading | live | noRun` (`lib/deepdive/caveat.ts`, unit-tested).
+  The `noRun` branch renders *"no run for <TICKER> · figures are the ATLF reference
+  template, not this issuer"* and is **not** `xl:`-hidden (the most important
+  disclaimer always shows). `live`/`reference` wording unchanged.
+- **Verified live**: ZSYN now shows the honest no-run disclaimer (visible at all
+  widths); GPHC (has a run) still shows the live caveat; ATLF default unchanged.
+- **Regression**: `caveat.test.ts` — 4 tests, incl. `noRun` must never be `live`.
+
+### OBS-002 → resolved — NL ranking labeled a top-N slice as the full universe — S4 — FIXED
+- **Repro**: Ask ⌘K → "which issuer is most levered" with a 35-issuer ranked
+  universe → *"…1.17x above the 6.21x **median**. 10 issuers ranked …"*. The
+  median was computed over the **top-10 cohort** (the 10 most-levered), and "10
+  issuers ranked" read as the whole population.
+- **Root cause**: `narrate()` (`lib/query/viz.ts`) derived the median and count
+  from `res.rows` — already capped at `spec.limit` in `nlquery.execute()` — with
+  no universe size to compare against.
+- **Fix**: `execute()` now returns `total_ranked` (candidates eligible **before**
+  the top-N slice). `narrate()` says *"Top 10 of 35 ranked"* and *"median of these
+  10"* when capped; uncapped wording is unchanged.
+- **Verified live**: *"…1.17x above the 6.21x median of these 10. Top 10 of 35
+  ranked · 1/10 cited…"*.
+- **Regression**: `viz.test.ts` (capped top-N + scoped-median assertions) and
+  `tests/server/test_nlquery.py::test_ranking_reports_total_ranked_for_top_n_labeling`
+  (field present + `rows ⊆ total_ranked` invariant).
+
+### Observations (non-blocking, no code change)
+- **Mobile**: `/issuers` overflows horizontally at 375px (scrollW 1297). Accepted —
+  the UI is a deliberately desktop-dense terminal ("dense, multi-window"); mobile is
+  an explicit non-persona. Renders, no crash.
+- **QA-env artifact**: restarting the QA backend rotates the random `SESSION_SECRET`,
+  invalidating the analyst cookie (one re-login). Not a product bug — prod sets a
+  stable secret. Use a fixed `SESSION_SECRET` for QA to avoid the re-login.
+- **OBS-003 stands** (offline runs project reference-fixture financials) — a known
+  mock-vs-engine characteristic, now partly mitigated by BUG-004's no-run disclaimer.
+
+### Gates (final)
+- **Server pytest** (py3.9 `.venv`, offline, key cleared): **327 passed / 2 skipped**.
+- **Frontend**: `tsc --noEmit` clean · **vitest 133 passed** (19 files).
+- **axe-core a11y** (`scripts/a11y-axe.mjs`, BASE `:3010`): **0 violations across 12 routes**.
+
+**Verdict: clean functional pass.** All 12 concepts exercised as a real user with no
+crashes/console errors; two transparency defects fixed by shared cause with regression
+tests; full inventory re-confirmed green. Residual items are accepted non-goals
+(desktop-only) or documented mock-vs-engine characteristics.
+
+### What was changed (Claude, Session 5)
+- `frontend/src/lib/deepdive/caveat.ts` + `caveat.test.ts` — no-run caveat helper [BUG-004]
+- `frontend/src/app/deepdive/page.tsx` — 4-state honesty caveat (always-visible no-run) [BUG-004]
+- `server/nlquery.py` — return `total_ranked` (universe before top-N cap) [OBS-002]
+- `frontend/src/lib/query/{viz.ts,viz.test.ts,types.ts}` — "Top N of M" + scoped median [OBS-002]
+- `tests/server/test_nlquery.py` — `total_ranked` invariant regression [OBS-002]
+- `.claude/launch.json` — `qa-frontend` config (port 3010 → QA backend 8010)
+
+### Untouched (user's parallel WIP — flagged, NOT modified or staged)
+- `audit-backlog.md`, `audit-backlog.round1-resolved.md`,
+  `caos/server/access_log.py`, `caos/server/identity.py`, `caos/server/routes/runs.py`
