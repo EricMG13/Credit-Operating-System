@@ -65,6 +65,11 @@ async def list_issuers(
         max_length=255,
         description="Case-insensitive substring match across name, ticker, industry, country, and FIGI.",
     ),
+    # Bounded page: the coverage universe grows; an unbounded SELECT is a
+    # memory/latency DoS as it does (same class as runs P4). Generous default
+    # since the UI lists the whole desk's coverage.
+    limit: int = Query(500, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
@@ -80,6 +85,7 @@ async def list_issuers(
                 Issuer.figi.ilike(like),
             )
         )
+    stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -113,6 +119,9 @@ async def get_issuer(
 @router.get("/{issuer_id}/documents", response_model=List[IssuerDocumentResponse])
 async def list_issuer_documents(
     issuer_id: str,
+    # Bounded page: a heavily-documented issuer's doc list grows unbounded. P4.
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
@@ -120,5 +129,7 @@ async def list_issuer_documents(
         select(Document)
         .where(Document.issuer_id == issuer_id)
         .order_by(Document.uploaded_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     return result.scalars().all()

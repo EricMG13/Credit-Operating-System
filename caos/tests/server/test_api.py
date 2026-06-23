@@ -38,6 +38,7 @@ def test_health(client):
     body = r.json()
     assert body["status"] == "ok"
     assert body["llm"] == "demo-fallback"
+    assert body["db"] == "ok"  # readiness probe hit the DB (D3)
 
 
 def test_me_local_dev_identity(client):
@@ -80,6 +81,14 @@ def test_demo_issuers_seeded(client):
     names = {i["name"] for i in r.json()}
     assert "Acme Holdings Corp." in names
     assert len(names) >= 3
+
+
+def test_issuers_list_is_bounded(client):
+    """list_issuers must clamp page size (P4 same-class sweep)."""
+    assert client.get("/api/issuers/?limit=1").status_code == 200
+    assert len(client.get("/api/issuers/?limit=1").json()) == 1
+    assert client.get("/api/issuers/?limit=0").status_code == 422       # ge=1
+    assert client.get("/api/issuers/?limit=99999").status_code == 422   # le=2000
 
 
 def test_issuers_collection_slash_tolerant(client):

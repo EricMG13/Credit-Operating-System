@@ -13,8 +13,21 @@ The helpers here are pure so they unit-test without booting the app.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Mapping, Optional
+
+# Identity/header values are attacker-influenced (a forged X-Forwarded-Email/-For
+# off-proxy, an SSO email). Strip C0 control chars (incl. CR/LF) + DEL and cap
+# length so they can't forge log lines (the plain-text exception logger in
+# main.py interpolates these) or smuggle control bytes into stored audit fields.
+# C1/Unicode line separators are left intact — none act as a newline to the
+# plain-text log / docker logs / grep-sed pipeline that consumes these. S7.
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def sanitize_field(value: str, *, limit: int = 256) -> str:
+    return _CTRL.sub("", value)[:limit]
 
 
 def principal(headers: Mapping[str, str]) -> str:
@@ -23,7 +36,7 @@ def principal(headers: Mapping[str, str]) -> str:
     Local dev carries no X-Forwarded-* identity, so it maps to "local-dev"
     (matching identity._LOCAL_DEV.id) rather than an empty entity.
     """
-    return (
+    return sanitize_field(
         headers.get("x-forwarded-email")
         or headers.get("x-forwarded-user")
         or "local-dev"
@@ -35,8 +48,8 @@ def client_source(headers: Mapping[str, str], client_host: Optional[str]) -> str
     falling back to the socket peer when un-proxied."""
     xff = headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
-    return client_host or "?"
+        return sanitize_field(xff.split(",")[0].strip())
+    return sanitize_field(client_host or "?")
 
 
 def access_event(

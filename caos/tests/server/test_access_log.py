@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from access_log import access_event, client_source, principal
+from access_log import access_event, client_source, principal, sanitize_field
 
 
 def test_principal_prefers_email_then_user_then_local_dev():
@@ -20,6 +20,19 @@ def test_client_source_takes_first_xff_hop_else_socket_peer():
     assert client_source({"x-forwarded-for": "203.0.113.7, 10.0.0.1"}, "10.0.0.1") == "203.0.113.7"
     assert client_source({}, "198.51.100.4") == "198.51.100.4"  # direct, no XFF
     assert client_source({}, None) == "?"  # no peer (e.g. test client)
+
+
+def test_sanitize_field_strips_crlf_and_caps_length():
+    # CRLF in a forged X-Forwarded-Email must not forge a new log line (S7).
+    assert sanitize_field("ceo@firm.com\r\nINJECTED admin login") == "ceo@firm.comINJECTED admin login"
+    assert "\n" not in sanitize_field("a\nb") and "\r" not in sanitize_field("a\rb")
+    assert sanitize_field("\x00\x07\x1f\x7fclean") == "clean"  # NUL/BEL/US/DEL gone
+    assert len(sanitize_field("x" * 1000)) == 256  # length cap
+
+
+def test_principal_and_source_sanitize_injected_headers():
+    assert "\n" not in principal({"x-forwarded-email": "a@b.co\r\nevil"})
+    assert "\r" not in client_source({"x-forwarded-for": "1.2.3.4\r\nevil"}, None)
 
 
 def test_access_event_shape_matches_analyzer_schema():

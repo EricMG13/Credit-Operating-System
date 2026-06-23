@@ -255,7 +255,9 @@ class MetricFact(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
-    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"))
+    # Standalone index: uq_fact leads with issuer_id, so run-scoped fact reads
+    # would otherwise scan the table as volume grows. D8 (migration 0009).
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
     module_id: Mapped[Optional[str]] = mapped_column(String(16))
     metric_key: Mapped[str] = mapped_column(String(64), nullable=False)
     period: Mapped[str] = mapped_column(String(64), nullable=False)

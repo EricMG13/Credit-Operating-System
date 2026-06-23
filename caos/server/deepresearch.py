@@ -119,6 +119,9 @@ class ResearchResult(BaseModel):
     report: str
     sources: List[Source] = Field(default_factory=list)
     demo: bool = False
+    # True when the loop hit its continuation/length cap before the model signaled
+    # completion — the report may be missing later sections. L2.
+    truncated: bool = False
 
 
 def build_brief(b: ResearchBrief) -> str:
@@ -189,6 +192,7 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     text_parts: List[str] = []
     sources: List[Source] = []
 
+    last_stop: str | None = None
     for _ in range(_MAX_CONTINUATIONS):
         async with client.messages.stream(
             model=model,
@@ -206,6 +210,7 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
                 text_parts.append(block.text)
             _collect_sources(block, sources)
 
+        last_stop = msg.stop_reason
         # pause_turn = the server tool loop hit its per-turn cap; resume the same
         # turn by echoing the assistant content back. Anything else is terminal.
         if msg.stop_reason == "pause_turn":
@@ -213,18 +218,35 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
             continue
         break
 
+    # Truncated if we ran out the continuation cap still paused, or any turn hit
+    # the token ceiling — the report may be missing later sections. L2.
+    truncated = last_stop in ("pause_turn", "max_tokens")
+
     # de-dup sources by URL, preserving first-seen order
     seen: set = set()
     deduped = [s for s in sources if not (s.url in seen or seen.add(s.url))]
 
     report = "".join(text_parts).strip()
+    # Visible in-report banner so the analyst never reads a cut-off report as a
+    # complete one (the report itself is the committee-facing artifact). No emoji
+    # per the product-chrome rule. L2.
+    _TRUNC_BANNER = (
+        "> **Report may be incomplete** — research stopped at its "
+        "continuation/length cap before the model signaled completion. "
+        "Re-run or narrow the brief for the full report.\n\n"
+    )
     if not report:
-        # Rare: the run ended with only tool/thinking blocks and no prose. Return
-        # a clear notice rather than a blank report pane.
-        report = (
-            "### No report produced\n\n"
-            "The model finished without writing a report — this is uncommon. "
-            "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
-        )
+        if truncated:
+            # Cap hit before any prose: say so — don't claim "the model finished".
+            report = _TRUNC_BANNER + "_No report text was produced before the cap was reached._"
+        else:
+            # Rare: ended with only tool/thinking blocks and no prose.
+            report = (
+                "### No report produced\n\n"
+                "The model finished without writing a report — this is uncommon. "
+                "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
+            )
+    elif truncated:
+        report = _TRUNC_BANNER + report
 
-    return ResearchResult(report=report, sources=deduped, demo=False)
+    return ResearchResult(report=report, sources=deduped, demo=False, truncated=truncated)

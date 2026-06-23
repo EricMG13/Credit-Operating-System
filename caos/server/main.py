@@ -118,6 +118,15 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     response = await call_next(request)
     for key, value in _SECURITY_HEADERS.items():
         response.headers.setdefault(key, value)
+    # Static-asset caching: Next's content-hashed bundles are immutable and safe
+    # to cache forever; HTML documents must revalidate so a redeploy's new
+    # index.html isn't served stale (pointing at chunks that no longer exist). D6.
+    path = request.url.path
+    if not path.startswith("/api/"):
+        if path.startswith("/_next/static/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
+            response.headers.setdefault("Cache-Control", "no-cache")
     return response
 
 

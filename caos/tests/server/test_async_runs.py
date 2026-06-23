@@ -256,6 +256,24 @@ def test_post_runs_then_polls_to_complete(api_client):
     assert body["error"] is None
 
 
+def test_list_runs_is_bounded(api_client):
+    """list_runs must clamp page size — an unbounded SELECT grows into a DoS as
+    runs accumulate (P4). Validate the bounds and that limit truncates."""
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    # Two terminal runs so there is something to truncate (drain each past the
+    # dedup guard before re-running the same issuer).
+    for _ in range(2):
+        r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+        wait_for_run(api_client, r.json()["id"])
+
+    assert len(api_client.get("/api/runs?limit=1").json()) == 1
+    assert api_client.get("/api/runs?limit=0").status_code == 422       # ge=1
+    assert api_client.get("/api/runs?limit=5000").status_code == 422    # le=1000
+    assert api_client.get("/api/runs?offset=-1").status_code == 422     # ge=0
+
+
 def test_failed_run_surfaces_error(api_client, monkeypatch):
     import run_executor
     from conftest import wait_for_run

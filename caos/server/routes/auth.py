@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from access_log import client_source
+from access_log import client_source, sanitize_field
 from config import get_settings
 from database import Analyst, get_db
 from identity import COOKIE_NAME, CallerIdentity, get_identity, make_session_token
@@ -69,7 +69,9 @@ def _set_cookie(response: Response, analyst: Analyst) -> None:
     response.set_cookie(
         COOKIE_NAME, token,
         max_age=_COOKIE_MAX_AGE, httponly=True, samesite="lax",
-        secure=settings.environment == "production", path="/",
+        # Secure on any non-local-dev deployment — not only the exact label
+        # "production", so an env-string mistype can't silently drop it. S5.
+        secure=settings.environment != "development", path="/",
     )
 
 
@@ -92,12 +94,23 @@ async def create_profile(
     if not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts — wait a minute.")
 
+    # Fail closed if the access code is unset: an empty setting would make
+    # compare_digest admit any caller the moment the body min_length guard is
+    # ever relaxed. Refuse login outright rather than degrade silently. S2.
+    if not settings.analyst_signup_code:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Login disabled — access code not configured."
+        )
+
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic
     # (401-by-source) sees it. Constant-time compare.
     if not hmac.compare_digest(body.code, settings.analyst_signup_code):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid access code.")
 
-    name = body.name.strip()
+    # Strip interior control chars before persistence — body.name and the
+    # forwarded email become Analyst rows and round-trip through identity/logging.
+    # Matches the sanitize done in identity.get_identity. S7.
+    name = sanitize_field(body.name).strip()
     if not name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Name is required.")
 
@@ -105,6 +118,8 @@ async def create_profile(
     # because the proxy is the sole ingress). When present, key the profile on it:
     # one profile per SSO identity, so a caller can't adopt someone else's name.
     sso_email = request.headers.get("x-forwarded-email")
+    if sso_email:
+        sso_email = sanitize_field(sso_email)
     if sso_email:
         analyst = (await db.execute(
             select(Analyst).where(Analyst.email == sso_email)

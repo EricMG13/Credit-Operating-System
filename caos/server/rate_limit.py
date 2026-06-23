@@ -19,7 +19,8 @@ from typing import DefaultDict, Tuple
 _lock = Lock()
 _windows: DefaultDict[str, Tuple[float, int]] = defaultdict(lambda: (0.0, 0))
 
-_SWEEP_THRESHOLD = 1024  # keep the map bounded — one entry per caller otherwise
+_SWEEP_THRESHOLD = 1024  # sweep expired windows once the map grows past this
+_MAX_ENTRIES = 4096      # hard ceiling so distinct-key spraying can't grow it unbounded
 
 
 def reset() -> None:
@@ -34,6 +35,16 @@ def hit(key: str, *, max_attempts: int, window_seconds: int) -> bool:
     with _lock:
         if len(_windows) > _SWEEP_THRESHOLD:
             for k in [k for k, (start, _) in _windows.items() if now - start >= window_seconds]:
+                del _windows[k]
+        if len(_windows) > _MAX_ENTRIES:
+            # Still over the ceiling after evicting expired windows → a caller is
+            # spraying distinct keys (e.g. spoofed X-Forwarded-For off-proxy).
+            # Evict oldest-start entries down to the sweep threshold so memory
+            # stays bounded regardless of topology. Bounded downside: an active
+            # window may reset early under spray (favours the sprayer slightly),
+            # which beats unbounded growth. S6.
+            overflow = len(_windows) - _SWEEP_THRESHOLD
+            for k, _ in sorted(_windows.items(), key=lambda kv: kv[1][0])[:overflow]:
                 del _windows[k]
         start, count = _windows[key]
         if now - start >= window_seconds:

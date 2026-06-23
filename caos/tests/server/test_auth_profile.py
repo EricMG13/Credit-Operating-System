@@ -38,6 +38,15 @@ def test_create_profile_sets_identity_and_initials_source(client):
     assert me["id"] == body["id"]
 
 
+def test_profile_name_control_chars_stripped(client):
+    # Interior CR/LF in the display name must not be persisted/round-tripped raw
+    # (S7 storage-boundary sweep — Analyst.name feeds identity + logs).
+    r = client.post("/api/auth/profile", json={"code": "131113", "name": "Ev\r\nil Bob"})
+    assert r.status_code == 201, r.text
+    full = r.json()["full_name"]
+    assert "\r" not in full and "\n" not in full and full == "Evil Bob"
+
+
 def test_run_is_stamped_with_logged_in_analyst(client):
     from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
@@ -47,6 +56,28 @@ def test_run_is_stamped_with_logged_in_analyst(client):
     assert run.status_code == 201, run.text
     assert run.json()["analyst_id"] == me["id"]  # logged with the run
     wait_for_run(client, run.json()["id"])  # drain (dedup guard)
+
+
+def test_empty_access_code_fails_closed(client, monkeypatch):
+    # An unset access code must refuse login (503), not admit callers. S2.
+    from config import get_settings
+    monkeypatch.setattr(get_settings(), "analyst_signup_code", "")
+    r = client.post("/api/auth/profile", json={"code": "131113", "name": "Nobody"})
+    assert r.status_code == 503, r.text
+
+
+def test_cookie_secure_off_in_dev_on_when_deployed(client, monkeypatch):
+    # Secure rides on env != "development", not the exact label "production". S5.
+    from config import get_settings
+    s = get_settings()
+
+    monkeypatch.setattr(s, "environment", "development")
+    dev = client.post("/api/auth/profile", json={"code": "131113", "name": "Dev User"})
+    assert "secure" not in (dev.headers.get("set-cookie") or "").lower()
+
+    monkeypatch.setattr(s, "environment", "staging")
+    stg = client.post("/api/auth/profile", json={"code": "131113", "name": "Stg User"})
+    assert "secure" in (stg.headers.get("set-cookie") or "").lower()
 
 
 def test_reattach_to_existing_profile_keeps_one_id(client):

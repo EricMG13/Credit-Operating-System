@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -203,6 +203,10 @@ async def create_run(
 @router.get("", response_model=List[RunListItem])
 async def list_runs(
     issuer_id: Optional[str] = None,
+    # Bounded page: runs accumulate one-per-analysis forever, so an unbounded
+    # SELECT is a memory/latency/exfil-volume DoS as the table grows. P4.
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
@@ -210,6 +214,7 @@ async def list_runs(
     stmt = select(Run).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
+    stmt = stmt.limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     return [RunListItem.model_validate(r) for r in rows]
 

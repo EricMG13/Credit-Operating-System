@@ -36,6 +36,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
+from access_log import sanitize_field
 from config import get_settings
 
 # In-app login: the analyst profile id+name are signed into this cookie so the
@@ -129,8 +130,13 @@ def get_identity(request: Request) -> CallerIdentity:
     if token:
         data = read_session_token(token, settings.session_secret)
         if data and data.get("id") and data.get("name"):
+            # Sanitize before use: caller.email is persisted as Document.uploaded_by
+            # and all three fields can reach the plain-text exception logger. S7.
             return CallerIdentity(
-                id=data["id"], email=data.get("email", ""), full_name=data["name"], source="profile"
+                id=sanitize_field(data["id"]),
+                email=sanitize_field(data.get("email", "")),
+                full_name=sanitize_field(data["name"]),
+                source="profile",
             )
 
     email = request.headers.get("x-forwarded-email")
@@ -144,9 +150,11 @@ def get_identity(request: Request) -> CallerIdentity:
             )
         return _LOCAL_DEV
     username = request.headers.get("x-forwarded-preferred-username") or email or user
+    # Forwarded headers are attacker-influenced off-proxy; sanitize before they
+    # become caller.email (→ Document.uploaded_by) or hit the exception logger. S7.
     return CallerIdentity(
-        id=user or email or "unknown",
-        email=email or (user or "unknown"),
-        full_name=username or "Authenticated User",
+        id=sanitize_field(user or email or "unknown"),
+        email=sanitize_field(email or (user or "unknown")),
+        full_name=sanitize_field(username or "Authenticated User"),
         source="proxy",
     )
