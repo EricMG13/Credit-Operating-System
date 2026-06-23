@@ -100,6 +100,17 @@ def test_canonical_query_ranks_aurora_first(client):
     assert body["caveats"]
 
 
+def test_ranking_reports_total_ranked_for_top_n_labeling(client):
+    # OBS-002: the result must carry the universe count (issuers eligible before
+    # the top-N display cap) so the UI can say "top N of M" instead of implying
+    # the returned cohort is the whole population. Invariant: rows is a slice of
+    # total_ranked, never larger.
+    body = client.post("/api/query/nl", json={"question": "which issuer is most levered"}).json()
+    assert body["rank_by"] == "net_leverage"
+    assert isinstance(body["total_ranked"], int)
+    assert body["total_ranked"] >= len(body["rows"]) >= 1
+
+
 def test_unknown_metric_question_returns_422(client, monkeypatch):
     # An unmappable question → the planner raises → 422 clarification.
     import nlquery
