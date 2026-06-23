@@ -20,20 +20,30 @@ mkdir -p /backups
 run_once() {
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   echo "[backup] $ts start"
+
+  # Rotate ONLY after a verified, non-empty artifact. A failed/partial dump must
+  # never trigger rotation, or a run of failures evicts every good backup and
+  # leaves only junk. Drop the partial so it can't masquerade as a valid one. D5.
+  db_file="/backups/caos-db-$ts.dump"
   if PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$DB_HOST" -U caos -d caos -Fc \
-      -f "/backups/caos-db-$ts.dump"; then
+      -f "$db_file" && [ -s "$db_file" ]; then
     echo "[backup] db dump ok -> caos-db-$ts.dump"
+    # shellcheck disable=SC2012  # ls -t for mtime sort; filenames are our own timestamps (alphanumeric)
+    ls -1t /backups/caos-db-*.dump 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
   else
-    echo "[backup] db dump FAILED" >&2
+    echo "[backup] db dump FAILED — keeping existing backups, no rotation" >&2
+    rm -f "$db_file"
   fi
-  if tar -czf "/backups/caos-vault-$ts.tar.gz" -C /vault . 2>/dev/null; then
+
+  vault_file="/backups/caos-vault-$ts.tar.gz"
+  if tar -czf "$vault_file" -C /vault . 2>/dev/null && [ -s "$vault_file" ]; then
     echo "[backup] vault tarball ok -> caos-vault-$ts.tar.gz"
+    # shellcheck disable=SC2012  # ls -t for mtime sort; filenames are our own timestamps (alphanumeric)
+    ls -1t /backups/caos-vault-*.tar.gz 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
   else
-    echo "[backup] vault tarball skipped (empty vault?)" >&2
+    echo "[backup] vault tarball FAILED/empty — keeping existing, no rotation" >&2
+    rm -f "$vault_file"
   fi
-  # Rotation: keep the newest $KEEP of each kind (xargs -r: no-op on empty).
-  ls -1t /backups/caos-db-*.dump 2>/dev/null    | tail -n +"$((KEEP + 1))" | xargs -r rm -f
-  ls -1t /backups/caos-vault-*.tar.gz 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
 }
 
 echo "[backup] starting; KEEP=$KEEP INTERVAL=${INTERVAL}s"

@@ -31,7 +31,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # CAOS_MARKITDOWN_CMD; this runtime is 3.11, so the CLI installs straight onto
 # PATH (/usr/local/bin/markitdown). [pdf] also covers EDGAR .htm exhibits; xlsx
 # falls back to the built-in openpyxl path. ponytail: [pdf] not [all] — PDF pilot.
-RUN pip install --no-cache-dir 'markitdown[pdf]'
+# -c requirements.txt: constrain this second install to the already-pinned set so
+# markitdown's transitive deps can't silently bump a shared dep (e.g. starlette
+# past the fastapi==0.138.* floor) with no lockfile to catch it. D9. (Pinning
+# markitdown's own version + image digests is a follow-up needing a built-image
+# `pip freeze` / `docker pull` pass — can't resolve offline.)
+RUN pip install --no-cache-dir -c requirements.txt 'markitdown[pdf]'
 
 # App source, then the built UI from stage 1 (served by StaticFiles at /).
 COPY server/ ./
