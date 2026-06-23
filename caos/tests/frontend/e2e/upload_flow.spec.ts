@@ -5,15 +5,23 @@
  * on one port. Build the frontend first (scripts/build_frontend.sh), then run
  * the server: python caos/server/run.py
  *
- * Auth is platform-managed in deployment; locally /api/auth/me returns a dev
- * identity, so no token seeding is needed.
+ * Auth is platform-managed in deployment; the API tests use the `request`
+ * fixture (dev identity, no login). The page tests navigate gated routes, so
+ * they authenticate via the beforeEach below.
  */
 
 import { test, expect } from "@playwright/test";
+import { loginAsAnalyst } from "./_auth";
 
 test.describe("CAOS single-process app", () => {
   // Unique per run so repeated runs against a stateful API don't collide.
   const issuerName = `E2E Test Corp ${Date.now()}`;
+
+  // Page tests gate on a signed-in profile; unique name per worker avoids a
+  // parallel create race. Harmless for the API-only tests (separate context).
+  test.beforeEach(async ({ page }, testInfo) => {
+    await loginAsAnalyst(page, `E2E W${testInfo.workerIndex}`);
+  });
 
   test.beforeAll(async ({ request }) => {
     const res = await request.post("/api/issuers/", {

@@ -7,6 +7,7 @@
  */
 
 import { test, expect, type Page } from "@playwright/test";
+import { loginAsAnalyst } from "./_auth";
 
 // Fill the Audience default, save, and wait for the confirmation.
 async function saveAudience(page: Page, value: string) {
@@ -17,6 +18,12 @@ async function saveAudience(page: Page, value: string) {
 }
 
 test.describe("Settings", () => {
+  // Pages gate on a signed-in profile; authenticate before navigating. Unique
+  // name per worker so parallel workers don't race to create the same profile.
+  test.beforeEach(async ({ page }, testInfo) => {
+    await loginAsAnalyst(page, `E2E W${testInfo.workerIndex}`);
+  });
+
   test("mirrors the server workspace configuration", async ({ page }) => {
     await page.goto("/settings/");
 
