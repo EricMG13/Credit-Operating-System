@@ -11,7 +11,7 @@ import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/mod
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
 import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
 import { MODULES } from "@/lib/pipeline/data";
-import { SEV_COLOR } from "@/lib/pipeline/sim";
+import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { OutSections } from "./OutSections";

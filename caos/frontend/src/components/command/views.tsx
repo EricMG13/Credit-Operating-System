@@ -13,7 +13,8 @@ import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
 } from "@/lib/command/data";
-import { SEV_COLOR, sevSurface, simClock } from "@/lib/pipeline/sim";
+import { simClock } from "@/lib/pipeline/sim-engine";
+import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
 import { FlashOnChange } from "@/components/shared/FlashOnChange";

@@ -5,7 +5,7 @@
 // `color + "44"` bug that silently dropped the tint for CSS-var severities.
 // Phase 0 foundation — adopted across surfaces in Phase 1.
 
-import { sevSurface } from "@/lib/pipeline/sim";
+import { sevSurface } from "@/lib/pipeline/sev";
 
 export function StatCard({
   value,

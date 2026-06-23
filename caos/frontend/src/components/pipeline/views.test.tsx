@@ -10,7 +10,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { GraphView, SwimlaneView, Inspector, LineagePanel, EventLog } from "./views";
 import { MODULES } from "@/lib/pipeline/data";
-import type { Sim } from "@/lib/pipeline/sim";
+import type { Sim } from "@/lib/pipeline/sim-engine";
 
 const emptySim: Sim = { mods: {}, events: [], tick: 0, done: false };
 const fullScope = () => new Set(MODULES.map((m) => m.id));

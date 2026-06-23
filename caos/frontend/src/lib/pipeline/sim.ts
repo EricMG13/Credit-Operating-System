@@ -1,115 +1,12 @@
 "use client";
 
-// Live-run simulation engine (port of design bundle shared/ui.jsx).
-// Drives the Pipeline Visualizer: modules start when their deps clear
-// (max 6 concurrent), progress per tick, and emit orchestrator events.
+// React binding for the live-run simulation engine (sim-engine.ts). Steps the
+// pure engine on a timer and exposes play/speed/reset controls plus the derived
+// completed/total counts to the Pipeline Visualizer.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MODULES, type PlanStep } from "./data";
-
-export type SimState = "idle" | "running" | "pass" | "warning" | "held" | "blocked";
-
-export interface SimEvent {
-  t: string;
-  sev: string;
-  text: string;
-}
-
-export interface Sim {
-  mods: Record<string, { state: SimState; prog: number }>;
-  events: SimEvent[];
-  tick: number;
-  done: boolean;
-}
-
-export const SEV_COLOR: Record<string, string> = {
-  critical: "var(--caos-critical)", high: "#fb7185", warning: "var(--caos-warning)",
-  medium: "var(--caos-warning)", ok: "var(--caos-success)", pass: "var(--caos-success)",
-  low: "var(--caos-muted)", info: "var(--caos-accent)", running: "var(--caos-accent)",
-  idle: "var(--caos-idle)", held: "var(--caos-warning)", blocked: "var(--caos-critical)",
-  queued: "#52525e", clear: "var(--caos-success)", conditional: "var(--caos-warning)",
-};
-
-/** Canonical "module has cleared its gate" predicate: passed, or passed with
- *  warnings — both unblock downstream work. Replaces the
- *  `["pass","warning"].includes(state)` check duplicated across the UI. */
-export const isCleared = (state?: string): boolean =>
-  state === "pass" || state === "warning";
-
-/** CSS color for a severity/state token (falls back to idle). */
-export const sevVar = (sev: string): string => SEV_COLOR[sev] || "var(--caos-idle)";
-
-/** Status-tinted surface — the canonical { color, borderColor, background }
- *  triple for severity-colored cards and tags. Uses color-mix so it works for
- *  both hex and CSS-var severity colors; the old `color + "44"` string was
- *  invalid for the var-based entries and silently dropped the tint. */
-export function sevSurface(
-  sev: string,
-  opts?: { border?: number; wash?: number },
-): { color: string; borderColor: string; background: string } {
-  const c = sevVar(sev);
-  const border = opts?.border ?? 38;
-  const wash = opts?.wash ?? 10;
-  return {
-    color: c,
-    borderColor: `color-mix(in srgb, ${c} ${border}%, transparent)`,
-    background: `color-mix(in srgb, ${c} ${wash}%, transparent)`,
-  };
-}
-
-export function simClock(tick: number): string {
-  const s = 9 * 3600 + 30 * 60 + tick * 7; // 7 sim-seconds per tick
-  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
-
-function initSim(plan: PlanStep[]): Sim {
-  const mods: Sim["mods"] = {};
-  plan.forEach((m) => { mods[m.id] = { state: "idle", prog: 0 }; });
-  return { mods, events: [], tick: 0, done: false };
-}
-
-function stepSim(sim: Sim, plan: PlanStep[], complete: { sev: string; text: string } | null): Sim {
-  const mods = { ...sim.mods };
-  const events = sim.events.slice();
-  const tick = sim.tick + 1;
-  const t = simClock(tick);
-  const doneStates: SimState[] = ["pass", "warning", "held", "blocked"];
-  const satisfied = (m: PlanStep) => m.deps.every((d) => isCleared(mods[d]?.state));
-  let runningCount = Object.values(mods).filter((m) => m.state === "running").length;
-
-  plan.forEach((m) => {
-    const cur = mods[m.id];
-    if (cur.state === "running") {
-      const prog = cur.prog + 1 / m.dur;
-      if (prog >= 1) {
-        const out = m.outcome === "idle" ? "idle" : m.outcome;
-        mods[m.id] = { state: out, prog: 1 };
-        runningCount--;
-        if (m.event) events.unshift({ t, sev: out === "pass" ? "ok" : out, text: m.event });
-      } else {
-        mods[m.id] = { state: "running", prog };
-      }
-    }
-  });
-  plan.forEach((m) => {
-    const cur = mods[m.id];
-    if (cur.state === "idle" && m.outcome !== "idle" && satisfied(m) && runningCount < 6) {
-      mods[m.id] = { state: "running", prog: 0.04 };
-      runningCount++;
-      const meta = MODULES.find((x) => x.id === m.id);
-      events.unshift({ t, sev: "running", text: `${m.id} started — ${meta ? meta.name : ""}` });
-    }
-  });
-  const done = plan.every((m) => (m.outcome === "idle" ? true : doneStates.includes(mods[m.id].state)));
-  if (done && !sim.done) {
-    const c = complete || { sev: "warning", text: "RUN COMPLETE — clearance CONDITIONAL · committee pack HELD on QA-117 remediation" };
-    events.unshift({ t, sev: c.sev, text: c.text });
-  }
-  return { mods, events: events.slice(0, 80), tick, done };
-}
+import { type PlanStep } from "./data";
+import { type Sim, initSim, simClock, stepSim } from "./sim-engine";
 
 export interface SimRun {
   sim: Sim;

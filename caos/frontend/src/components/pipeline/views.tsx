@@ -8,7 +8,8 @@ import {
   ancestorsOf, descendantsOf, DRIVERS, EDGES, LAYERS, MODULES,
   NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
 } from "@/lib/pipeline/data";
-import { SEV_COLOR, type Sim, type SimEvent } from "@/lib/pipeline/sim";
+import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
+import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
