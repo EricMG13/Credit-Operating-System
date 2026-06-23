@@ -9,7 +9,8 @@ import { useMemo } from "react";
 import type { Model, ModelCol } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
 import { EvChip } from "@/components/reports/EvidenceModal";
-import { CW, fmt, GROUPS_META, isEditable, LBL, ovField, ROWS, SRC } from "./rows";
+import { ROWS, SRC } from "./rows";
+import { CW, fmt, GROUPS_META, isEditable, LBL, ovField } from "./model-format";
 import { cellBackground, cellBoxShadow, cellTextColor } from "./cell-style";
 
 export interface CellRef {

@@ -14,7 +14,7 @@ import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/Mo
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
 import { AssumptionsPanel } from "@/components/model/AssumptionsPanel";
 import { exportModel } from "@/components/model/export";
-import { OV_SIGN, ovField, parseNum } from "@/components/model/rows";
+import { OV_SIGN, ovField, parseNum } from "@/components/model/model-format";
 import { buildModel, type Model, type Overrides } from "@/lib/reports/model";
 import {
   type Assumptions, type CaseAssumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, DEFAULT_CASE, loadAssumptions, saveAssumptions,

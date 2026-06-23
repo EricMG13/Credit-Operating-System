@@ -2,6 +2,7 @@
 
 import type { ModelCol } from "@/lib/reports/model";
 import { ADDBACKS } from "@/lib/reports/assumptions";
+import { type RowFormat } from "./model-format";
 
 /* ---------- build manifest: module outputs consumed by the model ---------- */
 export interface SrcDef {
@@ -28,8 +29,6 @@ export const SRC: Record<string, SrcDef> = {
 };
 
 /* ---------- row definitions ---------- */
-export type RowFormat = "m" | "p" | "x" | "d" | "r";
-
 export interface RowDef {
   sec?: string;
   id?: string;
@@ -116,41 +115,3 @@ export const ROWS: RowDef[] = [
   { id: "cpr", l: "Capex / Revenue", g: (c) => c.capexrev, f: "p", ind: 1, pct: 1, src: "cp1k22" },
   { id: "sofr", l: "SOFR rate", g: (c) => c.sofr / 100, f: "r", ind: 1, pct: 1, src: "cp2f" },
 ];
-
-/* ---------- formatting ---------- */
-export function fmt(v: number | null | undefined, f?: RowFormat): string {
-  if (v == null || Number.isNaN(v)) return "";
-  if (f === "m") {
-    const r = Math.round(v);
-    if (r === 0) return "–";
-    const s = Math.abs(r).toLocaleString("en-US");
-    return r < 0 ? `(${s})` : s;
-  }
-  if (f === "p" || f === "r") return (v * 100).toFixed(1) + "%";
-  if (f === "x") return v.toFixed(2) + "x";
-  if (f === "d") return Math.round(v).toString();
-  return String(v);
-}
-
-export const GROUPS_META: Record<string, string> = {
-  Q: "Quarterly", YTD: "YTD", HIST: "Historic", LTM: "LTM", PF: "PF", BASE: "Base Forecast", DOWN: "Downside Forecast", CUSTOM: "Analyst",
-};
-export const CW: Record<string, number> = { Q: 56, YTD: 60, HIST: 62, LTM: 62, PF: 62, BASE: 68, DOWN: 68 };
-export const LBL = 196;
-
-/* ---------- manual overrides: editable historical inputs ---------- */
-export const OV_SIGN: Record<string, number> = { rev: 1, adj: 1, ab: 1, int: -1, tax: -1, wc: 1, capex: -1, diss: 1, div: 1 };
-export const ovField = (rowId: string): string => (rowId === "adj2" ? "adj" : rowId);
-export const isEditCol = (key: string): boolean => (key.charAt(0) === "q" && key.length <= 2) || key === "f22" || key === "f23";
-export const isEditable = (rowId: string, colKey: string): boolean => OV_SIGN[ovField(rowId)] != null && isEditCol(colKey);
-
-export function parseNum(input: string): number | null {
-  let s = String(input).trim().replace(/,/g, "").replace(/\$/g, "");
-  if (!s) return null;
-  let neg = false;
-  const m = s.match(/^\((.*)\)$/);
-  if (m) { neg = true; s = m[1]; }
-  const v = parseFloat(s);
-  if (Number.isNaN(v)) return null;
-  return neg ? -v : v;
-}
