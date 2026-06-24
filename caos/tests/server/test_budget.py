@@ -101,3 +101,58 @@ def test_fixture_run_records_zero_tokens():
         run = wait_for_run(c, c.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID}).json()["id"])
         got = c.get(f"/api/runs/{run['id']}").json()
         assert got["tokens_used"] == 0
+
+
+# ── H-1: per-run budget is cumulative across re-claims, not per-attempt ───────
+@pytest.mark.asyncio
+async def test_execute_run_rehydrates_budget_from_prior_attempt(seeded_db):
+    """A re-claimed run must carry its prior token spend, not reset to 0 — else
+    run_token_budget caps each attempt separately and a flapping run bills N×."""
+    from database import AsyncSessionLocal, Run
+    from run_executor import execute_run_by_id
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", tokens_used=5000)
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    await execute_run_by_id(run_id)  # fixture synth spends 0 more tokens
+
+    async with AsyncSessionLocal() as s:
+        run = await s.get(Run, run_id)
+        assert run.status == "complete"
+        # Before the fix the budget restarted at 0 and overwrote tokens_used → 0.
+        assert run.tokens_used == 5000, "prior-attempt spend was reset (H-1 regression)"
+
+
+@pytest.mark.asyncio
+async def test_failed_attempt_persists_token_spend(seeded_db, monkeypatch):
+    """When an attempt fails mid-run, the tokens it already spent must survive the
+    mark-failed rollback, so the next re-claim resumes the budget rather than
+    granting a fresh full one."""
+    from database import AsyncSessionLocal, Run
+    import run_executor
+
+    async def spend_then_boom(session, run):
+        budget.set_budget(budget.RunBudget(limit=120000, used=run.tokens_used or 0))
+        budget.current_budget().record(7000, 0)  # this attempt spent 7000
+        raise RuntimeError("died mid-run")
+
+    monkeypatch.setattr(run_executor, "execute_run", spend_then_boom)
+
+    async with AsyncSessionLocal() as s:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    try:
+        await run_executor.execute_run_by_id(run_id)
+        async with AsyncSessionLocal() as s:
+            run = await s.get(Run, run_id)
+            assert run.status == "failed"
+            # Before the fix the rollback in _mark_run_failed discarded this spend.
+            assert run.tokens_used == 7000, "failed-attempt spend was lost (H-1 regression)"
+    finally:
+        budget.set_budget(None)  # don't leak the contextvar into other tests

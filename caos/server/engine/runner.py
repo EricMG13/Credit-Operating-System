@@ -207,7 +207,11 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     """
     run.status = "running"
     settings = get_settings()
-    run_budget = budget.RunBudget(limit=settings.run_token_budget)
+    # H-1: seed from tokens already spent on prior attempts so run_token_budget is
+    # a CUMULATIVE per-run cap, not a per-attempt one. A re-claimed run (worker
+    # death → QueueWorker re-claim, up to caos_run_max_attempts) would otherwise
+    # restart the budget at 0 and re-bill every module, spending up to N× the cap.
+    run_budget = budget.RunBudget(limit=settings.run_token_budget, used=run.tokens_used or 0)
     budget.set_budget(run_budget)  # consulted by every LLM module this run
     synthesizer = get_synthesizer()
     run.model_id = settings.anthropic_model if synthesizer.name == "live" else "fixture"
