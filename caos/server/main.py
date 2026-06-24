@@ -24,6 +24,7 @@ from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
 from routes import auth, chat, edgar, health, ingestion, issuers, query, research, runs, scenario, settings as settings_routes
+from research_executor import ResearchExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -77,7 +78,12 @@ async def lifespan(app: FastAPI):
     app.state.executor = get_executor()
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
+    # Durable Deep Research (M-3): background jobs the client polls, swept on boot.
+    app.state.research_executor = ResearchExecutor()
+    await app.state.research_executor.start()
+    logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
     yield
+    await app.state.research_executor.stop()
     await app.state.executor.stop()
     logger.info("CAOS shutting down")
 

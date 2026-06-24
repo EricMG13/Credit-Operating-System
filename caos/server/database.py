@@ -164,6 +164,31 @@ class Run(Base):
     error: Mapped[Optional[str]] = mapped_column(Text)
 
 
+class ResearchJob(Base):
+    """A durable Deep Research run (M-3).
+
+    Deep research is a multi-minute web-grounded LLM call. It used to run inside
+    the POST request, so a dropped client/proxy connection lost the work and its
+    token spend. Now the POST persists this row and a background task fills it in
+    (research_executor.py); the client polls GET /api/research/{id}. ``analyst_id``
+    scopes reads to the owner so one analyst can't read another's job.
+    """
+
+    __tablename__ = "research_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running|complete|failed
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    brief: Mapped[dict] = mapped_column(JSON, default=dict)
+    report: Mapped[Optional[str]] = mapped_column(Text)
+    sources: Mapped[list] = mapped_column(JSON, default=list)
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class ModuleOutput(Base):
     """A single module's payload within a run (CP_MODULE_PAYLOAD_BASE)."""
 

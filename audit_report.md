@@ -132,15 +132,39 @@ rather than erroring — graceful degradation exists, just not a model fallback.
 overloaded after SDK retries falls back to `synth_executor_model`
 (`claude-sonnet-4-6`) before surfacing 502 / before degrading to fixture.
 
-### [ ] M-3 — Deep Research and issuer chat are synchronous and connection-bound (not durable) — DEFERRED
-**DEFERRED (not patched):** unlike H-1, this is a feature redesign, not a hardening
-patch — it needs a persisted research-job row, a background executor wiring, a
-`/api/research/{id}` poll route, and a frontend poll loop. Doing it half-way is
-worse than the current honest synchronous call. Tracked for a follow-up build; the
-M-2 fix above at least keeps a long run from dying on a model overload mid-stream.
+### [x] M-3 — Deep Research was synchronous and connection-bound (not durable)
+**RESOLVED:** Deep Research now runs as a durable background job. POST
+`/api/research` persists a `ResearchJob` (migration 0010) and spawns a task in the
+new `research_executor.py` (in-process + sweep-on-boot, mirroring
+`InProcessExecutor`), returning the job id immediately; the client polls
+GET `/api/research/{id}` (scoped to `analyst_id` — a 404, not 403, for another
+analyst's job, so per-user isolation holds too). A dropped client/proxy connection
+no longer aborts the run or loses its token spend; a process restart sweeps
+stranded `running` jobs to failed (a stream can't be resumed) and the analyst
+re-submits. Frontend `deepResearch` reimplemented as create+poll, preserving the
+`Promise<ResearchResult>` contract so the page is unchanged. (Issuer chat stays a
+single short bounded call — low blast radius, left synchronous.)
 
-**Files:** [`deepresearch.py:13`](caos/server/deepresearch.py:13) ·
-[`routes/research.py:40`](caos/server/routes/research.py:40)
+**Hardened post-review:** a 5-lens adversarial review caught that the first cut of
+the client poll loop aborted the whole run on a *single* transient GET failure
+(proxy blip / 20s timeout) — defeating the durability goal, since the job survived
+server-side but the client threw it away. Fixed: the loop now tolerates
+consecutive transport errors and keeps polling, bounds itself with a 15-min
+wall-clock cap, and polls immediately (no 2s floor on the demo). Also added a
+concurrency semaphore (`caos_research_concurrency`, default 2) so fire-and-forget
+jobs can't accumulate unbounded multi-minute runs — restoring the backpressure the
+old synchronous call had.
+
+**Verification:** server suite **357 passed / 2 skipped** (py3.9 + py3.11) incl.
+new tests for background completion, mark-failed, sweep, per-analyst isolation,
+the `running`→poll-again branch, and the concurrency cap; frontend `tsc` clean +
+`next build` green in the image; E2E stub exercises running→complete polling.
+
+**Files:** [`research_executor.py`](caos/server/research_executor.py) ·
+[`routes/research.py`](caos/server/routes/research.py) ·
+[`database.py` ResearchJob](caos/server/database.py) ·
+[`migrations/0010`](caos/server/migrations/versions/0010_research_jobs.py) ·
+[`api.ts deepResearch`](caos/frontend/src/lib/api.ts:205)
 
 Unlike module runs (durable via the Postgres queue + lease/reap), the
 multi-minute Deep Research call holds the HTTP connection for its full duration —
@@ -223,7 +247,7 @@ extractor for parity with the synth path.
 | # | Requirement | Verdict | Evidence |
 |---|-------------|---------|----------|
 | A1 | Centralized supervisor (no open mesh / "you do it" loops) | ✅ PASS | Deterministic CP-X `PlannerRouter` DAG, Kahn order; verdicts are code, not LLM ([planner.py](caos/server/engine/planner.py), [debate.py:216](caos/server/engine/debate.py:216)) |
-| A2 | Durable execution (survive API/container drop) | ⚠️ PARTIAL | Runs durable via Postgres queue+lease+reap ([run_executor.py:134](caos/server/run_executor.py:134)); deep-research/chat synchronous (**M-3**); budget now persisted across retries (**H-1 fixed ✅**) |
+| A2 | Durable execution (survive API/container drop) | ✅ PASS | Runs durable via Postgres queue+lease+reap ([run_executor.py:134](caos/server/run_executor.py:134)); deep research now a durable background job + poll (**M-3 fixed**); budget persisted across retries (**H-1 fixed**). Issuer chat stays a short synchronous call (low blast radius) |
 | A3 | Hard turn caps & token budgets on every loop | ✅ PASS | Caps everywhere — `_MAX_CONTINUATIONS=4` + `max_uses` (deep research), one-shot repair (synth), single-call lanes, `run_token_budget` now cumulative across attempts (**H-1 fixed**) |
 | A4 | Per-user / per-session memory isolation | ✅ PASS | Per-run DB session + `run_id` scope; `RunBudget` is per-task `ContextVar`; chat stateless (client-supplied history); retrieval scoped per issuer ([run_executor.py:30](caos/server/run_executor.py:30)) |
 | B1 | Multi-stage Docker build | ✅ PASS | node build → python runtime ([Dockerfile:8,16](caos/deploy/Dockerfile:16)) |
@@ -271,8 +295,8 @@ extractor for parity with the synth path.
    without it.)
 2. ~~**M-1** — structured `caos.llm` per-call logging keyed by `run_id`.~~ **DONE**.
 3. ~~**M-2** — automatic heavy→cheap model fallback on rate-limit.~~ **DONE**.
-4. **M-3** — move Deep Research onto the durable background-job path. **DEFERRED**
-   (feature redesign — see M-3).
+4. ~~**M-3** — move Deep Research onto the durable background-job path.~~ **DONE**
+   (persisted `ResearchJob` + `research_executor` + poll endpoint + create-poll frontend).
 5. ~~**M-4** — guard the default `analyst_signup_code` in production.~~ **DONE**
    (loud prod warning).
 6. ~~**L-1** — defensive `.git` ignore.~~ **DONE**. **L-2** — DEFERRED (the proposed

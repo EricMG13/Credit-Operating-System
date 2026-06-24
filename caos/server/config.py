@@ -104,6 +104,11 @@ class Settings(BaseSettings):
 
     # Async run executor.
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
+    # Max durable Deep Research jobs running at once (research_executor.py). POST
+    # returns immediately and fires a background task, so without a ceiling a
+    # sustained submission rate would accumulate unbounded multi-minute web-search
+    # runs; jobs past the cap queue on a semaphore rather than fan out.
+    caos_research_concurrency: int = 2
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
     caos_run_poll_seconds: float = 1.0   # worker loop tick
