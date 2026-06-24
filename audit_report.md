@@ -79,7 +79,13 @@ completed module payloads so a re-claim resumes rather than restarts. Lower
 
 ## 3. MEDIUM
 
-### M-1 — No LLM-specific tracing (model / tokens / latency / tool-choice per lane)
+### [x] M-1 — No LLM-specific tracing (model / tokens / latency / tool-choice per lane)
+**RESOLVED:** every live inference now routes through `engine/llm_client.create`
+(or `budget.trace_llm` for the streaming/beta lanes), which emits one structured
+`caos.llm` JSON line per call — `run_id`, `lane`, `model`, `fallback`, in/out
+tokens, latency, `stop_reason` — correlating a run's whole LLM fan-out with zero
+new infra.
+
 **Files:** [`main.py:30`](caos/server/main.py:30) ·
 [`engine/synth.py`](caos/server/engine/synth.py) ·
 [`engine/debate.py`](caos/server/engine/debate.py)
@@ -100,7 +106,13 @@ Langfuse or Arize Phoenix (both self-hostable) or OpenTelemetry spans around eac
 `caos.llm` JSON line per call (run_id, module, model, in/out tokens, ms,
 stop_reason) would close most of the gap with zero new infra.
 
-### M-2 — No automated heavy→cheap model fallback on rate-limit / overload
+### [x] M-2 — No automated heavy→cheap model fallback on rate-limit / overload
+**RESOLVED:** `engine/llm_client.create` now catches a 429/529 that survives the
+SDK's own retries and retries the call ONCE on `synth_executor_model` before
+surfacing the error; the deep-research streaming lane downgrades the same way for
+the rest of its run. A heavy-model quota spike degrades to a cheaper model instead
+of 502-ing the lane.
+
 **Files:** [`llm.py:69`](caos/server/llm.py:69) ·
 [`deepresearch.py:197`](caos/server/deepresearch.py:197) ·
 [`config.py:92`](caos/server/config.py:92)
@@ -120,7 +132,13 @@ rather than erroring — graceful degradation exists, just not a model fallback.
 overloaded after SDK retries falls back to `synth_executor_model`
 (`claude-sonnet-4-6`) before surfacing 502 / before degrading to fixture.
 
-### M-3 — Deep Research and issuer chat are synchronous and connection-bound (not durable)
+### [ ] M-3 — Deep Research and issuer chat are synchronous and connection-bound (not durable) — DEFERRED
+**DEFERRED (not patched):** unlike H-1, this is a feature redesign, not a hardening
+patch — it needs a persisted research-job row, a background executor wiring, a
+`/api/research/{id}` poll route, and a frontend poll loop. Doing it half-way is
+worse than the current honest synchronous call. Tracked for a follow-up build; the
+M-2 fix above at least keeps a long run from dying on a model overload mid-stream.
+
 **Files:** [`deepresearch.py:13`](caos/server/deepresearch.py:13) ·
 [`routes/research.py:40`](caos/server/routes/research.py:40)
 
@@ -135,7 +153,12 @@ resume. Same shape for issuer chat (single bounded call, lower blast radius).
 polling pattern (the durable path already in the codebase), so a dropped
 connection doesn't discard an in-flight research run.
 
-### M-4 — Shared analyst access code defaults to a public value with no production guard
+### [x] M-4 — Shared analyst access code defaults to a public value with no production guard
+**RESOLVED:** `lifespan` now logs a loud production warning when
+`analyst_signup_code` is unset or the in-source default `131113` — a warning, not
+fail-closed, because the SSO edge fronts it and the live pilot legitimately runs
+that code, so fail-closed would break a running deploy for a defense-in-depth gap.
+
 **Files:** [`config.py:57`](caos/server/config.py:57) ·
 [`routes/auth.py:107`](caos/server/routes/auth.py:107) ·
 [`main.py:46`](caos/server/main.py:46)
@@ -158,7 +181,10 @@ refused or loudly warned.
 
 ## 4. LOW
 
-### L-1 — `.dockerignore` does not defensively exclude `.git/`
+### [x] L-1 — `.dockerignore` does not defensively exclude `.git/`
+**RESOLVED:** added `**/.git` + `.git` to [`caos/.dockerignore`](caos/.dockerignore)
+(belt-and-suspenders; the repo `.git/` was already outside the `caos/` build context).
+
 **File:** [`caos/.dockerignore`](caos/.dockerignore)
 
 `.env`, `.env.*`, `**/.venv`, `**/__pycache__`, `**/*.pyc`, `server/static`,
@@ -169,7 +195,15 @@ is baked today. Add it anyway as belt-and-suspenders in case the context ever
 widens. (No ChromaDB/FAISS stores exist — retrieval is in-Postgres BM25,
 [retrieval.py](caos/server/retrieval.py) — so that part of the checklist is N/A.)
 
-### L-2 — `extract_json` returns a raw `json.loads` dict, not a Pydantic model, at the LLM boundary
+### [ ] L-2 — `extract_json` returns a raw `json.loads` dict, not a Pydantic model — DEFERRED
+**DEFERRED (won't-fix as specced):** an initial `isinstance(parsed, dict)` guard was
+added, then **reverted** — adversarial review proved it was unreachable dead code:
+the parse is `json.loads` of a `\{.*\}` regex match, which is always a JSON object
+(→ dict) or raises (which callers' try/except already handle by design). A full
+Pydantic-model-per-extractor stays optional — the callers already do domain
+validation + `safe_chunk_id` gating, so the marginal value is low and not worth the
+per-extractor schema. No code change ships for L-2.
+
 **File:** [`engine/llm_safety.py:91`](caos/server/engine/llm_safety.py:91)
 
 The shared document→LLM extractor parses the first `{...}` from the reply and
@@ -194,12 +228,12 @@ extractor for parity with the synth path.
 | A4 | Per-user / per-session memory isolation | ✅ PASS | Per-run DB session + `run_id` scope; `RunBudget` is per-task `ContextVar`; chat stateless (client-supplied history); retrieval scoped per issuer ([run_executor.py:30](caos/server/run_executor.py:30)) |
 | B1 | Multi-stage Docker build | ✅ PASS | node build → python runtime ([Dockerfile:8,16](caos/deploy/Dockerfile:16)) |
 | B2 | Non-root execution | ✅ PASS | `USER caos` uid 10001 + `cap_drop: ALL` + `read_only` ([Dockerfile:44](caos/deploy/Dockerfile:44), [docker-compose.yml:46](caos/deploy/docker-compose.yml:46)) |
-| B3 | Strict `.dockerignore` (`.env`, `.git`, vectors, `__pycache__`) | ⚠️ MINOR | `.env*`/`.venv`/`__pycache__`/local data excluded; `.git` not listed (**L-1**, mitigated by context root) |
+| B3 | Strict `.dockerignore` (`.env`, `.git`, vectors, `__pycache__`) | ✅ PASS | `.env*`/`.venv`/`__pycache__`/local data excluded; `.git` now listed too (**L-1 fixed**) |
 | C1 | Least-privilege tool fencing | ✅ PASS | No LLM lane has DB-write / filesystem / shell tools. Only read-only `web_search` server tool (deep research); synth's only tool is an **output** emitter |
 | C2 | Pydantic guardrails on inputs **and** outputs | ✅ PASS | Inputs: `ChatRequest`/`ResearchBrief` constrained ([chat.py:27](caos/server/routes/chat.py:27)). Outputs: forced-tool + `validate_payload` + one-shot repair (synth). Minor: **L-2** |
 | C3 | Network isolation (no agent port public) | ✅ PASS | App has **no** `ports:`; reachable only via oauth2-proxy on `internal` net ([docker-compose.yml:72](caos/deploy/docker-compose.yml:72)) |
-| D1 | Agentic tracing (not `print()`) | ❌ GAP | `logging` (not `print`) + token logs, but no per-inference LLM trace (**M-1**) |
-| D2 | Automated fallback model on rate limit | ❌ GAP | SDK retries + degrade-to-deterministic, but no heavy→cheap model fallback (**M-2**) |
+| D1 | Agentic tracing (not `print()`) | ✅ PASS | Structured `caos.llm` JSON line per inference (run_id/lane/model/tokens/ms/stop) via the `llm_client` seam (**M-1 fixed**) |
+| D2 | Automated fallback model on rate limit | ✅ PASS | `llm_client.create` retries on `synth_executor_model` on 429/529; deep-research stream downgrades too (**M-2 fixed**) |
 | — | Secrets management | ✅ PASS | All secrets env-driven via `pydantic-settings`; `.env` git/docker-ignored; gitleaks in CI ([ci.yml](.github/workflows/ci.yml)); `session_secret`/`edge_proxy_secret` fail-closed in prod. Exception: signup-code default (**M-4**) |
 | — | Async web endpoints | ✅ PASS | All 33 route handlers `async def`; non-async `def`s are helpers/validators only |
 
@@ -235,9 +269,21 @@ extractor for parity with the synth path.
    **DONE** — budget rehydrated from `tokens_used` + recovered in `_mark_run_failed`.
    (Module-level checkpointing remains optional/deferred — the billing cap holds
    without it.)
-2. **M-1** — add structured `caos.llm` per-call logging (or self-hosted Langfuse/
-   Phoenix) keyed by `run_id`.
-3. **M-2** — automatic heavy→cheap model fallback on rate-limit.
-4. **M-3** — move Deep Research onto the durable background-job path.
-5. **M-4** — fail-closed on the default `analyst_signup_code` in production.
-6. **L-1 / L-2** — defensive `.git` ignore; Pydantic-validate `extract_json`.
+2. ~~**M-1** — structured `caos.llm` per-call logging keyed by `run_id`.~~ **DONE**.
+3. ~~**M-2** — automatic heavy→cheap model fallback on rate-limit.~~ **DONE**.
+4. **M-3** — move Deep Research onto the durable background-job path. **DEFERRED**
+   (feature redesign — see M-3).
+5. ~~**M-4** — guard the default `analyst_signup_code` in production.~~ **DONE**
+   (loud prod warning).
+6. ~~**L-1** — defensive `.git` ignore.~~ **DONE**. **L-2** — DEFERRED (the proposed
+   guard was unreachable dead code; callers already domain-validate — see L-2).
+
+**Verification (MEDIUM/LOW round):** new seam centralizes every plain
+`messages.create` in `engine/llm_client.py` (M-1 trace + M-2 fallback);
+`test_llm_client.py` (4) + synth single-count guards (3) added. Full server suite
+**350 passed, 2 skipped** (py3.9 + py3.11); `docker compose build app` →
+`BUILD2_EXIT=0`. A 4-lens adversarial review (correctness / security / runtime /
+tests) surfaced 3 confirmed gaps — all *missing tests on correct code*, now closed;
+the L-2 guard was reverted as unreachable. Untrusted-data wrapping verified intact
+at every routed lane; the `test_no_unreviewed_llm_call_sites` guard now also tracks
+`llm_client.create` callers so no model-reaching lane escapes review.

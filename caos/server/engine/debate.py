@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from config import get_settings
-from engine import budget
+from engine import budget, llm_client
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -289,13 +289,14 @@ class LiveDebater:
             + wrap_untrusted(json.dumps({m: p.runtime_output for m, p in upstream.items()}, default=str))
         )
         try:
-            resp = await self._get_client().messages.create(
+            resp = await llm_client.create(
+                self._get_client(),
+                lane=f"debate:{advocate}",
                 model=self._settings.anthropic_model,
                 max_tokens=512,
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            budget.record_usage(resp)
             text = next((b.text for b in resp.content if b.type == "text"), "").strip()
             return text or _prose(advocate, points)
         except Exception as e:  # one seat failing must never block the module

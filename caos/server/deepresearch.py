@@ -17,6 +17,7 @@ timeouts bite, promote to a background job (run_executor-style) + polling.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List
 
@@ -24,8 +25,10 @@ import anthropic
 from pydantic import BaseModel, Field
 
 from config import get_settings
+from engine import budget, llm_client  # M-1 trace + M-2 overload-aware fallback
 from llm import _get_client, llm_configured  # reuse the shared Async client + key gate
 
+logger = logging.getLogger("caos")
 settings = get_settings()
 
 _DEMO_PATH = Path(__file__).resolve().parent / "deepresearch_demo.md"
@@ -193,9 +196,12 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     sources: List[Source] = []
 
     last_stop: str | None = None
-    for _ in range(_MAX_CONTINUATIONS):
+    fb_model = settings.synth_executor_model
+
+    async def _final_message(use_model: str):
+        """One streamed turn over the current ``messages``; returns the final message."""
         async with client.messages.stream(
-            model=model,
+            model=use_model,
             max_tokens=_MAX_TOKENS,
             thinking={"type": "adaptive"},
             output_config={"effort": preset["effort"]},
@@ -203,7 +209,21 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
             tools=tools,
             messages=messages,
         ) as stream:
-            msg = await stream.get_final_message()
+            return await stream.get_final_message()
+
+    for _ in range(_MAX_CONTINUATIONS):
+        # M-2: a heavy-model overload mid-research degrades to the cheaper model
+        # for the rest of the run rather than 502-ing the whole report.
+        try:
+            msg = await _final_message(model)
+        except Exception as exc:  # noqa: BLE001 — only overload falls back; the rest re-raise
+            if model == fb_model or not llm_client.is_overloaded(exc):
+                raise
+            logger.warning("deep research overloaded on %s — falling back to %s", model, fb_model)
+            model = fb_model
+            msg = await _final_message(model)
+        # M-1: trace each streamed turn (run-less lane → run_id is null).
+        budget.trace_llm(msg, lane="deepresearch", model=model)
 
         for block in msg.content:
             if getattr(block, "type", None) == "text":

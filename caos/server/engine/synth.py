@@ -36,7 +36,7 @@ import re
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 
 from config import SERVER_DIR, get_settings
-from engine import budget
+from engine import budget, llm_client
 from engine.fixtures import atlf_payload
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import (
@@ -288,8 +288,15 @@ class LiveSynthesizer:
                 tool_choice={"type": "any"},  # advisor (model's choice), then the payload tool
                 messages=messages,
             )
+            # Already on the cheaper executor — no model fallback to make. Accrue
+            # usage + emit the M-1 trace (the advisor sub-call bills inside
+            # record_usage via usage.iterations).
+            budget.trace_llm(resp, lane=f"synth:{module_id}:advisor", model=s.synth_executor_model)
         else:
-            resp = await self._get_client().messages.create(
+            # M-2 fallback + M-1 trace via the shared seam (forced-tool call).
+            resp = await llm_client.create(
+                self._get_client(),
+                lane=f"synth:{module_id}",
                 model=s.anthropic_model,
                 max_tokens=_MAX_TOKENS,
                 system=system_blocks,
@@ -297,7 +304,6 @@ class LiveSynthesizer:
                 tool_choice={"type": "tool", "name": tool["name"]},
                 messages=messages,
             )
-        budget.record_usage(resp)
         # Per-call output-token visibility: a module near the ceiling is the
         # truncation signal (CP-1's full spread is the one that hits it).
         out = int(getattr(getattr(resp, "usage", None), "output_tokens", 0) or 0)

@@ -213,6 +213,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     # restart the budget at 0 and re-bill every module, spending up to N× the cap.
     run_budget = budget.RunBudget(limit=settings.run_token_budget, used=run.tokens_used or 0)
     budget.set_budget(run_budget)  # consulted by every LLM module this run
+    budget.set_run_id(run.id)      # M-1: tags every caos.llm trace line with this run
     synthesizer = get_synthesizer()
     run.model_id = settings.anthropic_model if synthesizer.name == "live" else "fixture"
     run.prompt_version = PROMPT_VERSION

@@ -51,6 +51,16 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
+    if settings.environment == "production" and settings.analyst_signup_code in ("", "131113"):
+        # M-4: warn (not fail-closed) — the SSO edge proxy still fronts this and new
+        # profiles bind to the verified X-Forwarded-Email, so a default code is
+        # defense-in-depth only, not a primary authn bypass. Loud so an operator
+        # rotates it off the in-source default.
+        logger.warning(
+            "ANALYST_SIGNUP_CODE is unset or the in-source default (131113) in "
+            "production — the profile self-registration gate is effectively public to "
+            "anyone past the SSO edge. Set ANALYST_SIGNUP_CODE to a private value."
+        )
     await init_db()
     if settings.caos_demo_seed:
         if settings.environment == "production":

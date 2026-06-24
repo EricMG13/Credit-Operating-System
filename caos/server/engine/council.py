@@ -40,7 +40,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
 from config import get_settings
-from engine import budget
+from engine import budget, llm_client
 from engine.gate import SEVERITY_RANK, Finding
 from engine.schemas import ModulePayload
 
@@ -140,13 +140,14 @@ class LiveReviewer:
             "output format."
         )
         user = json.dumps([asdict(p) for p in produced], default=str)
-        resp = await self._get_client().messages.create(
+        resp = await llm_client.create(
+            self._get_client(),
+            lane=f"council:{seat.name}",
             model=self._settings.anthropic_model,
             max_tokens=2048,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "[]")
         return _parse(seat, text)
 
@@ -193,13 +194,14 @@ class LiveReviewer:
             "PAYLOADS:\n" + json.dumps([asdict(p) for p in produced], default=str)
             + "\n\nCANDIDATE FINDINGS:\n" + catalog
         )
-        resp = await self._get_client().messages.create(
+        resp = await llm_client.create(
+            self._get_client(),
+            lane=f"council-vote:{seat.name}",
             model=self._settings.anthropic_model,
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        budget.record_usage(resp)
         text = next((b.text for b in resp.content if b.type == "text"), "{}")
         return _parse_ballot(text)
 
