@@ -32,15 +32,19 @@ import hashlib
 import hmac
 import json
 import os
+import time
 from dataclasses import dataclass
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from access_log import sanitize_field
 from config import get_settings
+from database import Analyst, get_db
 
-# In-app login: the analyst profile id+name are signed into this cookie so the
-# identity is self-contained (no per-request DB lookup). See routes/auth.py.
+# In-app login: the analyst profile id+name+token_version are signed into this
+# cookie. Resolution is mostly self-contained (HMAC + exp), plus one indexed
+# Analyst lookup to enforce session revocation (token_version). See routes/auth.py.
 COOKIE_NAME = "caos_analyst"
 
 
@@ -68,7 +72,15 @@ def make_session_token(payload: dict, secret: str) -> str:
 
 
 def read_session_token(token: str, secret: str) -> dict | None:
-    """Verify and decode a token from make_session_token; None if tampered/garbage."""
+    """Verify and decode a token from make_session_token; None if tampered, garbage,
+    or expired.
+
+    The browser cookie's max-age is only a client-side hint — a copied raw token
+    value would otherwise be valid until SESSION_SECRET rotates. So an `exp` claim
+    (epoch seconds, set at mint) is enforced here server-side: a token past its exp
+    is rejected regardless of the cookie. Tokens without an exp (legacy) are still
+    accepted for back-compat.
+    """
     try:
         raw, sig = token.rsplit(".", 1)
     except ValueError:
@@ -77,9 +89,13 @@ def read_session_token(token: str, secret: str) -> dict | None:
         return None
     try:
         padded = raw + "=" * (-len(raw) % 4)
-        return json.loads(base64.urlsafe_b64decode(padded))
+        data = json.loads(base64.urlsafe_b64decode(padded))
     except (ValueError, json.JSONDecodeError):
         return None
+    exp = data.get("exp")
+    if exp is not None and time.time() > exp:
+        return None
+    return data
 
 
 _LOCAL_DEV = CallerIdentity(
@@ -93,13 +109,18 @@ _LOCAL_DEV = CallerIdentity(
 _LEGACY_PLATFORM_PORT = os.environ.get("DATABRICKS_APP_PORT") is not None
 
 
-def get_identity(request: Request) -> CallerIdentity:
+async def get_identity(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> CallerIdentity:
     """FastAPI dependency: resolve the caller.
 
     Precedence: an in-app analyst-profile cookie (signed) wins everywhere; else
     the edge proxy's forwarded identity; else the local-dev fallback (or 401 in a
     deployed context). The profile is the app-level identity stamped on runs; the
     edge proxy still governs network access.
+
+    A valid profile cookie now also costs one indexed Analyst lookup, to enforce
+    session revocation (token_version) — see the cookie branch below.
     """
     settings = get_settings()
     deployed = settings.environment == "production" or _LEGACY_PLATFORM_PORT
@@ -132,12 +153,20 @@ def get_identity(request: Request) -> CallerIdentity:
         if data and data.get("id") and data.get("name"):
             # Sanitize before use: caller.email is persisted as Document.uploaded_by
             # and all three fields can reach the plain-text exception logger. S7.
-            return CallerIdentity(
-                id=sanitize_field(data["id"]),
-                email=sanitize_field(data.get("email", "")),
-                full_name=sanitize_field(data["name"]),
-                source="profile",
-            )
+            ident_id = sanitize_field(data["id"])
+            # Session revocation: the cookie carries the analyst's token_version from
+            # mint; logout bumps the row (routes/auth.py), so a stale or revoked
+            # token no longer matches and the cookie is ignored (fall through). A
+            # missing row — e.g. a GDPR-erased analyst — fails the check too. Legacy
+            # tokens with no "v" default to 0, matching a never-logged-out row.
+            analyst = await db.get(Analyst, ident_id)
+            if analyst is not None and analyst.token_version == data.get("v", 0):
+                return CallerIdentity(
+                    id=ident_id,
+                    email=sanitize_field(data.get("email", "")),
+                    full_name=sanitize_field(data["name"]),
+                    source="profile",
+                )
 
     email = request.headers.get("x-forwarded-email")
     user = request.headers.get("x-forwarded-user")

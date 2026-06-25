@@ -18,7 +18,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
-    UniqueConstraint, event, inspect,
+    UniqueConstraint, delete, event, inspect, update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -99,6 +99,12 @@ class Analyst(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Session-revocation epoch: signed into the cookie at mint; bumped on logout so
+    # every existing token for this analyst stops validating (identity.get_identity
+    # compares the two on each request). See routes/auth.py.
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
 
 class Document(Base):
@@ -347,3 +353,42 @@ async def get_db():
         except Exception:
             await session.rollback()
             raise
+
+
+async def erase_analyst_data(
+    session: AsyncSession, *, analyst_id: str, email: Optional[str] = None
+) -> dict[str, int]:
+    """GDPR right-to-erasure for one analyst (the data subject).
+
+    Deletes the analyst's *owned, private* data (Deep Research jobs) and the
+    Analyst row itself (the name + email PII), and *anonymizes* their attribution
+    on shared institutional work product (runs, uploaded documents) — the desk's
+    analysis is firm work product and is retained, only the personal link is
+    scrubbed. ``analyst_id``/``uploaded_by`` are loose string stamps, not FKs, so
+    nothing cascades; this is pure DML. Runs stamp ``analyst_id`` and research jobs
+    key on the analyst id, while documents stamp the email — so scrub both keys.
+    Returns the row counts touched. Caller commits via the session/dependency.
+    """
+    keys = [k for k in (analyst_id, email) if k]
+
+    research = await session.execute(
+        delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
+    )
+    runs = await session.execute(
+        update(Run).where(Run.analyst_id.in_(keys)).values(analyst_id=None)
+    )
+    docs_anonymized = 0
+    if email:
+        docs = await session.execute(
+            update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
+        )
+        docs_anonymized = docs.rowcount or 0
+    profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
+    await session.commit()
+
+    return {
+        "research_jobs_deleted": research.rowcount or 0,
+        "runs_anonymized": runs.rowcount or 0,
+        "documents_anonymized": docs_anonymized,
+        "profile_deleted": profile.rowcount or 0,
+    }

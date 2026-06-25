@@ -53,14 +53,14 @@ async def lifespan(app: FastAPI):
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
     if settings.environment == "production" and settings.analyst_signup_code in ("", "131113"):
-        # M-4: warn (not fail-closed) — the SSO edge proxy still fronts this and new
-        # profiles bind to the verified X-Forwarded-Email, so a default code is
-        # defense-in-depth only, not a primary authn bypass. Loud so an operator
-        # rotates it off the in-source default.
-        logger.warning(
-            "ANALYST_SIGNUP_CODE is unset or the in-source default (131113) in "
-            "production — the profile self-registration gate is effectively public to "
-            "anyone past the SSO edge. Set ANALYST_SIGNUP_CODE to a private value."
+        # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
+        # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
+        # would ship a known self-registration gate by omission. Refuse to start
+        # without a private one — same posture as the SESSION_SECRET guard above.
+        raise RuntimeError(
+            "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
+            "in-source default (131113) is public and would leave analyst profile "
+            "self-registration open. Set ANALYST_SIGNUP_CODE."
         )
     await init_db()
     if settings.caos_demo_seed:
@@ -126,6 +126,17 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    # Legacy clickjacking belt for browsers that ignore CSP frame-ancestors; kept
+    # in lockstep with it (both 'self'/SAMEORIGIN).
+    "X-Frame-Options": "SAMEORIGIN",
+    # Switch off powerful browser features the app never uses, so a future XSS or
+    # injected iframe can't reach the camera/mic/geolocation/etc. ()=deny for all.
+    "Permissions-Policy": (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    ),
+    # HSTS deliberately omits `preload`: that's a public-CA, hard-to-reverse
+    # browser-list commitment, unsuitable for the internal / self-signed-CA hosts.
 }
 
 

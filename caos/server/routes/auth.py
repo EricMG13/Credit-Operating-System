@@ -15,6 +15,7 @@ signed cookie; /logout clears it.
 from __future__ import annotations
 
 import hmac
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -25,8 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from access_log import client_source, sanitize_field
 from config import get_settings
-from database import Analyst, get_db
-from identity import COOKIE_NAME, CallerIdentity, get_identity, make_session_token
+from database import Analyst, erase_analyst_data, get_db
+from identity import (
+    COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
+)
 
 router = APIRouter()
 
@@ -62,8 +65,16 @@ async def me(caller: CallerIdentity = Depends(get_identity)):
 
 def _set_cookie(response: Response, analyst: Analyst) -> None:
     settings = get_settings()
+    # Stamp a hard expiry into the signed payload (enforced in read_session_token),
+    # not just the browser max-age — so a copied cookie value can't outlive it.
+    now = int(time.time())
     token = make_session_token(
-        {"id": analyst.id, "name": analyst.name, "email": analyst.email or ""},
+        {
+            "id": analyst.id, "name": analyst.name, "email": analyst.email or "",
+            # Revocation epoch — must match the row at verify time (identity.py).
+            "v": analyst.token_version,
+            "iat": now, "exp": now + _COOKIE_MAX_AGE,
+        },
         settings.session_secret,
     )
     response.set_cookie(
@@ -149,5 +160,40 @@ async def create_profile(
 
 
 @router.post("/logout", status_code=204)
-async def logout(response: Response):
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    # Revoke + clear. Bumping the analyst's token_version invalidates every existing
+    # token for them — this device and any other — on its next request (the version
+    # is signed into the cookie and re-checked in identity.get_identity). Read the
+    # cookie directly rather than via get_identity, so logout still works (and still
+    # revokes) even for an otherwise-rejected request, and never errors on a stale
+    # or absent cookie.
+    settings = get_settings()
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        data = read_session_token(token, settings.session_secret)
+        if data and data.get("id"):
+            analyst = await db.get(Analyst, sanitize_field(data["id"]))
+            if analyst is not None:
+                analyst.token_version += 1
+                await db.commit()
     response.delete_cookie(COOKIE_NAME, path="/")
+
+
+@router.delete("/profile", status_code=200)
+async def delete_profile(
+    response: Response,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service GDPR erasure (right to be forgotten).
+
+    The signed-in analyst deletes their own profile (name + email PII) and their
+    private Deep Research jobs, and anonymizes their attribution on shared runs
+    and uploaded documents (the desk's analysis is firm work product — kept, just
+    de-linked). Clears the session cookie. Only ever erases the *caller's own*
+    data, so it needs no admin role. Offboarding a *departed* analyst (who can no
+    longer sign in) requires an operator path / RBAC that does not exist yet.
+    """
+    summary = await erase_analyst_data(db, analyst_id=caller.id, email=caller.email or None)
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return {"erased": summary}
