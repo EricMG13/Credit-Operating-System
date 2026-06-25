@@ -18,7 +18,7 @@ jobs:
       run:
         working-directory: caos/frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -43,7 +43,7 @@ jobs:
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -70,7 +70,7 @@ jobs:
     name: E2E — Playwright
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 20
@@ -120,7 +120,7 @@ jobs:
     name: Image — docker build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
       # Gates the self-hosted deploy image: builds the Next.js export (stage 1)
       # and installs the server deps (stage 2). Build only — not pushed.
@@ -137,7 +137,7 @@ jobs:
     name: Deploy — shell + compose lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Deploy assets were previously ungated — a broken backup.sh / compose
       # could merge unseen (e.g. the D5 backup-rotation bug). shellcheck is
       # preinstalled on ubuntu-latest; docker compose ships with the runner.
@@ -153,7 +153,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so fallow can diff the PR against its base
       - uses: actions/setup-node@v6
@@ -168,7 +168,7 @@ jobs:
     name: Corpus — taxonomy consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Stdlib-only drift check: each module_name must agree across schema filename,
       # ACTIVE_PROMPT, CP-X route graph, and the onboarding doc (Taxonomy A).
       - name: Module taxonomy drift check
@@ -178,7 +178,7 @@ jobs:
     name: Security — deps, SAST, secrets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so gitleaks scans past commits, not just the tree
       - uses: actions/setup-python@v6
