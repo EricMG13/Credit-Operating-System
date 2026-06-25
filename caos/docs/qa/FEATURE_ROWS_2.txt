@@ -1,0 +1,750 @@
+=ROW=
+id: deepdive-01
+concept: Deep-Dive
+feature: Module Launcher (Layer Accordion)
+story: As an analyst, I want to expand/collapse module layers (L0–L6) so that I can navigate 21 modules by depth.
+expected: Active layer auto-open; collapsed status dots (green cleared, lock blocked); click toggles; wide screens auto-expand all; selected module persists.
+trigger: page load; click layer header
+files: caos/frontend/src/app/deepdive/page.tsx:52
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-02
+concept: Deep-Dive
+feature: Module Status Dots
+story: As an analyst, I want each module's state (ok/running/locked) as a dot so that I can see what's available.
+expected: Colored dot (green cleared, yellow running, lock blocked); locked 55% opacity; running pulses; selecting locked shows "awaiting upstream".
+trigger: layer expands / module renders
+files: caos/frontend/src/app/deepdive/page.tsx:221
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-03
+concept: Deep-Dive
+feature: Module Output Panel (Center Pane)
+story: As an analyst, I want the selected module's analysis in a center panel so that I can read output, evidence, charts.
+expected: Title shows module name+code; LIVE badge when live data exists; bespoke tabs (CP-6A/6E/3B/4) or generic ModuleView; locked shows status-waiting.
+trigger: click module; ?mod= param
+files: caos/frontend/src/app/deepdive/page.tsx:275; caos/frontend/src/components/deepdive/tabs.tsx:352
+endpoint: GET /api/runs/{runId}/modules/{moduleId} (live)
+=END=
+=ROW=
+id: deepdive-04
+concept: Deep-Dive
+feature: Debate Tab (CP-6A Adversarial Debate)
+story: As an IC chair, I want the pre-debate thesis, 3-round debate, and verdict matrix so that I can understand the recommendation + evidence.
+expected: Thesis box; three 3-column rounds (analyst/bear/chair) with numbered points + E-xx chips; evidence weighting matrix (claim/bull%/bear%/verdict/evidence); OutputRegister below.
+trigger: select CP-6A
+files: caos/frontend/src/components/deepdive/tabs.tsx:68
+endpoint: none (seeded ATLF demo)
+=END=
+=ROW=
+id: deepdive-05
+concept: Deep-Dive
+feature: Debate Tab (CP-6E Portfolio Debate)
+story: As a CIO, I want an allocation debate (RV trader vs compliance) with CIO labels so that I can review sizing.
+expected: Same layout as CP-6A with CIO persona, RV/compliance labels, "CIO ruling" column; matrix code CP-6E-06/07.
+trigger: select CP-6E
+files: caos/frontend/src/components/deepdive/tabs.tsx:36
+endpoint: none (seeded)
+=END=
+=ROW=
+id: deepdive-06
+concept: Deep-Dive
+feature: Recovery Waterfall Tab (CP-3B)
+story: As a debt investor, I want capital structure + recovery by scenario + 2L sensitivity so that I understand recovery across stress.
+expected: Left capital stack table + seniority chart; right recovery waterfall (Base/Stress/Severe) + G2 chart; 2L TL sensitivity grid (exit multiple × EBITDA, color-coded %).
+trigger: select CP-3B
+files: caos/frontend/src/components/deepdive/tabs.tsx:143
+endpoint: none (seeded)
+=END=
+=ROW=
+id: deepdive-07
+concept: Deep-Dive
+feature: Covenants Tab (CP-4/4C)
+story: As a lender, I want covenant aggressiveness, capacity, add-backs, and an expanding register so that I can assess headroom.
+expected: Hero 7.2/10 vs market 6.1; three stat cards (day-one incremental, RP usable, add-backs); covenant table expands to verbatim clause + credit translation; CP-4 & CP-4C registers below.
+trigger: select CP-4
+files: caos/frontend/src/components/deepdive/tabs.tsx:274
+endpoint: none (seeded)
+=END=
+=ROW=
+id: deepdive-08
+concept: Deep-Dive
+feature: Generic Module View
+story: As an analyst, I want any standard module with status/KPIs/sections/charts/register so that I can analyze full output.
+expected: Header (code, name, status dot+tag, desc); KPI grid; layout (core/base/dense) controls order: core sections→charts→register; base/dense lead conclusion first then supporting, charts, workflow steps, register.
+trigger: select non-bespoke module
+files: caos/frontend/src/components/deepdive/tabs.tsx:352
+endpoint: GET /api/runs/{runId}/modules/{moduleId} (live)
+=END=
+=ROW=
+id: deepdive-09
+concept: Deep-Dive
+feature: Output Sections Renderer
+story: As an analyst, I want output as tables/text/flags with evidence chips so that I can read in a unified format.
+expected: Tables (right-aligned numerics, hover bg); text sections with E-xx chips; flag sections with severity dot + E-xx; all E-xx clickable.
+trigger: any module output renders
+files: caos/frontend/src/components/deepdive/OutSections.tsx
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-10
+concept: Deep-Dive
+feature: Module Charts (G2)
+story: As an analyst, I want module-specific charts so that I can visualize key metrics.
+expected: Charts per module (CP-1/1A/1B/1C/3 specs); 2-col grid for multiple, single for one; title + G2 + optional note.
+trigger: module output renders (non-core)
+files: caos/frontend/src/components/deepdive/ModuleCharts.tsx
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-11
+concept: Deep-Dive
+feature: Workflow Step Output Register
+story: As an analyst, I want a register of workflow steps + status so that I can verify analytical completeness.
+expected: Collapsible "{id} required outputs · N steps" header with counts (produced/limitation/gaps); 2-col grid; click step opens StepOutputModal.
+trigger: module renders (defaultOpen except core)
+files: caos/frontend/src/components/deepdive/OutputRegister.tsx:20
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-12
+concept: Deep-Dive
+feature: Workflow Step Output Modal
+story: As an analyst, I want a step's full output+evidence+metadata so that I can drill into step-level detail.
+expected: 1080px modal: left narrative + step sections (E-xx chips); right sidebar Template/Production/Evidence; buttons OPEN IN MODULE EXPORT, FLAG TO QA · CP-5; close Esc/X.
+trigger: click step row in register
+files: caos/frontend/src/components/deepdive/OutputRegister.tsx:130
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-13
+concept: Deep-Dive
+feature: Step Output Grid (Newspaper Packing)
+story: As an analyst, I want step outputs packed into columns so that I can scan in dense layouts.
+expected: Grid column-width (base 280px cap 4 cols, dense 360px); cards break-inside-avoid; title "{id} workflow step outputs · X of Y produced".
+trigger: module renders base/dense
+files: caos/frontend/src/components/deepdive/OutputRegister.tsx:86
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-14
+concept: Deep-Dive
+feature: Evidence Sync (Cross-Pane Highlight)
+story: As an analyst, I want to hover/focus an E-xx and see it highlight across panes so that I can trace provenance.
+expected: Hover/focus publishes id to EvidenceSync; all matching E-xx chips highlight + the CP-5B driver row citing it highlights (caos-selected, raised z).
+trigger: hover/focus E-xx chip
+files: caos/frontend/src/lib/evidence-sync.tsx
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-15
+concept: Deep-Dive
+feature: Evidence Chip (E-xx Link)
+story: As an analyst, I want to click an E-xx inline to open evidence so that I can see the source extract.
+expected: Chip click → onOpenEvidence(id) → EvidenceModal; hover/focus publishes to EvidenceSync.
+trigger: click E-xx chip
+files: caos/frontend/src/components/reports/EvidenceModal.tsx
+endpoint: none (triggers modal)
+=END=
+=ROW=
+id: deepdive-16
+concept: Deep-Dive
+feature: Source Rail (Left Sidebar)
+story: As an analyst, I want DEAL metadata + doc register (CP-0) + evidence drivers (CP-5B) so that I can trace provenance.
+expected: Collapsed glyph; expanded 330px: Deal header; Source Register (14 docs, A/B/C grade, type, pages, date, MNPI warning); Evidence Trace drivers (#, name, verified/warning, confidence bar); hover row highlights its evidence via EvidenceSync.
+trigger: click rail toggle
+files: caos/frontend/src/components/deepdive/rails.tsx:73
+endpoint: none (seeded)
+=END=
+=ROW=
+id: deepdive-17
+concept: Deep-Dive
+feature: Decision Rail (Right Sidebar)
+story: As an analyst, I want CP-5 gate + IC verdict + sizing + triggers so that I can grasp the IC decision without scrolling.
+expected: Collapsed glyph; expanded 352px: CP-5 Clearance (CONDITIONAL + QA finding), Committee Review (findings by lane), IC Verdict (bias, uncertainty, chair memo), Sizing (decision, initial/max/entry, constraint), Triggers (armed, severity dot, owner); auto-collapses below ~1280px.
+trigger: page load (default open wide)
+files: caos/frontend/src/components/deepdive/rails.tsx:155
+endpoint: GET /api/runs/{runId}/qa (live council)
+=END=
+=ROW=
+id: deepdive-18
+concept: Deep-Dive
+feature: Committee Review Panel (CP-5C)
+story: As a QA lead, I want semantic committee findings by lane so that I can track remediation.
+expected: "Committee Review · CP-5C"; empty state if none; each finding shows severity tag, lane, description, module+claim id, required_remediation; populated from live runs.
+trigger: DecisionRail expands; live run findings
+files: caos/frontend/src/components/deepdive/rails.tsx:36
+endpoint: GET /api/runs/{runId}/qa
+=END=
+=ROW=
+id: deepdive-19
+concept: Deep-Dive
+feature: Issuer Q&A Chat
+story: As an analyst, I want to ask follow-up questions about the issuer so that I get answers grounded in module outputs/evidence.
+expected: "ASK {code}" button / ⌘K opens fixed chat (408×560); persists per localStorage; 4 starter prompts first open; evidence-sync grounds answers; send disabled if busy/empty; replies cite CP-x/E-xx; Esc closes; clear empties.
+trigger: click ASK or ⌘K/Ctrl+K
+files: caos/frontend/src/components/deepdive/IssuerChat.tsx
+endpoint: POST /api/chat/issuer
+=END=
+=ROW=
+id: deepdive-20
+concept: Deep-Dive
+feature: Chat Context Seeding
+story: As the chat system, I want to ground Q&A in ATLF run outputs so that answers are specific.
+expected: First message auto-includes DEAL/thesis/verdict/sizing/capstack/recovery/covenants/triggers/drivers/current module; if evidence focused, includes E-xx section/doc/page/passage; capped 60K chars.
+trigger: askIssuer() call
+files: caos/frontend/src/components/deepdive/IssuerChat.tsx:19
+endpoint: POST /api/chat/issuer
+=END=
+=ROW=
+id: deepdive-21
+concept: Deep-Dive
+feature: Chat History (LocalStorage)
+story: As an analyst, I want chat history to persist across reloads so that I can resume.
+expected: Messages in localStorage caos-chat-atlf-2641; clear button removes all; user right (blue), assistant left (orange border on error); auto-scroll; busy "querying run outputs…".
+trigger: chat open; message sent
+files: caos/frontend/src/components/deepdive/IssuerChat.tsx:79
+endpoint: none (localStorage)
+=END=
+=ROW=
+id: deepdive-22
+concept: Deep-Dive
+feature: Layout Toggle (Core/Base/Dense)
+story: As an analyst, I want three content layouts so that I can choose workflow-first or conclusion-first.
+expected: core/base/dense toggle; current highlighted; saves to localStorage caos.deepdive.layout; wide screens default base; affects register defaultOpen + grid column count.
+trigger: click layout button
+files: caos/frontend/src/app/deepdive/page.tsx:178
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-23
+concept: Deep-Dive
+feature: Live Run Overlay
+story: As an analyst reviewing a live issuer, I want live module outputs when they exist so that I analyze the actual run.
+expected: For non-reference issuers with completed runs, live outputs override seeded for CP-0/CP-1/CP-5/CP-5B via adaptModule(); LIVE badge shown; silent fallback to seeded if no run/fetch fails.
+trigger: page load ?issuer (non-reference) with live run
+files: caos/frontend/src/lib/engine/useLiveRun.ts
+endpoint: GET /api/runs/{runId}/modules/{moduleId}
+=END=
+=ROW=
+id: deepdive-24
+concept: Deep-Dive
+feature: Seeded vs Live Caveat
+story: As an analyst, I want to know template vs live output so that I don't mistake template figures for analysis.
+expected: Caveat adapts: reference "RUN #2641 · X/Y complete"; loading "checking for live run…"; live "live engine output · bespoke tabs show ATLF reference template"; noRun "no run for {code} · figures are the ATLF reference template, not this issuer".
+trigger: page load; caveat resolves
+files: caos/frontend/src/app/deepdive/page.tsx:161
+endpoint: GET /api/runs/{runId}
+=END=
+=ROW=
+id: deepdive-25
+concept: Deep-Dive
+feature: Module Gate & Unlock
+story: As an analyst, I want to see modules awaiting upstream then unlock so that I can track progress.
+expected: Locked module shows lock 55% opacity; selecting shows "{gateId} {state} … output unlocks when producing module clears its gate"; unlocks and re-renders when gate clears; dot pulses if running.
+trigger: module locked; run progresses
+files: caos/frontend/src/app/deepdive/page.tsx:142
+endpoint: GET /api/runs/{runId} (live)
+=END=
+=ROW=
+id: deepdive-26
+concept: Deep-Dive
+feature: Honesty Caveat (Non-Reference Issuers)
+story: As a user, I want clear labeling of ATLF reference vs live so that I never confuse template with real data.
+expected: Non-reference + noRun: large warning "no run for {ticker} · figures are the ATLF reference template, not this issuer" (role=note); bespoke tabs always ATLF fixture content.
+trigger: non-reference issuer, no run/loading
+files: caos/frontend/src/app/deepdive/page.tsx:64
+endpoint: GET /api/issuers/{issuerId}
+=END=
+=ROW=
+id: deepdive-27
+concept: Deep-Dive
+feature: Responsive Three-Pane Layout
+story: As an analyst on narrow screens, I want adaptive panes so that sidebars don't starve analysis.
+expected: Grid "{rail?330:42}px minmax(0,1fr) {decision?352:42}px"; evidence rail starts collapsed; decision auto-collapses below ~1280px; wide ≥1536px auto-expands layers; internal scroll.
+trigger: page load; resize; toggle
+files: caos/frontend/src/app/deepdive/page.tsx:127
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-28
+concept: Deep-Dive
+feature: First-Run Hint (Onboarding)
+story: As a new analyst, I want a hint explaining panes + E-xx chips so that I learn the UI fast.
+expected: Dismissible FirstRunHint (id deepdive-panes): "Three panes: sources & evidence (left) · module analysis (center) · IC decision & sizing (right). Click any E-xx chip to open its cited source."
+trigger: first page load (unless dismissed)
+files: caos/frontend/src/app/deepdive/page.tsx:265
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-29
+concept: Deep-Dive
+feature: Directory Breadcrumb
+story: As an analyst, I want to return to the directory so that I can pick a different issuer.
+expected: "← Directory" link → /issuers; deal label shows issuer name or "Loading issuer…".
+trigger: click directory link
+files: caos/frontend/src/app/deepdive/page.tsx:154
+endpoint: GET /api/issuers/{issuerId}
+=END=
+=ROW=
+id: deepdive-30
+concept: Deep-Dive
+feature: Export to Vault Button
+story: As an analyst, I want to export the run to Obsidian so that I persist analysis in my notes.
+expected: "Export to Vault" appears when live.runId exists; POST vault, spinner, returns {written, vault_dir}; hidden for seeded/noRun.
+trigger: live run exists
+files: caos/frontend/src/components/reports/ExportToVaultButton.tsx
+endpoint: POST /api/runs/{runId}/vault
+=END=
+=ROW=
+id: deepdive-31
+concept: Deep-Dive
+feature: Concept Navigation
+story: As an analyst, I want breadcrumb nav to other concepts so that I can jump between pages.
+expected: Compact ConceptNav; current highlights; links to /issuers /deepdive /reports /model etc.
+trigger: page load
+files: caos/frontend/src/app/deepdive/page.tsx:158
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-32
+concept: Deep-Dive
+feature: Module Metadata & Description
+story: As an analyst, I want module name/desc/event so that I understand its purpose.
+expected: Header: status dot, code, name, status tag; subtitle meta.desc; "▸ {event}" if plan.event.
+trigger: module renders (non-bespoke)
+files: caos/frontend/src/components/deepdive/tabs.tsx:405
+endpoint: none (client-only)
+=END=
+=ROW=
+id: deepdive-33
+concept: Deep-Dive
+feature: Lead Section (Conclusion-First)
+story: As an analyst, I want the conclusion first so that I get the takeaway before detail.
+expected: In base/dense, final section matching /overall|view|conclusion|summary|memo|clearance|readiness|selection/i is promoted to a lead block (accent border, blue-tinted) above others; core keeps source order.
+trigger: module renders base/dense
+files: caos/frontend/src/components/deepdive/tabs.tsx:62
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-01
+concept: Model Builder
+feature: Cash-flow model grid view
+story: As an analyst, I want a full cash-flow projection grid so that I can analyze credit metrics/drivers.
+expected: Grid rows (revenue, EBITDA, FCF, leverage, coverage) × columns (quarters/annual, BASE, DOWNSIDE); historical sourced, forecast derived; historical cells editable; cell selection shows formula bar + lineage.
+trigger: route load
+files: caos/frontend/src/app/model/page.tsx:66; caos/frontend/src/components/model/ModelSheet.tsx:50
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-02
+concept: Model Builder
+feature: Cell selection and formula tracing
+story: As an analyst, I want a cell's formula+lineage+source so that I understand where numbers come from.
+expected: Click highlights cell (blue inset) + formula bar shows label, value, formula, source module chips (CP-1/CP-2) with evidence links; override cell shows MANUAL OVERRIDE badge + reset.
+trigger: click cell
+files: caos/frontend/src/components/model/ModelSheet.tsx:87
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-03
+concept: Model Builder
+feature: Manual cell overrides (historical)
+story: As an analyst, I want to override historical cells so that I can test impacts without rerunning the engine.
+expected: Double-click editable historical cell → inline input; Enter/blur commits, Esc cancels; parse comma/$ ; persisted to localStorage caos-d-overrides; dotted underline + warning; dependents recompute.
+trigger: double-click editable historical cell
+files: caos/frontend/src/app/model/page.tsx:105; caos/frontend/src/components/model/ModelSheet.tsx:30
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-04
+concept: Model Builder
+feature: Reset individual cell override
+story: As an analyst, I want to revert a single override so that I don't clear all.
+expected: "RESET CELL" in formula bar reverts to sourced; underline gone; key removed from localStorage; KPIs recompute.
+trigger: click RESET CELL
+files: caos/frontend/src/components/model/ModelSheet.tsx:251
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-05
+concept: Model Builder
+feature: Reset all overrides
+story: As an analyst, I want to clear all overrides at once so that I return to sourced baseline.
+expected: "↶ N OVERRIDE(S) · RESET" button when overrides exist; clears all; localStorage emptied; KPIs recompute; no confirmation.
+trigger: click reset in header
+files: caos/frontend/src/app/model/page.tsx:216
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-06
+concept: Model Builder
+feature: Quarterly vs annual toggle
+story: As an analyst, I want to hide quarterly detail so that I reduce clutter.
+expected: "QUARTERS" button toggles Q columns; OFF shows only FY columns + Q4-25 derived; widths reflow; CSV export respects toggle.
+trigger: click QUARTERS
+files: caos/frontend/src/app/model/page.tsx:187
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-07
+concept: Model Builder
+feature: Module source manifest strip
+story: As an analyst, I want to toggle which upstream modules feed the model so that I can trace the build.
+expected: Source chips (CP-1/CP-1A/CP-2B/CP-3B…); click highlights all cells from that module (blue) + dims others; tooltip shows name/note/warnings; click again clears.
+trigger: click source chip
+files: caos/frontend/src/components/model/ModelSheet.tsx:283
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-08
+concept: Model Builder
+feature: Build manifest evidence modal
+story: As an analyst, I want to review supporting evidence for a module so that I can audit work-papers.
+expected: Click evidence chip (E-nnn) in formula bar → EvidenceModal with work-paper excerpt, cell ref, audit trail; close button; persists across cell selection.
+trigger: click evidence chip in formula bar
+files: caos/frontend/src/components/model/ModelSheet.tsx:268
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-09
+concept: Model Builder
+feature: Assumptions — case toggle (BASE/DOWNSIDE)
+story: As an analyst, I want separate drivers per case so that I can model different scenarios.
+expected: BASE (green) / DOWNSIDE (orange) toggle; selecting shows that case's sliders; accent matches case; changes isolated to that case; both shown in grid.
+trigger: click BASE/DOWNSIDE tab
+files: caos/frontend/src/components/model/AssumptionsPanel.tsx:188
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-10
+concept: Model Builder
+feature: Assumptions — driver sliders
+story: As an analyst, I want to adjust forecast drivers via sliders/input so that I can stress-test.
+expected: 5 groups (Revenue growth, Margins, Cash flow, Add-backs) with ALL + FY26/27/28 columns; number fields with min/max clamping; drag to scrub (4px/step), click to type, double-click reset; modified cells show borders.
+trigger: edit driver field
+files: caos/frontend/src/components/model/AssumptionsPanel.tsx:70
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-11
+concept: Model Builder
+feature: Assumptions — real-time recompute + highlight
+story: As an analyst, I want to see which cells each driver affects so that I understand the dependency chain.
+expected: Dragging a driver flashes affected forecast cells blue (edited line + dependent KPIs); cash drivers cascade to later years; non-cash stay in year; clears on pointer-up.
+trigger: drag driver slider (>3px)
+files: caos/frontend/src/app/model/page.tsx:137
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-12
+concept: Model Builder
+feature: Assumptions — per-year override
+story: As an analyst, I want per-year driver overrides so that I can model asymmetric stress.
+expected: Year cells (FY26/27/28) show override or echo ALL; editing overrides that year only; reset reverts to ALL; modified borders; stored in base/downYears.
+trigger: edit/reset year cell
+files: caos/frontend/src/components/model/AssumptionsPanel.tsx:156
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-13
+concept: Model Builder
+feature: Assumptions — reset case
+story: As an analyst, I want to revert all drivers for one case so that I start over.
+expected: "↶ N" button when drivers modified; click resets all drivers + year overrides for active case; shows count; no confirmation.
+trigger: click case reset
+files: caos/frontend/src/components/model/AssumptionsPanel.tsx:243
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-14
+concept: Model Builder
+feature: Assumptions — reset year driver
+story: As an analyst, I want to revert one year's override so that it returns to ALL.
+expected: Double-click modified year cell resets it; reverts to ALL; KPIs recompute for that year (+later if cash).
+trigger: double-click modified year cell
+files: caos/frontend/src/app/model/page.tsx:150
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-15
+concept: Model Builder
+feature: Assumptions panel collapse/expand
+story: As an analyst, I want to hide Assumptions so that I maximize sheet width.
+expected: "ASSUMPTIONS" button toggles panel (348px) / rail (28px) with vertical label + chevron; collapse keeps state.
+trigger: click ASSUMPTIONS / rail chevron
+files: caos/frontend/src/app/model/page.tsx:197
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-16
+concept: Model Builder
+feature: Scenario panel — comparison table
+story: As an analyst, I want best/base/worst outcomes so that I understand the risk envelope.
+expected: 4-col table (label, Best, Base, Worst): net-leverage FY26e–28e rows, cumulative FCF 3y, min cash 3y; values color-coded; exit net leverage bold; custom scenario shows "▸ name" chip.
+trigger: route load / apply scenario
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:26
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-17
+concept: Model Builder
+feature: Scenario — tornado sensitivity chart
+story: As an analyst, I want which driver moves the model most so that I find the binding constraint.
+expected: Tornado 1-way sensitivity of selected output to each driver ±intensity×swing; bars widest-first; base tick; green better/red worse; prose names binding driver, magnitude, skew, concentration.
+trigger: click metric / swing button
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:93
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-18
+concept: Model Builder
+feature: Tornado — metric selector
+story: As an analyst, I want sensitivity on different outputs so that I see which driver matters per metric.
+expected: Net leverage FY28e (default), Cumulative FCF 3y, Minimum cash 3y, Interest cover FY28e; click re-runs bars + narrative; highlights.
+trigger: click metric button
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:94
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-19
+concept: Model Builder
+feature: Tornado — swing intensity
+story: As an analyst, I want mild vs severe stress so that I test sensitivity without engine recompute.
+expected: ±½/±1/±1½ (default 1); swing = base swing × intensity; click re-runs bars + narrative.
+trigger: click swing button
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:144
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-20
+concept: Model Builder
+feature: Scenario presets
+story: As an analyst, I want standard stress presets so that I apply scenarios without typing.
+expected: 5 presets (Energy spike, Rate hike +200bps, Demand recession, Margin compression, Capex surge); click applies as active scenario; header shows "✦ name" + delta; grid re-centers; reset appears.
+trigger: click preset
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:210
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-21
+concept: Model Builder
+feature: NL scenario input
+story: As an analyst, I want to describe a scenario in English so that the model translates to driver deltas.
+expected: Input (max 500) + BUILD; Enter/BUILD → POST /api/scenario/nl → ScenarioSpec (rev_growth/margin/capex/rate deltas, label, rationale); applies deltas; card shows label/delta/rationale; error on failure; 20/min rate limit.
+trigger: type NL + Enter/BUILD
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:231
+endpoint: POST /api/scenario/nl
+=END=
+=ROW=
+id: model-22
+concept: Model Builder
+feature: Active scenario badge
+story: As an analyst, I want to see which scenario is active so that I know the model is re-centered.
+expected: Active scenario → blue "▸ name" badge on table + card with label/delta/rationale/RESET; switching updates card; RESET reverts to assumptions.
+trigger: apply scenario
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:268
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-23
+concept: Model Builder
+feature: Scenario reset
+story: As an analyst, I want to discard the active scenario so that I return to assumptions-driven forecast.
+expected: "↶ RESET" clears scenario; badge disappears; lens re-centers on Assumptions; tornado re-runs off assumptions base.
+trigger: click ↶ RESET in scenario card
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:274
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-24
+concept: Model Builder
+feature: Scenario panel collapse/expand
+story: As an analyst, I want to hide Scenario panel so that I maximize sheet width.
+expected: "SCENARIOS" button toggles panel (372px) / rail (28px) with vertical label + chevron; collapse keeps state.
+trigger: click SCENARIOS / rail chevron
+files: caos/frontend/src/app/model/page.tsx:206
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-25
+concept: Model Builder
+feature: Export model to CSV
+story: As an analyst, I want to export the grid to Excel so that I can do offline analysis.
+expected: "▦ EXPORT MODEL" downloads "ATLF Cash-Flow Model M-118.csv" with header rows, every row × visible columns (quarters toggle respected), Overrides appendix; 3dp rounding.
+trigger: click EXPORT MODEL
+files: caos/frontend/src/app/model/page.tsx:226; caos/frontend/src/components/model/export.ts:14
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-26
+concept: Model Builder
+feature: Model provenance — live CP-1 vs seeded
+story: As an analyst, I want to know live vs seeded anchor so that I assess baseline accuracy.
+expected: Sub-header: no live → "· SEEDED · demo RUN #2641" (grey); live → "✓ CP-1 LIVE · RUN {id8}" (green); tie-out: if drift ≤5bp checkmark "ties to CP-1 {v}x" else warning "Δ{drift}x vs CP-1 {v}x".
+trigger: route load
+files: caos/frontend/src/app/model/page.tsx:320
+endpoint: none (client-only; useModelEngine)
+=END=
+=ROW=
+id: model-27
+concept: Model Builder
+feature: Forecast unaudited disclaimer
+story: As an analyst, I want a disclaimer that forecast cells are unaudited so that I don't treat them as actuals.
+expected: On ≥1536px, warning banner "forecast cells unaudited — CP-5 scope is actuals only".
+trigger: route load
+files: caos/frontend/src/app/model/page.tsx:233
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-28
+concept: Model Builder
+feature: Q4-25 derived gap indicator
+story: As an analyst, I want to know when a derived period is missing source data so that I assess forecast use.
+expected: Q4-25 flagged derived (gap G-02 management accounts missing); "Q4-25*" asterisk; formula bar note; warning amber when selected.
+trigger: select Q4-25 cell / load
+files: caos/frontend/src/components/model/ModelSheet.tsx:162
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-29
+concept: Model Builder
+feature: Cell distress coloring
+story: As an analyst, I want distress indicators on KPI cells so that I spot concerns at a glance.
+expected: Leverage rows + interest coverage shade base→orange (6.0x lev / 2.0x cov)→red (8.0x / 0.5x) by severity band; non-distressed default.
+trigger: view KPI rows; updates as values change
+files: caos/frontend/src/components/model/cell-style.ts:6
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-30
+concept: Model Builder
+feature: Manual override visual indicator
+story: As an analyst, I want to clearly see edited cells so that I don't forget overrides.
+expected: Override cells show dotted underline (warning); modified driver cells show borders (green BASE/orange DOWN); badge in formula bar; export appendix lists overrides.
+trigger: create/view override
+files: caos/frontend/src/components/model/ModelSheet.tsx:123
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-31
+concept: Model Builder
+feature: Negative money formatting
+story: As an analyst, I want parentheses for negatives so that it matches financial presentation.
+expected: Money negatives "(123)" with comma; percent negatives "−3.0%" (en-dash); display-only.
+trigger: view cells with negatives
+files: caos/frontend/src/components/model/model-format.ts:7
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-32
+concept: Model Builder
+feature: Assumption persistence
+story: As an analyst, I want assumptions/overrides to persist so that I don't re-enter them.
+expected: Assumptions saved to localStorage on change (post-hydration); overrides as JSON caos-d-overrides; restored on load; corrupt data → silent defaults.
+trigger: edit; refresh; return later
+files: caos/frontend/src/app/model/page.tsx:83
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-33
+concept: Model Builder
+feature: Column group headers
+story: As an analyst, I want period labels so that I orient within the grid.
+expected: Two sticky header rows: group bar (Quarterly/Annual/LTM/PF/Base/Downside) + period labels (Q1, FY25e, LTM, PF, b0…d2); right-aligned, color-coded; derived "*".
+trigger: route load
+files: caos/frontend/src/components/model/ModelSheet.tsx:135
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-34
+concept: Model Builder
+feature: Row labels and sub-labels
+story: As an analyst, I want clear row labels so that I identify line items.
+expected: Sticky left col (196px): row label (bold key lines) + sub-label (e.g. S+350, DSO units); section headers (Income Statement/Cash Flow/Balance Sheet/KPIs) span grid.
+trigger: view sheet
+files: caos/frontend/src/components/model/ModelSheet.tsx:186
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-35
+concept: Model Builder
+feature: Loading state — engine anchor fetch
+story: As an analyst, I want to see the model fetching the live CP-1 anchor so that I know to wait.
+expected: Sub-header "· linking engine…" (grey) while fetching; grid renders with seeded defaults; live overlays once fetched.
+trigger: route load
+files: caos/frontend/src/app/model/page.tsx:321
+endpoint: none (client-only; async useModelEngine)
+=END=
+=ROW=
+id: model-36
+concept: Model Builder
+feature: Keyboard cell navigation
+story: As an analyst, I want keyboard cell navigation so that I work faster.
+expected: Arrows move selection (wrap at group boundaries); Tab/Shift+Tab right/left; Enter selects; Esc deselects; typing/double-click begins edit; Esc aborts edit.
+trigger: arrows/Tab/Enter/Esc after clicking sheet
+files: caos/frontend/src/components/model/ModelSheet.tsx:132
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-37
+concept: Model Builder
+feature: Scenario lens — best/base/worst derivation
+story: As an analyst, I want the lens to respect Assumptions per case so that changes re-center sensitivity.
+expected: Best = BASE + optimistic swing; Base = avg of BASE columns + scenario deltas; Worst = avg of DOWNSIDE columns + deltas; re-centers live; deltas re-anchor base+worst.
+trigger: view Scenario panel; edit Assumptions; apply scenario
+files: caos/frontend/src/lib/model/scenarios.ts:124
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-38
+concept: Model Builder
+feature: Scenario lens — FCF roll-forward
+story: As an analyst, I want to see whether FCF delevers or draws down cash.
+expected: Debt static, cash rolls forward from FCF; cash+=FCF, netDebt=totalDebt−cash, netLev=netDebt/adjEBITDA; min cash = lowest over 3y; tax 25%.
+trigger: view comparison table
+files: caos/frontend/src/lib/model/scenarios.ts:153
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-39
+concept: Model Builder
+feature: Empty state — no selection
+story: As an analyst, I want a prompt to click a cell so that I know how to inspect.
+expected: Formula bar placeholder "ƒ select any cell to trace its formula and source lineage · double-click historical cells to override".
+trigger: route load / deselect
+files: caos/frontend/src/components/model/ModelSheet.tsx:220
+endpoint: none (client-only)
+=END=
+=ROW=
+id: model-40
+concept: Model Builder
+feature: Error state — NL scenario failure
+story: As an analyst, I want feedback if a scenario can't parse so that I rephrase.
+expected: 422 ScenarioError → red detail below input ("Couldn't read that as a scenario — … Try naming a driver"); input retained; button re-enabled.
+trigger: submit unparseable NL scenario
+files: caos/frontend/src/components/model/ScenarioPanel.tsx:242
+endpoint: POST /api/scenario/nl (422)
+=END=
+=ROW=
+id: model-41
+concept: Model Builder
+feature: Rate limit — NL scenario quota
+story: As an analyst, I want to know I hit the quota so that I don't spam.
+expected: 429 → "Scenario rate limit reached — try again in a minute."; manual re-submit after 60s.
+trigger: >20 NL scenarios in 1 min
+files: caos/server/routes/scenario.py:31
+endpoint: POST /api/scenario/nl (429)
+=END=
+=ROW=
+id: model-42
+concept: Model Builder
+feature: Responsive panel collapsing
+story: As an analyst on narrow screens, I want to hide side panels so that I maximize sheet width.
+expected: <1536px hides status chips + disclaimer; toggles always visible; collapse ephemeral (resets on reload).
+trigger: resize; toggle panels
+files: caos/frontend/src/app/model/page.tsx:71
+endpoint: none (client-only)
+=END=

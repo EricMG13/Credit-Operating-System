@@ -1,0 +1,610 @@
+=ROW=
+id: reports-01
+concept: Report Studio
+feature: Load committee deliverables list
+story: As an analyst, I want to see all 5 deliverables so that I can navigate between them.
+expected: 5 reports (Credit Snapshot, Earnings Update, IC Credit Memo, Covenant Brief, Monitoring Digest) in left rail with title, section count, citation count, READY/HELD tag; selected highlighted.
+trigger: route load (/reports)
+files: caos/frontend/src/components/reports/panels.tsx:30
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-02
+concept: Report Studio
+feature: Select active deliverable
+story: As an analyst, I want to click a report to view it so that I can switch deliverables.
+expected: Click sets active; preview updates; selection persists localStorage caos-e-active; icon/title/badge change.
+trigger: click report in list
+files: caos/frontend/src/app/reports/page.tsx:71
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-03
+concept: Report Studio
+feature: Preview CSS zoom
+story: As an analyst, I want to zoom the preview so that I can see detail or fit the page.
+expected: Zoom buttons (70/85/100/115%) + FIT (auto, clamp 0.4–1.15x of 980px); applied via transform; persists caos-e-zoom.
+trigger: click zoom / FIT
+files: caos/frontend/src/app/reports/page.tsx:192
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-04
+concept: Report Studio
+feature: Customize paper tone
+story: As an analyst, I want to change paper background so that the doc matches my aesthetic.
+expected: White/Warm/Cool tone buttons update preview bg; selected accent border; persists; prints always render white.
+trigger: click paper tone
+files: caos/frontend/src/app/reports/page.tsx:151
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-05
+concept: Report Studio
+feature: Toggle sources visibility
+story: As an analyst, I want to show/hide the sources footnote so that I see clean or traceable.
+expected: SOURCES toggle renders source line at bottom (e.g. "SOURCES · CP-6A [E-09 · E-87]…"); off omits it.
+trigger: click SOURCES
+files: caos/frontend/src/app/reports/page.tsx:162
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-06
+concept: Report Studio
+feature: Enable analyst edit mode
+story: As an analyst, I want to edit the deliverable inline so that I can revise before export.
+expected: "✎ EDIT" enables contentEditable on text leaves; edits captured on blur, capped 2000 chars, plain-text only; stored caos-e-edits overlay rendered values.
+trigger: click ✎ EDIT
+files: caos/frontend/src/app/reports/page.tsx:172; caos/frontend/src/components/reports/ReportDoc.tsx:21
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-07
+concept: Report Studio
+feature: Discard analyst edits
+story: As an analyst, I want to reset edits so that I can start over.
+expected: When editCount>0 a ↺ button shows count; click → window.confirm "Discard N analyst edit(s)…"; if confirmed deletes edits from state+localStorage (irreversible); button disappears.
+trigger: click ↺ when editCount>0
+files: caos/frontend/src/app/reports/page.tsx:121
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-08
+concept: Report Studio
+feature: Toggle section inclusion
+story: As an analyst, I want to omit sections so that I hide inapplicable content.
+expected: Compose panel checkboxes; click toggles; checked "✓", unchecked grey strikethrough; omitted count in header; stored caos-e-omit; carried into print.
+trigger: click section checkbox
+files: caos/frontend/src/components/reports/panels.tsx:113
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-09
+concept: Report Studio
+feature: View lineage traceability
+story: As an analyst, I want sources per figure so that I can audit the supply chain.
+expected: Lineage panel lists source chips (CP-6A, M-118) with friendly name + clickable EvChip per evidence id; click opens EvidenceModal.
+trigger: route load / select report
+files: caos/frontend/src/components/reports/panels.tsx:82
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-10
+concept: Report Studio
+feature: Open evidence source viewer
+story: As an analyst, I want to inspect the original extract so that I can verify accuracy.
+expected: EvChip opens modal: doc name, excerpt highlight, metadata (type/grade/date/MNPI), anchor, trace status (VERIFIED/flagged), confidence bar, cited-by trail; draggable; Esc closes.
+trigger: click EvChip
+files: caos/frontend/src/components/reports/EvidenceModal.tsx:16
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-11
+concept: Report Studio
+feature: Export report to PDF (print)
+story: As an analyst, I want to print/save as PDF so that I can distribute.
+expected: "⎙ EXPORT PDF" → window.print(); @media print hides UI, shows PrintPortal (ReportDoc unscaled white); page rule US Letter 13mm 14mm; edits/toggles/watermark carry into print.
+trigger: click ⎙ EXPORT PDF / PRINT
+files: caos/frontend/src/app/reports/page.tsx:23
+endpoint: none (browser-native)
+=END=
+=ROW=
+id: reports-12
+concept: Report Studio
+feature: Display export metadata
+story: As an analyst, I want export readiness info so that I know what carries into output.
+expected: ExportPanel 6 rows: Format (PDF · US Letter), Renderer (CP-RENDER v2.2), Citations (resolved/orphaned), Sections (N of M), Analyst edits (none/count), Watermark (none/CONDITIONAL — QA-117 color-coded).
+trigger: route load / after toggles
+files: caos/frontend/src/components/reports/panels.tsx:160
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-13
+concept: Report Studio
+feature: Watermark when run held by QA
+story: As an analyst, I want to see if a deliverable is held so that I understand export restrictions.
+expected: report.watermark (e.g. "CONDITIONAL — QA-117 OPEN") → warning dot+text in list (HELD tag) + ExportPanel footer; watermark renders diagonally across preview.
+trigger: route load (watermark baked into Report)
+files: caos/frontend/src/components/reports/ReportDoc.tsx:214
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-14
+concept: Report Studio
+feature: Committee-ready context notice
+story: As an analyst, I want the QA gate status so that I understand why a pack is held.
+expected: Footer notice: CP-RENDER assembles from cleared modules; IC Credit Memo held by CP-5 (QA-117 open), watermark preview until R-1; warning dot, always visible.
+trigger: route load
+files: caos/frontend/src/components/reports/panels.tsx:71
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-15
+concept: Report Studio
+feature: Export to Obsidian vault
+story: As an analyst, I want to write the run to vault so that I integrate it into notes.
+expected: "⬓ EXPORT TO VAULT" (only if runId); POST vault; idle→busy(EXPORTING…, disabled)→done(✓ EXPORTED · N notes)/error(✗); 503 message = vault not configured; other = generic retry.
+trigger: click EXPORT TO VAULT
+files: caos/frontend/src/components/reports/ExportToVaultButton.tsx:22
+endpoint: POST /api/runs/{run_id}/vault
+=END=
+=ROW=
+id: reports-16
+concept: Report Studio
+feature: Vault export not configured (503)
+story: As a sysadmin, I want graceful handling of missing vault config so that users get clear feedback.
+expected: VAULT_EXPORT_DIR unset → 503 "Vault export not configured (set VAULT_EXPORT_DIR)."; client shows message in tooltip + "✗ EXPORT FAILED".
+trigger: click EXPORT TO VAULT when unset
+files: caos/server/routes/runs.py:364
+endpoint: POST /api/runs/{run_id}/vault → 503
+=END=
+=ROW=
+id: reports-17
+concept: Report Studio
+feature: Vault export write error (500)
+story: As a sysadmin, I want alerting if vault dir is misconfigured so that I can fix setup.
+expected: VAULT_EXPORT_DIR set but unwritable (OSError) → 500 "Vault export failed — check VAULT_EXPORT_DIR exists and is writable."; logged; client shows ✗ EXPORT FAILED.
+trigger: click EXPORT TO VAULT when dir unwritable
+files: caos/server/routes/runs.py:370
+endpoint: POST /api/runs/{run_id}/vault → 500
+=END=
+=ROW=
+id: reports-18
+concept: Report Studio
+feature: Rate limit vault exports
+story: As an operator, I want to prevent vault export abuse so that I protect resources.
+expected: >12/min per user → 429 "Vault export rate limit reached — try again in a minute."
+trigger: >12 EXPORT TO VAULT in 60s
+files: caos/server/routes/runs.py:361
+endpoint: POST /api/runs/{run_id}/vault → 429
+=END=
+=ROW=
+id: reports-19
+concept: Report Studio
+feature: Validate run exists before vault export
+story: As an analyst, I want clear feedback exporting a missing run.
+expected: run_id not in DB → 404 "Run not found" before export.
+trigger: EXPORT TO VAULT for deleted/invalid run
+files: caos/server/routes/runs.py:367
+endpoint: POST /api/runs/{run_id}/vault → 404
+=END=
+=ROW=
+id: reports-20
+concept: Report Studio
+feature: Restore workspace state on reload
+story: As an analyst, I want layout prefs to persist so that I don't reconfigure each refresh.
+expected: On mount restores caos-e-active, caos-e-zoom, caos-e-omit, caos-e-edits; before render (no flicker); persists only after hydrated.
+trigger: refresh/reload
+files: caos/frontend/src/app/reports/page.tsx:80
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-21
+concept: Report Studio
+feature: Load Concept D (model) state
+story: As an analyst, I want report figures to reflect my model edits so that changes carry forward.
+expected: On mount reads caos-d-overrides + caos-d-severity; passed to buildReports(modelInputs) to recompute figures; parse fail → defaults (empty overrides, severity 1).
+trigger: page load
+files: caos/frontend/src/app/reports/page.tsx:58
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-22
+concept: Report Studio
+feature: Render report sections dynamically
+story: As an analyst, I want each section type rendered correctly so that tables/text/lists/charts display.
+expected: ReportDoc dispatches by section.t to RDTable/RDProfile/RDText/RDList/RDChart/RDCols; omitted sections filtered before render.
+trigger: select report / toggle section
+files: caos/frontend/src/components/reports/ReportDoc.tsx:177
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-23
+concept: Report Studio
+feature: Render editable text leaves
+story: As an analyst, I want to click any text to edit in place so that I can refine wording.
+expected: editMode → every text leaf contentEditable, onBlur captures, cap 2000 chars, paste→plain text, Esc reverts+blurs; overlay from edits map else original.
+trigger: enable EDIT + click text
+files: caos/frontend/src/components/reports/ReportDoc.tsx:21
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-24
+concept: Report Studio
+feature: Fit preview to width
+story: As an analyst, I want auto-fit so that I don't manually zoom on different screens.
+expected: FIT computes zoom=(availWidth−48)/980, clamp [0.4,1.15]; applied + persists; on-demand only.
+trigger: click FIT
+files: caos/frontend/src/app/reports/page.tsx:134
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-25
+concept: Report Studio
+feature: Count sections and citations
+story: As an analyst, I want report metadata so that I know scope before diving in.
+expected: List shows per-report section count + citation count (citeCount() dedupes evidence ids across srcs).
+trigger: route load / select report
+files: caos/frontend/src/components/reports/panels.tsx:62
+endpoint: none (client-only)
+=END=
+=ROW=
+id: reports-26
+concept: Report Studio
+feature: Committee export endpoint (no UI button)
+story: As an analyst, I want to export a committee-ready report so that I can deliver to IC.
+expected: POST /api/runs/{run_id}/report checks committee_export_allowed; if not Committee Ready → 409 with blocking findings; if allowed → assemble_report(); route exists but UI has no button (only print/vault).
+trigger: POST /api/runs/{run_id}/report (backend-only)
+files: caos/server/routes/runs.py:301
+endpoint: POST /api/runs/{run_id}/report → 200 or 409
+=END=
+=ROW=
+id: reports-27
+concept: Report Studio
+feature: Gate committee export on QA status
+story: As a credit officer, I want to block export of runs failing QA so that only approved packs leave.
+expected: committee_export_allowed true only when committee_status == "Committee Ready"; else 409 with message + status values + CRITICAL/MATERIAL blocking findings.
+trigger: POST report when committee_status != Committee Ready
+files: caos/server/routes/runs.py:317
+endpoint: POST /api/runs/{run_id}/report → 409
+=END=
+=ROW=
+id: monitor-01
+concept: Monitor
+feature: Email Intelligence live intake stream
+story: As an analyst, I want a live stream of emails classified by severity so that I can prioritize material events.
+expected: Panel shows ~105 msgs today in severity tiles (3 critical/11 high/27 medium/64 low/19 deduped/2 unresolved); click tile filters; tiles grow during playback; "LIVE · N msgs today" / "PAUSED".
+trigger: route load (/monitor) autoplay
+files: caos/frontend/src/app/monitor/page.tsx:28; caos/frontend/src/components/command/views.tsx:189
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-02
+concept: Monitor
+feature: Email detail modal
+story: As an analyst, I want full email metadata so that I can assess materiality + routing.
+expected: Modal with envelope (From/To/Time), subject, multiline body, CP-MON footer (issuer/signal/severity/dedup/routing); close button + Esc; severity glyph colors top border.
+trigger: click email row
+files: caos/frontend/src/components/command/views.tsx:126
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-03
+concept: Monitor
+feature: Email severity filter
+story: As an analyst, I want to filter emails to critical/high so that I focus during busy markets.
+expected: Severity tiles clickable; click filters list + caos-selected; click again clears; critical/high/medium/low clickable; dedup/unresolved display-only.
+trigger: click severity tile
+files: caos/frontend/src/components/command/views.tsx:189
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-04
+concept: Monitor
+feature: Alert routing feed
+story: As a PM, I want a real-time feed of routed alerts so that I stay aware of imminent actions.
+expected: Alert Routing (CP-MON-H) list: issuer, alert text, timestamp, severity glyph (pulse on newest), "route → CP-X"; grows during playback; count in header.
+trigger: route load (/monitor) live
+files: caos/frontend/src/app/monitor/page.tsx:70; caos/frontend/src/components/command/views.tsx:261
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-05
+concept: Monitor
+feature: Live simulation playback controls
+story: As a control-room user, I want play/pause/speed so that I can replay or study moments.
+expected: SimControls play/pause + speed (1x/2x/4x); header shows sim clock HH:MM ET; paused freezes counts; playing increments + streams alerts; speed immediate.
+trigger: click play/pause / speed
+files: caos/frontend/src/app/monitor/page.tsx:52
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-06
+concept: Monitor
+feature: Live status indicators
+story: As a trader, I want a clear live/paused indicator so that I'm never confused about current data.
+expected: Dot glyph (caos-running pulse when live) left of "LIVE · N msgs today"; static + "PAUSED" when paused.
+trigger: play/pause state change
+files: caos/frontend/src/app/monitor/page.tsx:62
+endpoint: none (client-only)
+=END=
+=ROW=
+id: monitor-07
+concept: Monitor
+feature: KPI metrics in header
+story: As a head of credit, I want portfolio KPIs in the header so that I get a one-glance health check.
+expected: Header tabular: "Msgs today: 105", "Unresolved: 4" (warning), "Critical: 2" (critical), "Alerts today: N" (accent, increments live).
+trigger: route load (/monitor)
+files: caos/frontend/src/app/monitor/page.tsx:47
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-01
+concept: Research
+feature: Scope toggle (sector vs issuer)
+story: As an analyst, I want to choose sector or issuer scope so that the brief is scoped right.
+expected: Two-button Scope toggle; selected elevated+accent; primary input placeholder updates (sector vs issuer); persists localStorage research-prefs.
+trigger: click sector/issuer
+files: caos/frontend/src/components/shared/ScopeToggle.tsx:11
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-02
+concept: Research
+feature: Research brief primary input
+story: As an analyst, I want to enter the sector/issuer so that the system knows what to search.
+expected: Large input "Sector / theme" or "Issuer"; required (min 2 chars) to enable Run; trimmed; helper "Enter a sector or issuer above to run." when empty (aria-disabled).
+trigger: type subject
+files: caos/frontend/src/app/research/page.tsx:176
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-03
+concept: Research
+feature: Framing fields (audience/decision/timeframe)
+story: As an analyst, I want to specify who/what decision so that the LLM tailors the report.
+expected: Three inputs with defaults (audience "the credit investment committee", decision "position sizing and credit selection", timeframe "the last 12 months to present"); optional, dropped if empty; seeded from prefs post-hydration.
+trigger: mount; edit field
+files: caos/frontend/src/app/research/page.tsx:186
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-04
+concept: Research
+feature: Boundary fields (focus/exclusions)
+story: As an analyst, I want to narrow/exclude topics so that the report stays relevant.
+expected: Two textareas Focus + Exclusions (optional); empty → undefined before submit; resize-y.
+trigger: mount; edit
+files: caos/frontend/src/app/research/page.tsx:193
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-05
+concept: Research
+feature: Investigation criteria textarea
+story: As an analyst, I want custom criteria (one per line) so that the report is grounded in my questions.
+expected: Large textarea grows to fill panel; pre-populated 7 DEFAULT_CRITERIA; on submit split by newline, trimmed, empties filtered; seeded from prefs.
+trigger: mount; edit
+files: caos/frontend/src/app/research/page.tsx:196
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-06
+concept: Research
+feature: AI mode toggle (max/standard/lite)
+story: As an analyst, I want to choose depth/speed so that I balance quality vs time/cost.
+expected: max (latest, high effort)/standard (balanced)/lite (lighter, fast); hint text; selected highlighted; sent as brief.ai_mode; seeded from prefs.
+trigger: click mode; mount
+files: caos/frontend/src/components/shared/AiModeToggle.tsx:16
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-07
+concept: Research
+feature: Demo mode warning banner
+story: As an analyst, I want to know when no LLM key so that I don't mistake canned for live.
+expected: llm_configured=false → yellow banner "Demo mode — No model key configured — runs return a canned example report."; button → "Run example research"; only post-mount.
+trigger: mount; getSettings llm_configured=false
+files: caos/frontend/src/app/research/page.tsx:164
+endpoint: GET /api/settings
+=END=
+=ROW=
+id: research-08
+concept: Research
+feature: Research submission button
+story: As an analyst, I want to submit the brief so that I get a credit report.
+expected: "Run deep research" (or "Run example research"); enabled when subject≥2 & not running; running → "Researching…", greyed, disabled; packages all fields → POST /api/research; polling begins.
+trigger: click Run with valid subject
+files: caos/frontend/src/app/research/page.tsx:202
+endpoint: POST /api/research → then GET /api/research/{id}
+=END=
+=ROW=
+id: research-09
+concept: Research
+feature: Deep research durable job (fire-and-forget)
+story: As backend, I want to accept brief, enqueue, return immediately so that HTTP doesn't timeout on the multi-minute run.
+expected: POST creates ResearchJob (status running, analyst_id, brief JSON), commits, fires to research_executor; returns 201 with id immediately; execution continues server-side.
+trigger: POST /api/research with valid brief
+files: caos/server/routes/research.py:46
+endpoint: POST /api/research → 201
+=END=
+=ROW=
+id: research-10
+concept: Research
+feature: Research polling (durable status)
+story: As client, I want to poll job status so that I update UI when complete.
+expected: GET /api/research/{id} every 2s; status running/complete/failed + report/sources/demo/truncated/error; tolerates up to 10 consecutive transport errors (~20s); 15-min client deadline; complete ends polling.
+trigger: after POST returns {id}
+files: caos/frontend/src/lib/api.ts:222
+endpoint: GET /api/research/{job_id} → 200 or 404
+=END=
+=ROW=
+id: research-11
+concept: Research
+feature: Research running state (progress phases)
+story: As an analyst, I want honest progress so that I know it hasn't hung.
+expected: RunningView 4 phases (Searching sources, Reading filings, Cross-checking figures, Synthesizing); phase advances ~25s each; PhaseDot checkmark/pulse/ring; elapsed HH:MM; "Live web research · typically 2–4 minutes."
+trigger: running=true
+files: caos/frontend/src/components/research/ReportPane.tsx:21
+endpoint: none (client-only timer)
+=END=
+=ROW=
+id: research-12
+concept: Research
+feature: Research error handling
+story: As an analyst, I want a clear error if research fails so that I adjust + retry.
+expected: status=failed or axios error → ErrorView (red border "Research failed") + message + "Adjust the brief and run again."; role=alert.
+trigger: GET reports failed / throws
+files: caos/frontend/src/components/research/ReportPane.tsx:96
+endpoint: GET /api/research/{id} status=failed
+=END=
+=ROW=
+id: research-13
+concept: Research
+feature: Research result display (tear-sheet)
+story: As an analyst, I want the final report as a professional tear-sheet so that I share with IC.
+expected: ResultView renders Markdown (react-markdown+gfm) with custom a/table; masthead "C Deep Credit Research", mode label, date DD-MMM-YYYY; body via ReportBody; footer source count; rdoc-doc tear-sheet CSS.
+trigger: status=complete
+files: caos/frontend/src/components/research/ReportPane.tsx:110
+endpoint: GET /api/research/{id} status=complete
+=END=
+=ROW=
+id: research-14
+concept: Research
+feature: Research sources list
+story: As an analyst, I want all cited web sources so that I click through to primaries.
+expected: "Sources (N)" numbered links; title or URL fallback; open new tab (rel=noreferrer); deduped by URL, order preserved; footer singular/plural.
+trigger: status=complete with sources
+files: caos/frontend/src/components/research/ReportPane.tsx:119
+endpoint: sources from web_search_tool_result
+=END=
+=ROW=
+id: research-15
+concept: Research
+feature: Research truncation warning
+story: As an analyst, I want to know if the report was cut off so that I re-run if needed.
+expected: truncated=true → prepended Markdown banner "Report may be incomplete — research stopped at its continuation/length cap…"; badge LIVE/DEMO never red.
+trigger: last_stop in (pause_turn, max_tokens)
+files: caos/frontend/src/components/research/ReportPane.tsx:184
+endpoint: GET /api/research/{id} truncated=true
+=END=
+=ROW=
+id: research-16
+concept: Research
+feature: Research empty state
+story: As an analyst, I want a preview of report structure so that I know what to expect.
+expected: EmptyView "No report yet" (DRAFT badge) + "The deliverable" list (Executive summary, Detailed findings, Summary tables, Recommendations).
+trigger: result null, not running, no error
+files: caos/frontend/src/components/research/ReportPane.tsx:140
+endpoint: none (client-only)
+=END=
+=ROW=
+id: research-17
+concept: Research
+feature: Research demo report fallback
+story: As implementation, I want a canned report when no LLM key so that the feature is demoable offline.
+expected: llm_configured=false / no ANTHROPIC_API_KEY → _demo_report() (deepresearch_demo.md), demo=true, truncated=false, sources=[]; client shows DEMO badge (yellow).
+trigger: POST with no key; GET poll
+files: caos/server/deepresearch.py:160
+endpoint: GET /api/research/{id} demo=true
+=END=
+=ROW=
+id: research-18
+concept: Research
+feature: Research rate limiting (per-analyst)
+story: As backend, I want to rate-limit research so that no analyst burns token budget.
+expected: POST hit research:{caller.id} max 3 / 60s; exceed → 429 "Deep-research rate limit reached — try again in a minute."; polling GET not limited.
+trigger: 4+ briefs in 60s
+files: caos/server/routes/research.py:53
+endpoint: POST /api/research → 429
+=END=
+=ROW=
+id: research-19
+concept: Research
+feature: Deep research backend execution
+story: As backend, I want to run the job with web_search so that I generate a credit report.
+expected: executor dequeues, run_deep_research builds prompt, calls Claude web_search (up to preset searches), resumes on pause_turn (up to 4), collects sources, renders Markdown, detects truncation, updates job complete; streaming server-side; 529 overload → demote to synth_executor_model.
+trigger: background task dequeues running job
+files: caos/server/deepresearch.py:130
+endpoint: background task updates ResearchJob
+=END=
+=ROW=
+id: research-20
+concept: Research
+feature: Research system prompt (credit lens)
+story: As system, I want credit-focused instructions so that reports are IC-ready.
+expected: SYSTEM_PROMPT: senior buy-side lev-fin researcher; search efficiency, primary-source preference, terse desk prose, GFM output, QC (flag conflicts/low confidence), source labeling, fixed section structure; guards against indirect prompt injection (web content = untrusted data).
+trigger: run_deep_research assembles messages
+files: caos/server/deepresearch.py:76
+endpoint: system prompt to Anthropic API
+=END=
+=ROW=
+id: research-21
+concept: Research
+feature: Research brief schema
+story: As API, I want a structured brief so that the analyst precisely specifies intent.
+expected: ResearchBrief: subject (req 2-300), mode (sector/issuer), ai_mode (max/standard/lite), persona/audience/decision/timeframe defaults, focus/exclusions (max 1000), criteria (max 15), source_directives (max 1000); Pydantic max-length enforced; defaults server-side.
+trigger: POST with brief
+files: caos/server/deepresearch.py:100
+endpoint: POST /api/research
+=END=
+=ROW=
+id: research-22
+concept: Research
+feature: Research model selection (AI modes)
+story: As backend, I want to resolve ai_mode to model/effort/searches so that the choice is honored.
+expected: max→(latest, high, 12); standard→(latest, medium, 8); lite→(synth_executor_model, low, 5); model None→anthropic_model; applied as output effort + tool max_uses.
+trigger: brief.ai_mode resolved
+files: caos/server/deepresearch.py:48
+endpoint: none (server-side)
+=END=
+=ROW=
+id: research-23
+concept: Research
+feature: EDGAR free search & fetch lane
+story: As an analyst, I want to search SEC EDGAR + vault exhibits so that I have primary sources without re-scanning.
+expected: search/filings/exhibits return filing pointers (external · unverified); vault-exhibit ingests one exhibit → Document with chunks (provenance EDGAR · vaulted); 503-gated on EDGAR_USER_AGENT.
+trigger: edgarSearch/Exhibits/VaultExhibit
+files: caos/server/routes/edgar.py:102
+endpoint: GET /api/edgar/search; /exhibits; POST /vault-exhibit; GET /filings/{cik}
+=END=
+=ROW=
+id: research-24
+concept: Research
+feature: EDGAR search endpoint
+story: As an analyst, I want to search EDGAR by name/keyword so that I find relevant docs.
+expected: GET /api/edgar/search?q&forms&limit → FilingHitOut[]; q min 2; optional forms filter; limit default 10 max 50; 30/min; 503 if no UA; 502 on EdgarError.
+trigger: edgarSearch(q, forms?)
+files: caos/server/routes/edgar.py:102
+endpoint: GET /api/edgar/search
+=END=
+=ROW=
+id: research-25
+concept: Research
+feature: EDGAR exhibits list endpoint
+story: As an analyst, I want exhibits in a filing so that I browse/select to vault.
+expected: GET /api/edgar/exhibits?cik&accession → ExhibitOut[] (name, url, doc_label vs CP-4 taxonomy, authority_rank, size); 30/min; 503 if no UA.
+trigger: select filing → browse exhibits
+files: caos/server/routes/edgar.py:138
+endpoint: GET /api/edgar/exhibits
+=END=
+=ROW=
+id: research-26
+concept: Research
+feature: EDGAR vault-exhibit endpoint
+story: As an analyst, I want to vault an exhibit as primary source so that CP-4 can use it.
+expected: POST /api/edgar/vault-exhibit (issuer_id, exhibit_url, doc_type, run_mode) fetches, extracts via markitdown, vaults+chunks → VaultExhibitResponse (document_id, chunks_created, provenance EDGAR · vaulted); 30/min; 503 if no UA.
+trigger: click Vault on exhibit
+files: caos/server/routes/edgar.py:160
+endpoint: POST /api/edgar/vault-exhibit
+=END=
+=ROW=
+id: research-27
+concept: Research
+feature: Research user prefs (localStorage)
+story: As an analyst, I want research defaults to persist so that I don't retype.
+expected: loadPrefs reads caos.research.prefs (corrupt→DEFAULT_PREFS); savePrefs writes (silent fail private mode); page seeds mode/audience/decision/timeframe/criteria/ai_mode post-hydration.
+trigger: mount; Settings save
+files: caos/frontend/src/lib/research-prefs.ts:40
+endpoint: none (localStorage)
+=END=

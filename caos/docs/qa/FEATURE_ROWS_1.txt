@@ -1,0 +1,920 @@
+=ROW=
+id: command-01
+concept: Command Center
+feature: Portfolio Posture Table - Issuer Selection
+story: As a buy-side analyst, I want to click a row in the portfolio table to see detailed metrics so that I can quickly assess issuer-level risk.
+expected: Clicking an issuer row toggles a detail strip at the bottom showing code, name, QA status, 3Y DM, margin, net leverage, interest coverage, M2E, posture. Row highlights. Clicking again closes.
+trigger: Click issuer row in Portfolio Posture table
+files: caos/frontend/src/components/command/views.tsx:85; caos/frontend/src/app/command/page.tsx:114
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-02
+concept: Command Center
+feature: Portfolio Posture Table - Watch Alert Indicator
+story: As a PM/CIO, I want to see which positions have active watch flags so that I can prioritize monitoring.
+expected: Red triangle indicator appears in issuer column for watch=true positions (NWCF, BLHP, QLMH). 3Y DM value for watched positions flashes with color based on tick. Unwatched show blank.
+trigger: Route load; animation during live sim
+files: caos/frontend/src/components/command/views.tsx:94; caos/frontend/src/lib/command/data.ts:26
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-03
+concept: Command Center
+feature: Portfolio Posture Table - Dynamic Sparkline
+story: As a buy-side analyst, I want a 30-day trend sparkline per position's 3Y DM so that I can assess momentum.
+expected: 8-point sparkline renders in 30-Day column. Color: red if dd>5bps, green if dd<-2bps, grey otherwise.
+trigger: Route load
+files: caos/frontend/src/components/command/views.tsx:33; caos/frontend/src/lib/command/data.ts:27
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-04
+concept: Command Center
+feature: Portfolio Posture Table - Conviction Meter
+story: As a PM/CIO, I want to see conviction levels visually so that I can weight analyst alignment.
+expected: 1-5 bar chart in Conv. column using filled/unfilled squares; all 5 levels shown.
+trigger: Route load
+files: caos/frontend/src/components/command/views.tsx:111
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-05
+concept: Command Center
+feature: Portfolio Posture Table - QA Status Tag
+story: As a Head of Research/QA, I want QA clearance status per position so that I know which names have unresolved findings.
+expected: Colored tag in QA column (conditional/clear/stale): critical red, warning orange, muted grey, or success green for clear.
+trigger: Route load
+files: caos/frontend/src/components/command/views.tsx:116
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-06
+concept: Command Center
+feature: Portfolio Posture Table - Alert Count
+story: As a PM/CIO, I want to see which positions have open alerts so that I can respond to developing issues.
+expected: ⚑ column shows open-alert count; warning orange if >0, idle grey else; dash if none.
+trigger: Route load
+files: caos/frontend/src/components/command/views.tsx:117
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-07
+concept: Command Center
+feature: Issuer Detail Strip - Open & Close
+story: As a buy-side analyst, I want to pin a detailed issuer card at screen bottom so that I can keep reference data visible while scanning.
+expected: Clicking a row shows a 48px bottom strip with code, name, QA tag, key metrics. X button closes. Enters with animation.
+trigger: Click issuer row
+files: caos/frontend/src/components/command/views.tsx:411; caos/frontend/src/app/command/page.tsx:142
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-08
+concept: Command Center
+feature: Issuer Detail Strip - Deep Dive Link
+story: As a buy-side analyst, I want to navigate from Command Center to Deep Dive so that I can perform deeper review.
+expected: Strip shows "OPEN DEEP-DIVE →" (mocked for ATLF only) → /deepdive. Non-ATLF shows disabled "deep-dive mocked for ATLF only".
+trigger: Click OPEN DEEP-DIVE for ATLF
+files: caos/frontend/src/components/command/views.tsx:434
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-09
+concept: Command Center
+feature: Portfolio Posture Table - Column Tooltips
+story: As a user, I want to understand abbreviated column headers so that I don't need prior domain knowledge.
+expected: Hover/focus on column headers shows title tooltip (e.g. "3Y DM" → "3-year discount margin (bps)").
+trigger: Hover/focus column header
+files: caos/frontend/src/components/command/views.tsx:54
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-10
+concept: Command Center
+feature: Header KPI Strip - Portfolio Metrics
+story: As a PM/CIO, I want portfolio-level KPIs at a glance so that I can monitor sleeve health.
+expected: Header shows Sleeve NAV ($2.41B), Avg 3Y DM (+504bps), Names (10) as tabular stats; visible at ≥1536px.
+trigger: Route load (responsive)
+files: caos/frontend/src/app/command/page.tsx:77
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-11
+concept: Command Center
+feature: Header KPI Strip - Live Signals
+story: As a PM/CIO, I want real-time watch/QA/alert counts in the header so that I can spot issues without scrolling.
+expected: Header shows Watch (3, red), QA open (5, orange), Alerts today (dynamic). Persistently visible.
+trigger: Route load; alerts update live
+files: caos/frontend/src/app/command/page.tsx:83
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-12
+concept: Command Center
+feature: Monitor Deep Link
+story: As a PM/CIO, I want to navigate to Monitor so that I can see live CP-MON intelligence.
+expected: "→ Monitor" link in Alerts badge navigates to /monitor.
+trigger: Click "→ Monitor"
+files: caos/frontend/src/app/command/page.tsx:85
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-13
+concept: Command Center
+feature: View Toggle - CIO / Research / Sector RV
+story: As a PM/CIO or Head of Research, I want to switch lenses so that I can focus on what's relevant to my role.
+expected: Toggle group switches PORTFOLIO / RESEARCH / SECTOR RV; active tab highlighted; subtitle updates.
+trigger: Click toggle option
+files: caos/frontend/src/app/command/page.tsx:55
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-14
+concept: Command Center
+feature: NL Query - Ask Bar
+story: As a buy-side analyst, I want to ask cross-issuer questions in plain language so that I can find issuers by criteria.
+expected: Input (max 500 chars) with ASK button; Enter submits; disabled if empty or in progress.
+trigger: Type + Enter/ASK
+files: caos/frontend/src/components/command/NlQuery.tsx:227
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-15
+concept: Command Center
+feature: NL Query - Starter Examples
+story: As a new analyst, I want example queries so that I can learn what's supported.
+expected: Three starter query buttons before any result; clicking runs that query immediately. Hidden after result/while loading.
+trigger: Route load
+files: caos/frontend/src/components/command/NlQuery.tsx:248
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-16
+concept: Command Center
+feature: NL Query - Interpretation Display
+story: As a buy-side analyst, I want to see how the system parsed my question so that I can verify intent.
+expected: After success, a "Reading" line shows the system's plain-English interpretation.
+trigger: Successful query
+files: caos/frontend/src/components/command/NlQuery.tsx:270
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-17
+concept: Command Center
+feature: NL Query - Auto-Generated Summary
+story: As a buy-side analyst, I want an NL summary of results so that I get the takeaway without reading the table.
+expected: "Summary" section shows auto-generated narrative of key findings/outliers (narrate()).
+trigger: Successful query
+files: caos/frontend/src/components/command/NlQuery.tsx:277
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-18
+concept: Command Center
+feature: NL Query - Structured Results Table
+story: As a buy-side analyst, I want ranked metric results in a table so that I can compare issuers.
+expected: Table (#, Issuer, metric cols); rows show name, ticker, provenance (CP-1 LIVE/DERIVED/SEEDED), optional QA gate (BLOCKED/RESTRICTED). Pre-ranked server-side by rank_by/direction; headers are not click-to-sort (only Sector RV tables sort).
+trigger: Successful structured query
+files: caos/frontend/src/components/command/NlQuery.tsx:77
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-19
+concept: Command Center
+feature: NL Query - Semantic Results View
+story: As a buy-side analyst, I want excerpted document evidence so that I can review qualitative matches.
+expected: Issuers grouped in static cards (not collapsible) with EVIDENCE badge + excerpts as quotes with doc labels; click label opens CitationViewer.
+trigger: Successful semantic query
+files: caos/frontend/src/components/command/NlQuery.tsx:160
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-20
+concept: Command Center
+feature: NL Query - Citation Chip (Click-to-Source)
+story: As a buy-side analyst, I want to click a citation to read the source chunk so that I can verify.
+expected: Citation chips open modal with issuer, doc type, label, full text, chunk ID; close via Esc/X/backdrop.
+trigger: Click citation chip
+files: caos/frontend/src/components/command/CitationViewer.tsx:14
+endpoint: GET /api/query/chunk/{chunkId}
+=END=
+=ROW=
+id: command-21
+concept: Command Center
+feature: NL Query - Error Handling
+story: As a buy-side analyst, I want clear error messages when a query fails so that I can retry.
+expected: On failure, yellow-bordered alert with warning icon + backend error detail.
+trigger: Query error
+files: caos/frontend/src/components/command/NlQuery.tsx:263
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-22
+concept: Command Center
+feature: NL Query - Auto-Generated Visualization
+story: As a buy-side analyst, I want an auto chart for multi-row results so that I can spot leader/trailer.
+expected: Bar chart for rankable structured results; height adjusts to data (max 280px); rendered by G2Chart.
+trigger: Successful rankable structured query
+files: caos/frontend/src/components/command/NlQuery.tsx:288
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-23
+concept: Command Center
+feature: NL Query - Provenance & QA Gates
+story: As a Head of Research/QA, I want source/QA status per metric so that I know which results are gated.
+expected: Metric cells show provenance pills (CP-1 LIVE/DERIVED/SEEDED) and QA badges (BLOCKED/RESTRICTED).
+trigger: Successful query
+files: caos/frontend/src/components/command/NlQuery.tsx:100
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-24
+concept: Command Center
+feature: NL Query - Caveats & Disclaimers
+story: As a buy-side analyst, I want caveats so that I understand limitations (seed data, qualitative matching).
+expected: Bulleted caveats in small muted text below results when present.
+trigger: Successful query with caveats
+files: caos/frontend/src/components/command/NlQuery.tsx:304
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-29
+concept: Command Center
+feature: Sector Board - Grid of Sector Cards
+story: As a Head of Research, I want all 8 sectors at a glance so that I can see which need refresh.
+expected: 4-col grid of sector cards; each shows name, stance badge (color), trend summary, refresh timestamp + status (UPDATED / REFRESH DUE).
+trigger: Route load (PORTFOLIO)
+files: caos/frontend/src/components/command/views.tsx:285
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-30
+concept: Command Center
+feature: Sector Card - Open Sector Review
+story: As a Head of Research, I want to open a sector to review thesis/refresh so that I can keep analysis current.
+expected: Modal with title+stance, timeframe selector, metrics grid, refresh trace, knowledge sources, thesis+drivers, impacted issuers; close Esc/X.
+trigger: Click sector card
+files: caos/frontend/src/components/command/SectorReview.tsx:40
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-31
+concept: Command Center
+feature: CP-SR Refresh Knowledge
+story: As a Head of Research, I want to refresh a sector's knowledge so that I can capture new developments and re-score issuers.
+expected: "⟳ UPDATE KNOWLEDGE" runs 4 staged steps (~650ms each: CP-0 vault scan, CP-MON search, CP-SR synth, CP-1C re-score); card stamps "UPDATED · time"; button → disabled checkmark; new finding badged "NEW · this refresh".
+trigger: Click UPDATE KNOWLEDGE
+files: caos/frontend/src/components/command/SectorReview.tsx:64; caos/frontend/src/components/command/sections.tsx:32
+endpoint: none (client-only simulated)
+=END=
+=ROW=
+id: command-32
+concept: Command Center
+feature: Coverage Matrix - L1-L6 Freshness Grid
+story: As a Head of Research, I want coverage freshness by layer/issuer so that I know which analyses need re-running.
+expected: 10 issuers × 6 layers grid; cells color-coded (fresh/aging/stale/running-pulse/blocked); hover shows status; per-issuer RE-RUN button.
+trigger: Route load (RESEARCH view)
+files: caos/frontend/src/components/command/views.tsx:342; caos/frontend/src/lib/command/data.ts:142
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-33
+concept: Command Center
+feature: QA Queue Panel
+story: As a Head of Research/QA, I want open QA findings so that I can track and resolve issues.
+expected: Scrollable list; each item shows severity tag (HIGH/MEDIUM/LOW), QA ID, issuer+module, age, finding; ordered by age/severity; read-only.
+trigger: Route load (RESEARCH view)
+files: caos/frontend/src/components/command/views.tsx:374; caos/frontend/src/lib/command/data.ts:156
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-34
+concept: Command Center
+feature: Source Gaps Panel
+story: As a Head of Research, I want requested-but-missing documents so that I can prioritize follow-up.
+expected: Scrollable list; each gap shows severity dot, issuer, document, impact, request date; read-only; ordered by severity/recency.
+trigger: Route load (RESEARCH view)
+files: caos/frontend/src/components/command/views.tsx:392; caos/frontend/src/lib/command/data.ts:164
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-35
+concept: Command Center
+feature: Sector RV - Sheet Tabs
+story: As a buy-side analyst, I want to switch sector peer tables so that I can compare RV across sectors.
+expected: 8 sector tabs (colored dot); active highlighted; click loads peer table, index stats, ratings averages; scroll horizontally on narrow.
+trigger: Click sector tab
+files: caos/frontend/src/components/command/SectorRV.tsx:183
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-36
+concept: Command Center
+feature: Sector RV - Peer Table with Sorting
+story: As a buy-side analyst, I want to sort peer loans by any column so that I can find RV opportunities.
+expected: Multi-column peer table; click any header sorts asc/desc (toggle); active sort shows arrow.
+trigger: Click column header
+files: caos/frontend/src/components/command/SectorRV.tsx:99
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-37
+concept: Command Center
+feature: Sector RV - Liquidity Assessment
+story: As a buy-side analyst, I want spread-implied liquidity per loan so that I can assess execution risk.
+expected: Liquidity column shows 5-level colored chips (High/Normal/OK/Concerning/Impaired); Mid RV shows assessment labels with matching colors.
+trigger: Route load (SECTOR RV)
+files: caos/frontend/src/components/command/SectorRV.tsx:20
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-38
+concept: Command Center
+feature: Sector RV - Price Delta Columns
+story: As a buy-side analyst, I want price changes across timeframes so that I can assess momentum/dislocations.
+expected: 7 delta columns (Δ1D…ΔYTD); green positive/red negative/grey none; 2dp; null shows "—".
+trigger: Route load (SECTOR RV)
+files: caos/frontend/src/components/command/SectorRV.tsx:28
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-39
+concept: Command Center
+feature: Index Statistics Table
+story: As a buy-side analyst, I want Bloomberg US Lev Loan Index stats so that I can benchmark sector performance.
+expected: Sortable index table (MV, Avg Price, 7 deltas, YTM, 3Y DM); click headers sorts; numeric right-aligned.
+trigger: Route load (SECTOR RV, lower)
+files: caos/frontend/src/components/command/SectorRV.tsx:225
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-40
+concept: Command Center
+feature: Sector Ratings Average Table
+story: As a buy-side analyst, I want avg metrics by rating bucket so that I can evaluate rating-based RV.
+expected: Sortable ratings table (B1/B2/B3…) with avg size, margin, bid, ask, 7 deltas, mid YTM, 3Y DM; null "—".
+trigger: Route load (SECTOR RV, lower)
+files: caos/frontend/src/components/command/SectorRV.tsx:262
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-41
+concept: Command Center
+feature: Directory Breadcrumb Link
+story: As a user, I want a back link to Directory so that I can navigate to the issuer list.
+expected: "← Directory" muted link; hover highlights; click → /issuers.
+trigger: Click "← Directory"
+files: caos/frontend/src/app/command/page.tsx:49
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-42
+concept: Command Center
+feature: Concept Navigation
+story: As a user, I want to navigate between concepts so that I can switch tools.
+expected: Compact ConceptNav in header; click navigates to concept page.
+trigger: Click concept link
+files: caos/frontend/src/app/command/page.tsx:53
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-43
+concept: Command Center
+feature: Simulation Clock Display
+story: As a demo user, I want the current sim time so that I understand the time context.
+expected: On ≥1780px, header shows "HH:MM ET" tabular clock tied to useSimRun.
+trigger: Route load
+files: caos/frontend/src/app/command/page.tsx:96
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-44
+concept: Command Center
+feature: Simulation Controls
+story: As a demo user, I want to control sim playback so that I can step/pause to inspect state.
+expected: On ≥1780px, SimControls (play/pause, speed) in header step the sim.
+trigger: Route load
+files: caos/frontend/src/app/command/page.tsx:94
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-45
+concept: Command Center
+feature: Metric Ranking Highlight
+story: As a buy-side analyst, I want the ranked metric highlighted so that I can read results by weight.
+expected: Rank-by column header accent; ranked metric accent + bold (600); provenance pill beside value.
+trigger: Successful structured query
+files: caos/frontend/src/components/command/NlQuery.tsx:49
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-46
+concept: Command Center
+feature: Hybrid Query Results (Metric + Evidence Row)
+story: As a buy-side analyst, I want corroborating excerpts under ranked rows so that I can verify the metric with a quote.
+expected: Sub-row under ranked rows shows clickable doc label (opens CitationViewer) + indented muted quote.
+trigger: Successful structured query with evidence
+files: caos/frontend/src/components/command/NlQuery.tsx:128
+endpoint: POST /api/query/nl
+=END=
+=ROW=
+id: command-47
+concept: Command Center
+feature: Sector Review - Timeframe Selector
+story: As a Head of Research, I want to reframe sector analysis by timeframe so that I see short vs long-term moves.
+expected: Segmented 1W/1M/3M/6M/YTD/1Y; click updates all metrics; active highlighted.
+trigger: Click timeframe in sector modal
+files: caos/frontend/src/components/command/sections.tsx:32
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-48
+concept: Command Center
+feature: Sector Review - Metrics Grid
+story: As a Head of Research, I want key spread metrics so that I can assess sector positioning.
+expected: 4-col grid: Sector DM Δ, vs Lev Loan Index, Dispersion, EW triggers (count colored by ≥3/>0/0); color-coded by direction.
+trigger: Route load / timeframe change in modal
+files: caos/frontend/src/components/command/sections.tsx:78
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-49
+concept: Command Center
+feature: Sector Review - Knowledge Sources List
+story: As a Head of Research, I want searched sources so that I understand the knowledge base.
+expected: List of EXTERNAL/VAULT sources with name, detail, checkmark/pulse; fetched progressively during refresh.
+trigger: Sector refresh in progress/done
+files: caos/frontend/src/components/command/sections.tsx:112
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-50
+concept: Command Center
+feature: Sector Review - Thesis & Drivers
+story: As a Head of Research, I want thesis + drivers so that I can make informed sector judgments.
+expected: Thesis paragraph + 3 driver bullets; after refresh a new finding appended with "NEW · this refresh" badge.
+trigger: Route load / refresh in modal
+files: caos/frontend/src/components/command/sections.tsx:152
+endpoint: none (client-only)
+=END=
+=ROW=
+id: command-51
+concept: Command Center
+feature: Sector Review - Impacted Issuers
+story: As a Head of Research, I want sector impact on held/peer issuers so that I can link sector moves to credit impacts.
+expected: Table lists impacted issuers (HELD accent / PEER muted) with move (ΔDM colored), impact summary, re-score status.
+trigger: Route load / timeframe change in modal
+files: caos/frontend/src/components/command/sections.tsx:177
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-01
+concept: Pipeline
+feature: Directory — Load & Display Issuers
+story: As an analyst, I want to see all issuers when I open the directory so that I can find and work with issuers.
+expected: Paginated issuer table (name, ticker, industry, country, FIGI); header shows total count; demo universe when registry empty or fetch fails; loading spinner.
+trigger: route load /issuers
+files: caos/frontend/src/app/issuers/page.tsx:42
+endpoint: GET /api/issuers/
+=END=
+=ROW=
+id: pipeline-02
+concept: Pipeline
+feature: Directory — Search Issuers
+story: As an analyst, I want to search issuers by name/ticker/industry/country/FIGI so that I can find one quickly.
+expected: Debounced (200ms) server search, case-insensitive; results count in header; clear button when active; empty state if no matches.
+trigger: type query in search box
+files: caos/frontend/src/app/issuers/page.tsx:57
+endpoint: GET /api/issuers/?q=
+=END=
+=ROW=
+id: pipeline-03
+concept: Pipeline
+feature: Directory — Row Click Navigation
+story: As an analyst, I want to click a row to open its deep-dive so that I can see analysis.
+expected: Whole row is a stretched anchor link → /deepdive?issuer={id}; one focusable control per row (WCAG 4.1.2); hover accent.
+trigger: click row or keyboard enter
+files: caos/frontend/src/app/issuers/page.tsx:209
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-04
+concept: Pipeline
+feature: Directory — Upload Documents Button
+story: As an analyst, I want to upload docs for an issuer from its row so that I can add source material fast.
+expected: "+ UPLOAD" per row (z-index above row link) → /upload?issuer={id}; does not trigger row click.
+trigger: click + UPLOAD
+files: caos/frontend/src/app/issuers/page.tsx:230
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-05
+concept: Pipeline
+feature: Directory — Create Issuer Modal
+story: As an analyst, I want to create a new issuer so that I can register a company.
+expected: Modal (name required; ticker/industry/country/FIGI optional); focus trap, Escape closes, scroll-lock; submit shows CREATING…; double-submit guarded; on success closes → /pipeline; error message on failure.
+trigger: click + NEW ISSUER
+files: caos/frontend/src/app/issuers/page.tsx:245
+endpoint: POST /api/issuers/
+=END=
+=ROW=
+id: pipeline-06
+concept: Pipeline
+feature: Directory — Degraded Mode Banner
+story: As an analyst, I want to know when the registry fetch fails so that I know data is demo, not live.
+expected: Alert "Couldn't reach the registry — showing demo coverage, not live data" with RETRY; not shown on empty-but-OK fetch.
+trigger: route load on fetch error
+files: caos/frontend/src/app/issuers/page.tsx:122
+endpoint: GET /api/issuers/ (on error)
+=END=
+=ROW=
+id: pipeline-07
+concept: Pipeline
+feature: Directory — Empty State
+story: As an analyst on a fresh system, I want empty-state guidance so that I know how to start.
+expected: "No issuers yet" panel + explanation + "+ NEW ISSUER"; only when list truly empty.
+trigger: route load with empty registry
+files: caos/frontend/src/app/issuers/page.tsx:186
+endpoint: GET /api/issuers/
+=END=
+=ROW=
+id: pipeline-08
+concept: Pipeline
+feature: Directory — No Search Results State
+story: As an analyst searching, I want to know when no matches.
+expected: "No matches for 'query'" + search-scope explanation + CLEAR SEARCH; distinct from empty-registry.
+trigger: type query with no matches
+files: caos/frontend/src/app/issuers/page.tsx:173
+endpoint: GET /api/issuers/?q=
+=END=
+=ROW=
+id: pipeline-09
+concept: Pipeline
+feature: Pipeline Visualizer — Live Run Detection
+story: As an analyst, I want the CP-X execution graph so that I can monitor module execution.
+expected: Loads live CP-X for ATLF default or ?issuer; if completed run exists shows live, else offline demo sim; header shows run id, issuer, progress bar.
+trigger: route load /pipeline or ?issuer
+files: caos/frontend/src/app/pipeline/page.tsx:24
+endpoint: GET /api/runs/{runId}; GET /api/runs/{runId}/modules/CP-X
+=END=
+=ROW=
+id: pipeline-10
+concept: Pipeline
+feature: Pipeline Visualizer — Graph/Swimlanes Toggle
+story: As an analyst, I want graph vs swimlanes so that I can see the route from different angles.
+expected: DAG / SWIMLANES toggle; preference persisted to localStorage (caos-b-view).
+trigger: click DAG or SWIMLANES
+files: caos/frontend/src/app/pipeline/page.tsx:140
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-11
+concept: Pipeline
+feature: Pipeline Visualizer — Run Mode Selector (Demo)
+story: As an analyst in demo, I want to choose a route template so that I can see different scenarios.
+expected: COMMITTEE/EARNINGS/LEGAL/RV segmented (tooltips); only when offline/demo; selection changes plan + resets selected node.
+trigger: click mode button (demo)
+files: caos/frontend/src/app/pipeline/page.tsx:113
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-12
+concept: Pipeline
+feature: Pipeline Visualizer — Live vs Demo Toggle
+story: As an analyst with a completed run, I want live/offline so that I can compare or fall back.
+expected: LIVE/DEMO toggle only when live run exists; switching clears selected node; hidden if no completed run.
+trigger: click LIVE or DEMO
+files: caos/frontend/src/app/pipeline/page.tsx:100
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-13
+concept: Pipeline
+feature: Pipeline Visualizer — Directory Link
+story: As an analyst, I want to return to the directory so that I can work with another issuer.
+expected: "← Directory" → /issuers.
+trigger: click ← Directory
+files: caos/frontend/src/app/pipeline/page.tsx:93
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-14
+concept: Pipeline
+feature: Pipeline Visualizer — L0 Intake Link
+story: As an analyst, I want to go to Document Intake so that I can add source documents.
+expected: "↑ L0 INTAKE" (tooltip) → /upload.
+trigger: click ↑ L0 INTAKE
+files: caos/frontend/src/app/pipeline/page.tsx:122
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-15
+concept: Pipeline
+feature: Pipeline Visualizer — Execution Progress
+story: As an analyst, I want real-time module progress so that I can track completion.
+expected: Progress bar shows completed/total (e.g. 17/23); width reflects %; updates per module completion; tabular mono.
+trigger: route load / module state change
+files: caos/frontend/src/app/pipeline/page.tsx:132
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-16
+concept: Pipeline
+feature: Pipeline Visualizer — Clearance Verdict Tag
+story: As an analyst, I want overall clearance at a glance so that I know if committee-ready.
+expected: Tag: COMMITTEE READY (green) / RESTRICTED (yellow) / BLOCKED (red) / CP-5 audit in progress (running); derived from QA verdict (live) or CP-5 state (demo).
+trigger: route load / module state change
+files: caos/frontend/src/app/pipeline/page.tsx:137
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-17
+concept: Pipeline
+feature: Pipeline Visualizer — Simulation Controls (Demo)
+story: As an analyst in demo, I want sim control so that I can inspect modules at my pace.
+expected: Play/Pause, Reset, speed 1×/2×/4×; hidden in live; clock shows simulated ET.
+trigger: click controls (demo)
+files: caos/frontend/src/app/pipeline/page.tsx:138
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-18
+concept: Pipeline
+feature: Pipeline Visualizer — Dim Completed Nodes
+story: As an analyst, I want to dim completed modules so that I can focus on in-progress work.
+expected: "DIM ✓" toggle dims pass-state modules to 0.32 opacity except when selected; active border/bg when on.
+trigger: click DIM ✓
+files: caos/frontend/src/app/pipeline/page.tsx:148
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-19
+concept: Pipeline
+feature: Graph View — DAG Visualization
+story: As an analyst, I want the route as a DAG so that I can understand data flow.
+expected: SVG (1490×596) renders 25 nodes in 9 columns with bezier edges; node shows status dot, id, QA/limitation/hold icons, progress bar; edge colors upstream cyan/downstream purple/idle gray; out-of-scope dashed.
+trigger: route load (graph view)
+files: caos/frontend/src/components/pipeline/views.tsx:38
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-20
+concept: Pipeline
+feature: Graph View — Node Selection & Lineage
+story: As an analyst, I want to click a node to highlight up/downstream so that I can trace dependencies.
+expected: Click selects (accent border, z-10); upstream accent 95%, downstream purple 95%, unrelated dim 16%; double-click opens outputs; click again deselects.
+trigger: click node
+files: caos/frontend/src/components/pipeline/views.tsx:38
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-21
+concept: Pipeline
+feature: Swimlanes View — Column Layout
+story: As an analyst, I want modules in 9 layer columns so that I understand the sequence.
+expected: 9 columns (L0/ORCH/L1/L2/L3/L4/L5/L6/INFRA) with headers; modules listed vertically, scrollable; out-of-scope dashed.
+trigger: route load (swimlanes view)
+files: caos/frontend/src/components/pipeline/views.tsx:127
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-22
+concept: Pipeline
+feature: Swimlanes View — Module Cards
+story: As an analyst, I want each module as a card so that I can inspect without opening detail.
+expected: Card shows status dot (pulse if running), id, status label, name, progress, QA/limitation tags; click selects+highlights; out-of-scope 25% opacity + "skip".
+trigger: route load (swimlanes view)
+files: caos/frontend/src/components/pipeline/views.tsx:127
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-23
+concept: Pipeline
+feature: Module Inspector — Empty State
+story: As an analyst with no selected module, I want guidance so that I know what to do.
+expected: Instruction text "Select a module…" + current route info (e.g. "COMMITTEE route · 21 modules in scope").
+trigger: route load (no module selected)
+files: caos/frontend/src/components/pipeline/views.tsx:206
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-24
+concept: Pipeline
+feature: Module Inspector — Module Detail
+story: As an analyst with a selected module, I want its metadata/dependencies so that I understand its role.
+expected: Shows id+name, state tag, description, upstream inputs, downstream consumers; root/terminal node notes.
+trigger: click node
+files: caos/frontend/src/components/pipeline/views.tsx:219
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-25
+concept: Pipeline
+feature: Module Inspector — Payload Event
+story: As an analyst, I want the latest payload event so that I understand what it produced.
+expected: "Latest payload" section with event text for pass/warning/held; from run plan or live module data.
+trigger: select module with event
+files: caos/frontend/src/components/pipeline/views.tsx:250
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-26
+concept: Pipeline
+feature: Module Inspector — QA Finding
+story: As an analyst, I want module QA findings so that I understand what blocks clearance.
+expected: "QA finding · CP-5" section with severity tag, finding id, description; only in-scope modules with finding.
+trigger: select module with QA finding
+files: caos/frontend/src/components/pipeline/views.tsx:256
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-27
+concept: Pipeline
+feature: Module Inspector — Propagated Limitation
+story: As an analyst, I want limitations that affect a module so that I know data gaps/caveats.
+expected: "Propagated limitation · CP-X-06" section with description; from NODE_LIMITS.
+trigger: select module with limitation
+files: caos/frontend/src/components/pipeline/views.tsx:263
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-28
+concept: Pipeline
+feature: Module Inspector — Required Documents
+story: As an analyst, I want what's needed to clear a warning/hold so that I can coordinate remediation.
+expected: "Required to clear {state}" lists each requirement: document, why-text, tag (missing/open/requested/gated) color-coded.
+trigger: select degraded in-scope module
+files: caos/frontend/src/components/pipeline/views.tsx:269
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-29
+concept: Pipeline
+feature: Module Inspector — Out-of-Scope Notice
+story: As an analyst, I want to know when a module is out-of-scope so that I understand why skipped.
+expected: Gray banner "Out of scope for the {route} route — CP-X skipped … inherit from last full-committee run (#2641)."
+trigger: select out-of-scope module
+files: caos/frontend/src/components/pipeline/views.tsx:241
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-30
+concept: Pipeline
+feature: Data Lineage Panel — Material Drivers
+story: As an analyst, I want top-5 material drivers so that I understand key credit levers.
+expected: Driver cards (#1–#5): name, lineage path, status tag (verified/open), confidence bar (green>70%/yellow≤70%) + %; clickable to highlight module.
+trigger: route load / select module
+files: caos/frontend/src/components/pipeline/views.tsx:324
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-31
+concept: Pipeline
+feature: Data Lineage Panel — Evidence Sources
+story: As an analyst, I want cited source docs per driver so that I can audit lineage.
+expected: Evidence chips (e.g. E-44) per driver if evs present; click opens EvidenceModal.
+trigger: driver card has evs
+files: caos/frontend/src/components/pipeline/views.tsx:346
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-32
+concept: Pipeline
+feature: Data Lineage Panel — Driver Selection
+story: As an analyst, I want to click a driver to highlight its module so that I can jump to source.
+expected: Click invokes onPick → highlights module from lineage regex /CP-[0-9A-Z]+/.
+trigger: click driver card
+files: caos/frontend/src/app/pipeline/page.tsx:75
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-33
+concept: Pipeline
+feature: Event Log — Orchestrator Trace
+story: As an analyst, I want timestamped orchestrator events so that I can debug execution.
+expected: Scrollable 200px log; each event shows timestamp, sev dot, text; newest at top; first animates; "Awaiting run start…" if empty.
+trigger: route load / module state change
+files: caos/frontend/src/components/pipeline/views.tsx:363
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-34
+concept: Pipeline
+feature: Evidence Modal — Citation Lookup
+story: As an analyst, I want to open a source behind an evidence chip so that I can verify a claim.
+expected: Modal opens from evidence chip (EvidenceModal, reports data); close backdrop/close button.
+trigger: click evidence chip
+files: caos/frontend/src/app/pipeline/page.tsx:41
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-35
+concept: Pipeline
+feature: Concept Navigation
+story: As an analyst, I want to jump between concepts so that I can navigate the app.
+expected: ConceptNav in sub-header; compact in pipeline, full in issuers.
+trigger: click concept link
+files: caos/frontend/src/app/pipeline/page.tsx:97
+endpoint: none (client-only)
+=END=
+=ROW=
+id: pipeline-36
+concept: Pipeline
+feature: Run Creation via API
+story: As an analyst, I want to launch a new CP-X run so that I can analyze an issuer.
+expected: POST /api/runs creates queued run → RunSummary; rate-limited 12/min; blocks duplicate active run (409); 404 if issuer missing; persisted before enqueue.
+trigger: create run
+files: caos/server/routes/runs.py:168
+endpoint: POST /api/runs
+=END=
+=ROW=
+id: pipeline-37
+concept: Pipeline
+feature: List Runs with Pagination
+story: As an analyst, I want to list runs so that I can find a previous analysis.
+expected: GET /api/runs newest-first; optional issuer_id filter; default limit 200, max 1000.
+trigger: query runs
+files: caos/server/routes/runs.py:203
+endpoint: GET /api/runs
+=END=
+=ROW=
+id: pipeline-38
+concept: Pipeline
+feature: Get Run Detail
+story: As an analyst, I want to inspect a run so that I can see modules and verdict.
+expected: GET /api/runs/{runId} → RunSummary (status, qa_status, committee_status, modules…); 404 if not found.
+trigger: pipeline loads live run
+files: caos/server/routes/runs.py:222
+endpoint: GET /api/runs/{runId}
+=END=
+=ROW=
+id: pipeline-39
+concept: Pipeline
+feature: Get Module Detail
+story: As an analyst, I want a module's output so that I can see claims and evidence.
+expected: GET /api/runs/{runId}/modules/{moduleId} → ModuleDetail (runtime_output, confidence, qa/committee/validation status, claims[]+evidence[]); 404 if missing.
+trigger: pipeline/deepdive loads live run
+files: caos/server/routes/runs.py:234
+endpoint: GET /api/runs/{runId}/modules/{moduleId}
+=END=
+=ROW=
+id: pipeline-40
+concept: Pipeline
+feature: Get QA Report
+story: As an analyst, I want run QA findings so that I know what blocks clearance.
+expected: GET /api/runs/{runId}/qa → QAReport (qa_status, committee_status, findings_by_severity, findings[]); 404 if missing.
+trigger: deepdive QA view / pipeline inspector
+files: caos/server/routes/runs.py:279
+endpoint: GET /api/runs/{runId}/qa
+=END=
+=ROW=
+id: pipeline-41
+concept: Pipeline
+feature: Get Issuer by ID
+story: As an analyst, I want one issuer so that I can label page chrome.
+expected: GET /api/issuers/{id} → IssuerResponse; 404 if not found.
+trigger: deepdive page load ?issuer
+files: caos/server/routes/issuers.py:107
+endpoint: GET /api/issuers/{issuer_id}
+=END=
+=ROW=
+id: pipeline-42
+concept: Pipeline
+feature: List Issuer Documents
+story: As an analyst, I want documents per issuer so that I can track what's ingested.
+expected: GET /api/issuers/{id}/documents ordered by uploaded_at desc; default 200, max 1000; each shows doc_type, run_mode, file_name, uploaded_at, fiscal_period.
+trigger: upload page / admin
+files: caos/server/routes/issuers.py:119
+endpoint: GET /api/issuers/{issuer_id}/documents
+=END=
+=ROW=
+id: pipeline-43
+concept: Pipeline
+feature: Status Indicators — Module States
+story: As an analyst, I want module state at a glance so that I understand progress.
+expected: Color dot+label: idle gray, running cyan+pulse, pass green, warning/held yellow, blocked red; progress bar reflects state.
+trigger: route load / module state change
+files: caos/frontend/src/components/pipeline/atoms.tsx:8
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-44
+concept: Pipeline
+feature: Scope Filtering
+story: As an analyst, I want to see in-scope modules so that I know what was analyzed.
+expected: Out-of-scope dashed border, reduced opacity, gray, "skip" in swimlanes; in-scope solid + full opacity.
+trigger: route mode change (demo) / live run load
+files: caos/frontend/src/components/pipeline/views.tsx:87
+endpoint: none (derived)
+=END=
+=ROW=
+id: pipeline-45
+concept: Pipeline
+feature: Double-Click Module → Output
+story: As an analyst, I want to double-click a module to open its output so that I can dive deeper.
+expected: Double-click → /deepdive?mod={id} (L1–L6), /reports (INFRA), /upload (CP-0).
+trigger: double-click node
+files: caos/frontend/src/app/pipeline/page.tsx:83
+endpoint: none (client-only)
+=END=
