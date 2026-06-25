@@ -628,3 +628,113 @@ trigger: settings load
 files: caos/frontend/src/app/settings/page.tsx:22
 endpoint: GET /api/auth/me; GET /api/settings
 =END=
+=ROW=
+id: shell-10
+concept: Shell
+feature: Per-route error boundary
+story: As an analyst, I want a broken view to stay recoverable so that one failing pane never blanks the whole workspace.
+expected: A render/data exception in any route segment renders error.tsx (role=alert card, "Something broke on this view", Retry → reset()); the root layout/chrome stays mounted; error logged to console (no external tracker by policy); error.digest shown as "ref …" when present.
+trigger: route render throws
+files: caos/frontend/src/app/error.tsx:11
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-11
+concept: Shell
+feature: Root error boundary (global-error)
+story: As an analyst, I want a fatal layout crash to still show a branded recovery surface so that I never hit a raw white screen.
+expected: A failure in the root layout itself renders global-error.tsx, which supplies its own <html>/<body> with inline CAOS-palette styles (renders even if the CSS pipeline is gone); shows "Fatal error / The workspace failed to load", a Try again button (reset()), and "ref …" when error.digest is present.
+trigger: root layout throws
+files: caos/frontend/src/app/global-error.tsx:8
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-12
+concept: Shell
+feature: Custom 404 (not-found)
+story: As an analyst, I want an unknown URL to land on a CAOS page so that I can get back to work instead of seeing a stock error.
+expected: An unmatched route renders not-found.tsx ("404 / No such view", explanatory copy) with a Link href="/" "Back to Command Center"; server component, no interactivity.
+trigger: navigate to a non-existent route
+files: caos/frontend/src/app/not-found.tsx:7
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-26
+concept: Upload
+feature: Optional malware scan (ClamAV)
+story: As a security owner, I want uploads scanned for malware so that an infected file is rejected before it is parsed or vaulted.
+expected: When CLAMAV_HOST is set, every document/pricing-sheet upload is streamed to clamd via INSTREAM before parsing; a signature hit → 422 (with sig name); an unreachable/timed-out/inconclusive scanner fails CLOSED → 503 (never silently passes); when CLAMAV_HOST is unset the scan is a no-op; blocking socket I/O runs off-thread.
+trigger: POST /api/ingestion/upload/document or /upload/pricing-sheet
+files: caos/server/avscan.py:81
+endpoint: POST /api/ingestion/upload/document; POST /api/ingestion/upload/pricing-sheet
+=END=
+=ROW=
+id: auth-12
+concept: Auth
+feature: Logout revokes all sessions
+story: As an analyst, I want logout to sign me out everywhere so that a lost or copied cookie can't keep a session alive.
+expected: POST /api/auth/logout bumps the analyst's token_version (invalidating every existing token, this device and any other, on its next request) and clears the cookie; reads the cookie directly (not via get_identity) so it still revokes + 204s even on a stale/absent/otherwise-rejected cookie.
+trigger: click Logout
+files: caos/server/routes/auth.py:162
+endpoint: POST /api/auth/logout
+=END=
+=ROW=
+id: auth-13
+concept: Auth
+feature: Token-version revocation enforcement
+story: As the platform, I want every request to re-check the session's revocation epoch so that a revoked token stops working immediately.
+expected: The signed cookie carries the analyst's token_version ("v") at mint; identity.get_identity accepts a profile cookie only when analyst.token_version == data.get("v",0); a stale/revoked token, a missing row (e.g. GDPR-erased analyst), or a legacy token vs a bumped row falls through to header/dev identity (re-login). Column added by migration 0011.
+trigger: any authenticated request
+files: caos/server/identity.py:163
+endpoint: GET /api/auth/me (and all gated endpoints)
+=END=
+=ROW=
+id: auth-14
+concept: Auth
+feature: Self-service GDPR erase
+story: As an analyst, I want to delete my own data so that I can exercise the right to be forgotten.
+expected: DELETE /api/auth/profile erases the caller's own profile PII (name+email) and private Deep Research jobs, anonymizes their attribution on shared runs/uploaded documents (firm work product kept, de-linked), clears the cookie, and returns {erased: row-counts}; only ever touches the caller's own data, so needs no admin role.
+trigger: self-service erase
+files: caos/server/routes/auth.py:182
+endpoint: DELETE /api/auth/profile
+=END=
+=ROW=
+id: auth-15
+concept: Auth
+feature: Operator GDPR erase CLI
+story: As an operator, I want to erase a departed analyst by email so that someone who can no longer sign in is still GDPR-erasable.
+expected: `python -m erase_analyst <email>` runs the same erasure operator-initiated (resolves email→analyst id, falls back to the email itself for proxy-stamped rows), prints the row counts touched, exit 0; no/blank/extra args → usage to stderr, exit 2; runs inside the container (shell access already privileged) so it needs no auth of its own.
+trigger: operator runs the module
+files: caos/server/erase_analyst.py:36
+endpoint: none (CLI)
+=END=
+=ROW=
+id: query-14
+concept: Query
+feature: Metric catalog dictionary
+story: As an analyst, I want the metric dictionary so that the UI can label, unit, and orient every metric consistently.
+expected: GET /api/query/catalog returns {metrics: [...]} — each entry's key, label, unit, polarity (good-is-high/low), and description; read-rate-limited; auth-gated. Backs metric labelling/NL-spec validation across Query/Command.
+trigger: query/command surfaces request metric metadata
+files: caos/server/routes/query.py:50
+endpoint: GET /api/query/catalog
+=END=
+=ROW=
+id: upload-27
+concept: Upload
+feature: EDGAR issuer filings list
+story: As an analyst, I want an issuer's recent SEC filings so that I can pick a covenant-bearing document to import.
+expected: GET /api/edgar/filings/{cik} returns recent filings as pointer hits (cik, accession, form, filed_date, title, primary_doc, source_url; provenance=pointer); optional forms= CSV filter (split to a list); limit Query(1..100, default 25) → 422 outside range; 503 if EDGAR_USER_AGENT unset; rate-limited per caller; upstream EdgarError → 502.
+trigger: EDGAR import drilldown by CIK
+files: caos/server/routes/edgar.py:121
+endpoint: GET /api/edgar/filings/{cik}
+=END=
+=ROW=
+id: shell-13
+concept: Shell
+feature: Health / readiness probe
+story: As an operator, I want a readiness endpoint so that the proxy/healthcheck only routes traffic when the app can actually serve.
+expected: GET /api/health probes the DB (SELECT 1) → 200 {status, version, llm: configured|demo-fallback, db: ok} when ready; a DB error returns 503 {status: degraded, db: error} so the Docker healthcheck/gate holds traffic; no auth required (infra probe).
+trigger: container healthcheck / proxy gate
+files: caos/server/routes/health.py:24
+endpoint: GET /api/health
+=END=

@@ -5,23 +5,24 @@ story with code-derived expected behaviour, tracked in one canonical sheet,
 tested on a live isolated stack, and the UX defects found were fixed and
 re-tested.
 
-- **Canonical tracker:** [`FEATURE_TRACKER.csv`](FEATURE_TRACKER.csv) — 291
-  stories, one row each: `id, concept, feature, story, expected, trigger, files,
-  endpoint, status, test_result, severity, notes`.
+- **Canonical tracker:** [`FEATURE_TRACKER.csv`](FEATURE_TRACKER.csv) — **302**
+  stories (291 first sweep + 8 post-sweep features + 3 endpoint-inventory finds,
+  added 2026-06-26), one row each: `id, concept, feature, story, expected,
+  trigger, files, endpoint, status, test_result, severity, notes`.
 - **Source of truth for the rows:** [`FEATURE_ROWS_1..4.txt`](.) (raw blocks) →
   [`build_tracker.py`](build_tracker.py) (→ CSV) →
   [`apply_test_results.py`](apply_test_results.py) (stamps test verdicts).
   Re-run both scripts to regenerate the CSV.
 
-## Coverage (291 stories across 12 concept areas)
+## Coverage (302 stories across 12 concept areas)
 
 | Concept | Stories | Concept | Stories |
 |---|--:|---|--:|
 | Command Center | 47 | Research | 27 |
-| Pipeline | 45 | Upload | 25 |
-| Model Builder | 42 | Query | 13 |
-| Deep-Dive | 33 | Auth | 11 |
-| Report Studio | 27 | Shell (nav/identity/evidence-sync) | 9 |
+| Pipeline | 45 | Upload | 27 |
+| Model Builder | 42 | Query | 14 |
+| Deep-Dive | 33 | Auth | 15 |
+| Report Studio | 27 | Shell (nav/identity/evidence-sync) | 13 |
 | Monitor | 7 | Settings | 5 |
 
 ## Test environment
@@ -89,6 +90,67 @@ backend endpoint against the live `:8010` stack; then a skeptic agent tried to
 
 No correctness/security/data defects surfaced. Static layer, whole-repo:
 `pytest` 360/2 · `tsc` ✓ · `eslint src` ✓ · `ruff` ✓ · **axe-core WCAG 0 violations × 12 routes**.
+
+## Iteration 2 — post-sweep feature delta (2026-06-26)
+
+Four commits landed after the first sweep (`1324352`); a recursive discovery pass
+found **8 user-facing features with no tracker row**. All were added (291→299),
+each tied to its backing test:
+
+| ID | Concept | Feature | Backing test |
+|---|---|---|---|
+| `shell-10` | Shell | Per-route error boundary (`error.tsx`) | `src/app/error-surfaces.test.tsx` (new) |
+| `shell-11` | Shell | Root error boundary (`global-error.tsx`) | `src/app/error-surfaces.test.tsx` (new) |
+| `shell-12` | Shell | Custom 404 (`not-found.tsx`) | `src/app/error-surfaces.test.tsx` (new) |
+| `upload-26` | Upload | Optional ClamAV malware scan | `test_avscan.py` (8) |
+| `auth-12` | Auth | Logout revokes all sessions (token_version bump) | `test_token_revocation.py` |
+| `auth-13` | Auth | Token-version revocation enforcement | `test_identity.py::test_revoked_token_version_rejected` |
+| `auth-14` | Auth | Self-service GDPR erase (`DELETE /api/auth/profile`) | `test_gdpr_erase.py` |
+| `auth-15` | Auth | Operator GDPR erase CLI (`erase_analyst.py`) | `test_gdpr_erase.py::test_erase_by_email_resolves_id_then_erases` |
+
+The three error surfaces had **no test** — added the smallest render check
+(`error-surfaces.test.tsx`, static server-render, asserts role/copy/recovery
+action for each). The other five already shipped with dev-written backend tests;
+this pass confirmed each covers the documented behaviour and stamped the verdict.
+
+**Regression:** `pytest` 377/2 · `vitest` 197/25 files · `tsc` ✓ · `eslint` ✓.
+No defects found this iteration; all 299 stories **Pass**.
+
+## Iteration 3 — endpoint-inventory discovery (2026-06-26)
+
+Re-entered the loop with a stricter discovery method: enumerated **every FastAPI
+route decorator** (prefix + path) and diffed against the tracker's `endpoint`
+column. Two camelCase false positives aside, **3 endpoints had no story** (299→302):
+
+| ID | Concept | Endpoint | Backing test |
+|---|---|---|---|
+| `query-14` | Query | `GET /api/query/catalog` (metric dictionary) | `test_nlquery.py::test_catalog_endpoint` |
+| `upload-27` | Upload | `GET /api/edgar/filings/{cik}` (issuer filings) | `test_edgar.py` (**new** — 3 cases) |
+| `shell-13` | Shell | `GET /api/health` (readiness probe) | `test_api.py::test_health` |
+
+`GET /api/edgar/filings/{cik}` had **no test** — added 3 (503 without UA; returns
+pointer hits + forwards forms/limit; rejects limit 0/101 → 422). Catalog and health
+were already covered; documented + stamped.
+
+**Convergence check:** re-ran the route↔tracker diff → **0 undocumented endpoints**
+(29 unique routes, all mapped). Frontend pages (12) and CLI modules
+(`erase_analyst`) also fully covered.
+
+**Regression:** `pytest` **380/2** · `vitest` 197/25 files · `tsc` ✓ · `eslint` ✓.
+No defects; all 302 stories **Pass**.
+
+## Phase-6 exit criteria — status (end of Iteration 3)
+
+| Criterion | Status |
+|---|---|
+| No undiscovered features | ✅ route↔tracker diff = 0; pages + CLI mapped |
+| No failing tests | ✅ backend 380/2, frontend 197/25 |
+| No critical defects | ✅ none open |
+| No high-severity defects | ✅ none open |
+| No unresolved UX issues | ✅ prior 3 Low all fixed/dispositioned; none new |
+| No incomplete user journeys | ✅ all concept journeys exercised in sweeps 1–3 |
+
+All six hold → the recursive loop has reached a fixed point for the current tree.
 
 ## Verdict
 
