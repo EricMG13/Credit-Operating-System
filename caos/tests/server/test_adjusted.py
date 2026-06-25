@@ -155,3 +155,36 @@ def test_run_folds_reconciliation_into_cp1_and_factpack_is_cp1a(client):
     assert recon_f and recon_f[0]["severity"] == "MINOR"
     # An informational add-back finding must not by itself escalate the gate.
     assert qa["findings_by_severity"]["CRITICAL"] == 0
+
+
+# ── L-2: add-back caller maps the schema-validated extraction model ───────────
+@pytest.mark.asyncio
+async def test_llm_addbacks_maps_validated_model(monkeypatch):
+    """_llm_addbacks now consumes a validated _AddbackExtract (not a raw dict):
+    it reads typed attrs and applies only the domain range itself."""
+    import engine.adjusted as adj
+
+    async def fake_extract(retrieve, *, query, k, system, schema=None):
+        assert schema is adj._AddbackExtract  # the caller opts into the typed boundary
+        model = schema.model_validate(
+            {"addback_pct": 0.18, "categories": ["synergies", "run-rate"], "chunk_id": "c1"}
+        )
+        return model, [SimpleNamespace(chunk_id="c1")]
+
+    monkeypatch.setattr(adj, "extract_json", fake_extract)
+    pct, cats, chunk_id, exact = await adj._llm_addbacks(lambda q, k=6: [])
+    assert pct == 0.18 and cats == ["synergies", "run-rate"]
+    assert chunk_id == "c1" and exact is True
+
+
+@pytest.mark.asyncio
+async def test_llm_addbacks_rejects_out_of_range_pct(monkeypatch):
+    """An in-shape but out-of-range pct (>1) is the caller's domain check, not the
+    schema's — it must still degrade to None (→ deterministic fallback)."""
+    import engine.adjusted as adj
+
+    async def fake_extract(retrieve, *, query, k, system, schema=None):
+        return schema.model_validate({"addback_pct": 1.5}), [SimpleNamespace(chunk_id="c1")]
+
+    monkeypatch.setattr(adj, "extract_json", fake_extract)
+    assert await adj._llm_addbacks(lambda q, k=6: []) is None

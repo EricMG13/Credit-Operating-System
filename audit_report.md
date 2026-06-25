@@ -219,16 +219,19 @@ is baked today. Add it anyway as belt-and-suspenders in case the context ever
 widens. (No ChromaDB/FAISS stores exist — retrieval is in-Postgres BM25,
 [retrieval.py](caos/server/retrieval.py) — so that part of the checklist is N/A.)
 
-### [ ] L-2 — `extract_json` returns a raw `json.loads` dict, not a Pydantic model — DEFERRED
-**DEFERRED (won't-fix as specced):** an initial `isinstance(parsed, dict)` guard was
-added, then **reverted** — adversarial review proved it was unreachable dead code:
-the parse is `json.loads` of a `\{.*\}` regex match, which is always a JSON object
-(→ dict) or raises (which callers' try/except already handle by design). A full
-Pydantic-model-per-extractor stays optional — the callers already do domain
-validation + `safe_chunk_id` gating, so the marginal value is low and not worth the
-per-extractor schema. No code change ships for L-2.
+### [x] L-2 — `extract_json` returns a raw `json.loads` dict, not a Pydantic model
+**RESOLVED:** `extract_json` gained an **opt-in** `schema=<PydanticModel>` param —
+when passed, the reply is validated at the boundary and the validated model is
+returned (a shape/type mismatch degrades to None, same as a no-JSON reply); without
+it the raw-dict contract is unchanged. The add-back extractor (`engine/adjusted.py`)
+adopts it via `_AddbackExtract`, so the type-checks (`isinstance`/coercion) move to
+the schema while the domain range (`0 < pct < 1`) stays in the caller — it's a real
+adopter, not a speculative param. (An earlier unreachable `isinstance(parsed, dict)`
+guard was reverted; the covenant extractor keeps its working manual validation —
+migrate later if desired.)
 
-**File:** [`engine/llm_safety.py:91`](caos/server/engine/llm_safety.py:91)
+**Files:** [`engine/llm_safety.py:57`](caos/server/engine/llm_safety.py:57) ·
+[`engine/adjusted.py` `_AddbackExtract`](caos/server/engine/adjusted.py:94)
 
 The shared document→LLM extractor parses the first `{...}` from the reply and
 returns the raw dict; callers do their own domain validation + `safe_chunk_id`
@@ -254,7 +257,7 @@ extractor for parity with the synth path.
 | B2 | Non-root execution | ✅ PASS | `USER caos` uid 10001 + `cap_drop: ALL` + `read_only` ([Dockerfile:44](caos/deploy/Dockerfile:44), [docker-compose.yml:46](caos/deploy/docker-compose.yml:46)) |
 | B3 | Strict `.dockerignore` (`.env`, `.git`, vectors, `__pycache__`) | ✅ PASS | `.env*`/`.venv`/`__pycache__`/local data excluded; `.git` now listed too (**L-1 fixed**) |
 | C1 | Least-privilege tool fencing | ✅ PASS | No LLM lane has DB-write / filesystem / shell tools. Only read-only `web_search` server tool (deep research); synth's only tool is an **output** emitter |
-| C2 | Pydantic guardrails on inputs **and** outputs | ✅ PASS | Inputs: `ChatRequest`/`ResearchBrief` constrained ([chat.py:27](caos/server/routes/chat.py:27)). Outputs: forced-tool + `validate_payload` + one-shot repair (synth). Minor: **L-2** |
+| C2 | Pydantic guardrails on inputs **and** outputs | ✅ PASS | Inputs: `ChatRequest`/`ResearchBrief` constrained ([chat.py:27](caos/server/routes/chat.py:27)). Outputs: forced-tool + `validate_payload` + one-shot repair (synth); `extract_json` opt-in `schema=` boundary validation (**L-2 fixed**) |
 | C3 | Network isolation (no agent port public) | ✅ PASS | App has **no** `ports:`; reachable only via oauth2-proxy on `internal` net ([docker-compose.yml:72](caos/deploy/docker-compose.yml:72)) |
 | D1 | Agentic tracing (not `print()`) | ✅ PASS | Structured `caos.llm` JSON line per inference (run_id/lane/model/tokens/ms/stop) via the `llm_client` seam (**M-1 fixed**) |
 | D2 | Automated fallback model on rate limit | ✅ PASS | `llm_client.create` retries on `synth_executor_model` on 429/529; deep-research stream downgrades too (**M-2 fixed**) |
@@ -299,8 +302,8 @@ extractor for parity with the synth path.
    (persisted `ResearchJob` + `research_executor` + poll endpoint + create-poll frontend).
 5. ~~**M-4** — guard the default `analyst_signup_code` in production.~~ **DONE**
    (loud prod warning).
-6. ~~**L-1** — defensive `.git` ignore.~~ **DONE**. **L-2** — DEFERRED (the proposed
-   guard was unreachable dead code; callers already domain-validate — see L-2).
+6. ~~**L-1** — defensive `.git` ignore.~~ **DONE**. ~~**L-2** — Pydantic-validate
+   `extract_json`.~~ **DONE** (opt-in `schema=`, adopted by the add-back extractor).
 
 **Verification (MEDIUM/LOW round):** new seam centralizes every plain
 `messages.create` in `engine/llm_client.py` (M-1 trace + M-2 fallback);

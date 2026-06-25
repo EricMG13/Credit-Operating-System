@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Type
+
+from pydantic import BaseModel, ValidationError
 
 from config import get_settings
 from engine import budget, llm_client
@@ -61,16 +63,23 @@ async def extract_json(
     k: int,
     system: str,
     max_tokens: int = 400,
-) -> Optional[Tuple[dict, list]]:
+    schema: Optional[Type[BaseModel]] = None,
+) -> Optional[Tuple[object, list]]:
     """Document-grounded JSON extraction — the shared scaffold behind the
     deterministic-fallback extractors (CP-1A add-backs, CP-4C covenant terms, …).
 
     Retrieves ``k`` chunks for ``query``, presents them to Claude as untrusted
     content under ``system``, and parses the first JSON object out of the reply.
-    Returns ``(parsed_dict, hits)`` — the caller does its own domain validation and
-    ``safe_chunk_id`` over ``hits`` — or None when there are no chunks or no JSON in
-    the reply. Records token usage against the run budget. Network / parse errors
-    propagate so the caller's try/except can fall back to its deterministic path.
+    Returns ``(value, hits)`` — the caller does ``safe_chunk_id`` over ``hits`` — or
+    None when there are no chunks or no JSON in the reply. Records token usage
+    against the run budget. Network / parse errors propagate so the caller's
+    try/except can fall back to its deterministic path.
+
+    ``value`` is the raw parsed dict by default. Pass ``schema`` (a Pydantic model)
+    to validate the reply at the boundary (L-2): ``value`` is then the validated
+    model instance, and a shape/type mismatch degrades to None — same as a no-JSON
+    reply — instead of handing a malformed dict downstream. Domain ranges (e.g.
+    "0 < pct < 1") stay in the caller; the schema only constrains shape/types.
     """
     import anthropic
 
@@ -92,4 +101,12 @@ async def extract_json(
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         return None
-    return json.loads(match.group(0)), hits
+    parsed = json.loads(match.group(0))
+    if schema is None:
+        return parsed, hits
+    # L-2: validate the reply shape at the boundary; a mismatch degrades to the
+    # caller's deterministic path, the same as a no-JSON reply.
+    try:
+        return schema.model_validate(parsed), hits
+    except ValidationError:
+        return None
