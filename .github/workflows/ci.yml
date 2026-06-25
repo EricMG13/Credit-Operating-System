@@ -125,7 +125,7 @@ jobs:
       # Gates the self-hosted deploy image: builds the Next.js export (stage 1)
       # and installs the server deps (stage 2). Build only — not pushed.
       - name: Build app image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: caos
           file: caos/deploy/Dockerfile
