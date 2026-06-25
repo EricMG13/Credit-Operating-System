@@ -19,6 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import avscan
 import edgar
 import ingest
 import rate_limit
@@ -178,6 +179,9 @@ async def vault_exhibit(
     except edgar.EdgarError as exc:
         raise HTTPException(502, str(exc))
 
+    # Same vault, same scan: every path that writes caller-influenced bytes into
+    # the vault goes through avscan (no-op unless CLAMAV_HOST is set).
+    await avscan.scan(content)
     file_name = body.file_name or body.exhibit_url.rsplit("/", 1)[-1] or "edgar-exhibit.htm"
     text = ingest.extract_text(content, file_name)
     key = ingest.store(content, file_name)

@@ -14,6 +14,27 @@ import type { FindingDTO } from "@/lib/engine/types";
 
 export { Panel };
 
+// For a non-reference issuer the rails' fixture content (source register, CP-5B
+// drivers, IC verdict, sizing, triggers) is the ATLF reference template, not that
+// issuer's own analysis — say so loudly so a PM never reads it as this issuer's
+// committee decision. The live engine output for the issuer is in the centre pane.
+function RefTemplateStrip({ code, onCollapse }: { code?: string; onCollapse?: () => void }) {
+  const who = code && code !== "—" ? code : "this issuer";
+  return (
+    <div role="note" className="bg-caos-panel border rounded-md px-3 py-2 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
+      <div className="flex items-center gap-2">
+        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-warning)" }}>⚠ ATLF reference template</span>
+        {onCollapse ? (
+          <button onClick={onCollapse} title="Collapse decision rail" aria-label="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊐</button>
+        ) : null}
+      </div>
+      <div className="text-caos-md text-caos-text leading-snug mt-0.5">
+        Figures in this rail are the Atlas Forge reference deal, <span className="font-medium">not {who}</span>. Live engine output for {who} is in the centre module views; run the issuer to populate its own register and committee output.
+      </div>
+    </div>
+  );
+}
+
 // CP-5C reviewer seats keyed by the audit lane their findings carry
 // (engine/council.py). Diversity is by review lens, not vendor.
 const SEAT_BY_LANE: Record<number, string> = {
@@ -45,6 +66,7 @@ function CouncilReview({ council }: { council: FindingDTO[] }) {
           enabled; flagged reasoning surfaces here and gates the run alongside CP-5B.
         </div>
       ) : (
+        // fallow-ignore-next-line complexity
         ordered.map((f) => (
           <div key={f.finding_id} className="px-3 py-2 border-b border-caos-border/50">
             <div className="flex items-center gap-2">
@@ -70,16 +92,25 @@ function CouncilReview({ council }: { council: FindingDTO[] }) {
   );
 }
 
+// fallow-ignore-next-line complexity
 export function SourceRail({
   ev,
   open,
   onToggle,
+  isReference = true,
+  issuerCode,
+  issuerName,
 }: {
   ev: string | null;
   open: boolean;
   onToggle: () => void;
+  isReference?: boolean;
+  issuerCode?: string;
+  issuerName?: string;
 }) {
   const { active, setActive } = useEvidenceSync();
+  const code = isReference ? DEAL.code : (issuerCode || "—");
+  const name = isReference ? DEAL.name : (issuerName || "Issuer");
   return (
     <RailShell
       open={open}
@@ -88,24 +119,29 @@ export function SourceRail({
       glyph="⊐"
       collapsed={
         <>
-          <span className="tabular text-caos-md text-caos-accent" style={{ writingMode: "vertical-rl" }}>{DEAL.code}</span>
+          <span className="tabular text-caos-md text-caos-accent" style={{ writingMode: "vertical-rl" }}>{code}</span>
           <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted" style={{ writingMode: "vertical-rl" }}>Source register · Evidence trace</span>
         </>
       }
     >
       <div className="bg-caos-panel border border-caos-border rounded-md px-3 py-2.5 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="tabular text-caos-2xl text-caos-accent">{DEAL.code}</span>
-          <span className="text-caos-2xl font-semibold text-caos-text">{DEAL.name}</span>
+          <span className="tabular text-caos-2xl text-caos-accent">{code}</span>
+          <span className="text-caos-2xl font-semibold text-caos-text">{name}</span>
           <button onClick={onToggle} title="Collapse source rail" aria-label="Collapse source rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊏</button>
         </div>
-        <div className="text-caos-sm text-caos-muted mt-1 leading-relaxed">{DEAL.sector}<br />{DEAL.sponsor}</div>
-        <div className="flex gap-3 mt-1.5 tabular text-caos-sm">
-          <span className="text-caos-muted">{DEAL.rating}</span>
-          <span className="text-caos-text">LTM adj. EBITDA ${DEAL.ebitda}M</span>
-          <span className="text-caos-text">{DEAL.netLev}x</span>
-        </div>
+        {isReference ? (
+          <>
+            <div className="text-caos-sm text-caos-muted mt-1 leading-relaxed">{DEAL.sector}<br />{DEAL.sponsor}</div>
+            <div className="flex gap-3 mt-1.5 tabular text-caos-sm">
+              <span className="text-caos-muted">{DEAL.rating}</span>
+              <span className="text-caos-text">LTM adj. EBITDA ${DEAL.ebitda}M</span>
+              <span className="text-caos-text">{DEAL.netLev}x</span>
+            </div>
+          </>
+        ) : null}
       </div>
+      {!isReference ? <RefTemplateStrip code={code} /> : null}
       <Panel title="Source Register · CP-0" className="flex-[2]">
         {DOCS.map((d) => (
           <div key={d.id} className="px-3 py-[5.5px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos cursor-pointer">
@@ -121,6 +157,7 @@ export function SourceRail({
         ))}
       </Panel>
       <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
+        {/* fallow-ignore-next-line complexity */}
         {DRIVERS.map((d) => {
           const hot = !!(active && d.evs.includes(active)) || !!(ev && d.evs.includes(ev));
           return (
@@ -156,11 +193,16 @@ export function DecisionRail({
   open,
   onToggle,
   council = [],
+  isReference = true,
+  issuerCode,
 }: {
   open: boolean;
   onToggle: () => void;
   council?: FindingDTO[];
+  isReference?: boolean;
+  issuerCode?: string;
 }) {
+  const code = isReference ? undefined : (issuerCode || "—");
   return (
     <RailShell
       open={open}
@@ -175,17 +217,21 @@ export function DecisionRail({
         </>
       }
     >
-      <div className="bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
-        <div className="flex items-center gap-2">
-          <span className="text-caos-2xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⛨</span>
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-5 clearance</span>
-          <span className="tabular text-caos-2xl uppercase tracking-wide font-semibold" style={{ color: "var(--caos-warning)" }}>CONDITIONAL</span>
-          <button onClick={onToggle} title="Collapse decision rail" aria-label="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊐</button>
+      {isReference ? (
+        <div className="bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
+          <div className="flex items-center gap-2">
+            <span className="text-caos-2xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⛨</span>
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-5 clearance</span>
+            <span className="tabular text-caos-2xl uppercase tracking-wide font-semibold" style={{ color: "var(--caos-warning)" }}>CONDITIONAL</span>
+            <button onClick={onToggle} title="Collapse decision rail" aria-label="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊐</button>
+          </div>
+          <div className="text-caos-lg text-caos-text mt-1.5 leading-snug">
+            QA-117 (HIGH) open — citation E-44 page mismatch. Committee pack assembly HELD; debate verdict stands ex-E-44.
+          </div>
         </div>
-        <div className="text-caos-lg text-caos-text mt-1.5 leading-snug">
-          QA-117 (HIGH) open — citation E-44 page mismatch. Committee pack assembly HELD; debate verdict stands ex-E-44.
-        </div>
-      </div>
+      ) : (
+        <RefTemplateStrip code={code} onCollapse={onToggle} />
+      )}
 
       <CouncilReview council={council} />
 

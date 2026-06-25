@@ -408,3 +408,84 @@ tests; full inventory re-confirmed green. Residual items are accepted non-goals
 ### Untouched (user's parallel WIP — flagged, NOT modified or staged)
 - `audit-backlog.md`, `audit-backlog.round1-resolved.md`,
   `caos/server/access_log.py`, `caos/server/identity.py`, `caos/server/routes/runs.py`
+
+---
+
+## Session 6 (2026-06-25) — drift re-verification after the H/M/L hardening branch
+
+Re-ran the full inventory against the current `fix/vmo2-followups` tree, which has
+**drifted since the Session 5 clean pass**: seven backend hardening items landed
+(commits `df83134`→`fcbb5cf`), tracked and closed in
+[audit_report.md](../../audit_report.md) — **H-1** (cumulative per-run token budget),
+**M-1** (`caos.llm` per-inference tracing), **M-2** (heavy→cheap model fallback on
+429/529), **M-3** (Deep Research → durable background job + poll), **M-4** (prod guard
+on the default signup code), **L-1** (`.git` in `.dockerignore`), **L-2** (opt-in
+Pydantic boundary validation for `extract_json`). All seven are marked resolved with
+regression tests. The drift is backend-only except **M-3**, which changes one
+user-facing contract (the `/research` POST now returns a job id and the client polls).
+
+### Verification strategy
+Drift is narrow and test-covered, so this session is a **re-verification**, not a new
+bug hunt: prove the gates still hold on the drifted tree, then exercise the one new
+user-facing surface (M-3) both at the API and as a real user in a browser. Same
+isolated, prod-parity stack as Session 5 — single-process FastAPI on `:8010`
+(`.venv311`, fastapi 0.138 / starlette 1.3.1) against `data/caos_qa.db` + `vault_qa`,
+deterministic (`ANTHROPIC_API_KEY=""`), fixed `SESSION_SECRET` (no re-login churn).
+
+### M-3 durable Deep Research — verified end-to-end
+- **API (live):** `POST /api/research` → **201** with a job id (2.7 ms, connection-independent);
+  `GET /api/research/{id}` polls → **200 `status:complete`, `demo:true`**, full ~14 kB demo
+  report, `truncated:false`. Migration `0010_research_jobs` applied cleanly to the QA db; both
+  `run` and `research` in-process executors start. Per-user isolation + missing-id both **404**.
+- **Real user (browser):** Playwright `research_flow.spec.ts` test 3 drives the actual durable
+  loop in Chromium — POST→`running`, poll #1→`running` (client **must** loop), poll #2→`complete`
+  → renders the **DEMO** report + cited sources. Pass.
+- The client poll wrapper (`api.ts` `deepResearch`) is sound: 2 s interval, immediate first poll,
+  15-min wall-clock cap, tolerates 10 consecutive transport errors before giving up (a proxy
+  blip never aborts the durable run). `research/page.tsx` shape is unchanged — the polling is
+  fully encapsulated, so the page's `await deepResearch(brief)` contract held.
+
+### Gates (all green on the drifted tree)
+- **Server pytest** — **360 passed / 2 skipped** on *both* py3.9 `.venv` and py3.11 `.venv311`
+  prod-parity (was 327 in Session 5; **+33** regression tests for H-1/M-1..4/L-1/L-2). The two
+  py3.11 deprecation warnings are unchanged forward-compat noise (starlette `HTTP_422_*` rename).
+- **Frontend** — `tsc --noEmit` clean · **189 vitest passed** (24 files; was 133/19 in Session 5).
+- **E2E** — **11/11 Playwright passed** against the fresh single-process `:8010` build
+  (research M-3, settings, upload wizard, directory, concept nav, chat demo fallback).
+- **axe-core a11y** — **0 violations across all 12 routes** (`scripts/a11y-axe.mjs`, BASE `:8010`).
+- **Live surface walk** — 126 requests, **zero 5xx, zero tracebacks**. Every non-2xx is a designed
+  guard firing: 404 (missing module / bogus job id / catch-all), 422 (validation), **409**
+  (committee-export gate carrying its blocking findings), **503** (EDGAR no-`EDGAR_USER_AGENT` gate).
+
+### Observations (non-blocking, no code change)
+- **OBS-004 — `GET /api/research/{id}/` (trailing slash) → catch-all 404 with generic detail.**
+  Same class as BUG-001: the `/api/{path:path}` catch-all shadows `redirect_slashes`, so the
+  slash variant misses the route and returns `{"detail":"Not Found"}` instead of the route's
+  `"Research job not found."`. **Not a defect** — the client polls without a trailing slash
+  (`/api/research/${id}`) and no other consumer adds one, so it's unreachable in practice.
+  Logged for awareness; a fix would only matter if a future client appended the slash.
+- **Local-artifact note (not a code defect):** `server/static/` was **stale** — built Jun 23
+  22:05, *before* the M-3 commit (Jun 24 22:03) — so the single-process server was serving
+  pre-M-3 UI. `server/static` is **gitignored** and **rebuilt fresh by the Docker image**, so
+  this is **local-only, no prod impact** (same finding as Session 3). Refreshed locally via
+  `scripts/build_frontend.sh` (81 files) so the e2e/a11y walks tested real M-3 code. Reminder
+  stands: rebuild the static export locally after a frontend change before testing the
+  static-served app. *(Bonus: `/deepdive` first-load is now **261 kB**, down from the 643 kB
+  PERF-2 flagged in AUDIT.md — the code-split already landed.)*
+
+### Session 6 verdict
+**Clean pass — no blocked items, no code change this session.** The seven-item hardening branch
+is fully test-covered and the only user-facing change (M-3) is verified at both the API and the
+browser. No regression from the drift; all Session 1–5 fixes still hold. One new non-blocking
+observation (OBS-004, an unreachable trailing-slash 404) is documented for awareness, not fixed
+(YAGNI — no client reaches it).
+
+### What changed (Claude, Session 6)
+- `docs/QA_FULL_SWEEP.md` — this Session 6 section (re-verification log).
+- *(local, gitignored, not committed)* refreshed `server/static/` from current `frontend/out`.
+
+### Untouched (user's parallel WIP — flagged, NOT modified or staged)
+- No source files modified this session. The `qa-frontend` `launch.json` config from Session 5
+  is no longer present in the tree (reverted in parallel WIP); booted the QA backend directly
+  via env (`PORT=8010 DATABASE_URL=…caos_qa.db CAOS_STORAGE_DIR=…vault_qa ANTHROPIC_API_KEY=""
+  SESSION_SECRET=… .venv311/bin/python run.py`).

@@ -24,6 +24,7 @@ from config import get_settings
 from database import AsyncSessionLocal, init_db
 from engine.fixtures import ensure_reference_deal
 from routes import auth, chat, edgar, health, ingestion, issuers, query, research, runs, scenario, settings as settings_routes
+from research_executor import ResearchExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -51,6 +52,16 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
+    if settings.environment == "production" and settings.analyst_signup_code in ("", "131113"):
+        # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
+        # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
+        # would ship a known self-registration gate by omission. Refuse to start
+        # without a private one — same posture as the SESSION_SECRET guard above.
+        raise RuntimeError(
+            "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
+            "in-source default (131113) is public and would leave analyst profile "
+            "self-registration open. Set ANALYST_SIGNUP_CODE."
+        )
     await init_db()
     if settings.caos_demo_seed:
         if settings.environment == "production":
@@ -67,7 +78,12 @@ async def lifespan(app: FastAPI):
     app.state.executor = get_executor()
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
+    # Durable Deep Research (M-3): background jobs the client polls, swept on boot.
+    app.state.research_executor = ResearchExecutor()
+    await app.state.research_executor.start()
+    logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
     yield
+    await app.state.research_executor.stop()
     await app.state.executor.stop()
     logger.info("CAOS shutting down")
 
@@ -110,6 +126,17 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+    # Legacy clickjacking belt for browsers that ignore CSP frame-ancestors; kept
+    # in lockstep with it (both 'self'/SAMEORIGIN).
+    "X-Frame-Options": "SAMEORIGIN",
+    # Switch off powerful browser features the app never uses, so a future XSS or
+    # injected iframe can't reach the camera/mic/geolocation/etc. ()=deny for all.
+    "Permissions-Policy": (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    ),
+    # HSTS deliberately omits `preload`: that's a public-CA, hard-to-reverse
+    # browser-list commitment, unsuitable for the internal / self-signed-CA hosts.
 }
 
 

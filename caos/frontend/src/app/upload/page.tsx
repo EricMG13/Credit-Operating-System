@@ -13,12 +13,7 @@ export default function UploadPage() {
   return (
     <RequireAuth>
       <div className="h-screen flex flex-col bg-caos-bg">
-        <a
-          href="#main-content"
-          className="focus-ring sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 bg-caos-elevated text-caos-text text-caos-xl px-3 py-1.5 rounded border border-caos-accent"
-        >
-          Skip to content
-        </a>
+        {/* Skip link + #main-content landmark live in the root layout — no page-local copy. */}
         {/* sub-header */}
         <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
           <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">

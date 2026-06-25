@@ -38,7 +38,11 @@ function claimsSection(claims: ClaimDTO[]): OutSection | null {
 }
 
 function num(v: unknown): string {
-  return typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? "—");
+  if (v == null) return "—";
+  if (typeof v === "number") return v.toLocaleString("en-US");
+  // A nested object/array cell would otherwise stringify to "[object Object]".
+  if (typeof v === "object") return Array.isArray(v) ? v.map(String).join(", ") : "{…}";
+  return String(v);
 }
 
 function adaptCp0(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
@@ -103,13 +107,102 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   };
 }
 
+// Columns not worth a table header (opaque ids the analyst never reads).
+const SKIP_COL = /(^|_)(id|chunk_id|issuer_id|figi)$/i;
+
+function humanize(k: string): string {
+  return k
+    .replace(/_/g, " ")
+    .replace(/\bmusd\b/gi, "$M")
+    .replace(/\bpct\b/gi, "%")
+    .replace(/\bltm\b/gi, "LTM")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+// A scalar small enough to read as a headline KPI (long strings become text).
+function isKpiScalar(v: unknown): boolean {
+  return typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 32);
+}
+
+function isObjArray(v: unknown): v is Record<string, unknown>[] {
+  return Array.isArray(v) && v.length > 0 && v.every((x) => x !== null && typeof x === "object" && !Array.isArray(x));
+}
+
+// An array of {text, severity/id} reads as flags; anything else as a table.
+function isFlagArray(arr: Record<string, unknown>[]): boolean {
+  return arr.every((o) => typeof o.text === "string" && ("severity" in o || "sev" in o || "id" in o));
+}
+
+function flagsFrom(title: string, arr: Record<string, unknown>[]): OutSection {
+  const items: OutFlag[] = arr.slice(0, 12).map((o) => {
+    const ev = o.ev as unknown;
+    return {
+      sev: String(o.severity ?? o.sev ?? "low"),
+      text: o.id ? `${o.id}: ${o.text}` : String(o.text),
+      ev: Array.isArray(ev) ? ev.map(String) : undefined,
+    };
+  });
+  return { type: "flags", title, items };
+}
+
+function tableFrom(title: string, arr: Record<string, unknown>[]): OutSection | null {
+  const cols = Object.keys(arr[0]).filter((k) => !SKIP_COL.test(k));
+  if (!cols.length) return null;
+  return {
+    type: "table", title, cols: cols.map(humanize),
+    rows: arr.slice(0, 12).map((o) => cols.map((c) => num(o[c]))),
+  };
+}
+
+function kvTable(title: string, obj: Record<string, unknown>): OutSection | null {
+  const entries = Object.entries(obj).filter(([, v]) => isKpiScalar(v) || v == null);
+  if (!entries.length) return null;
+  return {
+    type: "table", title, cols: ["", "Value"], align: [0, 1],
+    rows: entries.map(([k, v]) => [humanize(k), num(v)]),
+  };
+}
+
+// Generic adapter for any module the engine persists but that has no bespoke
+// mapping: scalars → KPIs, object-arrays → flags/tables, nested scalar objects →
+// key/value tables, long strings → notes. Good enough to render real engine
+// output with provenance for every module, not just CP-0/CP-1.
+// fallow-ignore-next-line complexity
 function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
-  // Fallback: surface scalar runtime_output fields as KPIs.
   const kpis = Object.entries(rt)
-    .filter(([, v]) => typeof v === "string" || typeof v === "number")
-    .slice(0, 4)
-    .map(([k, v]) => ({ l: k.replace(/_/g, " "), v: num(v) }));
-  return { kpis, sections: [] };
+    .filter(([, v]) => isKpiScalar(v) && v !== "")
+    .slice(0, 6)
+    .map(([k, v]) => ({ l: humanize(k), v: num(v) }));
+
+  const sections: OutSection[] = [];
+  for (const [k, v] of Object.entries(rt)) {
+    const title = humanize(k);
+    if (isObjArray(v)) {
+      const sec = isFlagArray(v) ? flagsFrom(title, v) : tableFrom(title, v);
+      if (sec) sections.push(sec);
+    } else if (v !== null && typeof v === "object" && !Array.isArray(v)) {
+      // Nested object (e.g. CP-6A bull_case/bear_case): its scalars → a KV table,
+      // and recurse one level so a `narrative` long-string and a `points[]`
+      // object-array don't get silently dropped.
+      const obj = v as Record<string, unknown>;
+      const kv = kvTable(title, obj);
+      if (kv) sections.push(kv);
+      for (const [k2, v2] of Object.entries(obj)) {
+        const t2 = title + " · " + humanize(k2);
+        if (isObjArray(v2)) {
+          const sec = isFlagArray(v2) ? flagsFrom(t2, v2) : tableFrom(t2, v2);
+          if (sec) sections.push(sec);
+        } else if (typeof v2 === "string" && v2.length > 32) {
+          sections.push({ type: "text", title: t2, body: v2 });
+        }
+      }
+    } else if (Array.isArray(v) && v.length) {
+      sections.push({ type: "text", title, body: v.map(String).join(", ") });
+    } else if (typeof v === "string" && v.length > 32) {
+      sections.push({ type: "text", title, body: v });
+    }
+  }
+  return { kpis, sections: sections.slice(0, 10) };
 }
 
 /** Map a canonical module payload into the existing ModuleOutput shape. */

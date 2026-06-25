@@ -191,6 +191,11 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   c.rev = a.ltmRevenue;
   c.adj = a.ltmAdjEbitda;
   c.adjm = c.adj / c.rev;
+  // Keep the reported-EBITDA bridge footing after the re-base: reported + add-backs
+  // = adj. The anchor carries no live add-back detail, so hold the seeded add-back
+  // amount (c.ab) and back out reported EBITDA from the live adj — otherwise the
+  // committee EBITDA-adjustments panel would print a bridge that doesn't tie.
+  c.ebitda = c.adj - c.ab;
   c.ndebt = a.netDebt;
   c.cash = c.tdebt - c.ndebt;
   deriveCreditKpis(c);

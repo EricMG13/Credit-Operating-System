@@ -18,8 +18,14 @@ unlimited (the default), so this is inert unless an operator sets a budget.
 from __future__ import annotations
 
 import contextvars
+import json
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+# M-1: per-inference trace lines land on this logger so they can be grepped /
+# shipped separately from the HTTP access log (caos.access) and app log (caos).
+_trace_logger = logging.getLogger("caos.llm")
 
 
 @dataclass
@@ -41,6 +47,13 @@ _budget_var: contextvars.ContextVar[Optional[RunBudget]] = contextvars.ContextVa
     "caos_run_budget", default=None
 )
 
+# Run id for trace correlation (M-1). Set alongside the budget in the runner so
+# every caos.llm line can be tied back to its run; None for run-less lanes (issuer
+# chat, deep research) — they still trace, just without a run id.
+_run_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "caos_run_id", default=None
+)
+
 
 def set_budget(budget: Optional[RunBudget]) -> None:
     _budget_var.set(budget)
@@ -48,6 +61,10 @@ def set_budget(budget: Optional[RunBudget]) -> None:
 
 def current_budget() -> Optional[RunBudget]:
     return _budget_var.get()
+
+
+def set_run_id(run_id: Optional[str]) -> None:
+    _run_id_var.set(run_id)
 
 
 def llm_allowed() -> bool:
@@ -85,3 +102,30 @@ def record_usage(resp) -> None:
     for it in getattr(usage, "iterations", None) or []:
         if getattr(it, "type", None) == "advisor_message":
             b.record(_input_tokens(it), getattr(it, "output_tokens", 0) or 0)
+
+
+def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
+              fallback: bool = False) -> None:
+    """M-1: accrue usage onto the run budget AND emit one structured ``caos.llm``
+    trace line for the inference. Replaces the bare ``record_usage`` call at each
+    live LLM site so tracing can never be forgotten where billing is recorded.
+
+    Best-effort: a malformed response must never break the call path, so usage
+    extraction is read leniently and the whole trace is guarded.
+    """
+    record_usage(resp)
+    try:
+        usage = getattr(resp, "usage", None)
+        _trace_logger.info(json.dumps({
+            "event": "llm_call",
+            "run_id": _run_id_var.get(),
+            "lane": lane,
+            "model": model,
+            "fallback": fallback,
+            "input_tokens": _input_tokens(usage) if usage is not None else 0,
+            "output_tokens": (getattr(usage, "output_tokens", 0) or 0) if usage is not None else 0,
+            "stop_reason": getattr(resp, "stop_reason", None),
+            "ms": round(ms, 1) if ms is not None else None,
+        }))
+    except Exception:  # noqa: BLE001 — a trace must never fail the inference
+        _trace_logger.exception("caos.llm trace failed for lane=%s", lane)

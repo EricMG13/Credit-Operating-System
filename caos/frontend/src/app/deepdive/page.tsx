@@ -8,11 +8,11 @@
 // the run and outputs unlock as their producing modules clear.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import { buildReports } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
@@ -23,15 +23,27 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
-import { CovenantsTab, DebateTab, ModuleView, RecoveryTab } from "@/components/deepdive/tabs";
 import { loadLayout, saveLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
-import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { useAsk } from "@/components/shared/Ask";
 import { getIssuer } from "@/lib/api";
+
+// Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
+// the tab renderers (tabs.tsx + its fixture/chart tree) load when a module tab is
+// shown, and the chat / evidence overlays only when opened. ssr:false — this is a
+// client-only, statically-exported route. Trims the route's First Load JS.
+const TabLoading = () => (
+  <div className="h-full flex items-center justify-center text-caos-muted tabular text-caos-md">loading module…</div>
+);
+const DebateTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.DebateTab), { ssr: false, loading: TabLoading });
+const RecoveryTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.RecoveryTab), { ssr: false, loading: TabLoading });
+const CovenantsTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.CovenantsTab), { ssr: false, loading: TabLoading });
+const ModuleView = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.ModuleView), { ssr: false, loading: TabLoading });
+const IssuerChat = dynamic(() => import("@/components/deepdive/IssuerChat").then((m) => m.IssuerChat), { ssr: false });
+const EvidenceModal = dynamic(() => import("@/components/reports/EvidenceModal").then((m) => m.EvidenceModal), { ssr: false });
 
 export default function DeepDivePage() {
   return (
@@ -49,6 +61,9 @@ const BESPOKE: Record<string, { label: string; code: string }> = {
   "CP-4": { label: "Legal & Covenants", code: "CP-4 / 4C" },
 };
 const GATE: Record<string, string> = { "CP-4": "CP-4C" };
+// Modules with a bespoke ATLF showcase renderer (debate / recovery / covenants).
+// For a real issuer with live output they fall through to the generic ModuleView.
+const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
 const GROUPS = [
   { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
@@ -61,6 +76,7 @@ const GROUPS = [
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
 
+// fallow-ignore-next-line complexity
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
@@ -144,7 +160,12 @@ function DeepDive() {
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
   const unlocked = isCleared(gateState(gateId));
-  const title = bespoke ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
+  // Reference deal → bespoke showcase tab; real issuer with live output for this
+  // module → its honest live ModuleView instead.
+  const useBespoke = BESPOKE_TABS.has(tab) && (isReference || !live.liveOuts[tab]);
+  // Use the bespoke title only when the bespoke tab is actually rendered; a live
+  // generic render shows the module's own name, not the showcase label.
+  const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
 
   return (
     <EvidenceSyncProvider>
@@ -207,6 +228,7 @@ function DeepDive() {
           click a layer to reveal its modules (named; short label on smaller panes). */}
       <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto">
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline">Module outputs</span>
+        {/* fallow-ignore-next-line complexity */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
           return (
@@ -232,6 +254,7 @@ function DeepDive() {
               </button>
               {open ? (
                 <span className="flex items-center gap-1">
+                  {/* fallow-ignore-next-line complexity */}
                   {g.mods.map((id) => {
                     const st = gateState(GATE[id] || id);
                     const ok = isCleared(st);
@@ -272,7 +295,7 @@ function DeepDive() {
         className="flex-1 min-h-0 grid gap-2 p-2"
         style={{ gridTemplateColumns: (railOpen ? "330px" : "42px") + " minmax(0,1fr) " + (decisionOpen ? "352px" : "42px") }}
       >
-        <SourceRail ev={evModal} open={railOpen} onToggle={() => setRailOpen(!railOpen)} />
+        <SourceRail ev={evModal} open={railOpen} onToggle={() => setRailOpen(!railOpen)} isReference={isReference} issuerCode={code} issuerName={isReference ? undefined : dealLabel} />
         <Panel
           title={title}
           right={
@@ -294,10 +317,17 @@ function DeepDive() {
           }
         >
           {unlocked ? (
-            tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} layout={layout} /> :
-            tab === "CP-6E" ? <DebateTab variant="CP-6E" onOpenEvidence={setEvModal} layout={layout} /> :
-            tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
-            tab === "CP-4" ? <CovenantsTab onOpenEvidence={setEvModal} layout={layout} /> :
+            // The bespoke debate/recovery/covenant tabs are the ATLF reference
+            // *showcase*. For a real issuer with a live run for that module, render
+            // its honest engine output via the generic ModuleView instead of the
+            // ATLF fixture; keep the bespoke tab for the reference deal (or when no
+            // live output exists yet, where the "reference template" caveat applies).
+            useBespoke ? (
+              tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} layout={layout} /> :
+              tab === "CP-6E" ? <DebateTab variant="CP-6E" onOpenEvidence={setEvModal} layout={layout} /> :
+              tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
+              <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
+            ) :
             <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} layout={layout} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
@@ -307,11 +337,23 @@ function DeepDive() {
             </div>
           )}
         </Panel>
-        <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} />
+        <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
-      {chatOpen ? <IssuerChat tab={tab} onClose={() => setChatOpen(false)} /> : null}
+      {chatOpen ? (
+        // Live-ground the chat for a real issuer run; the reference deal keeps its
+        // rich seeded showcase context (consistent with the bespoke tabs).
+        <IssuerChat
+          // Remount when the run resolves so the transcript cache key (run-scoped)
+          // re-reads from the right key instead of bleeding the loading-window fallback.
+          key={isReference ? "chat-ref" : "chat-" + (live.runId || "loading")}
+          tab={tab}
+          onClose={() => setChatOpen(false)}
+          live={isReference ? undefined : live}
+          issuerName={isReference ? undefined : issuerMeta?.name}
+        />
+      ) : null}
     </div>
     </EvidenceSyncProvider>
   );

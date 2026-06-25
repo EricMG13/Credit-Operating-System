@@ -42,16 +42,31 @@ test.describe("Deep Research", () => {
   });
 
   test("running deep research renders the returned report and sources", async ({ page }) => {
-    // Stub the LLM/web-search backend so the run is fast and deterministic.
+    // Durable flow (M-3): POST creates a job, the client polls GET to completion.
+    // Stub both so the run is fast and deterministic (no real web search / key).
     await page.route("**/api/research", (route) =>
+      route.fulfill({ status: 201, json: { id: "job-1", status: "running" } }),
+    );
+    // Poll-again coverage: the first GET reports `running` (client must loop), the
+    // second reports `complete` — exercises the central durable-poll behavior.
+    let polls = 0;
+    await page.route("**/api/research/*", (route) => {
+      polls += 1;
+      if (polls < 2) {
+        route.fulfill({ json: { id: "job-1", status: "running" } });
+        return;
+      }
       route.fulfill({
         json: {
+          id: "job-1",
+          status: "complete",
           report: "## Executive Summary\n\nNet leverage is elevated.\n\n## Detailed Findings\n\nDetail.",
           sources: [{ title: "Example credit filing", url: "https://example.com/filing" }],
           demo: true,
+          truncated: false,
         },
-      }),
-    );
+      });
+    });
 
     await page.goto("/research/");
     await page.getByLabel("Sector / theme").fill("Enterprise Software");

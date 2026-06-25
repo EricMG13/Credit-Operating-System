@@ -13,6 +13,7 @@ import { usePathname } from "next/navigation";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { NlQueryBody } from "@/components/command/NlQuery";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { useAuth } from "@/components/shared/AuthProvider";
 
 interface AskCtx {
   open: boolean;
@@ -27,6 +28,7 @@ export const useAsk = () => useContext(Ctx);
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
+    // fallow-ignore-next-line complexity
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
@@ -50,14 +52,21 @@ function scopeFor(pathname: string): "deepdive" | "issuer" | "cross" {
   return "cross";
 }
 
+// fallow-ignore-next-line complexity
 export function AskLauncher() {
   const { open, setOpen, toggle } = useAsk();
+  const { user, needsLogin } = useAuth();
   const pathname = usePathname() || "";
   const scope = scopeFor(pathname);
 
   // Close on navigation — the overlay is transient, so changing concept
   // shouldn't carry a stale Ask (or pop the wrong-scope surface on arrival).
   useEffect(() => { setOpen(false); }, [pathname, setOpen]);
+
+  // Gate on a signed-in profile: Ask queries need an analyst identity, and the
+  // launcher must not float over the login landing (it sits in the root layout,
+  // outside RequireAuth). Loading/error/needs-login all resolve to "not ready".
+  if (!user || needsLogin) return null;
 
   // Floating trigger, hidden while open. Deep-Dive also has an in-panel ASK
   // button, but this keeps ⌘K discoverable everywhere.

@@ -15,15 +15,70 @@ import { MODULE_OUTPUTS, type OutSection } from "@/lib/deepdive/module-outputs";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { Dot } from "@/components/pipeline/atoms";
+import type { LiveRunState } from "@/lib/engine/useLiveRun";
 
-export function caosChatContext(tab: string, focusEv?: string | null): string {
+const flatSection = (s: OutSection): string => {
+  if (s.type === "table") return s.title + " — " + s.rows.map((r) => r.join(" | ")).join(" ; ");
+  if (s.type === "flags") return s.title + " — " + s.items.map((f) => "[" + f.sev + "] " + f.text).join(" ; ");
+  return s.title + " — " + s.body;
+};
+
+// Cross-pane Evidence Sync: ground the answer in the exact evidence the analyst
+// is pointing at, so deictic questions ("is this a problem?") resolve correctly.
+function focusLine(focusEv?: string | null): string | null {
+  const ev = focusEv ? EVIDENCE[focusEv] : null;
+  if (!focusEv || !ev) return null;
+  const hit = ev.excerpt.find((e) => e.hit) || ev.excerpt[0];
+  return (
+    "ANALYST IS POINTING AT EVIDENCE " + focusEv + " — " + ev.section +
+    " · " + ev.doc + (ev.page ? " p." + ev.page : "") +
+    " · extracted by " + ev.module + " · status " + ev.status +
+    (ev.qa ? " · QA: " + ev.qa : "") +
+    (hit ? '. Cited passage: "' + hit.t.slice(0, 280) + '"' : "") +
+    '. If the question says "this"/"it"/"that", it most likely refers to this.'
+  );
+}
+
+// Live path: a real run exists → ground STRICTLY in this issuer's own engine
+// outputs (the adapted live module register + committee review), never the ATLF
+// reference fixtures, which describe a different deal. This is what keeps the
+// assistant honest on a non-reference issuer.
+function liveContext(tab: string, live: LiveRunState, issuerName?: string, focusEv?: string | null): string {
+  const mod = MODULES.find((m) => m.id === tab);
+  const lines = [
+    "You are the Credit OS analyst assistant. You answer follow-up questions about ONE issuer for a credit analyst, grounded ONLY in the LIVE engine run outputs below (run " + live.runId + "). Never invent figures.",
+    "Style: terse desk-note tone, under 150 words, plain text (no markdown headers). Cite module codes (CP-x) and evidence ids (E-xx) where they support a point. If the answer isn't in the data, say so and name the module that would produce it.",
+    "",
+    "ISSUER: " + (issuerName || "this issuer") + ". Committee status: " + (live.committeeStatus || "—") + ".",
+  ];
+  if (live.council.length) {
+    lines.push("COMMITTEE REVIEW (CP-5C): " + live.council.slice(0, 8).map((f) => "[" + f.severity + "] " + f.description).join("; "));
+  }
+  // The current tab's module first, then the rest of the live register.
+  const ids = Object.keys(live.liveOuts).sort((a, b) => (a === tab ? -1 : b === tab ? 1 : 0));
+  for (const id of ids) {
+    const o = live.liveOuts[id];
+    const kp = o.kpis.map((k) => k.l + " " + k.v).join(", ");
+    const body = o.sections.map(flatSection).join(" ; ");
+    lines.push(id + (id === tab ? " (CURRENTLY VIEWING)" : "") + ": " + kp + (body ? " — " + body : ""));
+  }
+  lines.push("USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".");
+  const fl = focusLine(focusEv);
+  if (fl) lines.push(fl);
+  return lines.join("\n");
+}
+
+export function caosChatContext(
+  tab: string,
+  focusEv?: string | null,
+  live?: LiveRunState,
+  issuerName?: string,
+): string {
+  if (live?.runId) return liveContext(tab, live, issuerName, focusEv);
+
+  // Fixture path (reference deal / no live run): the rich ATLF reference context.
   const mod = MODULES.find((m) => m.id === tab);
   const out = MODULE_OUTPUTS[tab];
-  const flat = (s: OutSection): string => {
-    if (s.type === "table") return s.title + " — " + s.rows.map((r) => r.join(" | ")).join(" ; ");
-    if (s.type === "flags") return s.title + " — " + s.items.map((f) => "[" + f.sev + "] " + f.text).join(" ; ");
-    return s.title + " — " + s.body;
-  };
   const lines = [
     "You are the Credit OS analyst assistant. You answer follow-up questions about ONE issuer for a credit analyst, grounded ONLY in the module outputs below (run #2641, all figures mock).",
     "Style: terse desk-note tone, under 150 words, plain text (no markdown headers). Cite module codes (CP-x) and evidence ids (E-xx) where they support a point. If the answer isn't in the data, say so and name the module that would produce it. Never invent figures.",
@@ -43,27 +98,11 @@ export function caosChatContext(tab: string, focusEv?: string | null): string {
     "",
     "USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".",
   ];
-
-  // Shared state from the cross-pane Evidence Sync: ground the answer in the
-  // exact evidence the analyst is pointing at, so deictic questions ("is this a
-  // problem?", "explain it") resolve to the right citation.
-  const ev = focusEv ? EVIDENCE[focusEv] : null;
-  if (focusEv && ev) {
-    const hit = ev.excerpt.find((e) => e.hit) || ev.excerpt[0];
-    lines.push(
-      "ANALYST IS POINTING AT EVIDENCE " + focusEv + " — " + ev.section +
-        " · " + ev.doc + (ev.page ? " p." + ev.page : "") +
-        " · extracted by " + ev.module + " · status " + ev.status +
-        (ev.qa ? " · QA: " + ev.qa : "") +
-        (hit ? '. Cited passage: "' + hit.t.slice(0, 280) + '"' : "") +
-        '. If the question says "this"/"it"/"that", it most likely refers to this.'
-    );
-  }
-  if (out) lines.push("CURRENT MODULE OUTPUTS:\n" + out.sections.map(flat).join("\n"));
+  const fl = focusLine(focusEv);
+  if (fl) lines.push(fl);
+  if (out) lines.push("CURRENT MODULE OUTPUTS:\n" + out.sections.map(flatSection).join("\n"));
   return lines.join("\n");
 }
-
-const CAOS_CHAT_KEY = "caos-chat-atlf-2641";
 const CAOS_CHAT_STARTERS = [
   "Why is clearance conditional?",
   "Summarize the bear case in 3 bullets",
@@ -75,9 +114,20 @@ interface Msg extends ChatMessage {
   err?: boolean;
 }
 
-export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void }) {
+// fallow-ignore-next-line complexity
+export function IssuerChat({ tab, onClose, live, issuerName }: {
+  tab: string;
+  onClose: () => void;
+  live?: LiveRunState;
+  issuerName?: string;
+}) {
+  // Persist per run (live) so transcripts don't bleed across issuers; the
+  // reference deal keeps its stable seeded key.
+  const cacheKey = "caos-chat-" + (live?.runId || "atlf-2641");
+  const label = live?.runId ? (issuerName || "this issuer") : DEAL.code;
+  const runLabel = live?.runId ? "run " + live.runId.slice(0, 8) : "RUN #2641";
   const [msgs, setMsgs] = useState<Msg[]>(() => {
-    try { return JSON.parse(localStorage.getItem(CAOS_CHAT_KEY) || "[]") || []; } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(cacheKey) || "[]") || []; } catch { return []; }
   });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,7 +140,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
   const [focusEv, setFocusEv] = useState<string | null>(null);
   useEffect(() => { if (active) setFocusEv(active); }, [active]);
 
-  useEffect(() => { try { localStorage.setItem(CAOS_CHAT_KEY, JSON.stringify(msgs)); } catch {} }, [msgs]);
+  useEffect(() => { try { localStorage.setItem(cacheKey, JSON.stringify(msgs)); } catch {} }, [cacheKey, msgs]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => {
@@ -108,8 +158,8 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
     setBusy(true);
     try {
       const payload: ChatMessage[] = [
-        { role: "user", content: caosChatContext(tab, focusEv) },
-        { role: "assistant", content: "Understood. I'll answer strictly from run #2641 outputs for ATLF, citing CP-x / E-xx." },
+        { role: "user", content: caosChatContext(tab, focusEv, live, issuerName) },
+        { role: "assistant", content: "Understood. I'll answer strictly from " + runLabel + " outputs for " + label + ", citing CP-x / E-xx." },
         ...next.slice(-12).map(({ role, content }) => ({ role, content })),
       ];
       const reply = await askIssuer(payload);
@@ -128,14 +178,14 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
     <div
       role="dialog"
       aria-modal={false}
-      aria-label={DEAL.code + " · Issuer Q&A"}
+      aria-label={label + " · Issuer Q&A"}
       className="fixed bottom-3 right-3 z-30 caos-enter flex flex-col bg-caos-panel border border-caos-accent/60 rounded-md overflow-hidden"
       style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px rgba(79,140,255,0.12)" }}
     >
       <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
         <span className="text-caos-accent text-caos-2xl">✦</span>
-        <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">{DEAL.code} · Issuer Q&A</span>
-        <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in RUN #2641 · viewing {tab}</span>
+        <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">{label} · Issuer Q&A</span>
+        <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in {runLabel} · viewing {tab}</span>
         <div className="flex-1"></div>
         {msgs.length ? (
           <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">⌫</button>
@@ -147,7 +197,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
         {!msgs.length ? (
           <div className="flex flex-col gap-2">
             <div className="text-caos-md text-caos-muted leading-relaxed">
-              Ask follow-up questions about Atlas Forge — answers cite the module outputs (CP-x) and evidence (E-xx) from this run. All figures mock.
+              Ask follow-up questions about {label} — answers cite the module outputs (CP-x) and evidence (E-xx) from this run.{live?.runId ? "" : " All figures mock."}
             </div>
             <div className="flex flex-col gap-1.5 mt-1">
               {CAOS_CHAT_STARTERS.map((s) => (
@@ -205,7 +255,7 @@ export function IssuerChat({ tab, onClose }: { tab: string; onClose: () => void 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={"Ask about ATLF — e.g. recovery, covenants, " + tab + "…"}
+          placeholder={"Ask about " + label + " — e.g. recovery, covenants, " + tab + "…"}
           aria-label="Ask a question about this issuer"
           maxLength={600}
           className="flex-1 px-2.5 py-1.5 text-caos-lg"

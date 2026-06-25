@@ -72,26 +72,77 @@ def test_extract_json_always_fences_grounding(monkeypatch):
     assert parsed == {"value": 100} and hits[0].chunk_id == "c1"
 
 
+def _fake_anthropic_returning(text):
+    """A monkeypatch factory: anthropic.AsyncAnthropic(**) → client whose
+    messages.create returns one text block with ``text``."""
+    from types import SimpleNamespace
+
+    class _M:
+        async def create(self, **kw):
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], usage=None)
+
+    class _C:
+        messages = _M()
+
+    return lambda **kw: _C()
+
+
+def test_extract_json_validates_against_schema(monkeypatch):
+    """L-2: with a schema, a well-typed reply returns the validated model; a
+    wrong-typed reply degrades to None (like a no-JSON reply)."""
+    import anthropic
+    from typing import Optional
+
+    from pydantic import BaseModel
+
+    class _Shape(BaseModel):
+        pct: Optional[float] = None
+        tag: Optional[str] = None
+
+    async def _retrieve(query, k):
+        return [SimpleNamespace(chunk_id="c1", text="EBITDA 100.")]
+
+    # Well-typed → validated model instance (not a raw dict).
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _fake_anthropic_returning('{"pct": 0.2, "tag": "x"}'))
+    out = asyncio.run(extract_json(_retrieve, query="q", k=1, system="s", schema=_Shape))
+    assert out is not None
+    model, hits = out
+    assert isinstance(model, _Shape) and model.pct == 0.2 and model.tag == "x"
+
+    # Wrong type (pct is a non-numeric string) → ValidationError → None.
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _fake_anthropic_returning('{"pct": "not-a-number"}'))
+    assert asyncio.run(extract_json(_retrieve, query="q", k=1, system="s", schema=_Shape)) is None
+
+    # No schema → raw dict, unchanged contract.
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _fake_anthropic_returning('{"pct": 0.2}'))
+    out = asyncio.run(extract_json(_retrieve, query="q", k=1, system="s"))
+    assert out is not None and out[0] == {"pct": 0.2}
+
+
 # Every Anthropic call site, reviewed: document-grounded calls route untrusted
 # text through extract_json/wrap_untrusted; the rest feed app-derived payloads or
 # the user's own question (carrying UNTRUSTED_RULE where web/doc content enters).
-# A NEW call site here is a deliberate decision — wrap the content or add the file
-# with justification. Guards against AML.T0051.001 being forgotten.
+# Plain Messages.create now funnels through the engine.llm_client.create seam
+# (M-1 trace / M-2 fallback); the matcher tracks both the raw create/stream sites
+# AND that seam's callers, so a new lane reaching the model is still flagged here.
+# A NEW call site is a deliberate decision — wrap the content or add the file with
+# justification. Guards against AML.T0051.001 being forgotten.
 _REVIEWED_LLM_CALL_SITES = {
-    "engine/llm_safety.py",  # the shared document-grounded scaffold (wraps)
+    "engine/llm_client.py",  # the single Messages.create seam (M-1 trace / M-2 fallback)
+    "engine/llm_safety.py",  # the shared document-grounded scaffold (wraps) → calls the seam
     "engine/council.py",     # CP-5C reviewers over derived payloads
     "engine/debate.py",      # CP-6A debate over derived payloads (+ UNTRUSTED_RULE)
-    "engine/synth.py",       # module synth over upstream structured payloads
+    "engine/synth.py",       # module synth over upstream payloads (+ beta advisor branch)
     "llm.py",                # issuer chat (system prompt carries untrusted rule)
     "nlquery.py",            # NL→spec; output allowlist-validated to the catalog
     "scenario.py",           # scenario prompt (user text)
-    "deepresearch.py",       # web_search (system prompt carries untrusted rule)
+    "deepresearch.py",       # web_search stream (system prompt carries untrusted rule)
 }
 
 
 def test_no_unreviewed_llm_call_sites():
     server = Path(__file__).resolve().parents[2] / "server"
-    pat = re.compile(r"\.(?:beta\.)?messages\.(?:create|stream)\(")
+    pat = re.compile(r"\.(?:beta\.)?messages\.(?:create|stream)\(|\bllm_client\.create\(")
     found = {
         str(p.relative_to(server))
         # Exclude installed third-party code by its universal marker, not by a

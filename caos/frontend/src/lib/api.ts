@@ -7,7 +7,8 @@ export const api = axios.create({
   headers: { "Content-Type": "application/json" },
   // Default timeout so a hung/dead API (or a proxy to a dead :8000) can't strand
   // the UI forever — live-overlay module fetches, the settings probe, run polls.
-  // Long-running calls override per-request (deepResearch sets timeout: 0). P1/P2/L6.
+  // Deep Research is now a durable background job polled by short GETs, so it
+  // relies on this default too (no long-held per-request override). P1/P2/L6.
   timeout: 20000,
 });
 
@@ -198,12 +199,51 @@ export interface ResearchResult {
   report: string;
   sources: ResearchSource[];
   demo: boolean;
+  truncated?: boolean;
+}
+interface ResearchJob extends ResearchResult {
+  id: string;
+  status: "running" | "complete" | "failed";
+  error?: string | null;
 }
 
-// Web-grounded research runs for minutes — no client timeout (the server holds
-// the connection until the report is complete or it degrades to the demo).
-export const deepResearch = (brief: ResearchBrief): Promise<ResearchResult> =>
-  api.post("/api/research", brief, { timeout: 0 }).then((r) => r.data);
+// Durable Deep Research (M-3): POST persists a job and returns its id immediately,
+// then we poll until terminal. Execution lives server-side and is independent of
+// this loop, so a transient poll failure (a proxy 502/504, a slow GET, a network
+// blip) must NOT abort the run — we tolerate consecutive transport errors and keep
+// polling; only a server-reported `failed` ends it. A wall-clock cap stops the UI
+// from spinning forever if a job ever wedges. Resolves with the report (or throws
+// an axios-shaped error) to keep the caller's contract unchanged.
+const _RESEARCH_POLL_MS = 2000;
+const _RESEARCH_DEADLINE_MS = 15 * 60 * 1000; // generous backstop; deep research runs minutes
+const _RESEARCH_MAX_POLL_ERRORS = 10; // ~20s of consecutive transport failures → give up
+const _detail = (detail: string) => ({ response: { data: { detail } } });
+
+export const deepResearch = async (brief: ResearchBrief): Promise<ResearchResult> => {
+  const { id } = (await api.post("/api/research", brief)).data as { id: string };
+  const deadline = Date.now() + _RESEARCH_DEADLINE_MS;
+  let pollErrors = 0;
+  let first = true;
+  while (Date.now() < deadline) {
+    if (!first) await new Promise((r) => setTimeout(r, _RESEARCH_POLL_MS));
+    first = false; // poll immediately first so a fast/demo completion isn't delayed
+    let job: ResearchJob;
+    try {
+      job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
+      pollErrors = 0;
+    } catch {
+      // Transport error — the durable job is unaffected; keep polling. Bail only
+      // after many consecutive failures (the backend is likely actually down).
+      if (++pollErrors >= _RESEARCH_MAX_POLL_ERRORS)
+        throw _detail("Lost contact with the research backend — the run may still be completing; retry shortly.");
+      continue;
+    }
+    if (job.status === "complete")
+      return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated };
+    if (job.status === "failed") throw _detail(job.error || "Research failed — try again.");
+  }
+  throw _detail("Research timed out on the client — it may still be completing; retry shortly.");
+};
 
 // ─── Workspace settings (read-only snapshot of server config) ─────────────────
 export interface WorkspaceSettings {

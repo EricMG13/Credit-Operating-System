@@ -16,6 +16,7 @@ from sqlalchemy import and_, or_, select, update
 
 from config import get_settings
 from database import AsyncSessionLocal, Run, engine
+from engine import budget
 from engine.runner import execute_run
 
 logger = logging.getLogger("caos.executor")
@@ -81,6 +82,14 @@ async def _mark_run_failed(session, run_id: str, reason: str) -> None:
             run.status = "failed"
             run.error = reason
             run.lease_expires_at = None
+            # H-1: the rollback above discarded the runner's own tokens_used write,
+            # so recover this attempt's spend from the active budget contextvar
+            # (rehydrated from run.tokens_used at attempt start, so .used is the
+            # cumulative total). Persisting it here keeps run_token_budget a true
+            # per-run cap across re-claims; max() stays monotonic if unavailable.
+            spent = budget.current_budget()
+            if spent is not None:
+                run.tokens_used = max(run.tokens_used or 0, spent.used)
             await session.commit()
     except Exception:  # noqa: BLE001
         logger.exception("could not mark run %s failed", run_id)

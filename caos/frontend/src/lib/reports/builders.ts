@@ -3,6 +3,7 @@
 
 import { buildModel, type Model, type ModelCol, type Overrides } from "./model";
 import { CAPACITY, COVENANTS, DEAL, DEBATE, SIZING, TRIGGERS } from "./deal";
+import type { ModelAnchor } from "@/lib/engine/modelAnchor";
 import type { G2Spec } from "@/components/charts/G2Chart";
 
 // Concept D state (severity / cell overrides) — when passed, deliverable
@@ -10,6 +11,11 @@ import type { G2Spec } from "@/components/charts/G2Chart";
 export interface ModelInputs {
   severity?: number;
   overrides?: Overrides;
+  // Live CP-1 LTM anchor (useModelEngine → cp1ToAnchor). When present, the model's
+  // LTM/PF columns re-base on the engine's reported figures — so the snapshot
+  // panels (cap structure, seniority stack, financials, EBITDA adjustments) show
+  // live numbers with model.provenance.anchored set. Absent → seeded fallback.
+  anchor?: ModelAnchor;
 }
 
 /* ---------- section DSL ---------- */
@@ -387,7 +393,7 @@ function monitoringDigest(): Report {
 }
 
 export function buildReports(inputs?: ModelInputs): Report[] {
-  const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {});
+  const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {}, inputs?.anchor);
   return [creditSnapshot(model), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest()];
 }
 

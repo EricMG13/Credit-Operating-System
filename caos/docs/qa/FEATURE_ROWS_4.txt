@@ -1,0 +1,630 @@
+=ROW=
+id: query-01
+concept: Query
+feature: Load capability rail
+story: As an analyst, I want runnable graph traversals on load so that I can choose a capability.
+expected: Backend returns CapabilitiesResult groups; each capability shows enabled state (greyed if not runnable) + label + reason; rail collapses/expands.
+trigger: route load
+files: caos/frontend/src/components/query/CapabilityRail.tsx:23
+endpoint: GET /api/query/capabilities
+=END=
+=ROW=
+id: query-02
+concept: Query
+feature: Auto-run first runnable capability
+story: As an analyst, I want a live graph on open so that I get immediate context.
+expected: Auto-selects first enabled from PREFER (peer-set→contagion→concentration-map→scatter→trace-source) else first enabled; runs it, sets activeId.
+trigger: route load
+files: caos/frontend/src/app/query/page.tsx:91
+endpoint: POST /api/query/graph
+=END=
+=ROW=
+id: query-03
+concept: Query
+feature: Predefined prompt cards
+story: As an analyst, I want suggested traversals so that I don't construct queries manually.
+expected: Up to 5 cards (Map peers, Co-move, Cluster coverage, Plot leverage, Trace verdict) filtered to enabled; card shows prompt + breadcrumb; click runs.
+trigger: route load (after capabilities)
+files: caos/frontend/src/app/query/page.tsx:29
+endpoint: GET /api/query/capabilities
+=END=
+=ROW=
+id: query-04
+concept: Query
+feature: Natural-language query input
+story: As an analyst, I want to type a question to search graph edges so that I navigate without exact names.
+expected: Input; Enter/Run submits; scoring maps aliases (w2) + label overlap (w1) to capabilities; runs best enabled or surfaces "did you mean" if greyed/miss.
+trigger: type query
+files: caos/frontend/src/app/query/page.tsx:62
+endpoint: none (client-only routing)
+=END=
+=ROW=
+id: query-05
+concept: Query
+feature: Graph rendering
+story: As an analyst, I want a positioned node-link graph so that I understand relationships.
+expected: SVG (1000×600) renders backend-positioned nodes (x,y 0..1) + edges; nodes color/shape by kind; edges kind-specific stroke/width/dash with arrows; peer edges scale by weight.
+trigger: click capability / auto-run
+files: caos/frontend/src/components/query/GraphCanvas.tsx:39
+endpoint: POST /api/query/graph
+=END=
+=ROW=
+id: query-06
+concept: Query
+feature: Click-to-source on graph nodes
+story: As an analyst, I want to click a chunk node to read grounding text so that I verify reasoning.
+expected: Chunk nodes clickable → CitationViewer; fetches via getChunk; shows issuer, doc type, file, chunk text + seq.
+trigger: click chunk node
+files: caos/frontend/src/components/query/GraphCanvas.tsx:140
+endpoint: GET /api/query/chunk/{chunk_id}
+=END=
+=ROW=
+id: query-07
+concept: Query
+feature: Graph legend
+story: As an analyst, I want the visual encoding so that I interpret the graph correctly.
+expected: Dynamic legend of node kinds present (issuer/sector/driver/claim/evidence/chunk/metric/bull/bear/QA); color swatch + label; caps at 8 kinds.
+trigger: graph renders
+files: caos/frontend/src/components/query/GraphCanvas.tsx:210
+endpoint: none (derived)
+=END=
+=ROW=
+id: query-08
+concept: Query
+feature: Graph caveats
+story: As an analyst, I want data-quality warnings so that I know graph limitations.
+expected: If caveats present, mono text with info icon below canvas (e.g. "3 nodes missing attributes").
+trigger: graph renders with caveats
+files: caos/frontend/src/app/query/page.tsx:229
+endpoint: POST /api/query/graph
+=END=
+=ROW=
+id: query-09
+concept: Query
+feature: Node styling by kind
+story: As an analyst, I want nodes to reflect type so that I distinguish at a glance.
+expected: nodeStyle() kind→shape (issuer/center circle, sector pill, others rect) + colors; exposed/flagged get warning stroke; compact cluster members are small dots, no labels.
+trigger: graph renders
+files: caos/frontend/src/components/query/node-style.ts:50
+endpoint: none (client-only)
+=END=
+=ROW=
+id: query-10
+concept: Query
+feature: Capability rail collapse/expand
+story: As an analyst, I want to hide the rail so that I reclaim canvas space.
+expected: Toggles 234px (full) / 44px (collapsed); collapsed shows ready count per group; titles on hover; toggle in header.
+trigger: click collapse/expand
+files: caos/frontend/src/components/query/CapabilityRail.tsx:27
+endpoint: none (client-only)
+=END=
+=ROW=
+id: query-11
+concept: Query
+feature: Result header with metadata
+story: As an analyst, I want the graph mode + metadata so that I know which capability ran.
+expected: Header shows mode label (PEERS/CONTAGION/PROVENANCE), title, running spinner, metadata tags (node/link count, date); accent border.
+trigger: graph loads
+files: caos/frontend/src/app/query/page.tsx:243
+endpoint: POST /api/query/graph
+=END=
+=ROW=
+id: query-12
+concept: Query
+feature: Greyed capability reasons
+story: As an analyst, I want why an edge is unavailable so that I know what data to ingest.
+expected: Disabled capabilities show reason (e.g. "no peers stored", "cluster incomplete"); non-interactive; visible in collapsed rail on hover.
+trigger: route load (capabilities)
+files: caos/frontend/src/components/query/CapabilityRail.tsx:82
+endpoint: GET /api/query/capabilities
+=END=
+=ROW=
+id: query-13
+concept: Query
+feature: Screen-reader accessible graph
+story: As a visually-impaired analyst, I want the graph readable via screen reader so that I'm not excluded.
+expected: SVG title/desc with name + node/edge counts + caveats; sr-only text alternative lists all nodes (kind: label) + edges (source→target).
+trigger: graph renders
+files: caos/frontend/src/components/query/GraphCanvas.tsx:63
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-01
+concept: Upload
+feature: Issuer selection step
+story: As an analyst, I want to choose an issuer when uploading so that docs belong to the right entity.
+expected: Step 1 lists issuers (ticker, name, SELECT); click advances to step 2; "+ ADD NEW ISSUER" reveals inline form (name required); CREATE persists + auto-advances.
+trigger: route load / navigation
+files: caos/frontend/src/components/upload/UploadWizard.tsx:26
+endpoint: GET /api/issuers/; POST /api/issuers/
+=END=
+=ROW=
+id: upload-02
+concept: Upload
+feature: Deep-link issuer pre-selection
+story: As an analyst from the directory, I want to jump straight to upload so that I don't re-select.
+expected: ?issuer=<id>; if exists, auto-selects + skips to step 2; only auto-advances from step 1.
+trigger: navigate ?issuer=id
+files: caos/frontend/src/components/upload/UploadWizard.tsx:42
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-03
+concept: Upload
+feature: Drag-drop file input
+story: As an analyst, I want to drag-drop all deal docs so that I don't use a file picker.
+expected: Drop zone dashed border; accent+blue on dragover; green when queued; "Drop all deal documents here, or click to browse"; PDF/XLSX; multiple; dedupes by name+size.
+trigger: step 2
+files: caos/frontend/src/components/upload/steps.tsx:184
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-04
+concept: Upload
+feature: File list with size and remove
+story: As an analyst, I want to review/remove queued files so that I don't process wrong docs.
+expected: Table of queued files (name, size MB, REMOVE); remove updates progress strip.
+trigger: files added
+files: caos/frontend/src/components/upload/steps.tsx:227
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-05
+concept: Upload
+feature: Run mode selection
+story: As an analyst, I want to choose a pipeline route so that the engine processes per use case.
+expected: 4 modes (Full IC R-IC, Earnings R-ER, RV R-RV, Legal R-LG) with code/label/desc; selected green ✓; click changes.
+trigger: step 2
+files: caos/frontend/src/components/upload/steps.tsx:244
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-06
+concept: Upload
+feature: File upload and chunking
+story: As an analyst, I want to upload the documents so that they're stored + chunked.
+expected: UPLOAD disabled until files exist; click → "UPLOADING & CHUNKING…"; per file uploadDocument (PDF) or uploadPricingSheet (XLSX) with issuer_id+run_mode; awaits all; advances to step 3 with outcomes.
+trigger: click UPLOAD
+files: caos/frontend/src/components/upload/UploadWizard.tsx:74
+endpoint: POST /api/ingestion/upload/document; /pricing-sheet
+=END=
+=ROW=
+id: upload-07
+concept: Upload
+feature: Detect spreadsheet vs document
+story: As system, I want to route XLSX vs PDF so that the right parser runs.
+expected: isSpreadsheet() matches /\.(xlsx|xls)$/i; PDF→document; XLSX/XLS→pricing-sheet.
+trigger: upload clicked
+files: caos/frontend/src/components/upload/steps.tsx:48
+endpoint: POST /api/ingestion/upload/*
+=END=
+=ROW=
+id: upload-08
+concept: Upload
+feature: Result summary step
+story: As an analyst, I want upload status + chunk counts so that I know ingestion succeeded.
+expected: Step 3 "Intake complete · CP-0 ready"; summary "X vaulted for <Issuer> · <RunMode> queued · Y failed"; severity dot; per-file status+chunk count/error; buttons UPLOAD ANOTHER, OPEN DEEP-DIVE, VIEW EXECUTION GRAPH.
+trigger: uploads complete
+files: caos/frontend/src/components/upload/steps.tsx:287
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-09
+concept: Upload
+feature: Step progress strip
+story: As an analyst, I want wizard progress so that I know which step I'm on.
+expected: Strip "Intake steps" + badges (01 Issuer | 02 Files & run mode | 03 Ingested); active accent + running dot; completed green ✓; right shows issuer/mode/file count.
+trigger: step changes
+files: caos/frontend/src/components/upload/steps.tsx:51
+endpoint: none (client-only)
+=END=
+=ROW=
+id: upload-10
+concept: Upload
+feature: File size limit enforcement
+story: As system, I want to reject oversized files so that they don't exhaust storage/memory.
+expected: Cap settings.max_upload_mb (default 250); read_capped streams + rejects 413 "File exceeds X MB limit" when cumulative exceeds cap; frontend surfaces error on result step.
+trigger: upload large file
+files: caos/server/ingest.py:38
+endpoint: POST /api/ingestion/upload/* (413)
+=END=
+=ROW=
+id: upload-11
+concept: Upload
+feature: PDF format validation
+story: As system, I want to reject non-PDFs so that parsing doesn't fail on corrupt data.
+expected: Checks magic bytes %PDF- ; rejects 400 "Uploaded file is not a valid PDF" on mismatch.
+trigger: upload to document endpoint
+files: caos/server/ingest.py:55
+endpoint: POST /api/ingestion/upload/document (400)
+=END=
+=ROW=
+id: upload-12
+concept: Upload
+feature: XLSX format validation
+story: As system, I want to reject non-Excel pricing sheets so that extraction doesn't fail.
+expected: Checks ZIP (OOXML) or legacy OLE signature; validates zip structure + xl/ entries; rejects 400 on mismatch.
+trigger: upload to pricing-sheet endpoint
+files: caos/server/ingest.py:60
+endpoint: POST /api/ingestion/upload/pricing-sheet (400)
+=END=
+=ROW=
+id: upload-13
+concept: Upload
+feature: Empty file rejection
+story: As system, I want to reject empty uploads so that no-op docs don't pollute vault.
+expected: Rejects 400 "Empty upload" if content length 0 after read_capped.
+trigger: upload 0-byte file
+files: caos/server/ingest.py:50
+endpoint: POST /api/ingestion/upload/* (400)
+=END=
+=ROW=
+id: upload-14
+concept: Upload
+feature: PDF text extraction with fallback
+story: As system, I want PDF extraction so that scanned/encrypted PDFs gracefully produce no chunks.
+expected: markitdown first (if CAOS_MARKITDOWN_CMD), fallback pypdf; if both fail/empty → "" (scanned PDFs vault fine, 0 chunks, no error).
+trigger: document upload processes
+files: caos/server/ingest.py:114
+endpoint: POST /api/ingestion/upload/document
+=END=
+=ROW=
+id: upload-15
+concept: Upload
+feature: XLSX text extraction with fallback
+story: As system, I want Excel extraction so that structured data is preserved.
+expected: markitdown first, fallback openpyxl read_only (sheet title + tab-delimited cells); "" if parse fails.
+trigger: pricing-sheet upload processes
+files: caos/server/ingest.py:128
+endpoint: POST /api/ingestion/upload/pricing-sheet
+=END=
+=ROW=
+id: upload-16
+concept: Upload
+feature: Document chunking
+story: As system, I want to split text into chunks so that retrieval finds passages.
+expected: chunk_text() sliding window 2400 chars, 240 overlap; empty text → []; each chunk → DocumentChunk row with seq.
+trigger: text extraction completes
+files: caos/server/ingest.py:177
+endpoint: POST /api/ingestion/upload/* (processing)
+=END=
+=ROW=
+id: upload-17
+concept: Upload
+feature: Document vault storage
+story: As system, I want to store raw files so that they're retrievable for re-processing/audit.
+expected: store() sanitizes filename, UUID dir, stores at vault_dir/<uuid>/<safe-name>; returns storage_key.
+trigger: text extraction completes
+files: caos/server/ingest.py:74
+endpoint: POST /api/ingestion/upload/* (processing)
+=END=
+=ROW=
+id: upload-18
+concept: Upload
+feature: Ingestion response metadata
+story: As an analyst, I want doc id/chunk count/message so that I track what's ingested.
+expected: IngestionResponse: document_id, issuer_id, minio_key, run_mode, chunks_created, message ("filename vaulted and chunked (N chunks) — runmode run.").
+trigger: upload completes
+files: caos/server/routes/ingestion.py:41
+endpoint: POST /api/ingestion/upload/* (200)
+=END=
+=ROW=
+id: upload-19
+concept: Upload
+feature: Upload rate limit
+story: As system, I want to prevent rapid-upload DoS so that resources are protected.
+expected: 20/min per caller; 21st → 429 "Upload rate limit reached — try again in a minute."
+trigger: uploads exceed threshold
+files: caos/server/routes/ingestion.py:28
+endpoint: POST /api/ingestion/upload/* (429)
+=END=
+=ROW=
+id: upload-20
+concept: Upload
+feature: SEC EDGAR search (in wizard)
+story: As an analyst, I want to search SEC filings so that I vault governing docs as primary sources.
+expected: EdgarImport search box (pre-filled "Issuer Name credit agreement"); results table (form, filed_date, title, source_url); EXHIBITS ▾ loads exhibits; restricted to covenant forms (8-K, S-1, S-4, 424B5, 424B3, 10-K).
+trigger: step 2 + issuer selected
+files: caos/frontend/src/components/upload/EdgarImport.tsx:61
+endpoint: GET /api/edgar/search
+=END=
+=ROW=
+id: upload-21
+concept: Upload
+feature: EDGAR exhibit expansion
+story: As an analyst, I want exhibits for a filing so that I pick the credit agreement/indenture.
+expected: EXHIBITS ▾ fetches + shows table (authority dot, doc name, doc_label, VAULT); spinner; "No exhibits listed" if none.
+trigger: click EXHIBITS ▾
+files: caos/frontend/src/components/upload/EdgarImport.tsx:79
+endpoint: GET /api/edgar/exhibits
+=END=
+=ROW=
+id: upload-22
+concept: Upload
+feature: EDGAR authority rank color
+story: As an analyst, I want to see strongest docs so that I prioritize vaulting.
+expected: Colored dot by authority_rank (1 tranche-1l, 2 tranche-2l, 3+ warning, null muted); hover "Authority rank N"/"Unclassified".
+trigger: exhibits display
+files: caos/frontend/src/components/upload/EdgarImport.tsx:34
+endpoint: GET /api/edgar/exhibits
+=END=
+=ROW=
+id: upload-23
+concept: Upload
+feature: EDGAR exhibit vaulting
+story: As an analyst, I want to vault a specific exhibit so that it's a primary source.
+expected: VAULT → sends edgarVaultExhibit(issuer_id, exhibit_url, runMode); "VAULTING…"; success → green ✓ + chunk count ("✓ 42 ch"); error → alert; run mode from step 2.
+trigger: click VAULT →
+files: caos/frontend/src/components/upload/EdgarImport.tsx:97
+endpoint: POST /api/edgar/vault-exhibit
+=END=
+=ROW=
+id: upload-24
+concept: Upload
+feature: EDGAR not configured notice
+story: As an analyst, I want to know why EDGAR is unavailable so that I can request config.
+expected: 503 → warning banner "EDGAR is not configured. Set EDGAR_USER_AGENT … No key or paid service needed."
+trigger: SEARCH EDGAR when not configured
+files: caos/frontend/src/components/upload/EdgarImport.tsx:138
+endpoint: GET /api/edgar/search (503)
+=END=
+=ROW=
+id: upload-25
+concept: Upload
+feature: EDGAR search error handling
+story: As an analyst, I want helpful EDGAR errors so that I troubleshoot.
+expected: Non-503 errors → red alert below box; no hits → "No filings matched — try the issuer's legal name or a ticker."
+trigger: EDGAR search fails/empty
+files: caos/frontend/src/components/upload/EdgarImport.tsx:71
+endpoint: GET /api/edgar/search
+=END=
+=ROW=
+id: shell-01
+concept: Shell
+feature: Concept Nav Switcher
+story: As an analyst, I want a persistent nav bar so that I can switch concepts without returning to directory.
+expected: 8 concept links (Command/Pipeline/Deep-Dive/Model/Report/Monitor/Research/Query) with icons+labels (compact labels only active); active accent bg; Settings + analyst badge to right; tooltip "hold SPACE + ← / →".
+trigger: nav click / page load
+files: caos/frontend/src/components/shared/ConceptNav.tsx:64
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-02
+concept: Shell
+feature: Space+Arrow Concept Hotkeys
+story: As an analyst, I want keyboard concept switching so that I navigate without the mouse.
+expected: Hold SPACE + ←/→ cycles concepts (wraps); inactive while typing in input/textarea/contenteditable; disabled on blur.
+trigger: SPACE+←/→
+files: caos/frontend/src/components/shared/ConceptHotkeys.tsx:11
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-03
+concept: Shell
+feature: Analyst Identity Badge
+story: As an analyst, I want my initials shown everywhere so that I know who's signed in.
+expected: Initials pill (accent border) top-right of every header; not rendered for proxy/local (source!=="profile"); tooltip "Signed in as {full_name} — click to sign out".
+trigger: app load / profile created
+files: caos/frontend/src/components/shared/AnalystBadge.tsx:12
+endpoint: GET /api/auth/me
+=END=
+=ROW=
+id: shell-04
+concept: Shell
+feature: Logout Action
+story: As an analyst, I want to sign out so that another user can sign in.
+expected: Click badge → confirm "Sign out {full_name}?"; POST /api/auth/logout clears cookie; RequireAuth re-resolves → LoginLanding; badge disabled (opacity-50) during logout.
+trigger: badge click
+files: caos/frontend/src/components/shared/AnalystBadge.tsx:18
+endpoint: POST /api/auth/logout
+=END=
+=ROW=
+id: shell-05
+concept: Shell
+feature: Skip to Content Link
+story: As a keyboard user, I want a skip link so that screen reader users jump to content.
+expected: First focusable; sr-only by default; on focus shows "Skip to content" top-left (fixed, z-modal) → #main-content; WCAG 2.4.1.
+trigger: keyboard focus / page load
+files: caos/frontend/src/app/layout.tsx:29
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-06
+concept: Shell
+feature: Global Ask Launcher (Cmd/Ctrl+K)
+story: As an analyst, I want global Ask from any page so that I can Q&A anywhere.
+expected: Floating "✦ Ask" (bottom-left) when not open; Cmd/Ctrl+K toggles; Esc closes; Deep-Dive/Model scope = IssuerChat, others = cross-issuer NL modal; disabled while typing; resets on navigation.
+trigger: Cmd/Ctrl+K / button / Esc
+files: caos/frontend/src/components/shared/Ask.tsx:10
+endpoint: POST /api/chat/issuer; POST /api/query/nl
+=END=
+=ROW=
+id: shell-07
+concept: Shell
+feature: Root Redirect to Directory
+story: As a user, I want / to redirect to the directory so that I don't see a blank landing.
+expected: "/" → router.replace("/issuers"); renders null during redirect.
+trigger: route load /
+files: caos/frontend/src/app/page.tsx:6
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-08
+concept: Shell
+feature: Directory Back Link
+story: As an analyst, I want a consistent back link so that I return to directory from any concept.
+expected: "← Directory" left of every sub-header → /issuers; hover accent; not on directory itself.
+trigger: page load
+files: caos/frontend/src/components/shared/PageSubHeader.tsx:19
+endpoint: none (client-only)
+=END=
+=ROW=
+id: shell-09
+concept: Shell
+feature: Evidence Selection Sync (Cross-Pane)
+story: As an analyst, I want focused evidence to highlight across Deep-Dive so that I trace claims to sources.
+expected: Hover/focus E-xx publishes id to EvidenceSyncContext; subscribing panes highlight matching E-xx + CP-5B drivers citing it; default context inert (no-op) so EvChip works without provider.
+trigger: evidence hover/focus/click
+files: caos/frontend/src/lib/evidence-sync.tsx:1
+endpoint: none (client-only)
+=END=
+=ROW=
+id: auth-01
+concept: Auth
+feature: Code-Gated Login Form
+story: As an analyst, I want to enter an access code + name so that I create/resume my profile.
+expected: Full-screen LoginLanding when needsLogin; access code (password, numeric, autofocus) + name (max 120); both required to enable Submit; POST /api/auth/profile; error state; "Signing in…" + disabled while submitting.
+trigger: route load (no profile) / logout
+files: caos/frontend/src/components/shared/LoginLanding.tsx:11
+endpoint: POST /api/auth/profile
+=END=
+=ROW=
+id: auth-02
+concept: Auth
+feature: Login Rate Limiting (IP)
+story: As an analyst, I want brute-force prevention so that the shared code stays secret.
+expected: 10 attempts / 60s per source IP; exceed → 429 "Too many attempts — wait a minute."
+trigger: login attempt
+files: caos/server/routes/auth.py:92
+endpoint: POST /api/auth/profile (429)
+=END=
+=ROW=
+id: auth-03
+concept: Auth
+feature: Constant-Time Code Validation
+story: As the system, I want constant-time code comparison so that timing attacks can't leak the code.
+expected: hmac.compare_digest vs ANALYST_SIGNUP_CODE (default 131113); mismatch → 401 "Invalid access code."
+trigger: login submit
+files: caos/server/routes/auth.py:100
+endpoint: POST /api/auth/profile (401)
+=END=
+=ROW=
+id: auth-04
+concept: Auth
+feature: Code Config Enforcement (fail-closed)
+story: As the system, I want to fail closed if code unset so that any code isn't silently accepted.
+expected: ANALYST_SIGNUP_CODE unset/empty → 503 "Login disabled — access code not configured."
+trigger: login attempt
+files: caos/server/routes/auth.py:97
+endpoint: POST /api/auth/profile (503)
+=END=
+=ROW=
+id: auth-05
+concept: Auth
+feature: SSO Email-Based Profile Keying
+story: As an analyst on SSO, I want my profile keyed to email so that nobody steals my name.
+expected: X-Forwarded-Email present → profile created/looked up by email; can rename own profile; cannot adopt another email's name (409); one profile per SSO identity.
+trigger: login submit (SSO)
+files: caos/server/routes/auth.py:117
+endpoint: POST /api/auth/profile (SSO header)
+=END=
+=ROW=
+id: auth-06
+concept: Auth
+feature: Local Profile Creation (Proxy-less)
+story: As a local/dev user, I want name-only profiles so that I test without SSO.
+expected: No X-Forwarded-Email → profile by name (case-insensitive, unique); rename allowed only if no SSO email binding.
+trigger: login submit (local)
+files: caos/server/routes/auth.py:137
+endpoint: POST /api/auth/profile (no SSO header)
+=END=
+=ROW=
+id: auth-07
+concept: Auth
+feature: Analyst Name Sanitization
+story: As the system, I want to sanitize names so that control chars don't break logging/DB.
+expected: name + SSO email passed through sanitize_field() (removes interior control chars) before persistence.
+trigger: login submit
+files: caos/server/routes/auth.py:112
+endpoint: POST /api/auth/profile
+=END=
+=ROW=
+id: auth-08
+concept: Auth
+feature: Signed Session Cookie
+story: As an analyst, I want my session to persist so that I don't log in every time.
+expected: POST profile sets signed httpOnly cookie, 30-day max-age, Secure on non-dev, SameSite=lax, signed JWT (id/name/email); cleared by logout.
+trigger: login submit / logout
+files: caos/server/routes/auth.py:63
+endpoint: POST /api/auth/profile; POST /api/auth/logout
+=END=
+=ROW=
+id: auth-09
+concept: Auth
+feature: Identity Resolution (/api/auth/me)
+story: As an analyst, I want identity resolved per load so that I know who's logged in.
+expected: GET /api/auth/me → MeResponse (id, email, full_name, role, is_active, source profile/proxy/local); RequireAuth gates pages; login form only when source!=="profile"; 8s timeout → error card + RETRY.
+trigger: page load / RequireAuth mount
+files: caos/frontend/src/components/shared/AuthProvider.tsx:49
+endpoint: GET /api/auth/me
+=END=
+=ROW=
+id: auth-10
+concept: Auth
+feature: Login Error Display
+story: As an analyst, I want clear login errors so that I know what went wrong.
+expected: Shows server detail (Invalid access code / Too many attempts / name taken) or default "Couldn't sign in — check the code and try again."; clears on next submit; role=alert.
+trigger: login submit (failure)
+files: caos/frontend/src/components/shared/LoginLanding.tsx:25
+endpoint: POST /api/auth/profile (error)
+=END=
+=ROW=
+id: auth-11
+concept: Auth
+feature: RequireAuth Gate
+story: As the frontend, I want every page gated so that unauthenticated users can't access analysis.
+expected: RequireAuth shows Loading… while fetching me; LoginLanding if needsLogin; "Can't reach the CAOS API" error card + RETRY if unreachable; renders children only when user set & not loading.
+trigger: page load
+files: caos/frontend/src/components/shared/RequireAuth.tsx:14
+endpoint: GET /api/auth/me
+=END=
+=ROW=
+id: settings-01
+concept: Settings
+feature: Research Defaults (Browser-Local)
+story: As an analyst, I want to set research defaults once so that I don't repeat them each run.
+expected: Panel "Research defaults · saved in this browser": AI mode, Scope, Audience, Decision, Timeframe, Criteria; Save → localStorage caos.research.prefs; Reset restores defaults; "Saved" toast 2s; no server round-trip.
+trigger: settings load / change / save
+files: caos/frontend/src/app/settings/page.tsx:105
+endpoint: none (client-only)
+=END=
+=ROW=
+id: settings-02
+concept: Settings
+feature: Research Brief Form Seeding
+story: As an analyst, I want the Research page seeded with my defaults so that I start faster.
+expected: Research page loadPrefs() on mount pre-fills ai_mode/scope/audience/decision/timeframe/criteria; blanks fall back to server defaults.
+trigger: research page load
+files: caos/frontend/src/lib/research-prefs.ts:40
+endpoint: none (client-only)
+=END=
+=ROW=
+id: settings-03
+concept: Settings
+feature: Workspace Configuration (Read-Only)
+story: As an analyst, I want the workspace config so that I understand models/governance/retrieval enabled.
+expected: Panel "set via environment, restart to change" shows 6 groups (Models, Governance & QA, Engine cost, Deep Research, Retrieval, Workspace) with label/value/hint; secrets never shown; llm_configured=false → "NO MODEL KEY · demo mode" badge; loading/error states.
+trigger: settings load
+files: caos/frontend/src/app/settings/page.tsx:121
+endpoint: GET /api/settings
+=END=
+=ROW=
+id: settings-04
+concept: Settings
+feature: Settings Header Status
+story: As an analyst, I want model+environment in the header so that I don't scroll.
+expected: Sub-header "{environment} · model {model}" right-aligned tabular; only after config loads.
+trigger: settings load
+files: caos/frontend/src/app/settings/page.tsx:148
+endpoint: GET /api/settings
+=END=
+=ROW=
+id: settings-05
+concept: Settings
+feature: Settings Page Structure
+story: As an analyst, I want Settings to match other pages so that it feels consistent.
+expected: RequireAuth → h-screen bg-caos-bg → PageSubHeader (ConceptNav, "Settings", status) → scrollable max-w-3xl content; same nav/back/badge as other pages.
+trigger: settings load
+files: caos/frontend/src/app/settings/page.tsx:22
+endpoint: GET /api/auth/me; GET /api/settings
+=END=

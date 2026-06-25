@@ -33,6 +33,8 @@ import logging
 import re
 from typing import List, Optional, Sequence, Tuple
 
+from pydantic import BaseModel, Field
+
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
@@ -91,6 +93,15 @@ def derive_addbacks(
     return None
 
 
+class _AddbackExtract(BaseModel):
+    """Shape of the add-back extraction reply (L-2 typed boundary). The schema
+    constrains types only; the domain range (0 < pct < 1) stays in the caller."""
+
+    addback_pct: Optional[float] = None
+    categories: List[str] = Field(default_factory=list)
+    chunk_id: Optional[str] = None
+
+
 async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]]:
     """Claude reads the credit-agreement/OM chunks and returns the add-back load
     as a fraction of EBITDA + categories. Defensive: any failure → None (the
@@ -103,16 +114,15 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]
         "not disclose an add-back load, return {\"addback_pct\": null}. Never invent a figure.\n\n"
         + UNTRUSTED_RULE
     )
-    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=6, system=system)
+    res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=6, system=system, schema=_AddbackExtract)
     if res is None:
         return None
-    data, hits = res
-    pct = data.get("addback_pct")
-    if not isinstance(pct, (int, float)) or not (0 < float(pct) < 1):
+    data, hits = res  # `data` is a validated _AddbackExtract (types already checked)
+    pct = data.addback_pct
+    if pct is None or not (0 < pct < 1):  # domain range — the schema only checks shape
         return None
-    chunk_id, exact = safe_chunk_id(data.get("chunk_id"), hits)  # reject fabricated/absent ids
-    cats = [str(c) for c in (data.get("categories") or []) if isinstance(c, str)]
-    return float(pct), cats, chunk_id, exact
+    chunk_id, exact = safe_chunk_id(data.chunk_id, hits)  # reject fabricated/absent ids
+    return float(pct), list(data.categories), chunk_id, exact
 
 
 async def extract_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]]:

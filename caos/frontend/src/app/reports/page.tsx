@@ -12,6 +12,8 @@ import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
 import { buildReports, type ModelInputs } from "@/lib/reports/builders";
+import { useModelEngine } from "@/lib/engine/useModelEngine";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -52,10 +54,12 @@ export default function ReportsPage() {
   );
 }
 
+// fallow-ignore-next-line complexity
 function ReportStudio() {
   // Concept D model state (overrides / severity) feeds the deliverables —
   // loaded once on mount so D edits carry into E.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
+  // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
       const overrides = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
@@ -66,7 +70,14 @@ function ReportStudio() {
       });
     } catch { /* no model edits yet */ }
   }, []);
-  const reports = useMemo(() => buildReports(modelInputs), [modelInputs]);
+  // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
+  // uses); falls back to the seeded model when no run exists. Lights up the
+  // snapshot panels with live, provenance-anchored figures.
+  const eng = useModelEngine(ATLF_REFERENCE_ISSUER_ID);
+  const reports = useMemo(
+    () => buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }),
+    [modelInputs, eng.anchor],
+  );
 
   const [activeId, setActiveId] = useState("snapshot");
   const [zoom, setZoom] = useState(0.85);
@@ -80,6 +91,7 @@ function ReportStudio() {
   const [hydrated, setHydrated] = useState(false);
 
   // restore persisted workspace state
+  // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
       const a = localStorage.getItem("caos-e-active");

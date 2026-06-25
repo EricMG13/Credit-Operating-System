@@ -1,4 +1,8 @@
 # Build context is caos/. Keep it lean: frontend/ + server/ source only.
+# .git lives at the repo root (outside this caos/ context) so it is not baked
+# today, but exclude it defensively in case the context ever widens. L-1.
+**/.git
+.git
 **/node_modules
 **/.next
 **/out

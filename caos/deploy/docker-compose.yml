@@ -60,6 +60,11 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       EDGAR_USER_AGENT: ${EDGAR_USER_AGENT:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-250}
+      # Optional ClamAV upload scan (SECURITY.md §4). Empty = off. Set CLAMAV_HOST=clamav
+      # after starting the `av` profile (below). A set-but-unreachable scanner fails
+      # closed (uploads → 503), so only set it once the clamav service is running.
+      CLAMAV_HOST: ${CLAMAV_HOST:-}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
       # Structure-preserving extraction via the markitdown CLI baked into the image
       # (Dockerfile). Empty = built-in pypdf/openpyxl fallback. Set in .env.
       CAOS_MARKITDOWN_CMD: ${CAOS_MARKITDOWN_CMD:-}
@@ -67,6 +72,12 @@ services:
       # forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on
       # the internal net) is rejected. Empty = enforcement off (app logs a warning).
       EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:-}
+      # App identity. Both have public in-source dev defaults, so the app fails
+      # closed at boot under ENVIRONMENT=production unless real values are passed.
+      # SESSION_SECRET signs the analyst cookie; ANALYST_SIGNUP_CODE gates profile
+      # self-registration. Generate a secret: python -c "import secrets;print(secrets.token_urlsafe(32))"
+      SESSION_SECRET: ${SESSION_SECRET:?set in .env}
+      ANALYST_SIGNUP_CODE: ${ANALYST_SIGNUP_CODE:?set in .env}
     volumes:
       - vault-data:/vault
     networks: [internal]
@@ -144,12 +155,35 @@ services:
       - backups:/backups
     networks: [internal]
 
+  # Optional malware scanner for uploads (SECURITY.md §4). OPT-IN — only starts with
+  #   docker compose --profile av up -d --build
+  # then set CLAMAV_HOST=clamav in .env and `up -d` the app. Needs ~2 GB RAM and
+  # downloads the virus DB on first boot (egress to database.clamav.net). clamd's
+  # default StreamMaxLength is 25 MB — raise it toward MAX_UPLOAD_MB via a mounted
+  # /etc/clamav/clamd.conf if analysts upload large PDFs, or they scan-fail (503).
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: ["av"]
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    volumes:
+      - clamav-data:/var/lib/clamav   # persist the downloaded virus DB across restarts
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s   # first boot downloads the signature DB
+    networks: [internal]
+
 volumes:
   db-data:
   vault-data:
   caddy-data:
   caddy-config:
   backups:
+  clamav-data:
 
 networks:
   internal:

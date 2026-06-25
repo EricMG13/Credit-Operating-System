@@ -75,13 +75,30 @@ def test_collect_sources_drops_non_http_schemes():
 
 
 # ── Endpoint (demo path — no ANTHROPIC_API_KEY in tests) ──────────────────────
-def test_research_endpoint_returns_demo_report():
+def _wait_research(c, job_id, timeout_s=10.0):
+    """Poll GET /api/research/{id} until terminal (M-3 durable job)."""
+    import time
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        r = c.get(f"/api/research/{job_id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if body["status"] in ("complete", "failed"):
+            return body
+        time.sleep(0.05)
+    raise AssertionError("research job did not finish in time")
+
+
+def test_research_endpoint_creates_job_and_polls_to_demo_report():
     from main import app
 
     with TestClient(app) as c:
         r = c.post("/api/research", json={"subject": "Enterprise Software", "mode": "sector"})
-    assert r.status_code == 200
-    body = r.json()
+        assert r.status_code == 201, r.text  # durable: returns a job id, not the report
+        assert r.json()["status"] == "running"
+        body = _wait_research(c, r.json()["id"])
+    assert body["status"] == "complete"
     assert body["demo"] is True
     assert "Executive Summary" in body["report"]
 

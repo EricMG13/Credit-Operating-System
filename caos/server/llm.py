@@ -14,6 +14,7 @@ import anthropic
 from pydantic import BaseModel
 
 from config import get_settings
+from engine import llm_client
 
 settings = get_settings()
 
@@ -66,7 +67,9 @@ async def ask_issuer(messages: List[ChatTurn]) -> str:
     if not llm_configured():
         return _DEMO_REPLY
 
-    response = await _get_client().messages.create(
+    response = await llm_client.create(
+        _get_client(),
+        lane="chat",
         model=settings.anthropic_model,
         max_tokens=1024,
         system=SYSTEM_PROMPT,
