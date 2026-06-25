@@ -91,3 +91,73 @@ describe("adaptModule", () => {
     expect(out.kpis[0].v).toBe("Restricted");
   });
 });
+
+// The generic adapter renders ANY module the engine persists (not just CP-0/CP-1)
+// — exercised with the real CP-2B downside-pathway shape (scalars + an
+// object-array of scenarios + a noisy-id object-array).
+describe("adaptModule — generic shapes", () => {
+  const CP2B: ModuleDetailDTO = {
+    ...CP1, module_id: "CP-2B", module_name: "DownsidePathway", qa_status: "Passed", claims: [],
+    runtime_output: {
+      current_net_leverage: 5.68,
+      breach_threshold_x: 7.0,
+      fragility: "MODERATE",
+      waterfall_basis: "absolute-priority waterfall vs $2105M distressed EV (5x LTM EBITDA)",
+      seniority_order: ["SSN", "2L"],
+      scenarios: [
+        { ebitda_shock_pct: 10, stressed_net_leverage: 6.31, stressed_interest_coverage: 1.89 },
+        { ebitda_shock_pct: 20, stressed_net_leverage: 7.1, stressed_interest_coverage: 1.68 },
+      ],
+      flags: [{ id: "F-1", text: "covenant headroom thins below a 20% shock", severity: "warning" }],
+      tranches: [{ code: "SSN", amount_musd: 900, chunk_id: "abc-123" }],
+    },
+  };
+
+  it("surfaces scalars (incl. short strings) as KPIs, skips long strings", () => {
+    const out = adaptModule(CP2B);
+    const labels = out.kpis.map((k) => k.l);
+    expect(out.kpis.find((k) => k.l.includes("Current net leverage"))?.v).toBe("5.68");
+    expect(out.kpis.find((k) => k.l === "Fragility")?.v).toBe("MODERATE");
+    expect(labels.some((l) => l.toLowerCase().includes("waterfall"))).toBe(false); // long string → not a KPI
+  });
+
+  it("renders an object-array as a table and drops opaque id/chunk columns", () => {
+    const out = adaptModule(CP2B);
+    const scen = out.sections.find((s) => s.type === "table" && s.title === "Scenarios");
+    expect(scen && scen.type === "table" && scen.rows.length).toBe(2);
+    const tranches = out.sections.find((s) => s.type === "table" && s.title === "Tranches");
+    // chunk_id is filtered out of the columns
+    expect(tranches && tranches.type === "table" && tranches.cols.some((c) => /chunk/i.test(c))).toBe(false);
+  });
+
+  it("renders a {text, severity} array as flags, a long string as a note, and a scalar array as text", () => {
+    const out = adaptModule(CP2B);
+    const flags = out.sections.find((s) => s.type === "flags");
+    expect(flags && flags.type === "flags" && flags.items[0].text).toContain("F-1");
+    expect(flags && flags.type === "flags" && flags.items[0].sev).toBe("warning");
+    const basis = out.sections.find((s) => s.type === "text" && s.title.toLowerCase().includes("waterfall"));
+    expect(basis && basis.type === "text" && basis.body).toContain("distressed EV");
+    const order = out.sections.find((s) => s.type === "text" && s.title === "Seniority order");
+    expect(order && order.type === "text" && order.body).toBe("SSN, 2L");
+  });
+
+  it("recurses one level into a nested debate object: narrative as a note, points as a table", () => {
+    const cp6a: ModuleDetailDTO = {
+      ...CP1, module_id: "CP-6A", module_name: "ICDebate", qa_status: "Passed", claims: [],
+      runtime_output: {
+        participants: { bull: "Bull Advocate", bear: "Bear Advocate", chair: "IC Chair" },
+        bull_case: {
+          advocate: "Bull Advocate",
+          narrative: "Bull Advocate: Adjusted EBITDA grew and refinancing risk is low across the structure.",
+          points: [{ point: "EBITDA grew 1.4% YoY", source: "CP-1B", weight: 1 }],
+        },
+        verdict: { lean: "balanced", score: 0 },
+      },
+    };
+    const out = adaptModule(cp6a);
+    const narr = out.sections.find((s) => s.type === "text" && /Bull case · Narrative/i.test(s.title));
+    expect(narr && narr.type === "text" && narr.body).toContain("Adjusted EBITDA grew");
+    const pts = out.sections.find((s) => s.type === "table" && /Bull case · Points/i.test(s.title));
+    expect(pts && pts.type === "table" && pts.rows[0][0]).toContain("EBITDA grew");
+  });
+});
