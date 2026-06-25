@@ -52,8 +52,8 @@ class Settings(BaseSettings):
     # In-app analyst login (routes/auth.py). A single shared access code gates
     # self-registration of named analyst profiles; the profile id is signed into
     # the caos_analyst cookie (session_secret) and stamped on every run. Env:
-    # ANALYST_SIGNUP_CODE, SESSION_SECRET. The session_secret default is dev-only
-    # — set a real one in production (startup warns otherwise).
+    # ANALYST_SIGNUP_CODE, SESSION_SECRET. Both defaults are dev-only — set real
+    # values in production (startup fails closed otherwise).
     analyst_signup_code: str = "131113"
     session_secret: str = "dev-insecure-session-secret"
 
@@ -94,6 +94,17 @@ class Settings(BaseSettings):
 
     # Upload cap (MB).
     max_upload_mb: int = 250
+
+    # Optional: ClamAV malware scan for uploads (avscan.py / SECURITY.md §4).
+    # Empty host = disabled (no-op). When set, every user upload is streamed to
+    # clamd (INSTREAM) before parsing/vaulting; a signature hit is rejected (422)
+    # and a configured-but-unreachable scanner fails CLOSED (503). The deploy
+    # stack ships a clamav sidecar under the "av" compose profile:
+    #   docker compose --profile av up -d   (then set CLAMAV_HOST=clamav)
+    # Size clamd's StreamMaxLength >= max_upload_mb or large files scan-fail.
+    clamav_host: str = ""
+    clamav_port: int = 3310
+    clamav_timeout_s: int = 30
 
     # Within a run, independent analytical modules (same CP-X dependency layer)
     # synthesize concurrently — the LLM-backed ones (CP-1A, CP-4C, …) then run in

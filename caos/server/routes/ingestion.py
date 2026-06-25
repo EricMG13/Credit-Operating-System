@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import avscan
 import ingest
 import rate_limit
 from database import Document, DocumentChunk, Issuer, get_db
@@ -108,6 +109,7 @@ async def upload_document(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_pdf(content)
+    await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
     # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
     # large upload doesn't block the event loop for every other request.
     text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
@@ -126,6 +128,7 @@ async def upload_pricing_sheet(
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
     ingest.sniff_xlsx(content)
+    await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
     # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")

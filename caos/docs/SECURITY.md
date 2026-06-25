@@ -87,7 +87,13 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
   (`MAX_UPLOAD_MB`, default 250), **magic-byte MIME sniff** (PDF / OOXML / OLE),
   and **path-traversal-safe storage** — the filename is sanitized and the
   storage key is UUID-prefixed, so a hostile filename can't escape the vault.
-  `run_mode` is validated against an allow-list.
+  `run_mode` is validated against an allow-list. An **optional ClamAV scan**
+  ([avscan.py](../server/avscan.py), `CLAMAV_HOST`) streams every upload to clamd
+  before it is parsed or vaulted; a signature hit is rejected (422) and a
+  configured-but-unreachable scanner **fails closed** (503). Off by default
+  (single trusted coverage team); enable it via the `av` compose profile when the
+  team or the data sensitivity grows. This is the control this section previously
+  conditioned upload-safety on — it is now built and wired, gated to opt-in.
 - **Document parsing** is best-effort and exception-swallowing (`pypdf`,
   `openpyxl` read-only) — hostile/scanned files vault without crashing the app.
   Parsing untrusted documents is an inherent surface, bounded by the size cap.
