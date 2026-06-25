@@ -390,9 +390,18 @@ export function QaQueue() {
 }
 
 export function GapsList() {
+  // Source gaps read worst-first: severity primary, most-recent request as the
+  // tiebreak — so a high-severity gap never hides below a low one (the data
+  // array isn't authored in order). Matches the QA-queue / alert-feed ordering.
+  const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  const gaps = [...GAPS].sort(
+    (a, b) =>
+      (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9) ||
+      Date.parse(`${b.requested} 2026`) - Date.parse(`${a.requested} 2026`),
+  );
   return (
     <div>
-      {GAPS.map((g, i) => (
+      {gaps.map((g, i) => (
         <div key={i} className="px-3 py-[6px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos">
           <div className="flex items-center gap-2">
             <Dot sev={g.sev} />
