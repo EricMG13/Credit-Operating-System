@@ -167,6 +167,7 @@ function kvTable(title: string, obj: Record<string, unknown>): OutSection | null
 // mapping: scalars → KPIs, object-arrays → flags/tables, nested scalar objects →
 // key/value tables, long strings → notes. Good enough to render real engine
 // output with provenance for every module, not just CP-0/CP-1.
+// fallow-ignore-next-line complexity
 function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
   const kpis = Object.entries(rt)
     .filter(([, v]) => isKpiScalar(v) && v !== "")

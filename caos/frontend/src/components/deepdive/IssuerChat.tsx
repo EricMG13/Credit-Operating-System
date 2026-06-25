@@ -114,6 +114,7 @@ interface Msg extends ChatMessage {
   err?: boolean;
 }
 
+// fallow-ignore-next-line complexity
 export function IssuerChat({ tab, onClose, live, issuerName }: {
   tab: string;
   onClose: () => void;

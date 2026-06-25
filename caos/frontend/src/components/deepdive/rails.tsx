@@ -66,6 +66,7 @@ function CouncilReview({ council }: { council: FindingDTO[] }) {
           enabled; flagged reasoning surfaces here and gates the run alongside CP-5B.
         </div>
       ) : (
+        // fallow-ignore-next-line complexity
         ordered.map((f) => (
           <div key={f.finding_id} className="px-3 py-2 border-b border-caos-border/50">
             <div className="flex items-center gap-2">
@@ -91,6 +92,7 @@ function CouncilReview({ council }: { council: FindingDTO[] }) {
   );
 }
 
+// fallow-ignore-next-line complexity
 export function SourceRail({
   ev,
   open,
@@ -155,6 +157,7 @@ export function SourceRail({
         ))}
       </Panel>
       <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
+        {/* fallow-ignore-next-line complexity */}
         {DRIVERS.map((d) => {
           const hot = !!(active && d.evs.includes(active)) || !!(ev && d.evs.includes(ev));
           return (

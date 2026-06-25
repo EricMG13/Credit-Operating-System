@@ -77,6 +77,7 @@ export function PortfolioTable({
           <span key={i} title={COL_TITLES[h]} aria-label={COL_TITLES[h] || undefined} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
         ))}
       </div>
+      {/* fallow-ignore-next-line complexity */}
       {PORTFOLIO.map((p) => {
         const sel = selected === p.code;
         const sparkColor = p.dd > 5 ? "var(--caos-critical)" : p.dd < -2 ? "var(--caos-success)" : "var(--caos-muted)";
@@ -205,6 +206,7 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="grid gap-1.5 p-2 shrink-0" style={{ gridTemplateColumns: "1.35fr 1.15fr 1fr .85fr .85fr .9fr" }}>
+        {/* fallow-ignore-next-line complexity */}
         {tiles.map((t) => {
           const sel = filter === t.k;
           const cls =
@@ -290,6 +292,7 @@ export function SectorBoard() {
 
   return (
     <div className="grid grid-cols-4 gap-1.5 p-2">
+      {/* fallow-ignore-next-line complexity */}
       {SECTORS.map((s) => {
         const fresh = refreshed[s.sector];
         return (

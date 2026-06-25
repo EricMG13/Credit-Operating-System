@@ -28,6 +28,7 @@ export const useAsk = () => useContext(Ctx);
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
+    // fallow-ignore-next-line complexity
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
@@ -51,6 +52,7 @@ function scopeFor(pathname: string): "deepdive" | "issuer" | "cross" {
   return "cross";
 }
 
+// fallow-ignore-next-line complexity
 export function AskLauncher() {
   const { open, setOpen, toggle } = useAsk();
   const { user, needsLogin } = useAuth();

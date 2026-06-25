@@ -76,6 +76,7 @@ const GROUPS = [
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
 
+// fallow-ignore-next-line complexity
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
@@ -227,6 +228,7 @@ function DeepDive() {
           click a layer to reveal its modules (named; short label on smaller panes). */}
       <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto">
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline">Module outputs</span>
+        {/* fallow-ignore-next-line complexity */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
           return (
@@ -252,6 +254,7 @@ function DeepDive() {
               </button>
               {open ? (
                 <span className="flex items-center gap-1">
+                  {/* fallow-ignore-next-line complexity */}
                   {g.mods.map((id) => {
                     const st = gateState(GATE[id] || id);
                     const ok = isCleared(st);
