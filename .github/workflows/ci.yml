@@ -44,7 +44,7 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -76,7 +76,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -181,7 +181,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history so gitleaks scans past commits, not just the tree
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v4
