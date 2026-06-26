@@ -340,7 +340,7 @@ function DeepDive() {
         <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).

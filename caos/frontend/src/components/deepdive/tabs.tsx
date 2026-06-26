@@ -367,6 +367,12 @@ export function ModuleView({
   const meta = MODULES.find((m) => m.id === id);
   const plan = SIM_PLAN.find((m) => m.id === id);
   const out = liveOut ?? MODULE_OUTPUTS[id];
+  // ModuleCharts / StepOutputGrid / OutputRegister render module-level *hardcoded
+  // Atlas Forge fixtures* keyed only on `id` — they have no live equivalent. On a
+  // live run they would show another issuer's mock charts/steps (and a fake
+  // "RUN #2641 · ATLF" stamp) beneath the genuinely-live KPIs/sections, under the
+  // ● LIVE badge. Suppress them for live modules so nothing mock reads as live.
+  const isLive = !!liveOut;
   const st = sim.mods[id]?.state || "idle";
   if (!out || !meta) {
     return (
@@ -424,7 +430,7 @@ export function ModuleView({
       {layout === "core" ? (
         <>
           <OutSections sections={out.sections} onOpenEvidence={onOpenEvidence} />
-          <ModuleCharts id={id} />
+          {!isLive ? <ModuleCharts id={id} /> : null}
         </>
       ) : (
         <>
@@ -444,18 +450,29 @@ export function ModuleView({
 
           <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />
 
-          <ModuleCharts id={id} />
+          {!isLive ? <ModuleCharts id={id} /> : null}
 
           {/* Workflow-step outputs — newspaper packing both ways; base caps at 4
               columns, dense fits as many as the pane allows. */}
-          <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode={layout === "dense" ? "dense" : "base"} />
+          {!isLive ? (
+            <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode={layout === "dense" ? "dense" : "base"} />
+          ) : null}
         </>
       )}
 
       {/* Workflow completeness register — bottom backstop on every module view
           (bespoke + generic); collapsed only in the legacy core layout. layout is
-          in the key so the open-state re-seeds when the pref resolves on mount. */}
-      <OutputRegister key={id + layout} id={id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+          in the key so the open-state re-seeds when the pref resolves on mount.
+          Suppressed for live modules: it is a hardcoded ATLF fixture (no live
+          equivalent), so it must not render beneath a live module's output. */}
+      {!isLive ? (
+        <OutputRegister key={id + layout} id={id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+      ) : (
+        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
+          Charts, step detail, and the workflow register are not yet wired for live
+          runs — the figures above are this issuer&apos;s live engine output.
+        </div>
+      )}
     </div>
   );
 }

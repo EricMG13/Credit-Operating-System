@@ -192,8 +192,12 @@ export function EdgarImport({
                               <span className="text-caos-md text-caos-text truncate" title={doc.name}>{doc.name}</span>
                               <span className="tabular text-caos-xs text-caos-muted truncate">{doc.doc_label}</span>
                               {done ? (
-                                <span className="tabular text-caos-xs text-right flex items-center justify-end gap-1" style={{ color: "var(--caos-success)" }}>
-                                  <Dot sev="ok" /> {done.chunks_created} ch
+                                <span
+                                  className="tabular text-caos-xs text-right flex items-center justify-end gap-1"
+                                  title={done.chunks_created === 0 ? "No extractable text (scanned/encrypted?) — vaulted but not searchable or analysed." : undefined}
+                                  style={{ color: done.chunks_created === 0 ? "var(--caos-warning)" : "var(--caos-success)" }}
+                                >
+                                  <Dot sev={done.chunks_created === 0 ? "warning" : "ok"} /> {done.chunks_created === 0 ? "0 ch — no text" : `${done.chunks_created} ch`}
                                 </span>
                               ) : (
                                 <button

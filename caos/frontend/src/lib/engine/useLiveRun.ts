@@ -5,10 +5,19 @@
 // back to the seeded constants unchanged ("prefer live, static fallback").
 
 import { getModule, getQA } from "@/lib/api";
-import type { FindingDTO } from "@/lib/engine/types";
+import type { EvidenceDTO, FindingDTO } from "@/lib/engine/types";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { adaptModule } from "./adapt";
 import { useLatestRun } from "./useLatestRun";
+
+// One run's own evidence, indexed by E-xx id, so the click-to-source modal can
+// resolve a LIVE chip to the run's real source instead of the seeded demo map
+// (which 404s for live ids → silent no-op, or worse collides on E-103 and shows
+// another issuer's source as VERIFIED).
+export interface LiveEvidence extends EvidenceDTO {
+  module: string; // module_id that extracted it
+  claim: string;  // the claim_text it supports
+}
 
 // Modules the engine persists and ModuleView renders live (every module except
 // the four with bespoke tabs — CP-6A/6E debate, CP-3B recovery, CP-4 covenants —
@@ -29,6 +38,9 @@ const LIVE_MODULES = [
 
 export interface LiveRunState {
   liveOuts: Record<string, ModuleOutput>;
+  // The run's own evidence, by E-xx id (see LiveEvidence). Drives live
+  // click-to-source; empty when no live run exists.
+  liveEvidence: Record<string, LiveEvidence>;
   runId: string | null;
   committeeStatus: string | null;
   // CP-5C semantic committee-review findings for this run (empty when the
@@ -38,7 +50,8 @@ export interface LiveRunState {
 }
 
 const EMPTY: LiveRunState = {
-  liveOuts: {}, runId: null, committeeStatus: null, council: [], loading: false,
+  liveOuts: {}, liveEvidence: {}, runId: null, committeeStatus: null,
+  council: [], loading: false,
 };
 
 export function useLiveRun(issuerId: string): LiveRunState {
@@ -46,19 +59,29 @@ export function useLiveRun(issuerId: string): LiveRunState {
     const entries = await Promise.all(
       LIVE_MODULES.map(async (m) => {
         try {
-          return [m, adaptModule(await getModule(latest.id, m))] as const;
+          const detail = await getModule(latest.id, m);
+          return [m, adaptModule(detail), detail] as const;
         } catch {
           return null; // module not in this run — skip, fall back to static
         }
       }),
     );
     const liveOuts: Record<string, ModuleOutput> = {};
-    for (const e of entries) if (e) liveOuts[e[0]] = e[1];
+    const liveEvidence: Record<string, LiveEvidence> = {};
+    for (const e of entries) {
+      if (!e) continue;
+      liveOuts[e[0]] = e[1];
+      for (const c of e[2].claims || []) {
+        for (const ev of c.evidence) {
+          liveEvidence[ev.evidence_id] = { ...ev, module: e[2].module_id, claim: c.claim_text };
+        }
+      }
+    }
     // CP-5C committee review is persisted as QA findings; pull the subset.
     const qa = await getQA(latest.id).catch(() => null);
     const council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
     return {
-      liveOuts, runId: latest.id, committeeStatus: latest.committee_status,
+      liveOuts, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
       council, loading: false,
     };
   });

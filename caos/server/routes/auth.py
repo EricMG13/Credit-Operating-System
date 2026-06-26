@@ -35,6 +35,11 @@ router = APIRouter()
 
 _COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 _LOGIN_MAX_PER_MINUTE = 10  # per source IP — throttle access-code guessing
+# Absolute ceiling across ALL sources. The first X-Forwarded-For hop is
+# caller-supplied, so off-proxy an attacker can rotate it to a fresh per-source
+# bucket every request and never trip the per-IP cap; this global bucket is the
+# un-spoofable backstop on brute-force against the shared access code.
+_LOGIN_GLOBAL_PER_MINUTE = 30
 
 
 class MeResponse(BaseModel):
@@ -100,9 +105,15 @@ async def create_profile(
 ):
     settings = get_settings()
 
-    # Throttle by source IP so the shared access code can't be brute-forced.
+    # Throttle so the shared access code can't be brute-forced: a per-source
+    # bucket (fair for legit multi-user behind the proxy) AND a global ceiling.
+    # The per-source key trusts the X-Forwarded-For first hop, which is
+    # caller-supplied — rotating it dodges the per-source bucket — so the global
+    # bucket is the real, un-spoofable cap. `or` short-circuits: a blocked source
+    # doesn't also consume the global budget.
     ip = client_source(request.headers, request.client.host if request.client else None)
-    if not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60):
+    if (not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60)
+            or not rate_limit.hit("login:*", max_attempts=_LOGIN_GLOBAL_PER_MINUTE, window_seconds=60)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts — wait a minute.")
 
     # Fail closed if the access code is unset: an empty setting would make

@@ -96,8 +96,12 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     ModuleSpec("CP-2B", "DownsidePathway", "L2", "downside_pathway",
                depends_on=("CP-1", "CP-2"), required_sources=frozenset({FINANCIALS}),
                implemented=True),
+    # CP-2C derives catalysts from CP-1B (earnings) and CP-1C (peers) as well as
+    # CP-1; they are declared deps so the layerer schedules CP-2C *after* them —
+    # otherwise upstream.get("CP-1B"/"CP-1C") read None and the register is near
+    # empty. See [catalysts.py].
     ModuleSpec("CP-2C", "EventCatalystRegister", "L2", "event_catalyst_register",
-               depends_on=("CP-1",), implemented=True),
+               depends_on=("CP-1", "CP-1B", "CP-1C"), implemented=True),
     ModuleSpec("CP-2D", "GovernanceSponsorScore", "L2", "sponsor_governance_review",
                depends_on=("CP-1",), required_sources=frozenset({OFFERING}),
                implemented=True),
@@ -114,8 +118,11 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                implemented=True),
     ModuleSpec("CP-3C", "PortfolioFitPositionSizing", "L3", "portfolio_fit_analysis",
                depends_on=("CP-3",), implemented=True),
+    # CP-3D scores refinancing/LME vulnerability from CP-1 leverage *and* CP-2B
+    # downside fragility; CP-2B is a declared dep so the layerer schedules CP-3D
+    # after it (else upstream.get("CP-2B") is None and the fragility term is lost).
     ModuleSpec("CP-3D", "RefinancingLMERisk", "L3", "refinancing_lme_risk",
-               depends_on=("CP-1",), implemented=True),
+               depends_on=("CP-1", "CP-2B"), implemented=True),
     # ── L4 — legal / recovery ──────────────────────────────────────────────
     ModuleSpec("CP-4", "LegalCovenantInterpreter", "L4", "legal_covenant_review",
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT, COVENANT}),
@@ -124,11 +131,14 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT, COVENANT}),
                implemented=True),
     # ── L6 — adversarial debate ────────────────────────────────────────────
-    # Deps are the *wired* upstreams (the corpus also lists spec-only CP-2B/CP-4/
-    # CP-3, which would force a Blocked verdict); the debate reads CP-1B/CP-1C
-    # opportunistically. See [debate.py].
+    # Deps are the wired upstreams the debate reads. CP-2B (downside fragility)
+    # and CP-3 (peer fundamentals) are now implemented and routed, so they are
+    # declared deps — otherwise the layerer co-schedules CP-6A with them and the
+    # runtime upstream.get() reads return None on every run. CP-1B/CP-1C are read
+    # opportunistically; CP-6A lands in a later layer via CP-3 (→CP-1C), so those
+    # reads now resolve too. See [debate.py].
     ModuleSpec("CP-6A", "ICDebateChallenge", "L6", "ic_debate_challenge",
-               depends_on=("CP-1", "CP-2", "CP-4C"), implemented=True),
+               depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3"), implemented=True),
     ModuleSpec("CP-6E", "PortfolioDebateChallenge", "L6", "portfolio_debate_challenge",
                depends_on=("CP-6A",), implemented=True),
 )

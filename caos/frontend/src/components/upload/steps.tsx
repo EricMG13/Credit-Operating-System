@@ -295,12 +295,18 @@ export function ResultStep({
   totalChunks: number;
   onReset: () => void;
 }) {
+  // A vaulted doc that produced 0 chunks has no extractable text (scanned /
+  // encrypted PDF, or an image-only file) — it is stored but NOT searchable or
+  // analysed. Surface it as a warning so the analyst isn't silently working from
+  // a document the engine never read.
+  const zeroCount = outcomes.filter((o) => o.result && o.result.chunks_created === 0).length;
+  const noTextTitle = "No extractable text (scanned or encrypted PDF?) — vaulted but not searchable or analysed.";
   return (
     <Panel
       title="Intake complete · CP-0 ready"
       right={
         <span className="flex items-center gap-1.5">
-          <Dot sev={failCount ? "warning" : "ok"} />
+          <Dot sev={failCount || zeroCount ? "warning" : "ok"} />
           <span className="tabular text-caos-xs text-caos-muted">
             {okCount}/{outcomes.length} vaulted · {totalChunks} chunks
           </span>
@@ -311,18 +317,26 @@ export function ResultStep({
         {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
         {modeMeta?.label} ({modeMeta?.code}) run queued
         {failCount ? ` · ${failCount} failed` : ""}
+        {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
         <span className="text-caos-muted"> — view the module route on the Execution Graph</span>
       </div>
       <div className="text-caos-md">
-        {outcomes.map((o) => (
-          <div key={o.name} className="grid grid-cols-[14px_1fr_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
-            <Dot sev={o.result ? "ok" : "critical"} />
-            <span className="text-caos-text truncate">{o.name}</span>
-            <span className="tabular text-caos-xs text-right" style={{ color: o.result ? "var(--caos-muted)" : "var(--caos-critical)" }}>
-              {o.result ? `${o.result.chunks_created} chunks` : o.error}
-            </span>
-          </div>
-        ))}
+        {outcomes.map((o) => {
+          const noText = !!o.result && o.result.chunks_created === 0;
+          return (
+            <div key={o.name} className="grid grid-cols-[14px_1fr_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
+              <Dot sev={o.result ? (noText ? "warning" : "ok") : "critical"} />
+              <span className="text-caos-text truncate">{o.name}</span>
+              <span
+                className="tabular text-caos-xs text-right"
+                title={noText ? noTextTitle : undefined}
+                style={{ color: o.result ? (noText ? "var(--caos-warning)" : "var(--caos-muted)") : "var(--caos-critical)" }}
+              >
+                {o.result ? (noText ? "0 chunks — no text" : `${o.result.chunks_created} chunks`) : o.error}
+              </span>
+            </div>
+          );
+        })}
       </div>
       <div className="p-3 flex gap-2">
         <button
