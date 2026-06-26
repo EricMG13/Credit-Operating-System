@@ -109,8 +109,14 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     fin = ro.get("normalized_financials") or {}
     rev = fin.get("revenue") or {}
     eb = fin.get("adj_ebitda") or {}
-    # EDGAR CP-1 is reported GAAP; fixture/LLM CP-1 carries covenant-adjusted figures.
-    basis = "reported" if ro.get("basis") == "reported_gaap_xbrl" else "adjusted"
+    # EDGAR = reported GAAP; issuer-disclosed = reported_disclosure (distinct from
+    # fully-modeled/fixture); fixture/LLM carry covenant-adjusted figures. (#27)
+    raw_basis = ro.get("basis")
+    basis = {"reported_gaap_xbrl": "reported", "reported_disclosure": "reported_disclosure"}.get(
+        raw_basis if isinstance(raw_basis, str) else "", "adjusted")
+    # A fixture-sourced CP-1 (ATLF demo numbers served for a non-reference issuer
+    # in the offline path) must not enter the cross-issuer store as a real run. (#04)
+    provenance = "fixture" if getattr(payload, "is_fixture", False) else "run"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -121,7 +127,7 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
             run_id=run_id, module_id=payload.module_id, metric_key=metric_key,
             period=period, value=float(value), unit=unit, headline=headline,
             qa_status=qa_status, source_claim_id=cid, source_evidence_id=eid,
-            document_chunk_id=chunk, provenance="run", basis=basis,
+            document_chunk_id=chunk, provenance=provenance, basis=basis,
         ))
 
     rev_headline = _headline_period(list(rev.keys()))

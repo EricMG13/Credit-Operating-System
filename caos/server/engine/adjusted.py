@@ -43,6 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.periods import latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -161,7 +162,12 @@ async def reconcile_adjusted_ebitda(
         return None
 
     pct, categories, chunk_id, exact = res
-    ebitda = nd / lev                       # the EBITDA behind CP-1's leverage
+    # Prefer the directly-disclosed LTM adjusted EBITDA. Reconstructing it as nd/lev
+    # silently assumes the disclosed leverage and net debt share the same EBITDA
+    # basis/period; use the reconstruction only when adj_ebitda is absent. (#16)
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    disclosed = latest(nf.get("adj_ebitda") or {})
+    ebitda = float(disclosed) if isinstance(disclosed, (int, float)) and disclosed > 0 else nd / lev
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
     lev_excl = round(nd / ebitda_excl, 2)
     gap = round(lev_excl - lev, 2)

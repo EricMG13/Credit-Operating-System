@@ -316,17 +316,21 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
 
     rows = (await session.execute(stmt)).all()
 
-    # Pivot per issuer; per (issuer, metric) keep the best fact: run-derived over
-    # seed, then most recent. Several runs of one issuer collapse to the latest.
+    # Pivot per issuer; per (issuer, metric) keep the best fact: run-derived
+    # (a real run OR the demo fixture, #04) over seed, then most recent. Several
+    # runs of one issuer collapse to the latest.
+    def _derived(p: str) -> int:
+        return 1 if p in ("run", "fixture") else 0
+
     by_issuer: Dict[str, dict] = {}
     for fact, issuer in rows:
         entry = by_issuer.setdefault(issuer.id, {"issuer": issuer, "metrics": {}})
         prev = entry["metrics"].get(fact.metric_key)
         better = (
             prev is None
-            or (fact.provenance == "run" and prev.provenance != "run")
-            or (fact.provenance == prev.provenance and fact.created_at and prev.created_at
-                and fact.created_at > prev.created_at)
+            or _derived(fact.provenance) > _derived(prev.provenance)
+            or (_derived(fact.provenance) == _derived(prev.provenance)
+                and fact.created_at and prev.created_at and fact.created_at > prev.created_at)
         )
         if better:
             entry["metrics"][fact.metric_key] = fact

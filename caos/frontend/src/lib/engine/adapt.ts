@@ -79,14 +79,20 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   const sections: OutSection[] = [];
   const rev = (fin.revenue as Record<string, unknown>) || {};
   const eb = (fin.adj_ebitda as Record<string, unknown>) || {};
+  // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy in the same keys the
+  // fixture/LLM use for covenant-adjusted figures — don't label it 'Adj.'. (#15)
+  const reported = rt.basis === "reported_gaap_xbrl";
+  const ebLabel = reported ? "EBITDA (reported proxy)" : "Adj. EBITDA";
+  const levLabel = reported ? "Net leverage (reported)" : "Net leverage (adj.)";
   const periods = Object.keys(rev);
   if (periods.length) {
     sections.push({
-      type: "table", title: "CP-1 · Normalized financials ($M)",
+      type: "table",
+      title: reported ? "CP-1 · Reported financials ($M, GAAP proxy)" : "CP-1 · Normalized financials ($M)",
       cols: ["", ...periods], align: [0, ...periods.map(() => 1)],
       rows: [
         ["Revenue", ...periods.map((p) => num(rev[p]))],
-        ["Adj. EBITDA", ...periods.map((p) => num(eb[p]))],
+        [ebLabel, ...periods.map((p) => num(eb[p]))],
       ],
     });
   }
@@ -98,7 +104,7 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   }
   return {
     kpis: [
-      { l: "Net leverage (adj.)", v: `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
+      { l: levLabel, v: `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
       { l: "Periods normalized", v: num(rt.periods_normalized) },
       { l: "KPIs registered", v: num(rt.kpis_registered) },
       { l: "Coverage gate", v: String(rt.coverage_gate ?? "—"), sev: "ok" },

@@ -446,7 +446,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
-                    MetricFact.provenance == "run",
+                    MetricFact.provenance.in_(("run", "fixture")),  # #04: fixture facts supersede too
                     MetricFact.run_id != run.id,
                 )
             )
