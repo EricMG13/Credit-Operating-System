@@ -52,7 +52,7 @@ from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
 from engine.readiness import synthesize_source_readiness
-from engine.metrics import extract_cost_facts, extract_facts
+from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
 from engine.gate import (
     Finding,
     committee_status_from,
@@ -392,6 +392,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         peer = peer_outlier_finding(upstream.get("CP-1C"))
         if peer is not None:
             findings.append(peer)
+        lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
+        if lev_plaus is not None:
+            findings.append(lev_plaus)
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,

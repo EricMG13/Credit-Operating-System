@@ -75,6 +75,33 @@ def test_me_rejects_headerless_request_in_production(client, monkeypatch):
     assert r.json()["email"] == "analyst@corp.com"
 
 
+def test_edge_guard_gates_unproxied_api_in_production(client, monkeypatch):
+    """#31: with an edge secret set, a deployed /api request without a valid
+    X-Edge-Authorization is 401 at a single chokepoint — including routes with no
+    get_identity dependency (create_profile / logout). /api/health stays open."""
+    from config import get_settings
+    s = get_settings()
+    monkeypatch.setattr(s, "environment", "production")
+    monkeypatch.setattr(s, "edge_proxy_secret", "edge-secret")
+
+    # create_profile takes no Depends(get_identity), so the per-route check never
+    # gated it — the middleware now does.
+    blocked = client.post("/api/auth/profile", json={"code": "x", "name": "Y"})
+    assert blocked.status_code == 401
+    assert blocked.json()["detail"] == "Request did not carry a valid edge credential."
+
+    # Liveness is exempt so external monitors can probe it.
+    assert client.get("/api/health").status_code == 200
+
+    # With the edge credential the guard passes; any 401 now comes from the route
+    # itself (bad code / login disabled), not the edge guard.
+    ok = client.post(
+        "/api/auth/profile", json={"code": "wrong", "name": "Y"},
+        headers={"X-Edge-Authorization": "edge-secret"},
+    )
+    assert ok.json().get("detail") != "Request did not carry a valid edge credential."
+
+
 def test_demo_issuers_seeded(client):
     r = client.get("/api/issuers/")
     assert r.status_code == 200

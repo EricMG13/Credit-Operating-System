@@ -92,8 +92,12 @@ def read_session_token(token: str, secret: str) -> dict | None:
         data = json.loads(base64.urlsafe_b64decode(padded))
     except (ValueError, json.JSONDecodeError):
         return None
+    # exp is mandatory (#32): every cookie minted since the claim shipped carries
+    # one (auth._set_cookie), so a token without exp predates it — treat a missing
+    # exp as expired rather than let a captured pre-exp cookie live until
+    # SESSION_SECRET rotates.
     exp = data.get("exp")
-    if exp is not None and time.time() > exp:
+    if exp is None or time.time() > exp:
         return None
     return data
 

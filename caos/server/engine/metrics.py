@@ -15,7 +15,8 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from engine.periods import year
+from engine.gate import Finding
+from engine.periods import latest, year
 from engine.schemas import ModulePayload
 
 
@@ -170,6 +171,35 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
         source_claim_id=claim_id, source_evidence_id=evidence_id,
         document_chunk_id=chunk, provenance="run", basis=None,  # energy is basis-agnostic
     )]
+
+
+def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MATERIAL CP-5B finding when CP-1's asserted net leverage disagrees with
+    net_debt / latest adj-EBITDA beyond a rounding band — a deterministic
+    cross-check that catches a live LLM emitting an internally-inconsistent
+    leverage (the open runtime_output schema, #21). Skipped when any input is
+    absent (e.g. a reported-disclosure CP-1 that carries leverage but no net debt);
+    the deterministic EDGAR/fixture paths compute leverage consistently, so they
+    never trip it."""
+    if cp1 is None:
+        return None
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
+    eb = latest(nf.get("adj_ebitda") or {})
+    if not (isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd
+            and isinstance(eb, (int, float)) and eb):
+        return None
+    recomputed = nd / eb
+    if abs(recomputed - lev) / lev <= 0.05:
+        return None
+    return Finding(
+        finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",
+        description=(
+            f"Asserted net leverage {lev:g}x disagrees with net debt / LTM adjusted EBITDA "
+            f"({nd:g} / {eb:g} = {recomputed:.2f}x) — the CP-1 figures are internally inconsistent."
+        ),
+        required_remediation="Reconcile the asserted leverage against net debt and adjusted EBITDA.",
+    )
 
 
 # Energy cost exposure stated as a percent of the cost base, alongside an

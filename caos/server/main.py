@@ -9,8 +9,10 @@ Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -165,6 +167,30 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
         elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
             response.headers.setdefault("Cache-Control", "no-cache")
     return response
+
+
+# ─── Edge-origin guard (single chokepoint) ──────────────────────────────────
+# The edge proof (X-Edge-Authorization) must gate EVERY deployed /api request, not
+# only those that depend on get_identity. Enforcing it per-route let create_profile
+# and logout (which read cookies/headers directly, no get_identity dep) skip the
+# check; a future route could too. This middleware closes that — get_identity keeps
+# its own (now redundant) check. /api/health is exempt so monitors can probe
+# liveness. Registered AFTER security_headers so access_log (registered next) still
+# wraps and logs the 401. (#31)
+@app.middleware("http")
+async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+    settings = get_settings()
+    deployed = settings.environment == "production" or os.environ.get("DATABRICKS_APP_PORT") is not None
+    path = request.url.path
+    if deployed and settings.edge_proxy_secret and path.startswith("/api/") and path != "/api/health":
+        presented = request.headers.get("x-edge-authorization", "")
+        if not hmac.compare_digest(
+            presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
+        ):
+            return JSONResponse(
+                {"detail": "Request did not carry a valid edge credential."}, status_code=401
+            )
+    return await call_next(request)
 
 
 # ─── Access log (threat-detection app/auth feed) ────────────────────────────
