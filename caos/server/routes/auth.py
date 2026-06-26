@@ -15,6 +15,7 @@ signed cookie; /logout clears it.
 from __future__ import annotations
 
 import hmac
+import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -30,16 +31,34 @@ from database import Analyst, erase_analyst_data, get_db
 from identity import (
     COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
 )
+from passwords import hash_password, verify_password
 
 router = APIRouter()
 
 _COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
-_LOGIN_MAX_PER_MINUTE = 10  # per source IP — throttle access-code guessing
+_LOGIN_MAX_PER_MINUTE = 10  # per source IP — throttle access-code / password guessing
 # Absolute ceiling across ALL sources. The first X-Forwarded-For hop is
 # caller-supplied, so off-proxy an attacker can rotate it to a fresh per-source
 # bucket every request and never trip the per-IP cap; this global bucket is the
-# un-spoofable backstop on brute-force against the shared access code.
+# un-spoofable backstop on brute-force against the shared code / passwords.
 _LOGIN_GLOBAL_PER_MINUTE = 30
+
+# Loose shape check, not RFC-5322 — email is a login key, not verified. Swap to
+# pydantic EmailStr if you ever add the email-validator dependency.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+# Verify a login against this when no account matches, so a missing email and a
+# wrong password cost the same scrypt work — no user enumeration via timing.
+_DUMMY_HASH = hash_password("caos-no-such-account")
+
+
+def _throttle(request: Request) -> None:
+    """Per-source + global rate limit shared by every credential endpoint. `or`
+    short-circuits so a blocked source doesn't also drain the global budget."""
+    ip = client_source(request.headers, request.client.host if request.client else None)
+    if (not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60)
+            or not rate_limit.hit("login:*", max_attempts=_LOGIN_GLOBAL_PER_MINUTE, window_seconds=60)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts — wait a minute.")
 
 
 class MeResponse(BaseModel):
@@ -54,6 +73,18 @@ class MeResponse(BaseModel):
 class ProfileCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=120)
+
+
+class RegisterRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)  # shared invite code (ANALYST_SIGNUP_CODE)
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -105,16 +136,7 @@ async def create_profile(
 ):
     settings = get_settings()
 
-    # Throttle so the shared access code can't be brute-forced: a per-source
-    # bucket (fair for legit multi-user behind the proxy) AND a global ceiling.
-    # The per-source key trusts the X-Forwarded-For first hop, which is
-    # caller-supplied — rotating it dodges the per-source bucket — so the global
-    # bucket is the real, un-spoofable cap. `or` short-circuits: a blocked source
-    # doesn't also consume the global budget.
-    ip = client_source(request.headers, request.client.host if request.client else None)
-    if (not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60)
-            or not rate_limit.hit("login:*", max_attempts=_LOGIN_GLOBAL_PER_MINUTE, window_seconds=60)):
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts — wait a minute.")
+    _throttle(request)
 
     # Fail closed if the access code is unset: an empty setting would make
     # compare_digest admit any caller the moment the body min_length guard is
@@ -165,6 +187,82 @@ async def create_profile(
             analyst = Analyst(name=name)
             db.add(analyst)
             await db.commit()
+
+    _set_cookie(response, analyst)
+    return _profile_response(analyst)
+
+
+@router.post("/register", response_model=MeResponse, status_code=201)
+async def register(
+    body: RegisterRequest, request: Request, response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Email + password self-registration, gated by the shared invite code. Creates
+    an Analyst with a scrypt password hash and mints the profile cookie. Independent
+    of edge SSO — this is the lane for callers who don't sign in through the proxy."""
+    settings = get_settings()
+    _throttle(request)
+
+    if not settings.analyst_signup_code:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-up disabled — invite code not configured."
+        )
+    # 401 (not 403) on a wrong code so the access-log brute-force heuristic sees it.
+    if not hmac.compare_digest(body.code, settings.analyst_signup_code):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid invite code.")
+
+    name = sanitize_field(body.name).strip()
+    email = sanitize_field(body.email).strip().lower()  # lowercase = the account key
+    if not name:
+        raise HTTPException(422, "Name is required.")
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(422, "Enter a valid email address.")
+
+    # Friendly pre-check: the unique email index is the real guard, but it's
+    # case-sensitive, so match the same lowercased form we store.
+    existing = (await db.execute(
+        select(Analyst).where(func.lower(Analyst.email) == email)
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "An account with that email already exists — sign in instead."
+        )
+
+    analyst = Analyst(name=name, email=email, password_hash=hash_password(body.password))
+    db.add(analyst)
+    try:
+        await db.commit()
+    except IntegrityError:  # display name taken, or a racing email registration
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "That name or email is already taken — pick another."
+        )
+
+    _set_cookie(response, analyst)
+    return _profile_response(analyst)
+
+
+@router.post("/login", response_model=MeResponse)
+async def login(
+    body: LoginRequest, request: Request, response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """Email + password sign-in for a registered account. Mints the profile cookie
+    on success; 401 otherwise."""
+    _throttle(request)
+    email = sanitize_field(body.email).strip().lower()
+    analyst = (await db.execute(
+        select(Analyst).where(func.lower(Analyst.email) == email)
+    )).scalar_one_or_none()
+
+    # Always run a verify (dummy hash when no row, or an SSO-only row with no
+    # password) so a missing email and a wrong password take the same time — no
+    # user enumeration via timing. Compute `ok` unconditionally before branching.
+    stored = analyst.password_hash if analyst else None
+    ok = verify_password(body.password, stored or _DUMMY_HASH)
+    if not ok or analyst is None:
+        # 401 (not 403) feeds the access-log brute-force heuristic. Generic message.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password.")
 
     _set_cookie(response, analyst)
     return _profile_response(analyst)

@@ -26,6 +26,14 @@ export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
 
+// Email + password account lane (alongside edge SSO). register creates the account
+// (gated by the shared invite code) and signs in; login authenticates an existing
+// one. Both return the same { source: "profile" } identity and set the cookie.
+export const register = (data: { code: string; name: string; email: string; password: string }) =>
+  api.post("/api/auth/register", data, { timeout: 8000 }).then((r) => r.data);
+export const login = (email: string, password: string) =>
+  api.post("/api/auth/login", { email, password }, { timeout: 8000 }).then((r) => r.data);
+
 // ─── Issuers ──────────────────────────────────────────────────────────────
 // `q` searches name, ticker, industry, country, and FIGI (case-insensitive).
 export const getIssuers = (q?: string) =>

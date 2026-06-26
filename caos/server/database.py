@@ -98,6 +98,9 @@ class Analyst(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    # PBKDF2 hash for the email+password lane (passwords.py); null for SSO /
+    # shared-code profiles, which authenticate without one. Account key is `email`.
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     # Session-revocation epoch: signed into the cookie at mint; bumped on logout so
     # every existing token for this analyst stops validating (identity.get_identity
