@@ -73,6 +73,45 @@ def test_effort_for_per_mode():
         presets.set_mode(presets.DEFAULT_MODE)
 
 
+def test_reviewer_model_same_as_heavy_when_cross_off(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "council_cross_model", False)
+    try:
+        presets.set_mode("BALANCED")
+        assert presets.reviewer_model() == presets.model_for(presets.HEAVY)
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
+def test_reviewer_model_opposite_provider_when_cross_on(monkeypatch):
+    """Critic on the opposite provider from the synth (heavy) model."""
+    s = get_settings()
+    monkeypatch.setattr(s, "council_cross_model", True)
+    monkeypatch.setattr(s, "gemini_api_key", "x")  # both providers available
+    try:
+        presets.set_mode("BALANCED")  # heavy = Gemini strong -> review on Anthropic
+        assert presets.reviewer_model() == s.council_reviewer_model_anthropic
+        assert presets.reviewer_model().startswith("claude")
+        presets.set_mode("MAX")       # heavy = Claude top -> review on Gemini
+        assert presets.reviewer_model() == s.council_reviewer_model_gemini
+        assert presets.reviewer_model().startswith("gemini")
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
+def test_reviewer_model_degrades_when_opposite_key_missing(monkeypatch):
+    """Anthropic-heavy synth + cross-model on but NO gemini key → same-model review."""
+    s = get_settings()
+    monkeypatch.setattr(s, "council_cross_model", True)
+    monkeypatch.setattr(s, "gemini_api_key", "")
+    try:
+        presets.set_mode("MAX")  # heavy = Claude; wants Gemini reviewer but no key
+        assert presets.reviewer_model() == presets.model_for(presets.HEAVY)
+        assert presets.reviewer_model().startswith("claude")
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
 def _persisted_mode(run_id: str):
     """Read Run.model_mode straight from the DB (it isn't on the API surface)."""
     from database import AsyncSessionLocal, Run

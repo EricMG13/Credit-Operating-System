@@ -143,7 +143,7 @@ class LiveReviewer:
         resp = await llm_client.create(
             self._get_client(),
             lane=f"council:{seat.name}",
-            model=presets.model_for(presets.HEAVY),
+            model=presets.reviewer_model(),
             effort=presets.effort_for(presets.HEAVY),
             max_tokens=2048,
             system=system,
@@ -198,7 +198,7 @@ class LiveReviewer:
         resp = await llm_client.create(
             self._get_client(),
             lane=f"council-vote:{seat.name}",
-            model=presets.model_for(presets.HEAVY),
+            model=presets.reviewer_model(),
             effort=presets.effort_for(presets.HEAVY),
             max_tokens=1024,
             system=system,

@@ -102,6 +102,16 @@ class Settings(BaseSettings):
     # confirm/reject and recalibrate severity. Trims single-seat false positives
     # at the cost of a second LLM fan-out. No effect unless council_enabled.
     council_peer_round: bool = False
+    # Cross-model adversarial review: run the council seats on the OPPOSITE provider
+    # from the synth (heavy) model, so the critic isn't the same model that wrote the
+    # draft — a real check on shared blind spots (committee defensibility). Off by
+    # default; no-op unless council_enabled. When synth ran on Gemini the review uses
+    # council_reviewer_model_anthropic; when synth ran on Anthropic it uses
+    # council_reviewer_model_gemini (only if a Gemini key is set, else it degrades to
+    # same-model review). Needs both keys to actually cross providers.
+    council_cross_model: bool = False
+    council_reviewer_model_anthropic: str = "claude-sonnet-4-6"
+    council_reviewer_model_gemini: str = "gemini-2.5-flash"
 
     # CP-6A/6E adversarial debate (engine/debate.py). The structured debate and
     # its verdict are always computed deterministically from upstream outputs;

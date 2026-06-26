@@ -24,11 +24,19 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
     return {
         "model": s.anthropic_model,
         "llm_configured": llm_configured(),  # bool only — never the key
+        "gemini_configured": bool(s.gemini_api_key),  # bool only — hybrid active when set
         "governance": {
             "council_enabled": s.council_enabled,
             "council_seats": s.council_seats,
             "council_peer_round": s.council_peer_round,
+            "council_cross_model": s.council_cross_model,
             "debate_enabled": s.debate_enabled,
+        },
+        "model_tiers": {
+            "cheap": s.model_tier_cheap,
+            "fast": s.model_tier_fast,
+            "strong": s.model_tier_strong,
+            "top": s.model_tier_top,
         },
         "engine_cost": {
             "run_token_budget": s.run_token_budget,
