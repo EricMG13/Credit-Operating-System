@@ -246,13 +246,20 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
             "current_debt": dc_c, "cash": cash_c}.items() if v},
     }
 
-    # Altman Z'' distress score (balance-sheet only) when every input is present.
-    def _inst_at(names: Sequence[str]) -> Optional[float]:
+    # Altman Z'' distress score (balance-sheet only) when every input is present
+    # AND fresh. _inst_at returns (year, value): the leverage path already gates on
+    # debt_fresh, so the Z'' inputs must get the same freshness discipline or a
+    # long-discontinued balance-sheet tag would feed a score the FY{ly} label
+    # silently mislabels. (#17)
+    def _inst_at(names: Sequence[str]) -> Optional[Tuple[int, float]]:
         _, s = _series(us, names, "instant")
-        v = _latest(s, ly)
-        return v[0] if v else None
+        yrs = [y for y in s if y <= ly]
+        if not yrs:
+            return None
+        y = ly if ly in s else max(yrs)
+        return y, s[y][0]
 
-    bs = {
+    bs_at = {
         "current_assets": _inst_at(_CURRENT_ASSETS),
         "current_liabilities": _inst_at(_CURRENT_LIAB),
         "total_assets": _inst_at(_TOTAL_ASSETS),
@@ -260,17 +267,26 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         "total_liabilities": _inst_at(_TOTAL_LIAB),
         "book_equity": _inst_at(_EQUITY),
     }
+    bs = {k: (t[1] if t else None) for k, t in bs_at.items()}
+    bs_year: Dict[str, Optional[int]] = {k: (t[0] if t else None) for k, t in bs_at.items()}
     # Many filers report no standalone us-gaap:Liabilities (only the
     # Liabilities+Equity total) — derive total liabilities from assets less book
-    # equity so the Altman score still computes (e.g. Carnival, cruise lines).
+    # equity so the Altman score still computes (e.g. Carnival, cruise lines). Its
+    # freshness is the older of the two inputs it derives from.
     if bs["total_liabilities"] is None and bs["total_assets"] is not None and bs["book_equity"] is not None:
         bs["total_liabilities"] = bs["total_assets"] - bs["book_equity"]
+        ta_y, be_y = bs_year["total_assets"], bs_year["book_equity"]
+        bs_year["total_liabilities"] = min(ta_y, be_y) if ta_y is not None and be_y is not None else None
     ebit = opinc[ly][0] if ly in opinc else None  # EBIT = operating income (excl. D&A)
     z = None
+    bs_stale = False
     if ebit is not None and all(v is not None for v in bs.values()):
-        z = altman_z_double_prime(ebit=ebit, **bs)  # type: ignore[arg-type]
-        if z is not None:
-            nf["distress"] = {"altman_z": z[0], "zone": z[1], "model": "Altman Z''"}
+        # Every balance-sheet input must be within a year of the EBITDA period.
+        bs_stale = any(y is None or y < ly - 1 for y in bs_year.values())
+        if not bs_stale:
+            z = altman_z_double_prime(ebit=ebit, **bs)  # type: ignore[arg-type]
+            if z is not None:
+                nf["distress"] = {"altman_z": z[0], "zone": z[1], "model": "Altman Z''"}
 
     def src(concept: Optional[str], year: int, accn: str) -> str:
         return f"SEC EDGAR XBRL · us-gaap:{concept} · FY{year} · accession {accn or 'n/a'}"
@@ -314,6 +330,10 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         limitations.append(
             f"FY{ly} reported EBITDA adds back a ${_m(impair[ly][0]):,.0f}M non-cash impairment "
             f"(us-gaap:{imp_c}) that drove reported operating income sharply lower.")
+    if bs_stale:
+        limitations.append(
+            f"Altman Z'' not derived: the latest balance-sheet XBRL tags predate the EBITDA "
+            f"period (FY{ly}) — a distress score from stale inputs would mislabel the period.")
     if not ebitda:
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
     elif total_debt and leverage is None and not debt_fresh:

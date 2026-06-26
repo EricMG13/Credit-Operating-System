@@ -188,6 +188,21 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   exceptions log with method/path/caller (`main.py` `log_unhandled`).
 - [ ] **Performance smoke.** `python caos/tests/perf/smoke.py --url $APP/api/health`
   passes (p95 under threshold, no errors) at the expected concurrency.
+- [ ] **Backup restore drill (not just backup).** A dump that never restores is
+  not a backup. After the `backup` service has written at least one artifact,
+  restore it into a **scratch** target (never the live DB) and confirm row counts,
+  then drop the scratch DB:
+  ```bash
+  docker compose exec db createdb -U caos caos_restore_test
+  docker compose exec backup sh -c 'PGPASSWORD=$POSTGRES_PASSWORD \
+    pg_restore -h db -U caos -d caos_restore_test /backups/caos-db-<ts>.dump'
+  docker compose exec db psql -U caos -d caos_restore_test -c '\dt'   # tables present
+  docker compose exec db dropdb -U caos caos_restore_test
+  # vault: tar -xzf into a scratch dir and confirm files extract
+  docker compose exec backup sh -c 'mkdir -p /tmp/vrt && tar -xzf /backups/caos-vault-<ts>.tar.gz -C /tmp/vrt && ls /tmp/vrt | head'
+  ```
+  Re-run this drill quarterly. A real recovery (`pg_restore -d caos --clean`)
+  overwrites the live DB — only during an actual incident.
 
 ---
 

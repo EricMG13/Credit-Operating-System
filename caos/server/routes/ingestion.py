@@ -127,8 +127,11 @@ async def upload_pricing_sheet(
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
     content = await ingest.read_capped(file)
+    # Scan BEFORE any parse: sniff_xlsx opens the ZIP central directory (openpyxl/
+    # zipfile read attacker-controlled bytes), so the scan must precede it to match
+    # SECURITY.md's "scanned before it is parsed". No-op unless CLAMAV_HOST is set.
+    await avscan.scan(content)
     ingest.sniff_xlsx(content)
-    await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
     # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")

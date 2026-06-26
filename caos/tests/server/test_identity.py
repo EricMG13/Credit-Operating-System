@@ -167,3 +167,30 @@ def test_expired_token_rejected():
 
     legacy = identity.make_session_token(base, secret)  # no exp claim → still accepted
     assert identity.read_session_token(legacy, secret)["id"] == "x"
+
+
+@pytest.mark.asyncio
+async def test_profile_cookie_ignored_when_sso_principal_differs(monkeypatch):
+    """#22: a valid profile cookie for Alice must NOT win when THIS request's SSO
+    principal (X-Forwarded-Email) is Bob — the 30-day app cookie outlives the
+    7-day proxy session, so a shared browser could otherwise act as a stale user.
+    Resolve to Bob (proxy), not Alice; same-user still resolves to the cookie."""
+    from types import SimpleNamespace
+
+    ident = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t", session_secret="sek")
+    alice = SimpleNamespace(id="alice-id", name="Alice", email="alice@firm.com", token_version=0)
+    token = ident.make_session_token(
+        {"id": "alice-id", "name": "Alice", "email": "alice@firm.com", "v": 0}, "sek")
+    db = _FakeDB(alice)
+
+    cross = await ident.get_identity(
+        _req({"x-forwarded-email": "bob@firm.com", "x-edge-authorization": "s3cr3t"},
+             cookies={ident.COOKIE_NAME: token}), db=db)
+    assert cross.source == "proxy"
+    assert cross.email == "bob@firm.com"
+
+    same = await ident.get_identity(
+        _req({"x-forwarded-email": "alice@firm.com", "x-edge-authorization": "s3cr3t"},
+             cookies={ident.COOKIE_NAME: token}), db=db)
+    assert same.source == "profile"
+    assert same.id == "alice-id"

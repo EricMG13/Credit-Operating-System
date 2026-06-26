@@ -68,14 +68,18 @@ async def lifespan(app: FastAPI):
             "in-source default (131113) is public and would leave analyst profile "
             "self-registration open. Set ANALYST_SIGNUP_CODE."
         )
+    if settings.environment == "production" and settings.caos_demo_seed:
+        # Fail closed (was warn-only): demo seeding ships fictional issuers + the
+        # ATLF reference deal + illustrative metrics. Refuse to seed demo data into
+        # a production database — same posture as the secret guards above. An
+        # operator who genuinely wants a prod demo must set ENVIRONMENT≠production.
+        raise RuntimeError(
+            "CAOS_DEMO_SEED must not be set in production — it would seed fictional "
+            "demo issuers + the ATLF reference deal into the production database. "
+            "Leave it unset (default off) for a non-demo deployment."
+        )
     await init_db()
     if settings.caos_demo_seed:
-        if settings.environment == "production":
-            logger.warning(
-                "CAOS_DEMO_SEED is on in production — seeding demo issuers + the ATLF "
-                "reference deal into the database. Set CAOS_DEMO_SEED=false for a "
-                "non-demo deployment so the registry starts empty."
-            )
         await seed_demo_data()
         async with AsyncSessionLocal() as session:
             await ensure_reference_deal(session)

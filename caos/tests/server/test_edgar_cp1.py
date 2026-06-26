@@ -266,3 +266,38 @@ def test_run_grounds_cp1_in_edgar(monkeypatch, edgar_on):
         for claim in detail["claims"]:
             for ev in claim["evidence"]:
                 assert ev["document_chunk_id"], f"{ev['evidence_id']} not anchored to a chunk"
+
+
+# ── #17: Altman Z'' freshness gate (parity with the leverage path) ───────────
+def _bs(year, accn="a", filed="2026-02-01"):
+    """The six Altman-Z balance-sheet instant tags at `year`-12-31."""
+    e = f"{year}-12-31"
+    return {
+        **_inst("Assets", [(e, 5_000_000_000, year, accn, filed)]),
+        **_inst("AssetsCurrent", [(e, 1_200_000_000, year, accn, filed)]),
+        **_inst("LiabilitiesCurrent", [(e, 800_000_000, year, accn, filed)]),
+        **_inst("RetainedEarningsAccumulatedDeficit", [(e, 1_500_000_000, year, accn, filed)]),
+        **_inst("Liabilities", [(e, 3_000_000_000, year, accn, filed)]),
+        **_inst("StockholdersEquity", [(e, 2_000_000_000, year, accn, filed)]),
+    }
+
+
+def test_altman_z_emitted_when_balance_sheet_is_fresh():
+    f = _facts()  # income/D&A at FY2025 → ly=2025
+    f["facts"]["us-gaap"].update(_bs(2025))
+    p = build_cp1_payload("Test Co", f)
+    assert "distress" in p.runtime_output
+    assert p.runtime_output["distress"]["model"] == "Altman Z''"
+    assert any(c.claim_id == "C-EDG-Z" for c in p.claims)
+
+
+def test_altman_z_suppressed_and_flagged_when_balance_sheet_is_stale():
+    f = _facts()
+    f["facts"]["us-gaap"].update(_bs(2019))  # BS tags 6y older than the FY2025 EBITDA
+    p = build_cp1_payload("Test Co", f)
+    # #17: a distress score from stale inputs would be mislabelled FY2025 — suppress it.
+    assert "distress" not in p.runtime_output
+    assert not any(c.claim_id == "C-EDG-Z" for c in p.claims)
+    assert any("Altman Z'' not derived" in fl for fl in p.limitation_flags)
+    # The leverage path (fresh 2025 debt) is unaffected — only the Z'' is gated.
+    assert p.runtime_output["normalized_financials"].get("net_leverage_adj_ltm") is not None

@@ -37,8 +37,11 @@ class Settings(BaseSettings):
     # Built frontend (Next.js static export). Served at "/".
     caos_static_dir: str = str(SERVER_DIR / "static")
 
-    # Seed the three demo issuers on first boot.
-    caos_demo_seed: bool = True
+    # Seed the three demo issuers on first boot. Safe-by-default OFF: a prod boot
+    # with the override dropped starts empty rather than shipping demo issuers.
+    # Dev turns it on via caos/.env.example (CAOS_DEMO_SEED=true). main.py also
+    # hard-refuses demo seeding in production (fail-closed). (#34)
+    caos_demo_seed: bool = False
 
     # Defense-in-depth for the forwarded-identity trust (identity.py / SECURITY.md
     # §1). Caller identity comes from the edge proxy's X-Forwarded-* headers, which
