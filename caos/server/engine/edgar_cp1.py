@@ -190,11 +190,13 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     imp_c, impair = _series(us, _IMPAIRMENT, "flow")
 
     years = sorted(rev)[-max_years:]
-    # Reported EBITDA proxy = operating income + D&A + non-cash impairments. Impairments
-    # are non-cash and non-operating, and a goodwill write-down can otherwise drive the
-    # raw op-income+D&A EBITDA negative for a year (Six Flags FY25: op income -$1.4bn on a
-    # ~$1.5bn impairment), masking a fundamentally cash-generative business.
-    ebitda = {y: opinc[y][0] + da[y][0] + (impair[y][0] if y in impair else 0.0)
+    # Reported EBITDA proxy = operating income + D&A, plus a non-cash impairment add-back
+    # ONLY in a year the impairment drove operating income negative (Six Flags FY25: op
+    # income -$1.4bn on a ~$1.5bn goodwill write-down, masking a cash-generative
+    # business). On a profitable year, adding the impairment back would overstate EBITDA
+    # and understate leverage, and companyfacts gives no calc-linkbase to confirm the
+    # charge sits above the operating-income subtotal — so gate on opinc < 0. (#26)
+    ebitda = {y: opinc[y][0] + da[y][0] + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
               for y in years if y in opinc and y in da}
 
     revenue = {f"FY{y}": _m(rev[y][0]) for y in years}
@@ -219,6 +221,12 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     debt_year = ltd_at[0] if ltd_at else (dcur_at[0] if dcur_at else None)
     debt_fresh = debt_year is not None and debt_year >= ly - 1
     int_ly = _latest(interest, ly)
+    # Interest coverage must use interest from the EBITDA period, not a discontinued
+    # concept: _series picks the first _INTEREST tag with any data and never merges,
+    # so a filer that switched concepts can leave the series topping out years before
+    # EBITDA. Gate on freshness like debt (mirror debt_fresh). (#25)
+    int_year = ly if ly in interest else max((y for y in interest if y <= ly), default=None)
+    int_fresh = int_year is not None and int_year >= ly - 1
 
     # normalized_financials matches the CP-1 contract the adapter + metric-facts
     # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
@@ -232,7 +240,7 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
-    if eb_ly and eb_ly > 0 and int_ly and int_ly[0]:
+    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_fresh:
         financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
 
     nf: dict = {
@@ -326,10 +334,14 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         "from XBRL — not covenant-adjusted EBITDA. Adjusted EBITDA / add-backs require the "
         "credit agreement (CP-1 adjusted layer / CP-4C); reported-vs-adjusted leverage may diverge.",
     ]
-    if impair and ly in impair and impair[ly][0]:
+    if impair and ly in impair and impair[ly][0] and ly in opinc and opinc[ly][0] < 0:
         limitations.append(
             f"FY{ly} reported EBITDA adds back a ${_m(impair[ly][0]):,.0f}M non-cash impairment "
-            f"(us-gaap:{imp_c}) that drove reported operating income sharply lower.")
+            f"(us-gaap:{imp_c}) that drove reported operating income negative.")
+    if interest and eb_ly and eb_ly > 0 and "interest_coverage_ltm" not in financials and not int_fresh:
+        limitations.append(
+            "Interest coverage not derived: the latest interest-expense XBRL tag predates the "
+            "EBITDA period (the filer likely switched interest concepts) — verify against the filing.")
     if bs_stale:
         limitations.append(
             f"Altman Z'' not derived: the latest balance-sheet XBRL tags predate the EBITDA "
