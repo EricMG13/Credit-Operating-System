@@ -39,7 +39,7 @@ async def scenario_nl(
         return await translate_scenario(body.text)
     except ScenarioError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=f"Couldn't read that as a scenario — {e}. Try naming a driver "
                    "(growth, margin, rates, capex).",
         ) from e

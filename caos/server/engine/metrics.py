@@ -41,7 +41,7 @@ METRIC_CATALOG: List[MetricDef] = [
     MetricDef("net_leverage", "Net leverage", "x", "leverage", False,
               "Net debt / adjusted EBITDA (lower is stronger credit)."),
     MetricDef("interest_coverage", "Interest coverage", "x", "leverage", True,
-              "Adjusted EBITDA / cash interest."),
+              "Adjusted EBITDA / interest."),
     MetricDef("fcf_conversion", "FCF conversion", "%", "cash", True,
               "Free cash flow as a percent of adjusted EBITDA."),
     MetricDef("energy_cost_pct", "Energy cost exposure", "%", "cost exposure", False,

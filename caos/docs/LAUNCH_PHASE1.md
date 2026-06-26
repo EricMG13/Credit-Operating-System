@@ -147,9 +147,9 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 - [ ] **Header spoofing is blocked.** A request to `$APP` carrying a forged
   `X-Forwarded-Email: attacker@evil.com` is **not** honored (Caddy strips it;
   oauth2-proxy sets identity from the session).
-- [ ] **Edge credential enforced (W1)** — *only if `EDGE_PROXY_SECRET` is set.* A
-  direct, un-proxied hit to the app with forged identity but no edge secret is
-  **401**:
+- [ ] **Edge credential enforced (W1).** `EDGE_PROXY_SECRET` is **required** in
+  production — the app fails closed at boot without it. A direct, un-proxied hit
+  to the app with forged identity but no edge secret is **401**:
   ```bash
   docker compose exec app python -c "import urllib.request as u; \
     u.urlopen(u.Request('http://127.0.0.1:8000/api/auth/me', headers={'X-Forwarded-Email':'a@evil.com'}))"
@@ -158,8 +158,8 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   Then confirm the **legitimate path still works** (sign in at `$APP`, load a
   page). That proves oauth2-proxy forwards Caddy's `X-Edge-Authorization` to the
   app. If sign-in succeeds but every page 401s, the header is **not** passing
-  through — inject it at oauth2-proxy instead of Caddy, or leave `EDGE_PROXY_SECRET`
-  empty to disable this defense-in-depth layer.
+  through — inject it at oauth2-proxy instead of Caddy. The secret is required, so
+  disabling it is not an option; the passthrough must be fixed.
 - [ ] **Container hardening holds.** `docker compose ps` shows `app` and
   `oauth2-proxy` **healthy** under their read-only rootfs. If `app` crash-loops on
   a write outside `/vault` or `/tmp`, add that path to its `tmpfs:` list in

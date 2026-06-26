@@ -31,10 +31,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # CAOS_MARKITDOWN_CMD; this runtime is 3.11, so the CLI installs straight onto
 # PATH (/usr/local/bin/markitdown). [pdf] also covers EDGAR .htm exhibits; xlsx
 # falls back to the built-in openpyxl path. ponytail: [pdf] not [all] — PDF pilot.
-# D9 (deferred): can't pin this install against requirements.txt via `-c` — that
-# file carries an [extra], and pip constraint files reject extras. Proper integrity
-# fix is a pip-compiled lockfile (hashes + a single resolution); follow-up.
-RUN pip install --no-cache-dir 'markitdown[pdf]'
+# Pin the top-level package so a breaking markitdown release can't silently enter
+# a rebuilt image. Its transitive tree still floats — can't pin via requirements.txt
+# `-c` (that file carries an [extra], and pip constraint files reject extras); a
+# pip-compiled lockfile with hashes is the full integrity fix (follow-up).
+RUN pip install --no-cache-dir 'markitdown[pdf]==0.1.6'
 
 # App source, then the built UI from stage 1 (served by StaticFiles at /).
 COPY server/ ./

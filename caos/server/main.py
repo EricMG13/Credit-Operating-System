@@ -38,11 +38,17 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
     if settings.environment == "production" and not settings.edge_proxy_secret:
-        logger.warning(
-            "EDGE_PROXY_SECRET is unset in production — forwarded-identity trust "
-            "rests on network isolation alone (no proxy-origin check). Set "
-            "EDGE_PROXY_SECRET and have the edge inject X-Edge-Authorization to "
-            "enforce that requests came through the proxy. See SECURITY.md §1."
+        # Fail closed (was warn-only): without the edge secret the app trusts the
+        # X-Forwarded-* identity headers on network isolation alone, so a rogue
+        # container on the internal net could hit app:8000 directly with forged
+        # identity. The deploy edge (Caddy) already injects X-Edge-Authorization
+        # and compose passes EDGE_PROXY_SECRET to both, so a prod boot without it
+        # is a misconfiguration — same posture as the SESSION_SECRET guard below.
+        raise RuntimeError(
+            "EDGE_PROXY_SECRET must be set in production — forwarded-identity trust "
+            "would otherwise rest on network isolation alone. Set it and have the "
+            "edge inject X-Edge-Authorization (the deploy Caddyfile already does). "
+            'Generate one with: python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
     if settings.environment == "production" and settings.session_secret in ("", "dev-insecure-session-secret"):
         # Fail closed: the dev default is public (in source), so it would let
@@ -92,7 +98,7 @@ _PROD = settings.environment == "production"
 app = FastAPI(
     title="Credit Agent OS (CAOS)",
     version="2.0.0",
-    description="Credit analysis workspace — Databricks App build.",
+    description="Credit analysis workspace — single-container API + UI.",
     lifespan=lifespan,
     # Interactive API docs / schema are exploration aids — keep them in dev but
     # close them in production (no reason to publish the API surface there, even

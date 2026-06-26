@@ -123,7 +123,7 @@ async def create_profile(
     # Matches the sanitize done in identity.get_identity. S7.
     name = sanitize_field(body.name).strip()
     if not name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Name is required.")
+        raise HTTPException(422, "Name is required.")
 
     # The edge proxy sets X-Forwarded-Email from the verified session (trustworthy
     # because the proxy is the sole ingress). When present, key the profile on it:

@@ -1,0 +1,12 @@
+# Dev / CI tooling — NOT installed into the runtime image (deploy/Dockerfile
+# installs only requirements.txt). Install into a local venv:
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+#   pytest        run the server suite     (caos/tests)
+#   ruff check    lint                      (ruff.toml at repo root)
+#   mypy          static type gate          (mypy.ini — engine/ deterministic core)
+pytest~=8.4
+pytest-asyncio~=1.2
+ruff~=0.15
+mypy~=2.1

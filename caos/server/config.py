@@ -1,13 +1,15 @@
 """CAOS server configuration.
 
 One process, environment-driven. Local dev runs with the defaults (SQLite +
-./data storage + demo seed). On Databricks the app.yaml / app resource sets:
+./data storage + demo seed). The production deploy (deploy/docker-compose.yml)
+overrides via the environment:
 
-  DATABASE_URL        Lakebase (Postgres) SQLAlchemy URL; default is SQLite.
-  CAOS_STORAGE_DIR    Unity Catalog Volume path (/Volumes/...) for the
-                      document vault; default is ./data/vault.
-  ANTHROPIC_API_KEY   Databricks secret; chat falls back to canned demo
-                      replies when unset.
+  DATABASE_URL        Postgres SQLAlchemy URL (postgresql+asyncpg://...); the
+                      default is a local SQLite file.
+  CAOS_STORAGE_DIR    Document-vault root; the compose stack mounts a durable
+                      volume at /vault. Default is ./data/vault.
+  ANTHROPIC_API_KEY   Chat/synthesis key; LLM lanes fall back to deterministic
+                      fixtures when unset.
 """
 
 from __future__ import annotations
@@ -26,10 +28,10 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # SQLAlchemy async URL. Default: local SQLite file next to the server.
-    # On Databricks point this at Lakebase: postgresql+asyncpg://...
+    # In production point this at Postgres: postgresql+asyncpg://...
     database_url: str = f"sqlite+aiosqlite:///{SERVER_DIR / 'data' / 'caos.db'}"
 
-    # Document vault root. On Databricks use a UC Volume mount.
+    # Document vault root. In production mount a durable volume (compose: /vault).
     caos_storage_dir: str = str(SERVER_DIR / "data" / "vault")
 
     # Built frontend (Next.js static export). Served at "/".
