@@ -42,12 +42,61 @@ def is_overloaded(exc: Exception) -> bool:
     return False
 
 
+def _provider(model: Optional[str]) -> str:
+    """Which provider a model id belongs to. The preset tier id decides routing —
+    no separate provider flag — so swapping a tier to a gemini-* id is all it takes."""
+    return "gemini" if (model or "").startswith("gemini") else "anthropic"
+
+
+async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str],
+                         effort: Optional[str], **kwargs):
+    """Gemini path: hand the Anthropic-shaped kwargs to the adapter, which calls
+    google-genai and returns a normalized (Anthropic-shaped) response — so the
+    trace and every caller stay unchanged. Same single-retry-on-a-cheaper-model
+    behaviour as the Anthropic path, using the Gemini overload classifier."""
+    from engine import gemini
+
+    s = get_settings()
+    fb = fallback_model or s.model_tier_cheap
+    call_kwargs = dict(
+        system=kwargs.get("system"),
+        messages=kwargs.get("messages"),
+        max_tokens=kwargs.get("max_tokens"),
+        tools=kwargs.get("tools"),
+        tool_choice=kwargs.get("tool_choice"),
+        effort=effort,
+    )
+    t0 = time.monotonic()
+    used_model, did_fallback = model, False
+    try:
+        resp = await gemini.call(model=model, **call_kwargs)
+    except gemini.GeminiUnsupported:
+        raise  # a shape PR-2 doesn't route to Gemini (advisor 2-tool path) — surfaced, not retried
+    except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
+        # Fall back only to a same-provider cheaper model; never hand a non-gemini id
+        # to the Gemini SDK (an operator could override model_tier_cheap).
+        if model == fb or _provider(fb) != "gemini" or not gemini.is_overloaded(exc):
+            raise
+        logger.warning(
+            "caos.llm lane=%s gemini overloaded on %s (%s) — falling back %s -> %s",
+            lane, model, type(exc).__name__, model, fb,
+        )
+        resp = await gemini.call(model=fb, **call_kwargs)
+        used_model, did_fallback = fb, True
+    budget.trace_llm(
+        resp, lane=lane, model=used_model,
+        ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
+    )
+    return resp
+
+
 async def create(
     client,
     *,
     lane: str,
     model: Optional[str] = None,
     fallback_model: Optional[str] = None,
+    effort: Optional[str] = None,
     **kwargs,
 ):
     """Run one ``client.messages.create`` with model fallback (M-2) + trace (M-1).
@@ -56,9 +105,18 @@ async def create(
     ``anthropic_model``; ``fallback_model`` to ``synth_executor_model``. All other
     kwargs (system, max_tokens, tools, tool_choice, messages, …) pass straight
     through, so the seam is shape-agnostic for plain Messages calls.
+
+    When ``model`` is a ``gemini-*`` id the call routes to the Gemini adapter
+    (engine/gemini.py), which returns an Anthropic-shaped response so the trace
+    and callers stay unchanged; ``effort`` (minimal|low|medium|high) drives Gemini
+    thinking and is inert on Anthropic.
     """
     s = get_settings()
     primary = model or s.anthropic_model
+    if _provider(primary) == "gemini":
+        return await _create_gemini(
+            lane=lane, model=primary, fallback_model=fallback_model, effort=effort, **kwargs
+        )
     fb = fallback_model or s.synth_executor_model
     t0 = time.monotonic()
     used_model, did_fallback = primary, False

@@ -71,6 +71,7 @@ async def ask_issuer(messages: List[ChatTurn]) -> str:
         _get_client(),
         lane="chat",
         model=presets.model_for(presets.LIGHT),
+        effort=presets.effort_for(presets.LIGHT),
         max_tokens=1024,
         system=SYSTEM_PROMPT,
         messages=[{"role": m.role, "content": m.content} for m in messages],

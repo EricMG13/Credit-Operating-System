@@ -66,14 +66,25 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
 
-    # Model modes (engine/presets.py). The analyst picks TEST / LITE / BALANCED /
-    # MAX; it selects a model tier per LLM lane, trading token cost ↔ latency ↔
-    # reasoning quality. Tiers are env-overridable so an operator can retune one
-    # without a code change. PR-1 maps the tiers onto Anthropic; the Gemini hybrid
-    # (cheap lanes on Gemini) swaps these IDs + adds the provider adapter later.
-    model_tier_cheap: str = "claude-haiku-4-5-20251001"  # TEST/LITE light, all extract
-    model_tier_mid: str = "claude-sonnet-4-6"            # LITE/BALANCED heavy, BALANCED/MAX light
-    model_tier_top: str = "claude-opus-4-8"              # MAX heavy
+    # Gemini provider (engine/gemini.py). Set GEMINI_API_KEY to activate the hybrid
+    # (cheap/fast/strong lanes on Gemini); empty = those tiers fall back to their
+    # Anthropic equivalents (engine/presets.py), so the engine runs unchanged without
+    # it. NOTE: live lanes still gate on ANTHROPIC_API_KEY (it drives the MAX/top tier
+    # and the live-vs-fixture synth gate), so the hybrid needs BOTH keys —
+    # GEMINI_API_KEY alone leaves the engine on fixtures/demo. google-genai is imported
+    # only when a gemini-* model is actually selected.
+    gemini_api_key: str = ""
+
+    # Model-mode tiers (engine/presets.py). Four tiers the TEST/LITE/BALANCED/MAX
+    # table maps lanes onto, trading token cost ↔ latency ↔ reasoning quality.
+    # Defaults wire the agreed hybrid — cheap/fast/strong on Gemini, top on Claude
+    # Opus (so BALANCED heavy = Gemini 2.5 Pro, MAX heavy = Opus) — but the Gemini
+    # tiers only take effect when GEMINI_API_KEY is set; otherwise presets
+    # substitutes the Anthropic equivalent. Env-overridable.
+    model_tier_cheap: str = "gemini-2.5-flash-lite"  # TEST all; LITE/BALANCED light; LITE extract
+    model_tier_fast: str = "gemini-2.5-flash"        # LITE heavy; BALANCED/MAX light; MAX extract
+    model_tier_strong: str = "gemini-2.5-pro"        # BALANCED heavy
+    model_tier_top: str = "claude-opus-4-8"          # MAX heavy
 
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic

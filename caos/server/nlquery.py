@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from engine import presets
+from engine import llm_client, presets
 from database import Issuer, MetricFact
 from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
 from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
@@ -200,8 +200,11 @@ async def _llm_translate(question: str) -> QuerySpec:
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
         for m in catalog_dicts()
     )
-    resp = await client.messages.create(
+    resp = await llm_client.create(
+        client,
+        lane="nlquery:translate",
         model=presets.model_for(presets.LIGHT),
+        effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_SYSTEM.format(catalog=catalog),
         messages=[{"role": "user", "content": question}],
@@ -255,8 +258,11 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
         for m in catalog_dicts()
     )
-    resp = await client.messages.create(
+    resp = await llm_client.create(
+        client,
+        lane="nlquery:plan",
         model=presets.model_for(presets.LIGHT),
+        effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_PLAN_SYSTEM.format(catalog=catalog),
         messages=[{"role": "user", "content": question}],

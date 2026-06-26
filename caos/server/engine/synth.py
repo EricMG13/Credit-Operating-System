@@ -298,6 +298,7 @@ class LiveSynthesizer:
                 self._get_client(),
                 lane=f"synth:{module_id}",
                 model=presets.model_for(presets.HEAVY),
+                effort=presets.effort_for(presets.HEAVY),
                 max_tokens=_MAX_TOKENS,
                 system=system_blocks,
                 tools=[tool],

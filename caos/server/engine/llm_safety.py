@@ -93,6 +93,7 @@ async def extract_json(
         client,
         lane="extract",
         model=presets.model_for(presets.EXTRACT),
+        effort=presets.effort_for(presets.EXTRACT),
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],

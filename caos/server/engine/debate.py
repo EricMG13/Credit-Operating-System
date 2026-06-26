@@ -293,6 +293,7 @@ class LiveDebater:
                 self._get_client(),
                 lane=f"debate:{advocate}",
                 model=presets.model_for(presets.HEAVY),
+                effort=presets.effort_for(presets.HEAVY),
                 max_tokens=512,
                 system=system,
                 messages=[{"role": "user", "content": user}],
