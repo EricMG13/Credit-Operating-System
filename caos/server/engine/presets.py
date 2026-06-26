@@ -130,3 +130,19 @@ def effort_for(lane_class: str) -> str:
     """The normalized reasoning effort (minimal|low|medium|high) for ``lane_class``
     under the active mode. Applied by the Gemini adapter; inert on Anthropic."""
     return _EFFORT[current_mode()][lane_class]
+
+
+def reviewer_model() -> str:
+    """Model for the adversarial council seats (CP-5C). With ``council_cross_model``
+    on, this is a model on the OPPOSITE provider from the heavy (synth) model — the
+    critic is not the model that wrote the draft, which catches shared blind spots.
+    Off, or when the opposite provider's key is missing, it degrades to the heavy
+    model (the prior same-model behaviour)."""
+    s = get_settings()
+    heavy = model_for(HEAVY)
+    if not s.council_cross_model:
+        return heavy
+    if heavy.startswith("gemini"):
+        return s.council_reviewer_model_anthropic  # synth on Gemini -> review on Anthropic
+    # synth on Anthropic -> review on Gemini, but only if a Gemini key is configured
+    return s.council_reviewer_model_gemini if s.gemini_api_key else heavy

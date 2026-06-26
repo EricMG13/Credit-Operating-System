@@ -38,8 +38,18 @@ function configGroups(cfg: WorkspaceSettings) {
       rows: [
         { label: "Model", value: cfg.model, hint: "ANTHROPIC_MODEL" },
         { label: "Model key configured", value: cfg.llm_configured, hint: "ANTHROPIC_API_KEY" },
+        { label: "Gemini key configured", value: cfg.gemini_configured, hint: "GEMINI_API_KEY" },
         { label: "Synth executor", value: cfg.engine_cost.synth_executor_model, hint: "SYNTH_EXECUTOR_MODEL" },
         { label: "Advisor model", value: cfg.engine_cost.advisor_model, hint: "ADVISOR_MODEL" },
+      ],
+    },
+    {
+      title: "Model tiers (mode → model)",
+      rows: [
+        { label: "Cheap — TEST, light/extract", value: cfg.model_tiers.cheap, hint: "MODEL_TIER_CHEAP" },
+        { label: "Fast — LITE heavy, light lanes", value: cfg.model_tiers.fast, hint: "MODEL_TIER_FAST" },
+        { label: "Strong — BALANCED heavy", value: cfg.model_tiers.strong, hint: "MODEL_TIER_STRONG" },
+        { label: "Top — MAX heavy", value: cfg.model_tiers.top, hint: "MODEL_TIER_TOP" },
       ],
     },
     {
@@ -48,6 +58,7 @@ function configGroups(cfg: WorkspaceSettings) {
         { label: "Council (CP-5C semantic review)", value: cfg.governance.council_enabled, hint: "COUNCIL_ENABLED" },
         { label: "Council seats", value: cfg.governance.council_seats, hint: "COUNCIL_SEATS" },
         { label: "Council peer round", value: cfg.governance.council_peer_round, hint: "COUNCIL_PEER_ROUND" },
+        { label: "Cross-model council review", value: cfg.governance.council_cross_model, hint: "COUNCIL_CROSS_MODEL" },
         { label: "Adversarial debate (CP-6A) narration", value: cfg.governance.debate_enabled, hint: "DEBATE_ENABLED" },
       ],
     },
