@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 import vault_export
 from config import get_settings
+from engine import presets
 from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
@@ -192,7 +193,12 @@ async def create_run(
         if active:
             raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
 
-        run = Run(issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id)
+        run = Run(
+            issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
+            # Pin the mode the X-Model-Mode dependency resolved for this request, so
+            # the background runner (and any re-claim) uses the same tier.
+            model_mode=presets.current_mode(),
+        )
         db.add(run)
         await db.commit()  # persist the queued run so the executor can see it
 

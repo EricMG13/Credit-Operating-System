@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
 
+    # Model modes (engine/presets.py). The analyst picks TEST / LITE / BALANCED /
+    # MAX; it selects a model tier per LLM lane, trading token cost ↔ latency ↔
+    # reasoning quality. Tiers are env-overridable so an operator can retune one
+    # without a code change. PR-1 maps the tiers onto Anthropic; the Gemini hybrid
+    # (cheap lanes on Gemini) swaps these IDs + adds the provider adapter later.
+    model_tier_cheap: str = "claude-haiku-4-5-20251001"  # TEST/LITE light, all extract
+    model_tier_mid: str = "claude-sonnet-4-6"            # LITE/BALANCED heavy, BALANCED/MAX light
+    model_tier_top: str = "claude-opus-4-8"              # MAX heavy
+
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic
     # gate then consumes — it never decides status itself. Off by default: it

@@ -23,6 +23,7 @@ import re
 from pydantic import BaseModel
 
 from config import get_settings
+from engine import presets
 
 logger = logging.getLogger("caos.scenario")
 
@@ -131,7 +132,7 @@ async def _llm_translate(text: str) -> ScenarioSpec:
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     resp = await client.messages.create(
-        model=settings.anthropic_model,
+        model=presets.model_for(presets.LIGHT),
         max_tokens=400,
         system=_SYSTEM,
         messages=[{"role": "user", "content": text}],
