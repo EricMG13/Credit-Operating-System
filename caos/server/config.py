@@ -83,7 +83,10 @@ class Settings(BaseSettings):
     # substitutes the Anthropic equivalent. Env-overridable.
     model_tier_cheap: str = "gemini-2.5-flash-lite"  # TEST all; LITE/BALANCED light; LITE extract
     model_tier_fast: str = "gemini-2.5-flash"        # LITE heavy; BALANCED/MAX light; MAX extract
-    model_tier_strong: str = "gemini-2.5-pro"        # BALANCED heavy
+    # BALANCED heavy. Defaults to Flash (free tier) — gemini-2.5-pro needs paid-tier
+    # billing (free-tier quota is 0). Set MODEL_TIER_STRONG=gemini-2.5-pro once billing
+    # is enabled; BALANCED still reads stronger than LITE via a higher thinking effort.
+    model_tier_strong: str = "gemini-2.5-flash"
     model_tier_top: str = "claude-opus-4-8"          # MAX heavy
 
     # CP-5C semantic committee review (engine/council.py). An ensemble of

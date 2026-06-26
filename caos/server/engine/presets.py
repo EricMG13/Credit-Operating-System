@@ -23,8 +23,11 @@ The mode picks a model *tier* + a reasoning *effort* per lane class:
   MAX       top             fast    fast         high    / low     / minimal
 
 The four tiers wire the agreed **hybrid**: cheap/fast/strong on Gemini, the top
-tier on Claude Opus — so BALANCED heavy = Gemini 2.5 Pro and MAX heavy = Opus,
-with the cheap/light lanes on Gemini Flash. The hybrid only takes effect when
+tier on Claude Opus — so MAX heavy = Opus and the cheap/light lanes run on Gemini
+Flash. BALANCED heavy (the strong tier) defaults to Gemini Flash because
+gemini-2.5-pro needs paid-tier billing (free-tier quota 0); set
+MODEL_TIER_STRONG=gemini-2.5-pro once billing is on — BALANCED still reads
+stronger than LITE via a higher thinking effort. The hybrid only takes effect when
 ``GEMINI_API_KEY`` is set; without it a Gemini tier degrades to its Anthropic
 equivalent (below), so the engine runs unchanged — and offline tests stay
 Anthropic. Effort drives Gemini's thinking config; it is inert on Anthropic
