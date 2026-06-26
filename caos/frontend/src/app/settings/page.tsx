@@ -18,6 +18,8 @@ import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { getSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
+import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
+import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
 
 export default function SettingsPage() {
   return (
@@ -108,6 +110,11 @@ function Settings() {
   const [saved, setSaved] = useState(false);
   useEffect(() => setPrefs(loadPrefs()), []);
 
+  // ── Model mode (browser-local, immediate-save) ──
+  const [mode, setMode] = useState<ModelMode>(DEFAULT_MODE);
+  useEffect(() => setMode(loadMode()), []);
+  const changeMode = (m: ModelMode) => { setMode(m); saveMode(m); };
+
   const set = <K extends keyof ResearchPrefs>(k: K, v: ResearchPrefs[K]) => {
     setPrefs((p) => ({ ...p, [k]: v }));
     setSaved(false);
@@ -154,6 +161,18 @@ function Settings() {
       {/* body */}
       <div className="flex-1 min-h-0 overflow-auto p-2">
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
+          {/* Model mode */}
+          <Panel title="Model mode · saved in this browser">
+            <div className="p-3 flex flex-col gap-3">
+              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+                The cost↔quality tier the engine runs its LLM lanes at — module synthesis, the
+                adversarial council, issuer chat, and queries. Sent with every request; each run
+                pins the mode it ran at. Applies to this browser.
+              </p>
+              <ModelModeToggle value={mode} onChange={changeMode} />
+            </div>
+          </Panel>
+
           {/* Research defaults */}
           <Panel
             title="Research defaults · saved in this browser"

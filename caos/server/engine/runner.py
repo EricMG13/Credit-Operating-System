@@ -31,7 +31,7 @@ from database import (
     Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
     ModuleOutput, QAFinding, Run,
 )
-from engine import budget, edgar_cp1, reported_cp1
+from engine import budget, edgar_cp1, presets, reported_cp1
 from engine.fixtures import REFERENCE_ISSUER_ID
 from engine.adjusted import reconcile_adjusted_ebitda, reconciliation_finding
 from engine.factpack import synthesize_fact_pack
@@ -225,8 +225,14 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     run_budget = budget.RunBudget(limit=settings.run_token_budget, used=run.tokens_used or 0)
     budget.set_budget(run_budget)  # consulted by every LLM module this run
     budget.set_run_id(run.id)      # M-1: tags every caos.llm trace line with this run
+    # Apply the analyst's model mode for this run's lanes. The run executes in a
+    # worker task (outside the creating request), and a re-claim runs in yet
+    # another, so the mode is read off the persisted row each time — never the
+    # request context. (engine/presets.py)
+    presets.set_mode(run.model_mode)
     synthesizer = get_synthesizer()
-    run.model_id = settings.anthropic_model if synthesizer.name == "live" else "fixture"
+    # Pin the actual heavy-lane model the mode selected (reproducibility).
+    run.model_id = presets.model_for(presets.HEAVY) if synthesizer.name == "live" else "fixture"
     run.prompt_version = PROMPT_VERSION
 
     issuer = await session.get(Issuer, run.issuer_id)

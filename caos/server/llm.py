@@ -14,7 +14,7 @@ import anthropic
 from pydantic import BaseModel
 
 from config import get_settings
-from engine import llm_client
+from engine import llm_client, presets
 
 settings = get_settings()
 
@@ -70,7 +70,7 @@ async def ask_issuer(messages: List[ChatTurn]) -> str:
     response = await llm_client.create(
         _get_client(),
         lane="chat",
-        model=settings.anthropic_model,
+        model=presets.model_for(presets.LIGHT),
         max_tokens=1024,
         system=SYSTEM_PROMPT,
         messages=[{"role": m.role, "content": m.content} for m in messages],

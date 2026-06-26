@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from config import get_settings
-from engine import budget, llm_client
+from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -292,7 +292,7 @@ class LiveDebater:
             resp = await llm_client.create(
                 self._get_client(),
                 lane=f"debate:{advocate}",
-                model=self._settings.anthropic_model,
+                model=presets.model_for(presets.HEAVY),
                 max_tokens=512,
                 system=system,
                 messages=[{"role": "user", "content": user}],

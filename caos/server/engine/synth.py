@@ -36,7 +36,7 @@ import re
 from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 
 from config import SERVER_DIR, get_settings
-from engine import budget, llm_client
+from engine import budget, llm_client, presets
 from engine.fixtures import atlf_payload
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import (
@@ -297,7 +297,7 @@ class LiveSynthesizer:
             resp = await llm_client.create(
                 self._get_client(),
                 lane=f"synth:{module_id}",
-                model=s.anthropic_model,
+                model=presets.model_for(presets.HEAVY),
                 max_tokens=_MAX_TOKENS,
                 system=system_blocks,
                 tools=[tool],

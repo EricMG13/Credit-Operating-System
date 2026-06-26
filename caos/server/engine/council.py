@@ -40,7 +40,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
 from config import get_settings
-from engine import budget, llm_client
+from engine import budget, llm_client, presets
 from engine.gate import SEVERITY_RANK, Finding
 from engine.schemas import ModulePayload
 
@@ -143,7 +143,7 @@ class LiveReviewer:
         resp = await llm_client.create(
             self._get_client(),
             lane=f"council:{seat.name}",
-            model=self._settings.anthropic_model,
+            model=presets.model_for(presets.HEAVY),
             max_tokens=2048,
             system=system,
             messages=[{"role": "user", "content": user}],
@@ -197,7 +197,7 @@ class LiveReviewer:
         resp = await llm_client.create(
             self._get_client(),
             lane=f"council-vote:{seat.name}",
-            model=self._settings.anthropic_model,
+            model=presets.model_for(presets.HEAVY),
             max_tokens=1024,
             system=system,
             messages=[{"role": "user", "content": user}],
