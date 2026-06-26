@@ -1,14 +1,14 @@
-"""Analyst-selected model mode → per-lane model tier (engine/presets.py).
+"""Analyst-selected model mode → per-lane model tier + effort (engine/presets.py).
 
 One of four modes — TEST / LITE / BALANCED / MAX — is chosen per analyst and
 carried on each request, trading token cost ↔ latency ↔ reasoning quality:
 
   TEST      cheapest — exercise code paths / stress-test, not answer quality
   LITE      fast — favour latency for interactive work
-  BALANCED  default — strong where it matters, cheap on the light lanes
+  BALANCED  default — strong reasoning where it matters, cheap on the light lanes
   MAX       highest reasoning — the heavy lanes on the top model
 
-The mode picks a model *tier* (cheap / mid / top) per lane class:
+The mode picks a model *tier* + a reasoning *effort* per lane class:
 
   heavy    CP synthesis + adversarial council + debate narration — the
            reasoning-critical credit lanes where a wrong read costs money
@@ -16,16 +16,22 @@ The mode picks a model *tier* (cheap / mid / top) per lane class:
            latency-sensitive, structured
   extract  document → JSON extraction — mechanical
 
-  mode      heavy   light   extract     (effort, applied in the Gemini follow-up)
-  TEST      cheap   cheap   cheap        minimal
-  LITE      mid     cheap   cheap        low
-  BALANCED  mid     mid     cheap        medium
-  MAX       top     mid     mid          high
+  mode      heavy           light   extract     effort (heavy / light / extract)
+  TEST      cheap           cheap   cheap        minimal / minimal / minimal
+  LITE      fast            cheap   cheap        low     / minimal / minimal
+  BALANCED  strong          fast    cheap        medium  / minimal / minimal
+  MAX       top             fast    fast         high    / low     / minimal
 
-PR-1 maps the tiers onto the already-wired Anthropic models (cheap=Haiku,
-mid=Sonnet, top=Opus) via config, so the modes work end-to-end today. The
-hybrid that runs the cheap lanes on Gemini swaps the tier model IDs (config) and
-adds the provider adapter behind this same table — this module is unchanged.
+The four tiers wire the agreed **hybrid**: cheap/fast/strong on Gemini, the top
+tier on Claude Opus — so MAX heavy = Opus and the cheap/light lanes run on Gemini
+Flash. BALANCED heavy (the strong tier) defaults to Gemini Flash because
+gemini-2.5-pro needs paid-tier billing (free-tier quota 0); set
+MODEL_TIER_STRONG=gemini-2.5-pro once billing is on — BALANCED still reads
+stronger than LITE via a higher thinking effort. The hybrid only takes effect when
+``GEMINI_API_KEY`` is set; without it a Gemini tier degrades to its Anthropic
+equivalent (below), so the engine runs unchanged — and offline tests stay
+Anthropic. Effort drives Gemini's thinking config; it is inert on Anthropic
+lanes (the seam drops it).
 
 Carried in a ContextVar (like engine/budget's run id / budget) so it threads a
 whole run — including the background runner task — without touching every
@@ -49,12 +55,30 @@ HEAVY, LIGHT, EXTRACT = "heavy", "light", "extract"
 TEST, LITE, BALANCED, MAX = "TEST", "LITE", "BALANCED", "MAX"
 DEFAULT_MODE = BALANCED
 
-# mode → lane class → tier. Tiers resolve to a model via config (model_tier_*).
+# mode → lane class → tier (cheap | fast | strong | top).
 _TABLE = {
     TEST: {HEAVY: "cheap", LIGHT: "cheap", EXTRACT: "cheap"},
-    LITE: {HEAVY: "mid", LIGHT: "cheap", EXTRACT: "cheap"},
-    BALANCED: {HEAVY: "mid", LIGHT: "mid", EXTRACT: "cheap"},
-    MAX: {HEAVY: "top", LIGHT: "mid", EXTRACT: "mid"},
+    LITE: {HEAVY: "fast", LIGHT: "cheap", EXTRACT: "cheap"},
+    BALANCED: {HEAVY: "strong", LIGHT: "fast", EXTRACT: "cheap"},
+    MAX: {HEAVY: "top", LIGHT: "fast", EXTRACT: "fast"},
+}
+
+# mode → lane class → normalized effort. Drives Gemini thinking (engine/gemini.py);
+# ignored on Anthropic lanes.
+_EFFORT = {
+    TEST: {HEAVY: "minimal", LIGHT: "minimal", EXTRACT: "minimal"},
+    LITE: {HEAVY: "low", LIGHT: "minimal", EXTRACT: "minimal"},
+    BALANCED: {HEAVY: "medium", LIGHT: "minimal", EXTRACT: "minimal"},
+    MAX: {HEAVY: "high", LIGHT: "low", EXTRACT: "minimal"},
+}
+
+# When GEMINI_API_KEY is unset, a Gemini tier model degrades to this Anthropic
+# equivalent so the engine still runs (and offline tests stay Anthropic).
+_ANTHROPIC_FALLBACK = {
+    "cheap": "claude-haiku-4-5-20251001",
+    "fast": "claude-sonnet-4-6",
+    "strong": "claude-sonnet-4-6",
+    "top": "claude-opus-4-8",
 }
 
 _mode_var: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -82,12 +106,27 @@ def current_mode() -> str:
     return _mode_var.get()
 
 
-def model_for(lane_class: str) -> str:
-    """The model ID for ``lane_class`` under the active mode."""
-    s = get_settings()
-    tier = _TABLE[current_mode()][lane_class]
+def _tier_model(s, tier: str) -> str:
     return {
         "cheap": s.model_tier_cheap,
-        "mid": s.model_tier_mid,
+        "fast": s.model_tier_fast,
+        "strong": s.model_tier_strong,
         "top": s.model_tier_top,
     }[tier]
+
+
+def model_for(lane_class: str) -> str:
+    """The model ID for ``lane_class`` under the active mode. A Gemini tier
+    degrades to its Anthropic equivalent when no GEMINI_API_KEY is set."""
+    s = get_settings()
+    tier = _TABLE[current_mode()][lane_class]
+    model = _tier_model(s, tier)
+    if model.startswith("gemini") and not s.gemini_api_key:
+        return _ANTHROPIC_FALLBACK[tier]
+    return model
+
+
+def effort_for(lane_class: str) -> str:
+    """The normalized reasoning effort (minimal|low|medium|high) for ``lane_class``
+    under the active mode. Applied by the Gemini adapter; inert on Anthropic."""
+    return _EFFORT[current_mode()][lane_class]
