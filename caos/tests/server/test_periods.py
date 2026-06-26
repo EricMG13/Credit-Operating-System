@@ -22,3 +22,14 @@ def test_latest_picks_true_latest_across_mixed_widths():
     assert latest({"FY2023": 90.0, "FY2024": 100.0}) == 100.0
     assert latest({"FY23": 90.0, "FY24": 100.0}) == 100.0
     assert latest({}) is None
+
+
+def test_latest_breaks_same_year_tie_to_most_recent():
+    # #2 (review run-2026-06-26): same-year labels order by quarter, not first-seen.
+    assert latest({"Q1 2026": 100.0, "Q3 2026": 120.0}) == 120.0
+    assert latest({"Q3 2026": 120.0, "Q1 2026": 100.0}) == 120.0  # insertion order must not matter
+    # A bare LTM stub (quarter unknown → assumed live/latest) outranks the closed FY.
+    assert latest({"FY2025": 500.0, "LTM_2025": 560.0}) == 560.0
+    # But an LTM that explicitly trails through Q3 is OLDER than the full FY (through
+    # Q4), so the full year wins — the intended, documented ordering.
+    assert latest({"FY2025": 560.0, "LTM_Q3_2025": 500.0}) == 560.0

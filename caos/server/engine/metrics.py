@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import latest, year
+from engine.periods import latest, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -92,10 +92,12 @@ def _headline_period(periods: Sequence[str]) -> Optional[str]:
     fiscal year (the EDGAR annual-filer case, where the latest 10-K *is* the
     headline). Keeps headline selection correct for both provenances."""
     periods = list(periods)
+    if not periods:
+        return None
+    # Prefer an explicit LTM/trailing period as the headline; among ties pick the
+    # MOST RECENT (total order), not whichever happened to come first.
     ltm = [p for p in periods if _is_ltm(p)]
-    if ltm:
-        return ltm[0]
-    return max(periods, key=year) if periods else None
+    return max(ltm or periods, key=sort_key)
 
 
 def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:

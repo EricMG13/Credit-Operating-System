@@ -42,6 +42,22 @@ def test_derive_terms_none_when_nothing():
     assert derive_covenant_terms([("c1", "The aftermarket installed base renews at 92 percent.")]) is None
 
 
+def test_derive_terms_incremental_tied_to_clause_not_first_figure():
+    # Regression (review run-2026-06-26 #1): the incremental amount must bind to the
+    # incremental clause, NOT the first "$N million" in the chunk. A preceding fee
+    # figure used to win and get cited as the basket with exact=True/High.
+    text = ("The Borrower paid $5 million in arrangement fees. The agreement provides "
+            "incremental capacity in the form of an incurrence basket of up to "
+            "$250 million of additional term loans.")
+    assert derive_covenant_terms([("c-incr", text)])["incremental_musd"] == (250.0, "c-incr", True)
+
+
+def test_derive_terms_incremental_billion_scaled_to_musd():
+    # Billion-denominated baskets are real and were missed entirely (million-only).
+    terms = derive_covenant_terms([("c-b", "Day-one incremental incurrence capacity of $1.5 billion.")])
+    assert terms["incremental_musd"] == (1500.0, "c-b", True)
+
+
 # ── Capacity / headroom calculations ─────────────────────────────────────────
 def _cp1(lev=5.68, nd=2391.0):
     return ModulePayload(

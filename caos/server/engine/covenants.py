@@ -37,7 +37,18 @@ _RETRIEVE_QUERY = (
     "compliance certificate shall not permit as of the last day of any fiscal "
     "quarter; incremental incurrence debt capacity basket"
 )
-_MILLION = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*million", re.IGNORECASE)
+# Incremental / incurrence debt capacity: the $-amount tied to the incremental
+# clause (same sentence), in millions or billions — NOT the first dollar figure
+# anywhere in the chunk, which used to grab a preceding fee/figure and cite it as
+# the basket (review run-2026-06-26 #1).
+# ponytail: keyword-then-amount, same sentence. A reverse-order "$250M incremental",
+# or a figure sitting between the keyword and the basket, degrades to None (an
+# honest "not parsed" + limitation flag) rather than a wrong number. Widen to a
+# two-sided proximity match if real agreements need it.
+_INCREMENTAL_AMT = re.compile(
+    r"(?:incremental|incurrence)[^.]{0,140}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
+    re.IGNORECASE,
+)
 
 # The financial *maintenance* leverage covenant — distinct from the many incurrence
 # ratio tests an agreement also carries (e.g. "…the Secured Leverage Ratio does not
@@ -112,9 +123,12 @@ def derive_covenant_terms(
     for cid, text in chunks:
         low = text.lower()
         if incremental is None and "incremental" in low and ("capacity" in low or "incurrence" in low):
-            m = _MILLION.search(text)
+            m = _INCREMENTAL_AMT.search(text)
             if m:
-                incremental = (float(m.group(1).replace(",", "")), cid, True)
+                amt = float(m.group(1).replace(",", ""))
+                if m.group(2).lower() == "billion":
+                    amt *= 1000  # normalise to $M
+                incremental = (amt, cid, True)
         if leverage_cov is None and "leverage" in low:
             res = _maintenance_leverage_threshold(text)
             if res is not None:
