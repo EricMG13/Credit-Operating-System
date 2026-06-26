@@ -92,8 +92,12 @@ def read_session_token(token: str, secret: str) -> dict | None:
         data = json.loads(base64.urlsafe_b64decode(padded))
     except (ValueError, json.JSONDecodeError):
         return None
+    # exp is mandatory (#32): every cookie minted since the claim shipped carries
+    # one (auth._set_cookie), so a token without exp predates it — treat a missing
+    # exp as expired rather than let a captured pre-exp cookie live until
+    # SESSION_SECRET rotates.
     exp = data.get("exp")
-    if exp is not None and time.time() > exp:
+    if exp is None or time.time() > exp:
         return None
     return data
 
@@ -161,12 +165,23 @@ async def get_identity(
             # tokens with no "v" default to 0, matching a never-logged-out row.
             analyst = await db.get(Analyst, ident_id)
             if analyst is not None and analyst.token_version == data.get("v", 0):
-                return CallerIdentity(
-                    id=ident_id,
-                    email=sanitize_field(data.get("email", "")),
-                    full_name=sanitize_field(data["name"]),
-                    source="profile",
-                )
+                cookie_email = sanitize_field(data.get("email", ""))
+                # Principal cross-check: the cookie is minted bound to the user's
+                # own SSO-verified email (routes/auth.py). If THIS request's SSO
+                # principal (x-forwarded-email) names a different user, the cookie
+                # is stale or cross-user (the 30-day app cookie outlives the 7-day
+                # oauth2-proxy session), so ignore it and fall through to the proxy
+                # identity rather than acting as the cookie's principal. Same-user
+                # always matches; dev/un-proxied has no forwarded email so the
+                # cookie stands. (#22)
+                fwd_email = request.headers.get("x-forwarded-email")
+                if not (deployed and fwd_email and cookie_email.lower() != fwd_email.strip().lower()):
+                    return CallerIdentity(
+                        id=ident_id,
+                        email=cookie_email,
+                        full_name=sanitize_field(data["name"]),
+                        source="profile",
+                    )
 
     email = request.headers.get("x-forwarded-email")
     user = request.headers.get("x-forwarded-user")

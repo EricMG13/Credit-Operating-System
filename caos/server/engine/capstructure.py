@@ -53,14 +53,20 @@ def scan_tranches(chunks: List[Tuple[str, str]]) -> List[dict]:
 def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]:
     """Absolute-priority distribution of ``distressed_ev`` senior→junior.
 
-    Each tranche recovers ``min(claim, remaining value)``; the remainder cascades
-    down. Tranches with no stated size get a null recovery (cannot be waterfalled)
-    but still consume nothing, so juniors are not over-credited."""
+    Each sized tranche recovers ``min(claim, remaining value)``; the remainder
+    cascades down. An unsized tranche (no stated amount) BREAKS the waterfall: its
+    own recovery is null and — because an unknown senior claim makes the value
+    cascading past it indeterminate — every tranche junior to it is null too.
+    Scoring juniors against the full remaining EV as if the unsized senior claimed
+    nothing would over-credit them (the prior behaviour, fixed here)."""
     remaining = float(distressed_ev)
     out = []
+    broken = False  # an unsized claim makes everything junior to it indeterminate
     for t in tranches:
         amt = t["amount_musd"]
-        if not isinstance(amt, (int, float)) or amt <= 0:
+        if not (isinstance(amt, (int, float)) and amt > 0):
+            broken = True
+        if broken:
             out.append({**t, "recovery_musd": None, "recovery_pct": None})
             continue
         recov = min(amt, remaining) if remaining > 0 else 0.0
@@ -120,6 +126,11 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         "CP-1 supplied no LTM EBITDA; recovery not waterfalled — preference is seniority-only."]
     if total is None:
         limitations.append("No tranche sizes parsed; waterfall ran on named tranches only.")
+    if ev and any(isinstance(r["amount_musd"], (int, float)) and r["amount_musd"] > 0
+                  and r["recovery_pct"] is None for r in rows):
+        limitations.append(
+            "An unsized senior tranche broke the waterfall; recovery for tranches "
+            "junior to it is left indeterminate rather than over-credited.")
 
     return ModulePayload(
         module_id="CP-3B", module_name="RecoveryInstrumentPreference",

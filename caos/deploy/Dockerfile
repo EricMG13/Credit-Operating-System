@@ -5,7 +5,10 @@
 # Build context is the caos/ dir (see deploy/docker-compose.yml).
 
 # ─── Stage 1: build the Next.js static export (output: "export" → ./out) ─────
-FROM node:20-slim AS frontend
+# Base images pinned by digest for reproducibility (#24); the tag is kept for
+# readability. Refresh the digest deliberately when bumping the base for CVEs:
+#   docker buildx imagetools inspect node:20-slim --format '{{.Manifest.Digest}}'
+FROM node:20-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0 AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -13,7 +16,9 @@ COPY frontend/ ./
 RUN npm run build
 
 # ─── Stage 2: Python runtime (FastAPI + static UI) ──────────────────────────
-FROM python:3.11-slim AS runtime
+# Pinned by digest (#24); refresh with:
+#   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
+FROM python:3.11-slim@sha256:cdbd05fb6f457ca275ff51ce00d93d865ca0b6a25f5ffb08262d94f6835771e5 AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
@@ -23,18 +28,20 @@ WORKDIR /app
 
 # Python deps first for layer caching. If a wheel build ever fails on slim,
 # add: RUN apt-get update && apt-get install -y --no-install-recommends gcc
-COPY server/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Structure-preserving document extraction (covenant tables, multi-column credit
-# agreements). The dev venv is 3.9 so the app shells out to markitdown via
-# CAOS_MARKITDOWN_CMD; this runtime is 3.11, so the CLI installs straight onto
-# PATH (/usr/local/bin/markitdown). [pdf] also covers EDGAR .htm exhibits; xlsx
-# falls back to the built-in openpyxl path. ponytail: [pdf] not [all] — PDF pilot.
-# D9 (deferred): can't pin this install against requirements.txt via `-c` — that
-# file carries an [extra], and pip constraint files reject extras. Proper integrity
-# fix is a pip-compiled lockfile (hashes + a single resolution); follow-up.
-RUN pip install --no-cache-dir 'markitdown[pdf]'
+#
+# Fully-pinned, hashed lockfile — the single integrity fix the old two-install
+# layout called out (#24). requirements.lock is pip-compiled from
+# server/requirements.txt + markitdown[pdf]==0.1.6 with --generate-hashes, so the
+# whole transitive tree (incl. markitdown's) is exact and hash-verified, and
+# --require-hashes makes pip reject any artifact whose hash doesn't match.
+# Regenerate after editing requirements.txt:
+#   pip-compile --generate-hashes --strip-extras --output-file=server/requirements.lock \
+#     <(cat server/requirements.txt; echo 'markitdown[pdf]==0.1.6')
+# The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.11 runtime
+# installs the CLI straight onto PATH (/usr/local/bin/markitdown). [pdf] not
+# [all] — PDF pilot; xlsx falls back to the built-in openpyxl path.
+COPY server/requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 # App source, then the built UI from stage 1 (served by StaticFiles at /).
 COPY server/ ./

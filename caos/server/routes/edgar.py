@@ -183,7 +183,9 @@ async def vault_exhibit(
     # the vault goes through avscan (no-op unless CLAMAV_HOST is set).
     await avscan.scan(content)
     file_name = body.file_name or body.exhibit_url.rsplit("/", 1)[-1] or "edgar-exhibit.htm"
-    text = ingest.extract_text(content, file_name)
+    # Offload the sync pypdf / HTML-regex parse so it doesn't block the event loop
+    # (matches the sibling run_in_threadpool calls on the EDGAR entrypoints above).
+    text = await run_in_threadpool(ingest.extract_text, content, file_name)
     key = ingest.store(content, file_name)
     chunks = ingest.chunk_text(text)
 

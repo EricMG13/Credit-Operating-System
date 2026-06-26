@@ -19,6 +19,23 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+// Latest period key in a {label: value} series — prefer an LTM-prefixed label,
+// else the largest trailing 2-4 digit year (2-digit normalised to 20xx, matching
+// engine/periods.year). The old hardcoded 'LTM_Q1_26' only matched the ATLF
+// fixture; EDGAR emits 'FY2025', reported emits 'Reported'/'ANNUALISED'. (#30)
+function latestPeriod(series: Record<string, unknown>): string {
+  const keys = Object.keys(series);
+  const ltm = keys.find((k) => /^ltm/i.test(k));
+  if (ltm) return ltm;
+  const yr = (k: string) => {
+    const m = k.match(/\d{2,4}(?!.*\d)/);
+    if (!m) return -1;
+    const y = parseInt(m[0], 10);
+    return y < 100 ? 2000 + y : y;
+  };
+  return keys.reduce((a, b) => (yr(b) >= yr(a) ? b : a), keys[0] ?? "");
+}
+
 /** Pull the LTM anchor from a live CP-1 payload, or null if the shape is absent
  *  (caller then falls back to the seeded model). Reads the same
  *  runtime_output.normalized_financials fields as adapt.ts `adaptCp1`. */
@@ -29,8 +46,8 @@ export function cp1ToAnchor(detail: ModuleDetailDTO): ModelAnchor | null {
 
   const rev = fin.revenue as Record<string, unknown> | undefined;
   const eb = fin.adj_ebitda as Record<string, unknown> | undefined;
-  const ltmRevenue = rev ? num(rev.LTM_Q1_26) : null;
-  const ltmAdjEbitda = eb ? num(eb.LTM_Q1_26) : null;
+  const ltmRevenue = rev ? num(rev[latestPeriod(rev)]) : null;
+  const ltmAdjEbitda = eb ? num(eb[latestPeriod(eb)]) : null;
   const netDebt = num(fin.net_debt_ltm);
   const netLeverage = num(fin.net_leverage_adj_ltm);
 

@@ -266,3 +266,76 @@ def test_run_grounds_cp1_in_edgar(monkeypatch, edgar_on):
         for claim in detail["claims"]:
             for ev in claim["evidence"]:
                 assert ev["document_chunk_id"], f"{ev['evidence_id']} not anchored to a chunk"
+
+
+# ── #17: Altman Z'' freshness gate (parity with the leverage path) ───────────
+def _bs(year, accn="a", filed="2026-02-01"):
+    """The six Altman-Z balance-sheet instant tags at `year`-12-31."""
+    e = f"{year}-12-31"
+    return {
+        **_inst("Assets", [(e, 5_000_000_000, year, accn, filed)]),
+        **_inst("AssetsCurrent", [(e, 1_200_000_000, year, accn, filed)]),
+        **_inst("LiabilitiesCurrent", [(e, 800_000_000, year, accn, filed)]),
+        **_inst("RetainedEarningsAccumulatedDeficit", [(e, 1_500_000_000, year, accn, filed)]),
+        **_inst("Liabilities", [(e, 3_000_000_000, year, accn, filed)]),
+        **_inst("StockholdersEquity", [(e, 2_000_000_000, year, accn, filed)]),
+    }
+
+
+def test_altman_z_emitted_when_balance_sheet_is_fresh():
+    f = _facts()  # income/D&A at FY2025 → ly=2025
+    f["facts"]["us-gaap"].update(_bs(2025))
+    p = build_cp1_payload("Test Co", f)
+    assert "distress" in p.runtime_output
+    assert p.runtime_output["distress"]["model"] == "Altman Z''"
+    assert any(c.claim_id == "C-EDG-Z" for c in p.claims)
+
+
+def test_altman_z_suppressed_and_flagged_when_balance_sheet_is_stale():
+    f = _facts()
+    f["facts"]["us-gaap"].update(_bs(2019))  # BS tags 6y older than the FY2025 EBITDA
+    p = build_cp1_payload("Test Co", f)
+    # #17: a distress score from stale inputs would be mislabelled FY2025 — suppress it.
+    assert "distress" not in p.runtime_output
+    assert not any(c.claim_id == "C-EDG-Z" for c in p.claims)
+    assert any("Altman Z'' not derived" in fl for fl in p.limitation_flags)
+    # The leverage path (fresh 2025 debt) is unaffected — only the Z'' is gated.
+    assert p.runtime_output["normalized_financials"].get("net_leverage_adj_ltm") is not None
+
+
+# ── #26: impairment add-back gated on negative operating income ───────────────
+def test_impairment_not_added_back_on_profitable_year():
+    f = _facts()  # FY2025 operating income +300M (profitable)
+    f["facts"]["us-gaap"].update(_flow("GoodwillImpairmentLoss",
+        [("2025-01-01", "2025-12-31", 200_000_000, 2025, "acc25", "2026-02-01")]))
+    p = build_cp1_payload("Test Co", f)
+    eb = p.runtime_output["normalized_financials"]["adj_ebitda"]
+    assert eb["FY2025"] == 415.0  # 300 + 115 D&A; impairment NOT added on a profitable year (#26)
+    assert not any("adds back" in fl for fl in p.limitation_flags)
+
+
+def test_impairment_added_back_when_operating_income_negative():
+    f = _facts()
+    f["facts"]["us-gaap"].update(_flow("OperatingIncomeLoss",
+        [("2025-01-01", "2025-12-31", -900_000_000, 2025, "acc25", "2026-02-01")]))
+    f["facts"]["us-gaap"].update(_flow("GoodwillImpairmentLoss",
+        [("2025-01-01", "2025-12-31", 1_200_000_000, 2025, "acc25", "2026-02-01")]))
+    p = build_cp1_payload("Test Co", f)
+    eb = p.runtime_output["normalized_financials"]["adj_ebitda"]
+    assert eb["FY2025"] == 415.0  # -900 + 115 + 1200 — write-down added back on a loss year
+    assert any("adds back" in fl and "negative" in fl for fl in p.limitation_flags)
+
+
+# ── #25: interest coverage gated on interest-period freshness ─────────────────
+def test_interest_coverage_emitted_when_fresh():
+    p = build_cp1_payload("Test Co", _facts())  # interest FY2025, EBITDA FY2025
+    assert "interest_coverage_ltm" in p.runtime_output["normalized_financials"]
+
+
+def test_interest_coverage_suppressed_when_interest_stale():
+    f = _facts()
+    f["facts"]["us-gaap"].update(_flow("InterestExpense",
+        [("2022-01-01", "2022-12-31", 200_000_000, 2022, "old", "2023-02-01")]))  # 3y before EBITDA
+    p = build_cp1_payload("Test Co", f)
+    assert "interest_coverage_ltm" not in p.runtime_output["normalized_financials"]  # (#25)
+    assert any("Interest coverage not derived" in fl for fl in p.limitation_flags)

@@ -64,7 +64,9 @@ def test_extract_facts_projects_cp1_financials_with_citation():
 
     lev = by_key[("net_leverage", "LTM")]
     assert lev["value"] == 5.68 and lev["headline"] is True
-    assert lev["provenance"] == "run" and lev["qa_status"] == "Restricted"
+    # ATLF is the seeded demo fixture, so its facts carry 'fixture' provenance — not
+    # 'run' — so they never pose as a real issuer run in the cross-issuer store (#04).
+    assert lev["provenance"] == "fixture" and lev["qa_status"] == "Restricted"
     assert lev["source_claim_id"] == "C-10" and lev["source_evidence_id"] == "E-20"
 
     # ebitda_margin is computed from revenue + adj_ebitda for the LTM period.
@@ -136,7 +138,9 @@ def test_run_derived_facts_override_seed_with_citation(client):
     atlf = next((row for row in body["rows"] if row["issuer"]["name"] == "Atlas Forge Industrials"), None)
     assert atlf is not None
     lev = atlf["metrics"]["net_leverage"]
-    assert lev["provenance"] == "run"
+    # ATLF runs the offline fixture path, so its run-derived facts carry 'fixture'
+    # provenance (they still supersede the seed facts and keep the citation). (#04)
+    assert lev["provenance"] == "fixture"
     assert lev["citation"] and lev["citation"]["evidence_id"] == "E-20"
 
 

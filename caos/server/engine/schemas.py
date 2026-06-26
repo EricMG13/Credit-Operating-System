@@ -80,6 +80,10 @@ class ModulePayload:
     confidence: str = "Medium"
     limitation_flags: List[str] = field(default_factory=list)
     downstream_consumers: List[str] = field(default_factory=list)
+    # True when this payload is the seeded ATLF demo fixture (not a real run/
+    # EDGAR/disclosure synthesis). Not persisted; read at fact-projection time so
+    # fixture numbers don't masquerade as a real run in the cross-issuer store. (#04)
+    is_fixture: bool = False
 
 
 def validate_payload(p: ModulePayload) -> List[str]:

@@ -159,6 +159,7 @@ def _cp1() -> ModulePayload:
         module_name="CanonicalDataFoundation",
         owned_object="canonical_financials",
         confidence="Medium",
+        is_fixture=True,  # ATLF demo numbers — flagged so they don't pose as a real run (#04)
         downstream_consumers=["CP-1B", "CP-1C", "CP-2", "CP-3", "CP-4"],
         limitation_flags=["Q4-25 is a derived period (G-02)"],
         runtime_output={

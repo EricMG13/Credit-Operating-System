@@ -139,7 +139,7 @@ async def nl_query(
         mode, spec = await plan(body.question)
     except QueryError as e:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             detail=f"Couldn't map that to a known metric — {e}. See /api/query/catalog.",
         ) from e
     # Structured questions rank the metric store; qualitative ones search evidence.

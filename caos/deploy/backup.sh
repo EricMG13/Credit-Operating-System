@@ -7,9 +7,14 @@
 # ON-HOST DURABILITY ONLY. For real protection against host loss, copy /backups
 # OFF the host (rsync / object storage) — see LAUNCH_PHASE1 Operations.
 #
-# Restore (manual):
-#   db    : pg_restore -h db -U caos -d caos --clean /backups/caos-db-<ts>.dump
-#   vault : tar -xzf /backups/caos-vault-<ts>.tar.gz -C /vault
+# Restore — DRILL into a SCRATCH target, never the live DB/vault (verify quarterly,
+# see LAUNCH_PHASE1 Operations):
+#   db    : createdb -h db -U caos caos_restore_test
+#           pg_restore -h db -U caos -d caos_restore_test /backups/caos-db-<ts>.dump
+#           dropdb -h db -U caos caos_restore_test   # after verifying row counts
+#   vault : mkdir -p /tmp/vault_restore_test && tar -xzf /backups/caos-vault-<ts>.tar.gz -C /tmp/vault_restore_test
+#   WARNING: a real disaster-recovery restore (`pg_restore -d caos --clean`) OVERWRITES
+#   the live database — only run that during an actual recovery, never as a drill.
 set -u
 
 KEEP="${BACKUP_KEEP:-7}"                       # artifacts of each kind to retain

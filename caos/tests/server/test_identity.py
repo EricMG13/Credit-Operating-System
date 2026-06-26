@@ -4,6 +4,8 @@ deployed-context request must carry a matching X-Edge-Authorization."""
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi import HTTPException
 from starlette.datastructures import Headers
@@ -94,7 +96,7 @@ async def test_cookie_does_not_bypass_edge_secret(monkeypatch):
 
     identity = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t")
     token = identity.make_session_token(
-        {"id": "x", "name": "X", "email": ""}, "dev-insecure-session-secret"
+        {"id": "x", "name": "X", "email": "", "exp": int(time.time()) + 60}, "dev-insecure-session-secret"
     )
     # Token carries no "v" → defaults to 0; seed a matching row (version 0).
     db = _FakeDB(Analyst(id="x", name="X", token_version=0))
@@ -120,7 +122,7 @@ async def test_revoked_token_version_rejected(monkeypatch):
 
     monkeypatch.setattr(identity, "get_settings", lambda: Settings(environment="development"))
     token = identity.make_session_token(
-        {"id": "x", "name": "X", "email": "", "v": 0}, "dev-insecure-session-secret"
+        {"id": "x", "name": "X", "email": "", "v": 0, "exp": int(time.time()) + 60}, "dev-insecure-session-secret"
     )
 
     # Row bumped to v1 → token v0 no longer matches → cookie ignored → dev fallback.
@@ -165,5 +167,32 @@ def test_expired_token_rejected():
     fresh = identity.make_session_token({**base, "exp": int(time.time()) + 60}, secret)
     assert identity.read_session_token(fresh, secret)["id"] == "x"
 
-    legacy = identity.make_session_token(base, secret)  # no exp claim → still accepted
-    assert identity.read_session_token(legacy, secret)["id"] == "x"
+    legacy = identity.make_session_token(base, secret)  # no exp claim → now rejected (#32)
+    assert identity.read_session_token(legacy, secret) is None
+
+
+@pytest.mark.asyncio
+async def test_profile_cookie_ignored_when_sso_principal_differs(monkeypatch):
+    """#22: a valid profile cookie for Alice must NOT win when THIS request's SSO
+    principal (X-Forwarded-Email) is Bob — the 30-day app cookie outlives the
+    7-day proxy session, so a shared browser could otherwise act as a stale user.
+    Resolve to Bob (proxy), not Alice; same-user still resolves to the cookie."""
+    from types import SimpleNamespace
+
+    ident = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t", session_secret="sek")
+    alice = SimpleNamespace(id="alice-id", name="Alice", email="alice@firm.com", token_version=0)
+    token = ident.make_session_token(
+        {"id": "alice-id", "name": "Alice", "email": "alice@firm.com", "v": 0, "exp": int(time.time()) + 60}, "sek")
+    db = _FakeDB(alice)
+
+    cross = await ident.get_identity(
+        _req({"x-forwarded-email": "bob@firm.com", "x-edge-authorization": "s3cr3t"},
+             cookies={ident.COOKIE_NAME: token}), db=db)
+    assert cross.source == "proxy"
+    assert cross.email == "bob@firm.com"
+
+    same = await ident.get_identity(
+        _req({"x-forwarded-email": "alice@firm.com", "x-edge-authorization": "s3cr3t"},
+             cookies={ident.COOKIE_NAME: token}), db=db)
+    assert same.source == "profile"
+    assert same.id == "alice-id"

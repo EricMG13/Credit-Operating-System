@@ -44,6 +44,30 @@ FINDINGS = {
                    "Workflow FIX (code): GapsList (views.tsx:392) now sorts severity→recency; previously rendered raw GAPS order, contradicting the documented 'ordered by severity'. Sibling QaQueue/AlertFeed already worst-first."),
     # command-25/26/27/28 deleted: CP-MON Email tiles/list/modal/alert-feed were relocated
     # to the Monitor concept (IA restructure 6f55fd5) and duplicate monitor-01/02/03/04.
+    # ── Iteration 2 (2026-06-26): post-sweep features added to the tracker ──
+    "shell-10": ("Pass", "",
+                 "Render asserted by src/app/error-surfaces.test.tsx (role=alert + Retry + 'Something broke' + digest ref)."),
+    "shell-11": ("Pass", "",
+                 "Render asserted by src/app/error-surfaces.test.tsx (own <html>/<body> + role=alert + 'Try again' + 'failed to load')."),
+    "shell-12": ("Pass", "",
+                 "Render asserted by src/app/error-surfaces.test.tsx (404 + 'No such view' + href=\"/\" back link)."),
+    "upload-26": ("Pass", "",
+                  "test_avscan.py (8): clean OK, FOUND→422, NUL payload clean, unset→no-op, unreachable/inconclusive/overlong→503 fail-closed, INSTREAM framing."),
+    "auth-12": ("Pass", "",
+                "test_token_revocation.py::test_logout_revokes_prior_token + test_auth_profile logout 204 — bump token_version invalidates prior cookie."),
+    "auth-13": ("Pass", "",
+                "test_identity.py::test_revoked_token_version_rejected — cookie 'v' must equal row token_version; mismatch falls through to re-login."),
+    "auth-14": ("Pass", "",
+                "test_gdpr_erase.py::test_erase_deletes_private_anonymizes_shared_spares_others — DELETE /api/auth/profile erases own PII+research, anonymizes shared, spares others."),
+    "auth-15": ("Pass", "",
+                "test_gdpr_erase.py::test_erase_by_email_resolves_id_then_erases — operator CLI resolves email→id and runs the same erasure."),
+    # ── Iteration 3 (2026-06-26): endpoint-inventory discovery — 3 undocumented APIs ──
+    "query-14": ("Pass", "",
+                 "test_nlquery.py::test_catalog_endpoint + test_catalog_has_expected_keys_and_polarity — GET /api/query/catalog returns metric dict."),
+    "upload-27": ("Pass", "",
+                  "test_edgar.py (NEW): filings route 503 without UA, returns pointer hits + forwards forms/limit, rejects limit 0/101 (422)."),
+    "shell-13": ("Pass", "",
+                 "test_api.py::test_health — GET /api/health probes DB, returns status/version/llm/db (503 degraded on DB error)."),
 }
 
 

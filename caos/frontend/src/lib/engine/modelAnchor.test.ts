@@ -75,4 +75,40 @@ describe("cp1ToAnchor", () => {
     };
     expect(cp1ToAnchor(noCov)?.intCov).toBeNull();
   });
+
+  // #30: the anchor must work for non-ATLF period shapes, not just the fixture's
+  // hardcoded LTM_Q1_26 key. EDGAR emits FY-only; reported emits Reported/ANNUALISED.
+  it("anchors EDGAR FY-only shapes to the latest fiscal year", () => {
+    const edgar: ModuleDetailDTO = {
+      ...CP1,
+      runtime_output: {
+        normalized_financials: {
+          revenue: { FY2023: 2410, FY2024: 2588, FY2025: 2742 },
+          adj_ebitda: { FY2023: 358, FY2024: 392, FY2025: 415 },
+          net_debt_ltm: 2391,
+          net_leverage_adj_ltm: 5.68,
+        },
+      },
+    };
+    const a = cp1ToAnchor(edgar);
+    expect(a?.ltmRevenue).toBe(2742); // FY2025, not FY2023
+    expect(a?.ltmAdjEbitda).toBe(415);
+  });
+
+  it("anchors reported-disclosure single-period shapes", () => {
+    const reported: ModuleDetailDTO = {
+      ...CP1,
+      runtime_output: {
+        normalized_financials: {
+          revenue: { Reported: 1200 },
+          adj_ebitda: { ANNUALISED: 300 },
+          net_debt_ltm: 900,
+          net_leverage_adj_ltm: 3.0,
+        },
+      },
+    };
+    const a = cp1ToAnchor(reported);
+    expect(a?.ltmRevenue).toBe(1200);
+    expect(a?.ltmAdjEbitda).toBe(300);
+  });
 });

@@ -184,7 +184,10 @@ function DeepDive() {
         ) : caveatKind === "loading" ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
         ) : caveatKind === "live" ? (
-          <span className="tabular text-caos-xs whitespace-nowrap hidden xl:inline" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; the bespoke debate / recovery / covenant tabs illustrate the ATLF reference deal">
+          // Always visible: this caveat pairs with the ● LIVE badge (which has no
+          // width gate), so hiding it <1280px would show "live" with no blend
+          // disclaimer. (#20)
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; the bespoke debate / recovery / covenant tabs illustrate the ATLF reference deal">
             live engine output · bespoke tabs show the ATLF reference template
           </span>
         ) : (
@@ -340,7 +343,7 @@ function DeepDive() {
         <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).

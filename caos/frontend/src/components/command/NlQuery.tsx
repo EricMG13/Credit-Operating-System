@@ -58,7 +58,15 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
       >
         {fmtMetric(cell.value, cell.unit)}
       </span>
-      {cite && cite.chunk_id && chipLabel ? (
+      {cell.provenance === "fixture" ? (
+        <span
+          title="Demo fixture value (Atlas Forge reference deal — not a real issuer run)"
+          className="tabular text-caos-3xs"
+          style={{ color: "var(--caos-warning)" }}
+        >
+          demo
+        </span>
+      ) : cite && cite.chunk_id && chipLabel ? (
         <button
           onClick={() => onOpenCite(cite.chunk_id!, chipLabel)}
           title={`Open source — ${cite.evidence_id ? "claim " + (cite.claim_id ?? "?") + " · " + cite.evidence_id : "derived from document"} · chunk ${cite.chunk_id.slice(0, 8)}`}

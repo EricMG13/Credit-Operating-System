@@ -225,6 +225,19 @@ export function ReportDoc({
         </span>
         <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · INTERNAL USE</span>
       </div>
+      {/* Report Studio renders the Atlas Forge reference deal as a committee-ready
+          template; it is not wired to a live issuer run. Stamp it so an exported
+          PDF is never mistaken for a real issuer's memo. (#19) */}
+      <div
+        role="note"
+        style={{
+          margin: "6px 0", padding: "4px 8px", border: "1px solid #b91c1c",
+          color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+          textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
+        }}
+      >
+        Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
+      </div>
       <h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1>
       <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
       <div className="rd-secs">

@@ -4,6 +4,7 @@
 // Shows the exact cited source extract with the passage highlighted, document
 // metadata, extraction anchor, CP-5B trace status, and cited-by trail.
 
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { EVIDENCE } from "@/lib/reports/evidence";
@@ -12,6 +13,14 @@ import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { getChunk } from "@/lib/api";
+import type { LiveEvidence } from "@/lib/engine/useLiveRun";
+
+// lineage_class → resolved/flagged, mirroring adapt.ts lineageSev.
+function liveStatus(lineageClass: string): "verified" | "open" {
+  return ["Conflicting", "Weak Lineage", "Untraced", "Insufficient Information"]
+    .includes(lineageClass) ? "open" : "verified";
+}
 
 export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => void }) {
   const open = (EVIDENCE[id] || {}).status === "open";
@@ -73,18 +82,156 @@ function Bar({ pct, color }: { pct: number; color: string }) {
   );
 }
 
+function StatusBadge({ status, label }: { status: "verified" | "open"; label?: string }) {
+  return (
+    <span
+      className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+      style={{
+        color: status === "open" ? "var(--caos-warning)" : "var(--caos-success)",
+        borderColor: status === "open" ? "rgba(245,165,36,0.4)" : "rgba(34,197,94,0.4)",
+        background: status === "open" ? "rgba(245,165,36,0.08)" : "rgba(34,197,94,0.08)",
+      }}
+    >
+      {label ?? (status === "open" ? "UNRESOLVED" : "VERIFIED")}
+    </span>
+  );
+}
+
+function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-caos-muted whitespace-nowrap">{k}</span>
+      <span className={"tabular text-right break-words" + (accent ? " text-caos-accent" : "")}>{v}</span>
+    </div>
+  );
+}
+
+// Shared dialog shell for the live / unresolved panels (narrower than the rich
+// seeded viewer, which keeps its own layout below).
+function EvShell({
+  id, status, panelRef, onClose, children,
+}: {
+  id: string;
+  status: ReactNode;
+  panelRef: RefObject<HTMLDivElement>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={"Source evidence " + id}
+        className="bg-caos-panel border border-caos-border rounded-md flex flex-col overflow-hidden overscroll-contain w-full max-w-[760px]"
+        style={{ maxHeight: "86vh", boxShadow: "var(--shadow-modal)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="h-10 shrink-0 px-3 flex items-center gap-2.5 border-b border-caos-border bg-caos-elevated/60">
+          <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
+          {status}
+          <div className="flex-1" />
+          <CloseButton onClick={onClose} size="md" className="ml-2" />
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Live click-to-source: resolve a run's own evidence to its real source chunk,
+// instead of the seeded demo map (which 404s for live ids).
+function LiveEvidencePanel({
+  id, ev, text, panelRef, onClose,
+}: {
+  id: string;
+  ev: LiveEvidence;
+  text: string | null;
+  panelRef: RefObject<HTMLDivElement>;
+  onClose: () => void;
+}) {
+  const status = liveStatus(ev.lineage_class);
+  return (
+    <EvShell id={id} status={<StatusBadge status={status} />} panelRef={panelRef} onClose={onClose}>
+      <div className="flex-1 min-h-0 overflow-auto">
+        <div className="px-4 py-3 border-b border-caos-border bg-caos-bg">
+          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Source extract</div>
+          {ev.document_chunk_id ? (
+            text != null ? (
+              <p className="text-caos-lg leading-[1.7] text-caos-text whitespace-pre-wrap">{text}</p>
+            ) : (
+              <div className="text-caos-md text-caos-muted">Loading source…</div>
+            )
+          ) : (
+            <div className="text-caos-md text-caos-muted">No source chunk is linked to this citation — lineage is unresolved.</div>
+          )}
+        </div>
+        <div className="px-4 py-3 text-caos-md text-caos-text leading-relaxed grid gap-1.5">
+          <Row k="Cited claim" v={ev.claim} />
+          <Row k="Extracted by" v={ev.module} accent />
+          <Row k="Locator" v={ev.source_locator || "—"} />
+          <Row k="Lineage class" v={ev.lineage_class} />
+          <Row k="Confidence" v={ev.confidence} />
+          <Row k="Trace status" v={status === "open" ? "lineage flagged" : "CP-5B verified"} />
+          <Row k="Chunk id" v={ev.document_chunk_id || "—"} />
+        </div>
+      </div>
+    </EvShell>
+  );
+}
+
+function UnresolvedEvidencePanel({
+  id, panelRef, onClose,
+}: {
+  id: string;
+  panelRef: RefObject<HTMLDivElement>;
+  onClose: () => void;
+}) {
+  return (
+    <EvShell id={id} status={<StatusBadge status="open" />} panelRef={panelRef} onClose={onClose}>
+      <div className="px-5 py-6 text-caos-md text-caos-text leading-relaxed">
+        <p className="mb-2">This citation could not be resolved to a source for the current run.</p>
+        <p className="text-caos-muted">
+          Evidence id <span className="tabular text-caos-text">{id}</span> is not in this run&apos;s evidence
+          set nor the seeded reference deal — it may belong to a module that did not run, or a superseded run.
+        </p>
+      </div>
+    </EvShell>
+  );
+}
+
 export function EvidenceModal({
   id,
   reports,
+  live,
   onClose,
 }: {
   id: string;
   reports: Report[];
+  // The current run's own evidence index (deep-dive live path). When an id is
+  // present here it is preferred over the seeded EVIDENCE map, so a live chip
+  // resolves to the run's real source and never shadow-resolves to a demo key.
+  live?: Record<string, LiveEvidence>;
   onClose: () => void;
 }) {
-  const ev = EVIDENCE[id];
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
-  if (!ev) return null;
+  const liveEv = live?.[id];
+  // Prefer the run's own evidence; only fall back to the seeded demo map.
+  const ev = liveEv ? undefined : EVIDENCE[id];
+  const [chunkText, setChunkText] = useState<string | null>(null);
+  const chunkId = liveEv?.document_chunk_id ?? null;
+  useEffect(() => {
+    if (!chunkId) return;
+    let alive = true;
+    setChunkText(null);
+    getChunk(chunkId).then((c) => { if (alive) setChunkText(c.text); }).catch(() => { /* leave loading→unavailable */ });
+    return () => { alive = false; };
+  }, [chunkId]);
+
+  if (liveEv) return <LiveEvidencePanel id={id} ev={liveEv} text={chunkText} panelRef={panelRef} onClose={onClose} />;
+  // Unknown id (neither live nor seeded): an explicit state, never a silent no-op.
+  if (!ev) return <UnresolvedEvidencePanel id={id} panelRef={panelRef} onClose={onClose} />;
   const doc = DOCS.find((d) => d.id === ev.doc);
   const docName = doc ? doc.name : "Market Data Feed (LoanX / desk)";
   const cites = findCitations(id, reports);

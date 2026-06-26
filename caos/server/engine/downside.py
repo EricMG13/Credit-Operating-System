@@ -81,10 +81,15 @@ async def synthesize_downside(cp1: ModulePayload) -> ModulePayload:
         module_id="CP-2B", module_name="DownsidePathway",
         owned_object="downside_pathway", runtime_output=p, confidence="High",
         downstream_consumers=["CP-6A"],
+        # The shock holds net debt fixed (stressed leverage = current/(1-shock)) —
+        # a first-order sensitivity, not a cash-sweep/amortizing path. Disclose it
+        # so committee reads the fragility correctly. (#35)
+        limitation_flags=["Net debt held flat under the EBITDA shock — first-order "
+                          "sensitivity, not a cash-sweep / amortizing path."],
         claims=[ClaimSpec(
             claim_id="C-DOWN1",
             claim_text=(f"Downside fragility {p['fragility']}: {breach_txt} "
-                        f"(from {p['current_net_leverage']:g}x today)."),
+                        f"(from {p['current_net_leverage']:g}x today; net debt held flat)."),
             evidence=[EvidenceSpec("E-DOWN1", "upstream_artifact", "Calculated",
                                    "Derived from CP-1 leverage/coverage under EBITDA stress", "High")],
         )],

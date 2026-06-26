@@ -70,8 +70,9 @@ services:
       CAOS_MARKITDOWN_CMD: ${CAOS_MARKITDOWN_CMD:-}
       # Defense-in-depth (SECURITY.md §1): require Caddy's injected edge secret so
       # forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on
-      # the internal net) is rejected. Empty = enforcement off (app logs a warning).
-      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:-}
+      # the internal net) is rejected. REQUIRED — the app fails closed at boot in
+      # production without it. Generate: python -c "import secrets;print(secrets.token_urlsafe(32))"
+      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:?set in .env — the app fails closed in production without it}
       # App identity. Both have public in-source dev defaults, so the app fails
       # closed at boot under ENVIRONMENT=production unless real values are passed.
       # SESSION_SECRET signs the analyst cookie; ANALYST_SIGNUP_CODE gates profile
@@ -122,8 +123,9 @@ services:
       - "443:443"
     environment:
       CAOS_DOMAIN: ${CAOS_DOMAIN:?set in .env}
-      # Edge secret injected toward the app (see Caddyfile). Empty = W1 off.
-      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:-}
+      # Edge secret injected toward the app (see Caddyfile). Required — same value
+      # the app validates; the app and this service both fail closed without it.
+      EDGE_PROXY_SECRET: ${EDGE_PROXY_SECRET:?set in .env — injected by Caddy, validated by the app}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -158,9 +160,10 @@ services:
   # Optional malware scanner for uploads (SECURITY.md §4). OPT-IN — only starts with
   #   docker compose --profile av up -d --build
   # then set CLAMAV_HOST=clamav in .env and `up -d` the app. Needs ~2 GB RAM and
-  # downloads the virus DB on first boot (egress to database.clamav.net). clamd's
-  # default StreamMaxLength is 25 MB — raise it toward MAX_UPLOAD_MB via a mounted
-  # /etc/clamav/clamd.conf if analysts upload large PDFs, or they scan-fail (503).
+  # downloads the virus DB on first boot (egress to database.clamav.net). The mounted
+  # clamd.conf raises StreamMaxLength/MaxScanSize/MaxFileSize to 300M (above
+  # MAX_UPLOAD_MB=250) so large credit agreements / 10-Ks scan instead of failing
+  # closed (503) on clamd's 25 MB default. Verify clamd starts on the first av deploy.
   clamav:
     image: clamav/clamav:1.4
     profiles: ["av"]
@@ -168,7 +171,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
     volumes:
-      - clamav-data:/var/lib/clamav   # persist the downloaded virus DB across restarts
+      - clamav-data:/var/lib/clamav              # persist the downloaded virus DB across restarts
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro   # raise size limits above MAX_UPLOAD_MB (else large uploads 503)
     healthcheck:
       test: ["CMD", "clamdcheck.sh"]
       interval: 30s

@@ -21,6 +21,9 @@ os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TMP}/caos_tests.db
 os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
 os.environ.setdefault("ANTHROPIC_API_KEY", "")
 os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
+# Demo seeding is now OFF by default (prod safe-by-default, #34); the TestClient
+# lifespan suite relies on the seeded demo issuers / reference deal, so opt in here.
+os.environ.setdefault("CAOS_DEMO_SEED", "true")
 
 import pytest_asyncio
 

@@ -173,6 +173,19 @@ def test_recovery_waterfall_absolute_priority():
     assert by["2L"]["recovery_pct"] == 0.0
 
 
+def test_recovery_waterfall_unsized_senior_breaks_cascade():
+    # An unsized senior (1L) must NOT let the junior 2L recover against the full EV.
+    # Pre-fix bug: 1L skipped without consuming, 2L over-credited to 100%.
+    rows = recovery_waterfall(
+        [{"code": "RCF", "seniority_rank": 0, "amount_musd": 200.0},
+         {"code": "1L", "seniority_rank": 1, "amount_musd": None},   # size not disclosed
+         {"code": "2L", "seniority_rank": 3, "amount_musd": 200.0}], 1000.0)
+    by = {r["code"]: r for r in rows}
+    assert by["RCF"]["recovery_pct"] == 100.0          # sized senior still waterfalls
+    assert by["1L"]["recovery_pct"] is None            # unsized: indeterminate
+    assert by["2L"]["recovery_pct"] is None            # junior to unsized: NOT over-credited
+
+
 def test_recovery_preference_ranks_by_recovery():
     # CP-1 EBITDA 421 → distressed EV 2105; sized stack fully covered → senior preferred.
     p = _run(synthesize_recovery_preference(_retrieve(

@@ -14,25 +14,62 @@ from typing import Iterable, Iterator, Optional, Sequence, Tuple
 # "$1,234.5 million / billion / m / bn" → normalised to $M.
 _AMOUNT = re.compile(r"\$?\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
 
+# Clause terminators: an amount on the far side of one of these belongs to a
+# different sentence/tranche, so the keyword's clause stops here. A period is a
+# terminator only when NOT a decimal point (so "$1.2 billion" / "$500.0m" stay
+# intact); `;` and newlines always terminate.
+_TERMINATOR = re.compile(r"[;\n]|\.(?!\d)")
+# How far from the keyword to look within its clause before giving up.
+_CLAUSE_GAP = 200
 
-def amount_musd(text: str, keyword: re.Pattern) -> Optional[float]:
-    """First dollar amount within ~120 chars of a keyword hit, normalised to $M.
 
-    Returns None when the keyword or an adjacent amount is absent — the caller
-    records the qualitative hit and leaves the quantum null (never invented).
-    """
-    # ponytail: nearest-amount-in-window heuristic — two keywords+amounts co-located
-    # in one sentence misattribute. Real agreement packs chunk tranches separately;
-    # upgrade to table/clause parsing only if a real pack needs tighter precision.
-    m = keyword.search(text)
-    if not m:
-        return None
-    window = text[max(0, m.start() - 120): m.end() + 120]
-    a = _AMOUNT.search(window)
-    if not a:
-        return None
+def _to_musd(a: "re.Match[str]") -> float:
     val = float(a.group(1).replace(",", ""))
     return round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
+
+
+def _clause_bounds(text: str, kstart: int, kend: int) -> Tuple[int, int]:
+    """[left, right) of the keyword's clause: bounded by the nearest terminator on
+    each side (or _CLAUSE_GAP). Amounts outside this belong to another tranche."""
+    lo = max(0, kstart - _CLAUSE_GAP)
+    last_term = None
+    for last_term in _TERMINATOR.finditer(text, lo, kstart):
+        pass  # walk to the last terminator before the keyword
+    left = last_term.end() if last_term else lo
+    hi = min(len(text), kend + _CLAUSE_GAP)
+    nxt = _TERMINATOR.search(text, kend, hi)
+    right = nxt.start() if nxt else hi
+    return left, right
+
+
+def amount_musd(text: str, keyword: re.Pattern) -> Optional[float]:
+    """Dollar amount bound to a keyword hit, normalised to $M — the amount in the
+    keyword's own clause, preferring the one that FOLLOWS it.
+
+    Returns None when the keyword or an in-clause amount is absent — the caller
+    records the qualitative hit and leaves the quantum null (never invented).
+
+    Why not "first amount in a ±120 window" (the previous rule): the chunker packs
+    a whole 'Description of Indebtedness' paragraph into one chunk, so several
+    tranches sit together. First-in-window then grabbed whichever amount appeared
+    earliest in reading order — systematically the *preceding* tranche's figure
+    ("…First Lien $500m. Second Lien…" → Second Lien inherits $500m). Binding to
+    the amount in the keyword's clause, after-first ("Term Loan of $500m"), then
+    the nearest one before it within the clause ("$500m first lien term loan"),
+    fixes the misattribution.
+    ponytail: clause = split on . ; newline — not a real table/grammar parser;
+    upgrade to clause-grammar or table extraction only if a real pack needs it."""
+    for km in keyword.finditer(text):
+        left, right = _clause_bounds(text, km.start(), km.end())
+        fwd = _AMOUNT.search(text, km.end(), right)
+        if fwd:
+            return _to_musd(fwd)
+        prev = None
+        for prev in _AMOUNT.finditer(text, left, km.start()):
+            pass  # nearest amount before the keyword, still inside the clause
+        if prev:
+            return _to_musd(prev)
+    return None
 
 
 def scan(chunks: Iterable[Tuple[str, str]], patterns: Sequence[tuple], key: int = 0

@@ -6,12 +6,16 @@ Since the v2 taxonomy re-sync CP-1A is the BusinessTransactionFactPack
 (``runtime_output.adjusted_ebitda_reconciliation`` + the C-ADJ1 claim) and feeds
 the materiality-gated CP-5 finding below.
 
-CP-1 (EDGAR) gives leverage on a **reported GAAP basis**. The leverage an
-issuer markets rests on **add-backs** (synergies, run-rate cost savings,
-restructuring, pro-forma) disclosed in the credit agreement / offering memo.
-This module reads those documents, quantifies the add-backs, and answers the
-question a credit analyst actually asks: *how much do the disclosed add-backs
-flatter the leverage?*
+The leverage an issuer markets rests on **add-backs** (synergies, run-rate cost
+savings, restructuring, pro-forma) disclosed in the credit agreement / offering
+memo. This module reads those documents, quantifies the add-backs, and answers
+the question a credit analyst actually asks: *how much do the disclosed add-backs
+flatter the marketed leverage?* The arithmetic strips ``pct`` off CP-1's EBITDA
+(``E * (1 - pct)``), so it is correct **only when CP-1 carries the adjusted
+(marketed) EBITDA** — the fixture / live-LLM basis. The runner therefore gates
+this out for a **reported-basis CP-1** (EDGAR XBRL or issuer-disclosed): that
+EBITDA already excludes add-backs, so re-stripping them would double-count and
+report leverage *worse* than reported — see runner.py CP-1 wiring.
 
 It emits ``leverage_excl_addbacks`` and the gap in turns, and — when the gap is
 material — a CP-5 finding so committee sees the quality-of-EBITDA risk. The
@@ -39,6 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
+from engine.periods import latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -157,7 +162,12 @@ async def reconcile_adjusted_ebitda(
         return None
 
     pct, categories, chunk_id, exact = res
-    ebitda = nd / lev                       # the EBITDA behind CP-1's leverage
+    # Prefer the directly-disclosed LTM adjusted EBITDA. Reconstructing it as nd/lev
+    # silently assumes the disclosed leverage and net debt share the same EBITDA
+    # basis/period; use the reconstruction only when adj_ebitda is absent. (#16)
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    disclosed = latest(nf.get("adj_ebitda") or {})
+    ebitda = float(disclosed) if isinstance(disclosed, (int, float)) and disclosed > 0 else nd / lev
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
     lev_excl = round(nd / ebitda_excl, 2)
     gap = round(lev_excl - lev, 2)

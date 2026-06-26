@@ -52,7 +52,7 @@ from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
 from engine.readiness import synthesize_source_readiness
-from engine.metrics import extract_cost_facts, extract_facts
+from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
 from engine.gate import (
     Finding,
     committee_status_from,
@@ -60,7 +60,7 @@ from engine.gate import (
     roll_up_qa_status,
     worst_confidence,
 )
-from engine.lineage import validate_lineage
+from engine.lineage import _SOURCED_TYPES, validate_lineage
 from engine.planner import BLOCKED as ROUTE_BLOCKED, EXCLUDED as ROUTE_EXCLUDED, RoutePlan, build_route_plan
 from engine.registry import REGISTRY
 from engine.schemas import ModulePayload, validate_payload
@@ -140,11 +140,22 @@ async def synthesize_module(
         cp1 = await _synthesize_cp1(
             session, issuer, issuer_name, synthesizer, upstream, retrieve
         )
-        res = await reconcile_adjusted_ebitda(cp1, retrieve)
-        if res is not None:
-            recon, claim = res
-            (cp1.runtime_output or {})["adjusted_ebitda_reconciliation"] = recon
-            cp1.claims.append(claim)
+        # The add-back reconciliation strips a "% of adjusted EBITDA" haircut off
+        # CP-1's EBITDA, so it is only correct when that EBITDA is the *adjusted*
+        # (marketed) figure — the fixture / live-LLM basis. On a REPORTED basis
+        # (EDGAR XBRL or issuer-disclosed) the EBITDA already excludes those
+        # add-backs, so re-stripping them double-counts and manufactures a
+        # worse-than-reported "deleveraging gap" — a provenance violation
+        # ("reported is canonical"). Skip it there; the reported EBITDA already
+        # carries its own limitation flag. The marketed-vs-reported bridge would
+        # need the inverse math (E/(1-pct)) and is a separate deliberate feature.
+        basis = (cp1.runtime_output or {}).get("basis")
+        if basis not in ("reported_gaap_xbrl", "reported_disclosure"):
+            res = await reconcile_adjusted_ebitda(cp1, retrieve)
+            if res is not None:
+                recon, claim = res
+                (cp1.runtime_output or {})["adjusted_ebitda_reconciliation"] = recon
+                cp1.claims.append(claim)
         return cp1
     # CP-1A is the BusinessTransactionFactPack: scan offering/transaction text.
     if module_id == "CP-1A":
@@ -252,9 +263,13 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         return None
 
     async def _attempt_synth(module_id: str):
-        """Synthesize one module; return its payload, or the SynthesisError it
-        raised (any other exception propagates to fail the run). No DB writes here,
-        so pure-synth modules in a layer run concurrently on the shared session."""
+        """Synthesize one module; return its payload or a SynthesisError. No DB
+        writes here, so pure-synth modules in a layer run concurrently on the
+        shared session. Any unexpected exception (e.g. a malformed live CP-1 shape
+        making a downstream module raise TypeError) is caught and converted to a
+        SynthesisError so it degrades to the per-module Blocked gate — it must NOT
+        propagate out of asyncio.gather and abort the whole run, discarding the
+        already-completed peers in this layer."""
         async with sem:
             try:
                 return await synthesize_module(
@@ -263,6 +278,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
                 )
             except SynthesisError as e:
                 return e
+            except Exception as e:  # noqa: BLE001 — isolate the fault to this module
+                logger.exception("unexpected synth error for %s", module_id)
+                return SynthesisError(f"unexpected synth error: {e}")
 
     async def _persist_synth_result(module_id: str, result) -> None:
         """Validate -> propagate flags -> resolve evidence -> persist one synth
@@ -291,7 +309,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             for flag in plan.propagated_flags(module_id):
                 if flag not in payload.limitation_flags:
                     payload.limitation_flags.append(flag)
-        await _resolve_evidence(payload, retrieve)
+        await _resolve_evidence(payload, retrieve, suppress_sourced=(synthesizer.name == "live"))
         output_rows[module_id] = await _persist_output(
             session, run.id, payload, validation_status="Passed"
         )
@@ -374,6 +392,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         peer = peer_outlier_finding(upstream.get("CP-1C"))
         if peer is not None:
             findings.append(peer)
+        lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
+        if lev_plaus is not None:
+            findings.append(lev_plaus)
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
@@ -428,7 +449,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
-                    MetricFact.provenance == "run",
+                    MetricFact.provenance.in_(("run", "fixture")),  # #04: fixture facts supersede too
                     MetricFact.run_id != run.id,
                 )
             )
@@ -567,15 +588,26 @@ async def _vault_edgar_facts(session: AsyncSession, issuer: Issuer, facts_text: 
     return chunk.id
 
 
-async def _resolve_evidence(payload: ModulePayload, retrieve) -> None:
-    """Link each claim's evidence to the best-matching ingested chunk via BM25."""
+async def _resolve_evidence(payload: ModulePayload, retrieve, *, suppress_sourced: bool) -> None:
+    """Link each claim's evidence to the best-matching ingested chunk via BM25.
+
+    When ``suppress_sourced`` (the LIVE LLM path), a *sourced* citation
+    (sourced_fact / quoted_text / table_value) the model did not already ground is
+    left UNRESOLVED so CP-5B's 'unresolved sourced citation -> MINOR' lane
+    ([lineage.py]) can fire — auto-anchoring an LLM-fabricated locator to the best
+    claim-text match (the locator itself is never reconciled) would silently defeat
+    that integrity check. Deterministic / fixture evidence (suppress_sourced=False)
+    keeps the back-fill: its sources are curated and it depends on runtime
+    resolution for click-to-source (a static payload can't know chunk ids).
+    ponytail: claim-text match, not locator-aware — the proper fix resolves on the
+    locator and flags a mismatch; do that if fabricated-but-plausible locators matter."""
     for c in payload.claims:
         hits = await retrieve(c.claim_text, 3)
         if not hits:
             continue
         top = hits[0].chunk_id
         for e in c.evidence:
-            if e.resolved_chunk_id is None:
+            if e.resolved_chunk_id is None and not (suppress_sourced and e.extraction_type in _SOURCED_TYPES):
                 e.resolved_chunk_id = top
 
 

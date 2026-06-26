@@ -258,7 +258,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
                 claim_id="C-CAP2",
                 claim_text=(
                     f"The {cov_label} leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
-                    f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA cushion to a breach)."
+                    f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA decline to a breach, net debt flat)."
                 ),
                 evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
                                        "Financial maintenance covenant threshold + CP-1 leverage",

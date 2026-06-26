@@ -69,6 +69,17 @@ function CommandCenter() {
             ? "Coverage Health — US HY Sleeve"
             : "Sector Relative Value — Loan Universe"}
         </span>
+        {/* The Command Center is a Phase-1 showcase (sample sleeve), not live
+            positions — there is no portfolio-level live aggregate yet. Label it so
+            it's never read as live posture. The NL Query lane below IS live. (#29) */}
+        <span
+          className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0"
+          role="note"
+          title="Sample US HY sleeve for the Phase-1 showcase — not live positions. (The NL Query lane is live.)"
+          style={{ color: "var(--caos-warning)" }}
+        >
+          Sample portfolio — not live
+        </span>
         <div className="flex-1 min-w-0"></div>
         {/* Progressive disclosure by value (header is too dense to show all at
             laptop widths). Always: the live "what changed" signal

@@ -155,8 +155,13 @@ function ReportStudio() {
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
         <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Report Studio — committee deliverables</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden xl:inline">
-          assembled from RUN #2641 outputs · figures on M-118 model basis
+        <span
+          className="tabular text-caos-xs whitespace-nowrap truncate"
+          role="note"
+          style={{ color: "var(--caos-warning)" }}
+          title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run. Every figure is the ATLF fixture."
+        >
+          REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
         </span>
         <span className="flex-1" />
         {/* paper tone — decorative, drops first on narrow screens */}

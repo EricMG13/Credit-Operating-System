@@ -178,3 +178,50 @@ def test_vault_exhibit_creates_primary_source(client, monkeypatch):
 
     docs = client.get(f"/api/issuers/{issuer_id}/documents").json()
     assert any(d["doc_type"] == "EDGAR Exhibit" and d["run_mode"] == "legal" for d in docs)
+
+
+def test_filings_route_503_without_ua(client, monkeypatch):
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "")
+    assert client.get("/api/edgar/filings/0000320193").status_code == 503
+
+
+def test_filings_route_returns_hits_and_passes_form_filter(client, monkeypatch):
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "Test UA t@e.st")
+    seen = {}
+
+    def fake_list_filings(cik, forms=None, limit=25):
+        seen["cik"], seen["forms"], seen["limit"] = cik, forms, limit
+        return [
+            edgar.FilingHit(
+                cik="0000320193",
+                accession="0001193125-22-000123",
+                form="10-K",
+                filed_date="2022-03-01",
+                title="Atlas Forge Industrials",
+                primary_doc="aapl-20220301.htm",
+                source_url="https://www.sec.gov/Archives/edgar/data/320193/.../aapl.htm",
+            )
+        ]
+
+    monkeypatch.setattr(edgar, "list_filings", fake_list_filings)
+    r = client.get("/api/edgar/filings/0000320193", params={"forms": "10-K,8-K", "limit": 5})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body[0]["accession"] == "0001193125-22-000123"
+    assert body[0]["provenance"] == edgar.PROV_POINTER  # a filing hit is a pointer until vaulted
+    # the CSV `forms` param is split to a list and the limit forwarded to the client
+    assert seen["forms"] == ["10-K", "8-K"]
+    assert seen["limit"] == 5
+
+
+def test_filings_route_rejects_out_of_range_limit(client, monkeypatch):
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "Test UA t@e.st")
+    # limit is Query(ge=1, le=100) — boundary violations are 422 before the handler runs
+    assert client.get("/api/edgar/filings/0000320193", params={"limit": 0}).status_code == 422
+    assert client.get("/api/edgar/filings/0000320193", params={"limit": 101}).status_code == 422

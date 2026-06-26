@@ -9,8 +9,10 @@ Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -38,11 +40,17 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
     if settings.environment == "production" and not settings.edge_proxy_secret:
-        logger.warning(
-            "EDGE_PROXY_SECRET is unset in production — forwarded-identity trust "
-            "rests on network isolation alone (no proxy-origin check). Set "
-            "EDGE_PROXY_SECRET and have the edge inject X-Edge-Authorization to "
-            "enforce that requests came through the proxy. See SECURITY.md §1."
+        # Fail closed (was warn-only): without the edge secret the app trusts the
+        # X-Forwarded-* identity headers on network isolation alone, so a rogue
+        # container on the internal net could hit app:8000 directly with forged
+        # identity. The deploy edge (Caddy) already injects X-Edge-Authorization
+        # and compose passes EDGE_PROXY_SECRET to both, so a prod boot without it
+        # is a misconfiguration — same posture as the SESSION_SECRET guard below.
+        raise RuntimeError(
+            "EDGE_PROXY_SECRET must be set in production — forwarded-identity trust "
+            "would otherwise rest on network isolation alone. Set it and have the "
+            "edge inject X-Edge-Authorization (the deploy Caddyfile already does). "
+            'Generate one with: python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
     if settings.environment == "production" and settings.session_secret in ("", "dev-insecure-session-secret"):
         # Fail closed: the dev default is public (in source), so it would let
@@ -62,14 +70,18 @@ async def lifespan(app: FastAPI):
             "in-source default (131113) is public and would leave analyst profile "
             "self-registration open. Set ANALYST_SIGNUP_CODE."
         )
+    if settings.environment == "production" and settings.caos_demo_seed:
+        # Fail closed (was warn-only): demo seeding ships fictional issuers + the
+        # ATLF reference deal + illustrative metrics. Refuse to seed demo data into
+        # a production database — same posture as the secret guards above. An
+        # operator who genuinely wants a prod demo must set ENVIRONMENT≠production.
+        raise RuntimeError(
+            "CAOS_DEMO_SEED must not be set in production — it would seed fictional "
+            "demo issuers + the ATLF reference deal into the production database. "
+            "Leave it unset (default off) for a non-demo deployment."
+        )
     await init_db()
     if settings.caos_demo_seed:
-        if settings.environment == "production":
-            logger.warning(
-                "CAOS_DEMO_SEED is on in production — seeding demo issuers + the ATLF "
-                "reference deal into the database. Set CAOS_DEMO_SEED=false for a "
-                "non-demo deployment so the registry starts empty."
-            )
         await seed_demo_data()
         async with AsyncSessionLocal() as session:
             await ensure_reference_deal(session)
@@ -92,7 +104,7 @@ _PROD = settings.environment == "production"
 app = FastAPI(
     title="Credit Agent OS (CAOS)",
     version="2.0.0",
-    description="Credit analysis workspace — Databricks App build.",
+    description="Credit analysis workspace — single-container API + UI.",
     lifespan=lifespan,
     # Interactive API docs / schema are exploration aids — keep them in dev but
     # close them in production (no reason to publish the API surface there, even
@@ -155,6 +167,30 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
         elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
             response.headers.setdefault("Cache-Control", "no-cache")
     return response
+
+
+# ─── Edge-origin guard (single chokepoint) ──────────────────────────────────
+# The edge proof (X-Edge-Authorization) must gate EVERY deployed /api request, not
+# only those that depend on get_identity. Enforcing it per-route let create_profile
+# and logout (which read cookies/headers directly, no get_identity dep) skip the
+# check; a future route could too. This middleware closes that — get_identity keeps
+# its own (now redundant) check. /api/health is exempt so monitors can probe
+# liveness. Registered AFTER security_headers so access_log (registered next) still
+# wraps and logs the 401. (#31)
+@app.middleware("http")
+async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+    settings = get_settings()
+    deployed = settings.environment == "production" or os.environ.get("DATABRICKS_APP_PORT") is not None
+    path = request.url.path
+    if deployed and settings.edge_proxy_secret and path.startswith("/api/") and path != "/api/health":
+        presented = request.headers.get("x-edge-authorization", "")
+        if not hmac.compare_digest(
+            presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
+        ):
+            return JSONResponse(
+                {"detail": "Request did not carry a valid edge credential."}, status_code=401
+            )
+    return await call_next(request)
 
 
 # ─── Access log (threat-detection app/auth feed) ────────────────────────────

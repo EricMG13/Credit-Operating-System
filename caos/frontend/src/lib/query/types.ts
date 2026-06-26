@@ -20,8 +20,8 @@ export interface MetricCell {
   value: number;
   unit: string;
   // run = QA-gated engine run; derived = extracted from a cited document chunk;
-  // seed = illustrative, no source.
-  provenance: "run" | "derived" | "seed";
+  // fixture = ATLF demo numbers (not a real run, #04); seed = illustrative, no source.
+  provenance: "run" | "derived" | "fixture" | "seed";
   qa_status: string;
   period: string;
   citation: Citation | null;
