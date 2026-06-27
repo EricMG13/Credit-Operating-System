@@ -19,6 +19,8 @@ import { SimControls, ToggleGroup } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
 import { NlQuery } from "@/components/command/NlQuery";
+import { LiveCoverage } from "@/components/command/LiveCoverage";
+import { usePortfolio } from "@/lib/engine/usePortfolio";
 import {
   CoverageMatrix, GapsList, IssuerStrip,
   PortfolioTable, QaQueue, SectorBoard,
@@ -39,6 +41,8 @@ function CommandCenter() {
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
   const tick = run.sim.tick;
+  // Live cross-issuer posture from completed runs; empty → only the sample board shows.
+  const portfolio = usePortfolio();
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
 
@@ -116,8 +120,19 @@ function CommandCenter() {
         ) : view === "cio" ? (
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
             <NlQuery />
+            {portfolio.coveredCount > 0 ? (
+              <PanelShell
+                title="Live Coverage · latest runs"
+                className="flex-[2]"
+                right={<span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE · {portfolio.coveredCount} of {portfolio.issuerCount} covered</span>}
+              >
+                <div className="overflow-x-auto">
+                  <LiveCoverage rows={portfolio.rows} />
+                </div>
+              </PanelShell>
+            ) : null}
             <PanelShell
-              title="Portfolio Posture · CP-3C"
+              title="Portfolio Posture · CP-3C (sample)"
               className="flex-[3]"
               right={<span className="tabular text-caos-xs text-caos-muted">10 issuers · marks {run.clock}</span>}
             >

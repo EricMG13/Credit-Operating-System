@@ -29,6 +29,29 @@ api.interceptors.request.use((config) => {
 // the error card (with RETRY) shows instead. Long-running calls set their own.
 export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
+// ─── Portfolio board (cross-issuer latest-run posture) ──────────────────────
+export interface PortfolioRowDTO {
+  issuer_id: string;
+  name: string;
+  ticker: string | null;
+  sector: string | null;
+  run_id: string;
+  qa_status: string;
+  committee_status: string;
+  as_of: string | null;
+  metrics: Record<string, number>; // headline metric_key -> LTM value
+  rv_recommendation: string | null;
+  rv_percentile: number | null;
+  downside_fragility: "HIGH" | "MODERATE" | "LOW" | null;
+}
+export interface PortfolioDTO {
+  rows: PortfolioRowDTO[];
+  issuer_count: number;
+  covered_count: number;
+}
+export const getPortfolio = (): Promise<PortfolioDTO> =>
+  api.get("/api/portfolio").then((r) => r.data);
+
 // In-app login: the shared access code mints (or re-attaches to) a named analyst
 // profile and sets the signed identity cookie. logout clears it.
 export const createProfile = (code: string, name: string) =>
