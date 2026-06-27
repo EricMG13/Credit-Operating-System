@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
+from engine.periods import is_finite_number
+
 SAFE_CUTOFF = 2.6
 DISTRESS_CUTOFF = 1.1
 
@@ -43,13 +45,45 @@ def altman_z_double_prime(
     total_liabilities: float,
     book_equity: float,
 ) -> Optional[Tuple[float, str]]:
-    """Z'' and its zone, or None when the denominators are unusable (total assets
-    or liabilities are zero/negative — the score would be meaningless)."""
+    """Altman Z''-Score (double-prime / EM-score) and its credit zone.
+
+    Balance-sheet-only distress signal. Returns None when the inputs are unusable
+    (a denominator <= 0, or any input missing/non-finite), otherwise (Z'', zone).
+
+        Z'' = 3.25 + 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+
+    where each X-term is a standard balance-sheet ratio:
+
+        X1 = working capital / total assets
+           = (current assets − current liabilities) / total assets   (liquidity)
+        X2 = retained earnings / total assets                        (cumulative profitability / age)
+        X3 = EBIT / total assets                                     (operating return on assets)
+        X4 = book equity / total liabilities                         (leverage / solvency cushion)
+
+    Note X4 divides by total LIABILITIES (not total assets) — that is the
+    book-equity-to-debt cushion, the double-prime variant's distinguishing term.
+
+    Zones use the published Z'' cutoffs (strict inequalities; both boundaries
+    fall in grey): Z'' > 2.6 → safe · 1.1 ≤ Z'' ≤ 2.6 → grey · Z'' < 1.1 → distress.
+    """
+    # Reject missing or non-finite inputs up front: a NaN passes the `<= 0` guard
+    # below (NaN comparisons are False) and would poison every divide into NaN
+    # garbage in the distress payload; an inf yields inf/NaN ratios. The None check
+    # must precede math.isfinite (isfinite(None) raises). Valid finite inputs are
+    # unaffected, so every scored case is identical to before.
+    for _v in (current_assets, current_liabilities, total_assets,
+               retained_earnings, ebit, total_liabilities, book_equity):
+        if not is_finite_number(_v):
+            return None
+
     if total_assets <= 0 or total_liabilities <= 0:
         return None
-    x1 = (current_assets - current_liabilities) / total_assets
-    x2 = retained_earnings / total_assets
-    x3 = ebit / total_assets
-    x4 = book_equity / total_liabilities
+
+    working_capital = current_assets - current_liabilities
+    x1 = working_capital / total_assets         # liquidity
+    x2 = retained_earnings / total_assets        # cumulative profitability
+    x3 = ebit / total_assets                     # operating return on assets
+    x4 = book_equity / total_liabilities         # solvency cushion (equity / DEBT)
+
     z = round(3.25 + 6.56 * x1 + 3.26 * x2 + 6.72 * x3 + 1.05 * x4, 2)
     return z, zone_for(z)

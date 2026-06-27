@@ -43,7 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import latest
+from engine.periods import is_finite_number, latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -158,7 +158,7 @@ async def reconcile_adjusted_ebitda(
     bridge belongs with the reported basis it adjusts."""
     lev, nd = cp1_leverage(cp1)
     res = await extract_addbacks(retrieve)
-    if res is None or lev is None or nd is None:
+    if res is None or not is_finite_number(lev) or not is_finite_number(nd):
         return None
 
     pct, categories, chunk_id, exact = res
@@ -167,8 +167,15 @@ async def reconcile_adjusted_ebitda(
     # basis/period; use the reconstruction only when adj_ebitda is absent. (#16)
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     disclosed = latest(nf.get("adj_ebitda") or {})
-    ebitda = float(disclosed) if isinstance(disclosed, (int, float)) and disclosed > 0 else nd / lev
+    if is_finite_number(disclosed) and disclosed > 0:
+        ebitda = float(disclosed)
+    elif lev != 0:
+        ebitda = nd / lev  # reconstruct from leverage only when adj_ebitda is absent
+    else:
+        return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
+    if ebitda_excl <= 0:
+        return None  # add-backs claim >= 100% of EBITDA — no meaningful excl leverage
     lev_excl = round(nd / ebitda_excl, 2)
     gap = round(lev_excl - lev, 2)
 

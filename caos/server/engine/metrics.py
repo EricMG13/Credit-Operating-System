@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import latest, sort_key
+from engine.periods import is_finite_number, latest, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -188,8 +188,8 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
     eb = latest(nf.get("adj_ebitda") or {})
-    if not (isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd
-            and isinstance(eb, (int, float)) and eb):
+    if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
+            and is_finite_number(eb) and eb):
         return None
     recomputed = nd / eb
     if abs(recomputed - lev) / lev <= 0.05:
