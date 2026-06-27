@@ -39,6 +39,7 @@ function configGroups(cfg: WorkspaceSettings) {
         { label: "Model", value: cfg.model, hint: "ANTHROPIC_MODEL" },
         { label: "Model key configured", value: cfg.llm_configured, hint: "ANTHROPIC_API_KEY" },
         { label: "Gemini key configured", value: cfg.gemini_configured, hint: "GEMINI_API_KEY" },
+        { label: "OpenRouter key configured", value: cfg.openrouter_configured, hint: "OPENROUTER_API_KEY" },
         { label: "Synth executor", value: cfg.engine_cost.synth_executor_model, hint: "SYNTH_EXECUTOR_MODEL" },
         { label: "Advisor model", value: cfg.engine_cost.advisor_model, hint: "ADVISOR_MODEL" },
       ],

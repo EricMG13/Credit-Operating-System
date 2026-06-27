@@ -22,11 +22,12 @@ def test_normalize_coerces_unknown_to_default():
     assert presets.DEFAULT_MODE == "BALANCED"
 
 
-def test_model_for_hybrid_when_gemini_key_set(monkeypatch):
-    """With GEMINI_API_KEY set the table resolves to the hybrid: cheap/fast/strong
-    on Gemini, top on Claude — so BALANCED heavy = Gemini strong, MAX heavy = Claude."""
+def test_model_for_hybrid_when_openrouter_key_set(monkeypatch):
+    """With OPENROUTER_API_KEY set the table resolves to the hybrid: cheap/fast/strong
+    on DeepSeek (OpenRouter), top on Claude — so BALANCED heavy = DeepSeek strong,
+    MAX heavy = Claude."""
     s = get_settings()
-    monkeypatch.setattr(s, "gemini_api_key", "x")
+    monkeypatch.setattr(s, "openrouter_api_key", "x")
     expected = {
         "TEST":     {presets.HEAVY: s.model_tier_cheap,  presets.LIGHT: s.model_tier_cheap, presets.EXTRACT: s.model_tier_cheap},
         "LITE":     {presets.HEAVY: s.model_tier_fast,   presets.LIGHT: s.model_tier_cheap, presets.EXTRACT: s.model_tier_cheap},
@@ -39,17 +40,19 @@ def test_model_for_hybrid_when_gemini_key_set(monkeypatch):
             for lane_class, model in lanes.items():
                 assert presets.model_for(lane_class) == model, (mode, lane_class)
         presets.set_mode("BALANCED")
-        assert presets.model_for(presets.HEAVY).startswith("gemini")   # Gemini strong tier
+        assert presets.model_for(presets.HEAVY).startswith("deepseek")  # DeepSeek strong tier
         presets.set_mode("MAX")
-        assert presets.model_for(presets.HEAVY).startswith("claude")   # Claude top tier
+        assert presets.model_for(presets.HEAVY).startswith("claude")    # Claude top tier
     finally:
         presets.set_mode(presets.DEFAULT_MODE)  # don't leak the contextvar into other tests
 
 
-def test_model_for_falls_back_to_anthropic_without_gemini_key(monkeypatch):
-    """No GEMINI_API_KEY → a Gemini tier degrades to its Anthropic equivalent, so
-    the engine (and offline tests) stay all-Anthropic."""
+def test_model_for_falls_back_to_anthropic_without_provider_key(monkeypatch):
+    """No provider key for a tier → it degrades to its Anthropic equivalent, so the
+    engine (and offline tests) stay all-Anthropic. The default cheap/strong tiers are
+    OpenRouter/DeepSeek, so this exercises the OpenRouter degradation branch."""
     s = get_settings()
+    monkeypatch.setattr(s, "openrouter_api_key", "")
     monkeypatch.setattr(s, "gemini_api_key", "")
     try:
         presets.set_mode("BALANCED")
@@ -89,12 +92,14 @@ def test_reviewer_model_same_as_heavy_when_cross_off(monkeypatch):
 
 
 def test_reviewer_model_opposite_provider_when_cross_on(monkeypatch):
-    """Critic on the opposite provider from the synth (heavy) model."""
+    """Critic on a different provider from the synth (heavy) model: a DeepSeek
+    (OpenRouter) heavy is reviewed by Anthropic; a Claude heavy by Gemini."""
     s = get_settings()
     monkeypatch.setattr(s, "council_cross_model", True)
-    monkeypatch.setattr(s, "gemini_api_key", "x")  # both providers available
+    monkeypatch.setattr(s, "openrouter_api_key", "x")  # heavy = real DeepSeek (not degraded)
+    monkeypatch.setattr(s, "gemini_api_key", "x")      # opposite provider available for MAX
     try:
-        presets.set_mode("BALANCED")  # heavy = Gemini strong -> review on Anthropic
+        presets.set_mode("BALANCED")  # heavy = DeepSeek strong -> review on Anthropic
         assert presets.reviewer_model() == s.council_reviewer_model_anthropic
         assert presets.reviewer_model().startswith("claude")
         presets.set_mode("MAX")       # heavy = Claude top -> review on Gemini

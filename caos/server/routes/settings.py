@@ -24,7 +24,8 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
     return {
         "model": s.anthropic_model,
         "llm_configured": llm_configured(),  # bool only — never the key
-        "gemini_configured": bool(s.gemini_api_key),  # bool only — hybrid active when set
+        "gemini_configured": bool(s.gemini_api_key),  # bool only — gemini tiers active when set
+        "openrouter_configured": bool(s.openrouter_api_key),  # bool only — DeepSeek/OpenRouter hybrid
         "governance": {
             "council_enabled": s.council_enabled,
             "council_seats": s.council_seats,

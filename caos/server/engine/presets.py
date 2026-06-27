@@ -22,16 +22,14 @@ The mode picks a model *tier* + a reasoning *effort* per lane class:
   BALANCED  strong          fast    cheap        medium  / minimal / minimal
   MAX       top             fast    fast         high    / low     / minimal
 
-The four tiers wire the agreed **hybrid**: cheap/fast/strong on Gemini, the top
-tier on Claude Opus — so MAX heavy = Opus and the cheap/light lanes run on Gemini
-Flash. BALANCED heavy (the strong tier) defaults to Gemini Flash because
-gemini-2.5-pro needs paid-tier billing (free-tier quota 0); set
-MODEL_TIER_STRONG=gemini-2.5-pro once billing is on — BALANCED still reads
-stronger than LITE via a higher thinking effort. The hybrid only takes effect when
-``GEMINI_API_KEY`` is set; without it a Gemini tier degrades to its Anthropic
-equivalent (below), so the engine runs unchanged — and offline tests stay
-Anthropic. Effort drives Gemini's thinking config; it is inert on Anthropic
-lanes (the seam drops it).
+The four tiers wire the **OpenRouter hybrid**: cheap/fast/strong on DeepSeek-v4
+(flash on cheap/fast, pro on strong), the top tier on Claude Opus — so MAX heavy =
+Opus and the cheap/light lanes run on DeepSeek Flash. The hybrid only takes effect
+when ``OPENROUTER_API_KEY`` is set; without it an OpenRouter tier degrades to its
+Anthropic equivalent (below), so the engine runs unchanged — and offline tests stay
+Anthropic. A tier can also point at a ``gemini-*`` id (needs ``GEMINI_API_KEY``);
+effort then drives Gemini's thinking config — it is inert on Anthropic and
+OpenRouter lanes (the seam drops it).
 
 Carried in a ContextVar (like engine/budget's run id / budget) so it threads a
 whole run — including the background runner task — without touching every
@@ -123,6 +121,8 @@ def model_for(lane_class: str) -> str:
     model = _tier_model(s, tier)
     if model.startswith("gemini") and not s.gemini_api_key:
         return _ANTHROPIC_FALLBACK[tier]
+    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
+        return _ANTHROPIC_FALLBACK[tier]
     return model
 
 
@@ -142,7 +142,11 @@ def reviewer_model() -> str:
     heavy = model_for(HEAVY)
     if not s.council_cross_model:
         return heavy
-    if heavy.startswith("gemini"):
-        return s.council_reviewer_model_anthropic  # synth on Gemini -> review on Anthropic
-    # synth on Anthropic -> review on Gemini, but only if a Gemini key is configured
-    return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
+    # Pick the configured reviewer on a DIFFERENT provider than heavy. Heavy is
+    # Anthropic only on the MAX/top lane (or an anthropic-pinned tier, incl. a
+    # degraded one) — there the cross critic is Gemini, if a key is set, else it
+    # degrades to same-model. For a Gemini- or OpenRouter/DeepSeek-heavy lane the
+    # cross critic is Anthropic (Claude critiques the DeepSeek draft).
+    if heavy.startswith("claude") or heavy.startswith("anthropic"):
+        return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
+    return s.council_reviewer_model_anthropic

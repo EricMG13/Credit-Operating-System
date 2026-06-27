@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
 
+    # OpenRouter — optional; DeepSeek / open-model support. Models are selected via
+    # the model_tier_* defaults below (any slash-id routes to OpenRouter); there are
+    # no separate per-model fields. z-ai/glm-5.2 is reachable too — point a tier at it.
+    openrouter_api_key: str = ""
+
     # Per-request LLM call timeout (seconds). The Anthropic SDK's default request
     # timeout is ~10 minutes, so a stuck inference would otherwise pin a request
     # lane (issuer chat, NL-query/scenario translate) open for that long. Pass this
@@ -76,28 +81,27 @@ class Settings(BaseSettings):
     # still bounded by it.
     caos_llm_timeout_s: float = 120.0
 
-    # Gemini provider (engine/gemini.py). Set GEMINI_API_KEY to activate the hybrid
-    # (cheap/fast/strong lanes on Gemini); empty = those tiers fall back to their
-    # Anthropic equivalents (engine/presets.py), so the engine runs unchanged without
-    # it. NOTE: live lanes still gate on ANTHROPIC_API_KEY (it drives the MAX/top tier
-    # and the live-vs-fixture synth gate), so the hybrid needs BOTH keys —
-    # GEMINI_API_KEY alone leaves the engine on fixtures/demo. google-genai is imported
-    # only when a gemini-* model is actually selected.
+    # Gemini provider (engine/gemini.py). Optional alternate tier provider (the
+    # default hybrid is OpenRouter/DeepSeek, above): set GEMINI_API_KEY and point a
+    # model_tier_* at a gemini-* id to run that lane on Gemini. Empty key, or no
+    # gemini tier, = unused; a gemini tier with no key falls back to its Anthropic
+    # equivalent (engine/presets.py), so the engine runs unchanged. NOTE: live lanes
+    # still gate on ANTHROPIC_API_KEY (it drives the MAX/top tier and the
+    # live-vs-fixture synth gate). google-genai is imported only when a gemini-* model
+    # is actually selected.
     gemini_api_key: str = ""
 
     # Model-mode tiers (engine/presets.py). Four tiers the TEST/LITE/BALANCED/MAX
     # table maps lanes onto, trading token cost ↔ latency ↔ reasoning quality.
-    # Defaults wire the agreed hybrid — cheap/fast/strong on Gemini, top on Claude
-    # Opus (so BALANCED heavy = Gemini 2.5 Pro, MAX heavy = Opus) — but the Gemini
-    # tiers only take effect when GEMINI_API_KEY is set; otherwise presets
-    # substitutes the Anthropic equivalent. Env-overridable.
-    model_tier_cheap: str = "gemini-2.5-flash-lite"  # TEST all; LITE/BALANCED light; LITE extract
-    model_tier_fast: str = "gemini-2.5-flash"        # LITE heavy; BALANCED/MAX light; MAX extract
-    # BALANCED heavy. Defaults to Flash (free tier) — gemini-2.5-pro needs paid-tier
-    # billing (free-tier quota is 0). Set MODEL_TIER_STRONG=gemini-2.5-pro once billing
-    # is enabled; BALANCED still reads stronger than LITE via a higher thinking effort.
-    model_tier_strong: str = "gemini-2.5-flash"
-    model_tier_top: str = "claude-opus-4-8"          # MAX heavy
+    # Defaults wire the OpenRouter hybrid — cheap/fast/strong on DeepSeek-v4, top on
+    # Claude Opus (so BALANCED heavy = DeepSeek-v4 Pro, MAX heavy = Opus) — but the
+    # OpenRouter tiers only take effect when OPENROUTER_API_KEY is set; otherwise
+    # presets substitutes the Anthropic equivalent. Env-overridable (point a tier at
+    # z-ai/glm-5.2, or back at gemini-* with GEMINI_API_KEY set).
+    model_tier_cheap: str = "deepseek/deepseek-v4-flash"  # TEST all; LITE/BALANCED light; LITE extract
+    model_tier_fast: str = "deepseek/deepseek-v4-flash"   # LITE heavy; BALANCED/MAX light; MAX extract
+    model_tier_strong: str = "deepseek/deepseek-v4-pro"   # BALANCED heavy
+    model_tier_top: str = "claude-opus-4-8"               # MAX heavy
 
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic

@@ -39,13 +39,25 @@ def is_overloaded(exc: Exception) -> bool:
     # shape change degrades to "don't fall back", never to a crash.
     if isinstance(exc, getattr(anthropic, "APIStatusError", ())):
         return getattr(exc, "status_code", None) == 529
+    try:
+        import httpx
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code in (429, 502, 503, 529)
+    except ImportError:
+        pass
     return False
 
 
 def _provider(model: Optional[str]) -> str:
     """Which provider a model id belongs to. The preset tier id decides routing —
     no separate provider flag — so swapping a tier to a gemini-* id is all it takes."""
-    return "gemini" if (model or "").startswith("gemini") else "anthropic"
+    if not model:
+        return "anthropic"
+    if model.startswith("gemini"):
+        return "gemini"
+    if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
+        return "openrouter"
+    return "anthropic"
 
 
 async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str],
@@ -90,6 +102,46 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
     return resp
 
 
+async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[str],
+                             effort: Optional[str], **kwargs):
+    """OpenRouter path: hand the Anthropic-shaped kwargs to the adapter, which calls
+    OpenRouter and returns a normalized (Anthropic-shaped) response."""
+    from engine import openrouter
+
+    s = get_settings()
+    # Default to the cheap tier (a same-provider OpenRouter model) so an overload
+    # actually retries cheaper; the synth_executor default is Anthropic, which the
+    # _provider(fb) guard below would reject — making the fallback dead. Mirrors the
+    # Gemini path.
+    fb = fallback_model or s.model_tier_cheap
+    call_kwargs = dict(
+        system=kwargs.get("system"),
+        messages=kwargs.get("messages"),
+        max_tokens=kwargs.get("max_tokens"),
+        tools=kwargs.get("tools"),
+        tool_choice=kwargs.get("tool_choice"),
+        effort=effort,
+    )
+    t0 = time.monotonic()
+    used_model, did_fallback = model, False
+    try:
+        resp = await openrouter.call(lane=lane, model=model, **call_kwargs)
+    except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
+        if model == fb or _provider(fb) != "openrouter" or not openrouter.is_overloaded(exc):
+            raise
+        logger.warning(
+            "caos.llm lane=%s openrouter overloaded on %s (%s) — falling back %s -> %s",
+            lane, model, type(exc).__name__, model, fb,
+        )
+        resp = await openrouter.call(lane=lane, model=fb, **call_kwargs)
+        used_model, did_fallback = fb, True
+    budget.trace_llm(
+        resp, lane=lane, model=used_model,
+        ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
+    )
+    return resp
+
+
 async def create(
     client,
     *,
@@ -115,6 +167,10 @@ async def create(
     primary = model or s.anthropic_model
     if _provider(primary) == "gemini":
         return await _create_gemini(
+            lane=lane, model=primary, fallback_model=fallback_model, effort=effort, **kwargs
+        )
+    if _provider(primary) == "openrouter":
+        return await _create_openrouter(
             lane=lane, model=primary, fallback_model=fallback_model, effort=effort, **kwargs
         )
     fb = fallback_model or s.synth_executor_model
