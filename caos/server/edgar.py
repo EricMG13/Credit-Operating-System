@@ -106,6 +106,13 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
     req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": accept})
     try:
         with urllib.request.urlopen(req, timeout=settings.edgar_timeout_s) as resp:
+            # Defense-in-depth (review run-2 #B12): urlopen follows redirects, so confirm
+            # the fetch ended on an SEC host — an open redirect on sec.gov could otherwise
+            # bounce it to an internal address (SSRF). No such redirect is known; this is
+            # belt-and-suspenders. All EDGAR hosts (www./data.sec.gov) end in ".sec.gov".
+            host = (urllib.parse.urlsplit(resp.url).hostname or "").lower()
+            if host != "sec.gov" and not host.endswith(".sec.gov"):
+                raise EdgarError(f"EDGAR fetch redirected off sec.gov to {host!r}")
             if cap_bytes is not None:
                 data = resp.read(cap_bytes + 1)
                 if len(data) > cap_bytes:
