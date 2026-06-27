@@ -13,7 +13,6 @@ ponytail: capture script is throwaway-grade; the fixture it writes is the asset.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
