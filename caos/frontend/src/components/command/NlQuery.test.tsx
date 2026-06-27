@@ -1,0 +1,146 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import type { StructuredResult } from "@/lib/query/types";
+
+// Mock the one API fn the component calls (POST /api/query/nl). Set a
+// resolved/rejected value per test.
+vi.mock("@/lib/api", () => ({ nlQuery: vi.fn() }));
+
+// Stub the heavy chart wrapper (dynamically imports @antv/g2) and the
+// click-to-source modal (fetches a chunk) — neither is under test here, and
+// keeping them out keeps the render deterministic + offline.
+vi.mock("@/components/charts/G2Chart", () => ({
+  G2Chart: () => <div data-testid="g2-chart" />,
+}));
+vi.mock("@/components/command/CitationViewer", () => ({
+  CitationViewer: () => <div data-testid="citation-viewer" />,
+}));
+
+import { NlQuery } from "./NlQuery";
+import { nlQuery } from "@/lib/api";
+
+const mockNlQuery = vi.mocked(nlQuery);
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+// A minimal but realistic structured (ranked) result: two issuers ranked by
+// net leverage, one run-derived/cited, one seeded.
+const structuredResult: StructuredResult = {
+  mode: "structured",
+  interpretation: "Ranking issuers by net leverage, highest first.",
+  spec: {},
+  rank_by: "net_leverage",
+  columns: [{ key: "net_leverage", label: "Net Leverage", unit: "x", higher_is_better: false }],
+  total_ranked: 2,
+  caveats: ["Seeded values are illustrative."],
+  rows: [
+    {
+      issuer: { id: "iss-1", name: "Atlas Forge", ticker: "ATF", industry: "Industrials", country: "US" },
+      rank_value: 7.4,
+      metrics: {
+        net_leverage: {
+          value: 7.4,
+          unit: "x",
+          provenance: "run",
+          qa_status: "ok",
+          period: "FY24",
+          citation: { claim_id: "C-1", evidence_id: "E-CS1", chunk_id: "chunk-abc123def456" },
+        },
+      },
+    },
+    {
+      issuer: { id: "iss-2", name: "Borealis Metals", ticker: "BRM", industry: "Materials", country: "US" },
+      rank_value: 4.1,
+      metrics: {
+        net_leverage: {
+          value: 4.1,
+          unit: "x",
+          provenance: "seed",
+          qa_status: "ok",
+          period: "FY24",
+          citation: null,
+        },
+      },
+    },
+  ],
+};
+
+describe("NlQuery", () => {
+  it("renders the query input and starter chips", () => {
+    render(<NlQuery />);
+    expect(screen.getByLabelText("Ask a question across issuers")).toBeTruthy();
+    // Starters are visible before any result.
+    expect(screen.getByText("which issuer is most levered")).toBeTruthy();
+  });
+
+  it("happy path: submitting a query calls the API and renders the interpretation + ranked rows", async () => {
+    mockNlQuery.mockResolvedValue(structuredResult);
+    render(<NlQuery />);
+
+    const input = screen.getByLabelText("Ask a question across issuers") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "which issuer is most levered" } });
+    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+
+    // API called with the typed question.
+    expect(mockNlQuery).toHaveBeenCalledTimes(1);
+    expect(mockNlQuery).toHaveBeenCalledWith("which issuer is most levered");
+
+    // Interpretation surfaces once the promise resolves.
+    expect(await screen.findByText("Ranking issuers by net leverage, highest first.")).toBeTruthy();
+
+    // Ranked structured table renders both issuers in order.
+    const table = screen.getByRole("table", { name: "Ranked query results" });
+    expect(table).toBeTruthy();
+    expect(screen.getByText("Atlas Forge")).toBeTruthy();
+    expect(screen.getByText("Borealis Metals")).toBeTruthy();
+
+    // The run-derived cell carries its clickable citation chip (evidence id);
+    // the seeded cell shows the muted "seed" marker — both confirm provenance UI.
+    expect(screen.getByRole("button", { name: "E-CS1" })).toBeTruthy();
+    expect(screen.getByText("seed")).toBeTruthy();
+
+    // Caveat is shown.
+    expect(screen.getByText("· Seeded values are illustrative.")).toBeTruthy();
+  });
+
+  it("opens the citation viewer when a citation chip is clicked", async () => {
+    mockNlQuery.mockResolvedValue(structuredResult);
+    render(<NlQuery />);
+
+    const input = screen.getByLabelText("Ask a question across issuers");
+    fireEvent.change(input, { target: { value: "which issuer is most levered" } });
+    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+
+    const chip = await screen.findByRole("button", { name: "E-CS1" });
+    expect(screen.queryByTestId("citation-viewer")).toBeNull();
+    fireEvent.click(chip);
+    expect(screen.getByTestId("citation-viewer")).toBeTruthy();
+  });
+
+  it("error path: a rejected query renders the yellow alert with the backend detail", async () => {
+    mockNlQuery.mockRejectedValue({ response: { data: { detail: "metric store unavailable" } } });
+    render(<NlQuery />);
+
+    const input = screen.getByLabelText("Ask a question across issuers");
+    fireEvent.change(input, { target: { value: "which issuer is most levered" } });
+    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("metric store unavailable");
+    // No result table on the error branch.
+    expect(screen.queryByRole("table", { name: "Ranked query results" })).toBeNull();
+  });
+
+  it("does not call the API when the input is empty", () => {
+    mockNlQuery.mockResolvedValue(structuredResult);
+    render(<NlQuery />);
+    // ASK is disabled with no text; Enter on an empty field is a no-op.
+    const input = screen.getByLabelText("Ask a question across issuers");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(mockNlQuery).not.toHaveBeenCalled();
+  });
+});
