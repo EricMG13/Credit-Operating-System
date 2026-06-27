@@ -71,9 +71,11 @@ def test_thinking_config_25_uses_integer_budget():
 
 @pytest.mark.skipif(not _HAS_THINKING_LEVEL, reason="thinking_level needs google-genai 2.x (py3.10+)")
 def test_thinking_config_3x_uses_level_enum():
-    assert gemini._thinking_config("gemini-3.5-flash", "high").thinking_level == "high"
+    # google-genai 2.x coerces the lowercase string we pass into a ThinkingLevel enum
+    # (value "HIGH"); passing the string is fine, the SDK normalizes it.
+    assert gemini._thinking_config("gemini-3.5-flash", "high").thinking_level == _gtypes.ThinkingLevel.HIGH
     # gemini-3 pro has no 'minimal' → clamps to 'low'
-    assert gemini._thinking_config("gemini-3.1-pro", "minimal").thinking_level == "low"
+    assert gemini._thinking_config("gemini-3.1-pro", "minimal").thinking_level == _gtypes.ThinkingLevel.LOW
 
 
 # ── translation ──────────────────────────────────────────────────────────────
