@@ -35,6 +35,7 @@ logger = logging.getLogger("caos.nlquery")
 
 _FILTER_FIELDS = {"industry", "country"}
 _FILTER_OPS = {"=", ">", ">=", "<", "<=", "ilike"}
+_NUMERIC_OPS = {"=", ">", ">=", "<", "<="}  # ilike is text-only (issuer fields)
 _MAX_LIMIT = 50
 
 
@@ -88,6 +89,15 @@ def validate_spec(spec: QuerySpec) -> QuerySpec:
             raise QueryError(f"unknown filter field: {f.field!r}")
         if f.op not in _FILTER_OPS:
             raise QueryError(f"unsupported filter op: {f.op!r}")
+        # A metric filter is numeric: reject the text-only `ilike` and a non-numeric
+        # value HERE, rather than silently passing every row in _passes (#4).
+        if f.field in CATALOG_BY_KEY:
+            if f.op not in _NUMERIC_OPS:
+                raise QueryError(f"metric filter {f.field!r} needs a numeric op, not {f.op!r}")
+            try:
+                float(f.value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                raise QueryError(f"metric filter {f.field!r} needs a numeric value, not {f.value!r}")
     spec.metrics = metrics
     spec.direction = "asc" if str(spec.direction).lower() == "asc" else "desc"
     spec.limit = max(1, min(_MAX_LIMIT, int(spec.limit or 10)))
@@ -301,9 +311,9 @@ def _passes(value: Optional[float], op: str, target) -> bool:
     try:
         t = float(target)
     except (TypeError, ValueError):
-        return True
+        return False  # fail closed: an unparseable filter excludes, never admits all (#4)
     return {"=": value == t, ">": value > t, ">=": value >= t,
-            "<": value < t, "<=": value <= t}.get(op, True)
+            "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
 
 
 async def execute(session: AsyncSession, spec: QuerySpec) -> dict:

@@ -51,6 +51,33 @@ def test_validate_rejects_out_of_vocabulary_metric():
                                 filters=[{"field": "secret_field", "op": "=", "value": 1}]))
 
 
+def test_validate_rejects_ilike_op_on_metric_filter():
+    # #4: ilike is text-only; a metric filter with it used to silently pass every row.
+    with pytest.raises(QueryError):
+        validate_spec(QuerySpec(rank_by="net_leverage",
+                                filters=[{"field": "net_leverage", "op": "ilike", "value": 5}]))
+
+
+def test_validate_rejects_non_numeric_metric_filter_value():
+    with pytest.raises(QueryError):
+        validate_spec(QuerySpec(rank_by="net_leverage",
+                                filters=[{"field": "net_leverage", "op": ">", "value": "abc"}]))
+
+
+def test_validate_accepts_numeric_metric_filter():
+    spec = validate_spec(QuerySpec(rank_by="net_leverage",
+                                   filters=[{"field": "net_leverage", "op": ">", "value": 3.0}]))
+    assert spec.filters[0].field == "net_leverage" and spec.filters[0].op == ">"
+
+
+def test_passes_fails_closed_on_unparseable_or_unknown_op():
+    # #4: defense-in-depth — an unevaluable filter EXCLUDES, never admits everything.
+    from nlquery import _passes
+    assert _passes(5.0, ">", "abc") is False    # was True (admitted all rows)
+    assert _passes(5.0, "ilike", 3.0) is False  # unknown numeric op excludes
+    assert _passes(5.0, ">", 3.0) is True       # normal path intact
+
+
 def test_validate_clamps_limit_and_normalizes_direction():
     spec = validate_spec(QuerySpec(rank_by="revenue", direction="UP", limit=999))
     assert spec.limit == 50 and spec.direction == "desc"
