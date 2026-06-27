@@ -62,13 +62,18 @@ def test_model_for_falls_back_to_anthropic_without_gemini_key(monkeypatch):
 
 
 def test_effort_for_per_mode():
+    cases = [
+        ("TEST", presets.HEAVY, "minimal"),
+        ("LITE", presets.HEAVY, "low"),
+        ("BALANCED", presets.HEAVY, "medium"),
+        ("MAX", presets.HEAVY, "high"),
+        ("MAX", presets.LIGHT, "low"),
+        ("BALANCED", presets.EXTRACT, "minimal"),
+    ]
     try:
-        presets.set_mode("TEST");     assert presets.effort_for(presets.HEAVY) == "minimal"
-        presets.set_mode("LITE");     assert presets.effort_for(presets.HEAVY) == "low"
-        presets.set_mode("BALANCED"); assert presets.effort_for(presets.HEAVY) == "medium"
-        presets.set_mode("MAX");      assert presets.effort_for(presets.HEAVY) == "high"
-        presets.set_mode("MAX");      assert presets.effort_for(presets.LIGHT) == "low"
-        presets.set_mode("BALANCED"); assert presets.effort_for(presets.EXTRACT) == "minimal"
+        for mode, lane, expected in cases:
+            presets.set_mode(mode)
+            assert presets.effort_for(lane) == expected, (mode, lane)
     finally:
         presets.set_mode(presets.DEFAULT_MODE)
 

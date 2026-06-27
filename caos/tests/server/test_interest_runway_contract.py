@@ -25,7 +25,6 @@ Contract crux a rewrite MUST keep:
 
 from __future__ import annotations
 
-import math
 
 import pytest
 
