@@ -89,12 +89,16 @@ def test_extract_facts_projects_cp1_financials_with_citation():
     facts = extract_facts("run-x", cp1, qa_status="Restricted")
     by_key = {(f["metric_key"], f["period"]): f for f in facts}
 
-    lev = by_key[("net_leverage", "LTM")]
+    # Net leverage is projected as a per-period series now (drives the leverage
+    # trend); the headline is the latest period (LTM_Q1_26), same 5.68 value + cite.
+    lev = by_key[("net_leverage", "LTM_Q1_26")]
     assert lev["value"] == 5.68 and lev["headline"] is True
     # ATLF is the seeded demo fixture, so its facts carry 'fixture' provenance — not
     # 'run' — so they never pose as a real issuer run in the cross-issuer store (#04).
     assert lev["provenance"] == "fixture" and lev["qa_status"] == "Restricted"
     assert lev["source_claim_id"] == "C-10" and lev["source_evidence_id"] == "E-20"
+    # earlier fiscal years are present too (non-headline), forming the trend series.
+    assert by_key[("net_leverage", "FY23")]["value"] == 6.7
 
     # ebitda_margin is computed from revenue + adj_ebitda for the LTM period.
     margin = by_key[("ebitda_margin", "LTM_Q1_26")]
