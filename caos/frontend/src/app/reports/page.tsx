@@ -4,8 +4,9 @@
 // deliverables assembled from module outputs + the M-118 model, with lineage,
 // section compose toggles, QA watermark gating and print-to-PDF.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { ReportDoc } from "@/components/reports/ReportDoc";
@@ -14,6 +15,7 @@ import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/component
 import { buildReports, type ModelInputs } from "@/lib/reports/builders";
 import { useModelEngine } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -49,13 +51,19 @@ function PrintPortal({
 export default function ReportsPage() {
   return (
     <RequireAuth>
-      <ReportStudio />
+      <Suspense fallback={null}>
+        <ReportStudio />
+      </Suspense>
     </RequireAuth>
   );
 }
 
 // fallow-ignore-next-line complexity
 function ReportStudio() {
+  const searchParams = useSearchParams();
+  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+
   // Concept D model state (overrides / severity) feeds the deliverables —
   // loaded once on mount so D edits carry into E.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
@@ -73,7 +81,7 @@ function ReportStudio() {
   // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
   // uses); falls back to the seeded model when no run exists. Lights up the
   // snapshot panels with live, provenance-anchored figures.
-  const eng = useModelEngine(ATLF_REFERENCE_ISSUER_ID);
+  const eng = useModelEngine(issuerId);
   const reports = useMemo(
     () => buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }),
     [modelInputs, eng.anchor],
@@ -149,20 +157,44 @@ function ReportStudio() {
     setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId });
+
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       {/* sub-header */}
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
         <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Report Studio — committee deliverables</span>
-        <span
-          className="tabular text-caos-xs whitespace-nowrap truncate"
-          role="note"
-          style={{ color: "var(--caos-warning)" }}
-          title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run. Every figure is the ATLF fixture."
-        >
-          REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
-        </span>
+        {caveatKind === "reference" ? (
+          <span
+            className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+            role="note"
+            title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run. Every figure is the ATLF fixture."
+          >
+            REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
+          </span>
+        ) : caveatKind === "loading" ? (
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+            checking for live run…
+          </span>
+        ) : caveatKind === "live" ? (
+          <span
+            className="tabular text-caos-xs whitespace-nowrap"
+            style={{ color: "var(--caos-warning)" }}
+            title="Live engine modules reflect this issuer; the bespoke report pages show the ATLF reference template"
+          >
+            live engine output · bespoke pages show the ATLF reference template
+          </span>
+        ) : (
+          <span
+            className="tabular text-caos-xs whitespace-nowrap"
+            style={{ color: "var(--caos-warning)" }}
+            role="note"
+            title="No completed run for this issuer. Every figure shown is the ATLF reference template, not this issuer's own analysis."
+          >
+            no run for this issuer · figures are the ATLF reference template, not this issuer
+          </span>
+        )}
         <span className="flex-1" />
         {/* paper tone — decorative, drops first on narrow screens */}
         <span className="hidden 2xl:flex items-center gap-1 shrink-0">
