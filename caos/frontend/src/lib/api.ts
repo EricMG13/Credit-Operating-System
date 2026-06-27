@@ -1,5 +1,6 @@
 import axios from "axios";
 import { loadMode } from "@/lib/model-mode";
+import type { Issuer } from "@/types/issuers";
 
 // Same-origin API: the FastAPI server serves both /api and the static
 // frontend in deployment (Databricks Apps). In `next dev`, the rewrite in
@@ -53,6 +54,56 @@ export const createIssuer = (data: Record<string, unknown>) =>
 // opened from the directory (the live run overlay is keyed off the same id).
 export const getIssuer = (id: string) =>
   api.get(`/api/issuers/${id}`).then((r) => r.data);
+
+// Issuer profile — the per-name roll-up (identity + house view + headline
+// metrics + run history) that backs the /issuers/profile landing view. A
+// read-model; see routes/issuers.py.
+export interface ProfileRun {
+  id: string;
+  status: string;
+  qa_status: string;
+  committee_status: string;
+  as_of_date: string | null;
+  analyst_id: string | null;
+  model_mode: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+}
+export interface ProfileMetric {
+  metric_key: string;
+  period: string;
+  value: number;
+  unit: string;
+  basis: string | null;
+  provenance: string;
+  headline: boolean;
+  qa_status: string;
+  source_claim_id: string | null;
+  source_evidence_id: string | null;
+  document_chunk_id: string | null;
+}
+export interface BusinessFact {
+  fact_area: string;
+  code: string;
+  statement: string;
+  chunk_id: string | null;
+}
+export interface IssuerProfile {
+  issuer: Issuer;
+  latest_run: ProfileRun | null;
+  runs: ProfileRun[];
+  metrics: ProfileMetric[];
+  // Free-form roll-ups (nullable values) — Deep-Dive owns module detail.
+  signals: Record<string, number | string | null>;
+  coverage: Record<string, unknown>;
+  findings: Record<string, number>;
+  business: BusinessFact[];           // CP-1A sourced facts
+  sponsor: Record<string, unknown>;   // CP-2D governance review
+  strengths: string[];
+  weaknesses: string[];
+}
+export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
+  api.get(`/api/issuers/${id}/profile`).then((r) => r.data);
 
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {
@@ -267,6 +318,7 @@ export interface WorkspaceSettings {
   model: string;
   llm_configured: boolean;
   gemini_configured: boolean;
+  openrouter_configured: boolean;
   governance: { council_enabled: boolean; council_seats: number; council_peer_round: boolean; council_cross_model: boolean; debate_enabled: boolean };
   model_tiers: { cheap: string; fast: string; strong: string; top: string };
   engine_cost: { run_token_budget: number; advisor_enabled: boolean; synth_executor_model: string; advisor_model: string };

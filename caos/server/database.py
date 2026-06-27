@@ -83,6 +83,10 @@ class Issuer(Base):
     industry: Mapped[Optional[str]] = mapped_column(String(128))
     country: Mapped[Optional[str]] = mapped_column(String(128))
     figi: Mapped[Optional[str]] = mapped_column(String(32))
+    # Analyst-entered agency ratings (no free ratings feed). NULL = not rated.
+    rating_sp: Mapped[Optional[str]] = mapped_column(String(16))
+    rating_moody: Mapped[Optional[str]] = mapped_column(String(16))
+    rating_fitch: Mapped[Optional[str]] = mapped_column(String(16))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

@@ -26,7 +26,7 @@ export default function IssuersPage() {
 }
 
 
-const EMPTY_FORM = { name: "", ticker: "", industry: "", country: "", figi: "" };
+const EMPTY_FORM = { name: "", ticker: "", industry: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
 
 // Demo coverage universe shown when the registry is empty, so the entry point
 // reflects the same names the rest of the app works against (Command, Deep-Dive)
@@ -144,7 +144,7 @@ function IssuersDirectory() {
           right={
             <span className="flex items-center gap-2">
               <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">
-                click a row to open its deep-dive
+                click a row to open its profile
               </span>
               <span className="relative flex items-center">
                 <span className="absolute left-2 text-caos-muted text-caos-md pointer-events-none">⌕</span>
@@ -216,8 +216,8 @@ function IssuersDirectory() {
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
                   <Link
-                    href={"/deepdive?issuer=" + encodeURIComponent(issuer.id)}
-                    aria-label={`Open deep-dive for ${issuer.name}`}
+                    href={"/issuers/profile?id=" + encodeURIComponent(issuer.id)}
+                    aria-label={`Open profile for ${issuer.name}`}
                     className="absolute inset-0 z-0 focus-ring"
                   />
                   <span className="tabular text-caos-accent text-caos-lg">
@@ -315,6 +315,9 @@ function NewIssuerModal({
             { key: "industry", label: "Industry", required: false, ph: "e.g. Industrials" },
             { key: "country", label: "Country", required: false, ph: "e.g. United States" },
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
+            { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+" },
+            { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1" },
+            { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-" },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>

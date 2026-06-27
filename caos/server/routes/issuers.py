@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import Document, Issuer, get_db
+from database import (
+    Document, Issuer, MetricFact, ModuleOutput, QAFinding, Run, get_db,
+)
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
@@ -22,6 +24,9 @@ class IssuerCreate(BaseModel):
     industry: Optional[str] = None
     country: Optional[str] = None
     figi: Optional[str] = Field(default=None, max_length=32)
+    rating_sp: Optional[str] = Field(default=None, max_length=16)
+    rating_moody: Optional[str] = Field(default=None, max_length=16)
+    rating_fitch: Optional[str] = Field(default=None, max_length=16)
 
 
 class IssuerResponse(BaseModel):
@@ -31,6 +36,9 @@ class IssuerResponse(BaseModel):
     industry: Optional[str]
     country: Optional[str]
     figi: Optional[str]
+    rating_sp: Optional[str] = None
+    rating_moody: Optional[str] = None
+    rating_fitch: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -133,3 +141,256 @@ async def list_issuer_documents(
         .offset(offset)
     )
     return result.scalars().all()
+
+
+# ── Issuer profile (per-name roll-up) ────────────────────────────────────────
+# The landing view when you click an issuer name/ticker: identity + current
+# house view + headline metrics + what-changed + run history, one read. It is a
+# *read-model* over data the engine already persists (runs, metric_facts, the
+# latest complete run's module outputs) — no new computation, no synthesis. Every
+# value carries its provenance/basis so the UI never passes seed/fixture numbers
+# off as a real run (trust-through-transparency).
+
+
+class RunBrief(BaseModel):
+    id: str
+    status: str
+    qa_status: str
+    committee_status: str
+    as_of_date: Optional[str]
+    analyst_id: Optional[str] = None
+    model_mode: Optional[str] = None
+    created_at: Optional[datetime]
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricFactOut(BaseModel):
+    metric_key: str
+    period: str
+    value: float
+    unit: str
+    basis: Optional[str]
+    provenance: str
+    headline: bool
+    qa_status: str
+    source_claim_id: Optional[str]
+    source_evidence_id: Optional[str]
+    document_chunk_id: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class IssuerProfileResponse(BaseModel):
+    issuer: IssuerResponse
+    latest_run: Optional[RunBrief]
+    runs: List[RunBrief]
+    # Headline + historical periods for every metric_key, oldest→newest per key,
+    # so the UI renders both the snapshot (headline rows) and the trend sparklines
+    # (the full series) from one list.
+    metrics: List[MetricFactOut]
+    # Cherry-picked headline signals from the latest complete run's modules. A
+    # free-form dict (like ModuleOutput.runtime_output) rather than a rigid schema:
+    # these are a roll-up for glance-reading, not a stable contract — Deep-Dive
+    # remains the source of truth for module detail. Missing → null.
+    signals: Dict[str, Any]
+    coverage: Dict[str, Any]
+    findings: Dict[str, int]
+    # CP-1A business/transaction facts (sourced snippets): description, operating
+    # model, ownership, geography, history. Empty when no offering text ingested.
+    business: List[Dict[str, Any]]
+    # CP-2D sponsor / governance review (score + red-flag ledger). {} when absent.
+    sponsor: Dict[str, Any]
+    # Rule-based credit read derived from this run's signals (deterministic, no LLM).
+    strengths: List[str]
+    weaknesses: List[str]
+
+
+def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
+    """Headline signals from the latest complete run's module outputs.
+
+    Every lookup is defensive (``.get``): a module that didn't run, or a key a
+    given run didn't emit, yields ``None`` — a partial run degrades to blanks
+    rather than erroring, and nothing is synthesized. Keys verified against the
+    engine modules (relval/downside/refinancing/liquidity/covenants/earnings).
+    """
+
+    def ro(module_id: str) -> dict:
+        m = mods.get(module_id)
+        return (m.runtime_output or {}) if m is not None else {}
+
+    relval, downside, refi = ro("CP-3"), ro("CP-2B"), ro("CP-3D")
+    liquidity, cov = ro("CP-2E"), ro("CP-4C")
+    earnings = ro("CP-1B").get("summary") or {}
+
+    # CP-4C headroom lives inside calculations[] under a named calc, not top-level.
+    headroom = next(
+        (c for c in (cov.get("calculations") or [])
+         if isinstance(c, dict) and "headroom" in str(c.get("name", "")).lower()),
+        {},
+    )
+
+    return {
+        "recommendation": relval.get("recommendation"),
+        "composite_percentile": relval.get("composite_percentile"),
+        "peer_scope": relval.get("peer_scope"),
+        "fragility": downside.get("fragility"),
+        "shock_to_breach_pct": downside.get("shock_to_breach_pct"),
+        "breach_threshold_x": downside.get("breach_threshold_x"),
+        "lme_band": refi.get("lme_vulnerability_band"),
+        "lme_score": refi.get("lme_vulnerability_score"),
+        "liquidity_musd": liquidity.get("disclosed_liquidity_musd"),
+        "runway_months": liquidity.get("months_liquidity_covers_interest"),
+        "covenant_structure": cov.get("covenant_structure"),
+        "covenant_headroom_turns": headroom.get("value"),
+        "covenant_cushion_pct": headroom.get("ebitda_cushion_pct"),
+        "revenue_growth_pct": earnings.get("revenue_growth_pct"),
+        "ebitda_growth_pct": earnings.get("ebitda_growth_pct"),
+        "margin_change_pp": earnings.get("margin_change_pp"),
+    }
+
+
+def _strengths_weaknesses(
+    signals: Dict[str, Any], headline: Dict[str, float]
+) -> "tuple[List[str], List[str]]":
+    """A rule-based credit read from this run's signals + headline ratios —
+    deterministic, no LLM. Each item is a short statement backed by a real signal;
+    empty lists when the run surfaced nothing decisive either way."""
+    strengths: List[str] = []
+    weaknesses: List[str] = []
+
+    def num(x: Any) -> Optional[float]:
+        return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+    pct = num(signals.get("composite_percentile"))
+    if pct is not None:
+        if pct >= 60:
+            strengths.append(f"Screens cheap vs peers — {pct:g}th-percentile relative value")
+        elif pct < 40:
+            weaknesses.append(f"Screens rich / weak vs peers — {pct:g}th percentile")
+
+    frag, stb = signals.get("fragility"), num(signals.get("shock_to_breach_pct"))
+    tail = f" — breach at −{stb:g}% EBITDA" if stb is not None else ""
+    if frag == "LOW":
+        strengths.append(f"Resilient to downside{tail}")
+    elif frag in ("HIGH", "MODERATE"):
+        weaknesses.append(f"{str(frag).title()} downside fragility{tail}")
+
+    lme = signals.get("lme_band")
+    if lme == "LOW":
+        strengths.append("Low refinancing / LME risk")
+    elif lme in ("HIGH", "MEDIUM", "MODERATE"):
+        weaknesses.append(f"{str(lme).title()} refinancing / LME risk")
+
+    nl = num(headline.get("net_leverage"))
+    if nl is not None:
+        if nl < 4:
+            strengths.append(f"Conservative leverage at {nl:g}×")
+        elif nl >= 6:
+            weaknesses.append(f"Elevated leverage at {nl:g}×")
+
+    ic = num(headline.get("interest_coverage"))
+    if ic is not None:
+        if ic >= 3:
+            strengths.append(f"Comfortable interest coverage at {ic:g}×")
+        elif ic < 2:
+            weaknesses.append(f"Thin interest coverage at {ic:g}×")
+
+    hr = num(signals.get("covenant_headroom_turns"))
+    if hr is not None:
+        if hr >= 1.0:
+            strengths.append(f"Ample covenant headroom — {hr:g}× to breach")
+        elif hr < 0.5:
+            weaknesses.append(f"Tight covenant headroom — {hr:g}× to breach")
+
+    mc = num(signals.get("margin_change_pp"))
+    if mc is not None:
+        if mc >= 0.5:
+            strengths.append(f"Margin expanding (+{mc:g}pp)")
+        elif mc <= -0.5:
+            weaknesses.append(f"Margin compressing ({mc:g}pp)")
+
+    rw = num(signals.get("runway_months"))
+    if rw is not None and rw < 12:
+        weaknesses.append(f"Limited liquidity runway — {rw:g} months of interest")
+
+    return strengths, weaknesses
+
+
+@router.get("/{issuer_id}/profile", response_model=IssuerProfileResponse)
+async def get_issuer_profile(
+    issuer_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    # Recent runs newest-first (bounded — runs accumulate forever, P4). The first
+    # is the latest run of any status; the first complete one backs signals/QA.
+    runs = list((await db.execute(
+        select(Run).where(Run.issuer_id == issuer_id)
+        .order_by(Run.created_at.desc()).limit(20)
+    )).scalars().all())
+    latest_run = runs[0] if runs else None
+    latest_complete = next((r for r in runs if r.status == "complete"), None)
+
+    # Headline facts are last-writer-wins per metric_key (runner supersedes prior
+    # runs'), so the metric store already reflects the latest run — no run filter.
+    facts = list((await db.execute(
+        select(MetricFact).where(MetricFact.issuer_id == issuer_id)
+        .order_by(MetricFact.metric_key, MetricFact.period).limit(500)
+    )).scalars().all())
+
+    doc_count = (await db.execute(
+        select(func.count()).select_from(Document).where(Document.issuer_id == issuer_id)
+    )).scalar() or 0
+
+    signals: Dict[str, Any] = {}
+    coverage: Dict[str, Any] = {"documents": doc_count}
+    findings = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
+    business: List[Dict[str, Any]] = []
+    sponsor: Dict[str, Any] = {}
+    if latest_complete is not None:
+        mod_rows = (await db.execute(
+            select(ModuleOutput).where(ModuleOutput.run_id == latest_complete.id)
+        )).scalars().all()
+        mods = {m.module_id: m for m in mod_rows}
+        signals = _profile_signals(mods)
+        # CP-1A business/transaction fact register; CP-2D sponsor/governance review.
+        business = ((mods["CP-1A"].runtime_output or {}).get("facts") or []) if "CP-1A" in mods else []
+        sponsor = (mods["CP-2D"].runtime_output or {}) if "CP-2D" in mods else {}
+        cp0 = (mods["CP-0"].runtime_output or {}) if "CP-0" in mods else {}
+        coverage.update({
+            "readiness_score": cp0.get("readiness_score"),
+            "categories_present": cp0.get("categories_present"),
+            "categories_missing": cp0.get("categories_missing"),
+            "edgar_available": cp0.get("edgar_available"),
+        })
+        for f in (await db.execute(
+            select(QAFinding).where(QAFinding.run_id == latest_complete.id)
+        )).scalars().all():
+            findings[f.severity] = findings.get(f.severity, 0) + 1
+
+    # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
+    headline_vals: Dict[str, float] = {}
+    for f in facts:
+        if f.headline and (f.metric_key not in headline_vals or f.provenance == "run"):
+            headline_vals[f.metric_key] = f.value
+    strengths, weaknesses = _strengths_weaknesses(signals, headline_vals)
+
+    return IssuerProfileResponse(
+        issuer=IssuerResponse.model_validate(issuer),
+        latest_run=RunBrief.model_validate(latest_run) if latest_run else None,
+        runs=[RunBrief.model_validate(r) for r in runs],
+        metrics=[MetricFactOut.model_validate(f) for f in facts],
+        signals=signals,
+        coverage=coverage,
+        findings=findings,
+        business=business,
+        sponsor=sponsor,
+        strengths=strengths,
+        weaknesses=weaknesses,
+    )
