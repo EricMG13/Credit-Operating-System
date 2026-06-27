@@ -196,13 +196,18 @@ const REQ_TAG_COLOR: Record<string, string> = {
 };
 
 export function Inspector({
-  sim, selected, plan, scope, modeLabel,
+  sim, selected, plan, scope, modeLabel, isLive = false,
 }: {
   sim: Sim;
   selected: string | null;
   plan: PlanStep[];
   scope: Set<string>;
   modeLabel: string;
+  // True when the inspector is showing a LIVE run. The QA-finding / limitation /
+  // required-docs cards are seeded ATLF fixtures keyed by module id with no live
+  // equivalent yet, so they are suppressed under a live run rather than shown as
+  // if they belonged to it. The live payload line + lineage still render.
+  isLive?: boolean;
 }) {
   if (!selected) {
     return (
@@ -224,10 +229,12 @@ export function Inspector({
   const st = sim.mods[selected]?.state || "idle";
   const deps = planEntry ? planEntry.deps : base ? base.deps : [];
   const consumers = EDGES.filter(([a]) => a === selected).map(([, b]) => b);
-  const qa = inScope ? NODE_QA[selected] : null;
-  const lim = inScope ? NODE_LIMITS[selected] : null;
+  // Seeded ATLF fixtures (keyed by module id) — only valid for the offline demo.
+  // Suppress under a live run so they don't read as this run's QA / limitations.
+  const qa = inScope && !isLive ? NODE_QA[selected] : null;
+  const lim = inScope && !isLive ? NODE_LIMITS[selected] : null;
   const degraded = ["warning", "held", "blocked"].includes(st);
-  const reqs = inScope && degraded ? NODE_REQS[selected] : null;
+  const reqs = inScope && !isLive && degraded ? NODE_REQS[selected] : null;
   return (
     <div className="text-caos-xl">
       <div className="px-3 py-2.5 border-b border-caos-border">

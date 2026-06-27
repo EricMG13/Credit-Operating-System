@@ -315,8 +315,8 @@ function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; labe
 
 // Engine provenance for the sub-header: whether the LTM/PF anchor is grounded in
 // a live CP-1 run or the seeded demo model, plus a tie-out reconciling the
-// model's own LTM net leverage against CP-1's reported figure. Status is always
-// glyph-paired (dot / ✓ / ⚠), never carried by color alone.
+// leverage the grid actually DISPLAYS against CP-1's separately-reported figure.
+// Status is always glyph-paired (dot / ✓ / ⚠), never carried by color alone.
 function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }) {
   if (eng.loading) {
     return <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· linking engine…</span>;
@@ -332,9 +332,18 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
       </span>
     );
   }
-  const live = eng.anchor.netLeverage;
-  const drift = Math.abs(model.provenance.seededLtmNetlev - live);
-  const ok = drift <= 0.05;
+  // CP-1's separately-reported adj. net leverage (net_leverage_adj_ltm).
+  const cp1 = eng.anchor.netLeverage;
+  // What the grid actually DISPLAYS for the anchored LTM column: net debt / adj
+  // EBITDA recomputed from the live anchor (see applyAnchor + deriveCreditKpis).
+  // This — not the pre-anchor seeded value — is the number the analyst reads, so
+  // it is the number the tie-out must reconcile. (null if a denominator degraded.)
+  const shown = model.cols.l1.netlev;
+  // Only claim a tie when the DISPLAYED leverage equals CP-1's reported figure
+  // within tolerance. CP-1 may report on a different net-debt/EBITDA basis, so a
+  // recomputed netDebt/adjEbitda can legitimately differ — never fabricate "ties".
+  const drift = shown != null ? Math.abs(shown - cp1) : null;
+  const ties = drift != null && drift <= 0.05;
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
       <span
@@ -348,13 +357,23 @@ function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }
       <span
         className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"
         style={
-          ok
+          ties
             ? { color: "var(--caos-success)", borderColor: "rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.08)" }
             : { color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }
         }
-        title={`Model's independently-built LTM net leverage (${model.provenance.seededLtmNetlev.toFixed(2)}x) vs CP-1 reported (${live.toFixed(2)}x).`}
+        title={
+          shown == null
+            ? `Grid LTM net leverage is undefined (degenerate denominator); CP-1 reports ${cp1.toFixed(2)}x.`
+            : ties
+            ? `Grid LTM net leverage (${shown.toFixed(2)}x = net debt / adj. EBITDA) ties CP-1 reported (${cp1.toFixed(2)}x).`
+            : `Grid shows ${shown.toFixed(2)}x (net debt / adj. EBITDA) but CP-1 reports ${cp1.toFixed(2)}x — likely a different net-debt / EBITDA basis. Shown side by side, not reconciled.`
+        }
       >
-        {ok ? <>✓ ties to CP-1 {live.toFixed(2)}x</> : <><StatusGlyph kind="warning" /> Δ{drift.toFixed(2)}x vs CP-1 {live.toFixed(2)}x</>}
+        {ties
+          ? <>✓ ties to CP-1 {cp1.toFixed(2)}x</>
+          : shown == null
+          ? <><StatusGlyph kind="warning" /> CP-1 {cp1.toFixed(2)}x · grid n/a</>
+          : <><StatusGlyph kind="warning" /> grid {shown.toFixed(2)}x vs CP-1 {cp1.toFixed(2)}x</>}
       </span>
     </span>
   );

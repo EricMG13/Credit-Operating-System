@@ -56,9 +56,14 @@ describe("buildLiveSnapshot", () => {
 });
 
 describe("liveOutcome", () => {
-  it("Insufficient/Draft → warning; unknown falls back to qa_status", () => {
+  it("Insufficient/Draft → warning; unknown fails closed (never green pass)", () => {
     expect(liveOutcome(mod("X", "Insufficient Information"))).toBe("warning");
     expect(liveOutcome(mod("X", "Draft Only"))).toBe("warning");
+    // A Blocked QA verdict on an unknown committee_status → blocked.
     expect(liveOutcome({ ...mod("X", "Weird"), qa_status: "Blocked" })).toBe("blocked");
+    // An unrecognized/missing committee_status must NOT read green "pass" —
+    // it degrades to a non-pass "warning" on a clearance tool.
+    expect(liveOutcome(mod("X", "Weird"))).toBe("warning");
+    expect(liveOutcome(mod("X", ""))).toBe("warning");
   });
 });

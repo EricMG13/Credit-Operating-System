@@ -6,7 +6,9 @@ export type RowFormat = "m" | "p" | "x" | "d" | "r";
 
 /* ---------- value formatting ---------- */
 export function fmt(v: number | null | undefined, f?: RowFormat): string {
-  if (v == null || Number.isNaN(v)) return "";
+  // Reject every non-finite value (NaN *and* ±Infinity): a divide-by-zero KPI
+  // (e.g. interest 0 → intcov Infinity) must render blank, not "Infinityx".
+  if (v == null || !Number.isFinite(v)) return "";
   if (f === "m") {
     const r = Math.round(v);
     if (r === 0) return "–";

@@ -72,6 +72,16 @@ describe("Inspector", () => {
     render(<Inspector sim={emptySim} selected="CP-1C" plan={[]} scope={new Set()} modeLabel="legal-only" />);
     expect(screen.getByText(/Out of scope for the legal-only route/)).toBeTruthy();
   });
+
+  it("suppresses the seeded ATLF QA finding under a live run (isLive)", () => {
+    // Same CP-1C warning state as above, but on a LIVE run the seeded QA fixture
+    // must NOT render as if it belonged to this run. (#4 seeded-under-live)
+    const sim: Sim = { mods: { "CP-1C": { state: "warning", prog: 1 } }, events: [], tick: 0, done: false };
+    render(<Inspector sim={sim} selected="CP-1C" plan={[]} scope={new Set(["CP-1C"])} modeLabel="LIVE" isLive />);
+    expect(screen.getByText("Peer Benchmarking")).toBeTruthy(); // module still renders
+    expect(screen.queryByText("QA-117")).toBeNull();            // seeded QA hidden
+    expect(screen.queryByText(/Citation E-44 unresolved/)).toBeNull();
+  });
 });
 
 describe("GraphView", () => {

@@ -88,6 +88,13 @@ body {
 .caos-flash { animation: caos-flash 0.6s ease-out; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .caos-running, .caos-enter, .caos-flash { animation: none; }
+  /* Drop the transform transition (the only positional/motion channel) while
+     keeping the non-motion color/border/shadow fades, so .transition-caos no
+     longer animates movement under reduced-motion. (Blueprint §5.4 / WCAG 2.3.3) */
+  .transition-caos {
+    transition: background-color 160ms ease-out, border-color 160ms ease-out,
+      color 160ms ease-out, box-shadow 160ms ease-out;
+  }
 }
 
 /* Selected card ring (cross-pane selection feedback) — the 1px accent ring is

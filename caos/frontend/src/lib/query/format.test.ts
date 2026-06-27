@@ -19,4 +19,11 @@ describe("fmtMetric", () => {
   it("passes through unknown units", () => {
     expect(fmtMetric(3, "")).toBe("3");
   });
+
+  it("is NaN/Infinity-safe on the live lane — '—', never 'NaNx' / '$InfinityM'", () => {
+    expect(fmtMetric(NaN, "x")).toBe("—");
+    expect(fmtMetric(Infinity, "$M")).toBe("—");
+    expect(fmtMetric(-Infinity, "%")).toBe("—");
+    expect(fmtMetric(0 / 0, "x")).toBe("—");
+  });
 });

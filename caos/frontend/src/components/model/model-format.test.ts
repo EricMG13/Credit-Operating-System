@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { fmt, isEditCol, isEditable, ovField, parseNum } from "./model-format";
 
 describe("fmt", () => {
-  it("is blank for null / undefined / NaN", () => {
+  it("is blank for null / undefined / NaN / Infinity", () => {
     expect(fmt(null, "m")).toBe("");
     expect(fmt(undefined, "m")).toBe("");
     expect(fmt(NaN, "m")).toBe("");
+    // ±Infinity (e.g. intcov when interest = 0) must be blank, not "Infinityx".
+    expect(fmt(Infinity, "x")).toBe("");
+    expect(fmt(-Infinity, "x")).toBe("");
+    expect(fmt(1 / 0, "m")).toBe("");
   });
   it("money: rounds, group-separates, parens for negatives, en-dash for zero", () => {
     expect(fmt(1234.6, "m")).toBe("1,235");

@@ -14,7 +14,7 @@ import { login, register } from "@/lib/api";
 type Mode = "signin" | "signup";
 
 const inputCls =
-  "rounded border border-caos-border bg-caos-elevated px-3 py-2 text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted/60";
+  "rounded border border-caos-border bg-caos-elevated px-3 py-2 text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
