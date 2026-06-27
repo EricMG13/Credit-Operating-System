@@ -278,7 +278,7 @@ function ModelBuilder() {
             />
           </div>
           {showScenarios ? (
-            <ScenarioPanel model={model} onCollapse={() => setShowScenarios(false)} />
+            <ScenarioPanel model={model} downside={eng.downside} onCollapse={() => setShowScenarios(false)} />
           ) : (
             <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
           )}
