@@ -18,6 +18,10 @@ export function useLatestRun<T>(
 
   useEffect(() => {
     let cancelled = false;
+    // Reset to the loading sentinel synchronously on issuerId change, so the PRIOR
+    // issuer's resolved run (badge / module output / vault export) can't show under
+    // the new issuer's chrome during the listRuns round-trip. (review run-2 #FR1)
+    setValue(initial);
     (async () => {
       try {
         const runs = await listRuns(issuerId);

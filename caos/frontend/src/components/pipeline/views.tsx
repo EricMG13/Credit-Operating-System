@@ -10,6 +10,7 @@ import {
 } from "@/lib/pipeline/data";
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
+import { onActivate } from "@/lib/a11y";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -334,8 +335,11 @@ export function LineagePanel({
       {list.map((d) => (
         <div
           key={d.n}
+          role="button"
+          tabIndex={0}
           className="px-3 py-2 border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos cursor-pointer"
           onClick={() => onPick(d)}
+          onKeyDown={onActivate(() => onPick(d))}
         >
           <div className="flex items-center gap-2">
             <span className="tabular text-caos-md text-caos-muted">#{d.n}</span>
