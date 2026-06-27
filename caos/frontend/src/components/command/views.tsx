@@ -271,6 +271,9 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="tabular text-caos-md text-caos-accent">{a.issuer}</span>
+              {/* Severity as a labelled tag too — the dot's color isn't the only
+                  carrier of severity (colorblind-safe). */}
+              <Tag sev={a.sev}>{a.sev}</Tag>
               <span className="tabular text-caos-xs text-caos-muted">{a.code}</span>
               <span className="tabular text-caos-xs text-caos-muted ml-auto">{simClock(Math.max(0, tick - i * 5))}</span>
             </div>

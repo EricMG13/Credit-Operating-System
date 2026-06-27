@@ -17,9 +17,14 @@ Two populations:
     deterministic cost-structure read offline; CP-1A is the BusinessTransactionFactPack
     and the adjusted-EBITDA bridge it used to own is folded into CP-1.
   - **Spec-only** modules (``implemented=False``) are the rest of the designed
-    graph. CP-X routes to them and marks them ``Not Implemented`` so the route
-    plan reflects the full mesh honestly; they are never executed and never
-    counted in the QA roll-up.
+    graph that have no synthesizer wired in the engine yet: the corpus L7 modules
+    (CP-SR SectorReview, CP-MON CreditPulse) and the Infra modules (CP-RENDER,
+    CP-EXTRACT) named in the CP-X route graph. CP-X routes to them and the planner
+    marks them ``Not Implemented`` (engine.planner) so the route plan reflects the
+    full corpus mesh honestly; they are never executed and never counted in the QA
+    roll-up. Their ``owned_object`` is not validated by the one-owner check (that
+    only runs over implemented modules), so where the corpus pins one we use it
+    (sector_review, signal_register) and otherwise a sensible canonical name.
 
 Layer ordering (Active Prompt / REF_CP-X_02): L0 -> Orch -> L1 -> L2 -> L3 ->
 L4 -> L5/L6 -> Infra. CP-X (Orch) is the router itself and the infrastructure
@@ -38,10 +43,12 @@ AGREEMENT = "agreement"
 OFFERING = "offering"
 COVENANT = "covenant"
 
-# Layer execution precedence. Lower rank runs first.
+# Layer execution precedence. Lower rank runs first. L7 (CP-SR/CP-MON, sector /
+# monitoring) sits after L6 and before Infrastructure, per CP-X SYSTEM_REFERENCE
+# "Layer Ordering": L0 → Orch → L1 → L2 → L3 → L4 → L5 → L6 → L7 → Infrastructure.
 LAYER_RANK: Dict[str, int] = {
     "L0": 0, "Orch": 1, "L1": 2, "L2": 3, "L3": 4, "L4": 5, "L5": 6, "L6": 7,
-    "Infra": 8,
+    "L7": 8, "Infra": 9,
 }
 
 
@@ -141,6 +148,25 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3"), implemented=True),
     ModuleSpec("CP-6E", "PortfolioDebateChallenge", "L6", "portfolio_debate_challenge",
                depends_on=("CP-6A",), implemented=True),
+    # ── Spec-only corpus modules (no engine synthesizer) ────────────────────
+    # Registered so CP-X routes to them and the planner surfaces them as
+    # "Not Implemented" — making the route plan reflect the full corpus mesh
+    # (Modular OS/CP-X/SYSTEM_REFERENCE.md "Route Graph — All Modules") rather than
+    # silently omitting them. implemented=False ⇒ never executed, never QA-counted.
+    # Deps are declared-before (so the ordering invariant holds) and faithful to the
+    # corpus: L7 sector/monitor read the analytical synthesis; Infra runs after all.
+    # ── L7 — sector / monitoring ────────────────────────────────────────────
+    ModuleSpec("CP-SR", "SectorReview", "L7", "sector_review",
+               depends_on=("CP-2",), implemented=False),
+    ModuleSpec("CP-MON", "CreditPulse", "L7", "signal_register",
+               depends_on=("CP-2",), implemented=False),
+    # ── Infra — render / extract (run after all analytical modules) ──────────
+    # No owned_object const in the corpus schema for these; sensible canonical
+    # snake_case names (never validated, since the one-owner check skips spec-only).
+    ModuleSpec("CP-RENDER", "ReportRenderer", "Infra", "rendered_report",
+               depends_on=("CP-6E",), implemented=False),
+    ModuleSpec("CP-EXTRACT", "AppendixExtractor", "Infra", "extraction_envelope",
+               depends_on=("CP-6E",), implemented=False),
 )
 
 REGISTRY: Dict[str, ModuleSpec] = {s.module_id: s for s in _SPECS}

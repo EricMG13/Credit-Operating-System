@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtNum, fmtUsdM, fmtPct, fmtMult, initials } from "./format";
+import { fmtNum, fmtUsdM, fmtPct, fmtMult, fmtMult2, fmtUsdAcct, initials } from "./format";
 
 describe("format helpers", () => {
   it("fmtNum groups thousands and respects decimals", () => {
@@ -30,6 +30,23 @@ describe("format helpers", () => {
     expect(fmtUsdM(Infinity)).toBe("—");
     expect(fmtPct(NaN)).toBe("—");
     expect(fmtMult(0 / 0)).toBe("—");
+  });
+
+  it("fmtMult2 is two-decimal multiple, NaN/Infinity-safe", () => {
+    expect(fmtMult2(5.683)).toBe("5.68x");
+    expect(fmtMult2(-2.5)).toBe("-2.50x");
+    expect(fmtMult2(NaN)).toBe("—");
+    expect(fmtMult2(Infinity)).toBe("—");
+    expect(fmtMult2(1 / 0)).toBe("—");
+  });
+
+  it("fmtUsdAcct is accounting-style USD millions, NaN/Infinity-safe", () => {
+    expect(fmtUsdAcct(612)).toBe("$612M");
+    expect(fmtUsdAcct(1850)).toBe("$1,850M");
+    expect(fmtUsdAcct(-250)).toBe("($250M)");
+    expect(fmtUsdAcct(NaN)).toBe("—");
+    expect(fmtUsdAcct(Infinity)).toBe("—");
+    expect(fmtUsdAcct(-Infinity)).toBe("—");
   });
 
   it("initials: first+last for multi-word, first two chars for single, upper-cased", () => {

@@ -17,6 +17,18 @@ caos/
   tests/       server API tests + Playwright e2e
 ```
 
+## Modules
+
+The engine routing index ([`server/engine/registry.py`](server/engine/registry.py))
+is the source of truth for what runs: **19 implemented analytical modules**
+(CP-0, CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E),
+gated by the **CP-5 QA phase** (CP-5B lineage + the deterministic CP-5 severity
+gate). Four further corpus modules are registered **spec-only**
+(`implemented=False`, never executed) so the CP-X route plan reflects the full
+methodology mesh honestly: **CP-SR**/**CP-MON** (L7 sector / monitoring) and
+**CP-RENDER**/**CP-EXTRACT** (Infra). The `Modular OS/` corpus documents the
+broader methodology; only the registry list above is wired in the engine.
+
 ## Architecture
 
 | Concern        | Implementation                                                       |

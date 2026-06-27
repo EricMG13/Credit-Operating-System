@@ -172,8 +172,11 @@ export function buildScenarios(
       p.fcf.push(fcf);
       p.cash.push(cash);
       p.netDebt.push(netDebt);
-      p.netLev.push(netDebt / adj);
-      p.intCov.push(adj / interest);
+      // Guard the denominators: adj can fall to ≤0 (margin/revenue stress) and
+      // interest to 0 (rate→0), which would leak NaN/Infinity to the display.
+      // Push NaN on the degenerate path — the NaN-safe formatters render "—".
+      p.netLev.push(adj > 0 ? netDebt / adj : NaN);
+      p.intCov.push(interest > 0 ? adj / interest : NaN);
     }
     return p;
   }

@@ -316,6 +316,45 @@ def test_duplicate_active_run_rejected(api_client, monkeypatch):
     wait_for_run(api_client, again.json()["id"])  # drain
 
 
+def test_runs_idor_single_team_read_is_intentional(api_client):
+    """Authorization is single-team by design (SECURITY.md §2, S-4): every analyst
+    may read every run. This pins that behaviour so widening the trust model to
+    multiple teams becomes a conscious change (it must add per-caller authz to
+    runs.py) rather than silently inheriting a cross-team read.
+
+    A run owned by a DIFFERENT analyst is still fully readable by this caller via
+    get_run / get_qa / list_runs — no per-caller filter. If you are here because you
+    added tenant scoping, update this test deliberately."""
+    import asyncio
+
+    from conftest import wait_for_run
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+
+    created = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
+    assert created.status_code == 201, created.text
+    run_id = created.json()["id"]
+    wait_for_run(api_client, run_id)
+
+    # Reassign ownership to someone other than the caller (the dev identity is
+    # "local-dev"); a per-caller filter would now hide the run.
+    async def _reassign():
+        async with AsyncSessionLocal() as s:
+            run = await s.get(Run, run_id)
+            run.analyst_id = "someone-else@firm.com"
+            await s.commit()
+
+    asyncio.run(_reassign())
+
+    got = api_client.get(f"/api/runs/{run_id}")
+    assert got.status_code == 200, got.text
+    assert got.json()["analyst_id"] == "someone-else@firm.com"  # foreign run, still served
+
+    assert api_client.get(f"/api/runs/{run_id}/qa").status_code == 200
+    listed = api_client.get("/api/runs").json()
+    assert any(r["id"] == run_id for r in listed)  # surfaces in the unscoped list too
+
+
 @pytest.mark.asyncio
 async def test_sqlite_uses_wal_and_busy_timeout():
     import sqlite3

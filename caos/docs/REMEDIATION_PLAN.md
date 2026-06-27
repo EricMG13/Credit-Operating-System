@@ -7,6 +7,12 @@ This document records every fault uncovered during the joint code + prompt-corpu
 audit, what was patched in-session, and the remaining remediation needed before
 CAOS can be deployed as an institutional-grade application.
 
+> **Status (as of the shipped engine):** the module counts below ("24 modules
+> execute", "27 modules", a 12-of-24 DAG) are historical and describe an earlier
+> orchestration. The engine now wires **19 implemented modules** (+ 4 spec-only)
+> per [`server/engine/registry.py`](../server/engine/registry.py); CP-5/CP-5B run
+> as a separate QA gate phase. Internal numbers below are kept as originally written.
+
 ---
 
 ## 1. Findings Register

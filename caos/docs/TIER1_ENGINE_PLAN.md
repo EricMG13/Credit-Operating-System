@@ -41,6 +41,12 @@ institutionally defensible.
 
 ## 1. Why this slice first
 
+> **Status (as of the shipped engine):** this plan is historical — the engine now
+> wires **19 implemented modules** (+ 4 spec-only) per [`server/engine/registry.py`](../server/engine/registry.py),
+> not the "27" / "CP-0 → CP-1 → CP-2 slice" framing below. The "27" counts the
+> broader `Modular OS/` corpus, not what executes. Numbers in this doc are kept as
+> originally written.
+
 The methodology (`Modular OS/`) is fully specified; the app renders 27 modules of
 output but the backend executes none of them. The deep-dive output the UI shows
 today is hand-written TypeScript — the files even say so:

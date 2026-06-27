@@ -15,8 +15,9 @@ The edge proxy is still the network gate (the app publishes no port; only the
 proxy can reach it — docker-compose.yml). Outside a deployed context (local dev)
 the headers are absent and a stable local analyst identity is returned so the UI
 works unchanged. A header-less, cookie-less request in any deployed context means
-the edge was bypassed, so it is rejected (401) — enforced when ENVIRONMENT is
-"production" or the legacy DATABRICKS_APP_PORT is set.
+the edge was bypassed, so it is rejected (401) — enforced in any deployed context,
+i.e. whenever ENVIRONMENT is anything other than "development" (so a typo/unset
+fails closed) or the legacy DATABRICKS_APP_PORT is set (config.is_deployed).
 
 Trusting these headers is safe only because the edge proxy is the sole network
 path to the app; see caos/docs/SECURITY.md §1. As defense-in-depth, set
@@ -31,7 +32,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import time
 from dataclasses import dataclass
 
@@ -39,7 +39,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from access_log import sanitize_field
-from config import get_settings
+from config import get_settings, is_deployed
 from database import Analyst, get_db
 
 # In-app login: the analyst profile id+name+token_version are signed into this
@@ -109,11 +109,9 @@ _LOCAL_DEV = CallerIdentity(
     id="local-dev", email="analyst@local.dev", full_name="Local Analyst", source="local"
 )
 
-# Legacy: the old Databricks Apps platform injected DATABRICKS_APP_PORT. Kept as
-# a belt-and-suspenders "deployed context" signal so the gate still fails closed
-# even if ENVIRONMENT was left unset; the self-hosted stack sets
-# ENVIRONMENT=production instead.
-_LEGACY_PLATFORM_PORT = os.environ.get("DATABRICKS_APP_PORT") is not None
+# The deployed-context predicate lives in config.is_deployed: any ENVIRONMENT other
+# than "development" (typo/unset fail closed), or the legacy DATABRICKS_APP_PORT
+# the old Databricks Apps platform injected, counts as deployed.
 
 
 async def get_identity(
@@ -130,7 +128,9 @@ async def get_identity(
     session revocation (token_version) — see the cookie branch below.
     """
     settings = get_settings()
-    deployed = settings.environment == "production" or _LEGACY_PLATFORM_PORT
+    # Fail closed: ANY environment other than "development" (typo/unset included),
+    # or the legacy platform port, counts as deployed. (config.is_deployed)
+    deployed = is_deployed(settings)
 
     # Edge-proxy origin check FIRST — before any identity is resolved — so that a
     # cookie-bearing request must ALSO prove it transited the proxy. (Earlier this

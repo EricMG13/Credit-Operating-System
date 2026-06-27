@@ -206,6 +206,45 @@ def test_upload_pdf_document_and_list(client):
     assert any(d["doc_type"] == "Document" and d["run_mode"] == "earnings" for d in docs)
 
 
+def test_upload_zero_chunks_surfaces_warning(client, monkeypatch):
+    """P-3b: a scanned/encrypted/empty PDF parses to 0 chunks. The upload stays
+    lenient (still vaulted, 200), but the response must carry an explicit warning
+    so chunks_created:0 isn't silently read as success."""
+    import ingest
+
+    issuer_id = client.get("/api/issuers/").json()[0]["id"]
+    # Force the extractor to yield no text (mimics a scanned/encrypted PDF).
+    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": "")
+    pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+    r = client.post(
+        "/api/ingestion/upload/document",
+        data={"issuer_id": issuer_id, "run_mode": "earnings"},
+        files={"file": ("scanned.pdf", pdf, "application/pdf")},
+    )
+    assert r.status_code == 200, r.text  # not failed — intentionally lenient
+    body = r.json()
+    assert body["chunks_created"] == 0
+    assert body["warning"] and "0 chunks" in body["warning"]
+
+
+def test_upload_with_text_has_no_warning(client, monkeypatch):
+    """The warning is absent on a normal document that produces chunks."""
+    import ingest
+
+    issuer_id = client.get("/api/issuers/").json()[0]["id"]
+    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": "real content " * 50)
+    pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+    r = client.post(
+        "/api/ingestion/upload/document",
+        data={"issuer_id": issuer_id, "run_mode": "earnings"},
+        files={"file": ("real.pdf", pdf, "application/pdf")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["chunks_created"] > 0
+    assert body["warning"] is None
+
+
 def test_upload_rejects_non_pdf(client):
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
     r = client.post(

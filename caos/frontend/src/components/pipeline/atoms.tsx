@@ -4,8 +4,34 @@
 
 import { type SimRun } from "@/lib/pipeline/sim";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 
-export function Dot({ sev, pulse }: { sev: string; pulse?: boolean }) {
+// Severity → the StatusGlyph kind that draws its shape, so a status can be read
+// without relying on the dot color alone. Severities that share a glyph map to
+// the same mark (high/medium → warning, pass/ok/clear → success).
+const SEV_GLYPH: Record<string, "critical" | "warning" | "success" | "running" | "idle" | "held" | "blocked"> = {
+  critical: "critical", blocked: "blocked", high: "warning", warning: "warning",
+  medium: "warning", conditional: "warning", held: "held",
+  ok: "success", pass: "success", clear: "success",
+  running: "running", info: "running", low: "idle", idle: "idle", queued: "idle",
+};
+
+// A small status indicator. By default a bare color dot (dense inline use, where
+// an adjacent text label carries the meaning). Pass `glyph` to draw the severity
+// shape instead — for places where the dot would otherwise be the SOLE carrier
+// of status, so meaning is never color-alone (Blueprint a11y).
+export function Dot({ sev, pulse, glyph }: { sev: string; pulse?: boolean; glyph?: boolean }) {
+  if (glyph) {
+    const kind = SEV_GLYPH[sev] ?? "idle";
+    return (
+      <span
+        className={"inline-flex shrink-0 " + (pulse ? "caos-running" : "")}
+        style={{ color: SEV_COLOR[sev] || "var(--caos-idle)" }}
+      >
+        <StatusGlyph kind={kind} size={10} />
+      </span>
+    );
+  }
   return (
     <span
       className={"inline-block w-1.5 h-1.5 rounded-full shrink-0 " + (pulse ? "caos-running" : "")}

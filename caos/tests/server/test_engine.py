@@ -228,13 +228,16 @@ def test_cpx_route_plan_persisted(client, atlf_run):
     rt = detail["runtime_output"]
     assert rt["gate_status"] == "Full Run"  # ATLF has all four source categories
     by_mod = {r["module_id"]: r for r in rt["readiness_register"]}
-    # Every routed analytical module is now wired — all Full Run, none spec-only.
+    # Every wired analytical module routes Full Run on the ATLF pack.
     for mid in ("CP-1", "CP-1A", "CP-1B", "CP-1C", "CP-2", "CP-2B", "CP-2C",
                 "CP-2D", "CP-2E", "CP-2F", "CP-3", "CP-3B", "CP-3C", "CP-3D",
                 "CP-4", "CP-4C", "CP-6A", "CP-6E"):
         assert by_mod[mid]["readiness"] == "Full Run", mid
-    assert all(r["readiness"] != "Not Implemented" for r in rt["readiness_register"])
-    # A node the route plan never executes (an infra/export node) has no output row.
+    # The spec-only corpus modules are routed and shown as Not Implemented (the
+    # full-mesh honesty fix, engine item #8) but never executed. (engine item #8)
+    for mid in ("CP-SR", "CP-MON", "CP-RENDER", "CP-EXTRACT"):
+        assert by_mod[mid]["readiness"] == "Not Implemented", mid
+    # A spec-only node the route plan never executes has no output row.
     assert client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER").status_code == 404
     # CP-X is an orchestration record, not gated content.
     assert detail["qa_status"] == "Passed" and detail["owned_object"] == "route_plan"
@@ -327,3 +330,56 @@ def test_export_refused_for_restricted_run(client, atlf_run):
     assert detail["committee_status"] == "Restricted"
     assert detail["blocking_findings"], "refusal should surface the blocking findings"
     assert any(f["severity"] == "MATERIAL" for f in detail["blocking_findings"])
+
+
+# ── Item #10: keyless fixture served for a NON-demo issuer is tagged + flagged ─
+@pytest.mark.asyncio
+async def test_non_atlf_fixture_run_is_tagged_demo_and_flagged(seeded_db):
+    """A keyless (offline) run for an issuer that is NOT the genuine Atlas Forge demo
+    falls back to the ATLF fixture financials. Those are synthetic, so: the projected
+    CP-1 facts are provenance 'demo_fixture' (not 'run'/'fixture'), a MATERIAL
+    CP-1-DEMO-FIXTURE finding restricts the run, and the CP-1 row carries a limitation
+    making the synthetic origin explicit. The genuine demo issuer keeps 'fixture'."""
+    from sqlalchemy import select
+
+    from database import AsyncSessionLocal, Issuer, MetricFact, ModuleOutput, QAFinding, Run
+    from engine.fixtures import DEMO_FIXTURE_LIMITATION
+    from run_executor import execute_run_by_id
+
+    # An issuer with NO ticker (EDGAR skipped) and NO docs (reported-CP1 returns None)
+    # → CP-1 takes the fixture path. A distinct id so it is not the reference issuer.
+    other_id = "b0000000-0000-0000-0000-0000000000aa"
+    async with AsyncSessionLocal() as s:
+        if await s.get(Issuer, other_id) is None:
+            s.add(Issuer(id=other_id, name="Imitation Forge Ltd", industry="Industrials",
+                         country="USA"))
+        run = Run(issuer_id=other_id, analyst_id="t")
+        s.add(run)
+        await s.commit()
+        run_id = run.id
+
+    await execute_run_by_id(run_id)
+
+    async with AsyncSessionLocal() as s:
+        run = await s.get(Run, run_id)
+        assert run.status == "complete"
+        # MATERIAL demo-fixture finding → the run is Restricted (not Committee Ready).
+        assert run.qa_status == "Restricted"
+
+        facts = (await s.execute(
+            select(MetricFact).where(MetricFact.issuer_id == other_id,
+                                     MetricFact.run_id == run_id))).scalars().all()
+        assert facts, "the fixture CP-1 should project metric facts"
+        provs = {f.provenance for f in facts}
+        # The crux: fabricated demo numbers are tagged non-authoritative, never 'run'.
+        assert provs == {"demo_fixture"}, provs
+
+        findings = (await s.execute(
+            select(QAFinding).where(QAFinding.run_id == run_id))).scalars().all()
+        demo = [f for f in findings if f.finding_id == "CP-1-DEMO-FIXTURE"]
+        assert len(demo) == 1 and demo[0].severity == "MATERIAL"
+
+        cp1 = (await s.execute(
+            select(ModuleOutput).where(ModuleOutput.run_id == run_id,
+                                       ModuleOutput.module_id == "CP-1"))).scalar_one()
+        assert DEMO_FIXTURE_LIMITATION in (cp1.limitation_flags or [])

@@ -26,7 +26,8 @@ CLO Screening | Single-Name RV | Capital-Structure RV | Watchlist Monitoring
 High | Medium | Low | Not Assessable
 
 ## Credit Tier Mapping
-1.0–1.9 = High Quality | 2.0–2.9 = Acceptable | 3.0–3.7 = Stretched | 3.8–5.0 = Weak | Not Scorable
+≥1.0 and <2.0 = High Quality | ≥2.0 and <3.0 = Acceptable | ≥3.0 and <3.8 = Stretched | ≥3.8 and ≤5.0 = Weak | Not Scorable
+(Bands are continuous and non-overlapping — `<` is exclusive, so 3.79… is Stretched and 3.80 is Weak; the 3.8 split is the investable/reject boundary and no score falls into a gap.)
 
 ## Relative-Value Labels
 Cheap | Fair | Rich | Unclear

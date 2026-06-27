@@ -10,6 +10,13 @@
 
 ## 1. What v2 is (architecture in one screen)
 
+> **Status (as of the shipped engine):** the "24 modules" / "27 modules" / "8-lane
+> CP-5" figures in this plan describe the v2 corpus design and aspirations, not what
+> ships. The engine wires **19 implemented modules** (+ 4 spec-only) per
+> [`server/engine/registry.py`](../server/engine/registry.py); CP-5 runs a
+> deterministic severity gate + lineage check always-on and the remaining lanes only
+> under the opt-in council. Internal numbers below are kept as originally written.
+
 v2 reorganises the previously-flat prompt files into a **governed modular OS**:
 
 - **Per-module folders.** Each module = `CP-<ID>_ACTIVE_PROMPT.md` (the agent system prompt) + numbered `REF_CP-<ID>_*` decomposition files (one concern each) + `SCHEMA_REFERENCE.md` + `SYSTEM_REFERENCE.md`.

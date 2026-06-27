@@ -22,6 +22,8 @@ After the table, synthesize: main credit supports, constraints, trend, and key m
 
 If detailed financial data is unavailable, state: "Financial profile assessment is qualitative because detailed financial data is not available in the provided materials."
 
+> **REPRODUCIBILITY NOTE — Strong/Average/Weak rubric.** The permitted labels (`Strong / Average / Weak / Not Assessable`) have **no evidence→label anchors** in the corpus — only the per-dimension "Credit Rationale must consider" factors above, which say *what to weigh*, not *what threshold makes a dimension Strong vs Average vs Weak*. The label is therefore analyst-judgment and may differ between analysts on the same evidence. Until a methodology owner defines per-dimension anchors, every `Assessment` **must carry an explicit `Credit Rationale` that names the specific issuer evidence driving the label** (already required by this step), so the *reasoning* is auditable even though the label itself is not yet rubric-pinned. Do not invent numeric cutoffs that the corpus does not define.
+
 ## Output
 **T2.7 Financial Profile Scorecard:** `Dimension`|`Assessment`|`Credit Rationale`
 Narrative: Synthesis of credit supports, constraints, trend, missing data.

@@ -145,11 +145,16 @@ function finishFlows(c: any) {
 // Shared by finishBalances (build) and applyAnchor (live re-base) so the two
 // stay in lockstep.
 function deriveCreditKpis(c: any) {
-  c.srsec = (c.rcf + c.tlb + c.ssn - c.cash) / c.adj;
-  c.totlev = c.tdebt / c.adj;
-  c.netlev = c.ndebt / c.adj;
-  c.intcov = c.adj / c.int;
-  c.fcfdebt = c.fcf / c.tdebt;
+  // Guard each denominator so a degenerate column (adj ≤ 0 under deep margin
+  // stress, no debt, zero interest) degrades to null rather than leaking
+  // NaN/±Infinity into the grid — which `?.toFixed() ?? "—"` would print as
+  // "Infinityx" since Infinity is a real number that survives optional chaining.
+  const div = (num: number, den: number): number | null => (den ? num / den : null);
+  c.srsec = div(c.rcf + c.tlb + c.ssn - c.cash, c.adj);
+  c.totlev = div(c.tdebt, c.adj);
+  c.netlev = div(c.ndebt, c.adj);
+  c.intcov = div(c.adj, c.int);
+  c.fcfdebt = div(c.fcf, c.tdebt);
 }
 
 function finishBalances(c: any) {

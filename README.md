@@ -20,17 +20,23 @@ Report Studio), with secondary lenses for the **PM/CIO** (portfolio posture) and
 
 | Path | What it is |
 |------|------------|
-| [`Modular OS/`](Modular%20OS/) | The 27-module credit methodology — CP-0…CP-6E, CP-SR/MON/X, plus canonical schemas. Analytical **prose**, the single source of truth for module behaviour. |
-| [`caos/`](caos/) | The app: Next.js 15 analyst UI (`frontend/`) + FastAPI engine/service (`server/`), deployed as a **single Databricks App**. See [caos/README.md](caos/README.md). |
+| [`Modular OS/`](Modular%20OS/) | The credit methodology corpus — CP-0…CP-6E, CP-SR/MON/X, plus canonical schemas. Analytical **prose**, the single source of truth for module behaviour. |
+| [`caos/`](caos/) | The app: Next.js 15 analyst UI (`frontend/`) + FastAPI engine/service (`server/`), deployed as a **self-hosted Docker stack** (`caos/deploy/`). See [caos/README.md](caos/README.md). |
+
+> **Module inventory (source of truth: [`caos/server/engine/registry.py`](caos/server/engine/registry.py)).** The engine routing index wires **19 implemented analytical modules** (CP-0, CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E), gated by the **CP-5 QA phase** (CP-5B lineage + the CP-5 severity gate, which run as a gate step rather than routed graph nodes). A further **4 corpus modules are registered spec-only** (`implemented=False`) so the route plan reflects the full mesh honestly but they are never executed: **CP-SR** (SectorReview) and **CP-MON** (CreditPulse) on L7, and **CP-RENDER** / **CP-EXTRACT** on Infra. The broader corpus names ~27 modules; older planning docs that cite "27" / "24" / "7" are describing aspirations or earlier slices — the registry above is what actually runs.
 | [`caos/docs/`](caos/docs/) | Architecture, audit, security, and planning docs (index below). |
 
 ## Capabilities
 
-- **Tier-1 analytical engine** — runs the module slice (CP-0 → CP-1 → CP-2)
-  followed by **CP-5B evidence-lineage validation** and the deterministic
-  **CP-5 QA gate** (CRITICAL→Blocked, MATERIAL→Restricted, else Passed). Each
-  claim is traced to an ingested source chunk via BM25 retrieval. Runs use a
-  fixture synthesizer offline and live Claude when a key is set.
+- **Analytical engine** — runs the 19-module DAG (CP-0 → CP-1 family → CP-2
+  family → CP-3 family → CP-4 family → CP-6 debate; see the registry) followed by
+  **CP-5B evidence-lineage validation** and the deterministic **CP-5 QA gate**
+  (CRITICAL→Blocked, MATERIAL→Restricted, else Passed). Each claim is traced to an
+  ingested source chunk via BM25 retrieval. The CP-5 gate's calculation, cross-module
+  and evidence-trace checks are always-on and deterministic; its unsupported-claim,
+  legal, market-RV, schema and export lanes run only under the **opt-in LLM council**
+  (requires an API key). Runs use a fixture synthesizer offline and live Claude when
+  a key is set.
 - **Six-concept analyst UI** — Command Center, Pipeline, Deep-Dive, Model
   Builder, Report Studio, and Monitor, plus a global **Ask (⌘K)** launcher.
 - **Cross-issuer natural-language query** (Command Center) — structured metric
@@ -46,18 +52,26 @@ Report Studio), with secondary lenses for the **PM/CIO** (portfolio posture) and
 
 One process serves everything: FastAPI exposes the JSON API under `/api` and
 serves the **statically-exported** Next.js frontend at `/` (no Node in
-production). Auth is platform-managed (Databricks workspace OAuth at the edge).
-Storage is SQLite + a local vault by default; point `DATABASE_URL` at Lakebase
-(Postgres) and `CAOS_STORAGE_DIR` at a Unity Catalog Volume for durability.
-Schema is managed by **Alembic**; LLM features use Anthropic Claude
-(`claude-opus-4-8`) and degrade to deterministic demo behaviour without a key.
+production). The supported deployment is the **self-hosted Docker stack**
+(`caos/deploy/`): **Caddy (TLS) → oauth2-proxy (Google Workspace OIDC) → app →
+Postgres**. The app trusts the forwarded identity headers set by oauth2-proxy
+(`X-Forwarded-User` / `-Email`), layered with an in-app analyst-profile login, and
+the gate **fails closed in production** (Caddy strips client-supplied
+`X-Forwarded-*`). Storage is SQLite + a local vault by default; set `DATABASE_URL`
+to the bundled Postgres and `CAOS_STORAGE_DIR` to a durable volume mount for
+persistence. Schema is managed by **Alembic** (migrations run on boot); LLM
+features use Anthropic Claude (`claude-opus-4-8`) and degrade to deterministic
+demo behaviour without a key. See [caos/docs/LAUNCH_PHASE1.md](caos/docs/LAUNCH_PHASE1.md)
+for the launch runbook and [caos/docs/SECURITY.md](caos/docs/SECURITY.md) for the
+trust model.
 
 ```
 Credit Operating System/
   Modular OS/        methodology corpus (CP-0…CP-6E, schemas)
   caos/
     frontend/        Next.js 15 (output: "export")
-    server/          FastAPI app + Tier-1 engine (the Databricks App source)
+    server/          FastAPI app + analytical engine (serves /api and the built UI)
+    deploy/          self-hosted Docker stack (Dockerfile, docker-compose, Caddy, oauth2-proxy)
     scripts/         build_frontend.sh (stages the UI into server/static)
     tests/           pytest (server) + Playwright (e2e)
     docs/            architecture / audit / security / plans
@@ -72,7 +86,7 @@ python3 -m venv .venv && .venv/bin/pip install -r server/requirements.txt
 cd server && ../.venv/bin/python run.py     # http://localhost:8000
 ```
 
-UI hot-reload, Databricks deploy, and full test commands are in
+UI hot-reload, the self-hosted Docker deploy, and full test commands are in
 **[caos/README.md](caos/README.md)**.
 
 ## Status

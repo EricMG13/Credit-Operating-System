@@ -66,7 +66,6 @@ def compute_pathways(nf: dict) -> Optional[dict]:
     if not is_finite_number(lev):
         return None  # CP-1 gave no usable (finite) leverage figure — nothing to stress.
     cov = nf.get("interest_coverage_ltm")
-    cov_ok = is_finite_number(cov)
 
     scenarios = []
     shock_to_breach: Optional[int] = None
@@ -74,7 +73,9 @@ def compute_pathways(nf: dict) -> Optional[dict]:
         # EBITDA down by s, net debt flat -> leverage UP (divide by 1 - s),
         # coverage DOWN (multiply by 1 - s).
         sl = round(lev / (1 - s), 2)
-        sc = round(cov * (1 - s), 2) if cov_ok else None
+        # Inline the finite check (not a stored bool) so the TypeGuard narrows cov to
+        # float here — a non-finite coverage yields a per-scenario None, never a NaN.
+        sc = round(cov * (1 - s), 2) if is_finite_number(cov) else None
         scenarios.append({
             "ebitda_shock_pct": round(s * 100),  # 0.10 -> 10, 0.20 -> 20, 0.30 -> 30
             "stressed_net_leverage": sl,

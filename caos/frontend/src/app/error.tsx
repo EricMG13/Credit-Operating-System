@@ -36,7 +36,7 @@ export default function Error({
             The rest of the workspace is unaffected. Retry, or reload the page if it persists.
           </p>
           {error.digest && (
-            <p className="mt-1 font-mono text-caos-sm text-caos-muted/60">ref {error.digest}</p>
+            <p className="mt-1 font-mono text-caos-sm text-caos-muted">ref {error.digest}</p>
           )}
         </div>
         <button

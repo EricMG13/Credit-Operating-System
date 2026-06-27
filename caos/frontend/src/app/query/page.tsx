@@ -172,7 +172,7 @@ function Query() {
               onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
               placeholder="Ask across coverage — or pick a starting point below"
               aria-label="Query coverage"
-              className="flex-1 bg-transparent outline-none tabular text-caos-xl text-caos-text placeholder:text-caos-muted/60"
+              className="flex-1 bg-transparent outline-none tabular text-caos-xl text-caos-text placeholder:text-caos-muted"
             />
             <button
               onClick={submit}

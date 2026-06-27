@@ -12,5 +12,7 @@
 3. Clearly distinguish scenarios from each other.
 4. Use Evidence → Risk Mechanic → Credit Implication chain for each scenario.
 
+> **REPRODUCIBILITY NOTE — stress magnitude.** The Stress and LME cases are **narrative scenarios**, and the corpus pins no default magnitude for the adverse conditions invoked (market dislocation, operational deterioration, covenant breach) — contrast CP-2F, which fixes a deterministic **+100 bps** base-rate move (CP-2F `REF_CP-2F_05`). Where a scenario quantifies a shock, state the magnitude and its basis in `Key Assumptions` so the path is reproducible; two analysts must not assume different severities silently. Do not fabricate a magnitude the evidence does not support — keep the assumption directional if unquantifiable.
+
 ## Output
 T3D.10: `Scenario`|`Key Assumptions`|`Refinancing Path`|`Timeline`|`Creditor Impact`|`Recovery Implication`|`Probability Direction`|`Confidence`|`Source Trace`

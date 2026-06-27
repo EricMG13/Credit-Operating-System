@@ -32,6 +32,15 @@ _OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 CHUNK_CHARS = 2400
 CHUNK_OVERLAP = 240
 
+# Surfaced (not raised) when a document parses to zero chunks. Upload stays
+# intentionally lenient — a scanned/encrypted/empty file still vaults — but a
+# silent ``chunks_created: 0`` reads as success and an analyst could build a view
+# on a document the engine never actually read. This warning makes that explicit.
+NO_CHUNKS_WARNING = (
+    "0 chunks extracted — document may be scanned/encrypted/empty; "
+    "it is vaulted but not searchable. Re-upload a text-based copy if it must be analyzed."
+)
+
 _READ_CHUNK = 1024 * 1024  # 1 MB
 
 

@@ -9,7 +9,7 @@ export function StatusGlyph({
   size = 9,
   className = "",
 }: {
-  kind: "locked" | "warning";
+  kind: "locked" | "warning" | "critical" | "success" | "running" | "idle" | "blocked" | "held";
   size?: number;
   className?: string;
 }) {
@@ -55,6 +55,42 @@ export function StatusGlyph({
         <path d="M6 9h.01" />
       </svg>
     );
+  }
+  // Severity/state glyphs so a status dot's meaning is never carried by color
+  // alone (Dot pairs these with its color). All inherit currentColor, share the
+  // 12×12 box, and sit inline next to text.
+  const base = {
+    viewBox: "0 0 12 12",
+    width: size,
+    height: size,
+    fill: "none",
+    stroke: "currentColor" as const,
+    strokeWidth: 1.3,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    className: "inline-block shrink-0" + (className ? " " + className : ""),
+    style: { verticalAlign: "-0.12em" as const },
+  };
+  if (kind === "success") {
+    // check mark — pass / cleared
+    return <svg {...base}><path d="M2.4 6.3 5 8.9 9.6 3.4" /></svg>;
+  }
+  if (kind === "critical" || kind === "blocked") {
+    // ✕ in a ring — critical / blocked
+    return <svg {...base}><circle cx="6" cy="6" r="4.4" /><path d="M4.3 4.3 7.7 7.7M7.7 4.3 4.3 7.7" /></svg>;
+  }
+  if (kind === "running") {
+    // open arc — in progress (pairs with the pulse on live nodes)
+    return <svg {...base}><path d="M10 6a4 4 0 1 1-1.2-2.85" /><path d="M10 2.2V4.4H7.8" /></svg>;
+  }
+  if (kind === "held") {
+    // pause bars — held
+    return <svg {...base} strokeWidth={1.6}><path d="M4.3 3.2v5.6M7.7 3.2v5.6" /></svg>;
+  }
+  if (kind === "idle") {
+    // hollow dot — idle / queued / not produced
+    return <svg {...base}><circle cx="6" cy="6" r="3.4" /></svg>;
   }
   return null;
 }

@@ -9,7 +9,7 @@
 
 import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
-import { useLatestRun } from "@/lib/engine/useLatestRun";
+import { useLatestRun, useLatestRunStatus, type LatestRunStatus } from "@/lib/engine/useLatestRun";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
 import type { Sim, SimEvent } from "./sim-engine";
 
@@ -38,7 +38,10 @@ export function liveOutcome(m: ModuleStatusDTO): SimOutcome {
     case "Insufficient Information":
       return "warning";
     default:
-      return m.qa_status === "Blocked" ? "blocked" : "pass";
+      // Fail closed: an unknown/missing committee_status must NOT read green
+      // "pass" on a clearance tool. A Blocked QA verdict is the harder signal;
+      // otherwise degrade to a non-pass "warning" (flagged, not cleared-green).
+      return m.qa_status === "Blocked" ? "blocked" : "warning";
   }
 }
 
@@ -104,12 +107,22 @@ export function buildLiveSnapshot(run: RunSummaryDTO, cpx: ModuleDetailDTO | nul
   };
 }
 
+const buildPipeline = async (latest: { id: string }): Promise<LivePipeline> => {
+  const [run, cpx] = await Promise.all([
+    getRun(latest.id),
+    getModule(latest.id, "CP-X").catch(() => null),
+  ]);
+  return buildLiveSnapshot(run, cpx);
+};
+
 export function useLivePipeline(issuerId: string): LivePipeline | null {
-  return useLatestRun<LivePipeline | null>(issuerId, null, null, async (latest) => {
-    const [run, cpx] = await Promise.all([
-      getRun(latest.id),
-      getModule(latest.id, "CP-X").catch(() => null),
-    ]);
-    return buildLiveSnapshot(run, cpx);
-  });
+  return useLatestRun<LivePipeline | null>(issuerId, null, null, buildPipeline);
+}
+
+// Status-aware variant: same load, but also reports the load phase so the page
+// can tell a genuine error / an in-flight run / no-coverage apart instead of
+// collapsing all three to the offline demo ("fail open"). `value` is the live
+// pipeline only on the `complete` phase, null otherwise.
+export function useLivePipelineStatus(issuerId: string): LatestRunStatus<LivePipeline | null> {
+  return useLatestRunStatus<LivePipeline | null>(issuerId, null, null, buildPipeline);
 }

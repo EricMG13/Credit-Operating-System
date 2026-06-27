@@ -163,6 +163,11 @@ function DeepDive() {
   // Reference deal → bespoke showcase tab; real issuer with live output for this
   // module → its honest live ModuleView instead.
   const useBespoke = BESPOKE_TABS.has(tab) && (isReference || !live.liveOuts[tab]);
+  // Per-module live provenance: the open tab renders genuinely-live output only
+  // when it goes through the generic ModuleView with this run's own module output
+  // (not a bespoke ATLF showcase, and the module was actually produced this run).
+  // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
+  const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
@@ -304,9 +309,17 @@ function DeepDive() {
           right={
             <span className="flex items-center gap-3">
               <span className="tabular text-caos-xs text-caos-muted">{code}</span>
-              {live.runId ? (
-                <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering live engine output for this module">
+              {/* Per-MODULE provenance, not run-scoped: the run can be live yet this
+                  tab fall back to a seeded ATLF table (module absent from the run, or
+                  a bespoke showcase tab). Light ● LIVE only when THIS tab's data came
+                  from the live run; otherwise mark it a reference/sample. (#5) */}
+              {moduleIsLive ? (
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">
                   ● LIVE
+                </span>
+              ) : live.runId ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="This module has no live output in the current run — showing the seeded ATLF reference table, not this issuer's live output.">
+                  ◦ REFERENCE
                 </span>
               ) : null}
               <button
@@ -343,7 +356,7 @@ function DeepDive() {
         <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} onClose={() => setEvModal(null)} /> : null}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).

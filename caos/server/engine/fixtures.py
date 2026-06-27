@@ -26,6 +26,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Document, DocumentChunk, Issuer
+from engine.gate import Finding
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 REFERENCE_ISSUER_ID = "a71f0000-0000-0000-0000-000000000001"
@@ -108,6 +109,44 @@ def atlf_payload(module_id: str) -> Optional[ModulePayload]:
     if module_id == "CP-1":
         return _cp1()
     return None
+
+
+# Substring that marks the persisted demo-fixture limitation (so a UI / test can find
+# it without depending on the full wording).
+DEMO_FIXTURE_LIMITATION = (
+    "Financials are synthetic Atlas Forge demo-fixture data served because no model "
+    "key is configured for this issuer — they are NOT sourced from this issuer's "
+    "filings or any real disclosure. Treat as illustrative only; not committee-usable."
+)
+
+
+def demo_fixture_finding(issuer_id: Optional[str], cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """A MATERIAL CP-5 finding when the deterministic ATLF fixture is served for an
+    issuer that is NOT the genuine demo issuer.
+
+    Keyless runs fall back to the FixtureSynthesizer, which returns the Atlas Forge
+    demo CP-1 (5.68x leverage, ~$2.8bn revenue) for *any* issuer. For the genuine
+    Atlas Forge reference issuer that is correct (and stays Restricted via its seeded
+    Weak-Lineage / Conflicting claims). For any *other* issuer those numbers are
+    fabricated, so without this they could persist looking authoritative. Emitting a
+    MATERIAL finding restricts the run (qa_status → Restricted) and makes the synthetic
+    origin explicit. Returns None for the genuine demo issuer or a non-fixture CP-1."""
+    if cp1 is None or not getattr(cp1, "is_fixture", False):
+        return None
+    if issuer_id == REFERENCE_ISSUER_ID:
+        return None
+    return Finding(
+        finding_id="CP-1-DEMO-FIXTURE", severity="MATERIAL", lane=6, module_id="CP-1",
+        description=(
+            "CP-1 served the Atlas Forge demo fixture (5.68x net leverage, ~$2.8bn "
+            "revenue) for a non-demo issuer because no model key is configured — these "
+            "figures are synthetic demo data, NOT sourced from this issuer."
+        ),
+        required_remediation=(
+            "Configure a model key (or ingest this issuer's filings) so CP-1 is grounded "
+            "in real sources; do not rely on these fixture figures."
+        ),
+    )
 
 
 def _cp0() -> ModulePayload:
