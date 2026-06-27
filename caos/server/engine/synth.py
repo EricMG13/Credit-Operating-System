@@ -30,6 +30,7 @@ code, so it is hardened on three axes —
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import re
@@ -38,7 +39,7 @@ from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 from config import SERVER_DIR, get_settings
 from engine import budget, llm_client, presets
 from engine.fixtures import atlf_payload
-from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
+from engine.llm_safety import UNTRUSTED_RULE, loads_finite, wrap_untrusted
 from engine.schemas import (
     CONFIDENCE,
     EXTRACTION_TYPES,
@@ -55,6 +56,29 @@ logger = logging.getLogger("caos.engine")
 MODULAR_OS_DIR = SERVER_DIR.parent.parent / "Modular OS"
 
 RetrieveFn = Callable[[str, int], Awaitable[list]]
+
+
+def prompt_corpus_fingerprint() -> str:
+    """A short sha256 over every ``*_ACTIVE_PROMPT.md`` actually read by the live
+    synthesizer, so ``prompt_version`` tracks the corpus *content*, not just a hand-
+    bumped label. Editing any active prompt changes a run's behavior; without this
+    the stamped version still read the stale label and runs weren't reproducible from
+    metadata. Deterministic (files sorted by path); stdlib hashlib only.
+
+    Returns a 12-char hex digest, or ``"noprompts"`` if the corpus dir is absent
+    (e.g. a server deploy without the methodology tree). The full file *contents* are
+    hashed (not mtimes) so the fingerprint is reproducible across checkouts."""
+    h = hashlib.sha256()
+    files = sorted(MODULAR_OS_DIR.glob("*/*_ACTIVE_PROMPT.md")) if MODULAR_OS_DIR.is_dir() else []
+    if not files:
+        return "noprompts"
+    for path in files:
+        # Path (relative to the corpus root) + content, so a rename also moves the hash.
+        h.update(path.relative_to(MODULAR_OS_DIR).as_posix().encode("utf-8"))
+        h.update(b"\0")
+        h.update(path.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()[:12]
 
 # Per-module grounding focus for the live synthesize() path. CP-1 is the canonical
 # financial foundation, so steer its retrieval at the income/leverage/coverage
@@ -197,15 +221,116 @@ _CP1_RUNTIME_SCHEMA = {
     },
 }
 
+# CP-2 (FundamentalCreditSynthesizer) is the core fundamental-synthesis module. In
+# live mode it ran with the generic _PAYLOAD_TOOL whose runtime_output was an
+# unconstrained {"type":"object"} — so the corpus CP-2 contract (the 9-dimension
+# Financial Profile Assessment + the 13-value Credit-Implication taxonomy) was NOT
+# enforced and a live CP-2 could land its scorecard under arbitrary keys/labels.
+#
+# This pins runtime_output to the canonical CP-2 contract, verbatim from
+# Modular OS/KNOWLEDGE SOURCES/02_SCHEMA/MODULE_PAYLOADS/CP-2__FundamentalCreditSynthesizer__payload.schema.txt
+# (runtime_output keys: credit_mechanism_map, financial_profile_assessment [9-dim],
+# committee_memo, credit_implication [13-value enum], downstream_readiness) and the
+# CP-2 ACTIVE_PROMPT "Financial Profile Assessment — 9 Dimensions" table.
+#
+# Dimension snake_case keys map 1:1 to the prompt's 9 dimension rows, in order:
+#   scale_market_position                -> "Scale / market position"
+#   competitive_advantage                -> "Competitive advantage"
+#   business_diversification             -> "Business diversification"
+#   cost_and_capex_flexibility           -> "Cost and capex flexibility"
+#   margin_stability                     -> "Margin stability"
+#   free_cash_flow_stability             -> "Free cash flow stability"
+#   ability_to_refinance                 -> "Ability to refinance / access capital markets"
+#   liquidity_position                   -> "Liquidity position"
+#   financial_policy_and_governance      -> "Financial policy and governance"
+# Each takes one of the prompt's permitted assessment values. runtime_output stays
+# open (no additionalProperties:false) so CP-2's richer narrative output (the 21-
+# section memo, registers, frameworks) is preserved alongside the pinned fields.
+_CP2_DIMENSION_VALUES = ["Strong", "Average", "Weak", "Not Assessable"]
+_CP2_DIMENSIONS = [
+    "scale_market_position",
+    "competitive_advantage",
+    "business_diversification",
+    "cost_and_capex_flexibility",
+    "margin_stability",
+    "free_cash_flow_stability",
+    "ability_to_refinance",
+    "liquidity_position",
+    "financial_policy_and_governance",
+]
+# The 13 canonical Credit-Implication values, exactly as in the CP-2 payload schema
+# (hyphenated machine form). One overall directional credit implication for the issuer.
+_CP2_CREDIT_IMPLICATIONS = [
+    "Positive-Deleveraging",
+    "Positive-Margin Expansion",
+    "Positive-Revenue Growth",
+    "Positive-Liquidity Improvement",
+    "Positive-Covenant Headroom Expansion",
+    "Neutral-Stable",
+    "Negative-Leverage Increase",
+    "Negative-Margin Compression",
+    "Negative-Revenue Decline",
+    "Negative-Liquidity Deterioration",
+    "Negative-Covenant Erosion",
+    "Negative-Refinancing Risk",
+    "Insufficient Information",
+]
+_CP2_RUNTIME_SCHEMA = {
+    "type": "object",
+    "description": (
+        "CP-2 FundamentalCreditSynthesizer canonical output. Score every one of the "
+        "nine Financial Profile dimensions using only the permitted assessment values, "
+        "and set credit_implication to exactly one of the 13 canonical values. Each "
+        "dimension's assessment must be backed by issuer-specific evidence (Prohibited "
+        "Behavior #5) — use \"Not Assessable\" where the sources do not support a call, "
+        "never a guess. You may add the richer narrative output (committee memo, "
+        "registers, frameworks) alongside these pinned fields."
+    ),
+    "properties": {
+        "financial_profile_assessment": {
+            "type": "object",
+            "description": "The 9-dimension Financial Profile Scorecard (CP-2 §7 / T2.7).",
+            "properties": {
+                dim: {
+                    "type": "string",
+                    "enum": _CP2_DIMENSION_VALUES,
+                    "description": f"Assessment for the '{dim}' dimension.",
+                }
+                for dim in _CP2_DIMENSIONS
+            },
+        },
+        "credit_implication": {
+            "type": "string",
+            "enum": _CP2_CREDIT_IMPLICATIONS,
+            "description": "Overall directional credit implication — one of the 13 canonical values.",
+        },
+        "credit_mechanism_map": {
+            "type": "array",
+            "description": "Evidence -> Risk Mechanic -> Credit Implication chain per material conclusion.",
+            "items": {"type": "object"},
+        },
+        "committee_memo": {
+            "type": ["object", "string", "null"],
+            "description": "The committee-facing fundamental synthesis memo.",
+        },
+        "downstream_readiness": {
+            "type": ["object", "array", "string", "null"],
+            "description": "Readiness signals handed to downstream analytical modules.",
+        },
+    },
+}
+
 
 def _payload_tool(module_id: str) -> dict:
-    """The forced-tool schema. CP-1 gets its ``runtime_output`` pinned to the
-    canonical normalized-financials contract; every other module keeps the
-    free-form object (their shapes are deterministic / module-specific)."""
-    if module_id != "CP-1":
+    """The forced-tool schema. CP-1 and CP-2 get their ``runtime_output`` pinned to
+    their canonical corpus contracts (normalized financials; the 9-dimension Financial
+    Profile + 13-value Credit-Implication taxonomy respectively); every other module
+    keeps the free-form object (their shapes are deterministic / module-specific)."""
+    pinned = {"CP-1": _CP1_RUNTIME_SCHEMA, "CP-2": _CP2_RUNTIME_SCHEMA}.get(module_id)
+    if pinned is None:
         return _PAYLOAD_TOOL
     tool = copy.deepcopy(_PAYLOAD_TOOL)
-    tool["input_schema"]["properties"]["runtime_output"] = _CP1_RUNTIME_SCHEMA
+    tool["input_schema"]["properties"]["runtime_output"] = pinned
     return tool
 
 
@@ -247,7 +372,10 @@ class LiveSynthesizer:
         if self._client is None:
             import anthropic
 
-            self._client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
+            self._client = anthropic.AsyncAnthropic(
+                api_key=self._settings.anthropic_api_key,
+                timeout=self._settings.caos_llm_timeout_s,
+            )
         return self._client
 
     def _active_prompt(self, module_id: str) -> str:
@@ -342,6 +470,17 @@ class LiveSynthesizer:
                 "tool schema, mapping the issuer's disclosed figures into them; set any "
                 "metric the sources do not disclose to null."
             )
+        if module_id == "CP-2":
+            system += (
+                "\n\n---\nCP-2 is the fundamental credit synthesis. Score all nine "
+                "`runtime_output.financial_profile_assessment` dimensions using ONLY the "
+                "permitted values (Strong / Average / Weak / Not Assessable), and set "
+                "`runtime_output.credit_implication` to exactly one of the 13 canonical "
+                "values in the tool schema. Each dimension must be backed by issuer-"
+                "specific evidence; use \"Not Assessable\" where the sources don't support "
+                "a call. Keep your richer narrative (committee memo, registers, frameworks) "
+                "alongside these fields."
+            )
         user = (
             f"ISSUER: {issuer_name}\n\nUPSTREAM OUTPUTS:\n{upstream_json}\n\n"
             f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"
@@ -407,8 +546,11 @@ def _payload_data_from_resp(resp) -> Optional[dict]:
     if not match:
         return None
     try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError:
+        # loads_finite rejects NaN/Infinity/-Infinity (which stdlib json.loads would
+        # otherwise accept) by raising ValueError; treat that as "no payload", same as
+        # a malformed object, so a non-finite literal fails closed into the repair path.
+        return loads_finite(match.group(0))
+    except (json.JSONDecodeError, ValueError):
         return None
 
 
@@ -456,8 +598,10 @@ def _parse_payload(module_id: str, text: str) -> ModulePayload:
     if not match:
         raise SynthesisError(f"{module_id}: model returned no JSON object")
     try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
+        # loads_finite: a NaN/Infinity/-Infinity literal (accepted by stdlib json.loads)
+        # raises ValueError → gated as a parse failure rather than entering financials.
+        data = loads_finite(match.group(0))
+    except (json.JSONDecodeError, ValueError) as e:
         raise SynthesisError(f"{module_id}: payload JSON did not parse ({e})") from e
     return _payload_from_data(module_id, data)
 

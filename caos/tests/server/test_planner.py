@@ -43,14 +43,25 @@ def _order(plan) -> List[str]:
 
 
 def test_full_run_when_all_sources_present():
+    from engine.registry import REGISTRY
+
     plan = build_route_plan(_cp0())
     assert plan.gate_status == FULL_RUN
-    # Every registry module is now wired: all route Full Run and execute, and
-    # none is left as Not Implemented.
-    for mid in (r.module_id for r in plan.readiness):
-        assert plan.verdict(mid) == FULL_RUN, mid
-        assert mid in plan.execution_order
-    assert all(r.readiness != NOT_IMPLEMENTED for r in plan.readiness)
+    # Every *implemented* module routes Full Run and executes. The spec-only corpus
+    # modules (CP-SR/CP-MON L7, CP-RENDER/CP-EXTRACT Infra) are registered so the
+    # route plan reflects the full corpus mesh honestly: they surface as
+    # Not Implemented and are excluded from the execution order. (engine item #8)
+    for r in plan.readiness:
+        mid = r.module_id
+        if REGISTRY[mid].implemented:
+            assert plan.verdict(mid) == FULL_RUN, mid
+            assert mid in plan.execution_order
+        else:
+            assert plan.verdict(mid) == NOT_IMPLEMENTED, mid
+            assert mid not in plan.execution_order
+    spec_only = {mid for mid, s in REGISTRY.items() if not s.implemented}
+    assert spec_only == {"CP-SR", "CP-MON", "CP-RENDER", "CP-EXTRACT"}
+    assert {r.module_id for r in plan.readiness if r.readiness == NOT_IMPLEMENTED} == spec_only
     # CP-X advertises the routed modules to downstream, excluding CP-0 itself.
     routed = plan.routed_module_ids()
     assert "CP-0" not in routed and "CP-1" in routed

@@ -22,6 +22,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from engine.periods import is_finite_number
+
 # ── Canonical vocabularies (frozensets so membership checks are O(1)) ────────
 EXTRACTION_TYPES = frozenset({
     "sourced_fact", "quoted_text", "table_value", "calculated_metric",
@@ -128,6 +130,10 @@ def cp1_leverage(cp1: ModulePayload) -> Tuple[Optional[float], Optional[float]]:
     """
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    lev = float(lev) if isinstance(lev, (int, float)) and lev else None
-    nd = float(nd) if isinstance(nd, (int, float)) and nd else None
+    # is_finite_number (not a bare isinstance/truthiness) so a NaN/±inf — which a
+    # live LLM-emitted CP-1 can carry, and which would survive `isinstance(..) and x`
+    # because bool(NaN) is True — comes back as None and degrades the shared CP-4C /
+    # CP-1A consumers, never poisoning a divide downstream.
+    lev = float(lev) if is_finite_number(lev) and lev else None
+    nd = float(nd) if is_finite_number(nd) and nd else None
     return lev, nd

@@ -259,9 +259,14 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
         thr, cid, cov_exact = lev_cov
-        if lev is not None:
+        # Explicit finiteness on BOTH operands (not just `lev is not None`): cp1_leverage
+        # now returns None for a NaN lev, but gate here too so a non-finite thr (or a
+        # future lev source that skips that gate) degrades to the sourced-threshold /
+        # no-headroom branch below instead of emitting a NaN headroom/cushion. Guard
+        # thr != 0 so the cushion divide can't blow up.
+        if is_finite_number(lev) and is_finite_number(thr) and thr != 0:
             headroom = round(thr - lev, 2)
-            cushion = round((1 - lev / thr) * 100, 1) if thr else 0.0
+            cushion = round((1 - lev / thr) * 100, 1)
             calcs.append({
                 "name": "Net leverage covenant headroom",
                 "formula": "covenant threshold − current net leverage",
@@ -305,7 +310,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
         )
 
     runtime_output: dict = {"calculations": calcs, "covenant_structure": covenant_structure}
-    if lev is not None:
+    if is_finite_number(lev):
         runtime_output["current_net_leverage"] = round(lev, 2)
     if lev_cov:
         runtime_output["leverage_covenant_x"] = lev_cov[0]

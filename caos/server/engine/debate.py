@@ -273,7 +273,10 @@ class LiveDebater:
         if self._client is None:
             import anthropic
 
-            self._client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
+            self._client = anthropic.AsyncAnthropic(
+                api_key=self._settings.anthropic_api_key,
+                timeout=self._settings.caos_llm_timeout_s,
+            )
         return self._client
 
     async def narrate(self, advocate: str, lens: str, points: List[Point],

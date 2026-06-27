@@ -100,13 +100,22 @@ def _headline_period(periods: Sequence[str]) -> Optional[str]:
     return max(ltm or periods, key=sort_key)
 
 
-def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:
+def extract_facts(
+    run_id: str, payload: ModulePayload, qa_status: str, *, is_reference_issuer: bool = True
+) -> List[dict]:
     """Project CP-1 normalized_financials into MetricFact kwarg dicts (run-derived).
 
     Emits revenue / adj_ebitda per period, a computed ebitda_margin, and the LTM
     net_leverage / interest_coverage. Each metric is cited back to the CP-1 claim
     that asserts it where one matches. LTM periods are the headline values used
     for cross-issuer ranking.
+
+    ``is_reference_issuer`` distinguishes the genuine Atlas Forge demo issuer (for
+    which the fixture *is* the intended demo content) from any other issuer the
+    keyless fixture path served the same demo numbers to. A fixture payload for a
+    NON-reference issuer is tagged ``demo_fixture`` provenance — clearly non-
+    authoritative — rather than the plain ``fixture`` provenance the genuine demo
+    keeps, so a UI/peer read never mistakes fabricated demo figures for a real run.
     """
     ro = payload.runtime_output or {}
     fin = ro.get("normalized_financials") or {}
@@ -117,13 +126,21 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     raw_basis = ro.get("basis")
     basis = {"reported_gaap_xbrl": "reported", "reported_disclosure": "reported_disclosure"}.get(
         raw_basis if isinstance(raw_basis, str) else "", "adjusted")
-    # A fixture-sourced CP-1 (ATLF demo numbers served for a non-reference issuer
-    # in the offline path) must not enter the cross-issuer store as a real run. (#04)
-    provenance = "fixture" if getattr(payload, "is_fixture", False) else "run"
+    # A fixture-sourced CP-1 (ATLF demo numbers) must not enter the cross-issuer store
+    # as a real run (#04). The genuine demo issuer keeps "fixture"; the same fixture
+    # served for ANOTHER issuer is "demo_fixture" — fabricated, flagged as such. (#10)
+    if getattr(payload, "is_fixture", False):
+        provenance = "fixture" if is_reference_issuer else "demo_fixture"
+    else:
+        provenance = "run"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
-        if value is None:
+        # is_finite_number (not just `value is None`): a live LLM CP-1 can emit a NaN/
+        # ±inf figure, which would otherwise land as a NaN MetricFact in the SHARED
+        # cross-issuer store and contaminate peer medians for *other* issuers. Drop
+        # any non-finite value at the projection boundary. (bool is accepted as int.)
+        if not is_finite_number(value):
             return
         cid, eid, chunk = _citation(payload, metric_key)
         facts.append(dict(
@@ -140,7 +157,10 @@ def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[d
     for period, v in eb.items():
         add("adj_ebitda", period, v, "$M", period == eb_headline)
         rv = rev.get(period)
-        if isinstance(rv, (int, float)) and rv and isinstance(v, (int, float)):
+        # Both operands must be finite before the divide: a NaN rv is truthy, so a
+        # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
+        # (add() would then drop it, but compute it cleanly here regardless).
+        if is_finite_number(rv) and rv and is_finite_number(v):
             add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
 
     # LTM credit ratios are LTM by definition → headline.

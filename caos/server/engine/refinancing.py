@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 _MAX_SCORE = 10
@@ -27,7 +28,10 @@ def score_vulnerability(leverage: Optional[float], fragility: Optional[str]) -> 
 
     # Driver 1 — CP-1 leverage. Exclusive bands: 6.0x is "high" (+4) only, never
     # double-counted into "elevated". {leverage:g} prints 6.0->"6", 5.68->"5.68".
-    if isinstance(leverage, (int, float)):
+    # is_finite_number (not bare isinstance): a NaN passes isinstance but every
+    # `NaN >= band` is False, so a NaN leverage would silently drop this driver and
+    # score a maximally-levered issuer LOW/MODERATE — treat non-finite as missing.
+    if is_finite_number(leverage):
         if leverage >= 6.0:
             # >= 6.0x  => HIGH LME exposure (minimal cushion to defend)  -> +4 pts
             score += 4
@@ -64,13 +68,18 @@ async def synthesize_refinancing(cp1: ModulePayload, cp2b: Optional[ModulePayloa
     leverage = (cp1.runtime_output or {}).get("normalized_financials", {}).get("net_leverage_adj_ltm")
     fragility = (cp2b.runtime_output or {}).get("fragility") if cp2b is not None else None
 
-    if not isinstance(leverage, (int, float)):
+    # is_finite_number (not bare isinstance): a NaN leverage passes isinstance, so it
+    # would slip past this gate and into score_vulnerability — where every band test is
+    # False — silently dropping the leverage driver and scoring a maximally-levered
+    # issuer MODERATE/LOW. Treat non-finite leverage as missing/unknown: explicitly
+    # Insufficient Information, never a quietly-lowered score.
+    if not is_finite_number(leverage):
         return ModulePayload(
             module_id="CP-3D", module_name="RefinancingLMERisk",
             owned_object="refinancing_lme_risk",
-            runtime_output={"note": "CP-1 provided no leverage; no refinancing/LME read computed."},
+            runtime_output={"note": "CP-1 provided no usable (finite) leverage; no refinancing/LME read computed."},
             confidence="Insufficient Information",
-            limitation_flags=["CP-1 provided no leverage; LME vulnerability not scored."],
+            limitation_flags=["CP-1 provided no usable (finite) leverage; LME vulnerability not scored."],
             downstream_consumers=["CP-6A"],
         )
 

@@ -11,6 +11,11 @@ import math
 import re
 from typing import Optional
 
+# TypeGuard so callers that gate an Optional[number] through is_finite_number get the
+# value narrowed to float for the type checker (mypy targets 3.11). typing_extensions
+# keeps the import working on the 3.9 test venv too (stdlib typing.TypeGuard is 3.10+).
+from typing_extensions import TypeGuard
+
 
 def year(period: str) -> int:
     """Trailing year in a period label, normalised to 4 digits ('LTM_Q1_26' ->
@@ -59,8 +64,13 @@ def latest(series: dict) -> Optional[float]:
     return max(vals, key=lambda kv: sort_key(kv[0]))[1] if vals else None
 
 
-def is_finite_number(x: object) -> bool:
+def is_finite_number(x: object) -> TypeGuard[float]:
     """True only for a real, FINITE int/float (NaN and ±inf rejected).
+
+    A ``TypeGuard[float]`` (not plain ``bool``) so a guarded ``Optional[float]`` is
+    narrowed to ``float`` past the check — the call sites that divide/multiply a
+    CP-1 figure then type-check without a redundant cast. (``bool``/``int`` values
+    are still accepted at runtime; ``float`` is the narrowed static type.)
 
     The guard that belongs in front of any division/multiplication of a CP-1
     figure (leverage, net debt, EBITDA, coverage). ``isinstance(x, (int, float))``
