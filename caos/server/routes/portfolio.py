@@ -1,0 +1,143 @@
+"""Portfolio board — cross-issuer posture rolled up from each issuer's latest
+complete run.
+
+Read-only aggregation over runs + metric_facts + the CP-3 RV / CP-2B downside
+module outputs. Everything here is engine-derived; market data (live spreads /
+DM / Δ) is deliberately absent — that's an external feed, Phase-2 (see
+docs/PHASE2_SCOPE.md). Returns an empty `rows` when no completed runs exist, so
+the frontend Command Center keeps its seeded sample board ("prefer live, static
+fallback", the same contract as useLiveRun / useModelEngine).
+
+One pass, four queries (no N+1): issuers · latest-complete-run-per-issuer ·
+headline facts for those runs · the CP-3/CP-2B outputs for those runs.
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+import rate_limit
+from database import Issuer, MetricFact, ModuleOutput, Run, get_db
+from identity import CallerIdentity, get_identity
+
+router = APIRouter()
+
+# Headline metric_facts surfaced per row (the LTM credit read; spreads are Phase-2).
+_HEADLINE_METRICS = ("net_leverage", "interest_coverage", "revenue", "adj_ebitda", "altman_z")
+
+_READ_MAX_PER_MINUTE = 60
+
+
+def _read_rate_guard(caller: CallerIdentity) -> None:
+    if not rate_limit.hit(
+        f"portfolio-read:{caller.id}", max_attempts=_READ_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Portfolio read rate limit reached — try again in a minute.",
+        )
+
+
+class PortfolioRow(BaseModel):
+    issuer_id: str
+    name: str
+    ticker: Optional[str] = None
+    sector: Optional[str] = None          # from Issuer.industry
+    run_id: str
+    qa_status: str
+    committee_status: str
+    as_of: Optional[str] = None           # latest run's created_at (ISO)
+    metrics: Dict[str, float]             # headline metric_key -> LTM value
+    rv_recommendation: Optional[str] = None   # CP-3: OVERWEIGHT / NEUTRAL / UNDERWEIGHT
+    rv_percentile: Optional[float] = None     # CP-3 composite percentile
+    downside_fragility: Optional[str] = None  # CP-2B: HIGH / MODERATE / LOW
+
+
+class PortfolioResponse(BaseModel):
+    rows: List[PortfolioRow]
+    issuer_count: int    # issuers in the coverage universe
+    covered_count: int   # issuers with >=1 complete run (i.e. len(rows))
+
+
+@router.get("", response_model=PortfolioResponse)
+@router.get("/", response_model=PortfolioResponse)
+async def get_portfolio(
+    db: AsyncSession = Depends(get_db),
+    identity: CallerIdentity = Depends(get_identity),
+) -> PortfolioResponse:
+    """Latest-complete-run posture across the coverage universe."""
+    _read_rate_guard(identity)
+
+    issuers = (await db.execute(select(Issuer))).scalars().all()
+
+    # Latest complete run per issuer: scan complete runs newest-first, keep the
+    # first seen for each issuer. One query; the universe is small.
+    runs = (
+        await db.execute(
+            select(Run).where(Run.status == "complete").order_by(Run.created_at.desc())
+        )
+    ).scalars().all()
+    latest: Dict[str, Run] = {}
+    for r in runs:
+        latest.setdefault(r.issuer_id, r)
+    run_ids = list({r.id for r in latest.values()})
+    if not run_ids:
+        return PortfolioResponse(rows=[], issuer_count=len(issuers), covered_count=0)
+
+    # Headline facts for those runs. Scoped by run_id (so pre-run "seed" baselines
+    # are already excluded); no provenance filter — a fixture-backed run (the ATLF
+    # reference demo) carries provenance="fixture", and its own row should still
+    # show its headline metrics. The fixture/run split matters for the *cross-issuer*
+    # store (peer ranking), not for an issuer's own latest-run posture row.
+    facts = (
+        await db.execute(
+            select(MetricFact).where(
+                MetricFact.run_id.in_(run_ids),
+                MetricFact.headline.is_(True),
+                MetricFact.metric_key.in_(_HEADLINE_METRICS),
+            )
+        )
+    ).scalars().all()
+    by_run_metric: Dict[str, Dict[str, float]] = {}
+    for f in facts:
+        by_run_metric.setdefault(f.run_id, {})[f.metric_key] = f.value
+
+    # CP-3 RV recommendation + CP-2B fragility for those runs.
+    mods = (
+        await db.execute(
+            select(ModuleOutput).where(
+                ModuleOutput.run_id.in_(run_ids),
+                ModuleOutput.module_id.in_(("CP-3", "CP-2B")),
+            )
+        )
+    ).scalars().all()
+    cp3: Dict[str, dict] = {}
+    cp2b: Dict[str, dict] = {}
+    for m in mods:
+        (cp3 if m.module_id == "CP-3" else cp2b)[m.run_id] = m.runtime_output or {}
+
+    rows: List[PortfolioRow] = []
+    for iss in issuers:
+        run = latest.get(iss.id)
+        if run is None:
+            continue  # no completed run yet — omit from the live board
+        ro3 = cp3.get(run.id, {})
+        ro2b = cp2b.get(run.id, {})
+        rows.append(
+            PortfolioRow(
+                issuer_id=iss.id, name=iss.name, ticker=iss.ticker, sector=iss.industry,
+                run_id=run.id, qa_status=run.qa_status, committee_status=run.committee_status,
+                as_of=run.created_at.isoformat() if run.created_at else None,
+                metrics=dict(by_run_metric.get(run.id, {})),
+                rv_recommendation=ro3.get("recommendation"),
+                rv_percentile=ro3.get("composite_percentile"),
+                downside_fragility=ro2b.get("fragility"),
+            )
+        )
+    rows.sort(key=lambda r: r.name.lower())  # stable, name-ordered
+    return PortfolioResponse(rows=rows, issuer_count=len(issuers), covered_count=len(rows))
