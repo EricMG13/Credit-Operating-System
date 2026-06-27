@@ -1,0 +1,4 @@
+# Stress-harness only — NOT installed in CI (keeps the CI image lean).
+#   pip install -r caos/tests/stress/requirements.txt
+locust>=2.20
+httpx>=0.27
