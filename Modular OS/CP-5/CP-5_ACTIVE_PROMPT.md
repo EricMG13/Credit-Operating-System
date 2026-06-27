@@ -66,6 +66,9 @@ Source Fact | Analyst Interpretation | Credit Implication | Legal-Review Depende
 - Does not impair interpretation, source support, credit conclusion, or downstream ingestion
 
 ## 8 Audit Lanes
+
+> **As shipped (CAOS engine).** This 8-lane spec is the full CP-5 methodology; the deployed engine implements a deterministic subset always-on and gates the rest behind an opt-in LLM council. **Always-on, deterministic** (no API key needed): the **severity gate** (`engine/gate.py` — Critical→Blocked, Material→Restricted, else Passed) over module-emitted findings, plus **claim→source lineage** (`engine/lineage.py`, CP-5B) and the per-module finding gates — covering, deterministically, the **Calculation**, **Cross-Module Consistency**, and **Evidence Trace** lanes (lanes 2, 5, 6). The **Unsupported Claim, Legal/Covenant, Market/RV, Schema, and Export** lanes (1, 3, 4, 7, 8) are exercised only when the **opt-in adversarial council** (`engine/council.py`) is enabled, which **requires an API key** and is off by default. With no key set, those five lanes are not actively audited — treat their clearance as *not yet assessed*, not *passed*.
+
 | Lane | Scope | Key Severity Trigger |
 |------|-------|---------------------|
 | 1. Unsupported Claim | All material factual, numerical, legal, comparative, recovery, market, sponsor/governance, and committee-relevant claims | Critical if thesis-changing |

@@ -25,10 +25,19 @@ no `eval`/`exec`, no `shell=True` (except the operator-configured markitdown spi
 list-form), Alembic chain linear, `tsconfig` strict.
 
 **Verdict:** a well-built, deploy-ready codebase — **no P0/P1**. Since the last
-audit the engine grew materially and is no longer a 3-module slice. It now runs a
-**7-module analytical DAG** — CP-0 SourceReadiness, CP-1 (with the EDGAR XBRL→CP-1
-deterministic lane), **CP-1A AdjustedEBITDABridge**, **CP-1B EarningsDelta**,
-**CP-1C PeerBenchmark**, CP-2 CostStructure, **CP-4C covenant capacity** — gated by
+audit the engine grew materially and is no longer a 3-module slice.
+
+> **Status (as of the shipped engine):** the engine now wires **19 implemented
+> modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the
+> "7-module DAG" below was an earlier snapshot. The full implemented set is CP-0,
+> CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E.
+
+It runs a multi-module analytical DAG — CP-0 SourceReadiness, CP-1 (with the EDGAR
+XBRL→CP-1 deterministic lane), **CP-1A BusinessTransactionFactPack**, **CP-1B
+EarningsDelta**, **CP-1C PeerBenchmark**, **CP-2 FundamentalCreditSynthesizer**
+(*its canonical name and analytical role — the 9-dimension fundamental synthesis;
+`CostStructure` is only the degraded offline-fixture output, not the module's
+purpose*), **CP-4C covenant capacity**, and the rest of the registry — gated by
 **CP-5B** lineage, the opt-in **CP-5C** adversarial council, and the **CP-5** gate
 (the LLM never sets its own committee status). Plus: async run execution + per-run
 token budgeting, a `metric_facts` store with retention, cross-issuer NL query
@@ -75,7 +84,7 @@ hardening, led by the live-synthesis path (SYNTH-1).
 3. **F-1 (cont.)** — RTL tests for `NlQuery` / `CitationViewer` / `ScenarioPanel`.
 4. **PERF-2** — code-split `/deepdive`; land P4-2 (index-once-per-run).
 5. **S-4** — per-issuer authorization as a Phase-2 entry criterion (multi-user MNPI/Bloomberg-entitled data).
-6. **CP-1A naming** — reconcile the implemented `AdjustedEBITDABridge` against the corpus `BusinessTransactionFactPack` so the module map and the code agree.
+6. **CP-1A naming** — ~~reconcile the implemented `AdjustedEBITDABridge` against the corpus `BusinessTransactionFactPack`~~ **Resolved** — the code already implements CP-1A as `BusinessTransactionFactPack` ([factpack.py](../server/engine/factpack.py); [registry.py](../server/engine/registry.py) line 92); the reported-vs-adjusted EBITDA bridge was folded into CP-1. Module map and code agree.
 
 ## Notably well done
 - Identity on every route via `Depends(get_identity)`; only `/health` open. Rate limits on all mutating/LLM endpoints.
