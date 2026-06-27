@@ -12,7 +12,6 @@ from __future__ import annotations
 import hmac
 import json
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from access_log import access_event, client_source, principal
-from config import get_settings
+from config import get_settings, is_deployed
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
@@ -40,7 +39,10 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
-    if settings.environment == "production" and not settings.edge_proxy_secret:
+    # Fail-closed boot guards key on is_deployed (any ENVIRONMENT != "development",
+    # typo/unset included), not the exact string "production" — a mistyped or
+    # dropped env value must NOT silently disable the secret / signup-code guards.
+    if is_deployed(settings) and not settings.edge_proxy_secret:
         # Fail closed (was warn-only): without the edge secret the app trusts the
         # X-Forwarded-* identity headers on network isolation alone, so a rogue
         # container on the internal net could hit app:8000 directly with forged
@@ -53,7 +55,7 @@ async def lifespan(app: FastAPI):
             "edge inject X-Edge-Authorization (the deploy Caddyfile already does). "
             'Generate one with: python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if settings.environment == "production" and settings.session_secret in ("", "dev-insecure-session-secret"):
+    if is_deployed(settings) and settings.session_secret in ("", "dev-insecure-session-secret"):
         # Fail closed: the dev default is public (in source), so it would let
         # anyone forge an analyst login cookie. Refuse to start without a real one.
         raise RuntimeError(
@@ -61,7 +63,7 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if settings.environment == "production" and settings.analyst_signup_code in ("", "131113"):
+    if is_deployed(settings) and settings.analyst_signup_code in ("", "131113"):
         # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
         # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
         # would ship a known self-registration gate by omission. Refuse to start
@@ -71,7 +73,7 @@ async def lifespan(app: FastAPI):
             "in-source default (131113) is public and would leave analyst profile "
             "self-registration open. Set ANALYST_SIGNUP_CODE."
         )
-    if settings.environment == "production" and settings.caos_demo_seed:
+    if is_deployed(settings) and settings.caos_demo_seed:
         # Fail closed (was warn-only): demo seeding ships fictional issuers + the
         # ATLF reference deal + illustrative metrics. Refuse to seed demo data into
         # a production database — same posture as the secret guards above. An
@@ -112,7 +114,9 @@ async def set_model_mode(request: Request) -> None:
     presets.set_mode(request.headers.get("x-model-mode"))
 
 
-_PROD = settings.environment == "production"
+# Close the interactive API docs in ANY deployed context (not just exact
+# "production"), matching the fail-closed posture of the boot guards. (is_deployed)
+_PROD = is_deployed(settings)
 app = FastAPI(
     title="Credit Agent OS (CAOS)",
     version="2.0.0",
@@ -194,7 +198,8 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
 @app.middleware("http")
 async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
     settings = get_settings()
-    deployed = settings.environment == "production" or os.environ.get("DATABRICKS_APP_PORT") is not None
+    # Same fail-closed predicate as identity.get_identity (config.is_deployed).
+    deployed = is_deployed(settings)
     path = request.url.path
     if deployed and settings.edge_proxy_secret and path.startswith("/api/") and path != "/api/health":
         presented = request.headers.get("x-edge-authorization", "")

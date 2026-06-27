@@ -66,6 +66,45 @@ async def test_local_dev_no_enforcement(monkeypatch):
     assert (await identity.get_identity(_req({}), db=_FakeDB())).id == "local-dev"
 
 
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ("development", False),  # the ONLY value that disables the guards
+        ("production", True),
+        ("prod", True),          # mistype must still fail closed (P-4)
+        ("Production", True),    # case variant
+        ("staging", True),
+        ("", True),              # unset/empty → deployed, not open
+    ],
+)
+def test_is_deployed_fails_closed(monkeypatch, env, expected):
+    """config.is_deployed treats ANY environment != 'development' as deployed, so a
+    typo/unset can't silently drop the edge/session/signup-code guards. Matches the
+    cookie `secure` asymmetry in routes/auth.py."""
+    import config
+
+    monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+    assert config.is_deployed(config.Settings(environment=env)) is expected
+    # The legacy platform port forces deployed even for development.
+    monkeypatch.setenv("DATABRICKS_APP_PORT", "8443")
+    assert config.is_deployed(config.Settings(environment="development")) is True
+
+
+@pytest.mark.asyncio
+async def test_mistyped_prod_env_still_fails_closed(monkeypatch):
+    """A header-less request under environment='prod' (a typo for 'production') is
+    still rejected — previously this fell through to the permissive dev identity
+    because the gate keyed on the exact string 'production'. (P-4)"""
+    import identity
+    from config import Settings
+
+    monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
+    monkeypatch.setattr(identity, "get_settings", lambda: Settings(environment="prod"))
+    with pytest.raises(HTTPException) as e:
+        await identity.get_identity(_req({}), db=_FakeDB())
+    assert e.value.status_code == 401
+
+
 @pytest.mark.asyncio
 async def test_edge_secret_required_when_configured(monkeypatch):
     identity = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t")

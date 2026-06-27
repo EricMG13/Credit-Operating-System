@@ -67,6 +67,9 @@ class VaultExhibitResponse(BaseModel):
     chunks_created: int
     provenance: str
     message: str
+    # Set when chunks_created == 0 (scanned/encrypted/empty exhibit): vaulted but
+    # not searchable, so surface the signal rather than a silent 0. (ingest.py)
+    warning: Optional[str] = None
 
 
 def _require_edgar() -> None:
@@ -216,4 +219,5 @@ async def vault_exhibit(
             f"{file_name} fetched from EDGAR and vaulted ({len(chunks)} chunks). "
             "Now a primary source — E-xx eligible; run CP-4 to interpret covenants."
         ),
+        warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
     )

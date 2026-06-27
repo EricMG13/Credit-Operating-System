@@ -9,6 +9,7 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 from __future__ import annotations
 
 import asyncio
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -46,6 +47,9 @@ class IngestionResponse(BaseModel):
     run_mode: str
     chunks_created: int
     message: str
+    # Set when chunks_created == 0 (scanned/encrypted/empty doc): the upload still
+    # succeeds but is not searchable, so surface the signal rather than a silent 0.
+    warning: Optional[str] = None
 
 
 def _validate_run_mode(run_mode: str) -> str:
@@ -94,6 +98,7 @@ async def _vault_document(
         run_mode=run_mode,
         chunks_created=len(chunks),
         message=f"{file.filename} vaulted and chunked ({len(chunks)} chunks) — {run_mode} run.",
+        warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
     )
 
 

@@ -107,6 +107,53 @@ def test_fetch_exhibit_rejects_non_archive_url(monkeypatch):
         edgar.fetch_exhibit("https://evil.example/x.htm")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # look-alike host: prefix check passes, host does not (SSRF)
+        "https://www.sec.gov.evil.com/Archives/x",
+        # userinfo trick: hostname is evil.com, "www.sec.gov" is the username
+        "https://www.sec.gov@evil.com/Archives/x",
+        # path-embedded decoy: real host is evil.com
+        "https://evil.com/https://www.sec.gov/Archives/x",
+        # right host, wrong scheme — only https is allowed
+        "http://www.sec.gov/Archives/x",
+        # right host, wrong path root
+        "https://www.sec.gov/cgi-bin/x",
+    ],
+)
+def test_fetch_exhibit_rejects_ssrf_bypasses(monkeypatch, url):
+    """SSRF guard (P-3): a bare startswith() prefix check is bypassable. The parsed
+    host must be exactly www.sec.gov, scheme https, path under /Archives/, and no
+    embedded credentials — so these all reject before any network call."""
+    monkeypatch.setattr(edgar.settings, "edgar_user_agent", "Test UA t@e.st")
+    # Fail loudly if the guard ever lets one through to the network in a test.
+    monkeypatch.setattr(edgar, "_http_get", lambda *a, **k: pytest.fail(f"fetched {url!r}"))
+    with pytest.raises(edgar.EdgarError):
+        edgar.fetch_exhibit(url)
+
+
+def test_fetch_exhibit_accepts_legit_archive_url(monkeypatch):
+    """A genuine www.sec.gov/Archives/ URL passes the guard and reaches _http_get."""
+    monkeypatch.setattr(edgar.settings, "edgar_user_agent", "Test UA t@e.st")
+    seen = {}
+
+    def fake_http_get(url, accept="application/json", cap_bytes=None):
+        seen["url"], seen["accept"], seen["cap"] = url, accept, cap_bytes
+        return b"<html>ok</html>"
+
+    monkeypatch.setattr(edgar, "_http_get", fake_http_get)
+    good = "https://www.sec.gov/Archives/edgar/data/320193/000.../creditagreement.htm"
+    assert edgar.fetch_exhibit(good) == b"<html>ok</html>"
+    assert seen["url"] == good
+    assert seen["accept"] == "*/*" and seen["cap"] is not None
+    # host match is case-insensitive (SEC sometimes upper-cases)
+    monkeypatch.setattr(
+        edgar, "_http_get", lambda *a, **k: b"ok2"
+    )
+    assert edgar.fetch_exhibit("https://WWW.SEC.GOV/Archives/x.htm") == b"ok2"
+
+
 # ─── route tests ─────────────────────────────────────────────────────────────
 
 

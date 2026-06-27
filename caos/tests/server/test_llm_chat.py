@@ -41,3 +41,27 @@ def test_complete_reply_is_unflagged(monkeypatch):
 def test_truncated_with_no_text_returns_note_not_500(monkeypatch):
     reply = _ask(monkeypatch, None, "max_tokens")
     assert "truncated" in reply.lower()
+
+
+def test_client_constructed_with_explicit_timeout(monkeypatch):
+    """P-1: the request-lane Anthropic client must carry an explicit timeout (the
+    SDK default is ~10 min, which would pin a stuck request lane open). Assert the
+    constructor gets timeout=caos_llm_timeout_s, not the SDK default."""
+    import anthropic
+
+    import llm
+
+    captured = {}
+
+    def _fake_ctor(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _fake_ctor)
+    monkeypatch.setattr(llm.settings, "anthropic_api_key", "sk-test")
+    monkeypatch.setattr(llm.settings, "caos_llm_timeout_s", 120.0)
+    monkeypatch.setattr(llm, "_client", None)  # force a fresh construction
+
+    llm._get_client()
+    assert captured.get("timeout") == 120.0
+    assert captured.get("api_key") == "sk-test"
