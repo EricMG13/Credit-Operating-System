@@ -32,6 +32,36 @@ def _cp1(**nf):
                          runtime_output={"normalized_financials": nf})
 
 
+# ── FCF / cash conversion + per-period leverage projection ───────────────────
+def test_fcf_conversion_and_leverage_series_projected():
+    from engine.metrics import extract_facts
+
+    cp1 = _cp1(
+        revenue={"FY24": 1000.0, "LTM": 1100.0},
+        free_cash_flow={"FY24": 80.0, "LTM": 99.0},
+        net_leverage={"FY24": 5.0, "LTM": 4.5},
+    )
+    by = {}
+    for f in extract_facts("run1", cp1, "Passed"):
+        by.setdefault(f["metric_key"], {})[f["period"]] = f
+
+    assert by["fcf"]["LTM"]["value"] == 99.0
+    # cash conversion = FCF / revenue, computed (not trusted as input)
+    assert by["fcf_conversion"]["LTM"]["value"] == 9.0   # 99 / 1100
+    assert by["fcf_conversion"]["FY24"]["value"] == 8.0  # 80 / 1000
+    # per-period leverage series, headline on the latest period only
+    assert set(by["net_leverage"]) == {"FY24", "LTM"}
+    assert by["net_leverage"]["LTM"]["headline"] and not by["net_leverage"]["FY24"]["headline"]
+
+
+def test_leverage_falls_back_to_ltm_scalar_without_series():
+    from engine.metrics import extract_facts
+
+    cp1 = _cp1(revenue={"LTM": 1000.0}, net_leverage_adj_ltm=5.5)
+    lev = [f for f in extract_facts("r", cp1, "Passed") if f["metric_key"] == "net_leverage"]
+    assert len(lev) == 1 and lev[0]["period"] == "LTM" and lev[0]["value"] == 5.5
+
+
 def test_leverage_plausibility_none_when_consistent():
     # 2400 / 400 = 6.0x, asserted 6.0x → within the 5% band → no finding.
     cp1 = _cp1(net_leverage_adj_ltm=6.0, net_debt_ltm=2400.0, adj_ebitda={"LTM_Q1_26": 400.0})

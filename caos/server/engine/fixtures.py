@@ -208,6 +208,8 @@ def _cp1() -> ModulePayload:
             "normalized_financials": {
                 "revenue": {"FY23": 2410, "FY24": 2588, "FY25": 2742, "LTM_Q1_26": 2801},
                 "adj_ebitda": {"FY23": 358, "FY24": 392, "FY25": 415, "LTM_Q1_26": 421},
+                "free_cash_flow": {"FY23": 180, "FY24": 205, "FY25": 228, "LTM_Q1_26": 236},
+                "net_leverage": {"FY23": 6.7, "FY24": 6.0, "FY25": 5.7, "LTM_Q1_26": 5.68},
                 "net_debt_ltm": 2391,
                 "net_leverage_adj_ltm": 5.68,
                 "interest_coverage_ltm": 2.1,

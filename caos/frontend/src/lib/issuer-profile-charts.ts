@@ -11,7 +11,8 @@ export type ChartSpec = Record<string, unknown>;
 
 // Snapshot order — credit ratios first, then scale, then distress / exposure.
 export const SNAPSHOT_ORDER = [
-  "net_leverage", "interest_coverage", "ebitda_margin", "revenue", "adj_ebitda", "altman_z", "energy_cost_pct",
+  "net_leverage", "interest_coverage", "ebitda_margin", "revenue", "adj_ebitda",
+  "fcf", "fcf_conversion", "altman_z", "energy_cost_pct",
 ];
 
 // Prefer a live run over seed/fixture/derived when >1 fact shares a metric_key

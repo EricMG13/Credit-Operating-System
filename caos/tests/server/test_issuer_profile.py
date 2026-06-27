@@ -65,9 +65,11 @@ def test_profile_after_run_populates(client):
     assert body["runs"] and body["runs"][0]["id"] == run.json()["id"]
 
     keys = {m["metric_key"] for m in body["metrics"]}
-    assert "net_leverage" in keys           # CP-1 projected its headline ratio
-    nl = next(m for m in body["metrics"] if m["metric_key"] == "net_leverage")
-    assert nl["headline"] is True and nl["provenance"]  # carries provenance for the UI badge
+    assert "net_leverage" in keys             # CP-1 projected its leverage ratio
+    assert {"fcf", "fcf_conversion"} <= keys  # FCF + cash conversion (FCF / revenue)
+    nls = [m for m in body["metrics"] if m["metric_key"] == "net_leverage"]
+    assert any(m["headline"] for m in nls)    # one headline value backs the snapshot
+    assert all(m["provenance"] for m in nls)  # every point carries provenance for the UI
 
     # Signals/coverage keys are always present after a complete run; values may be
     # None where a given module didn't surface them — the roll-up never errors.

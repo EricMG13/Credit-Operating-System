@@ -89,6 +89,14 @@ export interface BusinessFact {
   statement: string;
   chunk_id: string | null;
 }
+export interface EarningsSummary {
+  latest_period: string | null;
+  prior_period: string | null;
+  revenue_growth_pct: number | null;
+  ebitda_growth_pct: number | null;
+  margin_change_pp: number | null;
+  monitoring_signals: string[];
+}
 export interface IssuerProfile {
   issuer: Issuer;
   latest_run: ProfileRun | null;
@@ -102,6 +110,7 @@ export interface IssuerProfile {
   sponsor: Record<string, unknown>;   // CP-2D governance review
   strengths: string[];
   weaknesses: string[];
+  earnings: EarningsSummary;          // CP-1B latest earnings summary
 }
 export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
   api.get(`/api/issuers/${id}/profile`).then((r) => r.data);

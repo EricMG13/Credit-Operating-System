@@ -163,8 +163,25 @@ def extract_facts(
         if is_finite_number(rv) and rv and is_finite_number(v):
             add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
 
-    # LTM credit ratios are LTM by definition → headline.
-    add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
+    # Free cash flow + cash conversion (FCF / revenue), per period. Conversion is
+    # derived here from the FCF and revenue series, not trusted as an input.
+    fcf = fin.get("free_cash_flow") or {}
+    fcf_headline = _headline_period(list(fcf.keys()))
+    for period, v in fcf.items():
+        add("fcf", period, v, "$M", period == fcf_headline)
+        rv = rev.get(period)
+        if is_finite_number(rv) and rv and is_finite_number(v):
+            add("fcf_conversion", period, round(100 * v / rv, 1), "%", period == fcf_headline)
+
+    # Net leverage: a per-period series (drives the leverage trend) when CP-1
+    # provides one; else the single LTM scalar. Interest coverage stays LTM.
+    lev = fin.get("net_leverage") or {}
+    if lev:
+        lev_headline = _headline_period(list(lev.keys()))
+        for period, v in lev.items():
+            add("net_leverage", period, v, "x", period == lev_headline)
+    else:
+        add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
     # Altman Z'' distress score (EDGAR-derived; lives outside normalized_financials).
     dz = (payload.runtime_output or {}).get("distress") or {}

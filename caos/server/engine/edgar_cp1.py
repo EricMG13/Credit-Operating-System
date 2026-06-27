@@ -61,6 +61,10 @@ _RETAINED = ("RetainedEarningsAccumulatedDeficit",)
 _TOTAL_LIAB = ("Liabilities",)
 _EQUITY = ("StockholdersEquity",
            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+# Cash-flow statement (flow) for free cash flow = operating cash flow − capex.
+_CFO = ("NetCashProvidedByUsedInOperatingActivities",
+        "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations")
+_CAPEX = ("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets")
 
 
 @dataclass
@@ -188,6 +192,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     da_c, da = _da_series(us)
     int_c, interest = _series(us, _INTEREST, "flow")
     imp_c, impair = _series(us, _IMPAIRMENT, "flow")
+    cfo_c, cfo = _series(us, _CFO, "flow")
+    capex_c, capex = _series(us, _CAPEX, "flow")
 
     years = sorted(rev)[-max_years:]
     # Reported EBITDA proxy = operating income + D&A, plus a non-cash impairment add-back
@@ -237,6 +243,12 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     # normalized_financials matches the CP-1 contract the adapter + metric-facts
     # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
     financials: dict = {"revenue": revenue, "adj_ebitda": adj_ebitda}
+    # Free cash flow = operating cash flow − capex, per fiscal year (both 10-K FY
+    # flows; capex is reported positive). Drives the FCF / cash-conversion snapshot
+    # metrics (metrics.py computes conversion = FCF / revenue).
+    fcf = {y: cfo[y][0] - capex[y][0] for y in years if y in cfo and y in capex}
+    if fcf:
+        financials["free_cash_flow"] = {f"FY{y}": _m(fcf[y]) for y in sorted(fcf)}
     leverage = None
     # Only emit leverage when it is meaningful: positive EBITDA and positive net
     # debt. A loss year, a net-cash position, or captive-finance debt not fully
@@ -257,7 +269,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         "xbrl_concepts": {k: v for k, v in {
             "revenue": rev_c, "operating_income": op_c, "d_and_a": da_c,
             "impairment": imp_c, "interest_expense": int_c, "long_term_debt": ltd_c,
-            "current_debt": dc_c, "cash": cash_c}.items() if v},
+            "current_debt": dc_c, "cash": cash_c,
+            "operating_cash_flow": cfo_c, "capex": capex_c}.items() if v},
     }
 
     # Altman Z'' distress score (balance-sheet only) when every input is present

@@ -10,7 +10,12 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getIssuerProfile, type BusinessFact, type IssuerProfile, type ProfileRun } from "@/lib/api";
+import { getIssuerProfile, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileRun } from "@/lib/api";
+
+const EMPTY_EARNINGS: EarningsSummary = {
+  latest_period: null, prior_period: null, revenue_growth_pct: null,
+  ebitda_growth_pct: null, margin_change_pp: null, monitoring_signals: [],
+};
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -66,7 +71,15 @@ const signed = (v: number, suffix = "") => (v >= 0 ? "+" : "") + v.toFixed(1) + 
 const METRIC_LABEL: Record<string, string> = {
   net_leverage: "Net leverage", interest_coverage: "Interest coverage",
   ebitda_margin: "EBITDA margin", revenue: "Revenue", adj_ebitda: "Adj. EBITDA",
+  fcf: "Free cash flow", fcf_conversion: "Cash conversion",
   altman_z: "Altman Z″", energy_cost_pct: "Energy / COGS",
+};
+// Snapshot tiles that carry a period-over-period delta (from CP-1B), shown inline
+// under the value. Keyed by metric → the signal field + its unit.
+const TILE_DELTA: Record<string, { key: string; suffix: string }> = {
+  revenue: { key: "revenue_growth_pct", suffix: "%" },
+  adj_ebitda: { key: "ebitda_growth_pct", suffix: "%" },
+  ebitda_margin: { key: "margin_change_pp", suffix: "pp" },
 };
 
 const BASIS_LABEL: Record<string, string> = {
@@ -159,6 +172,7 @@ function ErrorView({ id, msg }: { id: string | null; msg: string }) {
 // fallow-ignore-next-line complexity
 function Profile({ id, data }: { id: string; data: IssuerProfile }) {
   const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
+  const earnings = data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
   const deepHref = "/deepdive?issuer=" + encodeURIComponent(id);
 
   const ratings = [
@@ -240,10 +254,16 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
                 {/* fallow-ignore-next-line complexity */}
                 {headline.map((m) => {
                   const sev = metricSev(m.metric_key, m.value);
+                  const d = TILE_DELTA[m.metric_key];
+                  const dv = d ? signals[d.key] : null;
+                  const delta = typeof dv === "number" ? dv : null;
                   return (
                     <div key={m.metric_key} className="px-3 py-2.5 border-b border-r border-caos-border/40">
                       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
-                      <div className="tabular font-medium leading-none mt-1.5" style={{ fontSize: 18, color: sev ? sevSurface(sev).color : "var(--caos-text)" }}>{fmt(m.value, m.unit)}</div>
+                      <div className="flex items-baseline gap-2 mt-1.5">
+                        <span className="tabular font-medium leading-none" style={{ fontSize: 18, color: sev ? sevSurface(sev).color : "var(--caos-text)" }}>{fmt(m.value, m.unit)}</span>
+                        {delta != null ? <span className="tabular text-caos-2xs" style={{ color: sevSurface(delta >= 0 ? "pass" : "high").color }}>{signed(delta, d.suffix)}</span> : null}
+                      </div>
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}{m.basis ? " · " + (BASIS_LABEL[m.basis] || m.basis) : ""}</span>
                         {m.provenance !== "run" ? <span title={PROV[m.provenance]?.label}><Dot sev={PROV[m.provenance]?.sev || "low"} glyph /></span> : null}
@@ -259,18 +279,33 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
             )}
           </Panel>
 
-          <Panel title="What changed · latest vs prior period">
+          <Panel title={"Latest earnings" + (earnings.latest_period ? " · " + earnings.latest_period : "")}>
+            {/* fallow-ignore-next-line complexity */}
             {(() => {
-              const deltas = [
-                { label: "Revenue Δ", v: signals.revenue_growth_pct, suffix: "%" },
-                { label: "EBITDA Δ", v: signals.ebitda_growth_pct, suffix: "%" },
-                { label: "Margin Δ", v: signals.margin_change_pp, suffix: "pp" },
-              ];
-              if (!deltas.some((d) => typeof d.v === "number"))
-                return <div className="px-3 py-2.5"><Empty>No period-over-period change yet — needs ≥2 comparable periods.</Empty></div>;
+              const ms = earnings.monitoring_signals || [];
+              const hasDelta = [earnings.revenue_growth_pct, earnings.ebitda_growth_pct, earnings.margin_change_pp].some((v) => typeof v === "number");
+              if (!hasDelta && !ms.length)
+                return <div className="px-3 py-2.5"><Empty>No earnings delta yet — needs ≥2 comparable periods.</Empty></div>;
               return (
-                <div className="px-3 py-2.5 flex flex-col gap-3 h-full justify-center">
-                  {deltas.map((d) => <DeltaRow key={d.label} {...d} />)}
+                <div className="px-3 py-2.5 flex flex-col gap-2.5">
+                  {earnings.prior_period && earnings.latest_period ? (
+                    <div className="tabular text-caos-2xs text-caos-muted">{earnings.prior_period} → {earnings.latest_period} · YoY</div>
+                  ) : null}
+                  <DeltaRow label="Revenue" v={earnings.revenue_growth_pct} suffix="%" />
+                  <DeltaRow label="Adj. EBITDA" v={earnings.ebitda_growth_pct} suffix="%" />
+                  <DeltaRow label="EBITDA margin" v={earnings.margin_change_pp} suffix="pp" />
+                  {ms.length ? (
+                    <div className="flex flex-col gap-1 pt-1.5 border-t border-caos-border/40">
+                      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Watch</span>
+                      {ms.map((s, i) => (
+                        <span key={i} className="flex items-start gap-1.5 tabular text-caos-2xs" style={{ color: sevSurface("warning").color }}>
+                          <span className="mt-0.5 shrink-0"><StatusGlyph kind="warning" size={9} /></span>{s}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="tabular text-caos-2xs pt-1" style={{ color: sevSurface("pass").color }}>No deterioration signals.</span>
+                  )}
                 </div>
               );
             })()}

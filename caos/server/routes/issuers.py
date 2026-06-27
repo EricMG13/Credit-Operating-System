@@ -205,6 +205,9 @@ class IssuerProfileResponse(BaseModel):
     # Rule-based credit read derived from this run's signals (deterministic, no LLM).
     strengths: List[str]
     weaknesses: List[str]
+    # CP-1B latest earnings summary: period labels, YoY deltas, deterioration
+    # watch-list. {} when fewer than two comparable periods.
+    earnings: Dict[str, Any]
 
 
 def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
@@ -353,6 +356,7 @@ async def get_issuer_profile(
     findings = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
     business: List[Dict[str, Any]] = []
     sponsor: Dict[str, Any] = {}
+    earnings: Dict[str, Any] = {}
     if latest_complete is not None:
         mod_rows = (await db.execute(
             select(ModuleOutput).where(ModuleOutput.run_id == latest_complete.id)
@@ -362,6 +366,16 @@ async def get_issuer_profile(
         # CP-1A business/transaction fact register; CP-2D sponsor/governance review.
         business = ((mods["CP-1A"].runtime_output or {}).get("facts") or []) if "CP-1A" in mods else []
         sponsor = (mods["CP-2D"].runtime_output or {}) if "CP-2D" in mods else {}
+        cp1b = (mods["CP-1B"].runtime_output or {}) if "CP-1B" in mods else {}
+        summ = cp1b.get("summary") or {}
+        earnings = {
+            "latest_period": summ.get("latest_period"),
+            "prior_period": summ.get("prior_period"),
+            "revenue_growth_pct": summ.get("revenue_growth_pct"),
+            "ebitda_growth_pct": summ.get("ebitda_growth_pct"),
+            "margin_change_pp": summ.get("margin_change_pp"),
+            "monitoring_signals": cp1b.get("monitoring_signals") or [],
+        }
         cp0 = (mods["CP-0"].runtime_output or {}) if "CP-0" in mods else {}
         coverage.update({
             "readiness_score": cp0.get("readiness_score"),
@@ -393,4 +407,5 @@ async def get_issuer_profile(
         sponsor=sponsor,
         strengths=strengths,
         weaknesses=weaknesses,
+        earnings=earnings,
     )
