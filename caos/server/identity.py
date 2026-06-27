@@ -85,7 +85,10 @@ def read_session_token(token: str, secret: str) -> dict | None:
         raw, sig = token.rsplit(".", 1)
     except ValueError:
         return None
-    if not hmac.compare_digest(sig, _sig(raw, secret)):
+    # Compare as bytes: the signature segment is attacker-controlled cookie data, so a
+    # non-ASCII char would make compare_digest raise TypeError on str (→ 500, not a
+    # clean reject). Same fix as the edge-credential compare in get_identity. (run-2 #B6)
+    if not hmac.compare_digest(sig.encode("utf-8", "ignore"), _sig(raw, secret).encode("utf-8")):
         return None
     try:
         padded = raw + "=" * (-len(raw) % 4)

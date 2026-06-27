@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
-from engine.periods import year
+from engine.periods import sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
@@ -38,7 +38,7 @@ def compute_deltas(normalized_financials: dict) -> dict:
     """Period rows + the YoY delta summary + monitoring signals (pure)."""
     rev = normalized_financials.get("revenue") or {}
     eb = normalized_financials.get("adj_ebitda") or {}
-    periods = sorted(set(rev) | set(eb), key=year)
+    periods = sorted(set(rev) | set(eb), key=sort_key)
 
     rows: List[dict] = []
     for p in periods:
