@@ -175,6 +175,8 @@ def peer_outlier_finding(cp1c: Optional[ModulePayload]) -> Optional[Finding]:
     return Finding(
         finding_id="CP-1C-PEER", severity="MINOR", lane=2, module_id="CP-1C",
         affected_claim_id="C-PEER1",
-        description=f"Bottom-quartile vs {scope} on: {', '.join(outliers)}. Weight the relative positioning.",
+        # str() each item: runtime_output is unvalidated free-form, so a non-str
+        # outlier must not crash the join and abort the whole CP-5 run.
+        description=f"Bottom-quartile vs {scope} on: {', '.join(str(o) for o in outliers)}. Weight the relative positioning.",
         required_remediation="Confirm peer set and whether the gap is structural or cyclical.",
     )

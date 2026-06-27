@@ -115,11 +115,15 @@ def monitoring_finding(cp1b: Optional[ModulePayload]) -> Optional[Finding]:
     if cp1b is None:
         return None
     signals = (cp1b.runtime_output or {}).get("monitoring_signals") or []
+    if isinstance(signals, str):  # a bare string would join char-by-char ("d e c…")
+        signals = [signals]
     if not signals:
         return None
     return Finding(
         finding_id="CP-1B-MONITOR", severity="MINOR", lane=2, module_id="CP-1B",
         affected_claim_id="C-DELTA1",
-        description="Monitoring signals: " + " ".join(signals),
+        # str() each item: runtime_output is an unvalidated free-form dict, so a
+        # non-str signal must not crash the join and abort the whole CP-5 run.
+        description="Monitoring signals: " + " ".join(str(s) for s in signals),
         required_remediation="Assess whether the deterioration is structural; refresh the thesis.",
     )

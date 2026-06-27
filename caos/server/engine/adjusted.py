@@ -217,9 +217,15 @@ def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
         return None
     ro = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
     pct, gap = ro.get("addback_pct"), ro.get("leverage_gap_turns")
-    if pct is None or gap is None:
+    # A persisted/replayed CP-1 payload could carry a NaN (-> "nan%" committee
+    # text) or a str (-> a TypeError that fails the whole run) here. is_finite_number
+    # rejects None/NaN/inf/non-numbers, so the gate degrades to None rather than
+    # crash — subsumes the old `pct is None or gap is None` guard.
+    if not (is_finite_number(pct) and is_finite_number(gap)):
         return None
-    if pct < _MATERIAL_PCT and abs(gap) < _MATERIAL_GAP_TURNS:
+    # Immaterial only when BOTH are small; abs() on each so a negative add-back pct
+    # (or gap) is judged on magnitude — gap was already abs'd; pct now matches.
+    if abs(pct) < _MATERIAL_PCT and abs(gap) < _MATERIAL_GAP_TURNS:
         return None  # immaterial — no noise
     return Finding(
         finding_id="CP-1A-RECON", severity="MINOR", lane=2, module_id="CP-1",

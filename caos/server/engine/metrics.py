@@ -192,7 +192,11 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
             and is_finite_number(eb) and eb):
         return None
     recomputed = nd / eb
-    if abs(recomputed - lev) / lev <= 0.05:
+    # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
+    # leverage, and dividing by the signed lev would make the ratio negative —
+    # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
+    # vs the recomputed value) would silently escape this MATERIAL cross-check.
+    if abs(recomputed - lev) / abs(lev) <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",
