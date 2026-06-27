@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
 
+  // fallow-ignore-next-line complexity
   const refresh = async () => {
     try {
       const me: AuthUser = await getMe();

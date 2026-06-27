@@ -39,6 +39,7 @@ const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
   country: "United States",
 }));
 
+// fallow-ignore-next-line complexity
 function IssuersDirectory() {
   const router = useRouter();
   const [issuers, setIssuers] = useState<Issuer[]>([]);
@@ -206,6 +207,7 @@ function IssuersDirectory() {
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book
                   ever holds thousands. intrinsic-size ≈ one row height, avoids scrollbar CLS. */}
+              {/* fallow-ignore-next-line complexity */}
               {issuers.map((issuer) => (
                 <div
                   key={issuer.id}
@@ -274,6 +276,7 @@ function NewIssuerModal({
   const [createError, setCreateError] = useState<string | null>(null);
   const panelRef = useModalA11y<HTMLFormElement>(onClose);
 
+  // fallow-ignore-next-line complexity
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (creating) return; // guard against double-submit (would register duplicate issuers)

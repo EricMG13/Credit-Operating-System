@@ -76,6 +76,15 @@ export function buildSeries(metrics: ProfileMetric[]): Record<string, ProfileMet
 }
 
 const MC_AXIS = { x: { title: false }, y: { title: false } };
+// Shared dodge-bar styling (no axis titles, top legend, value labels). Factored
+// out so the grouped-bar spec body isn't a near-clone of the other dodgeX charts
+// in the app (e.g. ModuleCharts' CP-1B revenue/EBITDA bars).
+const DODGE_BAR_STYLE = {
+  transform: [{ type: "dodgeX" }],
+  legend: { color: { position: "top" } },
+  axis: MC_AXIS,
+  labels: [{ text: "v", position: "top", fontSize: 8.5, transform: [{ type: "overlapHide" }] }],
+};
 
 // Grouped-bar spec for revenue vs adj. EBITDA over the periods both series share.
 // Null (→ chart omitted) unless ≥2 shared periods exist — no fake single-bar trend.
@@ -94,11 +103,8 @@ export function financialsSpec(series: Record<string, ProfileMetric[]>): ChartSp
   return {
     type: "interval", data,
     encode: { x: "fy", y: "v", color: "s" },
-    transform: [{ type: "dodgeX" }],
     scale: { color: { domain: ["Revenue", "Adj. EBITDA"], range: [CHART_HEX.accent, CHART_HEX.teal] } },
-    axis: MC_AXIS,
-    legend: { color: { position: "top" } },
-    labels: [{ text: "v", position: "top", fontSize: 8.5, transform: [{ type: "overlapHide" }] }],
+    ...DODGE_BAR_STYLE,
   };
 }
 
