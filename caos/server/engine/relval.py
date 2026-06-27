@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Composite-percentile bands for the recommendation.
@@ -18,22 +19,67 @@ _OVERWEIGHT, _UNDERWEIGHT = 60, 40
 
 
 def build_scorecard(cp1c_rt: dict) -> Optional[dict]:
-    """Composite percentile + recommendation from CP-1C comparisons, or None when
-    there are no scored peer metrics."""
-    comps = cp1c_rt.get("comparisons") or []
-    scored = [c for c in comps if isinstance(c.get("percentile"), (int, float))]
-    if not scored:
-        return None
-    composite = round(sum(c["percentile"] for c in scored) / len(scored))
-    rec = ("OVERWEIGHT" if composite >= _OVERWEIGHT
-           else "UNDERWEIGHT" if composite < _UNDERWEIGHT else "NEUTRAL")
-    scorecard = [{
-        "metric": c.get("metric"), "label": c.get("label"), "percentile": c["percentile"],
-        "issuer_value": c.get("issuer_value"), "peer_median": c.get("peer_median"),
-    } for c in scored]
+    """Composite peer percentile + relative-value lean from CP-1C comparisons.
+
+    Reads like the credit analyst's relative-value worksheet:
+
+    - CP-1C hands us one peer percentile per metric, already polarity-adjusted so
+      that **higher always means stronger versus the peer set** (e.g. lower
+      leverage maps to a *higher* percentile). So we never re-sign anything here:
+      a metric's percentile is "how this issuer ranks against peers on that line,
+      0-100 (100 = best in the cohort)."
+    - A metric only counts if it carries a finite numeric percentile — without one
+      the issuer can't be ranked against peers, so it is left out of the score (not
+      scored as zero).
+    - The composite is the *equal-weighted mean* of those per-metric percentiles:
+      a single 0-100 read of "how strong is this issuer versus its peers." No
+      metric is weighted above another — it is the plain average rank.
+    - That composite is mapped to a relative-value lean via the desk's bands:
+      >= 60th percentile -> OVERWEIGHT (rich / strong fundamentals vs peers),
+      < 40th -> UNDERWEIGHT (weak vs peers), the 40-59 middle -> NEUTRAL.
+
+    Returns None when no comparison can be ranked (nothing to score against peers).
+    Output feeds CP-6A / CP-6E.
+    """
+    comparisons = cp1c_rt.get("comparisons") or []
+
+    # Keep only metrics CP-1C could rank against peers (a FINITE numeric percentile).
+    # is_finite_number accepts bool/int/0/float but rejects NaN/inf — a NaN
+    # percentile is a float that would slip past a plain isinstance check and then
+    # crash round() with "cannot convert float NaN to integer", aborting the run.
+    ranked = [c for c in comparisons if is_finite_number(c.get("percentile"))]
+    if not ranked:
+        return None  # No peer-rankable metric -> no relative-value read.
+
+    # Composite = equal-weighted mean peer percentile, rounded to a whole rank
+    # (0-100 strength versus peers; round() is banker's rounding by design).
+    composite = round(sum(c["percentile"] for c in ranked) / len(ranked))
+
+    # Map the composite strength to the desk's relative-value lean.
+    if composite >= _OVERWEIGHT:        # >= 60th pct: strong vs peers
+        recommendation = "OVERWEIGHT"
+    elif composite < _UNDERWEIGHT:      # < 40th pct: weak vs peers
+        recommendation = "UNDERWEIGHT"
+    else:                               # 40-59th pct: in line with peers
+        recommendation = "NEUTRAL"
+
+    # Per-metric rows, preserving each percentile's value and type verbatim.
+    scorecard = [
+        {
+            "metric": c.get("metric"),
+            "label": c.get("label"),
+            "percentile": c["percentile"],
+            "issuer_value": c.get("issuer_value"),
+            "peer_median": c.get("peer_median"),
+        }
+        for c in ranked
+    ]
+
     return {
-        "scorecard": scorecard, "composite_percentile": composite,
-        "recommendation": rec, "metrics_scored": len(scored),
+        "scorecard": scorecard,
+        "composite_percentile": composite,
+        "recommendation": recommendation,
+        "metrics_scored": len(ranked),
         "peer_scope": cp1c_rt.get("peer_scope", "peers"),
     }
 
