@@ -204,7 +204,9 @@ async def _llm_translate(question: str) -> QuerySpec:
     import anthropic
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
+    )
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
@@ -262,7 +264,9 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
     import anthropic
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
+    )
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"

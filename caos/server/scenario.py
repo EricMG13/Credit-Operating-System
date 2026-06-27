@@ -130,7 +130,9 @@ async def _llm_translate(text: str) -> ScenarioSpec:
     import anthropic
 
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
+    )
     resp = await llm_client.create(
         client,
         lane="scenario:translate",

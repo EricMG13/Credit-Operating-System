@@ -188,6 +188,9 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     preset = _AI_MODES.get(brief.ai_mode, _AI_MODES["standard"])
     model = preset["model"] or settings.anthropic_model
 
+    # ponytail: shares llm._get_client()'s caos_llm_timeout_s bound. Fine for streaming
+    # (Anthropic pings keep read-gaps « the bound); if a long server-side search ever
+    # trips it, widen per-call here, not the shared default: _get_client().with_options(timeout=…)
     client: anthropic.AsyncAnthropic = _get_client()
     messages: list = [{"role": "user", "content": prompt}]
     tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": preset["searches"]}]

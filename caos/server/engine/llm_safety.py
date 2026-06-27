@@ -88,7 +88,9 @@ async def extract_json(
     if not hits:
         return None
     grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = anthropic.AsyncAnthropic(
+        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
+    )
     resp = await llm_client.create(
         client,
         lane="extract",

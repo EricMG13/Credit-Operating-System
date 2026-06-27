@@ -49,8 +49,11 @@ def _types():
 def get_client():
     genai = _genai()
     s = get_settings()
+    # google-genai's HttpOptions.timeout is in milliseconds (Anthropic's is seconds).
+    http = _types().HttpOptions(timeout=int(s.caos_llm_timeout_s * 1000))
     # api_key omitted -> SDK reads GOOGLE_API_KEY / GEMINI_API_KEY from the env.
-    return genai.Client(api_key=s.gemini_api_key) if s.gemini_api_key else genai.Client()
+    return (genai.Client(api_key=s.gemini_api_key, http_options=http) if s.gemini_api_key
+            else genai.Client(http_options=http))
 
 
 # ── Anthropic → Gemini translation ───────────────────────────────────────────
