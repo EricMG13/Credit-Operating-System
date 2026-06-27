@@ -51,7 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me: AuthUser = await getMe();
       setUser(me);
       setError(false);
-      setNeedsLogin(me.source !== "profile"); // proxy/local resolve, but still need a profile
+      // "local" only happens off-proxy in a non-deployed run (deployed → 401 or
+      // "proxy", never "local"), so accept it as signed-in: preview never gates
+      // on login. "proxy" (SSO) still self-registers a named profile.
+      setNeedsLogin(me.source !== "profile" && me.source !== "local");
     } catch (e) {
       setUser(null);
       // 401 = no identity yet → show the login landing. Anything else = API down.
