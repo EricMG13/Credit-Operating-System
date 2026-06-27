@@ -53,6 +53,52 @@ def _facts():
     return {"entityName": "Test Co", "facts": {"us-gaap": us}}
 
 
+def _facts_legs(ltd_rows, dcur_rows=None, cash_rows=None):
+    """A profitable FY2025 filer with explicit debt/cash instant legs, to exercise
+    per-leg net-debt freshness. rows: (end, val, fy, accn, filed)."""
+    us = {}
+    us.update(_flow("Revenues", [("2025-01-01", "2025-12-31", 2_742_000_000, 2025, "a25", "2026-02-01")]))
+    us.update(_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 300_000_000, 2025, "a25", "2026-02-01")]))
+    us.update(_flow("DepreciationDepletionAndAmortization",
+                    [("2025-01-01", "2025-12-31", 115_000_000, 2025, "a25", "2026-02-01")]))
+    us.update(_inst("LongTermDebt", ltd_rows))
+    if dcur_rows:
+        us.update(_inst("DebtCurrent", dcur_rows))
+    if cash_rows:
+        us.update(_inst("CashAndCashEquivalentsAtCarryingValue", cash_rows))
+    return {"entityName": "Legs Co", "facts": {"us-gaap": us}}
+
+
+# ── Per-leg net-debt freshness (review run-2 #B2/#B3) ────────────────────────
+def test_leverage_suppressed_when_current_debt_leg_stale():
+    # #B2: fresh-2025 LT debt + a STALE-2021 current-debt leg must NOT produce a
+    # leverage figure built from cross-year legs (the 18x-labelled-FY2025 bug).
+    facts = _facts_legs(
+        ltd_rows=[("2025-12-31", 1_000_000_000, 2025, "a25", "2026-02-01")],
+        dcur_rows=[("2021-12-31", 5_000_000_000, 2021, "a21", "2022-02-01")])
+    nf = build_cp1_payload("Legs Co", facts).runtime_output["normalized_financials"]
+    assert "net_leverage_adj_ltm" not in nf
+
+
+def test_leverage_suppressed_when_cash_leg_stale():
+    # #B3: fresh-2025 LT debt − STALE-2021 cash must NOT understate leverage.
+    facts = _facts_legs(
+        ltd_rows=[("2025-12-31", 1_000_000_000, 2025, "a25", "2026-02-01")],
+        cash_rows=[("2021-12-31", 900_000_000, 2021, "a21", "2022-02-01")])
+    nf = build_cp1_payload("Legs Co", facts).runtime_output["normalized_financials"]
+    assert "net_leverage_adj_ltm" not in nf
+
+
+def test_leverage_computed_when_all_legs_fresh():
+    # Guard against over-suppression: all legs at FY2025 → leverage still derived.
+    facts = _facts_legs(
+        ltd_rows=[("2025-12-31", 1_000_000_000, 2025, "a25", "2026-02-01")],
+        dcur_rows=[("2025-12-31", 200_000_000, 2025, "a25", "2026-02-01")],
+        cash_rows=[("2025-12-31", 100_000_000, 2025, "a25", "2026-02-01")])
+    nf = build_cp1_payload("Legs Co", facts).runtime_output["normalized_financials"]
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(1100 / 415, abs=0.02)  # (1000+200-100)/415
+
+
 # ── XBRL → CP-1 reported builder ─────────────────────────────────────────────
 def test_build_cp1_reported_foundation():
     p = build_cp1_payload("Test Co", _facts())

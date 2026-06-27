@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from engine import llm_client, presets
 from database import Issuer, MetricFact
 from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
 from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
@@ -34,6 +35,7 @@ logger = logging.getLogger("caos.nlquery")
 
 _FILTER_FIELDS = {"industry", "country"}
 _FILTER_OPS = {"=", ">", ">=", "<", "<=", "ilike"}
+_NUMERIC_OPS = {"=", ">", ">=", "<", "<="}  # ilike is text-only (issuer fields)
 _MAX_LIMIT = 50
 
 
@@ -87,6 +89,15 @@ def validate_spec(spec: QuerySpec) -> QuerySpec:
             raise QueryError(f"unknown filter field: {f.field!r}")
         if f.op not in _FILTER_OPS:
             raise QueryError(f"unsupported filter op: {f.op!r}")
+        # A metric filter is numeric: reject the text-only `ilike` and a non-numeric
+        # value HERE, rather than silently passing every row in _passes (#4).
+        if f.field in CATALOG_BY_KEY:
+            if f.op not in _NUMERIC_OPS:
+                raise QueryError(f"metric filter {f.field!r} needs a numeric op, not {f.op!r}")
+            try:
+                float(f.value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                raise QueryError(f"metric filter {f.field!r} needs a numeric value, not {f.value!r}")
     spec.metrics = metrics
     spec.direction = "asc" if str(spec.direction).lower() == "asc" else "desc"
     spec.limit = max(1, min(_MAX_LIMIT, int(spec.limit or 10)))
@@ -199,8 +210,11 @@ async def _llm_translate(question: str) -> QuerySpec:
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
         for m in catalog_dicts()
     )
-    resp = await client.messages.create(
-        model=settings.anthropic_model,
+    resp = await llm_client.create(
+        client,
+        lane="nlquery:translate",
+        model=presets.model_for(presets.LIGHT),
+        effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_SYSTEM.format(catalog=catalog),
         messages=[{"role": "user", "content": question}],
@@ -254,8 +268,11 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
         for m in catalog_dicts()
     )
-    resp = await client.messages.create(
-        model=settings.anthropic_model,
+    resp = await llm_client.create(
+        client,
+        lane="nlquery:plan",
+        model=presets.model_for(presets.LIGHT),
+        effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_PLAN_SYSTEM.format(catalog=catalog),
         messages=[{"role": "user", "content": question}],
@@ -294,9 +311,9 @@ def _passes(value: Optional[float], op: str, target) -> bool:
     try:
         t = float(target)
     except (TypeError, ValueError):
-        return True
+        return False  # fail closed: an unparseable filter excludes, never admits all (#4)
     return {"=": value == t, ">": value > t, ">=": value >= t,
-            "<": value < t, "<=": value <= t}.get(op, True)
+            "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
 
 
 async def execute(session: AsyncSession, spec: QuerySpec) -> dict:

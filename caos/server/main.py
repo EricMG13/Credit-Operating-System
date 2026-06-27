@@ -17,13 +17,14 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from access_log import access_event, client_source, principal
 from config import get_settings
 from database import AsyncSessionLocal, init_db
+from engine import presets
 from engine.fixtures import ensure_reference_deal
 from routes import auth, chat, edgar, health, ingestion, issuers, query, research, runs, scenario, settings as settings_routes
 from research_executor import ResearchExecutor
@@ -100,12 +101,25 @@ async def lifespan(app: FastAPI):
     logger.info("CAOS shutting down")
 
 
+async def set_model_mode(request: Request) -> None:
+    """Carry the analyst's model mode (X-Model-Mode header) into request context.
+
+    A global dependency, so every in-request /api lane — issuer chat, NL-query
+    translate/plan, scenario translate, document extract — runs under the chosen
+    TEST/LITE/BALANCED/MAX tier (engine/presets.py). Runs read the mode off the
+    persisted Run.model_mode instead, since they execute in a worker task. An
+    unknown / missing header normalizes to the default mode."""
+    presets.set_mode(request.headers.get("x-model-mode"))
+
+
 _PROD = settings.environment == "production"
 app = FastAPI(
     title="Credit Agent OS (CAOS)",
     version="2.0.0",
     description="Credit analysis workspace — single-container API + UI.",
     lifespan=lifespan,
+    # Resolve the analyst's model mode from X-Model-Mode on every request.
+    dependencies=[Depends(set_model_mode)],
     # Interactive API docs / schema are exploration aids — keep them in dev but
     # close them in production (no reason to publish the API surface there, even
     # behind the authenticated edge).

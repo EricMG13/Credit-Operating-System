@@ -18,6 +18,8 @@ import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { getSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
+import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
+import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
 
 export default function SettingsPage() {
   return (
@@ -36,8 +38,18 @@ function configGroups(cfg: WorkspaceSettings) {
       rows: [
         { label: "Model", value: cfg.model, hint: "ANTHROPIC_MODEL" },
         { label: "Model key configured", value: cfg.llm_configured, hint: "ANTHROPIC_API_KEY" },
+        { label: "Gemini key configured", value: cfg.gemini_configured, hint: "GEMINI_API_KEY" },
         { label: "Synth executor", value: cfg.engine_cost.synth_executor_model, hint: "SYNTH_EXECUTOR_MODEL" },
         { label: "Advisor model", value: cfg.engine_cost.advisor_model, hint: "ADVISOR_MODEL" },
+      ],
+    },
+    {
+      title: "Model tiers (mode → model)",
+      rows: [
+        { label: "Cheap — TEST, light/extract", value: cfg.model_tiers.cheap, hint: "MODEL_TIER_CHEAP" },
+        { label: "Fast — LITE heavy, light lanes", value: cfg.model_tiers.fast, hint: "MODEL_TIER_FAST" },
+        { label: "Strong — BALANCED heavy", value: cfg.model_tiers.strong, hint: "MODEL_TIER_STRONG" },
+        { label: "Top — MAX heavy", value: cfg.model_tiers.top, hint: "MODEL_TIER_TOP" },
       ],
     },
     {
@@ -46,6 +58,7 @@ function configGroups(cfg: WorkspaceSettings) {
         { label: "Council (CP-5C semantic review)", value: cfg.governance.council_enabled, hint: "COUNCIL_ENABLED" },
         { label: "Council seats", value: cfg.governance.council_seats, hint: "COUNCIL_SEATS" },
         { label: "Council peer round", value: cfg.governance.council_peer_round, hint: "COUNCIL_PEER_ROUND" },
+        { label: "Cross-model council review", value: cfg.governance.council_cross_model, hint: "COUNCIL_CROSS_MODEL" },
         { label: "Adversarial debate (CP-6A) narration", value: cfg.governance.debate_enabled, hint: "DEBATE_ENABLED" },
       ],
     },
@@ -108,6 +121,11 @@ function Settings() {
   const [saved, setSaved] = useState(false);
   useEffect(() => setPrefs(loadPrefs()), []);
 
+  // ── Model mode (browser-local, immediate-save) ──
+  const [mode, setMode] = useState<ModelMode>(DEFAULT_MODE);
+  useEffect(() => setMode(loadMode()), []);
+  const changeMode = (m: ModelMode) => { setMode(m); saveMode(m); };
+
   const set = <K extends keyof ResearchPrefs>(k: K, v: ResearchPrefs[K]) => {
     setPrefs((p) => ({ ...p, [k]: v }));
     setSaved(false);
@@ -154,6 +172,18 @@ function Settings() {
       {/* body */}
       <div className="flex-1 min-h-0 overflow-auto p-2">
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
+          {/* Model mode */}
+          <Panel title="Model mode · saved in this browser">
+            <div className="p-3 flex flex-col gap-3">
+              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+                The cost↔quality tier the engine runs its LLM lanes at — module synthesis, the
+                adversarial council, issuer chat, and queries. Sent with every request; each run
+                pins the mode it ran at. Applies to this browser.
+              </p>
+              <ModelModeToggle value={mode} onChange={changeMode} />
+            </div>
+          </Panel>
+
           {/* Research defaults */}
           <Panel
             title="Research defaults · saved in this browser"

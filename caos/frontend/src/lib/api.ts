@@ -1,4 +1,5 @@
 import axios from "axios";
+import { loadMode } from "@/lib/model-mode";
 
 // Same-origin API: the FastAPI server serves both /api and the static
 // frontend in deployment (Databricks Apps). In `next dev`, the rewrite in
@@ -10,6 +11,14 @@ export const api = axios.create({
   // Deep Research is now a durable background job polled by short GETs, so it
   // relies on this default too (no long-held per-request override). P1/P2/L6.
   timeout: 20000,
+});
+
+// Per-analyst model mode → X-Model-Mode on every request. The server resolves it
+// to a model tier per LLM lane (engine/presets.py); runs persist the mode they
+// ran at. SSR has no localStorage, so this only attaches in the browser.
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") config.headers.set("X-Model-Mode", loadMode());
+  return config;
 });
 
 // ─── Identity ─────────────────────────────────────────────────────────────
@@ -257,7 +266,9 @@ export const deepResearch = async (brief: ResearchBrief): Promise<ResearchResult
 export interface WorkspaceSettings {
   model: string;
   llm_configured: boolean;
-  governance: { council_enabled: boolean; council_seats: number; council_peer_round: boolean; debate_enabled: boolean };
+  gemini_configured: boolean;
+  governance: { council_enabled: boolean; council_seats: number; council_peer_round: boolean; council_cross_model: boolean; debate_enabled: boolean };
+  model_tiers: { cheap: string; fast: string; strong: string; top: string };
   engine_cost: { run_token_budget: number; advisor_enabled: boolean; synth_executor_model: string; advisor_model: string };
   deep_research: { effort: string; max_searches: number; max_tokens: number };
   retrieval: { edgar_enabled: boolean; markitdown_enabled: boolean };

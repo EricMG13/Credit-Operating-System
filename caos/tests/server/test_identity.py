@@ -36,6 +36,16 @@ class _FakeDB:
         return a if (a is not None and a.id == pk) else None
 
 
+def test_read_session_token_rejects_non_ascii_signature():
+    # review run-2 #B6: a tampered signature segment with a non-ASCII char must reject
+    # cleanly (None), not raise TypeError on str comparison → 500.
+    from identity import make_session_token, read_session_token
+    tok = make_session_token({"id": "a", "name": "A", "exp": 9_999_999_999}, "secret")
+    raw, _good = tok.rsplit(".", 1)
+    assert read_session_token(raw + ".café", "secret") is None
+    assert read_session_token(tok, "secret") is not None  # the valid token still verifies
+
+
 def _prod_settings(monkeypatch, **overrides):
     import identity
     from config import Settings

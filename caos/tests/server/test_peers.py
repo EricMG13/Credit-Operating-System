@@ -23,6 +23,18 @@ def test_percentile_respects_polarity():
     assert _percentile(6.0, [2.0, 3.0, 4.0], higher_is_better=False) == 0
 
 
+def test_own_values_picks_latest_same_year_for_margin():
+    # review run-2 #B5: same-year FY/LTM tie — ebitda_margin must use the live LTM
+    # period, not a stale closed-FY picked by year()-only ordering.
+    cp1 = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {
+            "revenue": {"FY2025": 1000.0, "LTM_2025": 1000.0},
+            "adj_ebitda": {"FY2025": 150.0, "LTM_2025": 200.0}}})
+    # LTM_2025 is latest → margin = 200/1000 = 20.0, not the stale FY 150/1000 = 15.0.
+    assert _own_values(cp1)["ebitda_margin"] == 20.0
+
+
 def test_own_values_from_cp1():
     cp1 = ModulePayload(
         module_id="CP-1", module_name="X", owned_object="o",

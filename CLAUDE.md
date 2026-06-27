@@ -15,6 +15,19 @@ and [caos/docs/](caos/docs/) for architecture and current build status.
 The full design reference also lives in [.impeccable.md](.impeccable.md); the
 Design Context below is kept in sync with it.
 
+## Engine conventions
+
+**Guard CP-1 figures with `is_finite_number` before dividing/multiplying.** Any
+engine computation that divides or multiplies a CP-1-derived value (leverage, net
+debt, EBITDA, coverage) must gate the input through
+`engine.periods.is_finite_number(x)` first. A plain `isinstance(x, (int, float))`
+check passes a `NaN` (and `bool(NaN)` is `True`), so a NaN slips past the guard
+and poisons the divide — leaking `NaN` into the payload (silent wrong reads
+downstream) or crashing on a zero denominator. `is_finite_number` rejects
+`NaN`/`±inf` while accepting `bool`/`0`. Also guard a denominator that can reach
+`0` (e.g. `ebitda * (1 - pct)` when `pct → 1`) — return `None`/degrade rather than
+divide. This pattern recurs across CP-2B/2E/2F/3B/3D and the Altman score.
+
 ## Design Context
 
 ### Users

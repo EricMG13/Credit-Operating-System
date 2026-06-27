@@ -1,9 +1,9 @@
 """Out-of-band run execution.
 
 `execute_run_by_id` is the shared core: load the run in its OWN session, run the
-slice, and on any error mark the run `failed` (never strand it). Two executors
-(InProcessExecutor, QueueWorker) are added in later tasks; `get_executor()` will
-pick one by DB dialect.
+slice, and on any error mark the run `failed` (never strand it). Two executors are
+defined below — InProcessExecutor (SQLite/local) and QueueWorker (Postgres) — and
+`get_executor()` picks one by DB dialect.
 """
 from __future__ import annotations
 

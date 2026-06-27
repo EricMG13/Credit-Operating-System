@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from config import get_settings
-from engine import budget, llm_client
+from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -173,7 +173,11 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
     cp2f = up.get("CP-2F")
     if cp2f is not None:
         scn = (cp2f.runtime_output or {}).get("scenarios") or []
-        worst = next((s for s in reversed(scn) if isinstance(s.get("stressed_interest_coverage"), (int, float))), None)
+        # Require BOTH fields the point interpolates, so a malformed/shape-shifted
+        # CP-2F scenario can't KeyError on rate_shock_bps. (review run-2 #B8)
+        worst = next((s for s in reversed(scn)
+                      if isinstance(s.get("stressed_interest_coverage"), (int, float))
+                      and isinstance(s.get("rate_shock_bps"), (int, float))), None)
         if worst and worst["stressed_interest_coverage"] < 1.5:
             bear.append(Point(
                 f"Rate-sensitive: +{worst['rate_shock_bps']}bps cuts coverage to "
@@ -292,7 +296,8 @@ class LiveDebater:
             resp = await llm_client.create(
                 self._get_client(),
                 lane=f"debate:{advocate}",
-                model=self._settings.anthropic_model,
+                model=presets.model_for(presets.HEAVY),
+                effort=presets.effort_for(presets.HEAVY),
                 max_tokens=512,
                 system=system,
                 messages=[{"role": "user", "content": user}],

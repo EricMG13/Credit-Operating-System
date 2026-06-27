@@ -126,7 +126,11 @@ function creditSnapshot(model: Model): Report {
   const l1 = model.cols.l1;
   const reported = l1.ebitda, addbacks = l1.ab, adj = l1.adj;
   const haircut = 35, structEbitda = adj - haircut;
-  const rcf = 55, tlb = Math.round(l1.tlb), ssn = 900, sub = 200;
+  // Canonical ATLF capital structure (CP-3B dashboard, step-outputs.ts) — the
+  // authoritative tranche set this committee snapshot must tie to. Was seeded ad hoc
+  // (rcf 55 / sub 200 / model tlb ~1,420 → total 2,575), contradicting the CP-3B
+  // total of 3,270 under the same facility names. (review run-2 #F2)
+  const rcf = 120, tlb = 1850, ssn = 900, sub = 400;
   const secured = rcf + tlb + ssn, tdebt = secured + sub, cash = Math.round(l1.cash);
   const ev = Math.round(9.5 * structEbitda), equity = ev - tdebt;
   const xm = (d: number) => (d / structEbitda).toFixed(2) + "x";
@@ -165,7 +169,7 @@ function creditSnapshot(model: Model): Report {
         { cells: ["2L TL '31 (subject)", "S+425", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
         { cells: ["Senior secured debt", "", "", "", "", "", fm(secured), xm(secured), pev(secured), ""], b: 1, line: 1 },
         { cells: ["Sub Notes '32", "10.000%", "USD", "2032", "88.50", "89.80", fm(sub), "", "", "AVOID"] },
-        { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(tdebt), "", ""], b: 1, line: 1 },
+        { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(sub), "", ""], b: 1, line: 1 },
         { cells: ["Total debt", "", "", "", "", "", fm(tdebt), xm(tdebt), pev(tdebt), ""], b: 1 },
         { cells: ["Cash", "", "", "", "", "", fm(cash), "", "", ""] },
         { cells: ["(Implied) Equity @ 9.5x", "", "", "", "", "", fm(equity), "", "", ""] },

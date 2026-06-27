@@ -158,6 +158,10 @@ class Run(Base):
     # Reproducibility: pin the model and methodology version each run saw.
     model_id: Mapped[Optional[str]] = mapped_column(String(64))
     prompt_version: Mapped[Optional[str]] = mapped_column(String(32))
+    # Analyst-selected model mode (engine/presets.py) — persisted so the
+    # background runner applies the same TEST/LITE/BALANCED/MAX tier the creating
+    # request chose, including across a re-claim. NULL = the default mode.
+    model_mode: Mapped[Optional[str]] = mapped_column(String(16))
     # Run-level gate roll-up (worst module status wins).
     qa_status: Mapped[str] = mapped_column(String(16), default="Not Reviewed")
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")

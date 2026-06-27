@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, MetricFact
 from engine.gate import Finding
 from engine.metrics import CATALOG_BY_KEY
-from engine.periods import year
+from engine.periods import sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Headline metrics worth a peer read (those CP-1 / distress produce).
@@ -49,7 +49,7 @@ def _own_values(cp1: ModulePayload) -> Dict[str, float]:
     rev, eb = nf.get("revenue") or {}, nf.get("adj_ebitda") or {}
     common = [p for p in rev if p in eb and rev[p]]
     if common:
-        p = max(common, key=year)
+        p = max(common, key=sort_key)
         out["ebitda_margin"] = round(100 * eb[p] / rev[p], 1)
     return out
 
@@ -175,6 +175,8 @@ def peer_outlier_finding(cp1c: Optional[ModulePayload]) -> Optional[Finding]:
     return Finding(
         finding_id="CP-1C-PEER", severity="MINOR", lane=2, module_id="CP-1C",
         affected_claim_id="C-PEER1",
-        description=f"Bottom-quartile vs {scope} on: {', '.join(outliers)}. Weight the relative positioning.",
+        # str() each item: runtime_output is unvalidated free-form, so a non-str
+        # outlier must not crash the join and abort the whole CP-5 run.
+        description=f"Bottom-quartile vs {scope} on: {', '.join(str(o) for o in outliers)}. Weight the relative positioning.",
         required_remediation="Confirm peer set and whether the gap is structural or cyclical.",
     )

@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import latest, year
+from engine.periods import is_finite_number, latest, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -92,10 +92,12 @@ def _headline_period(periods: Sequence[str]) -> Optional[str]:
     fiscal year (the EDGAR annual-filer case, where the latest 10-K *is* the
     headline). Keeps headline selection correct for both provenances."""
     periods = list(periods)
+    if not periods:
+        return None
+    # Prefer an explicit LTM/trailing period as the headline; among ties pick the
+    # MOST RECENT (total order), not whichever happened to come first.
     ltm = [p for p in periods if _is_ltm(p)]
-    if ltm:
-        return ltm[0]
-    return max(periods, key=year) if periods else None
+    return max(ltm or periods, key=sort_key)
 
 
 def extract_facts(run_id: str, payload: ModulePayload, qa_status: str) -> List[dict]:
@@ -186,11 +188,15 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
     eb = latest(nf.get("adj_ebitda") or {})
-    if not (isinstance(lev, (int, float)) and lev and isinstance(nd, (int, float)) and nd
-            and isinstance(eb, (int, float)) and eb):
+    if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
+            and is_finite_number(eb) and eb):
         return None
     recomputed = nd / eb
-    if abs(recomputed - lev) / lev <= 0.05:
+    # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
+    # leverage, and dividing by the signed lev would make the ratio negative —
+    # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
+    # vs the recomputed value) would silently escape this MATERIAL cross-check.
+    if abs(recomputed - lev) / abs(lev) <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",

@@ -216,10 +216,16 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     cash_c = cash_at[3] if cash_at else None
     total_debt = (ltd_at[1] if ltd_at else 0.0) + (dcur_at[1] if dcur_at else 0.0)
     net_debt = total_debt - (cash_at[1] if cash_at else 0.0)
-    # Don't compute leverage off stale debt: require it within a year of the EBITDA
-    # period (else a long-discontinued tag misleads, e.g. 2019 debt vs 2026 EBITDA).
-    debt_year = ltd_at[0] if ltd_at else (dcur_at[0] if dcur_at else None)
-    debt_fresh = debt_year is not None and debt_year >= ly - 1
+    # Don't compute leverage off stale legs: net debt is summed from three
+    # independently-dated XBRL instants (LT debt, current debt, cash), so EVERY
+    # present leg must be within a year of the EBITDA period — a discontinued
+    # current-debt tag inflates leverage, a discontinued cash tag understates it,
+    # and the FY{ly} label would silently misdate both. Mirror the bs_stale Altman
+    # discipline below. (review run-2 #B2/#B3)
+    # ponytail: suppress leverage when any leg is stale; refine to drop-stale-cash
+    # (conservative gross-debt leverage + flag) if losing the figure ever matters.
+    leg_years = [at[0] for at in (ltd_at, dcur_at, cash_at) if at is not None]
+    debt_fresh = bool(leg_years) and all(y >= ly - 1 for y in leg_years)
     int_ly = _latest(interest, ly)
     # Interest coverage must use interest from the EBITDA period, not a discontinued
     # concept: _series picks the first _INTEREST tag with any data and never merges,
@@ -350,8 +356,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
     elif total_debt and leverage is None and not debt_fresh:
         limitations.append(
-            "Net leverage not derived: the latest long-term-debt XBRL tag predates the EBITDA "
-            "period (the filer likely switched debt concepts) — verify total debt against the "
+            "Net leverage not derived: a long-term-debt, current-debt, or cash XBRL tag predates "
+            "the EBITDA period (the filer likely switched concepts) — verify net debt against the "
             "most recent balance sheet.")
     elif total_debt and leverage is None:
         limitations.append(

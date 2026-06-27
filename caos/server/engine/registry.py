@@ -152,3 +152,23 @@ DECLARATION_INDEX: Dict[str, int] = {s.module_id: i for i, s in enumerate(_SPECS
 def all_specs() -> List[ModuleSpec]:
     """The routing index in declaration order."""
     return list(_SPECS)
+
+
+def _validate_registry() -> None:
+    """Fail loud at import if the static module graph is malformed — a dangling
+    ``depends_on`` id or a dependency cycle would otherwise surface as a confusing
+    runtime ``upstream.get() is None`` or a non-terminating layer sort. Enforces the
+    graph's own declared invariant (every dependency declared before its dependent,
+    see the _SPECS note) — which also guarantees acyclicity, since a cycle cannot be
+    forward-declared only. (review run-2 #B9/#B10)"""
+    for spec in _SPECS:
+        for dep in spec.depends_on:
+            if dep not in REGISTRY:
+                raise ValueError(f"registry: {spec.module_id} depends_on unknown module {dep!r}")
+            if DECLARATION_INDEX[dep] >= DECLARATION_INDEX[spec.module_id]:
+                raise ValueError(
+                    f"registry: {spec.module_id} depends_on {dep!r} declared after it "
+                    "— violates declared-before-dependent ordering (and would admit a cycle)")
+
+
+_validate_registry()

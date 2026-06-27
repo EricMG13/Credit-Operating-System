@@ -43,7 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import latest
+from engine.periods import is_finite_number, latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -158,7 +158,7 @@ async def reconcile_adjusted_ebitda(
     bridge belongs with the reported basis it adjusts."""
     lev, nd = cp1_leverage(cp1)
     res = await extract_addbacks(retrieve)
-    if res is None or lev is None or nd is None:
+    if res is None or not is_finite_number(lev) or not is_finite_number(nd):
         return None
 
     pct, categories, chunk_id, exact = res
@@ -167,8 +167,15 @@ async def reconcile_adjusted_ebitda(
     # basis/period; use the reconstruction only when adj_ebitda is absent. (#16)
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     disclosed = latest(nf.get("adj_ebitda") or {})
-    ebitda = float(disclosed) if isinstance(disclosed, (int, float)) and disclosed > 0 else nd / lev
+    if is_finite_number(disclosed) and disclosed > 0:
+        ebitda = float(disclosed)
+    elif lev != 0:
+        ebitda = nd / lev  # reconstruct from leverage only when adj_ebitda is absent
+    else:
+        return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
+    if ebitda_excl <= 0:
+        return None  # add-backs claim >= 100% of EBITDA — no meaningful excl leverage
     lev_excl = round(nd / ebitda_excl, 2)
     gap = round(lev_excl - lev, 2)
 
@@ -210,9 +217,15 @@ def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
         return None
     ro = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
     pct, gap = ro.get("addback_pct"), ro.get("leverage_gap_turns")
-    if pct is None or gap is None:
+    # A persisted/replayed CP-1 payload could carry a NaN (-> "nan%" committee
+    # text) or a str (-> a TypeError that fails the whole run) here. is_finite_number
+    # rejects None/NaN/inf/non-numbers, so the gate degrades to None rather than
+    # crash — subsumes the old `pct is None or gap is None` guard.
+    if not (is_finite_number(pct) and is_finite_number(gap)):
         return None
-    if pct < _MATERIAL_PCT and abs(gap) < _MATERIAL_GAP_TURNS:
+    # Immaterial only when BOTH are small; abs() on each so a negative add-back pct
+    # (or gap) is judged on magnitude — gap was already abs'd; pct now matches.
+    if abs(pct) < _MATERIAL_PCT and abs(gap) < _MATERIAL_GAP_TURNS:
         return None  # immaterial — no noise
     return Finding(
         finding_id="CP-1A-RECON", severity="MINOR", lane=2, module_id="CP-1",

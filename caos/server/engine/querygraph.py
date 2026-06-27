@@ -531,7 +531,7 @@ async def _percentile(session: AsyncSession, issuer_id: Optional[str], cap: dict
 
 
 async def _trend(session: AsyncSession, cap: dict) -> dict:
-    from engine.periods import year
+    from engine.periods import sort_key
     rows = (await session.execute(
         select(MetricFact, Issuer).join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage")))
@@ -545,7 +545,7 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
     if pick is None or len({p for p, _ in pick[1]}) < 2:
         return _empty(cap, "Metric trend", "No metric has ≥2 periods yet.")
     (iid, mk), pairs = pick
-    pairs = sorted({p: v for p, v in pairs}.items(), key=lambda pv: year(pv[0]))
+    pairs = sorted({p: v for p, v in pairs}.items(), key=lambda pv: sort_key(pv[0]))
     vs = [v for _p, v in pairs]
     lo, hi = min(vs), max(vs)
     md = CATALOG_BY_KEY.get(mk)

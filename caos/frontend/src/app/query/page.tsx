@@ -7,7 +7,7 @@
 // search engine with a few predefined, data-grounded prompts; the left rail lists
 // every capability grouped by edge type, greyed when its edge can't be walked yet.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { CapabilityRail } from "@/components/query/CapabilityRail";
@@ -70,20 +70,25 @@ function Query() {
     return m;
   }, [caps]);
 
+  const runSeq = useRef(0);
   const run = useCallback((capId: string) => {
+    // Ignore out-of-order results: a slow earlier queryGraph must not clobber a newer
+    // one (graph/error/running guarded on the latest sequence). (review run-2 #FR2)
+    const seq = ++runSeq.current;
     setActiveId(capId);
     setRunning(true);
     setGraphErr(null);
     setNote(null);
     setSuggest([]);
     queryGraph(capId)
-      .then((g) => setGraph(g))
+      .then((g) => { if (seq === runSeq.current) setGraph(g); })
       .catch((e) => {
+        if (seq !== runSeq.current) return;
         const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
           || (e as Error)?.message || "could not run query";
         setGraphErr(String(d));
       })
-      .finally(() => setRunning(false));
+      .finally(() => { if (seq === runSeq.current) setRunning(false); });
   }, []);
 
   // Load capabilities, then auto-run the first runnable preferred capability so the

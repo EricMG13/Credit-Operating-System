@@ -74,6 +74,17 @@ def test_monitoring_finding_silent_on_growth():
     assert monitoring_finding(None) is None
 
 
+def test_compute_deltas_orders_same_year_ltm_after_fy():
+    # review run-2 #B4: FY2025 and LTM_2025 tie on year(); ordering must place the
+    # live LTM stub LAST so the YoY delta reads as growth, not a spurious decline.
+    d = compute_deltas(_nf(
+        {"FY2024": 1000, "FY2025": 1100, "LTM_2025": 1150},
+        {"FY2024": 200, "FY2025": 220, "LTM_2025": 230}))
+    assert d["summary"]["latest_period"] == "LTM_2025"
+    assert d["summary"]["revenue_growth_pct"] == pytest.approx(4.5, abs=0.1)  # 1100→1150, not a decline
+    assert d["monitoring_signals"] == []
+
+
 # ── Runner wiring on the ATLF deal (growing → no monitoring finding) ─────────
 @pytest.fixture(scope="module")
 def client():
