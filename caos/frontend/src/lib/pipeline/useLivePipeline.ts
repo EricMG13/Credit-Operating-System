@@ -9,7 +9,7 @@
 
 import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
-import { useLatestRun, useLatestRunStatus, type LatestRunStatus } from "@/lib/engine/useLatestRun";
+import { useLatestRunStatus, type LatestRunStatus } from "@/lib/engine/useLatestRun";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
 import type { Sim, SimEvent } from "./sim-engine";
 
@@ -114,10 +114,6 @@ const buildPipeline = async (latest: { id: string }): Promise<LivePipeline> => {
   ]);
   return buildLiveSnapshot(run, cpx);
 };
-
-export function useLivePipeline(issuerId: string): LivePipeline | null {
-  return useLatestRun<LivePipeline | null>(issuerId, null, null, buildPipeline);
-}
 
 // Status-aware variant: same load, but also reports the load phase so the page
 // can tell a genuine error / an in-flight run / no-coverage apart instead of
