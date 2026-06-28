@@ -11,7 +11,7 @@ name: caos
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
     # read_only is unset — the postgres entrypoint starts as root, drops to the
@@ -137,7 +137,7 @@ services:
     # rotation, to the `backups` volume. On-host only — copy /backups off-host
     # (rsync / object storage) for real durability. Override cadence/retention
     # via BACKUP_INTERVAL_SECONDS / BACKUP_KEEP in .env.
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     depends_on:
       db:
