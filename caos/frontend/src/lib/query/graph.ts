@@ -20,6 +20,8 @@ export interface GraphNode {
   chunk_id?: string; // present on chunk nodes → click-to-source
   module?: string | null;
   title?: string; // hover detail
+  obsidian_url?: string;
+  analyst_excerpt?: string;
 }
 
 export interface GraphEdge {

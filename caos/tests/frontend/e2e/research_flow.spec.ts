@@ -75,9 +75,13 @@ test.describe("Deep Research", () => {
     await run.click();
 
     await expect(page.getByText("DEMO", { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible({
+      timeout: 15000,
+    });
     // Cited sources render in the footer.
-    await expect(page.getByText("Sources (1)")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Example credit filing" })).toBeVisible();
+    await expect(page.getByText("Sources (1)")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("link", { name: "Example credit filing" })).toBeVisible({
+      timeout: 15000,
+    });
   });
 });

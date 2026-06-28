@@ -12,6 +12,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Some dense jsdom component specs exercise full cross-pane workflows and
+    // regularly exceed Vitest's 5s default on local machines. Keep the default
+    // command representative instead of forcing ad hoc CLI timeout overrides.
+    testTimeout: 20000,
     // Unit + component tests — keep Playwright e2e specs (../tests/frontend/e2e)
     // out. Component tests opt into jsdom per-file via `@vitest-environment`.
     include: ["src/**/*.test.{ts,tsx}"],

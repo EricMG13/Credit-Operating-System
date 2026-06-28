@@ -75,6 +75,15 @@ export function caosChatContext(
   issuerName?: string,
 ): string {
   if (live?.runId) return liveContext(tab, live, issuerName, focusEv);
+  if (live) {
+    const mod = MODULES.find((m) => m.id === tab);
+    return [
+      "You are the Credit OS analyst assistant. No completed issuer-specific run is available.",
+      "Do not use Atlas Forge reference figures. Tell the analyst to run the issuer or open the reference demo for sample data.",
+      "ISSUER: " + (issuerName || "this issuer") + ".",
+      "USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".",
+    ].join("\n");
+  }
 
   // Fixture path (reference deal / no live run): the rich ATLF reference context.
   const mod = MODULES.find((m) => m.id === tab);

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { ProfileMetric } from "@/lib/api";
 import {
   periodRank, buildHeadline, buildSeries, financialsSpec, lineSpec, buildCharts,
-  isQuarterPeriod, filterSeriesByGranularity,
+  isQuarterPeriod, filterSeriesByGranularity, latestPointDelta,
 } from "@/lib/issuer-profile-charts";
 
 const m = (
@@ -42,6 +42,19 @@ describe("buildSeries", () => {
     expect(s.net_leverage).toHaveLength(1);
     expect(s.net_leverage[0].value).toBe(2.5);
     expect(s.revenue.map((x) => x.period)).toEqual(["FY23", "FY24"]);
+  });
+});
+
+describe("latestPointDelta", () => {
+  it("returns latest minus prior from an already-sorted metric series", () => {
+    const s = buildSeries([
+      m("net_leverage", "FY24", 6.0),
+      m("net_leverage", "FY25", 5.7),
+      m("net_leverage", "LTM_Q1_26", 5.68),
+    ]);
+
+    expect(latestPointDelta(s.net_leverage)).toBeCloseTo(-0.02);
+    expect(latestPointDelta([m("interest_coverage", "LTM", 2.1)])).toBeNull();
   });
 });
 

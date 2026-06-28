@@ -42,7 +42,8 @@ test.describe("CAOS single-process app", () => {
     await expect(page.getByText("ISSUER REGISTER", { exact: false })).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.getByText(issuerName)).toBeVisible({ timeout: 10000 });
+    await page.getByLabel("Search issuers").fill(issuerName);
+    await expect(page.getByText(issuerName, { exact: true })).toBeVisible({ timeout: 15000 });
   });
 
   test("upload wizard advances to files & run mode step", async ({ page }) => {

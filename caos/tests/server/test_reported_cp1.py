@@ -129,6 +129,17 @@ def test_extract_total_service_revenue():
     assert m["revenue"][:2] == (1500.0, "£")
 
 
+def test_extract_total_revenue_preferred_over_service_revenue():
+    # VMO2 discloses both; CP-1 revenue should use Total Revenue, not the service
+    # revenue KPI, even if the service-revenue sentence appears first.
+    m = extract_reported_metrics([
+        ("summary", "Results to 31 March 2026. Net leverage of 4.0x. "
+                    "Revenue: Q1 total service revenue was £2,007.9 million."),
+        ("table", "Total Revenue £ 2,390.1. Memo: Total Service Revenue 2,007.9."),
+    ])
+    assert m["revenue"][:2] == (2390.1, "£")
+
+
 def test_build_reported_cp1_leverage_only():
     # Amounts with no currency symbol are ignored; a leverage-only payload still builds.
     p = asyncio.run(build_reported_cp1_payload(

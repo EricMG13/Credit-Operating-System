@@ -122,7 +122,13 @@ export function KnowledgeSources({ data, refreshed, step }: { data: SectorReview
         {data.sources.map((s, i) => {
           const found = refreshed || step >= 2 || i < step * 2;
           return (
-            <div key={s.name} className="grid grid-cols-[64px_200px_1fr_16px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 last:border-b-0">
+            <button
+              key={s.name}
+              onClick={() => s.url && window.open(s.url, "_blank", "noopener,noreferrer")}
+              disabled={!s.url}
+              title={s.url ? "Open source" : "Source pointer only — no direct file/URL registered in demo data"}
+              className="w-full grid grid-cols-[64px_200px_1fr_16px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 last:border-b-0 text-left disabled:cursor-default hover:enabled:bg-caos-elevated/50 transition-caos"
+            >
               <span
                 className="tabular text-caos-3xs px-1 py-px rounded border text-center"
                 style={
@@ -140,7 +146,7 @@ export function KnowledgeSources({ data, refreshed, step }: { data: SectorReview
               ) : (
                 <Dot sev="running" pulse />
               )}
-            </div>
+            </button>
           );
         })}
       </div>

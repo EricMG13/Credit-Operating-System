@@ -1,7 +1,7 @@
 "use client";
 
-// Global concept-switch shortcut: hold SPACE and press ←/→ to cycle through
-// the seven concept views (wraps at the ends). Mounted once in the root
+// Global shortcuts: hold SPACE and press ←/→ to cycle concepts; S focuses issuer
+// search; K opens Ask; C broadcasts collapse/open panes. Mounted once in the root
 // layout. Inactive while typing in inputs/textareas/contenteditables so the
 // spacebar still types spaces there.
 
@@ -35,6 +35,14 @@ export function ConceptHotkeys() {
         return;
       }
       if (!spaceHeld.current) return;
+      if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
+        if (isEditable(e.target)) return;
+        e.preventDefault();
+        if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:issuer-search-focus"));
+        if (e.key.toLowerCase() === "k") window.dispatchEvent(new Event("caos:ask-toggle"));
+        if (e.key.toLowerCase() === "c") window.dispatchEvent(new Event("caos:collapse-toggle"));
+        return;
+      }
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if (isEditable(e.target)) return;
       e.preventDefault();

@@ -3,18 +3,18 @@
 // Concept A — Sector RV: sector-peer relative value tables in the desk-sheet
 // format (issuer + loan data, spread-implied liquidity, mid RV assessment,
 // price deltas), with US Leveraged Loan index statistics and per-rating
-// averages. Sheet-tab toggle switches between sector tables.
+// averages. Sector dropdown switches between sector tables.
 
 import { useMemo, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import {
   DELTA_COLS,
   INDEX_STATS,
-  RV_LABEL,
   SECTORS,
   ratingAverages,
   type Liquidity,
   type RVRow,
+  type RVSignal,
 } from "@/lib/command/rvdata";
 
 const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
@@ -23,6 +23,15 @@ const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
   OK: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
   Concerning: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
   Impaired: { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
+};
+
+const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
+  Cheap: { bg: "rgba(34,197,94,0.20)", fg: "var(--caos-success-bright)" },
+  Wide: { bg: "rgba(34,197,94,0.09)", fg: "var(--caos-success-bright)" },
+  Inline: { bg: "rgba(79,140,255,0.12)", fg: "var(--caos-accent)" },
+  Tight: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
+  Rich: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
+  "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
 function DeltaCell({ v }: { v: number | null }) {
@@ -53,6 +62,20 @@ function Chip({ liq, label }: { liq: Liquidity; label: string }) {
       style={{ background: s.bg, color: s.fg }}
     >
       {label}
+    </span>
+  );
+}
+
+function RVChip({ signal, bp }: { signal: RVSignal; bp: number | null }) {
+  const s = RV_STYLE[signal];
+  const prefix = bp !== null && bp > 0 ? "+" : "";
+  return (
+    <span
+      className="tabular text-caos-2xs px-1.5 py-px rounded whitespace-nowrap"
+      style={{ background: s.bg, color: s.fg }}
+      title={bp === null ? "No sector/rating benchmark" : `${prefix}${Math.round(bp)}bps versus sector rating median`}
+    >
+      {signal}{bp === null ? "" : ` ${prefix}${Math.round(bp)}`}
     </span>
   );
 }
@@ -112,7 +135,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
   const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
   const sorted = useSort(rows, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    if (c === "rv") return RV_LABEL[r.liq] || "";
+    if (c === "rv") return r.rvBp;
     return field(r, c);
   });
 
@@ -121,8 +144,9 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
       <thead>
         <tr className="border-b border-caos-border">
           <SortTh label="Company" col="company" sort={sort} onSort={handleSort} />
-          <SortTh label="Sub-Group" col="sub" sort={sort} onSort={handleSort} />
-          <SortTh label="Pub/Priv" col="pub" sort={sort} onSort={handleSort} />
+          <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} />
+          <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} />
+          <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} />
           <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} />
           <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} />
           <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} />
@@ -132,7 +156,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
           <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} />
           <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} />
           <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} />
-          <SortTh label="Mid RV" col="rv" sort={sort} onSort={handleSort} />
+          <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} />
           {DELTA_COLS.map((c, i) => (
             <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} />
           ))}
@@ -144,8 +168,9 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
         {sorted.map((r, i) => (
           <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos">
             <td className={td + " text-caos-text"}>{r.company}</td>
-            <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.sub}</td>
-            <td className={td + " text-caos-muted"}>{r.pub}</td>
+            <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>
+            <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>
+            <td className={td + " text-caos-muted"}>{r.loanType}</td>
             <td className={td + " text-caos-accent"}>{r.figi}</td>
             <td className={td + " text-caos-muted"}>{r.rank}</td>
             <td className={td + " text-caos-text"}>{r.rating}</td>
@@ -155,7 +180,7 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
             <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>
             <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>
             <td className={td}><Chip liq={r.liq} label={r.liq} /></td>
-            <td className={td}><Chip liq={r.liq} label={RV_LABEL[r.liq]} /></td>
+            <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>
             {r.d.map((v, j) => (
               <DeltaCell key={j} v={v} />
             ))}
@@ -191,30 +216,25 @@ export function SectorRV() {
 
   return (
     <div className="flex flex-col gap-2 min-h-0 min-w-0 flex-1">
-      {/* sheet tabs */}
-      <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-1.5 overflow-x-auto">
-        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap mr-1.5">
+      {/* sector selector */}
+      <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
+        <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
           Sector tables
-        </span>
-        {SECTORS.map((s, i) => (
-          <button
-            key={s.name}
-            onClick={() => setActive(i)}
-            className={
-              "flex items-center gap-1.5 tabular text-caos-sm px-2.5 py-1 rounded border transition-caos whitespace-nowrap " +
-              (i === active
-                ? "bg-caos-elevated text-caos-text"
-                : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-            style={i === active ? { borderColor: s.color } : undefined}
-          >
-            <span className="w-2 h-2 rounded-sm" style={{ background: s.color }} />
-            {s.name}
-          </button>
-        ))}
+        </label>
+        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: sector.color }} aria-hidden="true" />
+        <select
+          id="sector-rv-select"
+          value={active}
+          onChange={(e) => setActive(Number(e.target.value))}
+          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2 tabular text-caos-sm text-caos-text outline-none transition-caos hover:border-caos-accent/60"
+        >
+          {SECTORS.map((s, i) => (
+            <option key={s.name} value={i}>{s.name}</option>
+          ))}
+        </select>
         <span className="flex-1" />
         <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">
-          {sector.rows.length} loans · marks T-1 close
+          {sector.rows.length} loans · market-data file
         </span>
       </div>
 
@@ -224,7 +244,7 @@ export function SectorRV() {
         className="flex-[3] min-h-0"
         right={
           <span className="tabular text-caos-xs text-caos-muted">
-            issuer + loan data · spread-implied liquidity · CP-3 inputs
+            issuer + loan data · liquidity · RV versus sector/rating median
           </span>
         }
       >
@@ -236,8 +256,8 @@ export function SectorRV() {
       {/* index stats + rating averages */}
       <div className="flex-[2] grid grid-cols-2 gap-2 min-h-0">
         <PanelShell
-          title="Index Statistics"
-          right={<span className="tabular text-caos-xs text-caos-muted">Bloomberg US Leveraged Loan Index</span>}
+          title="Market Data Summary"
+          right={<span className="tabular text-caos-xs text-caos-muted">derived from file sectors</span>}
         >
           <div className="overflow-auto h-full">
             <table aria-label="Index statistics" className="border-collapse text-caos-sm w-full min-w-[760px]">

@@ -1,16 +1,11 @@
 "use client";
 
-// The Query graph surface: a dumb projector for the positioned node-link graph
-// the backend ([querygraph.py]) returns. Backend owns layout (normalized x/y) so
-// this renders one way for every capability — peers, contagion, the provenance
-// DAG, sector clusters — and only maps node/edge *kind* to color + shape. Chunk
-// nodes are click-to-source (the citation chain stays one interaction from text).
-
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef, Fragment } from "react";
 import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
 import { hueFor, nodeStyle } from "./node-style";
+import * as d3 from "d3";
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
@@ -27,19 +22,93 @@ const W = 1000;
 const H = 600;
 const PAD = 78;
 
-// A dark halo painted *behind* the glyphs (paint-order: stroke) so every label
-// stays legible where it crosses an edge or another node — the single biggest
-// legibility win on a dense graph.
-const HALO = { paintOrder: "stroke" as const, stroke: "#0a0a0f", strokeWidth: 3.5, strokeLinejoin: "round" as const };
+const HALO = {
+  paintOrder: "stroke" as const,
+  stroke: "#0a0a0f",
+  strokeWidth: 3.5,
+  strokeLinejoin: "round" as const,
+};
 
 const short = (s: string, n = 18) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
 type OpenChunk = (chunkId: string, label?: string | null) => void;
+type SelectNode = (node: GraphNode) => void;
 
-export function GraphCanvas({ graph, onOpenChunk }: { graph: GraphResult; onOpenChunk: OpenChunk }) {
+export function GraphCanvas({
+  graph,
+  onOpenChunk,
+  onSelectNode,
+}: {
+  graph: GraphResult;
+  onOpenChunk: OpenChunk;
+  onSelectNode?: SelectNode;
+}) {
   const px = (x: number) => PAD + x * (W - 2 * PAD);
   const py = (y: number) => PAD + y * (H - 2 * PAD);
+
+  // Keep track of zoom transform
+  const [transform, setTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // Keep track of dragged node and positions
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [draggedNode, setDraggedNode] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Keep track of hovered node for visual connection path highlighting
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
+  // Zoom setup
+  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.1, 8])
+      .on("zoom", (event) => {
+        setTransform(event.transform);
+      });
+      
+    zoomBehaviorRef.current = zoom;
+    svg.call(zoom);
+    
+    // Reset transform on graph change
+    svg.call(zoom.transform, d3.zoomIdentity);
+  }, [graph]);
+
+  // Reset zoom back to identity cleanly
+  const handleResetZoom = () => {
+    if (svgRef.current && zoomBehaviorRef.current) {
+      d3.select(svgRef.current)
+        .transition()
+        .duration(300)
+        .call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+    }
+  };
+
+  // Initialize node positions when the graph payload is replaced
+  useEffect(() => {
+    const pos: Record<string, { x: number; y: number }> = {};
+    graph.nodes.forEach((n) => {
+      pos[n.id] = { x: px(n.x), y: py(n.y) };
+    });
+    setPositions(pos);
+  }, [graph]);
+
   const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
+
+  // Adjacent node tracking for hover-highlight filters
+  const adjacentNodeIds = useMemo(() => {
+    if (!hoveredNodeId) return new Set<string>();
+    const adjacent = new Set<string>([hoveredNodeId]);
+    graph.edges.forEach((e) => {
+      if (e.source === hoveredNodeId) adjacent.add(e.target);
+      if (e.target === hoveredNodeId) adjacent.add(e.source);
+    });
+    return adjacent;
+  }, [hoveredNodeId, graph.edges]);
 
   const legend = useMemo(() => legendFor(graph.nodes), [graph]);
 
@@ -53,9 +122,76 @@ export function GraphCanvas({ graph, onOpenChunk }: { graph: GraphResult; onOpen
     );
   }
 
+  // Handle drag interaction coordinates cleanly relative to SVG box
+  const handleMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    e.preventDefault();
+    setDraggedNode(nodeId);
+
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const svgX_raw = (mouseX / (rect.width || 1)) * W;
+    const svgY_raw = (mouseY / (rect.height || 1)) * H;
+
+    const svgX = (svgX_raw - transform.x) / transform.k;
+    const svgY = (svgY_raw - transform.y) / transform.k;
+
+    const nodePos = positions[nodeId] || { x: px(byId[nodeId].x), y: py(byId[nodeId].y) };
+    setDragOffset({
+      x: svgX - nodePos.x,
+      y: svgY - nodePos.y,
+    });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!draggedNode || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // Convert mouse coordinate from screen size to SVG viewBox size (W x H)
+    const svgX_raw = (mouseX / (rect.width || 1)) * W;
+    const svgY_raw = (mouseY / (rect.height || 1)) * H;
+
+    // Convert mouse coordinate relative to active zoom scale/transform
+    const svgX = (svgX_raw - transform.x) / transform.k;
+    const svgY = (svgY_raw - transform.y) / transform.k;
+
+    setPositions((prev) => ({
+      ...prev,
+      [draggedNode]: { 
+        x: svgX - dragOffset.x, 
+        y: svgY - dragOffset.y 
+      },
+    }));
+  };
+
+  const handleMouseUp = () => {
+    setDraggedNode(null);
+  };
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
+    <div 
+      className="flex-1 min-h-0 flex flex-col relative select-none"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      {/* Zoom / Reset Floating Actions */}
+      <div className="absolute top-2 right-2 z-10 flex gap-1 bg-caos-panel/90 border border-caos-border rounded p-1">
+        <button
+          onClick={handleResetZoom}
+          className="tabular text-caos-3xs uppercase tracking-wider px-2 py-1 rounded bg-caos-bg border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
+          title="Reset Zoom"
+        >
+          Reset View
+        </button>
+      </div>
+
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height="100%"
@@ -72,20 +208,55 @@ export function GraphCanvas({ graph, onOpenChunk }: { graph: GraphResult; onOpen
           </marker>
         </defs>
 
-        {graph.edges.map((e, i) => {
-          const a = byId[e.source];
-          const b = byId[e.target];
-          if (!a || !b) return null;
-          return <EdgeLine key={i} edge={e} a={a} b={b} px={px} py={py} />;
-        })}
+        {/* View transform group */}
+        <g transform={transform.toString()}>
+          {graph.edges.map((e, i) => {
+            const a = byId[e.source];
+            const b = byId[e.target];
+            if (!a || !b) return null;
+            
+            // Get positions, defaulting to calculated backend positions if not dragged yet
+            const posA = positions[e.source] || { x: px(a.x), y: py(a.y) };
+            const posB = positions[e.target] || { x: px(b.x), y: py(b.y) };
+            
+            // Hover highlight check: edge is highlighted if connected to hovered node
+            const isDimmed = hoveredNodeId && (e.source !== hoveredNodeId && e.target !== hoveredNodeId);
 
-        {graph.nodes.map((n) => (
-          <NodeMark key={n.id} n={n} cx={px(n.x)} cy={py(n.y)} onOpenChunk={onOpenChunk} />
-        ))}
+            return (
+              <g key={i} style={{ opacity: isDimmed ? 0.08 : 1.0, transition: "opacity 160ms ease-out" }}>
+                <EdgeLine edge={e} x1={posA.x} y1={posA.y} x2={posB.x} y2={posB.y} />
+              </g>
+            );
+          })}
+
+          {graph.nodes.map((n) => {
+            const pos = positions[n.id] || { x: px(n.x), y: py(n.y) };
+            
+            // Hover highlight check: node is dimmed if another node is hovered and this isn't connected
+            const isDimmed = hoveredNodeId && !adjacentNodeIds.has(n.id);
+
+            return (
+              <g 
+                key={n.id} 
+                style={{ opacity: isDimmed ? 0.15 : 1.0, transition: "opacity 160ms ease-out" }}
+                onMouseEnter={() => setHoveredNodeId(n.id)}
+                onMouseLeave={() => setHoveredNodeId(null)}
+              >
+                <NodeMark 
+                  n={n} 
+                  cx={pos.x} 
+                  cy={pos.y} 
+                  onOpenChunk={onOpenChunk} 
+                  onSelectNode={onSelectNode}
+                  onDragStart={(e) => handleMouseDown(e, n.id)}
+                />
+              </g>
+            );
+          })}
+        </g>
       </svg>
 
-      {/* Text alternative: the graph's meaning carried in the DOM, not just by
-          color + position — screen-reader reachable and not pixels-only. */}
+      {/* Text alternative for accessibility */}
       <div className="sr-only">
         <h3>{graph.title} — {graph.nodes.length} nodes, {graph.edges.length} links</h3>
         <ul>
@@ -114,11 +285,9 @@ export function GraphCanvas({ graph, onOpenChunk }: { graph: GraphResult; onOpen
   );
 }
 
-function EdgeLine({ edge, a, b, px, py }: { edge: GraphEdge; a: GraphNode; b: GraphNode; px: (x: number) => number; py: (y: number) => number }) {
-  const x1 = px(a.x), y1 = py(a.y), x2 = px(b.x), y2 = py(b.y);
+function EdgeLine({ edge, x1, y1, x2, y2 }: { edge: GraphEdge; x1: number; y1: number; x2: number; y2: number }) {
   const k = edge.kind;
-  // Peer edges (no kind, weighted) scale width + carry a match label at midpoint.
-  const base = k && EDGE[k] ? EDGE[k] : { stroke: "#3a5a8a", width: 1 + (edge.weight ?? 0) * 3, dash: undefined as string | undefined };
+  const base = k && EDGE[k] ? EDGE[k] : { stroke: "#3a5a8a", width: 1 + (edge.weight ?? 0) * 3, dash: undefined };
   const arrow = k === "dep" || k === "cite" || k === "seq" || k === "bull" || k === "bear";
   return (
     <g>
@@ -137,29 +306,56 @@ function EdgeLine({ edge, a, b, px, py }: { edge: GraphEdge; a: GraphNode; b: Gr
   );
 }
 
-function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: number; onOpenChunk: OpenChunk }) {
-  const clickable = !!n.chunk_id;
-  const onClick = clickable ? () => onOpenChunk(n.chunk_id!, n.label) : undefined;
+function NodeMark({ 
+  n, 
+  cx, 
+  cy, 
+  onOpenChunk, 
+  onSelectNode,
+  onDragStart 
+}: { 
+  n: GraphNode; 
+  cx: number; 
+  cy: number; 
+  onOpenChunk: OpenChunk; 
+  onSelectNode?: SelectNode;
+  onDragStart: (e: React.MouseEvent) => void;
+}) {
+  const isChunk = !!n.chunk_id;
+  
+  // Clicking the node selects it (unless it's a raw chunk node, which opens the CitationViewer)
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isChunk) {
+      onOpenChunk(n.chunk_id!, n.label);
+    } else if (onSelectNode) {
+      onSelectNode(n);
+    }
+  };
+
   const s = nodeStyle(n);
 
   const wrap = (children: React.ReactNode) => (
     <g
       opacity={n.dim ? 0.5 : 1}
-      style={clickable ? { cursor: "pointer" } : undefined}
-      onClick={onClick}
-      className={clickable ? "graph-node" : undefined}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onKeyDown={clickable ? onActivate(() => onClick?.()) : undefined}
-      aria-label={clickable ? `Open source for ${n.label}` : undefined}
+      style={{ cursor: isChunk || onSelectNode ? "pointer" : "grab" }}
+      onClick={handleClick}
+      onMouseDown={onDragStart}
+      className="graph-node select-none focus-ring"
+      role="button"
+      tabIndex={0}
+      onKeyDown={onActivate(() => {
+        if (isChunk) onOpenChunk(n.chunk_id!, n.label);
+        else if (onSelectNode) onSelectNode(n);
+      })}
+      aria-label={`Select ${n.label}`}
     >
       <title>{n.title || n.label}</title>
       {children}
     </g>
   );
 
-  // Compact cluster member: a small dot, name on hover only. Keeps a 12-issuer
-  // sector (or a 60-finding lane) an orderly block instead of a smear of labels.
+  // Compact cluster member: a small dot, name on hover only
   if (s.shape === "compact") {
     return wrap(<circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />);
   }
@@ -188,6 +384,21 @@ function NodeMark({ n, cx, cy, onOpenChunk }: { n: GraphNode; cx: number; cy: nu
           {short(n.sub, 24)}
         </text>
       ) : null}
+
+      {/* Obsidian Wiki deep-link action icon */}
+      {n.obsidian_url && (
+        <a
+          href={n.obsidian_url}
+          title="Reveal in Obsidian Wiki"
+          className="focus-ring"
+          onClick={(e) => e.stopPropagation()} // Prevent trigger select node
+          onMouseDown={(e) => e.stopPropagation()} // Prevent drag start when clicking link
+          style={{ cursor: "pointer" }}
+        >
+          <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill="#a78bfa" stroke="#0a0a0f" strokeWidth={1} />
+          <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
+        </a>
+      )}
     </>
   );
 }

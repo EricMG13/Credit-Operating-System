@@ -2,6 +2,7 @@
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
 /* eslint-disable */
 
+import { PEER_CREDIT_METRIC_ROWS } from "./module-outputs";
 import type { OutSection, OutFlag } from "./module-outputs";
 
 export interface StepOutput { ref?: string; out?: string; sections: OutSection[] }
@@ -535,15 +536,7 @@ const O0: Record<string, StepOutput> = {
       X("Read", "Second-lightest capex and top-quartile FCF conversion — the clearest fundamental edge over the peer set.", ["E-22"]),
     ]},
     "CP-1C:Credit Metric Benchmark": { ref: "REF_CP-1C_04C", out: "Credit metric benchmark", sections: [
-      T("4C · Credit metric benchmark", ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], [0,0,1,1,1,1], [
-        ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
-        ["Forgeline Industries", "B2 / B", "5.9x", "13.8%", "31%", "+352"],
-        ["Karst Components", "B3 / B−", "6.4x", "12.1%", "27%", "+459"],
-        ["Veldt Precision", "B1 / B+", "4.8x", "16.2%", "38%", "+291"],
-        ["Ironvale Group", "B2 / B", "5.5x", "14.1%", "33%", "+327"],
-        ["Cascadia Metalworks", "B2 / B", "5.2x", "13.2%", "29%", "+341"],
-        ["Tarn Engineered Sys", "B3 / CCC+", "7.1x", "11.4%", "22%", "+577"],
-      ]),
+      T("4C · Credit metric benchmark", ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], [0,0,1,1,1,1], PEER_CREDIT_METRIC_ROWS),
     ]},
     "CP-1C:Summary Statistics": { ref: "REF_CP-1C_04D", out: "Summary statistics", sections: [
       T("4D · Summary statistics (ex-Tarn)", ["Metric", "Subject", "B2 median", "Percentile"], [0,1,1,1], [

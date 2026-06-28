@@ -24,7 +24,7 @@ from database import Document, DocumentChunk, Issuer, get_db
 from engine import querygraph
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
-from nlquery import QueryError, execute, execute_semantic, plan
+from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
 
 logger = logging.getLogger("caos")
 router = APIRouter()
@@ -62,6 +62,11 @@ async def get_capabilities(
     """The Query rail: capability groups with each entry's enabled state and, when
     greyed, the reason its edge can't be walked from what's stored."""
     _read_rate_guard(caller)
+    try:
+        from vault_export import sync_analyst_memos
+        await sync_analyst_memos(db)
+    except Exception as e:
+        logger.warning("Could not sync analyst memos: %s", e)
     return await querygraph.capabilities(db)
 
 
@@ -79,6 +84,11 @@ async def query_graph(
     """Run one capability and return its positioned node-link graph. Reads only —
     no LLM, no writes — so it shares the looser read rate guard."""
     _read_rate_guard(caller)
+    try:
+        from vault_export import sync_analyst_memos
+        await sync_analyst_memos(db)
+    except Exception as e:
+        logger.warning("Could not sync analyst memos: %s", e)
     try:
         return await querygraph.build_graph(db, body.capability_id, body.issuer_id)
     except KeyError as e:
@@ -107,6 +117,68 @@ async def get_chunk(
     """Fetch one ingested source chunk by id — backs click-to-source on the
     citation chips (the `src` / E-xx markers) in the query results."""
     _read_rate_guard(caller)
+    if chunk_id.startswith(("m:", "c:", "f:")):
+        kind, pk = chunk_id.split(":", 1)
+        if kind == "m":
+            from database import ModuleOutput, Run
+            row = (await db.execute(
+                select(ModuleOutput, Run, Issuer)
+                .join(Run, ModuleOutput.run_id == Run.id)
+                .join(Issuer, Run.issuer_id == Issuer.id)
+                .where(ModuleOutput.id == pk)
+            )).first()
+            if row is None:
+                raise HTTPException(404, "Module output not found")
+            m_out, run, issuer = row
+            import json
+            text = (
+                f"Module: {m_out.module_name} ({m_out.module_id}).\n"
+                f"Confidence: {m_out.confidence} · QA Status: {m_out.qa_status}\n\n"
+                f"Output: {json.dumps(m_out.runtime_output, ensure_ascii=False, indent=2)}"
+            )
+            return ChunkResponse(
+                chunk_id=chunk_id, issuer_id=issuer.id, issuer_name=issuer.name,
+                doc=m_out.module_name, doc_type="module", seq=0, text=text
+            )
+        elif kind == "c":
+            from database import Claim, ModuleOutput, Run
+            row = (await db.execute(
+                select(Claim, ModuleOutput, Run, Issuer)
+                .join(ModuleOutput, Claim.module_output_id == ModuleOutput.id)
+                .join(Run, ModuleOutput.run_id == Run.id)
+                .join(Issuer, Run.issuer_id == Issuer.id)
+                .where(Claim.id == pk)
+            )).first()
+            if row is None:
+                raise HTTPException(404, "Claim not found")
+            claim, m_out, run, issuer = row
+            text = f"Claim {claim.claim_id} ({m_out.module_name}):\n\n{claim.claim_text}"
+            return ChunkResponse(
+                chunk_id=chunk_id, issuer_id=issuer.id, issuer_name=issuer.name,
+                doc=f"Claim {claim.claim_id}", doc_type="claim", seq=0, text=text
+            )
+        elif kind == "f":
+            from database import QAFinding, Run
+            row = (await db.execute(
+                select(QAFinding, Run, Issuer)
+                .join(Run, QAFinding.run_id == Run.id)
+                .join(Issuer, Run.issuer_id == Issuer.id)
+                .where(QAFinding.id == pk)
+            )).first()
+            if row is None:
+                raise HTTPException(404, "QA Finding not found")
+            finding, run, issuer = row
+            text = (
+                f"QA Finding {finding.finding_id} ({finding.severity})\n"
+                f"Module: {finding.module_id or 'Run'} · Lane {finding.lane}\n\n"
+                f"Description: {finding.description}\n"
+                f"Remediation: {finding.required_remediation or 'None required'}"
+            )
+            return ChunkResponse(
+                chunk_id=chunk_id, issuer_id=issuer.id, issuer_name=issuer.name,
+                doc=f"QA Finding {finding.finding_id}", doc_type="finding", seq=0, text=text
+            )
+
     row = (await db.execute(
         select(DocumentChunk, Document, Issuer)
         .join(Document, Document.id == DocumentChunk.document_id)
@@ -145,4 +217,6 @@ async def nl_query(
     # Structured questions rank the metric store; qualitative ones search evidence.
     if mode == "semantic":
         return await execute_semantic(db, spec)
+    if mode == "synthesis":
+        return await execute_synthesis(db, spec)
     return await execute(db, spec)

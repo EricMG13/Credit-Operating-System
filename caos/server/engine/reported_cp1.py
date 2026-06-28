@@ -49,6 +49,7 @@ _LEVERAGE_PATTERNS = (
 # A disclosed amount: currency + number (+ scale). period token captured if nearby.
 _AMOUNT = r"([£$€])\s?([\d,]+(?:\.\d+)?)\s*(billion|million|bn\b|m\b)?"
 _EBITDA_AMOUNT = re.compile(r"adjusted\s+ebitda[^.\n]{0,40}?" + _AMOUNT, re.IGNORECASE)
+_TOTAL_REVENUE_AMOUNT = re.compile(r"total\s+revenue[^.\n]{0,80}?" + _AMOUNT, re.IGNORECASE)
 _REVENUE_AMOUNT = re.compile(r"(?:total\s+(?:service\s+)?)?revenue[^.\n]{0,40}?" + _AMOUNT, re.IGNORECASE)
 _PERIOD = re.compile(r"\b(Q[1-4]|FY|H[12]|LTM|annualised|annualized)\b", re.IGNORECASE)
 
@@ -145,7 +146,9 @@ def extract_reported_metrics(
     chunk_text = next((t for c, t in chunks if c == lev_cid), "")
     additional = [(v, ph) for v, ph in _all_leverage(chunk_text) if v != lev_val]
     eb = _pick_recent(chunks, lambda t: _amount(_EBITDA_AMOUNT, t))
-    rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
+    rv = _pick_recent(chunks, lambda t: _amount(_TOTAL_REVENUE_AMOUNT, t))
+    if rv is None:
+        rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
     return {
         "net_leverage": leverage,
         "additional_leverage": additional or None,

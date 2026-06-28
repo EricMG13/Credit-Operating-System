@@ -23,7 +23,8 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { G2Chart } from "@/components/charts/G2Chart";
-import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity } from "@/lib/issuer-profile-charts";
+import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
+import { issuerSector } from "@/lib/issuers";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -66,7 +67,10 @@ function fmt(value: number, unit: string): string {
     return Math.abs(value) >= 1000 ? "$" + (value / 1000).toFixed(1) + "bn" : "$" + value.toFixed(0) + "m";
   return value.toFixed(1);
 }
-const signed = (v: number, suffix = "") => (v >= 0 ? "+" : "") + v.toFixed(1) + suffix;
+const signed = (v: number, suffix = "", digits = 1) => {
+  const rounded = Number(v.toFixed(digits));
+  return (rounded >= 0 ? "+" : "") + rounded.toFixed(digits) + suffix;
+};
 
 const METRIC_LABEL: Record<string, string> = {
   net_leverage: "Net leverage", interest_coverage: "Interest coverage",
@@ -76,10 +80,13 @@ const METRIC_LABEL: Record<string, string> = {
 };
 // Snapshot tiles that carry a period-over-period delta (from CP-1B), shown inline
 // under the value. Keyed by metric → the signal field + its unit.
-const TILE_DELTA: Record<string, { key: string; suffix: string }> = {
-  revenue: { key: "revenue_growth_pct", suffix: "%" },
-  adj_ebitda: { key: "ebitda_growth_pct", suffix: "%" },
-  ebitda_margin: { key: "margin_change_pp", suffix: "pp" },
+const TILE_DELTA: Record<string, { key?: string; suffix: string; digits?: number; higherIsBetter: boolean; showMissing?: boolean }> = {
+  revenue: { key: "revenue_growth_pct", suffix: "%", higherIsBetter: true },
+  adj_ebitda: { key: "ebitda_growth_pct", suffix: "%", higherIsBetter: true },
+  ebitda_margin: { key: "margin_change_pp", suffix: "pp", higherIsBetter: true },
+  net_leverage: { suffix: "×", digits: 2, higherIsBetter: false, showMissing: true },
+  interest_coverage: { suffix: "×", higherIsBetter: true, showMissing: true },
+  fcf_conversion: { suffix: "pp", higherIsBetter: true, showMissing: true },
 };
 
 const BASIS_LABEL: Record<string, string> = {
@@ -217,7 +224,7 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
         <div className="bg-caos-panel border border-caos-border rounded-md px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="tabular text-caos-accent font-semibold leading-none tracking-tight" style={{ fontSize: 17 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
           <span className="text-caos-text font-medium leading-none" style={{ fontSize: 15 }}>{issuer.name}</span>
-          <span className="text-caos-md text-caos-muted">{[issuer.industry, issuer.country].filter(Boolean).join(" · ") || "—"}</span>
+          <span className="text-caos-md text-caos-muted">{[issuerSector(issuer), issuer.sub_sector, issuer.country].filter(Boolean).join(" · ") || "—"}</span>
           {issuer.figi ? <span className="tabular text-caos-2xs text-caos-muted border border-caos-border rounded px-1.5 py-px">{issuer.figi}</span> : null}
           {ratings.length ? (
             <span className="flex items-center gap-1.5">
@@ -255,14 +262,20 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
                 {headline.map((m) => {
                   const sev = metricSev(m.metric_key, m.value);
                   const d = TILE_DELTA[m.metric_key];
-                  const dv = d ? signals[d.key] : null;
+                  const signalDelta = d?.key ? signals[d.key] : null;
+                  const seriesDelta = d && !d.key ? latestPointDelta(series[m.metric_key]) : null;
+                  const dv = typeof signalDelta === "number" ? signalDelta : seriesDelta;
                   const delta = typeof dv === "number" ? dv : null;
+                  const deltaSev = d && delta != null
+                    ? (delta >= 0) === d.higherIsBetter ? "pass" : "high"
+                    : null;
                   return (
                     <div key={m.metric_key} className="px-3 py-2.5 border-b border-r border-caos-border/40">
                       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
                       <div className="flex items-baseline gap-2 mt-1.5">
                         <span className="tabular font-medium leading-none" style={{ fontSize: 18, color: sev ? sevSurface(sev).color : "var(--caos-text)" }}>{fmt(m.value, m.unit)}</span>
-                        {delta != null ? <span className="tabular text-caos-2xs" style={{ color: sevSurface(delta >= 0 ? "pass" : "high").color }}>{signed(delta, d.suffix)}</span> : null}
+                        {d && delta != null && deltaSev ? <span className="tabular text-caos-2xs" style={{ color: sevSurface(deltaSev).color }}>{signed(delta, d.suffix, d.digits)}</span> : null}
+                        {d?.showMissing && delta == null ? <span className="tabular text-caos-2xs text-caos-muted">no prior</span> : null}
                       </div>
                       <div className="flex items-center gap-1.5 mt-1.5">
                         <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}{m.basis ? " · " + (BASIS_LABEL[m.basis] || m.basis) : ""}</span>
@@ -359,6 +372,20 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
           )}
         </Panel>
 
+        {/* key strengths & weaknesses (derived, rule-based) */}
+        {strengths.length || weaknesses.length ? (
+          <Panel title="Key strengths & weaknesses" className="shrink-0" right={<span className="tabular text-caos-2xs text-caos-muted">derived from this run’s signals</span>}>
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-caos-border/40">
+              <SWCol kind="success" title="Strengths" items={strengths} />
+              <SWCol kind="warning" title="Weaknesses" items={weaknesses} />
+            </div>
+          </Panel>
+        ) : latest_run ? (
+          <Panel title="Key strengths & weaknesses" className="shrink-0">
+            <div className="px-3 py-2.5"><Empty>No decisive strengths or weaknesses surfaced by this run.</Empty></div>
+          </Panel>
+        ) : null}
+
         {/* thesis/risk + structure + coverage */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
           <Panel title="Thesis & risk">
@@ -392,20 +419,6 @@ function Profile({ id, data }: { id: string; data: IssuerProfile }) {
             </div>
           </Panel>
         </div>
-
-        {/* key strengths & weaknesses (derived, rule-based) */}
-        {strengths.length || weaknesses.length ? (
-          <Panel title="Key strengths & weaknesses" className="shrink-0" right={<span className="tabular text-caos-2xs text-caos-muted">derived from this run’s signals</span>}>
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-caos-border/40">
-              <SWCol kind="success" title="Strengths" items={strengths} />
-              <SWCol kind="warning" title="Weaknesses" items={weaknesses} />
-            </div>
-          </Panel>
-        ) : latest_run ? (
-          <Panel title="Key strengths & weaknesses" className="shrink-0">
-            <div className="px-3 py-2.5"><Empty>No decisive strengths or weaknesses surfaced by this run.</Empty></div>
-          </Panel>
-        ) : null}
 
         {/* run history */}
         <Panel title={`Run history · ${runs.length}`}>

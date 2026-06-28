@@ -13,7 +13,10 @@ import { MODULE_STEPS, type StepRow } from "@/lib/deepdive/module-steps";
 const [SAMPLE_ID, SAMPLE_STEPS] = Object.entries(MODULE_STEPS)[0];
 const FIRST_STEP: StepRow = SAMPLE_STEPS[0];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 describe("OutputRegister", () => {
   it("renders nothing for a module with no registered steps", () => {

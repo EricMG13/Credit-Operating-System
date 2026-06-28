@@ -16,6 +16,7 @@ import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { PORTFOLIO } from "@/lib/command/data";
+import { COUNTRIES, issuerProfileHref, issuerSector } from "@/lib/issuers";
 
 export default function IssuersPage() {
   return (
@@ -26,7 +27,7 @@ export default function IssuersPage() {
 }
 
 
-const EMPTY_FORM = { name: "", ticker: "", industry: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
 
 // Demo coverage universe shown when the registry is empty, so the entry point
 // reflects the same names the rest of the app works against (Command, Deep-Dive)
@@ -35,6 +36,7 @@ const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
   id: p.code,
   name: p.name,
   ticker: p.code,
+  sector: p.sector,
   industry: p.sector,
   country: "United States",
 }));
@@ -63,7 +65,7 @@ function IssuersDirectory() {
       const q = query.trim().toLowerCase();
       return q
         ? DEMO_UNIVERSE.filter((i) =>
-            `${i.name} ${i.ticker ?? ""} ${i.industry ?? ""}`.toLowerCase().includes(q)
+            `${i.name} ${i.ticker ?? ""} ${issuerSector(i)} ${i.sub_sector ?? ""}`.toLowerCase().includes(q)
           )
         : DEMO_UNIVERSE;
     };
@@ -81,6 +83,11 @@ function IssuersDirectory() {
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
   }, [query, reloadKey]);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setQuery(q);
+  }, []);
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
 
@@ -152,7 +159,7 @@ function IssuersDirectory() {
                 <TextInput
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="search issuer · industry · country · FIGI"
+                  placeholder="search issuer · sector · country · FIGI"
                   aria-label="Search issuers"
                   className="w-64 pl-6 pr-6 py-1 tabular text-caos-md"
                 />
@@ -175,7 +182,7 @@ function IssuersDirectory() {
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
               <p className="text-caos-text/85 text-caos-2xl font-medium">No matches for “{query}”</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
-                Search covers issuer name, ticker, industry, country, and FIGI.
+                Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
               </p>
               <button
                 onClick={() => setQuery("")}
@@ -200,7 +207,7 @@ function IssuersDirectory() {
           ) : (
             <div className="text-caos-xl">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-                {["Ticker", "Issuer", "Industry", "Country", "FIGI", "Documents", ""].map((h, i) => (
+                {["Ticker", "Issuer", "Sector", "Sub-sector", "Country", "FIGI", ""].map((h, i) => (
                   <span key={i} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
                 ))}
               </div>
@@ -218,7 +225,7 @@ function IssuersDirectory() {
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
                   <Link
-                    href={"/issuers/profile?id=" + encodeURIComponent(issuer.id)}
+                    href={issuerProfileHref(issuer)}
                     aria-label={`Open profile for ${issuer.name}`}
                     className="absolute inset-0 z-0 focus-ring"
                   />
@@ -226,7 +233,8 @@ function IssuersDirectory() {
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
                   <span className="text-caos-text text-caos-xl truncate group-hover:text-white transition-caos">{issuer.name}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.industry || "—"}</span>
+                  <span className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
+                  <span className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
                   <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
                   <span className="tabular text-caos-muted text-caos-sm truncate">{issuer.figi || "—"}</span>
                   <button
@@ -234,9 +242,8 @@ function IssuersDirectory() {
                     aria-label={`Upload documents for ${issuer.name}`}
                     className="relative z-[1] inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
                   >
-                    + UPLOAD
+                    UPLOAD
                   </button>
-                  <span className="tabular text-caos-xs text-caos-muted text-right group-hover:text-caos-accent transition-caos">OPEN →</span>
                 </div>
               ))}
             </div>
@@ -250,9 +257,7 @@ function IssuersDirectory() {
           onClose={() => setShowForm(false)}
           onCreated={(issuer) => {
             setIssuers((prev) => [...prev, issuer]);
-            // New issuer registered — direct to the Execution Graph so the user
-            // sees the CP-X module route planned for it.
-            router.push("/pipeline");
+            router.push(issuerProfileHref(issuer));
           }}
         />
       ) : null}
@@ -315,8 +320,8 @@ function NewIssuerModal({
           {([
             { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials" },
             { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
-            { key: "industry", label: "Industry", required: false, ph: "e.g. Industrials" },
-            { key: "country", label: "Country", required: false, ph: "e.g. United States" },
+            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials" },
+            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components" },
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
             { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+" },
             { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1" },
@@ -324,16 +329,21 @@ function NewIssuerModal({
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
-              <TextInput
-                required={required}
-                value={form[key]}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                placeholder={ph}
-                aria-label={label}
-                className="w-full px-2.5 py-1.5 text-caos-lg"
-              />
+              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} className="w-full px-2.5 py-1.5 text-caos-lg" />
             </div>
           ))}
+          <div>
+            <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Country</label>
+            <select
+              value={form.country}
+              onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))}
+              aria-label="Country"
+              className="w-full px-2.5 py-1.5 text-caos-lg rounded border border-caos-border bg-caos-bg text-caos-text focus-ring"
+            >
+              <option value="">—</option>
+              {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
         </div>
         {createError ? (
           <div role="alert" className="px-3 pb-1 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>{createError}</div>

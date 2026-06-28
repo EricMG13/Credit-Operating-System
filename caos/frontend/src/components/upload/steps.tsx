@@ -96,6 +96,7 @@ export function StepStrip({
 /* ---------- step 1: issuer select ---------- */
 export function IssuerStep({
   issuers, selectedIssuer, onSelectIssuer,
+  issuerQuery, setIssuerQuery,
   showNewIssuer, setShowNewIssuer,
   newIssuerName, setNewIssuerName, newIssuerTicker, setNewIssuerTicker,
   onCreateIssuer,
@@ -103,6 +104,8 @@ export function IssuerStep({
   issuers: Issuer[];
   selectedIssuer: Issuer | null;
   onSelectIssuer: (issuer: Issuer) => void;
+  issuerQuery: string;
+  setIssuerQuery: (v: string) => void;
   showNewIssuer: boolean;
   setShowNewIssuer: (v: boolean) => void;
   newIssuerName: string;
@@ -116,6 +119,15 @@ export function IssuerStep({
       title="Select issuer"
       right={<span className="tabular text-caos-xs text-caos-muted">{issuers.length} registered</span>}
     >
+      <div className="p-3 border-b border-caos-border">
+        <TextInput
+          value={issuerQuery}
+          onChange={(e) => setIssuerQuery(e.target.value)}
+          placeholder="Search issuer · ticker · sector"
+          aria-label="Search issuers for document intake"
+          className="w-full px-2.5 py-1.5 text-caos-lg"
+        />
+      </div>
       <div className="text-caos-xl">
         {issuers.map((issuer) => (
           <button
@@ -318,7 +330,7 @@ export function ResultStep({
         {modeMeta?.label} ({modeMeta?.code}) run queued
         {failCount ? ` · ${failCount} failed` : ""}
         {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
-        <span className="text-caos-muted"> — view the module route on the Execution Graph</span>
+        <span className="text-caos-muted"> — return to the issuer dictionary to review coverage</span>
       </div>
       <div className="text-caos-md">
         {outcomes.map((o) => {
@@ -346,16 +358,16 @@ export function ResultStep({
           UPLOAD ANOTHER
         </button>
         <Link
-          href="/deepdive"
+          href={selectedIssuer ? "/issuers/profile?id=" + encodeURIComponent(selectedIssuer.id) : "/issuers"}
           className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
         >
-          OPEN DEEP-DIVE →
+          OPEN ISSUER PROFILE →
         </Link>
         <Link
-          href="/pipeline"
+          href="/issuers"
           className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
         >
-          VIEW EXECUTION GRAPH →
+          ISSUER DICTIONARY →
         </Link>
       </div>
     </Panel>

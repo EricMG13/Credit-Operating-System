@@ -82,22 +82,30 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
     that sleeps SLEEP seconds, then run the whole pipeline: if the layer runs them
     concurrently the two sleeps overlap (total ≈ 1×SLEEP); if it regressed to serial
     they'd sum (≈ 2×SLEEP)."""
-    import time
     from database import AsyncSessionLocal, Run
     from engine import runner
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import execute_run_by_id
 
     SLEEP = 0.5
+    spans = {}
     real_fp, real_cov = runner.synthesize_fact_pack, runner.synthesize_covenants
 
     async def slow_fp(retrieve):
+        loop = asyncio.get_running_loop()
+        spans["CP-1A:start"] = loop.time()
         await asyncio.sleep(SLEEP)
-        return await real_fp(retrieve)
+        result = await real_fp(retrieve)
+        spans["CP-1A:end"] = loop.time()
+        return result
 
     async def slow_cov(cp1, retrieve):
+        loop = asyncio.get_running_loop()
+        spans["CP-4C:start"] = loop.time()
         await asyncio.sleep(SLEEP)
-        return await real_cov(cp1, retrieve)
+        result = await real_cov(cp1, retrieve)
+        spans["CP-4C:end"] = loop.time()
+        return result
 
     monkeypatch.setattr(runner, "synthesize_fact_pack", slow_fp)
     monkeypatch.setattr(runner, "synthesize_covenants", slow_cov)
@@ -108,15 +116,16 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
         await s.commit()
         run_id = run.id
 
-    t0 = time.perf_counter()
     await execute_run_by_id(run_id)
-    elapsed = time.perf_counter() - t0
 
     async with AsyncSessionLocal() as s:
         assert (await s.get(Run, run_id)).status == "complete"
-    # Concurrent ⇒ ≈1×SLEEP; serial would be ≥2×SLEEP. Generous margin for the
-    # rest of the (fast, fixture) pipeline + CI jitter.
-    assert elapsed < 1.5 * SLEEP, f"layer did not overlap: {elapsed:.2f}s ≥ {1.5*SLEEP}s (serial≈{2*SLEEP}s)"
+    # Prove the two target synthesizers overlapped directly. Total pipeline
+    # elapsed time includes unrelated serial session modules and fixture overhead,
+    # so it is too noisy a proxy for same-layer fan-out.
+    assert {"CP-1A:start", "CP-1A:end", "CP-4C:start", "CP-4C:end"} <= spans.keys()
+    overlap = min(spans["CP-1A:end"], spans["CP-4C:end"]) - max(spans["CP-1A:start"], spans["CP-4C:start"])
+    assert overlap > 0.8 * SLEEP, f"target synthesizers did not overlap enough: {overlap:.2f}s"
 
 
 @pytest.mark.asyncio

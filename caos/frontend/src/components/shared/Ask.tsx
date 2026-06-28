@@ -37,8 +37,13 @@ export function AskProvider({ children }: { children: ReactNode }) {
         setOpen(false);
       }
     };
+    const onSpaceK = () => setOpen((v) => !v);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("caos:ask-toggle", onSpaceK);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("caos:ask-toggle", onSpaceK);
+    };
   }, []);
   const value = useMemo(() => ({ open, setOpen, toggle: () => setOpen((v) => !v) }), [open]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -73,12 +78,12 @@ export function AskLauncher() {
   const trigger = !open ? (
     <button
       onClick={toggle}
-      title="Ask CAOS (⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className="fixed bottom-3 left-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+      title="Ask CAOS (Space+K / ⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
+      className="fixed bottom-3 right-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
       <span className="text-caos-2xl">✦</span> Ask
-      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border">⌘K</span>
+      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border">SP+K</span>
     </button>
   ) : null;
 

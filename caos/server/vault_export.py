@@ -291,6 +291,103 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
     )
 
 
+_last_vault_mtime = 0.0
+_last_vault_file_count = 0
+
+
+async def sync_analyst_memos(session) -> int:
+    """Scan the vault directory (excluding Issuers/ and Runs/) for analyst-written
+    Markdown files, parsing [[wikilinks]] that reference known issuers. Caches
+    resolved links into the analyst_links table (syncing additions and deletions).
+    """
+    from sqlalchemy import select, delete
+    from database import Issuer, AnalystLink
+    from config import get_settings
+    import re
+    import os
+
+    settings = get_settings()
+    if not settings.vault_export_dir:
+        return 0
+
+    vault_path = Path(settings.vault_export_dir)
+    if not vault_path.exists() or not vault_path.is_dir():
+        return 0
+
+    global _last_vault_mtime, _last_vault_file_count
+    md_files = []
+    for p in vault_path.rglob("*.md"):
+        parts = p.relative_to(vault_path).parts
+        if parts and parts[0] in ("Runs", "Issuers"):
+            continue
+        md_files.append(p)
+
+    if not md_files:
+        if _last_vault_file_count > 0:
+            await session.execute(delete(AnalystLink))
+            _last_vault_file_count = 0
+            _last_vault_mtime = 0.0
+            return 1
+        return 0
+
+    max_mtime = max(os.path.getmtime(f) for f in md_files)
+    file_count = len(md_files)
+
+    if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
+        return 0
+
+    issuers = (await session.execute(select(Issuer))).scalars().all()
+    issuer_map = {}
+    for iss in issuers:
+        issuer_map[iss.name.lower().strip()] = iss.id
+        if iss.ticker:
+            issuer_map[iss.ticker.lower().strip()] = iss.id
+
+    parsed_links = []
+    link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+    for p in vault_path.rglob("*.md"):
+        parts = p.relative_to(vault_path).parts
+        if parts and parts[0] in ("Runs", "Issuers"):
+            continue
+
+        try:
+            content = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        note_name = p.stem
+        lines = content.splitlines()
+        for idx, line in enumerate(lines):
+            for match in link_re.finditer(line):
+                target_name = match.group(1).strip()
+                target_id = issuer_map.get(target_name.lower())
+                if target_id:
+                    excerpt = line.strip()
+                    excerpt = link_re.sub(r"\1", excerpt)
+                    parsed_links.append({
+                        "source_note": note_name,
+                        "target_issuer_id": target_id,
+                        "excerpt": excerpt[:200] or f"Note: {note_name}"
+                    })
+
+    await session.execute(delete(AnalystLink))
+
+    count = 0
+    for link_data in parsed_links:
+        link = AnalystLink(
+            source_note=link_data["source_note"],
+            target_issuer_id=link_data["target_issuer_id"],
+            excerpt=link_data["excerpt"]
+        )
+        session.add(link)
+        count += 1
+
+    _last_vault_mtime = max_mtime
+    _last_vault_file_count = file_count
+    return count
+
+
 if __name__ == "__main__":  # ponytail: one runnable self-check for the render/link logic
     _issuer = {"name": "Acme Corp / EU", "ticker": "ACME", "industry": "Industrials", "country": "US"}
     _run = {"id": "1234abcd-0000", "as_of_date": "2026-06-21",

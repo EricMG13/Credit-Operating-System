@@ -5,7 +5,8 @@
 // formula bar with E-xx lineage, manual overrides with recompute, downside
 // severity control, and model export.
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
@@ -13,8 +14,10 @@ import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
 import { AssumptionsPanel } from "@/components/model/AssumptionsPanel";
+import { CollapseButton } from "@/components/shared/CollapseButton";
 import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum } from "@/components/model/model-format";
+import { ROWS } from "@/components/model/rows";
 import { buildModel, type Model, type Overrides } from "@/lib/reports/model";
 import {
   type Assumptions, type CaseAssumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, DEFAULT_CASE, loadAssumptions, saveAssumptions,
@@ -26,7 +29,9 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 export default function ModelPage() {
   return (
     <RequireAuth>
-      <ModelBuilder />
+      <Suspense fallback={null}>
+        <ModelBuilder />
+      </Suspense>
     </RequireAuth>
   );
 }
@@ -64,6 +69,9 @@ const CASCADE_ROWS = new Set(["netlev", "srsec"]);
 const NON_CASH_DRIVERS = new Set(["dGpm", "daPct"]);
 
 function ModelBuilder() {
+  const searchParams = useSearchParams();
+  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const [hl, setHl] = useState<string | null>(null);
   const [sel, setSel] = useState<CellRef | null>({ row: "netlev", col: "l1" });
   const [evModal, setEvModal] = useState<string | null>(null);
@@ -91,16 +99,46 @@ function ModelBuilder() {
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(assumptions); }, [hydrated, assumptions]);
+  useEffect(() => {
+    const onCollapse = () => {
+      const next = !(showAssumptions || showScenarios);
+      setShowAssumptions(next);
+      setShowScenarios(next);
+    };
+    window.addEventListener("caos:collapse-toggle", onCollapse);
+    return () => window.removeEventListener("caos:collapse-toggle", onCollapse);
+  }, [showAssumptions, showScenarios]);
 
-  // Prefer a live CP-1 run for the LTM/PF anchor; falls back to the seeded
-  // model when no run / no backend (offline demo unaffected).
-  const eng = useModelEngine(ATLF_REFERENCE_ISSUER_ID);
+  // Prefer a live CP-1 run for the LTM/PF anchor. Only the ATLF reference page
+  // may fall back to the seeded demo model.
+  const eng = useModelEngine(issuerId);
   const model = useMemo(
     () => buildModel(severity, overrides, eng.anchor ?? undefined, assumptions),
     [severity, overrides, eng.anchor, assumptions],
   );
+  const hasIssuerModel = isReference || !!eng.anchor;
   const b1 = model.cols.b1, d0 = model.cols.d0;
   const ovCount = Object.keys(overrides).length;
+  const prevModel = useRef<Model | null>(null);
+
+  useEffect(() => {
+    const prev = prevModel.current;
+    prevModel.current = model;
+    if (!prev) return;
+    const changed = new Set<string>();
+    for (const row of ROWS) {
+      if (!row.g) continue;
+      for (const col of model.columns) {
+        const a = row.g(prev.cols[col.key]);
+        const b = row.g(model.cols[col.key]);
+        if (a !== b && !(typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b))) changed.add(row.id + ":" + col.key);
+      }
+    }
+    if (!changed.size) return;
+    setHlCells(changed);
+    const t = window.setTimeout(() => setHlCells((cur) => (cur === changed ? null : cur)), 650);
+    return () => window.clearTimeout(t);
+  }, [model]);
 
   const commitEdit = (txt: string | null) => {
     if (!editing) return;
@@ -163,15 +201,15 @@ function ModelBuilder() {
       {/* sub-header */}
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Atlas Forge — cash-flow model</span>
-        <ModelProvenance eng={eng} model={model} />
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{isReference ? "Atlas Forge — cash-flow model" : "Model Builder — issuer model"}</span>
+        <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
           dbl-click historical cells to override
         </span>
         <span className="flex-1"></span>
         {/* Net-lev status chips duplicate the Scenario panel — drop them first on
             narrow screens; the panel toggles + Export stay reachable. */}
-        <span className="hidden 2xl:flex items-center gap-3 shrink-0">
+        {hasIssuerModel ? <span className="hidden 2xl:flex items-center gap-3 shrink-0">
           <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
             <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
             <span className="text-caos-muted">BASE · net lev FY27e</span>
@@ -183,7 +221,7 @@ function ModelBuilder() {
             <span style={{ color: "var(--caos-warning)" }}>{d0.netlev?.toFixed(2) ?? "—"}x</span>
           </span>
           <span className="h-4 w-px bg-caos-border" />
-        </span>
+        </span> : null}
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={
@@ -225,6 +263,7 @@ function ModelBuilder() {
         ) : null}
         <button
           onClick={() => exportModel(model, showQuarters, overrides)}
+          disabled={!hasIssuerModel}
           title="Export the model grid (CSV — opens in Excel)"
           className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
@@ -240,49 +279,61 @@ function ModelBuilder() {
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2">
-        <Manifest hl={hl} setHl={setHl} />
-        <FormulaBar
-          model={model}
-          sel={sel}
-          severity={severity}
-          overrides={overrides}
-          onResetCell={resetCell}
-          onOpenEvidence={setEvModal}
-        />
-        <div className="flex-1 min-h-0 flex gap-2">
-          {showAssumptions ? (
-            <AssumptionsPanel
-              assumptions={assumptions}
-              onChange={setAsmp}
-              onChangeYear={setAsmpYear}
-              onResetCase={resetCase}
-              onResetYearCell={clearYearDriver}
-              onScrub={scrubHighlight}
-              onScrubEnd={() => setHlCells(null)}
-              onCollapse={() => setShowAssumptions(false)}
-            />
-          ) : (
-            <CollapsedRail side="left" label="Assumptions" onExpand={() => setShowAssumptions(true)} />
-          )}
-          <div className="flex-1 min-w-0 min-h-0 flex">
-            <Sheet
+        {hasIssuerModel ? (
+          <>
+            <Manifest hl={hl} setHl={setHl} />
+            <FormulaBar
               model={model}
-              showQ={showQuarters}
-              hl={hl}
-              hlCells={hlCells}
               sel={sel}
-              onSel={setSel}
-              editing={editing}
-              onEdit={setEditing}
-              onCommit={commitEdit}
+              severity={severity}
+              overrides={overrides}
+              onResetCell={resetCell}
+              onOpenEvidence={setEvModal}
             />
+            <div className="flex-1 min-h-0 flex gap-2">
+              {showAssumptions ? (
+                <AssumptionsPanel
+                  assumptions={assumptions}
+                  onChange={setAsmp}
+                  onChangeYear={setAsmpYear}
+                  onResetCase={resetCase}
+                  onResetYearCell={clearYearDriver}
+                  onScrub={scrubHighlight}
+                  onScrubEnd={() => setHlCells(null)}
+                  onCollapse={() => setShowAssumptions(false)}
+                />
+              ) : (
+                <CollapsedRail side="left" label="Assumptions" onExpand={() => setShowAssumptions(true)} />
+              )}
+              <div className="flex-1 min-w-0 min-h-0 flex">
+                <Sheet
+                  model={model}
+                  showQ={showQuarters}
+                  hl={hl}
+                  hlCells={hlCells}
+                  sel={sel}
+                  onSel={setSel}
+                  editing={editing}
+                  onEdit={setEditing}
+                  onCommit={commitEdit}
+                />
+              </div>
+              {showScenarios ? (
+                <ScenarioPanel model={model} onCollapse={() => setShowScenarios(false)} />
+              ) : (
+                <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-2 text-center px-6">
+            <div className="tabular text-caos-xl text-caos-text">No issuer-specific model output</div>
+            <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">
+              Model Builder needs a completed run with a usable CP-1 anchor. Run the
+              issuer first; the seeded Atlas Forge grid is available only in the reference demo.
+            </div>
           </div>
-          {showScenarios ? (
-            <ScenarioPanel model={model} onCollapse={() => setShowScenarios(false)} />
-          ) : (
-            <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
-          )}
-        </div>
+        )}
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
@@ -295,13 +346,8 @@ function ModelBuilder() {
 // stable so the sheet doesn't reflow jarringly on collapse.
 function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; label: string; onExpand: () => void }) {
   return (
-    <button
-      onClick={onExpand}
-      title={`Expand the ${label} panel`}
-      aria-label={`Expand ${label} panel`}
-      className="w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center gap-2 py-2 text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-    >
-      <span aria-hidden className="tabular text-caos-xs">{side === "left" ? "›" : "‹"}</span>
+    <div className="w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center gap-2 py-2 text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos font-bold">
+      <CollapseButton direction={side === "left" ? "right" : "left"} label={`Expand ${label} panel`} onClick={onExpand} />
       <span
         aria-hidden
         className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap"
@@ -309,7 +355,7 @@ function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; labe
       >
         {label}
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -317,11 +363,22 @@ function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; labe
 // a live CP-1 run or the seeded demo model, plus a tie-out reconciling the
 // leverage the grid actually DISPLAYS against CP-1's separately-reported figure.
 // Status is always glyph-paired (dot / ✓ / ⚠), never carried by color alone.
-function ModelProvenance({ eng, model }: { eng: ModelEngineState; model: Model }) {
+function ModelProvenance({ eng, model, allowSeededFallback }: { eng: ModelEngineState; model: Model; allowSeededFallback: boolean }) {
   if (eng.loading) {
     return <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· linking engine…</span>;
   }
   if (!eng.live || !eng.anchor) {
+    if (!allowSeededFallback) {
+      return (
+        <span
+          className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"
+          title="No completed run with usable CP-1 anchor found; seeded model suppressed for issuer-scoped view."
+        >
+          <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
+          NO MODEL OUTPUT
+        </span>
+      );
+    }
     return (
       <span
         className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"

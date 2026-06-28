@@ -142,6 +142,16 @@ body {
   --ag-header-background-color: var(--caos-elevated);
 }
 
+/* Dense app tables: even cells, centered values. Paper deliverables keep rd-* rules. */
+main table:not(.rd-table) {
+  border-spacing: 0;
+}
+main table:not(.rd-table) :is(th, td) {
+  text-align: center;
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: var(--caos-bg); }
@@ -175,6 +185,23 @@ body {
 .rd-table tr.rd-gapr td { padding-top: 8px; }
 .rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; font-style: normal; padding-left: 10px; }
 .rd-note { font-size: 8px; font-style: italic; color: #6c6c76; margin-top: 4px; }
+
+.rd-model-appendix { width: 1240px; padding: 18px 20px 12px; page: model-appendix; }
+.rd-model-appendix .rd-title { font-size: 14px; margin: 0 0 1px; }
+.rd-model-appendix .rd-subtitle { font-size: 7px; margin-bottom: 4px; }
+.rd-model-appendix .rd-secs { gap: 0; }
+.rd-model-appendix .rd-h { margin-bottom: 2px; padding-bottom: 1px; }
+.rd-model-appendix .rd-h span:first-child { font-size: 7px; letter-spacing: 0.04em; }
+.rd-model-appendix .rd-h-sub { font-size: 6.5px; }
+.rd-model-appendix .rd-table th { font-size: 5.2px; line-height: 1.05; padding-bottom: 1px; letter-spacing: 0; }
+.rd-model-appendix .rd-table td { font-size: 5.7px; line-height: 1.08; padding: 0.4px 0; }
+.rd-model-appendix .rd-table th + th,
+.rd-model-appendix .rd-table td + td { padding-left: 3px; }
+.rd-model-appendix .rd-num { font-size: 5.3px; }
+.rd-model-appendix .rd-table tr.rd-b td { font-size: 5.9px; }
+.rd-model-appendix .rd-table tr.rd-line td { border-top-color: #6f6c62; background: rgba(22,22,30,0.035); }
+.rd-model-appendix .rd-table tr.rd-gapr td { padding-top: 2px; }
+.rd-model-appendix .rd-lbl0 { font-size: 5.4px; padding-left: 4px; }
 
 .rd-profile { display: flex; flex-direction: column; }
 .rd-prow { display: grid; grid-template-columns: 152px 1fr; gap: 10px; padding: 2.5px 0; border-bottom: 1px solid rgba(22,22,30,0.08); font-size: 9.3px; }
@@ -298,4 +325,5 @@ body {
   .print-root { display: block !important; }
   .print-root .rd-paper { width: 100%; box-shadow: none; padding: 0; }
   @page { size: letter; margin: 13mm 14mm; }
+  @page model-appendix { size: letter landscape; margin: 6mm; }
 }

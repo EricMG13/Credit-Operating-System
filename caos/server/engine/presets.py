@@ -83,6 +83,10 @@ _mode_var: contextvars.ContextVar[str] = contextvars.ContextVar(
     "caos_model_mode", default=DEFAULT_MODE
 )
 
+_query_model_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "caos_query_model", default=None
+)
+
 
 def normalize(raw: Optional[str]) -> str:
     """Coerce any input (header value, stored row, None) to a known mode.
@@ -102,6 +106,29 @@ def set_mode(raw: Optional[str]) -> str:
 
 def current_mode() -> str:
     return _mode_var.get()
+
+
+def set_query_model(model: Optional[str]) -> None:
+    _query_model_var.set(model)
+
+
+def current_query_model() -> Optional[str]:
+    return _query_model_var.get()
+
+
+def resolved_query_model() -> str:
+    """The resolved model ID for query lanes, falling back to the standard Light
+    preset model when no custom query model override is set or its key is missing.
+    """
+    s = get_settings()
+    model = current_query_model()
+    if not model or model in ("null", "undefined"):
+        return model_for(LIGHT)
+    if model.startswith("gemini") and not s.gemini_api_key:
+        return model_for(LIGHT)
+    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
+        return model_for(LIGHT)
+    return model
 
 
 def _tier_model(s, tier: str) -> str:

@@ -161,6 +161,7 @@ async def filing_exhibits(
     ]
 
 
+@router.post("/vault-url", response_model=VaultExhibitResponse)
 @router.post("/vault-exhibit", response_model=VaultExhibitResponse)
 async def vault_exhibit(
     body: VaultExhibitRequest,

@@ -4,7 +4,7 @@
 // live alert feed, CP-SR sector board, coverage matrix, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -19,6 +19,7 @@ import { Dot, Tag } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
 import { FlashOnChange } from "@/components/shared/FlashOnChange";
 import { onActivate } from "@/lib/a11y";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -47,7 +48,7 @@ export function Spark({ data, color = "var(--caos-accent)", w = 72, h = 18 }: { 
 }
 
 /* ---------- CIO/PM view: portfolio table ---------- */
-const COLS = "grid grid-cols-[150px_84px_70px_110px_50px_50px_56px_44px_80px_42px_42px_46px_92px_56px_70px_36px] items-center gap-x-2";
+const COLS = "grid grid-cols-[58px_170px_150px_86px_104px_90px_46px_74px_70px_58px_70px_44px_44px_54px_86px_86px_48px_48px_48px_48px_92px_44px_74px_36px] items-center gap-x-2";
 
 // Tooltips for the abbreviated / glyph-only column headers — F5: a column's
 // meaning shouldn't depend on prior knowledge or a bare glyph.
@@ -63,7 +64,7 @@ const COL_TITLES: Record<string, string> = {
 };
 
 export function PortfolioTable({
-  selected, onSelect, tick,
+  selected, onSelect, tick: _tick,
 }: {
   selected: string | null;
   onSelect: (code: string | null) => void;
@@ -71,51 +72,52 @@ export function PortfolioTable({
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   return (
-    <div className="text-caos-xl" style={{ minWidth: 1180 }}>
+    <div className="text-caos-xl" style={{ minWidth: 2020 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-        {["Issuer", "Sector", "Rating", "Instrument", "Px", "Margin", "3Y DM", "Δ d/d", "30-Day", "NetLev", "IntCov", "M2E", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
-          <span key={i} title={COL_TITLES[h]} aria-label={COL_TITLES[h] || undefined} className={th + ([4, 5, 6, 7, 9, 10, 11, 13].includes(i) ? " text-right" : "")}>{h}</span>
+        {["Ticker", "Company", "Borrower Name", "Sector", "Sub-sector", "FIGI", "Rank", "Ratings", "Size", "Margin", "Maturity", "Bid", "Ask", "1D Px", "30D Chart", "YTD Chart", "NetLev", "SnrLev", "TotLev", "IntCov", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
+          <span key={i} title={COL_TITLES[h]} aria-label={COL_TITLES[h] || undefined} className={th + ([10, 11, 12, 13, 16, 17, 18, 19, 21, 23].includes(i) ? " text-right" : "")}>{h}</span>
         ))}
       </div>
       {/* fallow-ignore-next-line complexity */}
       {PORTFOLIO.map((p) => {
         const sel = selected === p.code;
         const sparkColor = p.dd > 5 ? "var(--caos-critical)" : p.dd < -2 ? "var(--caos-success)" : "var(--caos-muted)";
-        const dm = p.dm + (p.watch ? Math.floor(tick / 9) % 3 : 0);
         return (
           <div
             key={p.code}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(sel ? null : p.code)}
-            onKeyDown={onActivate(() => onSelect(sel ? null : p.code))}
-            aria-label={`${p.name} — toggle detail`}
-            className={COLS + " px-3 py-[5px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 focus-ring " + (sel ? "bg-caos-elevated caos-selected relative z-[5]" : "")}
+            className={COLS + " relative px-3 py-[5px] border-b border-caos-border/50 transition-caos hover:bg-caos-elevated/60 " + (sel ? "bg-caos-elevated caos-selected z-[5]" : "z-0")}
           >
-            <span className="flex items-center gap-1.5 min-w-0">
-              {p.watch ? <span className="w-[10px] text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>▲</span> : <span className="w-[10px]"></span>}
-              <span className="tabular text-caos-accent">{p.code}</span>
-              <span className="text-caos-text truncate text-caos-lg">{p.name}</span>
-            </span>
+            {/* Stretched toggle button: whole row is the click/focus target to expand,
+                keeping other interactive links separate (WCAG 4.1.2; axe nested-interactive) */}
+            <button
+              onClick={() => onSelect(sel ? null : p.code)}
+              aria-label={sel ? `Collapse details for ${p.name}` : `Expand details for ${p.name}`}
+              className="absolute inset-0 z-0 focus-ring border-none bg-transparent w-full h-full text-left"
+            />
+            <IssuerLink query={p.code} className="relative z-10 inline-flex items-center min-h-[24px] tabular text-caos-accent text-caos-lg" title={`Open ${p.code} profile`}>{p.code}</IssuerLink>
+            <IssuerLink query={p.name} className="relative z-10 inline-flex items-center min-h-[24px] text-caos-text truncate text-caos-lg hover:text-white transition-caos" title={`Open ${p.name} profile`}>{p.name}</IssuerLink>
+            <span className="text-caos-muted text-caos-md truncate">{p.borrower || p.name}</span>
             <span className="text-caos-muted text-caos-md truncate">{p.sector}</span>
+            <span className="text-caos-muted text-caos-md truncate">{p.subSector || "—"}</span>
+            <span className="tabular text-caos-muted text-caos-sm truncate">{p.figi || "—"}</span>
+            <span className="tabular text-caos-md text-caos-muted">{p.rank || "—"}</span>
             <span className="tabular text-caos-md text-caos-muted">{p.rating}</span>
-            <span className="tabular text-caos-md text-caos-text truncate">{p.inst}</span>
-            <span className="tabular text-right">{p.px.toFixed(1)}</span>
+            <span className="tabular text-caos-md text-caos-text truncate">{p.size || "$—"}</span>
             <span className="tabular text-right">S+{p.margin}</span>
-            <span className="tabular text-right text-caos-text"><FlashOnChange value={dm}>{dm}</FlashOnChange></span>
+            <span className="tabular text-right text-caos-muted">{p.maturity || p.inst.match(/'\\d+/)?.[0] || "—"}</span>
+            <span className="tabular text-right">{(p.bid ?? p.px - 0.2).toFixed(1)}</span>
+            <span className="tabular text-right">{(p.ask ?? p.px + 0.2).toFixed(1)}</span>
             <span className="tabular text-right" style={{ color: p.dd > 0 ? "var(--caos-critical)" : "var(--caos-success)" }}>{p.dd > 0 ? "+" + p.dd : p.dd}</span>
             <Spark data={p.spark} color={sparkColor} w={76} h={16} />
+            <Spark data={p.ytdSpark || p.spark} color={sparkColor} w={76} h={16} />
             <span className="tabular text-right">{p.lev.toFixed(1)}x</span>
+            <span className="tabular text-right">{(p.snrLev ?? Math.max(0, p.lev - 1.1)).toFixed(1)}x</span>
+            <span className="tabular text-right">{(p.totalLev ?? p.lev).toFixed(1)}x</span>
             <span className="tabular text-right">{p.cov.toFixed(1)}x</span>
-            <span className="tabular text-right" style={{ color: p.m2e < 12 ? "var(--caos-warning)" : undefined }}>{p.m2e.toFixed(1)}</span>
-            <span className="tabular text-caos-xs tracking-wide" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>
-            <span className="flex gap-px">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <span key={i} className="w-1 h-2.5 rounded-sm" style={{ background: i <= p.conv ? "var(--caos-accent)" : "var(--caos-border)" }}></span>
-              ))}
-            </span>
-            <span><Tag sev={p.qa}>{p.qa}</Tag></span>
-            <span className="tabular text-right" style={{ color: p.alerts ? "var(--caos-warning)" : "var(--caos-idle)" }}>{p.alerts || "—"}</span>
+            <span className="tabular text-caos-md truncate" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>
+            <span className="tabular text-right text-caos-text">{p.conv}</span>
+            <Tag sev={p.qa}>{p.qa}</Tag>
+            <span className="tabular text-right" style={{ color: p.alerts ? "var(--caos-warning)" : "var(--caos-muted)" }}>{p.alerts ? "⚑" + p.alerts : "—"}</span>
           </div>
         );
       })}
@@ -289,37 +291,121 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
 /* ---------- CP-SR sector board ---------- */
 export function SectorBoard() {
   const [open, setOpen] = useState<string | null>(null);
+  const coverageSectors = Array.from(new Set(PORTFOLIO.map((p) => p.sector))).filter(Boolean);
+  const [visible, setVisible] = useState<Set<string>>(() => new Set(coverageSectors));
   // sector → "HH:MM ET" stamp once its knowledge was refreshed this session
   const [refreshed, setRefreshed] = useState<Record<string, string>>({});
-  const openRow = SECTORS.find((s) => s.sector === open);
+  const rows = coverageSectors.map((sector) =>
+    SECTORS.find((s) => s.sector === sector) ?? {
+      sector,
+      stance: "NEUTRAL" as const,
+      ew: 0,
+      trend: "coverage sector · CP-SR review pending",
+      reviewed: "—",
+      due: true,
+    }
+  );
+  const openRow = rows.find((s) => s.sector === open);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("caos-command-sectors") || "[]");
+      if (Array.isArray(saved) && saved.length) setVisible(new Set(saved));
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("caos-command-sectors", JSON.stringify([...visible])); } catch {}
+  }, [visible]);
+  const shown = rows.filter((s) => visible.has(s.sector));
+  const hidden = coverageSectors.filter((s) => !visible.has(s));
 
   return (
-    <div className="grid grid-cols-4 gap-1.5 p-2">
-      {/* fallow-ignore-next-line complexity */}
-      {SECTORS.map((s) => {
-        const fresh = refreshed[s.sector];
-        return (
-          <button
-            key={s.sector}
-            onClick={() => setOpen(s.sector)}
-            title="Open sector review analysis"
-            className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 hover:border-caos-accent/50 transition-caos cursor-pointer focus-ring"
+    <div className="p-2 flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex items-center gap-2">
+          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">Add sector</span>
+          <select
+            value=""
+            onChange={(e) => {
+              const sector = e.target.value;
+              if (!sector) return;
+              setVisible((v) => new Set(v).add(sector));
+            }}
+            className="min-w-0 flex-1 rounded border border-caos-border bg-caos-panel px-2 py-1 tabular text-caos-xs text-caos-text focus-ring"
           >
-            <div className="flex items-center justify-between">
-              <span className="text-caos-xl font-medium text-caos-text">{s.sector}</span>
-              {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+            <option value="">Select sector</option>
+            {hidden.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">Remove sector</span>
+          <select
+            value=""
+            onChange={(e) => {
+              const sector = e.target.value;
+              if (!sector) return;
+              setVisible((v) => {
+                const n = new Set(v);
+                n.delete(sector);
+                return n;
+              });
+            }}
+            className="min-w-0 flex-1 rounded border border-caos-border bg-caos-panel px-2 py-1 tabular text-caos-xs text-caos-text focus-ring"
+          >
+            <option value="">Select sector</option>
+            {[...visible].map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+      {/* fallow-ignore-next-line complexity */}
+      {shown.map((s) => {
+        const fresh = refreshed[s.sector];
+        const hasReview = SECTORS.some((x) => x.sector === s.sector);
+        return (
+          hasReview ? (
+            <button
+              key={s.sector}
+              onClick={() => setOpen(s.sector)}
+              title="Open sector review analysis"
+              className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 transition-caos focus-ring hover:border-caos-accent/50 cursor-pointer"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-caos-xl font-medium text-caos-text">{s.sector}</span>
+                {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+              </div>
+              <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+              <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
+              <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
+                <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
+                {fresh ? (
+                  <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
+                ) : s.due ? (
+                  <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
+                ) : null}
+              </div>
+            </button>
+          ) : (
+            <div
+              key={s.sector}
+              title="Sector in coverage; CP-SR review pending"
+              className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 cursor-default"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-caos-xl font-medium text-caos-muted">{s.sector}</span>
+                {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+              </div>
+              <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+              <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
+              <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
+                <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
+                {fresh ? (
+                  <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
+                ) : s.due ? (
+                  <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
+                ) : null}
+              </div>
             </div>
-            <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-            <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
-            <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
-              <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
-              {fresh ? (
-                <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
-              ) : s.due ? (
-                <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
-              ) : null}
-            </div>
-          </button>
+          )
         );
       })}
       {openRow ? (
@@ -335,6 +421,7 @@ export function SectorBoard() {
           onClose={() => setOpen(null)}
         />
       ) : null}
+      </div>
     </div>
   );
 }

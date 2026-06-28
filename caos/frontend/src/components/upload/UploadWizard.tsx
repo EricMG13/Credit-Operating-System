@@ -26,6 +26,7 @@ interface UploadWizardProps {
 export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
+  const [issuerQuery, setIssuerQuery] = useState("");
   const [selectedIssuer, setSelectedIssuer] = useState<Issuer | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [runMode, setRunMode] = useState<string>("full");
@@ -148,7 +149,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       {/* Step 1: issuer */}
       {step === "issuer" ? (
         <IssuerStep
-          issuers={issuers}
+          issuers={issuers.filter((i) => `${i.name} ${i.ticker ?? ""} ${i.sector ?? i.industry ?? ""} ${i.sub_sector ?? ""}`.toLowerCase().includes(issuerQuery.trim().toLowerCase()))}
+          issuerQuery={issuerQuery}
+          setIssuerQuery={setIssuerQuery}
           selectedIssuer={selectedIssuer}
           onSelectIssuer={(issuer) => { setSelectedIssuer(issuer); setStep("file"); }}
           showNewIssuer={showNewIssuer}

@@ -5,7 +5,15 @@
 export interface PortfolioRow {
   code: string;
   name: string;
+  borrower?: string;
   sector: string;
+  subSector?: string;
+  figi?: string;
+  rank?: string;
+  size?: string;
+  maturity?: string;
+  bid?: number;
+  ask?: number;
   rating: string;
   inst: string;
   px: number;
@@ -13,6 +21,8 @@ export interface PortfolioRow {
   dm: number; // mid-price 3Y discount margin (bps)
   dd: number; // Δ d/d on 3Y DM
   lev: number;
+  snrLev?: number;
+  totalLev?: number;
   cov: number;
   m2e: number;
   posture: "OVERWEIGHT" | "HOLD" | "UNDERWEIGHT" | "REDUCE";
@@ -21,6 +31,7 @@ export interface PortfolioRow {
   alerts: number;
   watch: boolean;
   spark: number[];
+  ytdSpark?: number[];
 }
 
 export const PORTFOLIO: PortfolioRow[] = [

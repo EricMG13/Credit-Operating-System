@@ -15,12 +15,15 @@ before updating it — that is the whole point of the gate.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from engine.edgar_cp1 import build_cp1_payload
+from engine.reported_cp1 import build_reported_cp1_payload
 from engine.schemas import validate_payload
 
 HERE = Path(__file__).resolve().parent
@@ -79,3 +82,40 @@ def test_golden_cp1_no_drift(fixture):
         assert claim.evidence, f"{fixture}: claim {claim.claim_id} has no evidence"
         for ev in claim.evidence:
             assert "us-gaap:" in ev.source_locator or "XBRL" in ev.source_locator
+
+
+def test_golden_reported_cp1_vmo2_no_drift():
+    """VMO2 has no SEC companyfacts; freeze its reported-disclosure CP-1 lane."""
+    fixture = json.loads((HERE / "vmo2_reported_chunks.json").read_text())
+
+    async def retrieve(_query, _k=12):
+        return [SimpleNamespace(**c) for c in fixture["chunks"]]
+
+    payload = asyncio.run(build_reported_cp1_payload(fixture["entity"], retrieve))
+
+    assert payload is not None, "VMO2: reported CP-1 returned None on issuer disclosures"
+    assert validate_payload(payload) == [], "VMO2: schema-invalid reported CP-1 payload"
+    assert payload.runtime_output["basis"] == "reported_disclosure"
+    assert payload.runtime_output["currency"] == "£"
+
+    nf = payload.runtime_output["normalized_financials"]
+    assert nf["net_leverage_adj_ltm"] == 4.38
+    assert nf["additional_disclosed_leverage"] == [
+        {
+            "value": 5.86,
+            "as_disclosed": "o would be: Total Net Debt to Annualised Adjusted EBITDA of 5.86x",
+        }
+    ]
+    assert nf["adj_ebitda"] == {"Q1": 901.7}
+    assert nf["revenue"] == {"Reported": 2390.1}
+
+    evidence_chunks = {
+        ev.resolved_chunk_id
+        for claim in payload.claims
+        for ev in claim.evidence
+    }
+    assert evidence_chunks == {
+        "vmo2-q1-2026-results",
+        "vmo2-q1-2026-financial-table",
+        "vmo2-q1-2026-leverage",
+    }

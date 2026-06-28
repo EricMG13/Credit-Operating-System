@@ -102,6 +102,10 @@ GROUPS: List[dict] = [
         _cap("tension", "Tension finder", "provenance", {"focus": "tension"}, "debate"),
         _cap("debate-digest", "Debate digest", "provenance", {"focus": "debate"}, "debate"),
     ]},
+    {"id": "wiki", "label": "Wiki & Memos", "icon": "file-text", "caps": [
+        _cap("wiki-links", "Wiki structure & classification", "concentration", {"by": "wiki"}, "docs"),
+        _cap("analyst-memos", "Analyst links / memos", "provenance", {"focus": "memos"}, "issuers"),
+    ]},
 ]
 
 CAP_BY_ID: Dict[str, dict] = {c["id"]: c for g in GROUPS for c in g["caps"]}
@@ -191,6 +195,21 @@ async def capabilities(session: AsyncSession) -> dict:
 def _node(nid: str, label: str, kind: str, x: float, y: float, **extra) -> dict:
     n = {"id": nid, "label": label, "kind": kind, "x": round(x, 3), "y": round(y, 3)}
     n.update({k: v for k, v in extra.items() if v is not None})
+
+    from config import get_settings
+    from urllib.parse import quote
+    from pathlib import Path
+    settings = get_settings()
+    v_name = settings.vault_name or (Path(settings.vault_export_dir).name if settings.vault_export_dir else "")
+    if v_name:
+        if kind in ("issuer", "center") and not nid.startswith(("cs:", "grp:", "lane:", "prov:")):
+            n["obsidian_url"] = f"obsidian://open?vault={quote(v_name)}&file=Issuers%2F{quote(label)}"
+        elif "run_spoke_title" in extra:
+            sp_title = extra["run_spoke_title"]
+            if kind == "module":
+                n["obsidian_url"] = f"obsidian://open?vault={quote(v_name)}&file=Runs%2F{quote(sp_title)}%23{quote(n['label'])}"
+            else:
+                n["obsidian_url"] = f"obsidian://open?vault={quote(v_name)}&file=Runs%2F{quote(sp_title)}"
     return n
 
 
@@ -369,6 +388,8 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
+    if by == "wiki":
+        return await _cluster_by_wiki(session, cap)
     if by == "provenance":
         return await _provenance_split(session, cap)
     if by == "scatter":
@@ -682,27 +703,33 @@ async def _modules(session: AsyncSession, run_id: str) -> List[ModuleOutput]:
 async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str], cap: dict) -> dict:
     if focus == "sponsor":  # never enabled, but guard the dispatch
         return _empty(cap, "Sponsor graph", "CP-2D persists no sponsor names to link.")
+    if focus == "memos":
+        return await _analyst_memos(session, issuer_id, cap)
     run = await _latest_run(session, issuer_id, prefer_claims=focus in ("trace", "lineage", "orphan"))
     if run is None:
         return _empty(cap, "Provenance", "No completed run to traverse.")
     issuer = await session.get(Issuer, run.issuer_id)
     name = issuer.name if issuer else run.issuer_id
     mods = await _modules(session, run.id)
+
+    from vault_export import spoke_title
+    sp_title = spoke_title(name, {"id": run.id, "as_of_date": run.as_of_date})
+
     if focus in ("trace", "impact"):
-        return await _dag(session, run, name, mods, focus, cap)
+        return await _dag(session, run, name, mods, focus, cap, sp_title)
     if focus in ("lineage", "orphan"):
-        return await _claim_audit(session, run, name, mods, focus, cap)
+        return await _claim_audit(session, run, name, mods, focus, cap, sp_title)
     if focus == "findings":
-        return await _findings(session, run, name, cap)
+        return await _findings(session, run, name, cap, sp_title)
     if focus in ("debate", "tension"):
-        return await _debate(name, mods, focus, cap)
+        return await _debate(name, mods, focus, cap, sp_title)
     if focus == "diff":
-        return await _diff(session, run, name, cap)
+        return await _diff(session, run, name, cap, sp_title)
     return _empty(cap, "Provenance", f"unknown focus {focus!r}")
 
 
 async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],
-               focus: str, cap: dict) -> dict:
+               focus: str, cap: dict, sp_title: str) -> dict:
     present = {m.module_id: m for m in mods}
     # Layer x by registry layer_rank; spread y within a layer.
     layers: Dict[int, List[str]] = {}
@@ -722,7 +749,7 @@ async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutp
             m = present[mid]
             y = (0.08 + off + (0.84 * j / max(1, len(col) - 1))) if len(col) > 1 else 0.5
             nodes.append(_node(mid, mid, "module", xfor[rk], min(0.94, y), sub=m.module_name,
-                               confidence=m.confidence))
+                               confidence=m.confidence, run_spoke_title=sp_title))
     # Module→module edges (the reasoning DAG) from the registry, both ends present.
     for mid, m in present.items():
         spec = REGISTRY.get(mid)
@@ -737,7 +764,7 @@ async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutp
     # Attach the CP-1 source chain (claim → evidence → chunk) on the far left.
     cp1 = present.get("CP-1")
     if cp1 is not None and focus == "trace":
-        await _attach_source_chain(session, cp1.id, nodes, edges)
+        await _attach_source_chain(session, cp1.id, nodes, edges, sp_title)
     meta = [f"run: {name}", f"{len(present)} modules", f"{len(edges)} edges",
             "trace = dependencies" if focus == "trace" else "impact = downstream consumers"]
     title = f"{name} — conclusion lineage" if focus == "trace" else f"{name} — impact analysis"
@@ -746,14 +773,14 @@ async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutp
 
 
 async def _attach_source_chain(session: AsyncSession, module_output_id: str,
-                               nodes: List[dict], edges: List[dict]) -> None:
+                               nodes: List[dict], edges: List[dict], sp_title: str) -> None:
     claims = list((await session.execute(
         select(Claim).where(Claim.module_output_id == module_output_id).limit(2)
     )).scalars().all())
     yslot = 0.2
     for c in claims:
         cid = f"c:{c.id}"
-        nodes.append(_node(cid, c.claim_id, "claim", 0.06, yslot, sub=_clip(c.claim_text)))
+        nodes.append(_node(cid, c.claim_id, "claim", 0.06, yslot, sub=_clip(c.claim_text), run_spoke_title=sp_title))
         edges.append(_edge(cid, "CP-1", kind="cite"))
         evs = list((await session.execute(
             select(EvidenceItem).where(EvidenceItem.claim_pk == c.id).limit(2)
@@ -761,7 +788,7 @@ async def _attach_source_chain(session: AsyncSession, module_output_id: str,
         for k, e in enumerate(evs):
             eid = f"e:{e.id}"
             nodes.append(_node(eid, e.evidence_id, "evidence", 0.02, yslot + 0.08 + 0.05 * k,
-                               sub=e.lineage_class))
+                               sub=e.lineage_class, run_spoke_title=sp_title))
             edges.append(_edge(eid, cid, kind="cite"))
             if e.document_chunk_id:
                 nodes.append(_node(f"ch:{e.document_chunk_id}", "source chunk", "chunk",
@@ -771,7 +798,7 @@ async def _attach_source_chain(session: AsyncSession, module_output_id: str,
 
 
 async def _claim_audit(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],
-                       focus: str, cap: dict) -> dict:
+                       focus: str, cap: dict, sp_title: str) -> dict:
     mod_ids = [m.id for m in mods]
     claims = list((await session.execute(
         select(Claim).where(Claim.module_output_id.in_(mod_ids))
@@ -802,14 +829,14 @@ async def _claim_audit(session: AsyncSession, run: Run, name: str, mods: List[Mo
     for (c, tag), (x, _y) in zip(hits[:12], pos):
         cid = f"c:{c.id}"
         nodes.append(_node(cid, f"{mod_of.get(c.module_output_id, '?')} {c.claim_id}", kind, x, 0.5,
-                           sub=tag, title=_clip(c.claim_text)))
+                           sub=tag, title=_clip(c.claim_text), run_spoke_title=sp_title))
     meta = [f"run: {name}", f"{len(hits)} flagged claims", f"focus: {focus}"]
     cav = ["Weak = Untraced / Conflicting / Assumption-Based / Weak Lineage."
            if focus == "lineage" else "Ungrounded = no evidence resolves to an ingested chunk."]
     return _result(cap, title, nodes, edges, meta, cav)
 
 
-async def _findings(session: AsyncSession, run: Run, name: str, cap: dict) -> dict:
+async def _findings(session: AsyncSession, run: Run, name: str, cap: dict, sp_title: str) -> dict:
     rows = list((await session.execute(
         select(QAFinding).where(QAFinding.run_id == run.id)
     )).scalars().all())
@@ -822,13 +849,13 @@ async def _findings(session: AsyncSession, run: Run, name: str, cap: dict) -> di
     mpos = _spread(len(mods), y=0.25, x0=0.18, x1=0.82)
     mod_xy = {}
     for mid, (x, y) in zip(sorted(mods), mpos):
-        nodes.append(_node(f"m:{mid}", mid, "module", x, y))
+        nodes.append(_node(f"m:{mid}", mid, "module", x, y, run_spoke_title=sp_title))
         mod_xy[mid] = f"m:{mid}"
     fpos = _spread(len(rows), y=0.75, x0=0.12, x1=0.88)
     for f, (x, y) in zip(rows, fpos):
         fid = f"f:{f.id}"
         nodes.append(_node(fid, f.finding_id, sev_kind.get(f.severity, "finding-min"), x, y,
-                           sub=f.severity, title=_clip(f.description)))
+                           sub=f.severity, title=_clip(f.description), run_spoke_title=sp_title))
         if f.module_id and f.module_id in mod_xy:
             edges.append(_edge(mod_xy[f.module_id], fid, kind="finding"))
     crit = sum(1 for f in rows if f.severity == "CRITICAL")
@@ -836,7 +863,7 @@ async def _findings(session: AsyncSession, run: Run, name: str, cap: dict) -> di
     return _result(cap, f"{name} — open findings", nodes, edges, meta, [])
 
 
-async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict) -> dict:
+async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict, sp_title: str) -> dict:
     cp6 = next((m for m in mods if m.module_id == "CP-6A"), None)
     if cp6 is None:
         return _empty(cap, "Debate", "No IC debate (CP-6A) on this run.")
@@ -846,19 +873,19 @@ async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict) ->
     bull = (rt.get("bull_case") or {}).get("points") or []
     bear = (rt.get("bear_case") or {}).get("points") or []
     nodes = [_node("verdict", f"IC verdict: {headline}", "center", 0.5, 0.5, center=True,
-                   sub=f"net score {verdict.get('net_score', '?')}")]
+                   sub=f"net score {verdict.get('net_score', '?')}", run_spoke_title=sp_title)]
     edges = []
     bpos = _spread(len(bull), y=0.16, x0=0.12, x1=0.88)
     for i, (p, (x, y)) in enumerate(zip(bull, bpos)):
         nid = f"bull:{i}"
         nodes.append(_node(nid, p.get("source", "bull"), "point-bull", x, y,
-                           sub=_clip(p.get("point", "")), weight=p.get("weight")))
+                           sub=_clip(p.get("point", "")), weight=p.get("weight"), run_spoke_title=sp_title))
         edges.append(_edge(nid, "verdict", kind="bull"))
     epos = _spread(len(bear), y=0.84, x0=0.12, x1=0.88)
     for i, (p, (x, y)) in enumerate(zip(bear, epos)):
         nid = f"bear:{i}"
         nodes.append(_node(nid, p.get("source", "bear"), "point-bear", x, y,
-                           sub=_clip(p.get("point", "")), weight=p.get("weight")))
+                           sub=_clip(p.get("point", "")), weight=p.get("weight"), run_spoke_title=sp_title))
         edges.append(_edge(nid, "verdict", kind="bear"))
     gu = verdict.get("greatest_uncertainty")
     meta = [f"run: {name}", f"{len(bull)} bull / {len(bear)} bear",
@@ -868,7 +895,7 @@ async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict) ->
                    ["The chair verdict is a reproducible function of point weights, not a judgement."])
 
 
-async def _diff(session: AsyncSession, run: Run, name: str, cap: dict) -> dict:
+async def _diff(session: AsyncSession, run: Run, name: str, cap: dict, sp_title: str) -> dict:
     # A diff needs two runs that BOTH persisted headline facts. Bare Run rows
     # over-report — many runs never extracted facts — so select fact-bearing runs,
     # newest first, for an issuer that has at least two (preferring the run in hand).
@@ -915,11 +942,113 @@ async def _diff(session: AsyncSession, run: Run, name: str, cap: dict) -> dict:
             kind = "metric" if delta == 0 else ("finding-mat" if worse else "point-bull")
             sub = f"{bv:g} → {av:g}" + (f" ({'+' if delta >= 0 else ''}{delta})" if delta else " (flat)")
             moved += 1 if delta else 0
-        nodes.append(_node(f"d:{k}", md.label if md else k, kind, x, 0.5, sub=sub))
+        nodes.append(_node(f"d:{k}", md.label if md else k, kind, x, 0.5, sub=sub, run_spoke_title=sp_title))
     meta = [iname, f"{cur_asof or 'current'} vs {prev_asof or 'prior'}",
             f"{len(keys)} metrics · {moved} moved"]
     return _result(cap, f"{iname} — what changed", nodes, edges, meta,
                    ["Current vs prior fact-bearing run. Amber = adverse move, green = improvement (polarity-aware)."])
+
+
+async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
+    covered = set((await session.execute(
+        select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
+    )).scalars())
+    covered |= set((await session.execute(select(Run.issuer_id))).scalars())
+    if not covered:
+        return _empty(cap, "Wiki Graph", "No analyzed issuers to display in the wiki.")
+
+    issuers = (await session.execute(
+        select(Issuer).where(Issuer.id.in_(covered))
+    )).scalars().all()
+
+    runs = (await session.execute(
+        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id).where(Run.issuer_id.in_(covered))
+    )).all()
+
+    nodes = []
+    edges = []
+
+    center_id = "wiki:center"
+    nodes.append(_node(center_id, "Wiki Databank", "center", 0.5, 0.5))
+
+    industries = sorted({iss.industry for iss in issuers if iss.industry})
+
+    ind_pos = _radial_positions(len(industries), r=0.18)
+    for ind, (x, y) in zip(industries, ind_pos):
+        nid = f"ind:{ind}"
+        nodes.append(_node(nid, ind, "sector", x, y, group=ind))
+        edges.append(_edge(center_id, nid, kind="member"))
+
+    iss_pos = _radial_positions(len(issuers), r=0.36)
+    for i, (iss, (x, y)) in enumerate(zip(issuers, iss_pos)):
+        nodes.append(_node(iss.id, iss.name, "issuer", x, y, group=iss.industry, sub=iss.industry))
+        if iss.industry:
+            edges.append(_edge(f"ind:{iss.industry}", iss.id, kind="member"))
+        else:
+            edges.append(_edge(center_id, iss.id, kind="member"))
+
+    from vault_export import spoke_title
+    for i, (run, issuer) in enumerate(runs):
+        sp_title = spoke_title(issuer.name, {"id": run.id, "as_of_date": run.as_of_date})
+        nid = f"run:{run.id}"
+        label = f"Run {run.as_of_date or run.id[:8]}"
+        nodes.append(_node(nid, label, "module", 0.5, 0.5, run_spoke_title=sp_title, sub=run.committee_status))
+        edges.append(_edge(issuer.id, nid, kind="dep"))
+
+    meta = [f"{len(issuers)} issuers", f"{len(runs)} runs", f"{len(industries)} sectors"]
+    return _result(cap, "Wiki Knowledge Graph", nodes, edges, meta,
+                   ["Traverses the derived wiki note structure. Issuers link to sectors, runs link to issuers."])
+
+
+async def _analyst_memos(session: AsyncSession, issuer_id: Optional[str], cap: dict) -> dict:
+    from database import AnalystLink, Issuer
+    from pathlib import Path
+    from urllib.parse import quote
+    from config import get_settings
+
+    if issuer_id:
+        issuer = await session.get(Issuer, issuer_id)
+    else:
+        covered = set((await session.execute(
+            select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
+        )).scalars())
+        if not covered:
+            return _empty(cap, "Analyst memos", "No covered issuers.")
+        issuer_id = sorted(covered)[0]
+        issuer = await session.get(Issuer, issuer_id)
+
+    if issuer is None:
+        return _empty(cap, "Analyst memos", "Focus issuer not found.")
+
+    links = (await session.execute(
+        select(AnalystLink).where(AnalystLink.target_issuer_id == issuer.id)
+    )).scalars().all()
+
+    nodes = []
+    edges = []
+
+    nodes.append(_node(issuer.id, issuer.name, "center", 0.5, 0.5, group=issuer.industry, sub=issuer.industry))
+
+    if not links:
+        meta = [f"focus: {issuer.name}", "0 custom analyst memos"]
+        return _result(cap, f"Analyst memos for {issuer.name}", nodes, edges, meta,
+                       ["No analyst memos parsed for this issuer yet. Add Markdown links in the vault to link them."])
+
+    pos = _radial_positions(len(links), r=0.28)
+    settings = get_settings()
+    v_name = settings.vault_name or (Path(settings.vault_export_dir).name if settings.vault_export_dir else "")
+
+    for link, (x, y) in zip(links, pos):
+        nid = f"memo:{link.id}"
+        extra = {}
+        if v_name:
+            extra["obsidian_url"] = f"obsidian://open?vault={quote(v_name)}&file=Analyst-Memos%2F{quote(link.source_note)}"
+        nodes.append(_node(nid, link.source_note, "claim", x, y, sub=_clip(link.excerpt, 60), **extra))
+        edges.append(_edge(nid, issuer.id, kind="cite", label="mentions"))
+
+    meta = [f"focus: {issuer.name}", f"{len(links)} custom memos"]
+    return _result(cap, f"Analyst memos for {issuer.name}", nodes, edges, meta,
+                   ["Drawn from analyst-written Markdown memos referencing this issuer in the vault."])
 
 
 def _clip(text: Optional[str], n: int = 90) -> str:

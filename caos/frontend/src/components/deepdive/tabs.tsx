@@ -135,7 +135,7 @@ export function DebateTab({ onOpenEvidence, layout = "base", variant = "CP-6A" }
           </div>
         ))}
       </div>
-      <OutputRegister key={cfg.id + layout} id={cfg.id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+      <OutputRegister key={cfg.id + layout} id={cfg.id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
@@ -266,7 +266,7 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
           </div>
         </div>
       </div>
-      <OutputRegister key={"CP-3B" + layout} id="CP-3B" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+      <OutputRegister key={"CP-3B" + layout} id="CP-3B" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
@@ -342,8 +342,8 @@ export function CovenantsTab({ onOpenEvidence, layout = "base" }: { onOpenEviden
           );
         })}
       </div>
-      <OutputRegister key={"CP-4" + layout} id="CP-4" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
-      <OutputRegister key={"CP-4C" + layout} id="CP-4C" defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+      <OutputRegister key={"CP-4" + layout} id="CP-4" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
+      <OutputRegister key={"CP-4C" + layout} id="CP-4C" defaultOpen={false} onOpenEvidence={onOpenEvidence} />
     </div>
   );
 }
@@ -354,19 +354,21 @@ export function ModuleView({
   sim,
   onOpenEvidence,
   liveOut,
+  allowSeededFallback = true,
   layout = "base",
 }: {
   id: string;
   sim: Sim;
   onOpenEvidence: OpenEv;
-  // Live, adapted module output (from a real run). Falls back to the seeded
-  // demo register when absent, so the offline sim is unaffected.
+  // Live, adapted module output (from a real run). Only the reference/offline
+  // path may fall back to the seeded demo register.
   liveOut?: ModuleOutput;
+  allowSeededFallback?: boolean;
   layout?: DeepDiveLayout;
 }) {
   const meta = MODULES.find((m) => m.id === id);
   const plan = SIM_PLAN.find((m) => m.id === id);
-  const out = liveOut ?? MODULE_OUTPUTS[id];
+  const out = liveOut ?? (allowSeededFallback ? MODULE_OUTPUTS[id] : undefined);
   // ModuleCharts / StepOutputGrid / OutputRegister render module-level *hardcoded
   // Atlas Forge fixtures* keyed only on `id` — they have no live equivalent. On a
   // live run they would show another issuer's mock charts/steps (and a fake
@@ -379,9 +381,13 @@ export function ModuleView({
       <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
         <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
         <div className="text-caos-md leading-relaxed max-w-[400px]">
-          {meta
-            ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
-            : "This module id is not part of the CP-X route graph."}
+          {!allowSeededFallback
+            ? meta
+              ? meta.name + " has no issuer-specific output available. Run or re-run the issuer, then inspect CP-5 for any gate reason."
+              : "This module id is not part of the CP-X route graph."
+            : meta
+              ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
+              : "This module id is not part of the CP-X route graph."}
         </div>
         {meta ? (
           <Link
@@ -466,7 +472,7 @@ export function ModuleView({
           Suppressed for live modules: it is a hardcoded ATLF fixture (no live
           equivalent), so it must not render beneath a live module's output. */}
       {!isLive ? (
-        <OutputRegister key={id + layout} id={id} defaultOpen={layout !== "core"} onOpenEvidence={onOpenEvidence} />
+        <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
       ) : (
         <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
           Charts, step detail, and the workflow register are not yet wired for live

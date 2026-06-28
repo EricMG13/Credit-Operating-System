@@ -205,6 +205,7 @@ class Settings(BaseSettings):
     # write-only mirror — CAOS stays canonical. No new deps, no vector DB. See
     # caos/docs/OBSIDIAN_DATABANK.md.
     vault_export_dir: str = ""
+    vault_name: str = ""
     vault_export_auto: bool = False
 
     # Per-run LLM token budget (engine/budget.py). 0 = unlimited. When set, a run

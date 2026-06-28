@@ -15,6 +15,7 @@ import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { ReportPane } from "@/components/research/ReportPane";
+import { useNotify } from "@/components/shared/Notifications";
 import { deepResearch, getSettings, type ResearchBrief, type ResearchResult } from "@/lib/api";
 import { DEFAULT_CRITERIA, loadPrefs, type AiMode } from "@/lib/research-prefs";
 
@@ -46,6 +47,7 @@ function Research() {
   const [result, setResult] = useState<ResearchResult | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  const notify = useNotify();
 
   // Seed the brief from the analyst's saved Settings defaults (post-mount, so
   // static-export hydration isn't mismatched). Only touches the standing-lens
@@ -99,12 +101,15 @@ function Research() {
       criteria: criteria.split("\n").map((c) => c.trim()).filter(Boolean),
     };
     try {
-      setResult(await deepResearch(brief));
+      const done = await deepResearch(brief);
+      setResult(done);
+      notify("Research complete", `${mode === "sector" ? "Sector" : "Issuer"} · ${brief.subject}`);
     } catch (e: unknown) {
       const msg =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         "Research failed — try again.";
       setError(msg);
+      notify("Research failed", msg);
     } finally {
       setRunning(false);
     }

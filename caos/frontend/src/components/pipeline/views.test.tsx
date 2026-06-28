@@ -55,7 +55,7 @@ describe("LineagePanel", () => {
 describe("Inspector", () => {
   it("prompts to select a module when nothing is selected", () => {
     render(<Inspector sim={emptySim} selected={null} plan={[]} scope={new Set()} modeLabel="full-committee" />);
-    expect(screen.getByText("Select a module")).toBeTruthy();
+    expect(screen.getByText("Module Inspector")).toBeTruthy();
   });
 
   it("renders the module detail and its in-scope QA finding", () => {

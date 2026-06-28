@@ -154,15 +154,24 @@ function DeepDive() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  useEffect(() => {
+    const onCollapse = () => {
+      const anyOpen = railOpen || decisionOpen;
+      setRailOpen(!anyOpen);
+      setDecisionOpen(!anyOpen);
+    };
+    window.addEventListener("caos:collapse-toggle", onCollapse);
+    return () => window.removeEventListener("caos:collapse-toggle", onCollapse);
+  }, [railOpen, decisionOpen]);
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
   const unlocked = isCleared(gateState(gateId));
-  // Reference deal → bespoke showcase tab; real issuer with live output for this
-  // module → its honest live ModuleView instead.
-  const useBespoke = BESPOKE_TABS.has(tab) && (isReference || !live.liveOuts[tab]);
+  // Reference deal → bespoke showcase tab. Real issuers never borrow ATLF
+  // showcase output; they render live ModuleView data or an explicit no-output state.
+  const useBespoke = BESPOKE_TABS.has(tab) && isReference;
   // Per-module live provenance: the open tab renders genuinely-live output only
   // when it goes through the generic ModuleView with this run's own module output
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
@@ -192,14 +201,13 @@ function DeepDive() {
           // Always visible: this caveat pairs with the ● LIVE badge (which has no
           // width gate), so hiding it <1280px would show "live" with no blend
           // disclaimer. (#20)
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; the bespoke debate / recovery / covenant tabs illustrate the ATLF reference deal">
-            live engine output · bespoke tabs show the ATLF reference template
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
+            live engine output · missing panes show no output
           </span>
         ) : (
-          // noRun: issuer exists but was never analysed. Every figure on screen is
-          // the ATLF reference template — say so, and don't hide it on narrow widths.
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Every figure shown is the ATLF reference template, not ${code}'s own analysis — run the issuer to populate live output.`}>
-            no run for {code} · figures are the ATLF reference template, not this issuer
+          // noRun: issuer exists but was never analysed; suppress seeded figures.
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views.`}>
+            no run for {code} · no issuer-specific output
           </span>
         )}
         <div className="flex-1"></div>
@@ -309,17 +317,16 @@ function DeepDive() {
           right={
             <span className="flex items-center gap-3">
               <span className="tabular text-caos-xs text-caos-muted">{code}</span>
-              {/* Per-MODULE provenance, not run-scoped: the run can be live yet this
-                  tab fall back to a seeded ATLF table (module absent from the run, or
-                  a bespoke showcase tab). Light ● LIVE only when THIS tab's data came
-                  from the live run; otherwise mark it a reference/sample. (#5) */}
+              {/* Per-MODULE provenance, not run-scoped: light ● LIVE only when THIS
+                  tab's data came from the live run. Missing issuer-scoped modules
+                  show no-output, never a seeded ATLF table. (#5) */}
               {moduleIsLive ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">
                   ● LIVE
                 </span>
-              ) : live.runId ? (
-                <span className="tabular text-caos-xs text-caos-muted" title="This module has no live output in the current run — showing the seeded ATLF reference table, not this issuer's live output.">
-                  ◦ REFERENCE
+              ) : !isReference ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="This module has no issuer-specific output available.">
+                  ◦ NO OUTPUT
                 </span>
               ) : null}
               <button
@@ -344,7 +351,7 @@ function DeepDive() {
               tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
               <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
             ) :
-            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} layout={layout} />
+            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />

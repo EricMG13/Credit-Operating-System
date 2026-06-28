@@ -76,6 +76,13 @@ export function buildSeries(metrics: ProfileMetric[]): Record<string, ProfileMet
   return out;
 }
 
+export function latestPointDelta(pts: ProfileMetric[] | undefined): number | null {
+  if (!pts || pts.length < 2) return null;
+  const latest = pts[pts.length - 1]?.value;
+  const prior = pts[pts.length - 2]?.value;
+  return typeof latest === "number" && typeof prior === "number" ? latest - prior : null;
+}
+
 const MC_AXIS = { x: { title: false }, y: { title: false } };
 // Shared dodge-bar styling (no axis titles, top legend, value labels). Factored
 // out so the grouped-bar spec body isn't a near-clone of the other dodgeX charts

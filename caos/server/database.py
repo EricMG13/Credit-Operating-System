@@ -81,6 +81,7 @@ class Issuer(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     ticker: Mapped[Optional[str]] = mapped_column(String(32))
     industry: Mapped[Optional[str]] = mapped_column(String(128))
+    sub_sector: Mapped[Optional[str]] = mapped_column(String(128))
     country: Mapped[Optional[str]] = mapped_column(String(128))
     figi: Mapped[Optional[str]] = mapped_column(String(32))
     # Analyst-entered agency ratings (no free ratings feed). NULL = not rated.
@@ -320,6 +321,19 @@ class MetricFact(Base):
     # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
     basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalystLink(Base):
+    """An analyst-entered custom link/commentary parsed from the Obsidian vault."""
+
+    __tablename__ = "analyst_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source_note: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
 
 
 def _alembic_config():

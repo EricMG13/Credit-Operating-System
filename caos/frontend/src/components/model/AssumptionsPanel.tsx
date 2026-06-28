@@ -11,6 +11,7 @@
 
 import { useRef, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
+import { CollapseButton } from "@/components/shared/CollapseButton";
 import {
   type CaseAssumptions, type FY, type YearOverrides, type Assumptions,
   ADDBACKS, DEFAULT_CASE, FORECAST_LABELS, caseModifiedCount, yearModifiedCount,
@@ -200,14 +201,7 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
       title="Assumptions · forecast drivers"
       className="w-[348px] shrink-0"
       right={onCollapse ? (
-        <button
-          onClick={onCollapse}
-          title="Collapse the Assumptions panel"
-          aria-label="Collapse Assumptions panel"
-          className="tabular text-caos-xs px-1 text-caos-muted hover:text-caos-text transition-caos"
-        >
-          ‹
-        </button>
+        <CollapseButton direction="left" label="Collapse Assumptions panel" onClick={onCollapse} />
       ) : undefined}
     >
       <div className="p-2.5 flex flex-col gap-3">

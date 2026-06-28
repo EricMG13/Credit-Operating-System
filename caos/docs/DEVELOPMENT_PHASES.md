@@ -50,12 +50,12 @@ interest-runway, compute-pathways/deltas, build-scorecard). You cannot certify
 math that is still changing, and a numbers platform needs a regression net before
 cert, not after.
 
-- [ ] **Freeze the engine surface** — the 19 wired modules + in-flight `.goal/` function refinements either land or are explicitly deferred. No new engine functions mid-cert.
+- [x] **Freeze the engine surface** — the 19 wired modules + in-flight `.goal/` function refinements either land or are explicitly deferred. No new engine functions mid-cert.
 - [x] **Build the sealed golden set** — `tests/server/golden/` holds trimmed real companyfacts for **VSAT** + **FUN** (Six Flags), frozen + cross-checked vs VIASAT_VALIDATION.md. Regen via `_capture.py` (one live SEC fetch each).
-- [ ] **VMO2 golden** — non-US, no SEC companyfacts → needs a fixture from the **reported-doc lane** (`reported_cp1.py`), not EDGAR. Outstanding.
+- [x] **VMO2 golden** — non-US, no SEC companyfacts → fixture added from the **reported-doc lane** (`reported_cp1.py`), not EDGAR.
 - [x] **Golden-master regression in CI** — `tests/server/golden/test_golden_cp1.py` recomputes CP-1 from the fixtures offline and **fails on any numeric drift** (revenue, EBITDA, net debt, leverage, coverage, Altman Z'').
-- [ ] **Kill silent mock fallback** — every pane that renders engine numbers shows live output or an explicit "no data" / "degraded" state; never a mock number tagged `prov=run` (the Viasat **ATLF-fixture gotcha**).
-- [ ] **Start the fault log** with the dual severity rubric; agree triage convention.
+- [x] **Kill silent mock fallback** — every pane that renders engine numbers shows live output or an explicit "no data" / "degraded" state; never a mock number tagged `prov=run` (the Viasat **ATLF-fixture gotcha**).
+- [x] **Start the fault log** with the dual severity rubric; agree triage convention.
 
 **Exit gate:** golden-master green in CI · no surface can silently substitute mock for live · engine surface frozen.
 

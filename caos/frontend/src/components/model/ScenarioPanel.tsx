@@ -6,6 +6,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
+import { CollapseButton } from "@/components/shared/CollapseButton";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import type { Model } from "@/lib/reports/model";
@@ -337,14 +338,7 @@ export function ScenarioPanel({ model, onCollapse }: { model: Model; onCollapse?
       title="Scenario & Sensitivity · forward cash-flow lens"
       className="w-[372px] shrink-0"
       right={onCollapse ? (
-        <button
-          onClick={onCollapse}
-          title="Collapse the Scenario & Sensitivity panel"
-          aria-label="Collapse Scenario panel"
-          className="tabular text-caos-xs px-1 text-caos-muted hover:text-caos-text transition-caos"
-        >
-          ›
-        </button>
+        <CollapseButton direction="right" label="Collapse Scenario panel" onClick={onCollapse} />
       ) : undefined}
     >
       <div className="p-2.5 flex flex-col gap-3.5">

@@ -64,7 +64,7 @@ function CommandCenter() {
         />
         <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">
           {view === "cio"
-            ? "Portfolio Posture — US HY Sleeve"
+            ? "Coverage — US HY Sleeve"
             : view === "res"
             ? "Coverage Health — US HY Sleeve"
             : "Sector Relative Value — Loan Universe"}
@@ -117,7 +117,7 @@ function CommandCenter() {
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
             <NlQuery />
             <PanelShell
-              title="Portfolio Posture · CP-3C"
+              title="Coverage"
               className="flex-[3]"
               right={<span className="tabular text-caos-xs text-caos-muted">10 issuers · marks {run.clock}</span>}
             >

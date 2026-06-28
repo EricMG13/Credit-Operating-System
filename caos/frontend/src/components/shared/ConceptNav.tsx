@@ -61,15 +61,19 @@ const ICONS: Record<string, Icon> = {
   </>),
 };
 
-const SECTIONS = [
+type ConceptSection = { href: string; icon: string; label: string } | { sep: true };
+
+const SECTIONS: ConceptSection[] = [
   { href: "/command", icon: "command", label: "Command" },
+  { href: "/monitor", icon: "monitor", label: "Monitor" },
+  { sep: true },
+  { href: "/research", icon: "research", label: "Research" },
+  { href: "/query", icon: "query", label: "Query" },
+  { sep: true },
   { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
   { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
   { href: "/model", icon: "model", label: "Model" },
   { href: "/reports", icon: "report", label: "Report" },
-  { href: "/monitor", icon: "monitor", label: "Monitor" },
-  { href: "/research", icon: "research", label: "Research" },
-  { href: "/query", icon: "query", label: "Query" },
 ];
 
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
@@ -79,7 +83,8 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
   return (
     <span className="flex items-center gap-1 shrink-0">
       <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold SPACE + ← / → to switch concepts">
-        {SECTIONS.map((s) => {
+        {SECTIONS.map((s, idx) => {
+          if ("sep" in s) return <span key={"sep-" + idx} className="h-4 w-px bg-caos-border mx-0.5" />;
           const active = pathname.startsWith(s.href);
           const Glyph = ICONS[s.icon];
           return (

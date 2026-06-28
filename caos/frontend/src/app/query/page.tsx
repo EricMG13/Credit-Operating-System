@@ -13,8 +13,10 @@ import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { CapabilityRail } from "@/components/query/CapabilityRail";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { useNotify } from "@/components/shared/Notifications";
 import { queryCapabilities, queryGraph } from "@/lib/api";
-import type { Capability, CapabilitiesResult, GraphResult } from "@/lib/query/graph";
+import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
+import { downloadQueryCsv } from "@/lib/query/export";
 
 export default function QueryPage() {
   return (
@@ -63,6 +65,9 @@ function Query() {
   const [note, setNote] = useState<string | null>(null);
   const [suggest, setSuggest] = useState<Capability[]>([]);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [readerOpen, setReaderOpen] = useState(false);
+  const notify = useNotify();
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -80,16 +85,22 @@ function Query() {
     setGraphErr(null);
     setNote(null);
     setSuggest([]);
+    setSelectedNode(null);
+    setReaderOpen(false);
     queryGraph(capId)
-      .then((g) => { if (seq === runSeq.current) setGraph(g); })
+      .then((g) => {
+        if (seq === runSeq.current) setGraph(g);
+        notify("Query complete", g.title);
+      })
       .catch((e) => {
         if (seq !== runSeq.current) return;
         const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
           || (e as Error)?.message || "could not run query";
         setGraphErr(String(d));
+        notify("Query failed", String(d));
       })
       .finally(() => { if (seq === runSeq.current) setRunning(false); });
-  }, []);
+  }, [notify]);
 
   // Load capabilities, then auto-run the first runnable preferred capability so the
   // surface opens on a live graph, not an empty canvas.
@@ -218,6 +229,22 @@ function Query() {
           )}
 
           <ResultHeader graph={graph} running={running} />
+          {graph ? (
+            <div className="flex justify-end gap-2 -mt-1">
+              <button
+                onClick={() => downloadQueryCsv(graph)}
+                className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+              >
+                EXPORT CSV
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+              >
+                EXPORT PDF
+              </button>
+            </div>
+          ) : null}
 
           <div className="flex-1 min-h-0 flex flex-col bg-caos-bg border border-caos-border rounded-md p-2" style={{ minHeight: 360 }}>
             {capsErr ? (
@@ -227,7 +254,14 @@ function Query() {
             ) : !graph ? (
               <Center text={running ? "Walking the graph…" : "Pick a capability to render its graph."} />
             ) : (
-              <GraphCanvas graph={graph} onOpenChunk={(id, label) => setCite({ id, label })} />
+              <GraphCanvas 
+                graph={graph} 
+                onOpenChunk={(id, label) => setCite({ id, label })} 
+                onSelectNode={(node) => {
+                  setSelectedNode(node);
+                  setReaderOpen(true);
+                }}
+              />
             )}
           </div>
 
@@ -238,6 +272,87 @@ function Query() {
             </div>
           )}
         </main>
+
+        {/* Split-Screen Reader Panel */}
+        {readerOpen && selectedNode && (
+          <aside 
+            className="w-[400px] border-l border-caos-border bg-caos-panel flex flex-col p-4 gap-4 overflow-y-auto shrink-0 relative transition-caos"
+            aria-label="Node detail reader"
+          >
+            <div className="flex items-start justify-between pb-2 border-b border-caos-border">
+              <div>
+                <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent font-mono">
+                  {selectedNode.kind.replace("-", " ")}
+                </span>
+                <h2 className="tabular text-caos-lg font-mono text-caos-text mt-0.5 leading-snug break-all">
+                  {selectedNode.label}
+                </h2>
+              </div>
+              <button
+                onClick={() => setReaderOpen(false)}
+                className="text-caos-muted hover:text-caos-text text-caos-xl font-bold px-1.5 focus-ring"
+                aria-label="Close panel"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="flex-1 flex flex-col gap-3 min-h-0">
+              {selectedNode.sub && (
+                <div>
+                  <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description / Subtitle</div>
+                  <div className="text-caos-md text-caos-text leading-relaxed font-sans">{selectedNode.sub}</div>
+                </div>
+              )}
+
+              {selectedNode.title && (
+                <div>
+                  <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Summary / Detail</div>
+                  <div className="text-caos-sm text-caos-text/90 leading-relaxed bg-caos-bg/50 border border-caos-border rounded p-2 font-mono whitespace-pre-wrap">
+                    {selectedNode.title}
+                  </div>
+                </div>
+              )}
+
+              {selectedNode.group && (
+                <div>
+                  <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Category Group</div>
+                  <span className="tabular text-caos-2xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5 inline-block">
+                    {selectedNode.group}
+                  </span>
+                </div>
+              )}
+
+              {selectedNode.confidence && (
+                <div>
+                  <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence Score</div>
+                  <span 
+                    className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
+                    style={{
+                      color: selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
+                      borderColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
+                      backgroundColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
+                    }}
+                  >
+                    {selectedNode.confidence}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {selectedNode.obsidian_url && (
+              <div className="pt-3 border-t border-caos-border shrink-0">
+                <a
+                  href={selectedNode.obsidian_url}
+                  className="w-full flex items-center justify-center gap-1.5 tabular text-caos-xs font-semibold py-2 px-3 rounded bg-caos-accent text-caos-bg hover:opacity-90 transition-caos text-center focus-ring"
+                >
+                  <span>REVEAL IN OBSIDIAN WIKI</span>
+                  <span aria-hidden className="text-caos-2xs">↗</span>
+                </a>
+              </div>
+            )}
+          </aside>
+        )}
       </div>
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}

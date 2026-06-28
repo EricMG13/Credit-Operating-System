@@ -4,7 +4,7 @@
 // + step-output viewer modal showing each step's full analytical output per
 // the Modular OS REF templates (port of design bundle concept-c-views.jsx).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
@@ -27,15 +27,30 @@ export function OutputRegister({
   onOpenEvidence: (id: string) => void;
 }) {
   const steps = MODULE_STEPS[id];
+  const storageKey = "caos-deepdive-output-open:" + id;
   const [open, setOpen] = useState(defaultOpen);
   const [sel, setSel] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setOpen(saved == null ? defaultOpen : saved === "1");
+    } catch {
+      setOpen(defaultOpen);
+    }
+  }, [defaultOpen, storageKey]);
+  const toggleOpen = () => {
+    const next = !open;
+    if (open) setSel(null);
+    setOpen(next);
+    try { localStorage.setItem(storageKey, next ? "1" : "0"); } catch {}
+  };
   if (!steps) return null;
   const n = (s: string) => steps.filter((x) => x[2] === s).length;
   const selStep = sel != null ? steps[sel] : null;
   return (
     <div className="rounded border border-caos-border bg-caos-bg">
       <button
-        onClick={() => { if (open) setSel(null); setOpen(!open); }}
+        onClick={toggleOpen}
         className="w-full px-3 py-2 flex items-center gap-2.5 text-left hover:bg-caos-elevated/40 transition-caos"
       >
         <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted whitespace-nowrap">

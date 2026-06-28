@@ -6,12 +6,14 @@
 // stop hand-rolling the same structure. Phase 0 foundation — rails adopt this
 // in Phase 1.
 
+import { CollapseButton } from "@/components/shared/CollapseButton";
+
 export function RailShell({
   open,
   onToggle,
   collapsed,
   expandTitle = "Expand",
-  glyph = "⊐",
+  direction = "right",
   children,
 }: {
   open: boolean;
@@ -19,21 +21,13 @@ export function RailShell({
   /** Vertical-label content shown in the collapsed strip (under the toggle). */
   collapsed: React.ReactNode;
   expandTitle?: string;
-  /** Toggle glyph for the collapsed strip (rails point it toward their edge). */
-  glyph?: string;
+  direction?: "left" | "right";
   children: React.ReactNode;
 }) {
   if (!open) {
     return (
       <div className="flex flex-col items-center gap-3 min-h-0 bg-caos-panel border border-caos-border rounded-md py-2.5">
-        <button
-          onClick={onToggle}
-          title={expandTitle}
-          aria-label={expandTitle}
-          className="text-caos-muted hover:text-caos-text transition-caos text-caos-2xl"
-        >
-          {glyph}
-        </button>
+        <CollapseButton direction={direction} label={expandTitle} onClick={onToggle} />
         {collapsed}
       </div>
     );

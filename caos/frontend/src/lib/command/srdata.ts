@@ -27,6 +27,7 @@ export interface KnowledgeSource {
   kind: "external" | "vault";
   name: string;
   detail: string;
+  url?: string;
 }
 
 export interface SectorReviewData {

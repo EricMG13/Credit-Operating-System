@@ -1,8 +1,11 @@
-// Report builders — assembles the 5 committee deliverables from the M-118 model
+// Report builders — assembles the 5 committee deliverables from the model
 // + ATLF module outputs (port of design bundle concept-e-reports.js).
 
 import { buildModel, type Model, type ModelCol, type Overrides } from "./model";
 import { CAPACITY, COVENANTS, DEAL, DEBATE, SIZING, TRIGGERS } from "./deal";
+import { ROWS } from "@/components/model/rows";
+import { fmt } from "@/components/model/model-format";
+import { cellTextColor } from "@/components/model/cell-style";
 import type { ModelAnchor } from "@/lib/engine/modelAnchor";
 import type { G2Spec } from "@/components/charts/G2Chart";
 
@@ -22,6 +25,7 @@ export interface ModelInputs {
 
 export interface TableRow {
   cells: (string | number)[];
+  cellColors?: (string | undefined)[];
   b?: 1;
   it?: 1;
   line?: 1;
@@ -63,6 +67,7 @@ const fm = (v: number | null | undefined): string => {
 };
 const fp = (v: number | null | undefined): string => (v == null || Number.isNaN(v) ? "" : (v * 100).toFixed(1) + "%");
 const fx = (v: number | null | undefined): string => (v == null || Number.isNaN(v) ? "" : v.toFixed(2) + "x");
+const APPENDIX_PCT_BLUE = "#2f64b7";
 
 /* ---------- financials grid (FY22…LTM, template layout) ---------- */
 const FIN_KEYS = ["f22", "f23", "f24", "f25", "y0", "y1", "l1"] as const;
@@ -119,6 +124,50 @@ function finSections(model: Model): Section[] {
     ],
   };
   return [fin, bs, cm];
+}
+
+function modelAppendix(model: Model, currency = "USD"): Report {
+  const subtotalLines = new Set(["gp", "ebit", "ffo", "cfo"]);
+  const kpiGroupLines = new Set(["intcov", "sga", "dso", "taxr"]);
+  const appendixPctColor = (v: number | null, rowId: string, bold: boolean, rowFmt?: string): string =>
+    cellTextColor({ rowId, v, isOv: false, pct: true, bold, rowFmt }).replace("rgba(79,140,255,0.9)", APPENDIX_PCT_BLUE);
+  const labelFor = (key: string) => {
+    const c = model.cols[key];
+    const col = model.columns.find((x) => x.key === key);
+    if (!col) return c.label;
+    if (col.group === "Q") return `Q ${c.label}`;
+    return `${col.group} ${c.label}`;
+  };
+  const cols = ["Line", ...model.columns.map((c) => labelFor(c.key))];
+  const rows: TableRow[] = ROWS.map((r) => r.sec
+    ? { cells: [r.sec, ...model.columns.map(() => "")], b: 1, line: 1, gap: 1 }
+    : (() => {
+        const values = model.columns.map((c) => r.g?.(model.cols[c.key]) ?? null);
+        return {
+          cells: [
+            r.sub ? `${r.l} (${r.sub})` : r.l || "",
+            ...values.map((v) => fmt(v, r.f)),
+          ],
+          cellColors: r.pct && r.id ? [
+            undefined,
+            ...values.map((v) => appendixPctColor(v, r.id!, !!r.bold, r.f)),
+          ] : undefined,
+          b: r.bold,
+          line: r.line || (r.id && (subtotalLines.has(r.id) || kpiGroupLines.has(r.id)) ? 1 : undefined),
+          gap: r.line || (r.id && kpiGroupLines.has(r.id) ? 1 : undefined),
+        };
+      })());
+  return {
+    id: "model",
+    title: "Model Appendix",
+    file: "ATLF_Model_Appendix.pdf",
+    subtitle: `Atlas Forge Industrials (ATLF) · full M-118 model · ${currency} in Mns`,
+    icon: "▦",
+    srcs: [{ chip: "MODEL", ev: ["E-103"] }],
+    sections: [
+      { t: "table", title: "FULL MODEL", sub: `${currency} in Mns except ratios`, cols, align: cols.map((_, i) => i === 0 ? 0 : 1), rows },
+    ],
+  };
 }
 
 /* ---------- Credit Snapshot ---------- */
@@ -398,7 +447,7 @@ function monitoringDigest(): Report {
 
 export function buildReports(inputs?: ModelInputs): Report[] {
   const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {}, inputs?.anchor);
-  return [creditSnapshot(model), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest()];
+  return [creditSnapshot(model), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest(), modelAppendix(model)];
 }
 
 export function citeCount(rep: Report): number {

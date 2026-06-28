@@ -12,7 +12,7 @@ export const MODEL_MODES: { value: ModelMode; label: string; hint: string }[] = 
   { value: "MAX", label: "Max", hint: "Highest reasoning & effort" },
 ];
 
-export const DEFAULT_MODE: ModelMode = "BALANCED";
+export const DEFAULT_MODE: ModelMode = "TEST";
 
 const KEY = "caos.model.mode";
 

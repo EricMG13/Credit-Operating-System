@@ -18,7 +18,11 @@ export const api = axios.create({
 // to a model tier per LLM lane (engine/presets.py); runs persist the mode they
 // ran at. SSR has no localStorage, so this only attaches in the browser.
 api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") config.headers.set("X-Model-Mode", loadMode());
+  if (typeof window !== "undefined") {
+    config.headers.set("X-Model-Mode", loadMode());
+    const qm = localStorage.getItem("caos_query_model");
+    if (qm) config.headers.set("X-Query-Model", qm);
+  }
   return config;
 });
 
@@ -46,7 +50,7 @@ export const login = (email: string, password: string) =>
   api.post("/api/auth/login", { email, password }, { timeout: 8000 }).then((r) => r.data);
 
 // ─── Issuers ──────────────────────────────────────────────────────────────
-// `q` searches name, ticker, industry, country, and FIGI (case-insensitive).
+// `q` searches name, ticker, sector/industry, sub-sector, country, and FIGI.
 export const getIssuers = (q?: string) =>
   api.get("/api/issuers/", { params: q && q.trim() ? { q: q.trim() } : {} }).then((r) => r.data);
 export const createIssuer = (data: Record<string, unknown>) =>
@@ -212,24 +216,7 @@ export const scenarioFromNL = (text: string): Promise<ScenarioSpec> =>
   api.post("/api/scenario/nl", { text }).then((r) => r.data);
 
 // ─── SEC EDGAR retrieval lane (free, no key; gated on EDGAR_USER_AGENT) ───────
-// Search → filing pointers (external · unverified) → exhibits → vault one as a
-// primary source. Endpoints 503 until EDGAR_USER_AGENT is configured server-side.
-export interface EdgarFilingHit {
-  cik: string;
-  accession: string;
-  form: string;
-  filed_date: string;
-  title: string;
-  source_url: string;
-  provenance: string;
-}
-export interface EdgarExhibit {
-  name: string;
-  url: string;
-  doc_label: string;
-  authority_rank: number | null;
-  size: number | null;
-}
+// Endpoints 503 until EDGAR_USER_AGENT is configured server-side.
 export interface EdgarVaultResult {
   document_id: string;
   storage_key: string;
@@ -240,19 +227,13 @@ export interface EdgarVaultResult {
   message: string;
 }
 
-export const edgarSearch = (q: string, forms?: string): Promise<EdgarFilingHit[]> =>
-  api.get("/api/edgar/search", { params: { q, ...(forms ? { forms } : {}) } }).then((r) => r.data);
-
-export const edgarExhibits = (cik: string, accession: string): Promise<EdgarExhibit[]> =>
-  api.get("/api/edgar/exhibits", { params: { cik, accession } }).then((r) => r.data);
-
-export const edgarVaultExhibit = (
+export const edgarVaultUrl = (
   issuerId: string,
   exhibitUrl: string,
   runMode = "legal",
 ): Promise<EdgarVaultResult> =>
   api
-    .post("/api/edgar/vault-exhibit", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
+    .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────

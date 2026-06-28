@@ -8,28 +8,28 @@ import { DEAL, DEBATE, DOCS, SIZING, TRIGGERS } from "@/lib/reports/deal";
 import { DRIVERS } from "@/lib/pipeline/data";
 import { Bar, Dot, Tag } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
+import { CollapseButton } from "@/components/shared/CollapseButton";
 import { RailShell } from "@/components/shared/RailShell";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import type { FindingDTO } from "@/lib/engine/types";
 
 export { Panel };
 
-// For a non-reference issuer the rails' fixture content (source register, CP-5B
-// drivers, IC verdict, sizing, triggers) is the ATLF reference template, not that
-// issuer's own analysis — say so loudly so a PM never reads it as this issuer's
-// committee decision. The live engine output for the issuer is in the centre pane.
-function RefTemplateStrip({ code, onCollapse }: { code?: string; onCollapse?: () => void }) {
+// For a non-reference issuer, do not render ATLF rail fixtures as stand-ins.
+// The live engine output for the issuer is in the centre pane.
+function NoIssuerRailOutput({ code, onCollapse }: { code?: string; onCollapse?: () => void }) {
   const who = code && code !== "—" ? code : "this issuer";
   return (
     <div role="note" className="bg-caos-panel border rounded-md px-3 py-2 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
       <div className="flex items-center gap-2">
-        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-warning)" }}>⚠ ATLF reference template</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-warning)" }}>No issuer-specific rail output</span>
         {onCollapse ? (
-          <button onClick={onCollapse} title="Collapse decision rail" aria-label="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊐</button>
+          <CollapseButton direction="right" label="Collapse decision rail" onClick={onCollapse} className="ml-auto" />
         ) : null}
       </div>
       <div className="text-caos-md text-caos-text leading-snug mt-0.5">
-        Figures in this rail are the Atlas Forge reference deal, <span className="font-medium">not {who}</span>. Live engine output for {who} is in the centre module views; run the issuer to populate its own register and committee output.
+        CP-0/CP-5B rail registers and committee output are not wired for {who} here yet.
+        Use the centre module views for live engine output; ATLF rail fixtures are suppressed.
       </div>
     </div>
   );
@@ -116,7 +116,7 @@ export function SourceRail({
       open={open}
       onToggle={onToggle}
       expandTitle="Expand source rail"
-      glyph="⊐"
+      direction="right"
       collapsed={
         <>
           <span className="tabular text-caos-md text-caos-accent" style={{ writingMode: "vertical-rl" }}>{code}</span>
@@ -128,7 +128,7 @@ export function SourceRail({
         <div className="flex items-center gap-2">
           <span className="tabular text-caos-2xl text-caos-accent">{code}</span>
           <span className="text-caos-2xl font-semibold text-caos-text">{name}</span>
-          <button onClick={onToggle} title="Collapse source rail" aria-label="Collapse source rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊏</button>
+          <CollapseButton direction="left" label="Collapse source rail" onClick={onToggle} className="ml-auto" />
         </div>
         {isReference ? (
           <>
@@ -141,50 +141,63 @@ export function SourceRail({
           </>
         ) : null}
       </div>
-      {!isReference ? <RefTemplateStrip code={code} /> : null}
-      <Panel title="Source Register · CP-0" className="flex-[2]">
-        {DOCS.map((d) => (
-          <div key={d.id} className="px-3 py-[5.5px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos cursor-pointer">
-            <div className="flex items-center gap-2">
-              <span className="text-caos-lg text-caos-text truncate flex-1">{d.name}</span>
-              <span className="tabular text-caos-xs px-1 rounded border" style={{ color: d.grade === "A" ? "var(--caos-success)" : d.grade === "B" ? "var(--caos-warning)" : "var(--caos-critical)", borderColor: "currentColor" }}>{d.grade}</span>
-            </div>
-            <div className="tabular text-caos-2xs text-caos-muted mt-0.5 flex gap-2 whitespace-nowrap">
-              <span>{d.id}</span><span>{d.type}</span><span>{d.pages}pp</span><span>{d.date}</span>
-              {d.mnpi ? <span style={{ color: "var(--caos-warning)" }}>MNPI</span> : null}
-            </div>
-          </div>
-        ))}
-      </Panel>
-      <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
-        {/* fallow-ignore-next-line complexity */}
-        {DRIVERS.map((d) => {
-          const hot = !!(active && d.evs.includes(active)) || !!(ev && d.evs.includes(ev));
-          return (
-            <div
-              key={d.n}
-              tabIndex={0}
-              aria-label={`Evidence for driver ${d.n}: ${d.driver}`}
-              onMouseEnter={() => setActive(d.evs[0])}
-              onMouseLeave={() => setActive(null)}
-              onFocus={() => setActive(d.evs[0])}
-              onBlur={() => setActive(null)}
-              className={"px-3 py-2 border-b border-caos-border/50 transition-caos " + (hot ? "caos-selected bg-caos-elevated relative z-[5]" : "hover:bg-caos-elevated/60")}
-            >
-              <div className="flex items-start gap-2">
-                <span className="tabular text-caos-xs text-caos-muted mt-px">#{d.n}</span>
-                <span className="text-caos-md text-caos-text leading-snug flex-1">{d.driver}</span>
-                <Tag sev={d.status === "verified" ? "ok" : "warning"}>{d.status}</Tag>
-              </div>
-              <div className="tabular text-caos-2xs text-caos-muted mt-1 leading-relaxed pl-4">{d.lineage}</div>
-              <div className="flex items-center gap-1.5 mt-1 pl-4">
-                <Bar pct={d.conf * 100} color={d.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)"} h={2} />
-                <span className="tabular text-caos-2xs text-caos-muted shrink-0">conf {(d.conf * 100).toFixed(0)}%</span>
-              </div>
-            </div>
-          );
-        })}
-      </Panel>
+      {!isReference ? <NoIssuerRailOutput code={code} /> : (
+        <>
+          <Panel title="Source Register · CP-0" className="flex-[2]">
+            {DOCS.map((d) => {
+              const url = "url" in d && typeof d.url === "string" ? d.url : "";
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  disabled={!url}
+                  onClick={() => { if (url) window.open(url, "_blank", "noopener,noreferrer"); }}
+                  title={url || "Source pointer only; no URL is attached in this demo register."}
+                  className="block w-full text-left px-3 py-[5.5px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos disabled:cursor-default disabled:hover:bg-transparent focus-ring"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-caos-lg text-caos-text truncate flex-1">{d.name}</span>
+                    <span className="tabular text-caos-xs px-1 rounded border" style={{ color: d.grade === "A" ? "var(--caos-success)" : d.grade === "B" ? "var(--caos-warning)" : "var(--caos-critical)", borderColor: "currentColor" }}>{d.grade}</span>
+                  </div>
+                  <div className="tabular text-caos-2xs text-caos-muted mt-0.5 flex gap-2 whitespace-nowrap">
+                    <span>{d.id}</span><span>{d.type}</span><span>{d.pages}pp</span><span>{d.date}</span>
+                    {d.mnpi ? <span style={{ color: "var(--caos-warning)" }}>MNPI</span> : null}
+                  </div>
+                </button>
+              );
+            })}
+          </Panel>
+          <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
+            {/* fallow-ignore-next-line complexity */}
+            {DRIVERS.map((d) => {
+              const hot = !!(active && d.evs.includes(active)) || !!(ev && d.evs.includes(ev));
+              return (
+                <div
+                  key={d.n}
+                  tabIndex={0}
+                  aria-label={`Evidence for driver ${d.n}: ${d.driver}`}
+                  onMouseEnter={() => setActive(d.evs[0])}
+                  onMouseLeave={() => setActive(null)}
+                  onFocus={() => setActive(d.evs[0])}
+                  onBlur={() => setActive(null)}
+                  className={"px-3 py-2 border-b border-caos-border/50 transition-caos " + (hot ? "caos-selected bg-caos-elevated relative z-[5]" : "hover:bg-caos-elevated/60")}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="tabular text-caos-xs text-caos-muted mt-px">#{d.n}</span>
+                    <span className="text-caos-md text-caos-text leading-snug flex-1">{d.driver}</span>
+                    <Tag sev={d.status === "verified" ? "ok" : "warning"}>{d.status}</Tag>
+                  </div>
+                  <div className="tabular text-caos-2xs text-caos-muted mt-1 leading-relaxed pl-4">{d.lineage}</div>
+                  <div className="flex items-center gap-1.5 mt-1 pl-4">
+                    <Bar pct={d.conf * 100} color={d.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)"} h={2} />
+                    <span className="tabular text-caos-2xs text-caos-muted shrink-0">conf {(d.conf * 100).toFixed(0)}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </Panel>
+        </>
+      )}
     </RailShell>
   );
 }
@@ -208,7 +221,7 @@ export function DecisionRail({
       open={open}
       onToggle={onToggle}
       expandTitle="Expand decision rail"
-      glyph="⊏"
+      direction="left"
       collapsed={
         <>
           <span className="text-caos-xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⛨</span>
@@ -223,19 +236,19 @@ export function DecisionRail({
             <span className="text-caos-2xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⛨</span>
             <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-5 clearance</span>
             <span className="tabular text-caos-2xl uppercase tracking-wide font-semibold" style={{ color: "var(--caos-warning)" }}>CONDITIONAL</span>
-            <button onClick={onToggle} title="Collapse decision rail" aria-label="Collapse decision rail" className="ml-auto text-caos-muted hover:text-caos-text transition-caos text-caos-2xl focus-ring">⊐</button>
+            <CollapseButton direction="right" label="Collapse decision rail" onClick={onToggle} className="ml-auto" />
           </div>
           <div className="text-caos-lg text-caos-text mt-1.5 leading-snug">
             QA-117 (HIGH) open — citation E-44 page mismatch. Committee pack assembly HELD; debate verdict stands ex-E-44.
           </div>
         </div>
       ) : (
-        <RefTemplateStrip code={code} onCollapse={onToggle} />
+        <NoIssuerRailOutput code={code} onCollapse={onToggle} />
       )}
 
       <CouncilReview council={council} />
 
-      <Panel title="IC Verdict · CP-6A" className="shrink-0">
+      {isReference ? <Panel title="IC Verdict · CP-6A" className="shrink-0">
         <div className="px-3 py-2.5">
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Recommendation bias</div>
           {/* The committee's call — the climax of the whole platform. Hero it:
@@ -255,9 +268,9 @@ export function DecisionRail({
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mt-3 mb-1">Chair final memo</div>
           <div className="text-caos-lg text-caos-muted leading-relaxed">{DEBATE.memo}</div>
         </div>
-      </Panel>
+      </Panel> : null}
 
-      <Panel title="Sizing & Posture · CP-6E" className="shrink-0">
+      {isReference ? <Panel title="Sizing & Posture · CP-6E" className="shrink-0">
         <div className="px-3 py-2.5">
           <div className="text-caos-2xl text-caos-text font-medium">{SIZING.decision}</div>
           <div className="grid grid-cols-3 gap-2 mt-2">
@@ -270,9 +283,9 @@ export function DecisionRail({
           </div>
           <div className="text-caos-lg text-caos-muted leading-snug mt-2">{SIZING.constraint}</div>
         </div>
-      </Panel>
+      </Panel> : null}
 
-      <Panel title="Triggers Armed → CP-MON" className="flex-1">
+      {isReference ? <Panel title="Triggers Armed → CP-MON" className="flex-1">
         {TRIGGERS.map((tr) => (
           <div key={tr.id} className="px-3 py-[6px] border-b border-caos-border/50 flex items-start gap-2">
             <Dot sev={tr.sev} />
@@ -291,7 +304,7 @@ export function DecisionRail({
             <div key={i} className="text-caos-lg text-caos-muted leading-snug flex gap-1.5"><span style={{ color: "var(--caos-critical-bright)" }}>−</span>{x}</div>
           ))}
         </div>
-      </Panel>
+      </Panel> : null}
     </RailShell>
   );
 }

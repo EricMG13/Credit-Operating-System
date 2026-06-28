@@ -7,6 +7,7 @@
 // to a slim index strip.
 
 import type { CapabilityGroup } from "@/lib/query/graph";
+import { CollapseButton } from "@/components/shared/CollapseButton";
 
 export function CapabilityRail({
   groups,
@@ -35,13 +36,7 @@ export function CapabilityRail({
             Capabilities <span className="text-caos-muted">· {totalReady} ready</span>
           </span>
         )}
-        <button
-          onClick={onToggle}
-          aria-label={collapsed ? "Expand capability rail" : "Collapse capability rail"}
-          className="ml-auto w-6 h-6 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring"
-        >
-          {collapsed ? "»" : "«"}
-        </button>
+        <CollapseButton direction={collapsed ? "right" : "left"} label={collapsed ? "Expand capability rail" : "Collapse capability rail"} onClick={onToggle} className="ml-auto" />
       </div>
 
       {collapsed ? (

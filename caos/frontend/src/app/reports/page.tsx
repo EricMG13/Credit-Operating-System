@@ -79,12 +79,12 @@ function ReportStudio() {
     } catch { /* no model edits yet */ }
   }, []);
   // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
-  // uses); falls back to the seeded model when no run exists. Lights up the
-  // snapshot panels with live, provenance-anchored figures.
+  // uses). Only the ATLF reference page may build seeded report templates; real
+  // issuers show no-output until CP-RENDER is wired to live module payloads.
   const eng = useModelEngine(issuerId);
   const reports = useMemo(
-    () => buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }),
-    [modelInputs, eng.anchor],
+    () => isReference ? buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }) : [],
+    [isReference, modelInputs, eng.anchor],
   );
 
   const [activeId, setActiveId] = useState("snapshot");
@@ -121,12 +121,13 @@ function ReportStudio() {
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-edits", JSON.stringify(edits)); } catch {} }, [hydrated, edits]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
-  const repOmit = omit[rep.id] || {};
+  const repOmit = rep ? omit[rep.id] || {} : {};
   const omitCount = Object.keys(repOmit).length;
-  const repEdits = edits[rep.id] || {};
+  const repEdits = rep ? edits[rep.id] || {} : {};
   const editCount = Object.keys(repEdits).length;
 
   const toggleSec = (i: number) => {
+    if (!rep) return;
     setOmit((o) => {
       const cur = { ...o[rep.id] };
       if (cur[i]) delete cur[i];
@@ -136,9 +137,11 @@ function ReportStudio() {
   };
 
   const applyEdit = (path: string, text: string) => {
+    if (!rep) return;
     setEdits((e) => ({ ...e, [rep.id]: { ...e[rep.id], [path]: text } }));
   };
   const resetEdits = () => {
+    if (!rep) return;
     // Irreversible: drops every analyst edit on this deliverable (and the
     // localStorage mirror with it). Confirm before discarding manual committee work.
     const plural = editCount === 1 ? "" : "s";
@@ -181,18 +184,18 @@ function ReportStudio() {
           <span
             className="tabular text-caos-xs whitespace-nowrap"
             style={{ color: "var(--caos-warning)" }}
-            title="Live engine modules reflect this issuer; the bespoke report pages show the ATLF reference template"
+            title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
           >
-            live engine output · bespoke pages show the ATLF reference template
+            live engine output · report renderer not wired
           </span>
         ) : (
           <span
             className="tabular text-caos-xs whitespace-nowrap"
             style={{ color: "var(--caos-warning)" }}
             role="note"
-            title="No completed run for this issuer. Every figure shown is the ATLF reference template, not this issuer's own analysis."
+            title="No completed run for this issuer. Report Studio will not show the ATLF reference template for a real issuer."
           >
-            no run for this issuer · figures are the ATLF reference template, not this issuer
+            no run for this issuer · report unavailable
           </span>
         )}
         <span className="flex-1" />
@@ -261,6 +264,7 @@ function ReportStudio() {
         </span>
         <button
           onClick={() => window.print()}
+          disabled={!rep}
           className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
         >
           ⎙ EXPORT PDF
@@ -275,11 +279,11 @@ function ReportStudio() {
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex gap-2 p-2">
-        <ReportList reports={reports} active={rep.id} onSel={setActiveId} />
+        {rep ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} /> : null}
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
-            <div style={{ zoom }}>
+            {rep ? <div style={{ zoom }}>
               <ReportDoc
                 rep={rep}
                 omit={repOmit}
@@ -288,19 +292,27 @@ function ReportStudio() {
                 edits={repEdits}
                 onEdit={editMode ? applyEdit : undefined}
               />
-            </div>
+            </div> : (
+              <div className="min-h-[420px] flex flex-col items-center justify-center gap-2 text-center px-6">
+                <div className="tabular text-caos-xl text-caos-text">No issuer-specific report output</div>
+                <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">
+                  CP-RENDER is not wired to live module payloads yet. Run the issuer,
+                  then use Deep-Dive or Model Builder until Report Studio has live output.
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
+        {rep ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
           <LineagePanel rep={rep} onOpenEvidence={setEvModal} />
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
           <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} />
-        </div>
+        </div> : null}
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
-      <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} />
+      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} /> : null}
     </div>
   );
 }

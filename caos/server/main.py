@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
 
 
 async def set_model_mode(request: Request) -> None:
-    """Carry the analyst's model mode (X-Model-Mode header) into request context.
+    """Carry the analyst's model mode (X-Model-Mode header) and query model override (X-Query-Model header) into request context.
 
     A global dependency, so every in-request /api lane — issuer chat, NL-query
     translate/plan, scenario translate, document extract — runs under the chosen
@@ -112,6 +112,7 @@ async def set_model_mode(request: Request) -> None:
     persisted Run.model_mode instead, since they execute in a worker task. An
     unknown / missing header normalizes to the default mode."""
     presets.set_mode(request.headers.get("x-model-mode"))
+    presets.set_query_model(request.headers.get("x-query-model"))
 
 
 # Close the interactive API docs in ANY deployed context (not just exact

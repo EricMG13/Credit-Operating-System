@@ -9,6 +9,16 @@ export type OutSection =
   | { type: "flags"; title: string; items: OutFlag[] };
 export interface ModuleOutput { kpis: { l: string; v: string; sev?: string }[]; sections: OutSection[] }
 
+export const PEER_CREDIT_METRIC_ROWS = [
+  ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
+  ["Forgeline Industries", "B2 / B", "5.9x", "13.8%", "31%", "+352"],
+  ["Karst Components", "B3 / B−", "6.4x", "12.1%", "27%", "+459"],
+  ["Veldt Precision", "B1 / B+", "4.8x", "16.2%", "38%", "+291"],
+  ["Ironvale Group", "B2 / B", "5.5x", "14.1%", "33%", "+327"],
+  ["Cascadia Metalworks", "B2 / B", "5.2x", "13.2%", "29%", "+341"],
+  ["Tarn Engineered Sys", "B3 / CCC+", "7.1x", "11.4%", "22%", "+577"],
+];
+
 export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
     "CP-1": {
       kpis: [
@@ -79,15 +89,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { l: "Margin percentile", v: "64th" }, { l: "Outliers excluded", v: "1" },
       ],
       sections: [
-        { type: "table", title: "CP-1C-04C · Credit metric benchmark", cols: ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], align: [0,0,1,1,1,1], rows: [
-          ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
-          ["Forgeline Industries", "B2 / B", "5.9x", "13.8%", "31%", "+352"],
-          ["Karst Components", "B3 / B−", "6.4x", "12.1%", "27%", "+459"],
-          ["Veldt Precision", "B1 / B+", "4.8x", "16.2%", "38%", "+291"],
-          ["Ironvale Group", "B2 / B", "5.5x", "14.1%", "33%", "+327"],
-          ["Cascadia Metalworks", "B2 / B", "5.2x", "13.2%", "29%", "+341"],
-          ["Tarn Engineered Sys", "B3 / CCC+", "7.1x", "11.4%", "22%", "+577"],
-        ]},
+        { type: "table", title: "CP-1C-04C · Credit metric benchmark", cols: ["Peer", "Rating", "Net lev", "EBITDA mgn", "FCF conv", "DM"], align: [0,0,1,1,1,1], rows: PEER_CREDIT_METRIC_ROWS},
         { type: "flags", title: "CP-1C-05 · Outlier register & open items", items: [
           { sev: "critical", text: "Citation E-44 (peer margin set, CIM Annex C) — page mismatch under QA-117. Benchmark conclusions carried ex-E-44 until re-verified.", ev: ["E-44"] },
           { sev: "low", text: "Tarn Engineered excluded from median (distressed outlier, +577bps)." },

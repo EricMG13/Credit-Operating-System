@@ -21,7 +21,9 @@ router = APIRouter()
 class IssuerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     ticker: Optional[str] = None
+    sector: Optional[str] = None
     industry: Optional[str] = None
+    sub_sector: Optional[str] = None
     country: Optional[str] = None
     figi: Optional[str] = Field(default=None, max_length=32)
     rating_sp: Optional[str] = Field(default=None, max_length=16)
@@ -34,6 +36,8 @@ class IssuerResponse(BaseModel):
     name: str
     ticker: Optional[str]
     industry: Optional[str]
+    sector: Optional[str] = None
+    sub_sector: Optional[str] = None
     country: Optional[str]
     figi: Optional[str]
     rating_sp: Optional[str] = None
@@ -41,6 +45,25 @@ class IssuerResponse(BaseModel):
     rating_fitch: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> "IssuerResponse":
+        data = obj
+        if isinstance(obj, Issuer):
+            data = {
+                "id": obj.id,
+                "name": obj.name,
+                "ticker": obj.ticker,
+                "industry": obj.industry,
+                "sector": obj.industry,
+                "sub_sector": obj.sub_sector,
+                "country": obj.country,
+                "figi": obj.figi,
+                "rating_sp": obj.rating_sp,
+                "rating_moody": obj.rating_moody,
+                "rating_fitch": obj.rating_fitch,
+            }
+        return super().model_validate(data, *args, **kwargs)
 
 
 class IssuerDocumentResponse(BaseModel):
@@ -71,7 +94,7 @@ async def list_issuers(
     q: Optional[str] = Query(
         default=None,
         max_length=255,
-        description="Case-insensitive substring match across name, ticker, industry, country, and FIGI.",
+        description="Case-insensitive substring match across name, ticker, sector, sub-sector, country, and FIGI.",
     ),
     # Bounded page: the coverage universe grows; an unbounded SELECT is a
     # memory/latency DoS as it does (same class as runs P4). Generous default
@@ -89,6 +112,7 @@ async def list_issuers(
                 Issuer.name.ilike(like),
                 Issuer.ticker.ilike(like),
                 Issuer.industry.ilike(like),
+                Issuer.sub_sector.ilike(like),
                 Issuer.country.ilike(like),
                 Issuer.figi.ilike(like),
             )
@@ -105,7 +129,9 @@ async def create_issuer(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = Issuer(**body.model_dump())
+    data = body.model_dump()
+    data["industry"] = data.pop("sector") or data.get("industry")
+    issuer = Issuer(**data)
     db.add(issuer)
     await db.flush()
     await db.refresh(issuer)

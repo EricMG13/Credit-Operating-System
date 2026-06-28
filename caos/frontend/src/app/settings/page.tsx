@@ -124,8 +124,18 @@ function Settings() {
 
   // ── Model mode (browser-local, immediate-save) ──
   const [mode, setMode] = useState<ModelMode>(DEFAULT_MODE);
-  useEffect(() => setMode(loadMode()), []);
+  useEffect(() => { setMode(loadMode()); }, []);
   const changeMode = (m: ModelMode) => { setMode(m); saveMode(m); };
+
+  // ── Query model (browser-local, immediate-save) ──
+  const [queryModel, setQueryModel] = useState<string>("claude-sonnet-4-6");
+  useEffect(() => {
+    setQueryModel(localStorage.getItem("caos_query_model") || "claude-sonnet-4-6");
+  }, []);
+  const changeQueryModel = (m: string) => {
+    setQueryModel(m);
+    localStorage.setItem("caos_query_model", m);
+  };
 
   const set = <K extends keyof ResearchPrefs>(k: K, v: ResearchPrefs[K]) => {
     setPrefs((p) => ({ ...p, [k]: v }));
@@ -182,6 +192,50 @@ function Settings() {
                 pins the mode it ran at. Applies to this browser.
               </p>
               <ModelModeToggle value={mode} onChange={changeMode} />
+            </div>
+          </Panel>
+
+          {/* Query model */}
+          <Panel title="Query Model · saved in this browser">
+            <div className="p-3 flex flex-col gap-3">
+              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+                The language model used by the Query workspace and the global Ask launcher to translate
+                natural language questions into metric graphs and semantic lookups. Applies to this browser.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                {[
+                  { id: "claude-sonnet-4-6", name: "Claude 3.5 Sonnet", configured: cfg?.llm_configured ?? true, reqKey: "ANTHROPIC_API_KEY" },
+                  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", configured: cfg?.gemini_configured ?? false, reqKey: "GEMINI_API_KEY" },
+                  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", configured: cfg?.openrouter_configured ?? false, reqKey: "OPENROUTER_API_KEY" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => changeQueryModel(m.id)}
+                    className={
+                      "flex-1 text-left p-3 rounded border transition-caos focus-ring " +
+                      (queryModel === m.id
+                        ? "bg-caos-accent/10 border-caos-accent text-caos-accent font-semibold"
+                        : "bg-caos-panel border-caos-border text-caos-text hover:border-caos-accent/50")
+                    }
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="tabular text-caos-md font-semibold">{m.name}</span>
+                      <span 
+                        className="h-1.5 w-1.5 rounded-full shrink-0" 
+                        style={{ background: m.configured ? "var(--caos-success)" : "var(--caos-idle)" }}
+                      />
+                    </div>
+                    <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">
+                      {m.id}
+                    </div>
+                    {!m.configured && (
+                      <div className="tabular text-caos-3xs text-caos-warning mt-1.5">
+                        Requires {m.reqKey} in env
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           </Panel>
 

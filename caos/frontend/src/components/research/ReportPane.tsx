@@ -181,11 +181,23 @@ export function ReportPane({
   subj: string;
   mode: "sector" | "issuer";
 }) {
-  const badge = result?.demo ? (
-    <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>DEMO</span>
-  ) : result ? (
-    <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE</span>
-  ) : null;
+  const badge = (
+    <span className="flex items-center gap-2">
+      {result?.demo ? (
+        <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>DEMO</span>
+      ) : result ? (
+        <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE</span>
+      ) : null}
+      {result ? (
+        <button
+          onClick={() => window.print()}
+          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+        >
+          EXPORT PDF
+        </button>
+      ) : null}
+    </span>
+  );
 
   return (
     <Panel title="Report" right={badge}>

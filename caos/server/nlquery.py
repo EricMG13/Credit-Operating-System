@@ -72,6 +72,16 @@ class SemanticSpec(BaseModel):
     interpretation: str = ""
 
 
+class SynthesisSpec(BaseModel):
+    """A qualitative question routed to agent outputs, claims, and QA findings in the wiki structure."""
+
+    search: str
+    issuer_filter: Optional[IssuerFilter] = None
+    module_filter: Optional[str] = None
+    limit: int = 8
+    interpretation: str = ""
+
+
 class QueryError(ValueError):
     """Raised when a question cannot be mapped to a valid, in-vocabulary spec."""
 
@@ -106,6 +116,16 @@ def validate_spec(spec: QuerySpec) -> QuerySpec:
 
 def validate_semantic(spec: SemanticSpec) -> SemanticSpec:
     """Clamp a semantic spec; drop an out-of-vocabulary issuer filter field."""
+    if not (spec.search or "").strip():
+        raise QueryError("empty search")
+    if spec.issuer_filter and spec.issuer_filter.field not in _FILTER_FIELDS:
+        spec.issuer_filter = None
+    spec.limit = max(1, min(_MAX_LIMIT, int(spec.limit or 8)))
+    return spec
+
+
+def validate_synthesis(spec: SynthesisSpec) -> SynthesisSpec:
+    """Clamp a synthesis spec; drop an out-of-vocabulary issuer filter field."""
     if not (spec.search or "").strip():
         raise QueryError("empty search")
     if spec.issuer_filter and spec.issuer_filter.field not in _FILTER_FIELDS:
@@ -162,6 +182,11 @@ _QUAL_WORDS = (
     "what do", "say", "commentary", "narrative", "describe", "talk about", "note",
 )
 
+_SYNTHESIS_WORDS = (
+    "finding", "remediation", "failed", "qa", "consensus", "debrief", "module", "opinion",
+    "conclusion", "verdict", "wiki", "synthesis", "claim",
+)
+
 
 def _demo_semantic(question: str) -> SemanticSpec:
     return SemanticSpec(
@@ -171,13 +196,19 @@ def _demo_semantic(question: str) -> SemanticSpec:
     )
 
 
-def _demo_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]:
-    """Route a question structured (metric ranking) vs semantic (document evidence).
+def _demo_synthesis(question: str) -> SynthesisSpec:
+    return SynthesisSpec(
+        search=question.strip(),
+        limit=8,
+        interpretation=f'Search agent outputs and QA findings for "{question.strip()}"; matches ranked by best score.',
+    )
 
-    A question that asks about document content (flag/mention/filings/…) — or that
-    names no metric at all — goes semantic; otherwise it ranks a metric.
-    """
+
+def _demo_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, SynthesisSpec]]:
+    """Route a question structured (metric ranking) vs semantic (document evidence) vs synthesis (agent wiki)."""
     q = question.lower()
+    if any(w in q for w in _SYNTHESIS_WORDS):
+        return "synthesis", validate_synthesis(_demo_synthesis(question))
     has_metric = any(any(w in q for w in words) for words, _ in _KEYWORD_METRIC)
     if any(w in q for w in _QUAL_WORDS) or not has_metric:
         return "semantic", validate_semantic(_demo_semantic(question))
@@ -217,7 +248,7 @@ async def _llm_translate(question: str) -> QuerySpec:
     resp = await llm_client.create(
         client,
         lane="nlquery:translate",
-        model=presets.model_for(presets.LIGHT),
+        model=presets.resolved_query_model(),
         effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_SYSTEM.format(catalog=catalog),
@@ -244,7 +275,7 @@ async def translate(question: str) -> QuerySpec:
 
 # ── Planner: route structured (metric ranking) vs semantic (document evidence) ──
 _PLAN_SYSTEM = (
-    "You route a credit analyst's question to one of two engines and return ONLY a "
+    "You route a credit analyst's question to one of three engines and return ONLY a "
     "JSON object.\n"
     "If it ranks issuers by a quantitative metric, return STRUCTURED; choose metric "
     "keys ONLY from this catalog (exact `key`):\n{catalog}\n"
@@ -257,12 +288,17 @@ _PLAN_SYSTEM = (
     "qualitative exposure), return SEMANTIC to search source text.\n"
     'SEMANTIC: {{"mode":"semantic","search":"key terms","issuer_filter":'
     '{{"field":"industry"|"country","value":...}}|null,"limit":int,"interpretation":"..."}}.\n'
+    "If it asks about consensus, agent outputs, claims, quality findings, or QA findings "
+    "(remediation, failed, debate, status), return SYNTHESIS.\n"
+    'SYNTHESIS: {{"mode":"synthesis","search":"key terms","issuer_filter":'
+    '{{"field":"industry"|"country","value":...}}|null,"module_filter":string|null,'
+    '"limit":int,"interpretation":"..."}}.\n'
     "Direction by meaning (most exposed/weakest on a higher-is-worse metric → desc). "
     "Never invent metric keys."
 )
 
 
-async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]:
+async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, SynthesisSpec]]:
     import anthropic
 
     settings = get_settings()
@@ -279,7 +315,7 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
     resp = await llm_client.create(
         client,
         lane="nlquery:plan",
-        model=presets.model_for(presets.LIGHT),
+        model=presets.resolved_query_model(),
         effort=presets.effort_for(presets.LIGHT),
         max_tokens=600,
         system=_PLAN_SYSTEM.format(catalog=catalog),
@@ -293,10 +329,12 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
     mode = data.pop("mode", "structured")
     if mode == "semantic":
         return "semantic", SemanticSpec(**data)
+    if mode == "synthesis":
+        return "synthesis", SynthesisSpec(**data)
     return "structured", QuerySpec(**data)
 
 
-async def plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]:
+async def plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, SynthesisSpec]]:
     """Classify and translate a question. Returns (mode, validated spec)."""
     settings = get_settings()
     if settings.anthropic_api_key:
@@ -304,6 +342,8 @@ async def plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]:
             mode, spec = await _llm_plan(question)
             if mode == "semantic":
                 return "semantic", validate_semantic(spec)  # type: ignore[arg-type]
+            if mode == "synthesis":
+                return "synthesis", validate_synthesis(spec)  # type: ignore[arg-type]
             return "structured", validate_spec(spec)  # type: ignore[arg-type]
         except QueryError:
             raise
@@ -508,3 +548,153 @@ async def execute_semantic(session: AsyncSession, spec: SemanticSpec) -> dict:
         "rows": rows,
         "caveats": caveats,
     }
+
+
+async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
+    """Search agent outputs, claims, and QA findings; return ranked matches."""
+    from database import ModuleOutput, Claim, QAFinding, Run, Issuer
+    from retrieval import bm25_rank
+    import json
+
+    issuer_ids = None
+    if spec.issuer_filter:
+        col = getattr(Issuer, spec.issuer_filter.field)
+        ids = (await session.execute(
+            select(Issuer.id).where(col.ilike(f"%{spec.issuer_filter.value}%"))
+        )).scalars().all()
+        issuer_ids = list(ids) or ["__none__"]
+
+    stmt_m = (
+        select(ModuleOutput, Run, Issuer)
+        .join(Run, ModuleOutput.run_id == Run.id)
+        .join(Issuer, Run.issuer_id == Issuer.id)
+    )
+    if issuer_ids:
+        stmt_m = stmt_m.where(Issuer.id.in_(issuer_ids))
+    if spec.module_filter:
+        stmt_m = stmt_m.where(ModuleOutput.module_id == spec.module_filter)
+
+    modules = (await session.execute(stmt_m)).all()
+
+    stmt_c = (
+        select(Claim, ModuleOutput, Run, Issuer)
+        .join(ModuleOutput, Claim.module_output_id == ModuleOutput.id)
+        .join(Run, ModuleOutput.run_id == Run.id)
+        .join(Issuer, Run.issuer_id == Issuer.id)
+    )
+    if issuer_ids:
+        stmt_c = stmt_c.where(Issuer.id.in_(issuer_ids))
+    if spec.module_filter:
+        stmt_c = stmt_c.where(ModuleOutput.module_id == spec.module_filter)
+
+    claims = (await session.execute(stmt_c)).all()
+
+    stmt_f = (
+        select(QAFinding, Run, Issuer)
+        .join(Run, QAFinding.run_id == Run.id)
+        .join(Issuer, Run.issuer_id == Issuer.id)
+    )
+    if issuer_ids:
+        stmt_f = stmt_f.where(Issuer.id.in_(issuer_ids))
+    if spec.module_filter:
+        stmt_f = stmt_f.where(QAFinding.module_id == spec.module_filter)
+
+    findings = (await session.execute(stmt_f)).all()
+
+    corpus = []
+    meta = {}
+
+    for m_out, run, issuer in modules:
+        key = f"m:{m_out.id}"
+        text = (
+            f"Module: {m_out.module_name} ({m_out.module_id}). "
+            f"Confidence: {m_out.confidence}. QA Status: {m_out.qa_status}. "
+            f"Output payload: {json.dumps(m_out.runtime_output, ensure_ascii=False)}"
+        )
+        corpus.append((key, text))
+        meta[key] = {
+            "issuer": {"id": issuer.id, "name": issuer.name, "ticker": issuer.ticker, "industry": issuer.industry, "country": issuer.country},
+            "kind": "module",
+            "title": f"{m_out.module_name} ({m_out.module_id})",
+            "sub": f"Confidence: {m_out.confidence} · QA: {m_out.qa_status}",
+            "text": text,
+        }
+
+    for claim, m_out, run, issuer in claims:
+        key = f"c:{claim.id}"
+        text = f"Claim {claim.claim_id} from {m_out.module_name}: {claim.claim_text}"
+        corpus.append((key, text))
+        meta[key] = {
+            "issuer": {"id": issuer.id, "name": issuer.name, "ticker": issuer.ticker, "industry": issuer.industry, "country": issuer.country},
+            "kind": "claim",
+            "title": f"Claim {claim.claim_id} ({m_out.module_id})",
+            "sub": m_out.module_name,
+            "text": claim.claim_text,
+        }
+
+    for finding, run, issuer in findings:
+        key = f"f:{finding.id}"
+        text = (
+            f"QA Finding {finding.finding_id} ({finding.severity}) "
+            f"on module {finding.module_id or 'run'}. Lane {finding.lane}. "
+            f"Description: {finding.description}. "
+            f"Required remediation: {finding.required_remediation or 'none'}."
+        )
+        corpus.append((key, text))
+        meta[key] = {
+            "issuer": {"id": issuer.id, "name": issuer.name, "ticker": issuer.ticker, "industry": issuer.industry, "country": issuer.country},
+            "kind": f"finding-{finding.severity.lower()[:3]}",
+            "title": f"QA Finding {finding.finding_id} ({finding.severity})",
+            "sub": f"Lane {finding.lane} · Module: {finding.module_id or 'Run'}",
+            "text": f"{finding.description}" + (f" (Remediation: {finding.required_remediation})" if finding.required_remediation else ""),
+        }
+
+    hits = bm25_rank(spec.search, corpus, k=spec.limit)
+
+    groups = {}
+    for h in hits:
+        info = meta[h.chunk_id]
+        iid = info["issuer"]["id"]
+        g = groups.setdefault(iid, {"score": 0.0, "excerpts": []})
+        g["score"] = max(g["score"], h.score)
+        if len(g["excerpts"]) < 2:
+            g["excerpts"].append({
+                "chunk_id": h.chunk_id,
+                "doc": info["title"],
+                "doc_type": info["kind"],
+                "text": f"{info['sub']}: {info['text']}" if info['sub'] else info['text']
+            })
+
+    issuers = {}
+    if groups:
+        for iss in (await session.execute(
+            select(Issuer).where(Issuer.id.in_(list(groups)))
+        )).scalars().all():
+            issuers[iss.id] = iss
+
+    rows = []
+    for iid, g in groups.items():
+        iss = issuers.get(iid)
+        if iss is None:
+            continue
+        rows.append({
+            "issuer": {"id": iss.id, "name": iss.name, "ticker": iss.ticker,
+                       "industry": iss.industry, "country": iss.country},
+            "score": round(g["score"], 3),
+            "excerpts": g["excerpts"],
+        })
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    rows = rows[: spec.limit]
+
+    caveats = ["Ranked by wiki and agent-synthesis match (BM25) — qualitative relevance, not a quantitative score."]
+    if not rows:
+        caveats = ["No matching agent outputs, claims, or QA findings found — try different terms."]
+
+    return {
+        "mode": "synthesis",
+        "interpretation": spec.interpretation,
+        "rank_by": None,
+        "rows": rows,
+        "caveats": caveats,
+    }
+
