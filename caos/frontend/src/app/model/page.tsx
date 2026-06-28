@@ -334,6 +334,12 @@ function ModelBuilder() {
             </div>
           </div>
         )}
+          {showScenarios ? (
+            <ScenarioPanel model={model} downside={eng.downside} onCollapse={() => setShowScenarios(false)} />
+          ) : (
+            <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
+          )}
+        </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}

@@ -10,6 +10,7 @@ import { CollapseButton } from "@/components/shared/CollapseButton";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import type { Model } from "@/lib/reports/model";
+import type { DownsidePathway, Fragility } from "@/lib/engine/downsidePathway";
 import { scenarioFromNL } from "@/lib/api";
 import {
   buildScenarios, FORECAST_YEARS, swingLabel, METRICS,
@@ -26,6 +27,69 @@ const fmtMetric = (v: number, key: MetricKey) =>
 
 const GOOD = "rgba(34,197,94,0.5)";
 const BAD = "rgba(239,68,68,0.5)";
+
+// Fragility is never carried by colour alone — the band word + a glyph travel
+// with it (a11y / colourblind-safe, per the design system).
+const FRAGILITY: Record<Fragility, { color: string; glyph: string }> = {
+  HIGH: { color: "var(--caos-critical)", glyph: "▲" },
+  MODERATE: { color: "var(--caos-warning)", glyph: "■" },
+  LOW: { color: "var(--caos-success)", glyph: "●" },
+};
+
+// Live CP-2B read: the issuer's first-order EBITDA-shock sensitivity (net debt
+// held flat). Sits beside the forward forecast lens as the engine's own
+// downside fact, not a forecast driver — rendered only when a run produced it.
+function DownsideFragility({ downside }: { downside: DownsidePathway }) {
+  const f = FRAGILITY[downside.fragility];
+  const { breachThresholdX: breach, shockToBreachPct: stb } = downside;
+  const val = "tabular text-caos-md text-right";
+  const hd = "tabular text-caos-xs uppercase tracking-wide text-right text-caos-muted";
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downside fragility · CP-2B</span>
+        <span className="flex-1" />
+        <span
+          className="tabular text-caos-3xs px-1 py-px rounded border whitespace-nowrap"
+          style={{ color: f.color, borderColor: f.color }}
+          title={`First-order EBITDA-shock fragility: ${downside.fragility}`}
+        >
+          {f.glyph} {downside.fragility}
+        </span>
+      </div>
+      <div className="grid items-center gap-x-2 gap-y-1" style={{ gridTemplateColumns: "1fr repeat(2, 1fr)" }}>
+        <span />
+        <span className={hd}>Net lev</span>
+        <span className={hd}>Int cov</span>
+
+        <span className="text-caos-md text-caos-text">Today</span>
+        <span className={val} style={{ color: "var(--caos-text)" }}>{fmtX(downside.currentNetLeverage)}</span>
+        <span className={val} style={{ color: "var(--caos-muted)" }}>—</span>
+
+        {downside.shocks.map((s) => (
+          <Fragment key={s.shockPct}>
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-caos-md text-caos-text">EBITDA</span>
+              <span className="tabular text-caos-2xs text-caos-muted">−{s.shockPct}%</span>
+            </span>
+            <span className={val} style={{ color: s.stressedNetLeverage >= breach ? "var(--caos-critical)" : "var(--caos-text)" }}>
+              {fmtX(s.stressedNetLeverage)}
+            </span>
+            <span className={val} style={{ color: "var(--caos-text)" }}>
+              {s.stressedCoverage != null ? fmtX(s.stressedCoverage) : "—"}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+      <div className="tabular text-caos-2xs text-caos-muted leading-snug mt-1.5">
+        {stb != null
+          ? `A −${stb}% EBITDA decline lifts net leverage to the ${fmtX(breach)} distress marker.`
+          : `Net leverage stays below the ${fmtX(breach)} distress marker through a −30% EBITDA decline.`}
+        {" "}Net debt held flat — first-order shock, not a cash-sweep path.
+      </div>
+    </div>
+  );
+}
 
 function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string | null }) {
   const proj = useMemo(() => sc.scenarios.map((s) => ({ s, p: sc.project(s.drivers) })), [sc]);
@@ -330,7 +394,7 @@ function ScenarioBuilder({
 // columns, worst = the DOWNSIDE columns, so both the base- and downside-case
 // Assumptions sliders re-center the lens (best/base/worst + tornado). The
 // Scenario Builder layers a custom scenario on top; Reset reverts to it.
-export function ScenarioPanel({ model, onCollapse }: { model: Model; onCollapse?: () => void }) {
+export function ScenarioPanel({ model, downside, onCollapse }: { model: Model; downside?: DownsidePathway | null; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
@@ -343,6 +407,12 @@ export function ScenarioPanel({ model, onCollapse }: { model: Model; onCollapse?
     >
       <div className="p-2.5 flex flex-col gap-3.5">
         <ScenarioComparison sc={sc} active={active?.label ?? null} />
+        {downside ? (
+          <>
+            <div className="border-t border-caos-border" />
+            <DownsideFragility downside={downside} />
+          </>
+        ) : null}
         <div className="border-t border-caos-border" />
         <Tornado sc={sc} />
         <div className="border-t border-caos-border" />
