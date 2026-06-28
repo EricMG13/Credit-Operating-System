@@ -4,7 +4,7 @@
 // live alert feed, CP-SR sector board, coverage matrix, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -13,6 +13,7 @@ import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
 } from "@/lib/command/data";
+import { SECTORS as RV_SECTORS } from "@/lib/command/rvdata";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
@@ -20,6 +21,7 @@ import { SectorReview } from "@/components/command/SectorReview";
 import { FlashOnChange } from "@/components/shared/FlashOnChange";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -71,15 +73,40 @@ export function PortfolioTable({
   tick: number;
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
+  const [filters, setFilters] = useState<FilterState>({});
+  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const heads = ["Ticker", "Company", "Borrower Name", "Sector", "Sub-sector", "FIGI", "Rank", "Ratings", "Size", "Margin", "Maturity", "Bid", "Ask", "1D Px", "30D Chart", "YTD Chart", "NetLev", "SnrLev", "TotLev", "IntCov", "Posture", "Conv.", "QA", "⚑"];
+  const keys = ["code", "name", "borrower", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"] as const;
+  type PortfolioFilterKey = (typeof keys)[number];
+  const vals = useMemo<Record<PortfolioFilterKey, (p: (typeof PORTFOLIO)[number]) => string | number | null | undefined>>(() => ({
+    code: (p) => p.code, name: (p) => p.name, borrower: (p) => p.borrower, sector: (p) => p.sector,
+    subSector: (p) => p.subSector, figi: (p) => p.figi, rank: (p) => p.rank, rating: (p) => p.rating,
+    size: (p) => p.size, margin: (p) => p.margin, maturity: (p) => p.maturity, bid: (p) => p.bid,
+    ask: (p) => p.ask, dd: (p) => p.dd, spark: () => "chart", ytdSpark: () => "chart",
+    lev: (p) => p.lev, snrLev: (p) => p.snrLev, totalLev: (p) => p.totalLev, cov: (p) => p.cov,
+    posture: (p) => p.posture, conv: (p) => p.conv, qa: (p) => p.qa, alerts: (p) => p.alerts,
+  }), []);
+  const shown = useColumnFilters(PORTFOLIO, filters, vals);
   return (
     <div className="text-caos-xl" style={{ minWidth: 2020 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-        {["Ticker", "Company", "Borrower Name", "Sector", "Sub-sector", "FIGI", "Rank", "Ratings", "Size", "Margin", "Maturity", "Bid", "Ask", "1D Px", "30D Chart", "YTD Chart", "NetLev", "SnrLev", "TotLev", "IntCov", "Posture", "Conv.", "QA", "⚑"].map((h, i) => (
-          <span key={i} title={COL_TITLES[h]} aria-label={COL_TITLES[h] || undefined} className={th + ([10, 11, 12, 13, 16, 17, 18, 19, 21, 23].includes(i) ? " text-right" : "")}>{h}</span>
+        {heads.map((h, i) => (
+          <FilterHeader
+            key={h}
+            label={COL_TITLES[h] || h}
+            col={keys[i]}
+            rows={PORTFOLIO}
+            getValue={vals[keys[i]]}
+            selected={filters[keys[i]] || []}
+            onChange={setFilter}
+            className={th + ([10, 11, 12, 13, 16, 17, 18, 19, 21, 23].includes(i) ? " text-right" : "")}
+          >
+            {h}
+          </FilterHeader>
         ))}
       </div>
       {/* fallow-ignore-next-line complexity */}
-      {PORTFOLIO.map((p) => {
+      {shown.map((p) => {
         const sel = selected === p.code;
         const sparkColor = p.dd > 5 ? "var(--caos-critical)" : p.dd < -2 ? "var(--caos-success)" : "var(--caos-muted)";
         return (
@@ -291,11 +318,13 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
 /* ---------- CP-SR sector board ---------- */
 export function SectorBoard() {
   const [open, setOpen] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const coverageSectors = Array.from(new Set(PORTFOLIO.map((p) => p.sector))).filter(Boolean);
+  const sectorChoices = Array.from(new Set([...coverageSectors, ...RV_SECTORS.map((s) => s.name)])).sort();
   const [visible, setVisible] = useState<Set<string>>(() => new Set(coverageSectors));
   // sector → "HH:MM ET" stamp once its knowledge was refreshed this session
   const [refreshed, setRefreshed] = useState<Record<string, string>>({});
-  const rows = coverageSectors.map((sector) =>
+  const rows = sectorChoices.map((sector) =>
     SECTORS.find((s) => s.sector === sector) ?? {
       sector,
       stance: "NEUTRAL" as const,
@@ -316,46 +345,10 @@ export function SectorBoard() {
     try { localStorage.setItem("caos-command-sectors", JSON.stringify([...visible])); } catch {}
   }, [visible]);
   const shown = rows.filter((s) => visible.has(s.sector));
-  const hidden = coverageSectors.filter((s) => !visible.has(s));
+  const hidden = sectorChoices.filter((s) => !visible.has(s));
 
   return (
     <div className="p-2 flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex items-center gap-2">
-          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">Add sector</span>
-          <select
-            value=""
-            onChange={(e) => {
-              const sector = e.target.value;
-              if (!sector) return;
-              setVisible((v) => new Set(v).add(sector));
-            }}
-            className="min-w-0 flex-1 rounded border border-caos-border bg-caos-panel px-2 py-1 tabular text-caos-xs text-caos-text focus-ring"
-          >
-            <option value="">Select sector</option>
-            {hidden.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        <label className="flex items-center gap-2">
-          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">Remove sector</span>
-          <select
-            value=""
-            onChange={(e) => {
-              const sector = e.target.value;
-              if (!sector) return;
-              setVisible((v) => {
-                const n = new Set(v);
-                n.delete(sector);
-                return n;
-              });
-            }}
-            className="min-w-0 flex-1 rounded border border-caos-border bg-caos-panel px-2 py-1 tabular text-caos-xs text-caos-text focus-ring"
-          >
-            <option value="">Select sector</option>
-            {[...visible].map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-      </div>
       <div className="grid grid-cols-4 gap-1.5">
       {/* fallow-ignore-next-line complexity */}
       {shown.map((s) => {
@@ -363,15 +356,26 @@ export function SectorBoard() {
         const hasReview = SECTORS.some((x) => x.sector === s.sector);
         return (
           hasReview ? (
-            <button
+            <div
               key={s.sector}
+              role="button"
+              tabIndex={0}
               onClick={() => setOpen(s.sector)}
+              onKeyDown={onActivate(() => setOpen(s.sector))}
               title="Open sector review analysis"
               className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 transition-caos focus-ring hover:border-caos-accent/50 cursor-pointer"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-caos-xl font-medium text-caos-text">{s.sector}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-caos-xl font-medium text-caos-text truncate">{s.sector}</span>
                 {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+                <span className="flex-1" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); }}
+                  aria-label={`Remove ${s.sector}`}
+                  className="tabular text-caos-xs text-caos-critical hover:text-caos-critical-bright focus-ring px-1"
+                >
+                  ×
+                </button>
               </div>
               <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
               <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
@@ -383,16 +387,24 @@ export function SectorBoard() {
                   <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
                 ) : null}
               </div>
-            </button>
+            </div>
           ) : (
             <div
               key={s.sector}
               title="Sector in coverage; CP-SR review pending"
               className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 cursor-default"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-caos-xl font-medium text-caos-muted">{s.sector}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-caos-xl font-medium text-caos-muted truncate">{s.sector}</span>
                 {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+                <span className="flex-1" />
+                <button
+                  onClick={() => setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; })}
+                  aria-label={`Remove ${s.sector}`}
+                  className="tabular text-caos-xs text-caos-critical hover:text-caos-critical-bright focus-ring px-1"
+                >
+                  ×
+                </button>
               </div>
               <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
               <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
@@ -408,6 +420,29 @@ export function SectorBoard() {
           )
         );
       })}
+      <div className="relative min-h-[118px] text-left rounded border border-dashed border-caos-border bg-caos-bg px-2.5 py-2 transition-caos hover:border-caos-accent/60">
+        <button
+          onClick={() => setAdding((v) => !v)}
+          onKeyDown={onActivate(() => setAdding((v) => !v))}
+          className="block w-full text-left focus-ring"
+        >
+          <div className="text-caos-xl font-medium text-caos-muted">Add sector</div>
+        </button>
+        <div className="tabular text-caos-2xs text-caos-muted mt-1">coverage + Sector RV universe</div>
+        {adding ? (
+          <div className="absolute left-2 right-2 top-14 z-overlay max-h-44 overflow-auto rounded border border-caos-border bg-caos-panel">
+            {hidden.length ? hidden.map((s) => (
+              <button
+                key={s}
+                onClick={() => { setVisible((v) => new Set(v).add(s)); setAdding(false); }}
+                className="block w-full text-left px-2 py-1.5 tabular text-caos-xs text-caos-text hover:bg-caos-elevated focus-ring"
+              >
+                {s}
+              </button>
+            )) : <span className="block px-2 py-1.5 tabular text-caos-xs text-caos-muted">All sectors shown</span>}
+          </div>
+        ) : null}
+      </div>
       {openRow ? (
         <SectorReview
           row={openRow}

@@ -76,7 +76,7 @@ function Query() {
   }, [caps]);
 
   const runSeq = useRef(0);
-  const run = useCallback((capId: string) => {
+  const run = useCallback((capId: string, toast = false) => {
     // Ignore out-of-order results: a slow earlier queryGraph must not clobber a newer
     // one (graph/error/running guarded on the latest sequence). (review run-2 #FR2)
     const seq = ++runSeq.current;
@@ -90,7 +90,7 @@ function Query() {
     queryGraph(capId)
       .then((g) => {
         if (seq === runSeq.current) setGraph(g);
-        notify("Query complete", g.title);
+        if (toast) notify("Query complete", g.title);
       })
       .catch((e) => {
         if (seq !== runSeq.current) return;
@@ -152,7 +152,7 @@ function Query() {
       return;
     }
     const best = scored[0].c;
-    if (best.enabled) { run(best.id); return; }
+    if (best.enabled) { run(best.id, true); return; }
     setNote(`${best.label} — ${best.reason}. Runnable instead:`);
     setSuggest(runnable.slice(0, 4));
   }, [text, caps, run]);
@@ -174,7 +174,7 @@ function Query() {
           onPick={run}
         />
 
-        <main className="flex-1 min-w-0 flex flex-col p-4 gap-3 overflow-auto">
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
           <div className="flex items-center gap-2 bg-caos-panel border border-caos-border rounded-md px-3 py-2 focus-within:border-caos-accent/70 transition-caos">
             <span className="text-caos-accent text-caos-2xl">✦</span>
             <input
@@ -246,7 +246,7 @@ function Query() {
             </div>
           ) : null}
 
-          <div className="flex-1 min-h-0 flex flex-col bg-caos-bg border border-caos-border rounded-md p-2" style={{ minHeight: 360 }}>
+          <div className="flex-1 min-h-0 flex flex-col bg-caos-bg border border-caos-border rounded-md p-2">
             {capsErr ? (
               <Center text={`Couldn't load capabilities — ${capsErr}`} warn />
             ) : graphErr ? (

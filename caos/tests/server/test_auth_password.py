@@ -11,10 +11,21 @@ def client():
         yield c
 
 
+def _register_body(name: str, email: str, password: str = "hunter2hunter") -> dict:
+    return {
+        "code": "131113",
+        "name": name,
+        "email": email,
+        "password": password,
+        "coverage_area": "TMT",
+        "location": "NA",
+        "recovery_words": ["alpha", "bravo", "charlie"],
+        "recovery_hints": ["first", "second", "third"],
+    }
+
+
 def test_register_then_me_is_profile(client):
-    r = client.post("/api/auth/register", json={
-        "code": "131113", "name": "Pat Lender", "email": "pat@firm.com", "password": "hunter2hunter",
-    })
+    r = client.post("/api/auth/register", json=_register_body("Pat Lender", "pat@firm.com"))
     assert r.status_code == 201, r.text
     assert r.json()["source"] == "profile"
     me = client.get("/api/auth/me").json()
@@ -23,39 +34,33 @@ def test_register_then_me_is_profile(client):
 
 def test_register_bad_invite_code_rejected(client):
     # 401 (not 403) so the access-log brute-force heuristic sees a wrong invite code.
-    r = client.post("/api/auth/register", json={
-        "code": "000000", "name": "No One", "email": "no@firm.com", "password": "longenough1",
-    })
+    body = _register_body("No One", "no@firm.com", "longenough1")
+    body["code"] = "000000"
+    r = client.post("/api/auth/register", json=body)
     assert r.status_code == 401, r.text
 
 
 def test_register_duplicate_email_conflict(client):
-    body = {"code": "131113", "name": "Dup One", "email": "dup@firm.com", "password": "longenough1"}
+    body = _register_body("Dup One", "dup@firm.com", "longenough1")
     assert client.post("/api/auth/register", json=body).status_code == 201
     # Same email, different case → still a conflict (email is the lowercased key).
-    body2 = {"code": "131113", "name": "Dup Two", "email": "DUP@firm.com", "password": "longenough1"}
+    body2 = _register_body("Dup Two", "DUP@firm.com", "longenough1")
     assert client.post("/api/auth/register", json=body2).status_code == 409
 
 
 def test_register_invalid_email_422(client):
-    r = client.post("/api/auth/register", json={
-        "code": "131113", "name": "Bad Email", "email": "not-an-email", "password": "longenough1",
-    })
+    r = client.post("/api/auth/register", json=_register_body("Bad Email", "not-an-email", "longenough1"))
     assert r.status_code == 422, r.text
 
 
 def test_register_short_password_422(client):
     # pydantic min_length=8 rejects before any DB work.
-    r = client.post("/api/auth/register", json={
-        "code": "131113", "name": "Short PW", "email": "short@firm.com", "password": "short",
-    })
+    r = client.post("/api/auth/register", json=_register_body("Short PW", "short@firm.com", "short"))
     assert r.status_code == 422, r.text
 
 
 def test_login_roundtrip(client):
-    client.post("/api/auth/register", json={
-        "code": "131113", "name": "Lee Loan", "email": "lee@firm.com", "password": "correctpassword",
-    })
+    client.post("/api/auth/register", json=_register_body("Lee Loan", "lee@firm.com", "correctpassword"))
     client.post("/api/auth/logout")
     client.cookies.clear()
     # Email match is case-insensitive.
@@ -66,9 +71,7 @@ def test_login_roundtrip(client):
 
 
 def test_login_wrong_password_401(client):
-    client.post("/api/auth/register", json={
-        "code": "131113", "name": "Wrong PW", "email": "wrong@firm.com", "password": "rightpassword",
-    })
+    client.post("/api/auth/register", json=_register_body("Wrong PW", "wrong@firm.com", "rightpassword"))
     client.cookies.clear()
     r = client.post("/api/auth/login", json={"email": "wrong@firm.com", "password": "nopepassword"})
     assert r.status_code == 401, r.text
@@ -79,3 +82,12 @@ def test_login_unknown_email_401(client):
     client.cookies.clear()
     r = client.post("/api/auth/login", json={"email": "ghost@firm.com", "password": "whatever123"})
     assert r.status_code == 401, r.text
+
+
+def test_recovery_requires_all_words(client):
+    client.post("/api/auth/register", json=_register_body("Recover Me", "recover@firm.com", "correctpassword"))
+    client.cookies.clear()
+    bad = client.post("/api/auth/recover", json={"email": "recover@firm.com", "recovery_words": ["alpha", "bravo", "wrong"]})
+    assert bad.status_code == 401
+    ok = client.post("/api/auth/recover", json={"email": "recover@firm.com", "recovery_words": ["alpha", "bravo", "charlie"]})
+    assert ok.status_code == 200, ok.text

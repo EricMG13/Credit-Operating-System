@@ -1,0 +1,18 @@
+Constraint Category,Parameter,Limit / Guideline,Breach Type,Current Exposure,Headroom,Status
+Single Name,Max single issuer exposure (largest: Asurion),≤ 2.5% NAV,Hard,2.37%,0.13%,Watch
+Top 10 Concentration,Aggregate top 10 issuers,≤ 15.0% NAV,Soft,11.05%,3.95%,Pass
+Rating — Floor,Min portfolio WAR,≥ Caa1 (numeric ≤ 17),Hard,B1 (14.3),2.7 notches,Pass
+Rating — CCC Bucket,Max CCC+ and below (incl. Unrated & Other),≤ 7.5% NAV,Hard,7.36%,0.14%,Watch
+Rating — Unrated,Max unrated exposure,≤ 5.0% NAV,Soft,3.73%,1.27%,Pass
+Sector,Max single sector (largest: Health Care Facilities & Services),≤ 10.0% NAV,Soft,7.16%,2.84%,Pass
+Sector,2nd largest sector: Commercial Support Services,≤ 10.0% NAV,Soft,6.74%,3.26%,Pass
+Sector,3rd largest sector: Insurance,≤ 10.0% NAV,Soft,5.63%,4.37%,Pass
+Instrument,Min 1st Lien / Senior Secured,≥ 90.0% NAV,Hard,99.39%,9.39%,Pass
+Instrument,Max 2nd Lien / Unsecured,≤ 10.0% NAV,Soft,0.61%,9.39%,Pass
+Duration / Maturity,Max WAL (weighted avg life),≤ 8.0 years,Soft,4.82 yrs,3.18 yrs,Pass
+Diversification,Min number of obligors,≥ 100,Hard,350,250,Pass
+Diversification,Smallest position (% NAV),Info only,—,0.0654%,—,Pass
+Yield / Spread,WA Margin (bps over SOFR),Info only,—,313 bps,—,Pass
+Pricing,WA Mid Price,Info only,—,99.578,—,Pass
+Covenant,Covenant-Lite % (est.),Info only,—,~100%,—,Pass
+ESG / Exclusion,"Excluded sectors (Tobacco, Contr. Weapons, Thermal Coal)",0% NAV,Hard,0%,0%,Pass

@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
+import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import {
   DELTA_COLS,
   INDEX_STATS,
@@ -105,8 +106,32 @@ function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string)
   }, [data, config, getVal]);
 }
 
-function SortTh({ label, align = "left", col, sort, onSort }: { label: string; align?: "left" | "right"; col: string; sort: SortConfig; onSort: (c: string) => void }) {
+function SortTh<T>({
+  label, align = "left", col, sort, onSort, rows, getValue, filters, onFilter,
+}: {
+  label: string;
+  align?: "left" | "right";
+  col: string;
+  sort: SortConfig;
+  onSort: (c: string) => void;
+  rows?: T[];
+  getValue?: (row: T) => SortVal;
+  filters?: FilterState;
+  onFilter?: (col: string, values: string[]) => void;
+}) {
   const active = sort.col === col;
+  const labelNode = rows && getValue && filters && onFilter ? (
+    <FilterHeader
+      label={label}
+      col={col}
+      rows={rows}
+      getValue={getValue}
+      selected={filters[col] || []}
+      onChange={onFilter}
+    >
+      {label}
+    </FilterHeader>
+  ) : label;
   return (
     // The clickable sort control is a real <button> (keyboard-operable, visible
     // focus ring); the <th> carries aria-sort so screen readers announce the
@@ -123,7 +148,7 @@ function SortTh({ label, align = "left", col, sort, onSort }: { label: string; a
         className={`w-full px-2 py-[6px] inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${align === "right" ? "justify-end" : "justify-start"}`}
       >
         {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
-        {label}
+        {labelNode}
         {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
       </button>
     </th>
@@ -132,8 +157,19 @@ function SortTh({ label, align = "left", col, sort, onSort }: { label: string; a
 
 function PeerTable({ rows }: { rows: RVRow[] }) {
   const [sort, setSort] = useState<SortConfig>({ col: null, asc: true });
+  const [filters, setFilters] = useState<FilterState>({});
+  const filterVal = useMemo<Record<string, (r: RVRow) => SortVal>>(() => ({
+    company: (r: RVRow) => r.company, subSector: (r: RVRow) => r.subSector, subGroup: (r: RVRow) => r.subGroup,
+    loanType: (r: RVRow) => r.loanType, figi: (r: RVRow) => r.figi, rank: (r: RVRow) => r.rank,
+    rating: (r: RVRow) => r.rating, size: (r: RVRow) => r.size, margin: (r: RVRow) => r.margin,
+    maturity: (r: RVRow) => r.maturity, bid: (r: RVRow) => r.bid, ask: (r: RVRow) => r.ask,
+    liq: (r: RVRow) => r.liq, rv: (r: RVRow) => r.rv, ytm: (r: RVRow) => r.ytm, dm: (r: RVRow) => r.dm,
+    ...Object.fromEntries(DELTA_COLS.map((_, i) => [`d${i}`, (r: RVRow) => r.d[i]])),
+  }), []);
+  const filtered = useColumnFilters(rows, filters, filterVal);
   const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
-  const sorted = useSort(rows, sort, (r, c) => {
+  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const sorted = useSort(filtered, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
     if (c === "rv") return r.rvBp;
     return field(r, c);
@@ -143,25 +179,25 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
     <table aria-label="Sector relative value" className="border-collapse text-caos-sm min-w-[1760px] w-full">
       <thead>
         <tr className="border-b border-caos-border">
-          <SortTh label="Company" col="company" sort={sort} onSort={handleSort} />
-          <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} />
-          <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} />
-          <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} />
-          <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} />
-          <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} />
-          <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} />
-          <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} />
-          <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} />
+          <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />
+          <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />
+          <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />
+          <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />
+          <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.figi} filters={filters} onFilter={setFilter} />
+          <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rank} filters={filters} onFilter={setFilter} />
+          <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rating} filters={filters} onFilter={setFilter} />
+          <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.size} filters={filters} onFilter={setFilter} />
+          <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.margin} filters={filters} onFilter={setFilter} />
+          <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.maturity} filters={filters} onFilter={setFilter} />
+          <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.bid} filters={filters} onFilter={setFilter} />
+          <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ask} filters={filters} onFilter={setFilter} />
+          <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.liq} filters={filters} onFilter={setFilter} />
+          <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />
           {DELTA_COLS.map((c, i) => (
-            <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} />
+            <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal[`d${i}`]} filters={filters} onFilter={setFilter} />
           ))}
-          <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} />
-          <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} />
+          <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ytm} filters={filters} onFilter={setFilter} />
+          <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.dm} filters={filters} onFilter={setFilter} />
         </tr>
       </thead>
       <tbody>

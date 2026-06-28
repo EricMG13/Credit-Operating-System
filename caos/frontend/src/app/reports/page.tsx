@@ -16,6 +16,7 @@ import { buildReports, type ModelInputs } from "@/lib/reports/builders";
 import { useModelEngine } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
+import { getSavedModel } from "@/lib/api";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -30,11 +31,13 @@ function PrintPortal({
   omit,
   showSources,
   edits,
+  hideAddbacks,
 }: {
   rep: ReturnType<typeof buildReports>[number];
   omit: Record<number, boolean>;
   showSources: boolean;
   edits: Record<string, string>;
+  hideAddbacks?: boolean;
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -45,7 +48,7 @@ function PrintPortal({
     return () => d.remove();
   }, []);
   if (!el) return null;
-  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} />, el);
+  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} />, el);
 }
 
 export default function ReportsPage() {
@@ -64,20 +67,20 @@ function ReportStudio() {
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
 
-  // Concept D model state (overrides / severity) feeds the deliverables —
-  // loaded once on mount so D edits carry into E.
+  // Report Studio reads only the DB-saved Model Builder state. Unsaved browser
+  // edits in /model do not affect committee output.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
   // fallow-ignore-next-line complexity
   useEffect(() => {
-    try {
-      const overrides = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
-      const s = parseFloat(localStorage.getItem("caos-d-severity") || "");
+    getSavedModel(issuerId).then((saved) => {
+      const p = saved?.payload || {};
       setModelInputs({
-        overrides: overrides && typeof overrides === "object" ? overrides : {},
-        severity: s >= 0.5 && s <= 1.5 ? s : 1,
-      });
-    } catch { /* no model edits yet */ }
-  }, []);
+        overrides: p.overrides && typeof p.overrides === "object" ? p.overrides : {},
+        assumptions: p.assumptions && typeof p.assumptions === "object" ? p.assumptions : undefined,
+        severity: 1,
+      } as ModelInputs);
+    }).catch(() => setModelInputs({}));
+  }, [issuerId]);
   // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
   // uses). Only the ATLF reference page may build seeded report templates; real
   // issuers show no-output until CP-RENDER is wired to live module payloads.
@@ -95,6 +98,9 @@ function ReportStudio() {
   const [showSources, setShowSources] = useState(true);
   const [evModal, setEvModal] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const [hideAddbacks, setHideAddbacks] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [hydrated, setHydrated] = useState(false);
 
@@ -279,7 +285,7 @@ function ReportStudio() {
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex gap-2 p-2">
-        {rep ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} /> : null}
+        {rep && leftOpen ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex justify-center py-7 px-6">
@@ -291,6 +297,7 @@ function ReportStudio() {
                 showSources={showSources}
                 edits={repEdits}
                 onEdit={editMode ? applyEdit : undefined}
+                hideAddbacks={hideAddbacks && rep.id === "model"}
               />
             </div> : (
               <div className="min-h-[420px] flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -304,15 +311,39 @@ function ReportStudio() {
           </div>
         </div>
 
-        {rep ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
+        {rep && rightOpen ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
+          <button onClick={() => setRightOpen(false)} className="tabular text-caos-xs text-caos-muted hover:text-caos-text self-end focus-ring">COLLAPSE</button>
           <LineagePanel rep={rep} onOpenEvidence={setEvModal} />
+          {rep.id === "model" ? (
+            <button
+              onClick={() => setHideAddbacks((v) => !v)}
+              className={
+                "tabular text-caos-xs px-2 py-1.5 rounded border transition-caos focus-ring " +
+                (hideAddbacks ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+              }
+            >
+              {hideAddbacks ? "SHOW EBITDA ADD-BACKS" : "HIDE EBITDA ADD-BACKS"}
+            </button>
+          ) : null}
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
           <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} />
-        </div> : null}
+        </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
-      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} /> : null}
+      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} /> : null}
     </div>
+  );
+}
+
+function ReportRail({ label, onExpand }: { label: string; onExpand: () => void }) {
+  return (
+    <button
+      onClick={onExpand}
+      className="w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+      title={`Expand ${label}`}
+    >
+      <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{label}</span>
+    </button>
   );
 }

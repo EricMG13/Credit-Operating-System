@@ -48,7 +48,7 @@ function CellInput({ initial, onCommit }: { initial: string; onCommit: (v: strin
 
 /* ---------- the sheet ---------- */
 export function Sheet({
-  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit,
+  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow,
 }: {
   model: Model;
   showQ: boolean;
@@ -60,6 +60,8 @@ export function Sheet({
   editing: CellRef | null;
   onEdit: (e: CellRef) => void;
   onCommit: (value: string | null) => void;
+  collapsedRows?: Set<string>;
+  onToggleRow?: (row: string) => void;
 }) {
   const colDefs: ColDef[] = useMemo(() => {
     const list = model.columns.filter((c) => showQ || c.group !== "Q");
@@ -80,6 +82,13 @@ export function Sheet({
   }, [colDefs]);
 
   const hlGroup = hl && SRC[hl] ? SRC[hl].colGroup : undefined;
+  const collapseChildren: Record<string, string[]> = {
+    rev: ["segD", "gsegD", "segF", "gsegF", "segA", "gsegA"],
+    adj: ROWS.filter((r) => r.id?.startsWith("ab")).map((r) => r.id!).filter((id) => id !== "ab"),
+    secured: ["rcf", "tlb", "ssn"],
+    tdebt: ["rcf", "tlb", "ssn", "sub"],
+  };
+  const hidden = new Set(Object.entries(collapseChildren).flatMap(([parent, kids]) => collapsedRows?.has(parent) ? kids : []));
 
   const labelColor = (c: ColDef) =>
     c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
@@ -165,7 +174,7 @@ export function Sheet({
           ))}
         </div>
 
-        {ROWS.map((row, ri) => {
+        {ROWS.filter((row) => !row.id || !hidden.has(row.id)).map((row, ri) => {
           if (row.sec) {
             return (
               <div key={"s" + ri} className="flex mt-1.5">
@@ -181,12 +190,28 @@ export function Sheet({
             );
           }
           const isHl = hl != null && row.src === hl;
+          const collapsible = !!row.id && !!collapseChildren[row.id];
+          const collapsed = !!row.id && !!collapsedRows?.has(row.id);
           return (
-            <div key={row.id} className="flex group" style={{ background: isHl ? "rgba(79,140,255,0.10)" : "transparent" }}>
+            <div
+              key={row.id}
+              onDoubleClick={() => collapsible && onToggleRow?.(row.id!)}
+              className="flex group"
+              style={{ background: isHl ? "rgba(79,140,255,0.10)" : "transparent" }}
+            >
               <div
                 className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2"
                 style={{ width: LBL, background: isHl ? "#15202f" : "var(--caos-bg)", borderTop: row.line ? "1px solid var(--caos-border)" : "none" }}
               >
+                {collapsible ? (
+                  <button
+                    onClick={() => onToggleRow?.(row.id!)}
+                    title={collapsed ? "Expand account rows" : "Collapse account rows"}
+                    className="tabular text-caos-3xs text-caos-accent focus-ring"
+                  >
+                    {collapsed ? "▸" : "▾"}
+                  </button>
+                ) : null}
                 <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
                   {row.l}
                 </span>

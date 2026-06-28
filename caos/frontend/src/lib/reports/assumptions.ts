@@ -26,6 +26,9 @@ export interface CaseAssumptions {
   mAcq: number;    // × acquisitions
   mDiss: number;   // × debt issue/(repay)
   divDelta: number; // dividends $/yr (− = distribution)
+  sofrRate: number;
+  euriborRate: number;
+  soniaRate: number;
   // CP-1 K-09 add-back register — analyst acceptance multiplier per account
   // (1 = accept the sponsor's add-back in full, 0 = disallow it entirely).
   abRestr: number;
@@ -76,6 +79,7 @@ export const DEFAULT_CASE: CaseAssumptions = {
   dGpm: 0, dAdjm: 0, daPct: DEFAULT_DA_PCT,
   mInt: 1, mLeases: 1, mTax: 1, mWc: 1, mCapex: 1, mAcq: 1, mDiss: 1,
   divDelta: 0,
+  sofrRate: 0.043, euriborRate: 0.032, soniaRate: 0.0475,
   abRestr: 1, abMna: 1, abSbc: 1, abSyn: 1, abOther: 1,
 };
 

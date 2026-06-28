@@ -4,6 +4,7 @@
 // left deliverable queue + right lineage / compose / export rails.
 
 import type { Report, Section } from "@/lib/reports/builders";
+import { useState } from "react";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { EvChip } from "./EvidenceModal";
@@ -31,14 +32,39 @@ export function ReportList({
   reports,
   active,
   onSel,
+  onCollapse,
 }: {
   reports: Report[];
   active: string;
   onSel: (id: string) => void;
+  onCollapse?: () => void;
 }) {
+  const [memoOpen, setMemoOpen] = useState(false);
   return (
-    <Panel title="Committee Deliverables" className="w-[272px] shrink-0">
+    <Panel
+      title="Committee Deliverables"
+      className="w-[272px] shrink-0"
+      right={onCollapse ? <button onClick={onCollapse} className="tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring">COLLAPSE</button> : undefined}
+    >
       <div className="p-1.5 flex flex-col gap-1">
+        <button
+          onClick={() => setMemoOpen((v) => !v)}
+          className="px-2 py-1 rounded border border-caos-border bg-caos-bg text-left hover:border-caos-accent/60 transition-caos focus-ring"
+          aria-expanded={memoOpen}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-caos-xl text-caos-text flex-1">IC Memo</span>
+            <span className="tabular text-caos-xs text-caos-muted">{memoOpen ? "−" : "+"}</span>
+          </div>
+          <div className="tabular text-caos-2xs text-caos-muted">Credit Snapshot front page · L1/L2/L3/L4/L6 pages · L5 appendix</div>
+          {memoOpen ? (
+            <div className="mt-1 grid grid-cols-2 gap-1 tabular text-caos-3xs uppercase tracking-wide text-caos-muted">
+              {["L1 Business", "L2 Risk", "L3 Capital", "L4 Model", "L6 Committee", "L5 Appendix"].map((x) => (
+                <span key={x} className="rounded border border-caos-border/70 px-1 py-0.5">{x}</span>
+              ))}
+            </div>
+          ) : null}
+        </button>
         {reports.map((r) => {
           const sel = r.id === active;
           return (

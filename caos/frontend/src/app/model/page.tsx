@@ -25,6 +25,7 @@ import {
 import { buildReports } from "@/lib/reports/builders";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
 
 export default function ModelPage() {
   return (
@@ -83,6 +84,8 @@ function ModelBuilder() {
   const [hlCells, setHlCells] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Overrides>({});
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
+  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // evidence modal cited-by needs the report set
@@ -94,8 +97,15 @@ function ModelBuilder() {
       if (o && typeof o === "object") setOverrides(o);
       setAssumptions(loadAssumptions());
     } catch { /* first visit */ }
+    getSavedModel(issuerId).then((saved) => {
+      if (!saved?.payload) return;
+      if (saved.payload.overrides && typeof saved.payload.overrides === "object") setOverrides(saved.payload.overrides as Overrides);
+      if (saved.payload.assumptions && typeof saved.payload.assumptions === "object") setAssumptions(saved.payload.assumptions as Assumptions);
+      if (Array.isArray(saved.payload.collapsedRows)) setCollapsedRows(new Set(saved.payload.collapsedRows as string[]));
+      setSavedAt(saved.updated_at);
+    }).catch(() => {});
     setHydrated(true);
-  }, []);
+  }, [issuerId]);
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(assumptions); }, [hydrated, assumptions]);
@@ -155,6 +165,14 @@ function ModelBuilder() {
   };
   const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
   const resetAll = () => setOverrides({});
+  const saveCurrentModel = () => saveIssuerModel(issuerId, {
+    version: 1,
+    assumptions,
+    overrides,
+    collapsedRows: [...collapsedRows],
+    view: { showQuarters, showAssumptions, showScenarios },
+    model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
+  }).then((r) => setSavedAt(r.updated_at)).catch(() => {});
 
   const yearsKey = (caseKey: "base" | "down"): "baseYears" | "downYears" => (caseKey === "base" ? "baseYears" : "downYears");
   const setAsmp = (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) =>
@@ -262,6 +280,15 @@ function ModelBuilder() {
           </button>
         ) : null}
         <button
+          onClick={saveCurrentModel}
+          disabled={!hasIssuerModel}
+          title="Save this issuer model to the database; Report Builder reads the saved version only"
+          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
+        >
+          SAVE MODEL
+        </button>
+        {savedAt ? <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap hidden xl:inline">SAVED {new Date(savedAt).toLocaleString()}</span> : null}
+        <button
           onClick={() => exportModel(model, showQuarters, overrides)}
           disabled={!hasIssuerModel}
           title="Export the model grid (CSV — opens in Excel)"
@@ -316,6 +343,12 @@ function ModelBuilder() {
                   editing={editing}
                   onEdit={setEditing}
                   onCommit={commitEdit}
+                  collapsedRows={collapsedRows}
+                  onToggleRow={(row) => setCollapsedRows((cur) => {
+                    const next = new Set(cur);
+                    if (next.has(row)) next.delete(row); else next.add(row);
+                    return next;
+                  })}
                 />
               </div>
               {showScenarios ? (
@@ -334,12 +367,6 @@ function ModelBuilder() {
             </div>
           </div>
         )}
-          {showScenarios ? (
-            <ScenarioPanel model={model} downside={eng.downside} onCollapse={() => setShowScenarios(false)} />
-          ) : (
-            <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
-          )}
-        </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}

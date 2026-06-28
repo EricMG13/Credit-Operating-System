@@ -9,9 +9,9 @@
 
 import { useState } from "react";
 import axios from "axios";
-import { login, register } from "@/lib/api";
+import { login, recoverLogin, register } from "@/lib/api";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "recover";
 
 const inputCls =
   "rounded border border-caos-border bg-caos-elevated px-3 py-2 text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted";
@@ -32,6 +32,10 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [code, setCode] = useState("");
+  const [coverage, setCoverage] = useState("TMT");
+  const [location, setLocation] = useState("NA");
+  const [recoveryWords, setRecoveryWords] = useState(["", "", ""]);
+  const [recoveryHints, setRecoveryHints] = useState(["", "", ""]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -42,13 +46,24 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
     if (submitting) return;
     setError(null);
     if (signup && password !== confirm) {
-      setError("Passwords don't match.");
+      setError("Passcodes don't match.");
       return;
     }
     setSubmitting(true);
     try {
       if (signup) {
-        await register({ code: code.trim(), name: name.trim(), email: email.trim(), password });
+        await register({
+          code: code.trim(),
+          name: name.trim(),
+          email: email.trim(),
+          passcode: password,
+          coverage_area: coverage,
+          location,
+          recovery_words: recoveryWords.map((w) => w.trim()),
+          recovery_hints: recoveryHints.map((h) => h.trim()),
+        });
+      } else if (mode === "recover") {
+        await recoverLogin(email.trim(), recoveryWords.map((w) => w.trim()));
       } else {
         await login(email.trim(), password);
       }
@@ -61,7 +76,9 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
   };
 
   const ready = signup
-    ? Boolean(name.trim() && email.trim() && password.length >= 8 && confirm.length > 0 && code.trim())
+    ? Boolean(name.trim() && email.trim() && password.length >= 8 && confirm.length > 0 && code.trim() && recoveryWords.every((w) => w.trim()))
+    : mode === "recover"
+    ? Boolean(email.trim() && recoveryWords.every((w) => w.trim()))
     : Boolean(email.trim() && password.length > 0);
 
   const swap = (m: Mode) => {
@@ -81,21 +98,23 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
             Credit Agent OS
           </span>
           <h1 className="text-caos-text text-lg font-semibold">
-            {signup ? "Create your analyst account" : "Analyst sign-in"}
+            {signup ? "Create your analyst account" : mode === "recover" ? "Recover analyst access" : "Analyst sign-in"}
           </h1>
           <p className="text-caos-muted text-xs">
             {signup
-              ? "Set up an email + password account. An invite code is required."
-              : "Sign in with your email and password."}
+              ? "Access code, profile, passcode and recovery words are required."
+              : mode === "recover"
+              ? "Enter your email and all three recovery words."
+              : "Sign in with your email and passcode."}
           </p>
         </div>
 
         <div
           role="tablist"
           aria-label="Sign in or create account"
-          className="grid grid-cols-2 gap-1 rounded border border-caos-border p-1"
+          className="grid grid-cols-3 gap-1 rounded border border-caos-border p-1"
         >
-          {(["signin", "signup"] as Mode[]).map((m) => (
+          {(["signin", "signup", "recover"] as Mode[]).map((m) => (
             <button
               key={m}
               type="button"
@@ -106,7 +125,7 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
                 mode === m ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text"
               }`}
             >
-              {m === "signin" ? "Sign in" : "Create account"}
+              {m === "signin" ? "Sign in" : m === "signup" ? "Create" : "Recover"}
             </button>
           ))}
         </div>
@@ -138,20 +157,34 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
           />
         </Field>
 
-        <Field label="Password">
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={signup ? "new-password" : "current-password"}
-            maxLength={128}
-            className={inputCls}
-          />
-        </Field>
+        {mode !== "recover" ? (
+          <Field label="Login passcode">
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={signup ? "new-password" : "current-password"}
+              maxLength={128}
+              className={inputCls}
+            />
+          </Field>
+        ) : null}
 
         {signup && (
           <>
-            <Field label="Confirm password">
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Coverage area">
+                <select value={coverage} onChange={(e) => setCoverage(e.target.value)} className={inputCls}>
+                  {["TMT", "Industrials", "Healthcare", "Consumer", "Energy", "Financials", "Real Estate", "Other"].map((x) => <option key={x}>{x}</option>)}
+                </select>
+              </Field>
+              <Field label="Location">
+                <select value={location} onChange={(e) => setLocation(e.target.value)} className={inputCls}>
+                  {["NA", "EMEA", "APAC", "Other"].map((x) => <option key={x}>{x}</option>)}
+                </select>
+              </Field>
+            </div>
+            <Field label="Confirm passcode">
               <input
                 type="password"
                 value={confirm}
@@ -173,10 +206,40 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
               />
             </Field>
             {password.length > 0 && password.length < 8 && (
-              <p className="text-caos-sm text-caos-muted">Password must be at least 8 characters.</p>
+              <p className="text-caos-sm text-caos-muted">Passcode must be at least 8 characters.</p>
             )}
           </>
         )}
+
+        {(signup || mode === "recover") ? (
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={signup ? "grid grid-cols-2 gap-2" : ""}>
+                <Field label={`Recovery word ${i + 1}`}>
+                  <input
+                    type="password"
+                    value={recoveryWords[i]}
+                    onChange={(e) => setRecoveryWords((w) => w.map((x, j) => j === i ? e.target.value : x))}
+                    autoComplete="off"
+                    maxLength={80}
+                    className={inputCls}
+                  />
+                </Field>
+                {signup ? (
+                  <Field label={`Hint ${i + 1}`}>
+                    <input
+                      type="text"
+                      value={recoveryHints[i]}
+                      onChange={(e) => setRecoveryHints((h) => h.map((x, j) => j === i ? e.target.value : x))}
+                      maxLength={160}
+                      className={inputCls}
+                    />
+                  </Field>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {error && (
           <p id="login-error" role="alert" className="text-caos-sm text-caos-critical">
@@ -189,7 +252,7 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
           disabled={!ready || submitting}
           className="rounded border border-caos-accent bg-caos-accent px-3 py-2 text-caos-bg font-semibold text-sm transition-caos hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
         >
-          {submitting ? (signup ? "Creating…" : "Signing in…") : signup ? "Create account" : "Sign in"}
+          {submitting ? (signup ? "Creating…" : mode === "recover" ? "Recovering…" : "Signing in…") : signup ? "Create account" : mode === "recover" ? "Recover access" : "Sign in"}
         </button>
       </form>
     </div>

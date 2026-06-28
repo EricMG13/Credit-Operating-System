@@ -20,7 +20,7 @@ import { useLivePipelineStatus, type LivePipeline } from "@/lib/pipeline/useLive
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
-import { deriveClearance } from "@/lib/pipeline/clearance";
+import { deriveClearance, type Clearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import type { Sim } from "@/lib/pipeline/sim-engine";
 
@@ -242,7 +242,7 @@ interface PipelineHeaderProps {
   issuerId: string;
   total: number;
   completed: number;
-  clearance: { tag: "ok" | "warning" | "critical" | "idle"; text: string };
+  clearance: Clearance;
   run: SimRun;
   view: "graph" | "lanes";
   setView: (v: "graph" | "lanes") => void;
@@ -436,4 +436,3 @@ function PipelineWorkspace({
     </div>
   );
 }
-

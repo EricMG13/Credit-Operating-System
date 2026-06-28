@@ -1,0 +1,30 @@
+Section,Field,Value,Notes
+Strategy,Non-Call Period,15-Mar-2025 to 15-Mar-2027,2 years
+Strategy,Legal Final Maturity,15-Mar-2038,
+Key Parties,Collateral Manager,Test Asset Management LLP,
+Key Parties,Portfolio Manager(s),E. Guei / M. Smith,
+Key Parties,Trustee,Bank of New York Mellon,
+Key Parties,Collateral Administrator,Bank of New York Mellon,
+Key Parties,Placement Agent,Test Securities Inc.,
+Key Parties,Legal Counsel (Manager),"Cadwalader, Wickersham & Taft LLP",
+Key Parties,Legal Counsel (Placement),Milbank LLP,
+Key Parties,Rating Agencies,Moody's / S&P,
+Capital Structure,Class A-1 (AAA/Aaa),"$280,000,000 — SOFR + 130bps",Senior-most tranche
+Capital Structure,Class A-2 (AA/Aa2),"$50,000,000 — SOFR + 175bps",
+Capital Structure,Class B (A/A2),"$30,000,000 — SOFR + 210bps",
+Capital Structure,Class C (BBB/Baa2),"$30,000,000 — SOFR + 300bps",
+Capital Structure,Class D (BB/Ba2),"$25,000,000 — SOFR + 600bps",
+Capital Structure,Class E (B/B2),"$15,000,000 — SOFR + 900bps",
+Capital Structure,Subordinated Notes (Equity),"$50,000,000",First loss; residual
+Capital Structure,Total Liabilities + Equity,"$480,000,000",
+Mandate Constraints,Cross-reference,See CP-3C_Constraints & CP-6A_Constraints sheets,
+Mandate Constraints,Constraint Schedule Version,v1.0 dated 15-Mar-2025,
+Mandate Constraints,Last IC Approval Date,10-Mar-2025,
+Reporting,Investor Reporting Frequency,Monthly (trustee report),
+Reporting,Internal Risk Report Frequency,Weekly,
+Reporting,Regulatory Reporting,SEC Form PF (quarterly); AIFMD Annex IV (semi-annual),
+Fees,Senior Management Fee,15bps p.a. on collateral balance,
+Fees,Subordinated Management Fee,35bps p.a. on collateral balance,
+Fees,Incentive Fee,20% above 12% IRR hurdle on equity,
+Liquidity Terms,Redemption,N/A — CLO structure (no redemptions),Callable after NC period
+Liquidity Terms,Optional Redemption,After 15-Mar-2027 at par,Subject to make-whole prior

@@ -108,6 +108,11 @@ class Analyst(Base):
     # PBKDF2 hash for the email+password lane (passwords.py); null for SSO /
     # shared-code profiles, which authenticate without one. Account key is `email`.
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
+    coverage_area: Mapped[Optional[str]] = mapped_column(String(64))
+    location: Mapped[Optional[str]] = mapped_column(String(16))
+    recovery_word_hashes: Mapped[list] = mapped_column(JSON, default=list)
+    recovery_hints: Mapped[list] = mapped_column(JSON, default=list)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     # Session-revocation epoch: signed into the cookie at mint; bumped on logout so
     # every existing token for this analyst stops validating (identity.get_identity
@@ -321,6 +326,21 @@ class MetricFact(Base):
     # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
     basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SavedModel(Base):
+    """Latest analyst-saved Model Builder state for an issuer."""
+
+    __tablename__ = "saved_models"
+    __table_args__ = (
+        UniqueConstraint("issuer_id", "analyst_id", name="uq_saved_model_issuer_analyst"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    analyst_id: Mapped[str] = mapped_column(String(255), index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AnalystLink(Base):

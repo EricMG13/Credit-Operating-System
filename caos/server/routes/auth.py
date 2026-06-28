@@ -17,6 +17,7 @@ from __future__ import annotations
 import hmac
 import re
 import time
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -79,12 +80,23 @@ class RegisterRequest(BaseModel):
     code: str = Field(min_length=1, max_length=64)  # shared invite code (ANALYST_SIGNUP_CODE)
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=8, max_length=128)
+    passcode: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    password: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    coverage_area: Optional[str] = Field(default=None, max_length=64)
+    location: Optional[str] = Field(default=None, max_length=16)
+    recovery_words: list[str] = Field(default_factory=list, max_length=3)
+    recovery_hints: list[str] = Field(default_factory=list, max_length=3)
 
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
-    password: str = Field(min_length=1, max_length=128)
+    passcode: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    password: Optional[str] = Field(default=None, min_length=1, max_length=128)
+
+
+class RecoveryRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    recovery_words: list[str] = Field(min_length=3, max_length=3)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -127,6 +139,27 @@ def _profile_response(analyst: Analyst) -> MeResponse:
         id=analyst.id, email=analyst.email or "", full_name=analyst.name,
         role="analyst", is_active=True, source="profile",
     )
+
+
+def _passcode(body: RegisterRequest | LoginRequest) -> str:
+    code = body.passcode or body.password or ""
+    if not code:
+        raise HTTPException(422, "Passcode is required.")
+    return code
+
+
+def _recovery_hashes(words: list[str]) -> list[str]:
+    cleaned = [sanitize_field(w).strip().lower() for w in words]
+    if len(cleaned) != 3 or any(not w for w in cleaned):
+        raise HTTPException(422, "Three recovery words are required.")
+    return [hash_password(w) for w in cleaned]
+
+
+def _recovery_ok(words: list[str], hashes: list[str]) -> bool:
+    cleaned = [sanitize_field(w).strip().lower() for w in words]
+    if len(cleaned) != 3 or len(hashes or []) != 3:
+        return False
+    return all(verify_password(w, h) for w, h in zip(cleaned, hashes))
 
 
 @router.post("/profile", response_model=MeResponse, status_code=201)
@@ -228,7 +261,15 @@ async def register(
             status.HTTP_409_CONFLICT, "An account with that email already exists — sign in instead."
         )
 
-    analyst = Analyst(name=name, email=email, password_hash=hash_password(body.password))
+    analyst = Analyst(
+        name=name,
+        email=email,
+        password_hash=hash_password(_passcode(body)),
+        coverage_area=sanitize_field(body.coverage_area or "").strip() or None,
+        location=sanitize_field(body.location or "").strip() or None,
+        recovery_word_hashes=_recovery_hashes(body.recovery_words),
+        recovery_hints=[sanitize_field(h).strip()[:160] for h in body.recovery_hints[:3]],
+    )
     db.add(analyst)
     try:
         await db.commit()
@@ -259,11 +300,27 @@ async def login(
     # password) so a missing email and a wrong password take the same time — no
     # user enumeration via timing. Compute `ok` unconditionally before branching.
     stored = analyst.password_hash if analyst else None
-    ok = verify_password(body.password, stored or _DUMMY_HASH)
+    ok = verify_password(_passcode(body), stored or _DUMMY_HASH)
     if not ok or analyst is None:
         # 401 (not 403) feeds the access-log brute-force heuristic. Generic message.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password.")
 
+    _set_cookie(response, analyst)
+    return _profile_response(analyst)
+
+
+@router.post("/recover", response_model=MeResponse)
+async def recover_login(
+    body: RecoveryRequest, request: Request, response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    _throttle(request)
+    email = sanitize_field(body.email).strip().lower()
+    analyst = (await db.execute(
+        select(Analyst).where(func.lower(Analyst.email) == email)
+    )).scalar_one_or_none()
+    if analyst is None or not _recovery_ok(body.recovery_words, analyst.recovery_word_hashes or []):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Recovery failed — contact admin.")
     _set_cookie(response, analyst)
     return _profile_response(analyst)
 

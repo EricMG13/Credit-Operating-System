@@ -12,6 +12,7 @@ honestly), and ``/graph`` dispatches one capability to its builder ([querygraph.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,6 +32,7 @@ router = APIRouter()
 
 _QUERY_MAX_PER_MINUTE = 20
 _READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
+_ADMIN_QUERY_RE = re.compile(r"\b(all runs by user|runs by user|user\s+[A-Z0-9._%+-]+@|analyst activity|by analyst|display all runs by)\b", re.I)
 
 
 def _read_rate_guard(caller: CallerIdentity) -> None:
@@ -200,6 +202,11 @@ async def nl_query(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    if _ADMIN_QUERY_RE.search(body.question):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User-level run queries are admin-only.",
+        )
     if not rate_limit.hit(
         f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
     ):

@@ -67,10 +67,21 @@ export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
 // Email + password account lane (alongside edge SSO). register creates the account
 // (gated by the shared invite code) and signs in; login authenticates an existing
 // one. Both return the same { source: "profile" } identity and set the cookie.
-export const register = (data: { code: string; name: string; email: string; password: string }) =>
+export const register = (data: {
+  code: string;
+  name: string;
+  email: string;
+  passcode: string;
+  coverage_area: string;
+  location: string;
+  recovery_words: string[];
+  recovery_hints: string[];
+}) =>
   api.post("/api/auth/register", data, { timeout: 8000 }).then((r) => r.data);
-export const login = (email: string, password: string) =>
-  api.post("/api/auth/login", { email, password }, { timeout: 8000 }).then((r) => r.data);
+export const login = (email: string, passcode: string) =>
+  api.post("/api/auth/login", { email, passcode }, { timeout: 8000 }).then((r) => r.data);
+export const recoverLogin = (email: string, recovery_words: string[]) =>
+  api.post("/api/auth/recover", { email, recovery_words }, { timeout: 8000 }).then((r) => r.data);
 
 // ─── Issuers ──────────────────────────────────────────────────────────────
 // `q` searches name, ticker, sector/industry, sub-sector, country, and FIGI.
@@ -258,6 +269,10 @@ export const edgarVaultUrl = (
   api
     .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
+export const edgarVaultUrls = (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> =>
+  Promise.all(
+    urls.split(",").map((u) => u.trim()).filter(Boolean).map((u) => edgarVaultUrl(issuerId, u, runMode)),
+  );
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────
 export interface ResearchBrief {
@@ -342,3 +357,23 @@ export interface WorkspaceSettings {
 }
 export const getSettings = (): Promise<WorkspaceSettings> =>
   api.get("/api/settings").then((r) => r.data);
+
+export interface AnalystSettings {
+  model_lanes: Record<string, string>;
+  email_intelligence: { outlook_connected?: boolean; approved_senders?: string[] };
+}
+export const getAnalystSettings = (): Promise<AnalystSettings> =>
+  api.get("/api/settings/analyst").then((r) => r.data);
+export const saveAnalystSettings = (data: AnalystSettings): Promise<AnalystSettings> =>
+  api.put("/api/settings/analyst", data).then((r) => r.data);
+
+export interface SavedModelDTO {
+  issuer_id: string;
+  analyst_id: string;
+  payload: Record<string, unknown>;
+  updated_at: string;
+}
+export const getSavedModel = (issuerId: string): Promise<SavedModelDTO | null> =>
+  api.get(`/api/models/${issuerId}`).then((r) => r.data);
+export const saveModel = (issuerId: string, payload: Record<string, unknown>): Promise<SavedModelDTO> =>
+  api.put(`/api/models/${issuerId}`, { payload }).then((r) => r.data);

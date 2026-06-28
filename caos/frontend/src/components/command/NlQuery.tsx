@@ -5,7 +5,7 @@
 // QuerySpec over the curated metric store and returns a ranked, evidence-cited,
 // gate-aware answer. Surfaced on the Command Center as the "scan coverage" tool.
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -15,6 +15,7 @@ import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult } from "@/lib/query/types";
+import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
 type OpenCite = (chunkId: string, label?: string | null) => void;
@@ -83,13 +84,35 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
 
 // Structured (metric-ranking) results — the ranked, cited table.
 function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite: OpenCite }) {
+  const [filters, setFilters] = useState<FilterState>({});
+  type Row = StructuredResult["rows"][number];
+  const filterVals = useMemo<Record<string, (row: Row) => string | number | null | undefined>>(() => {
+    const base: Record<string, (row: Row) => string | number | null | undefined> = {
+      rank: (row) => res.rows.indexOf(row) + 1,
+      issuer: (row) => row.issuer.name,
+      ticker: (row) => row.issuer.ticker || "—",
+    };
+    res.columns.forEach((c) => {
+      base[c.key] = (row) => {
+        const cell = row.metrics[c.key];
+        return cell ? fmtMetric(cell.value, cell.unit) : "—";
+      };
+    });
+    return base;
+  }, [res.columns, res.rows]);
+  const rows = useColumnFilters(res.rows, filters, filterVals);
+  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
   return (
     <div className="overflow-auto" style={{ maxHeight: 260 }}>
       <table aria-label="Ranked query results" className="w-full border-collapse">
         <thead>
           <tr className="text-left">
-            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">#</th>
-            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">Issuer</th>
+            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">
+              <FilterHeader label="Rank" col="rank" rows={res.rows} getValue={filterVals.rank} selected={filters.rank || []} onChange={setFilter}>#</FilterHeader>
+            </th>
+            <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">
+              <FilterHeader label="Issuer" col="issuer" rows={res.rows} getValue={filterVals.issuer} selected={filters.issuer || []} onChange={setFilter}>Issuer</FilterHeader>
+            </th>
             {res.columns.map((c) => (
               <th
                 key={c.key}
@@ -97,14 +120,17 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
                 style={{ color: c.key === res.rank_by ? "var(--caos-accent)" : "var(--caos-muted)" }}
                 title={c.higher_is_better ? "higher is stronger" : "higher is weaker / more exposed"}
               >
-                {c.label}
+                <FilterHeader label={c.label} col={c.key} rows={res.rows} getValue={filterVals[c.key]} selected={filters[c.key] || []} onChange={setFilter}>
+                  {c.label}
+                </FilterHeader>
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {res.rows.map((row, i) => {
+          {rows.map((row) => {
             const cells = row.metrics;
+            const i = res.rows.indexOf(row);
             const provs = Object.values(cells).map((m) => m.provenance);
             const anyRun = provs.includes("run");
             const anyDerived = provs.includes("derived");

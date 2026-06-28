@@ -13,6 +13,7 @@ type OnEdit = (path: string, text: string) => void;
 interface EditCtx {
   edits?: ReportEdits;
   onEdit?: OnEdit;
+  hideAddbacks?: boolean;
 }
 
 /* ---------- editable text leaf ---------- */
@@ -68,6 +69,12 @@ function RDHead({ p, title, sub, ctx }: { p: string; title?: string; sub?: strin
 
 function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string; ctx: EditCtx }) {
   const al = s.align || [];
+  const rows = ctx.hideAddbacks && p === "s0"
+    ? s.rows.filter((r) => {
+        const first = String(r.cells[0] || "");
+        return !["Restructuring", "Transaction / non-recurring", "Stock-based comp", "Run-rate synergies", "Pro forma", "less: unrealised"].some((x) => first.startsWith(x));
+      })
+    : s.rows;
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} sub={s.sub} ctx={ctx} />
@@ -80,7 +87,7 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
           </tr>
         </thead>
         <tbody>
-          {s.rows.map((r: TableRow, ri: number) => (
+          {rows.map((r: TableRow, ri: number) => (
             <tr
               key={ri}
               className={
@@ -192,6 +199,7 @@ export function ReportDoc({
   showSources,
   edits,
   onEdit,
+  hideAddbacks,
 }: {
   rep: Report;
   omit?: Record<number, boolean>;
@@ -199,8 +207,9 @@ export function ReportDoc({
   showSources?: boolean;
   edits?: ReportEdits;
   onEdit?: OnEdit;
+  hideAddbacks?: boolean;
 }) {
-  const ctx: EditCtx = { edits, onEdit };
+  const ctx: EditCtx = { edits, onEdit, hideAddbacks };
   const isModelAppendix = rep.id === "model";
   const secs = rep.sections
     .map((s, i) => ({ s, i }))

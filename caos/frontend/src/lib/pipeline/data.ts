@@ -184,7 +184,7 @@ export interface RunMode {
   drivers: number[] | null;
   plan: PlanStep[];
   complete: { sev: string; text: string } | null;
-  done: { tag: string; text: string };
+  done: { tag: "ok" | "warning" | "critical" | "idle" | "running"; text: string };
 }
 
 function scopedPlan(scope: string[], overrides: Record<string, Partial<PlanStep>> = {}): PlanStep[] {

@@ -3,7 +3,8 @@
 // run's QA verdict (committee_status); a Blocked run must never read "Full Run".
 // Offline/demo falls back to the CP-X route gate (CP-5 state).
 
-export type Clearance = { tag: string; text: string };
+export type ClearanceTag = "ok" | "warning" | "critical" | "idle" | "running";
+export type Clearance = { tag: ClearanceTag; text: string };
 
 export function deriveClearance(opts: {
   useLive: boolean;

@@ -20,6 +20,15 @@ const CAOS_G2_THEMES = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type G2Spec = Record<string, any>;
 
+function normalizeFy(v: unknown): unknown {
+  if (typeof v === "string") return v.replace(/\bfy/g, "FY");
+  if (Array.isArray(v)) return v.map(normalizeFy);
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v).map(([k, val]) => [k, normalizeFy(val)]));
+  }
+  return v;
+}
+
 export function G2Chart({
   spec,
   height = 220,
@@ -54,7 +63,22 @@ export function G2Chart({
       el.innerHTML = "";
       builtWidth = el.clientWidth || 320;
       chart = new ChartCtor({ container: el, width: builtWidth, height });
-      chart.options({ theme: CAOS_G2_THEMES[mode] || CAOS_G2_THEMES.dark, ...spec });
+      const normalized = normalizeFy(spec) as G2Spec;
+      chart.options({
+        theme: CAOS_G2_THEMES[mode] || CAOS_G2_THEMES.dark,
+        ...normalized,
+        tooltip: {
+          ...normalized.tooltip,
+          css: {
+            ".g2-tooltip": {
+              color: mode === "paper" ? "#16161e" : "#e6e6ef",
+              fontWeight: 700,
+              textTransform: "uppercase",
+            },
+            ...(normalized.tooltip?.css || {}),
+          },
+        },
+      });
       const p = chart.render();
       if (p && typeof p.catch === "function") p.catch(() => {});
     };

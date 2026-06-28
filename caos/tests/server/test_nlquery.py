@@ -133,6 +133,12 @@ def test_canonical_query_ranks_aurora_first(client):
     assert body["caveats"]
 
 
+def test_user_info_query_is_admin_only(client):
+    r = client.post("/api/query/nl", json={"question": "display all runs by user Pat Lender"})
+    assert r.status_code == 403, r.text
+    assert "admin-only" in r.json()["detail"]
+
+
 def test_ranking_reports_total_ranked_for_top_n_labeling(client):
     # OBS-002: the result must carry the universe count (issuers eligible before
     # the top-N display cap) so the UI can say "top N of M" instead of implying

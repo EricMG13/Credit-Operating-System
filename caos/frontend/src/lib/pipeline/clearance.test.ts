@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { deriveClearance } from "./clearance";
+import { deriveClearance, type Clearance } from "./clearance";
 
-const DONE = { tag: "ok", text: "FULL RUN" };
+const DONE: Clearance = { tag: "ok", text: "FULL RUN" };
 const live = (committeeStatus: string, gateStatus = "PASS") => ({ committeeStatus, gateStatus });
 
 describe("deriveClearance — live run reports the QA verdict, not the route gate", () => {

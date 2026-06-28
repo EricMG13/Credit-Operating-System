@@ -45,7 +45,7 @@ export function GlobalIssuerSearch() {
 
   const hasText = q.trim().length > 0;
   return (
-    <div className="relative w-64 shrink-0">
+    <div className="group relative w-12 focus-within:w-64 hover:w-64 shrink-0 transition-[width] duration-150">
       <input
         ref={ref}
         value={q}
@@ -58,13 +58,13 @@ export function GlobalIssuerSearch() {
         }}
         placeholder="Issuer search"
         aria-label="Search issuers"
-        className="w-full h-9 rounded-full border border-caos-accent/60 bg-caos-panel pl-3 pr-12 tabular text-caos-md text-caos-text placeholder:text-caos-muted outline-none transition-caos focus:border-caos-accent"
+        className="w-full h-9 rounded-full border border-caos-accent/60 bg-caos-panel pl-3 pr-12 tabular text-caos-md text-caos-text placeholder:text-transparent group-hover:placeholder:text-caos-muted focus:placeholder:text-caos-muted outline-none transition-caos focus:border-caos-accent"
       />
       <span className="pointer-events-none absolute right-2 top-1.5 tabular text-caos-2xs px-1 rounded border border-caos-border text-caos-muted">
         {hasText ? "RET" : "SP+S"}
       </span>
       {open && rows.length > 0 ? (
-        <div className="absolute right-0 bottom-11 z-overlay w-72 rounded border border-caos-border bg-caos-panel shadow-lg overflow-hidden">
+        <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border border-caos-border bg-caos-panel shadow-lg overflow-hidden">
           {rows.map((issuer) => (
             <button
               key={issuer.id}

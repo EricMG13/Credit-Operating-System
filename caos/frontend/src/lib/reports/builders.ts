@@ -2,6 +2,7 @@
 // + ATLF module outputs (port of design bundle concept-e-reports.js).
 
 import { buildModel, type Model, type ModelCol, type Overrides } from "./model";
+import type { Assumptions } from "./assumptions";
 import { CAPACITY, COVENANTS, DEAL, DEBATE, SIZING, TRIGGERS } from "./deal";
 import { ROWS } from "@/components/model/rows";
 import { fmt } from "@/components/model/model-format";
@@ -19,6 +20,7 @@ export interface ModelInputs {
   // panels (cap structure, seniority stack, financials, EBITDA adjustments) show
   // live numbers with model.provenance.anchored set. Absent → seeded fallback.
   anchor?: ModelAnchor;
+  assumptions?: Assumptions;
 }
 
 /* ---------- section DSL ---------- */
@@ -204,9 +206,9 @@ function creditSnapshot(model: Model): Report {
         ] }],
         [{ t: "profile", title: "ANALYST RECOMMENDATION", rows: [
           ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
-          ["Recommendation", "BUY — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
-          ["CLO", "eligible — B3 bucket check on trade date"], ["Indexed Loans", "TLB — HOLD (defensive rotation)"],
-          ["Indexed Lev Loan", "2L TL '31 — ADD ON WEAKNESS"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
+          ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
+          ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],
+          ["Indexed Lev Loan", "Overweight"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
         ] }],
       ] },
       { t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
@@ -323,7 +325,7 @@ function earningsUpdate(): Report {
         legend: { color: { position: "top" } },
         labels: [{ text: "v", position: "top", fontSize: 8, transform: [{ type: "overlapHide" }] }],
       } },
-      { t: "table", title: "VARIANCE VS SPONSOR MODEL", cols: ["Line", "Model", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
+      { t: "table", title: "VARIANCE VS ANALYST MODEL", cols: ["Line", "Saved base", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
         { cells: ["Revenue", "722.0", "715.0", "−1.0%", "Fluid Systems volume"] },
         { cells: ["Adj. EBITDA", "112.7", "108.0", "−4.2%", "volume (−3.1) + cost-out phasing (−1.6)"] },
         { cells: ["Margin", "15.6%", "15.1%", "−50bps", "absorption"] },
@@ -446,7 +448,7 @@ function monitoringDigest(): Report {
 }
 
 export function buildReports(inputs?: ModelInputs): Report[] {
-  const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {}, inputs?.anchor);
+  const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {}, inputs?.anchor, inputs?.assumptions);
   return [creditSnapshot(model), earningsUpdate(), creditMemo(), covenantBrief(), monitoringDigest(), modelAppendix(model)];
 }
 

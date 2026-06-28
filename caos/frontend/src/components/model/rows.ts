@@ -53,7 +53,7 @@ export const ROWS: RowDef[] = [
   { id: "gsegF", l: "% growth", g: (c) => c.gSegF, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "segA", l: "Aftermarket & Services", g: (c) => c.segA, f: "m", ind: 1, shade: 1, src: "cp1a" },
   { id: "gsegA", l: "% growth", g: (c) => c.gSegA, f: "p", ind: 1, pct: 1, src: "cp1b" },
-  { id: "rev", l: "Revenues", g: (c) => c.rev, f: "m", bold: 1, line: 1, src: "cp1", formula: "Revenues = Σ divisions · CP-1 T4.7 normalized financials" },
+  { id: "rev", l: "Total revenue", g: (c) => c.rev, f: "m", bold: 1, line: 1, src: "cp1", formula: "Total revenue = Σ divisions · CP-1 T4.7 normalized financials" },
   { id: "grev", l: "% growth", g: (c) => c.gRev, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "cogs", l: "COGS", g: (c) => -c.cogs, f: "m", ind: 1, shade: 1, src: "cp1" },
   { id: "gp", l: "Gross Profit", g: (c) => c.gp, f: "m", bold: 1, src: "cp1" },

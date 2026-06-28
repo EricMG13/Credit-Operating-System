@@ -9,13 +9,21 @@ deliberately excluded; booleans expose whether a key/UA is present, not its valu
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
+from database import Analyst, get_db
 from deepresearch import _EFFORT, _MAX_SEARCHES, _MAX_TOKENS as _DR_MAX_TOKENS
 from identity import CallerIdentity, get_identity
 from llm import llm_configured
 
 router = APIRouter()
+
+
+class AnalystSettings(BaseModel):
+    model_lanes: dict = Field(default_factory=dict)
+    email_intelligence: dict = Field(default_factory=dict)
 
 
 @router.get("")
@@ -60,4 +68,32 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
             "max_upload_mb": s.max_upload_mb,
             "run_concurrency": s.caos_run_concurrency,
         },
+        "analyst": getattr(caller, "id", None),
     }
+
+
+@router.get("/analyst", response_model=AnalystSettings)
+async def read_analyst_settings(
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    analyst = await db.get(Analyst, caller.id)
+    raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
+    return AnalystSettings(
+        model_lanes=raw.get("model_lanes") or {},
+        email_intelligence=raw.get("email_intelligence") or {},
+    )
+
+
+@router.put("/analyst", response_model=AnalystSettings)
+async def write_analyst_settings(
+    body: AnalystSettings,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    analyst = await db.get(Analyst, caller.id)
+    if analyst is None:
+        return body
+    analyst.settings = body.model_dump()
+    await db.commit()
+    return body

@@ -321,6 +321,15 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
     cash = c.cash;
     q.push(c);
   }
+  for (let i = 3; i < q.length; i++) {
+    const l4q = q.slice(i - 3, i + 1);
+    const sum = (f: keyof ModelCol) => l4q.reduce((n, c) => n + (c[f] as number), 0);
+    const c = q[i];
+    const saved = { adj: c.adj, int: c.int, fcf: c.fcf };
+    c.adj = sum("adj"); c.int = sum("int"); c.fcf = sum("fcf");
+    deriveCreditKpis(c);
+    c.adj = saved.adj; c.int = saved.int; c.fcf = saved.fcf;
+  }
 
   const r22 = g("f22", "rev", 2295);
   const f22 = fyManual("f22", "FY22", {
@@ -345,6 +354,10 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
   const y1 = sumCtx("y1", "Mar-26", "ytd", [q[8]], q[8], { rev: q[4].rev, adj: q[4].adj, segD: q[4].segD, segF: q[4].segF, segA: q[4].segA });
   const l0 = sumCtx("l0", "Mar-25", "ltm", q.slice(1, 5), q[4], f24);
   const l1 = sumCtx("l1", "Mar-26", "ltm", q.slice(5, 9), q[8], l0);
+  ["srsec", "totlev", "netlev", "intcov", "fcfdebt"].forEach((k) => {
+    (y0 as unknown as Record<string, unknown>)[k] = (l0 as unknown as Record<string, unknown>)[k];
+    (y1 as unknown as Record<string, unknown>)[k] = (l1 as unknown as Record<string, unknown>)[k];
+  });
 
   // PF: LTM Mar-26 pro forma for the 2L TL '31 issue (refis 2L bridge; interest restated)
   const pf: Ctx = { ...l1, key: "pf", label: "Jun-26", kind: "pf", int: 193 };
@@ -398,10 +411,12 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
     // the unrealised remainder is deducted, leaving reported EBITDA unchanged.
     const abAccts = ADDBACKS.map((a) => p.ab * a.w);
     const abAdj = ADDBACKS.reduce((s, a, i) => s + abAccts[i] * A[a.key], 0);
+    const sofrDebtInterest = rcf * (A.sofrRate + 0.035) + p.tlb * (A.sofrRate + 0.0375) + 900 * (A.sofrRate + 0.0425);
+    const fixedInterest = 200 * 0.10;
     return fCtx(key, fLabels[i], kind, {
-      ab: abAdj, abAccts, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: p.sofr, days: p.days,
+      ab: abAdj, abAccts, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: A.sofrRate * 100, days: p.days,
       adj: adj + (abAdj - p.ab), gpmF: p.gpmF + A.dGpm, daPct: A.daPct,
-      int: p.int * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
+      int: (sofrDebtInterest + fixedInterest) * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
       capexPct: p.capexPct * A.mCapex, acq: p.acq * A.mAcq, diss: p.diss * A.mDiss, div: A.divDelta,
       segA: seg.a, segD: seg.d, segF: seg.f, rcf, ssn: 900, sub: 200,
     }, pc, prior);

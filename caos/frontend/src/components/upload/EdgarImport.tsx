@@ -4,7 +4,7 @@
 // path as an upload, and make it E-xx-eligible.
 
 import { useState } from "react";
-import { edgarVaultUrl, type EdgarVaultResult } from "@/lib/api";
+import { edgarVaultUrls, type EdgarVaultResult } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
@@ -27,7 +27,7 @@ export function EdgarImport({
 }) {
   const [url, setUrl] = useState("");
   const [vaulting, setVaulting] = useState(false);
-  const [result, setResult] = useState<EdgarVaultResult | null>(null);
+  const [results, setResults] = useState<EdgarVaultResult[]>([]);
   const [error, setError] = useState("");
   const [notConfigured, setNotConfigured] = useState(false);
 
@@ -37,11 +37,11 @@ export function EdgarImport({
     setVaulting(true);
     setError("");
     setNotConfigured(false);
-    setResult(null);
+    setResults([]);
     try {
-      const res = await edgarVaultUrl(issuer.id, u, runMode);
-      setResult(res);
-      onVaulted?.(res);
+      const res = await edgarVaultUrls(issuer.id, u, runMode);
+      setResults(res);
+      res.forEach((r) => onVaulted?.(r));
     } catch (err) {
       const { status, detail } = errInfo(err);
       if (status === 503) setNotConfigured(true);
@@ -53,8 +53,8 @@ export function EdgarImport({
 
   return (
     <Panel
-      title="EDGAR URL"
-      right={<span className="tabular text-caos-xs text-caos-muted">paste source URL · primary source</span>}
+      title="Public / EDGAR URL"
+      right={<span className="tabular text-caos-xs text-caos-muted">comma-separated latest issuer files</span>}
     >
       <div className="p-3 flex flex-col gap-2.5">
         <div className="flex gap-2">
@@ -64,7 +64,7 @@ export function EdgarImport({
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && vault()}
             placeholder="https://www.sec.gov/Archives/edgar/data/..."
-            aria-label="EDGAR document URL"
+            aria-label="Public EDGAR document URLs"
             className="flex-1 px-2.5 py-1.5 text-caos-lg"
           />
           <button
@@ -90,16 +90,16 @@ export function EdgarImport({
           </div>
         ) : null}
 
-        {result ? (
-          <div className="flex items-center gap-2 rounded border border-caos-border px-3 py-2">
+        {results.map((result) => (
+          <div key={result.document_id} className="flex items-center gap-2 rounded border border-caos-border px-3 py-2">
             <Dot sev={result.chunks_created === 0 ? "warning" : "ok"} />
             <span className="text-caos-md text-caos-text truncate flex-1">{result.message}</span>
             <span className="tabular text-caos-xs text-caos-muted">{result.chunks_created} ch</span>
           </div>
-        ) : null}
+        ))}
 
         <div className="tabular text-caos-2xs text-caos-muted leading-snug">
-          Vaulted EDGAR URLs become E-xx-eligible primary sources for {issuer.name}.
+          Public issuer URLs and private drag/drop files can be used together for {issuer.name}.
         </div>
       </div>
     </Panel>

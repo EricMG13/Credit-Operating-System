@@ -15,7 +15,7 @@ import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
-import { getSettings, type WorkspaceSettings } from "@/lib/api";
+import { getAnalystSettings, getSettings, saveAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
@@ -117,6 +117,7 @@ function ConfigVal({ v }: { v: boolean | number | string }) {
 // prop-drill state for no readability gain.
 // fallow-ignore-next-line complexity
 function Settings() {
+  const [tab, setTab] = useState<"models" | "research" | "email" | "workspace">("models");
   // ── Research defaults (browser-local) ──
   const [prefs, setPrefs] = useState<ResearchPrefs>(DEFAULT_PREFS);
   const [saved, setSaved] = useState(false);
@@ -129,8 +130,11 @@ function Settings() {
 
   // ── Query model (browser-local, immediate-save) ──
   const [queryModel, setQueryModel] = useState<string>("claude-sonnet-4-6");
+  const [analystSettings, setAnalystSettings] = useState<AnalystSettings>({ model_lanes: {}, email_intelligence: { approved_senders: [] } });
+  const [analystSaved, setAnalystSaved] = useState(false);
   useEffect(() => {
     setQueryModel(localStorage.getItem("caos_query_model") || "claude-sonnet-4-6");
+    getAnalystSettings().then(setAnalystSettings).catch(() => {});
   }, []);
   const changeQueryModel = (m: string) => {
     setQueryModel(m);
@@ -146,6 +150,14 @@ function Settings() {
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
   }
+
+  const saveAnalyst = (next = analystSettings) => {
+    setAnalystSettings(next);
+    saveAnalystSettings(next).then(() => {
+      setAnalystSaved(true);
+      window.setTimeout(() => setAnalystSaved(false), 2000);
+    }).catch(() => {});
+  };
 
   // ── Workspace config (server snapshot) ──
   const [cfg, setCfg] = useState<WorkspaceSettings | null>(null);
@@ -183,8 +195,27 @@ function Settings() {
       {/* body */}
       <div className="flex-1 min-h-0 overflow-auto p-2">
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
+          <div className="grid grid-cols-4 gap-1 rounded border border-caos-border bg-caos-panel p-1">
+            {[
+              ["models", "Models"],
+              ["research", "Research"],
+              ["email", "Email Intel"],
+              ["workspace", "Workspace"],
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k as typeof tab)}
+                className={
+                  "tabular text-caos-xs uppercase tracking-wider rounded px-2 py-1.5 transition-caos focus-ring " +
+                  (tab === k ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* Model mode */}
-          <Panel title="Model mode · saved in this browser">
+          {tab === "models" ? <Panel title="Model mode · saved in this browser">
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 The cost↔quality tier the engine runs its LLM lanes at — module synthesis, the
@@ -193,10 +224,10 @@ function Settings() {
               </p>
               <ModelModeToggle value={mode} onChange={changeMode} />
             </div>
-          </Panel>
+          </Panel> : null}
 
           {/* Query model */}
-          <Panel title="Query Model · saved in this browser">
+          {tab === "models" ? <Panel title="Query Model · saved in this browser">
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 The language model used by the Query workspace and the global Ask launcher to translate
@@ -237,10 +268,46 @@ function Settings() {
                 ))}
               </div>
             </div>
-          </Panel>
+          </Panel> : null}
+
+          {tab === "models" ? (
+            <Panel
+              title="Custom model routing · saved to analyst profile"
+              right={analystSaved ? <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
+            >
+              <div className="p-3 flex flex-col gap-2">
+                {[
+                  ["module_synthesis", "Module synthesis"],
+                  ["issuer_chat", "Issuer chat"],
+                  ["query", "Query / Ask"],
+                  ["reporting", "Report drafting"],
+                ].map(([lane, label]) => (
+                  <label key={lane} className="grid grid-cols-[150px_1fr] gap-2 items-center">
+                    <span className={labelCls}>{label}</span>
+                    <select
+                      value={analystSettings.model_lanes[lane] || ""}
+                      onChange={(e) => saveAnalyst({
+                        ...analystSettings,
+                        model_lanes: { ...analystSettings.model_lanes, [lane]: e.target.value },
+                      })}
+                      className="rounded border border-caos-border bg-caos-elevated px-2 py-1.5 tabular text-caos-md text-caos-text focus-ring"
+                    >
+                      <option value="">Use workspace tier</option>
+                      <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                      <option value="claude-opus-4-8">claude-opus-4-8</option>
+                      <option value="deepseek/deepseek-v4-flash">deepseek/deepseek-v4-flash</option>
+                      <option value="deepseek/deepseek-v4-pro">deepseek/deepseek-v4-pro</option>
+                      <option value="z-ai/glm-5.2">z-ai/glm-5.2</option>
+                      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </Panel>
+          ) : null}
 
           {/* Research defaults */}
-          <Panel
+          {tab === "research" ? <Panel
             title="Research defaults · saved in this browser"
             right={
               <span className="flex items-center gap-3">
@@ -284,10 +351,41 @@ function Settings() {
                 />
               </label>
             </div>
-          </Panel>
+          </Panel> : null}
+
+          {tab === "email" ? (
+            <Panel
+              title="Email Intelligence · Outlook connection"
+              right={<span className="tabular text-caos-xs text-caos-muted">feed built near production</span>}
+            >
+              <div className="p-3 flex flex-col gap-3">
+                <div className="flex items-center justify-between rounded border border-caos-border bg-caos-bg px-3 py-2">
+                  <span className="tabular text-caos-md text-caos-text">Outlook connection</span>
+                  <span className="tabular text-caos-xs text-caos-muted">Not connected</span>
+                </div>
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Approved sender emails/domains</span>
+                  <textarea
+                    rows={8}
+                    value={(analystSettings.email_intelligence.approved_senders || []).join("\n")}
+                    onChange={(e) => setAnalystSettings({
+                      ...analystSettings,
+                      email_intelligence: {
+                        ...analystSettings.email_intelligence,
+                        approved_senders: e.target.value.split(/\n|,/).map((x) => x.trim()).filter(Boolean),
+                      },
+                    })}
+                    onBlur={() => saveAnalyst()}
+                    className={INPUT_BASE + " w-full px-2 py-1.5 text-caos-md resize-y leading-snug"}
+                  />
+                </label>
+                {analystSaved ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
+              </div>
+            </Panel>
+          ) : null}
 
           {/* Workspace configuration */}
-          <Panel
+          {tab === "workspace" ? <Panel
             title="Workspace configuration · set via environment, restart to change"
             right={cfg && !cfg.llm_configured ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>NO MODEL KEY · demo mode</span> : null}
           >
@@ -321,7 +419,7 @@ function Settings() {
                 </div>
               )}
             </div>
-          </Panel>
+          </Panel> : null}
         </div>
       </div>
     </div>

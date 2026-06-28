@@ -3,7 +3,7 @@
 // Issuer Directory — the workspace hub, in the CAOS design language shared by
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { PORTFOLIO } from "@/lib/command/data";
 import { COUNTRIES, issuerProfileHref, issuerSector } from "@/lib/issuers";
+import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 export default function IssuersPage() {
   return (
@@ -54,6 +55,7 @@ function IssuersDirectory() {
   // issuers off as real coverage (trust-through-transparency). See QA BUG-002.
   const [degraded, setDegraded] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [filters, setFilters] = useState<FilterState>({});
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -90,6 +92,18 @@ function IssuersDirectory() {
   }, []);
 
   const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
+  const filterKeys = ["ticker", "name", "sector", "sub_sector", "country", "figi", "action"] as const;
+  const filterVals = useMemo<Record<(typeof filterKeys)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
+    ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
+    name: (i) => i.name,
+    sector: (i) => issuerSector(i) || "—",
+    sub_sector: (i) => i.sub_sector || "—",
+    country: (i) => i.country || "—",
+    figi: (i) => i.figi || "—",
+    action: () => "UPLOAD",
+  }), []);
+  const shownIssuers = useColumnFilters(issuers, filters, filterVals);
+  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -208,14 +222,25 @@ function IssuersDirectory() {
             <div className="text-caos-xl">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 {["Ticker", "Issuer", "Sector", "Sub-sector", "Country", "FIGI", ""].map((h, i) => (
-                  <span key={i} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
+                  <FilterHeader
+                    key={i}
+                    label={h || "Action"}
+                    col={filterKeys[i]}
+                    rows={issuers}
+                    getValue={filterVals[filterKeys[i]]}
+                    selected={filters[filterKeys[i]] || []}
+                    onChange={setFilter}
+                    className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
+                  >
+                    {h}
+                  </FilterHeader>
                 ))}
               </div>
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book
                   ever holds thousands. intrinsic-size ≈ one row height, avoids scrollbar CLS. */}
               {/* fallow-ignore-next-line complexity */}
-              {issuers.map((issuer) => (
+              {shownIssuers.map((issuer) => (
                 <div
                   key={issuer.id}
                   className={cols + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}

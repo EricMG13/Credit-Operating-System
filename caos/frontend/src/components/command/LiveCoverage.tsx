@@ -8,6 +8,8 @@
 // docs/PHASE2_SCOPE.md) and are simply absent here, not faked.
 
 import type { PortfolioRowDTO } from "@/lib/api";
+import { useMemo, useState } from "react";
+import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 const fmtX = (v: number | undefined) =>
   typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
@@ -28,14 +30,41 @@ const COLS = "grid grid-cols-[1.6fr_1fr_0.7fr_0.7fr_1fr_0.9fr_1fr] gap-2 items-c
 
 export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
+  const [filters, setFilters] = useState<FilterState>({});
+  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const vals = useMemo<Record<string, (r: PortfolioRowDTO) => string | number | null | undefined>>(() => ({
+    issuer: (r) => r.name,
+    sector: (r) => r.sector,
+    netlev: (r) => r.metrics.net_leverage,
+    intcov: (r) => r.metrics.interest_coverage,
+    rv: (r) => r.rv_recommendation,
+    fragility: (r) => r.downside_fragility,
+    qa: (r) => r.qa_status,
+  }), []);
+  const shown = useColumnFilters(rows, filters, vals);
+  const heads = [
+    ["Issuer", "issuer"], ["Sector", "sector"], ["NetLev", "netlev"], ["IntCov", "intcov"],
+    ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
+  ] as const;
   return (
     <div className="text-caos-xl" style={{ minWidth: 760 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-        {["Issuer", "Sector", "NetLev", "IntCov", "RV posture", "Fragility", "QA"].map((h, i) => (
-          <span key={h} className={th + ([2, 3].includes(i) ? " text-right" : "")}>{h}</span>
+        {heads.map(([h, key], i) => (
+          <FilterHeader
+            key={key}
+            label={h}
+            col={key}
+            rows={rows}
+            getValue={vals[key]}
+            selected={filters[key] || []}
+            onChange={setFilter}
+            className={th + ([2, 3].includes(i) ? " text-right" : "")}
+          >
+            {h}
+          </FilterHeader>
         ))}
       </div>
-      {rows.map((r) => {
+      {shown.map((r) => {
         const rv = r.rv_recommendation;
         const frag = r.downside_fragility;
         return (
