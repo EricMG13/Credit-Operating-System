@@ -14,6 +14,7 @@ overrides via the environment:
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -65,6 +66,15 @@ class Settings(BaseSettings):
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
+
+    # Per-request LLM call timeout (seconds). The Anthropic SDK's default request
+    # timeout is ~10 minutes, so a stuck inference would otherwise pin a request
+    # lane (issuer chat, NL-query/scenario translate) open for that long. Pass this
+    # to every AsyncAnthropic client so a hung call fails fast instead. Env:
+    # CAOS_LLM_TIMEOUT_S. Deep Research streams its own long-running turns and may
+    # legitimately exceed this on the *total*, but each underlying HTTP request is
+    # still bounded by it.
+    caos_llm_timeout_s: float = 120.0
 
     # Gemini provider (engine/gemini.py). Set GEMINI_API_KEY to activate the hybrid
     # (cheap/fast/strong lanes on Gemini); empty = those tiers fall back to their
@@ -210,3 +220,18 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def is_deployed(settings: "Settings | None" = None) -> bool:
+    """True in any deployed (non-local-dev) context — the fail-closed predicate.
+
+    Asymmetric on purpose, matching the cookie ``secure`` flag (routes/auth.py):
+    treat ANY ``environment`` value other than the exact string ``"development"``
+    as deployed (so ``prod``, ``Production``, a typo, or unset → deployed/guards
+    active), and the legacy ``DATABRICKS_APP_PORT`` as a deployed signal too. The
+    earlier ``environment == "production"`` checks failed *open* on a mistyped or
+    unset value — silently dropping the edge-secret / session-secret / signup-code
+    guards. This only ever makes things MORE strict, never less.
+    """
+    s = settings or get_settings()
+    return s.environment != "development" or os.environ.get("DATABRICKS_APP_PORT") is not None

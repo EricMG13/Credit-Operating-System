@@ -88,7 +88,7 @@ export function CapabilityRail({
                   >
                     <span className="w-1.5 h-1.5 rounded-full shrink-0 border border-caos-muted/50" />
                     <span className="tabular text-caos-sm text-caos-muted truncate">{c.label}</span>
-                    <span className="ml-auto tabular text-caos-3xs text-caos-muted/70 whitespace-nowrap font-mono">{c.reason}</span>
+                    <span className="ml-auto tabular text-caos-3xs text-caos-muted whitespace-nowrap font-mono">{c.reason}</span>
                   </div>
                 )
               )}

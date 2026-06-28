@@ -2,6 +2,18 @@
 
 A run is queued on create and executed by the async run executor (run_executor.py);
 clients poll GET /runs/{id} to completion. These endpoints create and inspect runs.
+
+Authorization — single-team model, by design (SECURITY.md §2, S-4). Every
+authenticated analyst can read and write every run; the read/inspect/export
+handlers below take ``caller`` (for rate-limiting and run attribution) but
+deliberately DO NOT filter by ``caller.id``. This is a deliberate fit for one
+coverage team sharing one workspace, not an oversight. If the trust model ever
+widens to multiple teams/tenants (e.g. ``CAOS_EMAIL_DOMAIN`` admitting more than
+one team), per-caller authorization MUST be added here — gate each ``run_id`` on
+whether ``caller`` may access that run's issuer (and add tenant scoping to
+``list_runs``). Until that requirement is real it is left unbuilt rather than
+guessed; ``test_runs_idor`` pins the current cross-analyst-read behaviour so a
+change to it is a conscious decision.
 """
 
 from __future__ import annotations

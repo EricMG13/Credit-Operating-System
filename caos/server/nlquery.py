@@ -204,6 +204,8 @@ async def _llm_translate(question: str) -> QuerySpec:
     import anthropic
 
     settings = get_settings()
+    # Explicit timeout (SDK default is ~10 min) so a stuck translate can't pin the
+    # request lane open. See config.caos_llm_timeout_s.
     client = anthropic.AsyncAnthropic(
         api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
     )
@@ -264,6 +266,8 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec]]
     import anthropic
 
     settings = get_settings()
+    # Explicit timeout (SDK default is ~10 min) so a stuck plan can't pin the
+    # request lane open. See config.caos_llm_timeout_s.
     client = anthropic.AsyncAnthropic(
         api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
     )

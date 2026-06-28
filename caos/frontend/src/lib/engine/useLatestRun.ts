@@ -8,32 +8,61 @@ import { useEffect, useState } from "react";
 import { listRuns } from "@/lib/api";
 import type { RunListItemDTO } from "@/lib/engine/types";
 
-export function useLatestRun<T>(
+// Load phase, so a caller (e.g. the Pipeline page) can tell a genuine *error*
+// from a run that is still *in flight* from a truly *empty* coverage — instead
+// of collapsing all three into the static demo fallback ("fail open").
+//   loading   — the listRuns round-trip is in flight (first paint).
+//   error     — listRuns threw (no backend / network / 5xx).
+//   none      — backend reachable, but the issuer has no runs at all.
+//   in_flight — runs exist but none is complete (queued / running / failed).
+//   complete  — a complete run was found and `build` resolved against it.
+export type RunPhase = "loading" | "error" | "none" | "in_flight" | "complete";
+
+export interface LatestRunStatus<T> {
+  value: T;
+  phase: RunPhase;
+  // The latest run record (any status) when one exists — lets a caller surface
+  // "RUN #… failed" / "running" detail without a second fetch. Null until known.
+  latest: RunListItemDTO | null;
+}
+
+// Status-aware loader: same load as useLatestRun, but also reports the phase and
+// the latest run record. useLatestRun is a thin value-only wrapper over this.
+export function useLatestRunStatus<T>(
   issuerId: string,
   initial: T,
   empty: T,
   build: (latest: RunListItemDTO) => Promise<T>,
-): T {
-  const [value, setValue] = useState<T>(initial);
+): LatestRunStatus<T> {
+  const [state, setState] = useState<LatestRunStatus<T>>({
+    value: initial, phase: "loading", latest: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
     // Reset to the loading sentinel synchronously on issuerId change, so the PRIOR
     // issuer's resolved run (badge / module output / vault export) can't show under
     // the new issuer's chrome during the listRuns round-trip. (review run-2 #FR1)
-    setValue(initial);
+    setState({ value: initial, phase: "loading", latest: null });
     (async () => {
       try {
         const runs = await listRuns(issuerId);
-        const latest = runs.find((r) => r.status === "complete");
-        if (!latest) {
-          if (!cancelled) setValue(empty);
+        const complete = runs.find((r) => r.status === "complete");
+        if (!complete) {
+          // Latest run record by created_at, regardless of status, so the caller
+          // can distinguish "in flight / failed" from "no runs at all".
+          const latest = runs.length
+            ? runs.reduce((a, b) => ((b.created_at ?? "") > (a.created_at ?? "") ? b : a))
+            : null;
+          if (!cancelled) setState({ value: empty, phase: latest ? "in_flight" : "none", latest });
           return;
         }
-        const next = await build(latest);
-        if (!cancelled) setValue(next);
+        const next = await build(complete);
+        if (!cancelled) setState({ value: next, phase: "complete", latest: complete });
       } catch {
-        if (!cancelled) setValue(empty); // no backend / network error → static fallback
+        // no backend / network error — surface as an error phase (not a silent
+        // fallback) so the caller can choose to show an error state, not a demo.
+        if (!cancelled) setState({ value: empty, phase: "error", latest: null });
       }
     })();
     return () => {
@@ -43,5 +72,17 @@ export function useLatestRun<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuerId]);
 
-  return value;
+  return state;
+}
+
+// Value-only loader (unchanged contract): the three live hooks that only need
+// the adapted value keep using this. Returns `initial` while loading and `empty`
+// on no-run / in-flight / error, exactly as before.
+export function useLatestRun<T>(
+  issuerId: string,
+  initial: T,
+  empty: T,
+  build: (latest: RunListItemDTO) => Promise<T>,
+): T {
+  return useLatestRunStatus(issuerId, initial, empty, build).value;
 }

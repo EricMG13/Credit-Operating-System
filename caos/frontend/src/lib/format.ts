@@ -26,6 +26,22 @@ export function fmtMult(n: number, dp = 1): string {
   return Number.isFinite(n) ? fmtNum(n, dp) + "x" : "—";
 }
 
+/** Two-decimal multiple, e.g. 5.683 → "5.68x". The Scenario/Model display
+ *  precision (`v.toFixed(2) + "x"`), but NaN/Infinity-safe — a non-finite
+ *  leverage/coverage (interest 0, adj ≤ 0) renders "—", never "NaNx"/"Infinityx". */
+export function fmtMult2(n: number): string {
+  return Number.isFinite(n) ? n.toFixed(2) + "x" : "—";
+}
+
+/** USD millions, accounting style: negatives in parens, no decimals, e.g.
+ *  612 → "$612M", -250 → "($250M)". NaN/Infinity-safe (→ "—"), so a degenerate
+ *  cash/FCF projection never prints "$InfinityM". */
+export function fmtUsdAcct(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  const s = "$" + fmtNum(Math.abs(Math.round(n))) + "M";
+  return n < 0 ? "(" + s + ")" : s;
+}
+
 /** Analyst initials for the identity badge: "Eric Gub" → "EG", "Eric" → "ER". */
 export function initials(name: string): string {
   const w = (name || "").trim().split(/\s+/).filter(Boolean);

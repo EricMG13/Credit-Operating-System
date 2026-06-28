@@ -76,11 +76,13 @@ Raw scores from 1 to 5:
 ## Credit Tier Mapping
 | Score Range | Credit Tier |
 |-------------|-------------|
-| 1.0–1.9 | High Quality |
-| 2.0–2.9 | Acceptable |
-| 3.0–3.7 | Stretched |
-| 3.8–5.0 | Weak |
+| ≥1.0 and <2.0 | High Quality |
+| ≥2.0 and <3.0 | Acceptable |
+| ≥3.0 and <3.8 | Stretched |
+| ≥3.8 and ≤5.0 | Weak |
 | N/A | Not Scorable |
+
+> Bands are continuous and non-overlapping; the upper bound of each band is the lower bound of the next (`<` is exclusive, so `3.79…` is **Stretched** and `3.80` is **Weak**). The Stretched/Weak split at 3.8 is the investable/reject boundary — no score falls into a gap.
 
 ## Relative-Value Labels
 **Cheap:** Compensation appears high relative to sourced fundamental risk, structural position, maturity, liquidity, and comparables.

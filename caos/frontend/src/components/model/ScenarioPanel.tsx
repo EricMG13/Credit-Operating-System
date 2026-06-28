@@ -15,9 +15,12 @@ import {
   buildScenarios, FORECAST_YEARS, swingLabel, METRICS,
   type Drivers, type MetricKey, type ScenarioLens, type TornadoBar,
 } from "@/lib/model/scenarios";
+import { fmtMult2, fmtUsdAcct } from "@/lib/format";
 
-const fmtX = (v: number) => v.toFixed(2) + "x";
-const fmtUsd = (v: number) => (v < 0 ? "(" : "") + "$" + Math.round(Math.abs(v)).toLocaleString() + "M" + (v < 0 ? ")" : "");
+// NaN/Infinity-safe (a degenerate projection — interest 0, adj ≤ 0 — renders
+// "—" rather than "NaNx" / "$InfinityM"). Same finite display as before.
+const fmtX = (v: number) => fmtMult2(v);
+const fmtUsd = (v: number) => fmtUsdAcct(v);
 const fmtMetric = (v: number, key: MetricKey) =>
   METRICS.find((m) => m.key === key)!.unit === "x" ? fmtX(v) : fmtUsd(v);
 
@@ -172,7 +175,9 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
   const worseOf = (b: TornadoBar) => (meta.lowerIsBetter ? Math.max(b.low, b.high) : Math.min(b.low, b.high));
   const betterOf = (b: TornadoBar) => (meta.lowerIsBetter ? Math.min(b.low, b.high) : Math.max(b.low, b.high));
   const fmtMag = (v: number) =>
-    meta.unit === "x" ? Math.abs(v).toFixed(2) + "x" : "$" + Math.round(Math.abs(v)).toLocaleString() + "M";
+    !Number.isFinite(v) ? "—"
+    : meta.unit === "x" ? Math.abs(v).toFixed(2) + "x"
+    : "$" + Math.round(Math.abs(v)).toLocaleString() + "M";
   const worstV = worseOf(top), bestV = betterOf(top);
   const downAmt = Math.abs(worstV - base), upAmt = Math.abs(bestV - base);
   const ratio = upAmt === 0 ? Infinity : downAmt / upAmt;

@@ -205,6 +205,7 @@ export function EvidenceModal({
   id,
   reports,
   live,
+  isLiveRun = false,
   onClose,
 }: {
   id: string;
@@ -213,12 +214,20 @@ export function EvidenceModal({
   // present here it is preferred over the seeded EVIDENCE map, so a live chip
   // resolves to the run's real source and never shadow-resolves to a demo key.
   live?: Record<string, LiveEvidence>;
+  // True when the open run is a LIVE non-reference run (not the seeded ATLF
+  // showcase). In that case an id absent from the live evidence map must NOT
+  // shadow-resolve to the seeded EVIDENCE excerpt — that excerpt belongs to the
+  // ATLF reference deal and would render ANOTHER issuer's source as "VERIFIED".
+  // Show the explicit unresolved state instead.
+  isLiveRun?: boolean;
   onClose: () => void;
 }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const liveEv = live?.[id];
-  // Prefer the run's own evidence; only fall back to the seeded demo map.
-  const ev = liveEv ? undefined : EVIDENCE[id];
+  // Prefer the run's own evidence. Fall back to the seeded demo map ONLY for the
+  // reference deal; for a live run a missing id is unresolved, never the seeded
+  // ATLF excerpt (cross-issuer "verified" leak).
+  const ev = liveEv || isLiveRun ? undefined : EVIDENCE[id];
   const [chunkText, setChunkText] = useState<string | null>(null);
   const chunkId = liveEv?.document_chunk_id ?? null;
   useEffect(() => {

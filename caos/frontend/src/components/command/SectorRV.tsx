@@ -38,7 +38,9 @@ function DeltaCell({ v }: { v: number | null }) {
         background: pos ? "rgba(34,197,94,0.06)" : neg ? "rgba(239,68,68,0.06)" : undefined,
       }}
     >
-      {v.toFixed(2)}
+      {/* Sign is explicit so direction isn't carried by color alone (colorblind
+          users + the green/red wash). toFixed already prints "-" for negatives. */}
+      {pos ? "+" : ""}{v.toFixed(2)}
     </td>
   );
 }
@@ -83,15 +85,24 @@ function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string)
 function SortTh({ label, align = "left", col, sort, onSort }: { label: string; align?: "left" | "right"; col: string; sort: SortConfig; onSort: (c: string) => void }) {
   const active = sort.col === col;
   return (
+    // The clickable sort control is a real <button> (keyboard-operable, visible
+    // focus ring); the <th> carries aria-sort so screen readers announce the
+    // current sort direction. Previously a bare <th onClick> — mouse-only. (a11y)
     <th
-      className={`px-2 py-[6px] tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 cursor-pointer hover:text-caos-text transition-caos select-none ${align === "right" ? "text-right" : "text-left"}`}
-      onClick={() => onSort(col)}
+      scope="col"
+      aria-sort={active ? (sort.asc ? "ascending" : "descending") : "none"}
+      className={`p-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 select-none ${align === "right" ? "text-right" : "text-left"}`}
     >
-      <div className={`flex items-center gap-1 ${align === "right" ? "justify-end" : "justify-start"}`}>
-        {align === "right" && active && <span className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        title={`Sort by ${label}`}
+        className={`w-full px-2 py-[6px] inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${align === "right" ? "justify-end" : "justify-start"}`}
+      >
+        {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
         {label}
-        {align === "left" && active && <span className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
-      </div>
+        {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+      </button>
     </th>
   );
 }

@@ -10,11 +10,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { MODULES, RUN_MODES, type Driver } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { useLivePipeline } from "@/lib/pipeline/useLivePipeline";
+import { useLivePipelineStatus } from "@/lib/pipeline/useLivePipeline";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
@@ -48,9 +49,18 @@ function PipelineVisualizer() {
   // Prefer the live CP-X run for ?issuer=<id> (the reference issuer by default);
   // fall back to the offline sim demo when there's no run / no backend.
   const issuerId = useSearchParams().get("issuer") || ATLF_REFERENCE_ISSUER_ID;
-  const live = useLivePipeline(issuerId);
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const { value: live, phase, latest } = useLivePipelineStatus(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
+  // Fail-open guard: for a *real* issuer the analyst opened expecting their run,
+  // a genuine error / an in-flight (queued·running·failed) run / no coverage must
+  // NOT silently render the animated green-PASS demo. Show an honest state instead.
+  // The ATLF reference issuer keeps the demo — it is the labelled showcase.
+  const blockingState: "error" | "in_flight" | "none" | null =
+    !isReference && liveMode && phase !== "complete" && phase !== "loading"
+      ? phase
+      : null;
 
   const sim = useLive ? live!.sim : run.sim;
   const scope = useLive ? live!.scope : simScope;
@@ -85,6 +95,12 @@ function PipelineVisualizer() {
     const infra = MODULES.find((m) => m.id === id)?.layer === "INFRA";
     router.push(infra ? "/reports" : `/deepdive?mod=${id}`);
   };
+
+  // A real issuer's run errored / is mid-flight / never ran — render an honest
+  // state, never the fabricated green-PASS demo monitor under their name.
+  if (blockingState) {
+    return <PipelineRunState state={blockingState} issuerId={issuerId} runStatus={latest?.status ?? null} />;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -197,19 +213,89 @@ function PipelineVisualizer() {
         </div>
         <div className="flex flex-col gap-2 min-h-0">
           <PanelShell title="Module Inspector" className="flex-[3]">
-            <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} />
+            <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} />
           </PanelShell>
           <PanelShell
             title={mode.drivers ? `Data Lineage · CP-5B drivers in scope (${mode.drivers.length}/5)` : "Data Lineage · CP-5B top-5 material drivers"}
             className="flex-[2]"
-            right={<Tag sev="ok">auditability STRONG</Tag>}
+            // The CP-5B driver register is a seeded ATLF fixture; don't stamp
+            // "auditability STRONG" over a live run whose lineage it doesn't reflect.
+            right={useLive ? <Tag sev="idle">reference fixture</Tag> : <Tag sev="ok">auditability STRONG</Tag>}
           >
-            <LineagePanel drivers={mode.drivers} onPick={pickDriver} onOpenEvidence={setEvModal} />
+            {useLive ? (
+              <div className="px-3 py-2 text-caos-md text-caos-muted leading-relaxed">
+                CP-5B driver lineage is not yet wired for live runs — the seeded driver
+                register reflects the ATLF reference deal, not this run. Open a module
+                node to inspect its live payload, QA findings and propagated limitations.
+              </div>
+            ) : (
+              <LineagePanel drivers={mode.drivers} onPick={pickDriver} onOpenEvidence={setEvModal} />
+            )}
           </PanelShell>
         </div>
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+    </div>
+  );
+}
+
+// Honest full-pane states for a real issuer whose run is unavailable — shown
+// instead of the offline demo so an errored / in-flight / never-run pipeline is
+// never disguised as a passing run. (review: pipeline "fail open")
+function PipelineRunState({
+  state, issuerId, runStatus,
+}: {
+  state: "error" | "in_flight" | "none";
+  issuerId: string;
+  runStatus: string | null;
+}) {
+  const cfg = {
+    error: {
+      tag: "critical" as const, glyph: "warning" as const, head: "Run status unavailable",
+      body: "Couldn't reach the run service for this issuer. This is a connection or backend error — not a passing run. Retry, or check the service.",
+    },
+    in_flight: {
+      tag: "warning" as const, glyph: "locked" as const, head: "Run in progress",
+      body: runStatus === "failed"
+        ? "The latest run for this issuer did not complete (failed). No cleared committee output is available — re-run the pipeline."
+        : "A run for this issuer is queued or executing. The route graph populates once it completes — no cleared output yet.",
+    },
+    none: {
+      tag: "idle" as const, glyph: "locked" as const, head: "No runs for this issuer",
+      body: "This issuer has never been analysed. Start a run from Document Intake to populate the CP-X route graph.",
+    },
+  }[state];
+  return (
+    <div className="h-screen flex flex-col bg-caos-bg">
+      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+          ← Directory
+        </Link>
+        <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
+        <div className="flex-1" />
+        <Tag sev={cfg.tag}>{cfg.head.toUpperCase()}</Tag>
+      </div>
+      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+        <div role="alert" className="max-w-md w-full flex flex-col gap-3 rounded-lg border border-caos-border bg-caos-panel p-7 text-center">
+          <div className="flex items-center justify-center gap-2" style={{ color: `var(--caos-${cfg.tag === "critical" ? "critical" : cfg.tag === "warning" ? "warning" : "muted"})` }}>
+            <StatusGlyph kind={cfg.glyph} size={14} />
+            <span className="tabular text-caos-sm uppercase tracking-[0.2em]">{state === "error" ? "Error" : state === "in_flight" ? "Pending" : "Empty"}</span>
+          </div>
+          <h1 className="text-caos-text text-lg font-semibold">{cfg.head}</h1>
+          <p className="text-caos-muted text-caos-md leading-relaxed">{cfg.body}</p>
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <Link href="/upload" className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
+              ↑ DOCUMENT INTAKE
+            </Link>
+            <Link href={`/pipeline?issuer=${ATLF_REFERENCE_ISSUER_ID}`} className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">
+              VIEW REFERENCE DEMO
+            </Link>
+          </div>
+          <div className="tabular text-caos-3xs text-caos-muted mt-1 truncate">issuer {issuerId}</div>
+        </div>
+      </div>
     </div>
   );
 }

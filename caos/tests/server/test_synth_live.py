@@ -274,9 +274,30 @@ async def test_cp1_forces_canonical_normalized_financials_schema():
 
 
 @pytest.mark.asyncio
-async def test_non_cp1_keeps_freeform_runtime_schema():
+async def test_cp2_forces_canonical_financial_profile_and_credit_implication_schema():
+    # Item #7: CP-2 (the core fundamental-synthesis module) now pins runtime_output to
+    # the corpus contract — the 9-dimension Financial Profile + the 13-value
+    # Credit-Implication taxonomy — instead of running with the generic open object.
     synth = _make_synth([_tool_use(_good_payload())])
     await _run(synth, module_id="CP-2")
+    ro = _runtime_schema(synth)["properties"]
+    fpa = ro["financial_profile_assessment"]["properties"]
+    assert len(fpa) == 9  # exactly the 9 corpus dimensions
+    assert {"scale_market_position", "margin_stability", "liquidity_position",
+            "financial_policy_and_governance", "ability_to_refinance"} <= set(fpa)
+    # each dimension is constrained to the permitted assessment enum
+    assert fpa["margin_stability"]["enum"] == ["Strong", "Average", "Weak", "Not Assessable"]
+    # the 13 canonical credit-implication values (hyphenated machine form)
+    ci = ro["credit_implication"]["enum"]
+    assert len(ci) == 13
+    assert "Negative-Refinancing Risk" in ci and "Insufficient Information" in ci
+
+
+@pytest.mark.asyncio
+async def test_non_pinned_module_keeps_freeform_runtime_schema():
+    # A module without a pinned contract (e.g. CP-3) still gets the generic open object.
+    synth = _make_synth([_tool_use(_good_payload())])
+    await _run(synth, module_id="CP-3")
     assert "properties" not in _runtime_schema(synth)  # generic open object
 
 
@@ -284,7 +305,8 @@ def test_payload_tool_does_not_mutate_the_shared_tool():
     from engine.synth import _PAYLOAD_TOOL, _payload_tool
 
     _payload_tool("CP-1")  # builds a CP-1 variant
-    # the shared generic tool stays free-form for every other module
+    _payload_tool("CP-2")  # builds a CP-2 variant
+    # the shared generic tool stays free-form for every non-pinned module
     assert "properties" not in _PAYLOAD_TOOL["input_schema"]["properties"]["runtime_output"]
 
 
@@ -490,3 +512,66 @@ def test_get_synthesizer_picks_live_with_key_else_fixture(monkeypatch):
     monkeypatch.setattr(synth_mod, "get_settings",
                         lambda: _types.SimpleNamespace(anthropic_api_key=""))
     assert isinstance(get_synthesizer(), FixtureSynthesizer)
+
+
+# ── Prompt fingerprint (item #9): prompt_version tracks corpus content ─────────
+def test_prompt_corpus_fingerprint_is_deterministic_12_hex():
+    from engine.synth import prompt_corpus_fingerprint
+
+    fp = prompt_corpus_fingerprint()
+    assert fp == prompt_corpus_fingerprint()  # stable across calls
+    # corpus is present in this checkout → a real digest, not the empty marker
+    assert fp != "noprompts" and len(fp) == 12
+    int(fp, 16)  # hex
+
+
+def test_prompt_corpus_fingerprint_changes_when_a_prompt_changes(tmp_path, monkeypatch):
+    import engine.synth as synth_mod
+
+    # Point the fingerprint at a throwaway corpus so the test is hermetic.
+    (tmp_path / "CP-1").mkdir()
+    p = tmp_path / "CP-1" / "CP-1_ACTIVE_PROMPT.md"
+    p.write_text("original", encoding="utf-8")
+    monkeypatch.setattr(synth_mod, "MODULAR_OS_DIR", tmp_path)
+    before = synth_mod.prompt_corpus_fingerprint()
+    p.write_text("edited — behavior changed", encoding="utf-8")
+    after = synth_mod.prompt_corpus_fingerprint()
+    assert before != after  # editing a prompt moves the fingerprint
+
+
+def test_stamp_prompt_version_fits_column_and_marks_fixture():
+    from engine.runner import _stamp_prompt_version
+
+    live = _stamp_prompt_version("live")
+    fixture = _stamp_prompt_version("fixture")
+    assert live.startswith("v2.0+") and len(live) <= 32  # prompt_version is String(32)
+    assert fixture == "v2.0+fixture"
+    assert live != fixture
+
+
+def test_engine_llm_clients_carry_timeout(monkeypatch):
+    """The in-run engine LLM lanes (synth/council/debate) must build the Anthropic
+    client with an explicit timeout — the SDK default is ~10 min, which would pin a
+    stuck synth call open right up to the run lease. Parity with the request lanes."""
+    import anthropic
+
+    from config import get_settings
+    from engine.council import LiveReviewer
+    from engine.debate import LiveDebater
+
+    captured: list[dict] = []
+
+    def _fake_ctor(**kwargs):
+        captured.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _fake_ctor)
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "sk-test")
+    monkeypatch.setattr(s, "caos_llm_timeout_s", 77.0)
+
+    for obj in (LiveSynthesizer(), LiveReviewer(), LiveDebater()):
+        obj._get_client()
+
+    assert len(captured) == 3
+    assert all(c.get("timeout") == 77.0 for c in captured)

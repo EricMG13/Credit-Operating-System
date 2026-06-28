@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, MetricFact
 from engine.gate import Finding
 from engine.metrics import CATALOG_BY_KEY
-from engine.periods import sort_key
+from engine.periods import is_finite_number, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Headline metrics worth a peer read (those CP-1 / distress produce).
@@ -44,10 +44,15 @@ def _own_values(cp1: ModulePayload) -> Dict[str, float]:
     for k, v in (("net_leverage", nf.get("net_leverage_adj_ltm")),
                  ("interest_coverage", nf.get("interest_coverage_ltm")),
                  ("altman_z", (cp1.runtime_output or {}).get("distress", {}).get("altman_z"))):
-        if isinstance(v, (int, float)):
+        # is_finite_number (not bare isinstance): a NaN own-value passes isinstance and
+        # would flow into _percentile against finite peers, yielding a NaN percentile/
+        # margin. Reject non-finite at the source.
+        if is_finite_number(v):
             out[k] = float(v)
     rev, eb = nf.get("revenue") or {}, nf.get("adj_ebitda") or {}
-    common = [p for p in rev if p in eb and rev[p]]
+    # Both operands finite before the margin divide (a NaN rev[p] is truthy, so the
+    # old `rev[p]` truthiness check would admit it and poison the ratio).
+    common = [p for p in rev if p in eb and is_finite_number(rev[p]) and rev[p] and is_finite_number(eb[p])]
     if common:
         p = max(common, key=sort_key)
         out["ebitda_margin"] = round(100 * eb[p] / rev[p], 1)

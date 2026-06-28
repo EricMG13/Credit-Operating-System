@@ -256,8 +256,23 @@ def list_exhibits(cik: str, accession: str) -> List[Exhibit]:
 
 def fetch_exhibit(url: str) -> bytes:
     """Download a single exhibit document (capped). The route vaults the result,
-    turning a pointer into an E-xx-eligible primary source."""
-    if not url.startswith("https://www.sec.gov/Archives/"):
+    turning a pointer into an E-xx-eligible primary source.
+
+    SSRF guard: ``url`` is user-supplied, so a ``startswith`` prefix check alone is
+    not enough — ``https://www.sec.gov.evil.com/Archives/x`` and
+    ``https://www.sec.gov@evil.com/Archives/x`` both pass a naive prefix test yet
+    resolve off-host. Parse the URL and require https + an exact ``www.sec.gov``
+    host (case-insensitive) + the ``/Archives/`` path, and reject any userinfo
+    (``@``). ``_http_get`` then re-checks the *post-redirect* host stays on
+    ``.sec.gov`` (an open redirect on sec.gov can't bounce the fetch off-host)."""
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower()
+    # Reject embedded credentials (userinfo): "https://www.sec.gov@evil.com/..."
+    # parses with hostname=evil.com, but a credential form is never legitimate here
+    # and is the classic prefix-check bypass — refuse it outright regardless.
+    if parts.username is not None or parts.password is not None or "@" in parts.netloc:
+        raise EdgarError("Refusing to fetch a URL with embedded credentials")
+    if parts.scheme != "https" or host != "www.sec.gov" or not parts.path.startswith("/Archives/"):
         raise EdgarError("Refusing to fetch a non-EDGAR-archive URL")
     cap = settings.edgar_max_exhibit_mb * 1024 * 1024
     return _http_get(url, accept="*/*", cap_bytes=cap)

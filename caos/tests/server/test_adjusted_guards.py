@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 
 import engine.adjusted as adj
 from engine.schemas import ModulePayload

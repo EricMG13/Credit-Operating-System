@@ -110,7 +110,6 @@ def test_compute_deltas_golden(name, nf, expected):
 
 
 def test_nan_never_leaks_into_summary():
-    import math
     d = compute_deltas(_nf({"FY23": 100.0, "FY24": _NAN}, {"FY23": 20.0, "FY24": _NAN}))
     vals = [d["periods"][-1]["ebitda_margin"], d["summary"]["revenue_growth_pct"],
             d["summary"]["ebitda_growth_pct"], d["summary"]["margin_change_pp"]]

@@ -48,12 +48,19 @@ def _types():
 @functools.lru_cache(maxsize=1)
 def get_client():
     genai = _genai()
+    from google.genai import types  # noqa: PLC0415
+
     s = get_settings()
-    # google-genai's HttpOptions.timeout is in milliseconds (Anthropic's is seconds).
-    http = _types().HttpOptions(timeout=int(s.caos_llm_timeout_s * 1000))
+    # HttpOptions.timeout is milliseconds; bound it so a stalled Gemini call can't hang
+    # a request lane (parity with the Anthropic timeout). ponytail: opt-in lane, only
+    # built when a gemini model is used.
+    http_options = types.HttpOptions(timeout=int(s.caos_llm_timeout_s * 1000))
     # api_key omitted -> SDK reads GOOGLE_API_KEY / GEMINI_API_KEY from the env.
-    return (genai.Client(api_key=s.gemini_api_key, http_options=http) if s.gemini_api_key
-            else genai.Client(http_options=http))
+    return (
+        genai.Client(api_key=s.gemini_api_key, http_options=http_options)
+        if s.gemini_api_key
+        else genai.Client(http_options=http_options)
+    )
 
 
 # ── Anthropic → Gemini translation ───────────────────────────────────────────

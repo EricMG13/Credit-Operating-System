@@ -5,6 +5,10 @@
 **Inputs:** two 10-Ks (FYE Mar-2025, Mar-2026), the **EX-10.1 credit agreement**
 (Jan-2026 EXIM / J.P. Morgan facility), and two earnings-call decks.
 
+> **Status (as of the shipped engine):** the run exercised the full wired DAG —
+> **19 implemented modules** (+ 4 spec-only) per [`server/engine/registry.py`](../server/engine/registry.py),
+> gated by CP-5B/5C/5 — not a "7-module" slice (an earlier draft of this log said 7).
+
 First end-to-end exercise of the engine on real third-party filings, run through
 the app's own ingestion / runner / QA stack. Purpose: validate the Phase-1
 pipeline and **surface faults before the internal pilot** (Phase-1's stated goal).
@@ -16,7 +20,7 @@ Companion to [LAUNCH_PHASE1.md](LAUNCH_PHASE1.md) and [AUDIT.md](AUDIT.md).
 |---|---|
 | **PDF parse** (`ingest.extract_pdf_text` → pypdf) | 10-Ks + credit agreement extract cleanly (~3.2–3.9k chars/page, alpha 0.78); earnings **decks parse sparsely** (~1.1k chars/page — inherent to slide decks, not a pypdf failure). **804 chunks** total across 5 docs. |
 | **BM25 retrieval** | Surfaces the right credit content on real docs — *"net leverage total debt covenant compliance"* → #1 hit is **EX-10.1 §13 "Total Leverage Ratio … Maximum Permitted: 5.75:1.00"**; other queries returned the debt-maturity stack and liquidity figures. |
-| **Full pipeline** (upload → chunk → 7 modules → CP-5B/5C/5) | Completed end-to-end; run `complete`. |
+| **Full pipeline** (upload → chunk → modules → CP-5B/5C/5) | Completed end-to-end; run `complete`. |
 | **CP-5 QA gate** | **Honest** — run roll-up **`Restricted`** on 2 MATERIAL lineage findings (Weak / Conflicting lineage in CP-1); did *not* rubber-stamp. The CP-5 invariant held (the LLM never set its own committee status). |
 | **Provenance / click-to-source** | Every claim resolved `claim → evidence → document_chunk_id`; `metric_facts` tagged `prov=run` with period + headline flags. |
 | **EDGAR XBRL → CP-1** (`fetch_cp1("VSAT")`, deterministic, no LLM) | **Real reported revenue** $2,556M (FY23) → $4,284M (FY24, Inmarsat) → $4,520M (FY25) → $4,640M (FY26), plus **Altman Z'' 4.47** (safe), each **cited to a `us-gaap:` XBRL concept**. |

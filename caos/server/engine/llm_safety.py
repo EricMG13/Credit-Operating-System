@@ -35,6 +35,27 @@ UNTRUSTED_RULE = (
 )
 
 
+def _reject_non_finite(token: str) -> float:
+    """``parse_constant`` for ``json.loads`` — refuse the JS non-finite literals.
+
+    Stdlib ``json.loads`` ACCEPTS ``NaN``/``Infinity``/``-Infinity`` by default, so a
+    live model emitting one would land a non-finite number in canonical financials and
+    poison every downstream divide. Raising here makes the parse fail closed: the
+    output is treated as malformed (same path as any other parse error) rather than
+    accepting the value. ``ValueError`` so an existing ``json.JSONDecodeError`` handler
+    (a ``ValueError`` subclass) still catches it."""
+    raise ValueError(f"non-finite JSON literal {token!r} rejected (fail-closed)")
+
+
+def loads_finite(s: str):
+    """``json.loads`` that rejects ``NaN``/``Infinity``/``-Infinity`` (fail-closed).
+
+    Use everywhere an LLM/document reply is parsed into numbers, so a non-finite
+    literal can never reach a financial field. Raises ``ValueError`` (incl. the
+    ``json.JSONDecodeError`` subclass) on malformed or non-finite input."""
+    return json.loads(s, parse_constant=_reject_non_finite)
+
+
 def wrap_untrusted(grounding: str) -> str:
     """Delimit untrusted document content so it can't be confused with instructions."""
     return f"<<<BEGIN UNTRUSTED DOCUMENT CONTENT>>>\n{grounding}\n<<<END UNTRUSTED DOCUMENT CONTENT>>>"
@@ -104,7 +125,10 @@ async def extract_json(
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
         return None
-    parsed = json.loads(match.group(0))
+    # loads_finite (not json.loads): reject NaN/Infinity/-Infinity so a non-finite
+    # number can't enter an extracted financial field. A raised ValueError propagates
+    # to the caller's try/except → its deterministic fallback, the documented contract.
+    parsed = loads_finite(match.group(0))
     if schema is None:
         return parsed, hits
     # L-2: validate the reply shape at the boundary; a mismatch degrades to the

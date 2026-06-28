@@ -32,7 +32,7 @@ from database import (
     ModuleOutput, QAFinding, Run,
 )
 from engine import budget, edgar_cp1, presets, reported_cp1
-from engine.fixtures import REFERENCE_ISSUER_ID
+from engine.fixtures import DEMO_FIXTURE_LIMITATION, REFERENCE_ISSUER_ID, demo_fixture_finding
 from engine.adjusted import reconcile_adjusted_ebitda, reconciliation_finding
 from engine.factpack import synthesize_fact_pack
 from engine.council import get_reviewer
@@ -64,12 +64,27 @@ from engine.lineage import _SOURCED_TYPES, validate_lineage
 from engine.planner import BLOCKED as ROUTE_BLOCKED, EXCLUDED as ROUTE_EXCLUDED, RoutePlan, build_route_plan
 from engine.registry import REGISTRY
 from engine.schemas import ModulePayload, validate_payload
-from engine.synth import SynthesisError, get_synthesizer
+from engine.synth import SynthesisError, get_synthesizer, prompt_corpus_fingerprint
 from retrieval import build_issuer_index, rank_with_index
 
 logger = logging.getLogger("caos.engine")
 
+# Human-readable methodology label. The persisted ``run.prompt_version`` appends a
+# content fingerprint of the active-prompt corpus actually used (see _stamp_prompt_
+# version) so editing any ACTIVE_PROMPT.md changes the stamped version — runs stay
+# reproducible from metadata instead of all reading a stale hand-bumped "v2.0".
 PROMPT_VERSION = "v2.0"
+
+
+def _stamp_prompt_version(synthesizer_name: str) -> str:
+    """``run.prompt_version`` for this run: the human label plus a fingerprint of the
+    active-prompt corpus (live) — or a ``+fixture`` marker offline, where the corpus
+    prompts are not read and the deterministic fixtures produce the output. Kept under
+    the prompt_version String(32) column so no schema change is needed (database.py is
+    owned by another agent)."""
+    if synthesizer_name == "live":
+        return f"{PROMPT_VERSION}+{prompt_corpus_fingerprint()}"
+    return f"{PROMPT_VERSION}+fixture"
 
 # The only analytical synthesizers that read/write the AsyncSession during
 # synthesis. An AsyncSession is not safe for concurrent use, so these run
@@ -233,7 +248,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
     synthesizer = get_synthesizer()
     # Pin the actual heavy-lane model the mode selected (reproducibility).
     run.model_id = presets.model_for(presets.HEAVY) if synthesizer.name == "live" else "fixture"
-    run.prompt_version = PROMPT_VERSION
+    run.prompt_version = _stamp_prompt_version(synthesizer.name)
 
     issuer = await session.get(Issuer, run.issuer_id)
     issuer_name = issuer.name if issuer else run.issuer_id
@@ -401,6 +416,17 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
         if lev_plaus is not None:
             findings.append(lev_plaus)
+        # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
+        # For a non-demo issuer that is fabricated data persisted under provenance
+        # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
+        # limitation on the CP-1 row so the synthetic origin is unmistakable.
+        demo_fix = demo_fixture_finding(run.issuer_id, upstream.get("CP-1"))
+        if demo_fix is not None:
+            findings.append(demo_fix)
+            cp1_row = output_rows.get("CP-1")
+            if cp1_row is not None and DEMO_FIXTURE_LIMITATION not in (cp1_row.limitation_flags or []):
+                # Reassign (not in-place append) so the JSON column change is tracked.
+                cp1_row.limitation_flags = list(cp1_row.limitation_flags or []) + [DEMO_FIXTURE_LIMITATION]
         for f in findings:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
@@ -441,7 +467,13 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
         # ── Project structured metric facts (run-derived, for cross-issuer NL query) ──
         cp1 = upstream.get("CP-1")
         if cp1 is not None:
-            for fact in extract_facts(run.id, cp1, output_rows["CP-1"].qa_status):
+            # is_reference_issuer gates fixture provenance: the genuine ATLF demo keeps
+            # "fixture"; the same fixture served for any other issuer is tagged the
+            # non-authoritative "demo_fixture" (#10).
+            is_ref = run.issuer_id == REFERENCE_ISSUER_ID
+            for fact in extract_facts(
+                run.id, cp1, output_rows["CP-1"].qa_status, is_reference_issuer=is_ref
+            ):
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
         cp2 = upstream.get("CP-2")
         if cp2 is not None:
@@ -455,7 +487,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
-                    MetricFact.provenance.in_(("run", "fixture")),  # #04: fixture facts supersede too
+                    # #04 fixture + #10 demo_fixture facts supersede too, so a non-demo
+                    # issuer's fabricated fixture rows don't accumulate across re-runs.
+                    MetricFact.provenance.in_(("run", "fixture", "demo_fixture")),
                     MetricFact.run_id != run.id,
                 )
             )

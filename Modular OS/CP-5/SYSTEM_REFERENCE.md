@@ -37,6 +37,8 @@ Blocks Committee Use | Restricts Committee Use | Blocks CP-DB / Database Ingesti
 ## 8 Audit Lanes
 1. Unsupported Claim | 2. Calculation | 3. Legal / Covenant | 4. Market / RV | 5. Cross-Module Consistency | 6. Evidence Trace | 7. Schema | 8. Export
 
+> **As shipped (CAOS engine).** Deterministic, always-on coverage = the severity gate (`engine/gate.py`) + claim→source lineage (`engine/lineage.py`, CP-5B) + per-module finding gates, covering lanes **2 (Calculation), 5 (Cross-Module Consistency), 6 (Evidence Trace)**. Lanes **1, 3, 4, 7, 8** (Unsupported Claim / Legal-Covenant / Market-RV / Schema / Export) run only under the **opt-in LLM council** (`engine/council.py`), which **requires an API key** and is off by default — with no key those lanes are *not assessed*, not *passed*.
+
 ## Severity Escalation Triggers
 - **→ Critical:** Changes credit conclusion, investment recommendation, legal meaning, recovery ranking, economics, leverage, liquidity, FCF, maturity, refinancing, or contains fabricated/materially misleading claim.
 - **→ Material:** Affects evidence traceability, cross-module consistency, export integrity, monitoring triggers, or source-quality disclosure.

@@ -4,7 +4,9 @@ SQLite (aiosqlite) by default; any async SQLAlchemy URL via DATABASE_URL —
 on Databricks that's Lakebase (postgresql+asyncpg). Schema is managed by Alembic
 (see migrations/); ``init_db`` runs ``upgrade head`` on boot, stamping a
 pre-Alembic database at the baseline first so existing deployments migrate in
-place rather than colliding.
+place rather than colliding. On Postgres the upgrade is wrapped in a session-level
+advisory lock so concurrent boots across replicas serialize on the DDL rather than
+racing (no-op on SQLite).
 """
 
 from __future__ import annotations
@@ -345,10 +347,40 @@ def _run_migrations(state: dict) -> None:
     command.upgrade(cfg, "head")
 
 
+# Arbitrary fixed key for the boot-migration Postgres advisory lock. Any constant
+# works as long as it's stable across replicas; chosen once and never reused for
+# another lock. (pg_advisory_lock takes a single bigint.)
+_MIGRATION_LOCK_KEY = 728_041_153_002
+
+
 async def init_db() -> None:
     async with engine.connect() as conn:
         state = await conn.run_sync(_schema_state)
-    await asyncio.to_thread(_run_migrations, state)
+
+    # On Postgres, serialize the migration across replicas: ``init_db`` runs
+    # ``alembic upgrade head`` on every boot, so >1 replica booting together could
+    # otherwise race on DDL. A session-level advisory lock makes concurrent boots
+    # queue — the first holder migrates, the rest block then no-op (already at
+    # head). SQLite (the test DB / single-node dev) has no advisory locks and no
+    # concurrent-boot story, so skip the lock there entirely.
+    if engine.dialect.name == "postgresql":
+        from sqlalchemy import text
+
+        # A dedicated AUTOCOMMIT connection holds the session-level lock for the
+        # whole upgrade. AUTOCOMMIT so there's no open transaction to interfere
+        # with alembic's own connection; a session-level advisory lock persists on
+        # this connection regardless until we unlock. Release in finally so a failed
+        # migration can't leave the key held and wedge every other replica's boot
+        # (and closing the connection would release it anyway as a backstop).
+        async with engine.connect() as lock_conn:
+            lock_conn = await lock_conn.execution_options(isolation_level="AUTOCOMMIT")
+            await lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+            try:
+                await asyncio.to_thread(_run_migrations, state)
+            finally:
+                await lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY})
+    else:
+        await asyncio.to_thread(_run_migrations, state)
 
 
 async def get_db():

@@ -55,6 +55,8 @@ _client: Optional[anthropic.AsyncAnthropic] = None
 def _get_client() -> anthropic.AsyncAnthropic:
     global _client
     if _client is None:
+        # Explicit timeout: the SDK default is ~10 min, which would pin a request
+        # lane open on a stuck call. See config.caos_llm_timeout_s.
         _client = anthropic.AsyncAnthropic(
             api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
         )
