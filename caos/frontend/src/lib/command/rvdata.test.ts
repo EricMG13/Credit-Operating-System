@@ -1,41 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { DELTA_COLS, INDEX_STATS, SECTORS, ratingAverages } from "./rvdata";
+import { DELTA_COLS, INDEX_STATS, SECTORS, ratingAverages, subSectorAverages } from "./rvdata";
 
 describe("sector RV market data", () => {
   it("loads the market-data file into sector RV tables", () => {
     const rowCount = SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
 
-    expect(rowCount).toBe(374);
+    expect(rowCount).toBe(582);
     expect(SECTORS.map((sector) => sector.name)).toEqual([
       "Industrials",
-      "Consumer Discretionary",
-      "Energy",
-      "Utilities",
       "Financials",
-      "Real Estate",
-      "Consumer Staples",
+      "Consumer Discretionary",
       "Health Care",
-      "Information Technology",
-      "Media",
-      "Entertainment",
-      "Technology Hardware",
-      "IT Services",
-      "Software",
-      "Telecoms",
+      "Consumer Staples",
+      "Energy",
+      "Real Estate",
+      "Utilities",
       "Materials",
+      "Information Technology",
+      "Entertainment",
       "Communication Services",
+      "Telecoms",
     ]);
     expect(DELTA_COLS).toEqual(["Δ 1M", "Δ YTD"]);
     expect(INDEX_STATS).toHaveLength(SECTORS.length);
+    expect(INDEX_STATS.reduce((sum, sector) => sum + sector.n, 0)).toBe(rowCount);
     expect(SECTORS.every((sector) => sector.color !== "#a1a1b5")).toBe(true);
   });
 
-  it("computes sector rating averages from the selected sector", () => {
+  it("computes sector and sub-sector averages from the selected sector", () => {
     const industrials = SECTORS.find((sector) => sector.name === "Industrials")!;
     const averages = ratingAverages(industrials.rows);
+    const subSectors = subSectorAverages(industrials.rows);
 
     expect(averages.find((row) => row.bucket === "B2")?.n).toBeGreaterThan(0);
     expect(averages.every((row) => row.d.length === DELTA_COLS.length)).toBe(true);
+    expect(subSectors.reduce((sum, row) => sum + row.n, 0)).toBe(industrials.rows.length);
+    expect(subSectors.every((row) => row.d.length === DELTA_COLS.length)).toBe(true);
   });
 
   it("uses the other agency rating when the first side is N/A, but leaves NR alone", () => {

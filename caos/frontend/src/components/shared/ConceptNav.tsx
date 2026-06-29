@@ -82,7 +82,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const settingsActive = pathname.startsWith("/settings");
   return (
     <span className="flex items-center gap-1 shrink-0">
-      <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold SPACE + ← / → to switch concepts">
+      <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold ALT + ← / → to switch concepts">
         {SECTIONS.map((s, idx) => {
           if ("sep" in s) return <span key={"sep-" + idx} className="h-4 w-px bg-caos-border mx-0.5" />;
           const active = pathname.startsWith(s.href);

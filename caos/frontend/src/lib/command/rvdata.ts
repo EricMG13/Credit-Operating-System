@@ -184,6 +184,7 @@ export const SECTORS: Sector[] = [...new Set(rows.map((r) => r.sector))].map((na
 
 export interface IndexStat {
   name: string;
+  n: number;
   mv: number;
   avgPrice: number;
   d: (number | null)[];
@@ -195,6 +196,7 @@ export const INDEX_STATS: IndexStat[] = SECTORS.map((sector) => {
   const mids = sector.rows.map((r) => (r.bid + r.ask) / 2);
   return {
     name: sector.name,
+    n: sector.rows.length,
     mv: sector.rows.reduce((sum, r) => sum + r.size, 0) / 1000,
     avgPrice: mean(mids) ?? 0,
     d: DELTA_COLS.map((_, i) => mean(sector.rows.map((r) => r.d[i]).filter(isNum))),
@@ -215,19 +217,34 @@ export interface RatingAvg {
   dm: number | null;
 }
 
+const averageRow = (members: RVRow[]) => ({
+  n: members.length,
+  size: mean(members.map((r) => r.size)),
+  margin: mean(members.map((r) => r.margin)),
+  bid: mean(members.map((r) => r.bid)),
+  ask: mean(members.map((r) => r.ask)),
+  d: DELTA_COLS.map((_, i) => mean(members.map((r) => r.d[i]).filter(isNum))),
+  ytm: mean(members.map((r) => r.ytm)),
+  dm: mean(members.map((r) => r.dm)),
+});
+
+export interface SubSectorAvg extends Omit<RatingAvg, "bucket"> {
+  subSector: string;
+}
+
+export function subSectorAverages(data: RVRow[]): SubSectorAvg[] {
+  return [...new Set(data.map((r) => r.subSector))].map((subSector) => ({
+    subSector,
+    ...averageRow(data.filter((r) => r.subSector === subSector)),
+  }));
+}
+
 export function ratingAverages(data: RVRow[]): RatingAvg[] {
   return BUCKETS.map((bucket) => {
     const members = data.filter((r) => r.bucket === bucket);
     return {
       bucket,
-      n: members.length,
-      size: mean(members.map((r) => r.size)),
-      margin: mean(members.map((r) => r.margin)),
-      bid: mean(members.map((r) => r.bid)),
-      ask: mean(members.map((r) => r.ask)),
-      d: DELTA_COLS.map((_, i) => mean(members.map((r) => r.d[i]).filter(isNum))),
-      ytm: mean(members.map((r) => r.ytm)),
-      dm: mean(members.map((r) => r.dm)),
+      ...averageRow(members),
     };
   }).filter((b) => b.n > 0 || ["Caa2", "NR"].includes(b.bucket));
 }

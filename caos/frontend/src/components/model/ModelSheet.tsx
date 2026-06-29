@@ -27,11 +27,12 @@ interface ColDef {
 }
 
 /* ---------- cell editor ---------- */
-function CellInput({ initial, onCommit }: { initial: string; onCommit: (v: string | null) => void }) {
+function CellInput({ initial, label, onCommit }: { initial: string; label: string; onCommit: (v: string | null) => void }) {
   return (
     <input
       autoFocus
       defaultValue={initial}
+      aria-label={label}
       onFocus={(e) => e.target.select()}
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -124,6 +125,7 @@ export function Sheet({
         {isEditing ? (
           <CellInput
             initial={v == null ? "" : String(Math.round(v * 10) / 10)}
+            label={`Edit ${row.l}, ${c.ctx.label}`}
             onCommit={onCommit}
           />
         ) : (

@@ -6,12 +6,12 @@ module.exports = {
       colors: {
         caos: {
           bg: "#0a0a0f",
-          panel: "#12121a",
-          elevated: "#1a1a24",
-          border: "#262633",
+          panel: "#11131d",
+          elevated: "#1d2030",
+          border: "#34384a",
           text: "#e6e6ef",
-          muted: "#8a8a9a",
-          accent: "#4f8cff",
+          muted: "#a1a1b5",
+          accent: "#63a1ff",
           consumer: "#c4b5fd", // downstream-consumer signal (mirrors --caos-consumer)
           // Semantic status — previously only reachable as CSS vars / inline styles.
           warning: "#f5a524",

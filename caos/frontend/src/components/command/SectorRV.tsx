@@ -13,6 +13,7 @@ import {
   INDEX_STATS,
   SECTORS,
   ratingAverages,
+  subSectorAverages,
   type Liquidity,
   type RVRow,
   type RVSignal,
@@ -37,12 +38,12 @@ const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
 
 function DeltaCell({ v }: { v: number | null }) {
   if (v === null)
-    return <td className="px-2 py-[5px] text-right tabular text-caos-muted">—</td>;
+    return <td className="px-2 py-[3px] text-right tabular text-caos-muted">—</td>;
   const pos = v > 0;
   const neg = v < 0;
   return (
     <td
-      className="px-2 py-[5px] text-right tabular"
+      className="px-2 py-[3px] text-right tabular"
       style={{
         color: pos ? "var(--caos-success-bright)" : neg ? "var(--caos-critical-bright)" : "var(--caos-muted)",
         background: pos ? "rgba(34,197,94,0.06)" : neg ? "rgba(239,68,68,0.06)" : undefined,
@@ -81,7 +82,7 @@ function RVChip({ signal, bp }: { signal: RVSignal; bp: number | null }) {
   );
 }
 
-const td = "px-2 py-[5px] tabular whitespace-nowrap";
+const td = "px-2 py-[3px] tabular whitespace-nowrap";
 
 type SortConfig = { col: string | null; asc: boolean };
 type SortVal = string | number | null | undefined;
@@ -117,21 +118,22 @@ function SortTh<T>({
   rows?: T[];
   getValue?: (row: T) => SortVal;
   filters?: FilterState;
-  onFilter?: (col: string, values: string[]) => void;
+  onFilter?: (col: string, values: string[] | undefined) => void;
 }) {
   const active = sort.col === col;
-  const labelNode = rows && getValue && filters && onFilter ? (
+  const filterNode = rows && getValue && filters && onFilter ? (
     <FilterHeader
       label={label}
       col={col}
       rows={rows}
       getValue={getValue}
-      selected={filters[col] || []}
+      selected={filters[col]}
       onChange={onFilter}
+      iconOnly
     >
       {label}
     </FilterHeader>
-  ) : label;
+  ) : null;
   return (
     // The clickable sort control is a real <button> (keyboard-operable, visible
     // focus ring); the <th> carries aria-sort so screen readers announce the
@@ -139,23 +141,26 @@ function SortTh<T>({
     <th
       scope="col"
       aria-sort={active ? (sort.asc ? "ascending" : "descending") : "none"}
-      className={`p-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel z-10 select-none ${align === "right" ? "text-right" : "text-left"}`}
+      className={`p-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel select-none ${col === "company" ? "left-0 z-20" : "z-10"} ${align === "right" ? "text-right" : "text-left"}`}
     >
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        title={`Sort by ${label}`}
-        className={`w-full px-2 py-[6px] inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${align === "right" ? "justify-end" : "justify-start"}`}
-      >
-        {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
-        {labelNode}
-        {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
-      </button>
+      <span className={`flex w-full items-center gap-1 px-2 py-[6px] ${align === "right" ? "justify-end" : "justify-start"}`}>
+        <button
+          type="button"
+          onClick={() => onSort(col)}
+          title={`Sort by ${label}`}
+          className={`min-w-0 inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${align === "right" ? "justify-end" : "justify-start"}`}
+        >
+          {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+          <span className="truncate">{label}</span>
+          {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+        </button>
+        {filterNode}
+      </span>
     </th>
   );
 }
 
-function PeerTable({ rows }: { rows: RVRow[] }) {
+function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" | "market" | "rv" }) {
   const [sort, setSort] = useState<SortConfig>({ col: null, asc: true });
   const [filters, setFilters] = useState<FilterState>({});
   const filterVal = useMemo<Record<string, (r: RVRow) => SortVal>>(() => ({
@@ -168,60 +173,82 @@ function PeerTable({ rows }: { rows: RVRow[] }) {
   }), []);
   const filtered = useColumnFilters(rows, filters, filterVal);
   const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
-  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const setFilter = (col: string, values: string[] | undefined) =>
+    setFilters((f) => {
+      const next = { ...f };
+      if (values === undefined) {
+        delete next[col];
+      } else {
+        next[col] = values;
+      }
+      return next;
+    });
   const sorted = useSort(filtered, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
     if (c === "rv") return r.rvBp;
     return field(r, c);
   });
 
+  const showCol = (key: string) => {
+    if (preset === "full") return true;
+    if (preset === "market") {
+      return ["company", "subSector", "size", "margin", "maturity", "bid", "ask", "liq", "ytm", "dm"].includes(key);
+    }
+    if (preset === "rv") {
+      return ["company", "rating", "liq", "rv", "d0", "d1", "dm"].includes(key);
+    }
+    return true;
+  };
+
+  const minWidthClass = preset === "full" ? "min-w-[1760px]" : preset === "market" ? "min-w-[1000px]" : "min-w-[760px]";
+
   return (
-    <table aria-label="Sector relative value" className="border-collapse text-caos-sm min-w-[1760px] w-full">
+    <table aria-label="Sector relative value" className={`border-collapse text-caos-sm ${minWidthClass} w-full`}>
       <thead>
         <tr className="border-b border-caos-border">
-          <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />
-          <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />
-          <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />
-          <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />
-          <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.figi} filters={filters} onFilter={setFilter} />
-          <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rank} filters={filters} onFilter={setFilter} />
-          <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rating} filters={filters} onFilter={setFilter} />
-          <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.size} filters={filters} onFilter={setFilter} />
-          <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.margin} filters={filters} onFilter={setFilter} />
-          <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.maturity} filters={filters} onFilter={setFilter} />
-          <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.bid} filters={filters} onFilter={setFilter} />
-          <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ask} filters={filters} onFilter={setFilter} />
-          <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.liq} filters={filters} onFilter={setFilter} />
-          <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />
+          {showCol("company") && <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />}
+          {showCol("subSector") && <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />}
+          {showCol("subGroup") && <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />}
+          {showCol("loanType") && <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />}
+          {showCol("figi") && <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.figi} filters={filters} onFilter={setFilter} />}
+          {showCol("rank") && <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rank} filters={filters} onFilter={setFilter} />}
+          {showCol("rating") && <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rating} filters={filters} onFilter={setFilter} />}
+          {showCol("size") && <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.size} filters={filters} onFilter={setFilter} />}
+          {showCol("margin") && <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.margin} filters={filters} onFilter={setFilter} />}
+          {showCol("maturity") && <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.maturity} filters={filters} onFilter={setFilter} />}
+          {showCol("bid") && <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.bid} filters={filters} onFilter={setFilter} />}
+          {showCol("ask") && <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ask} filters={filters} onFilter={setFilter} />}
+          {showCol("liq") && <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.liq} filters={filters} onFilter={setFilter} />}
+          {showCol("rv") && <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
           {DELTA_COLS.map((c, i) => (
-            <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal[`d${i}`]} filters={filters} onFilter={setFilter} />
+            showCol(`d${i}`) && <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal[`d${i}`]} filters={filters} onFilter={setFilter} />
           ))}
-          <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ytm} filters={filters} onFilter={setFilter} />
-          <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.dm} filters={filters} onFilter={setFilter} />
+          {showCol("ytm") && <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ytm} filters={filters} onFilter={setFilter} />}
+          {showCol("dm") && <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.dm} filters={filters} onFilter={setFilter} />}
         </tr>
       </thead>
       <tbody>
         {sorted.map((r, i) => (
-          <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos">
-            <td className={td + " text-caos-text"}>{r.company}</td>
-            <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>
-            <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>
-            <td className={td + " text-caos-muted"}>{r.loanType}</td>
-            <td className={td + " text-caos-accent"}>{r.figi}</td>
-            <td className={td + " text-caos-muted"}>{r.rank}</td>
-            <td className={td + " text-caos-text"}>{r.rating}</td>
-            <td className={td + " text-right text-caos-text"}>{r.size.toLocaleString()}</td>
-            <td className={td + " text-right text-caos-text"}>{r.margin}</td>
-            <td className={td + " text-right text-caos-muted"}>{r.maturity}</td>
-            <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>
-            <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>
-            <td className={td}><Chip liq={r.liq} label={r.liq} /></td>
-            <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>
+          <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos group">
+            {showCol("company") && <td className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
+            {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
+            {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
+            {showCol("loanType") && <td className={td + " text-caos-muted"}>{r.loanType}</td>}
+            {showCol("figi") && <td className={td + " text-caos-accent"}>{r.figi}</td>}
+            {showCol("rank") && <td className={td + " text-caos-muted"}>{r.rank}</td>}
+            {showCol("rating") && <td className={td + " text-caos-text"}>{r.rating}</td>}
+            {showCol("size") && <td className={td + " text-right text-caos-text"}>{r.size.toLocaleString()}</td>}
+            {showCol("margin") && <td className={td + " text-right text-caos-text"}>{r.margin}</td>}
+            {showCol("maturity") && <td className={td + " text-right text-caos-muted"}>{r.maturity}</td>}
+            {showCol("bid") && <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>}
+            {showCol("ask") && <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>}
+            {showCol("liq") && <td className={td}><Chip liq={r.liq} label={r.liq} /></td>}
+            {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
             {r.d.map((v, j) => (
-              <DeltaCell key={j} v={v} />
+              showCol(`d${j}`) && <DeltaCell key={j} v={v} />
             ))}
-            <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>
-            <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>
+            {showCol("ytm") && <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>}
+            {showCol("dm") && <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>}
           </tr>
         ))}
       </tbody>
@@ -235,10 +262,20 @@ export function SectorRV() {
   const [active, setActive] = useState(0);
   const sector = SECTORS[active];
   const averages = useMemo(() => ratingAverages(sector.rows), [sector]);
+  const subSectorAvgs = useMemo(() => subSectorAverages(sector.rows), [sector]);
+
+  const [colPreset, setColPreset] = useState<"full" | "market" | "rv">("full");
 
   const [sortIdx, setSortIdx] = useState<SortConfig>({ col: null, asc: true });
   const handleSortIdx = (col: string) => setSortIdx((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
   const sortedIdx = useSort(INDEX_STATS, sortIdx, (r, c) => {
+    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
+    return field(r, c);
+  });
+
+  const [sortSub, setSortSub] = useState<SortConfig>({ col: null, asc: true });
+  const handleSortSub = (col: string) => setSortSub((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
+  const sortedSub = useSort(subSectorAvgs, sortSub, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
     return field(r, c);
   });
@@ -253,7 +290,7 @@ export function SectorRV() {
   return (
     <div className="flex flex-col gap-2 min-h-0 min-w-0 flex-1">
       {/* sector selector */}
-      <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
+      <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
         <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
           Sector tables
         </label>
@@ -269,6 +306,28 @@ export function SectorRV() {
           ))}
         </select>
         <span className="flex-1" />
+        <div className="hidden items-center gap-1 lg:flex">
+          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
+          {([
+            ["Full", "full"],
+            ["Market", "market"],
+            ["RV", "rv"],
+          ] as const).map(([label, preset]) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setColPreset(preset)}
+              className={
+                "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                (colPreset === preset
+                  ? "border-caos-accent text-caos-text bg-caos-elevated"
+                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">
           {sector.rows.length} loans · market-data file
         </span>
@@ -285,12 +344,12 @@ export function SectorRV() {
         }
       >
         <div className="overflow-auto h-full">
-          <PeerTable rows={sector.rows} />
+          <PeerTable rows={sector.rows} preset={colPreset} />
         </div>
       </PanelShell>
 
-      {/* index stats + rating averages */}
-      <div className="flex-[2] grid grid-cols-2 gap-2 min-h-0">
+      {/* index stats + sub-sector averages + rating averages */}
+      <div className="flex-[2] grid grid-cols-1 xl:grid-cols-3 gap-2 min-h-0">
         <PanelShell
           title="Market Data Summary"
           right={<span className="tabular text-caos-xs text-caos-muted">derived from file sectors</span>}
@@ -300,6 +359,7 @@ export function SectorRV() {
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
+                  <SortTh label="Loans" col="n" align="right" sort={sortIdx} onSort={handleSortIdx} />
                   <SortTh label="MV ($Bn)" col="mv" align="right" sort={sortIdx} onSort={handleSortIdx} />
                   <SortTh label="Avg Price" col="avgPrice" align="right" sort={sortIdx} onSort={handleSortIdx} />
                   {DELTA_COLS.map((c, i) => (
@@ -313,6 +373,7 @@ export function SectorRV() {
                 {sortedIdx.map((s) => (
                   <tr key={s.name} className="border-b border-caos-border/40">
                     <td className={td + " text-caos-text"}>{s.name}</td>
+                    <td className={td + " text-right text-caos-text"}>{s.n.toLocaleString()}</td>
                     <td className={td + " text-right text-caos-text"}>{s.mv.toLocaleString()}</td>
                     <td className={td + " text-right text-caos-text"}>{s.avgPrice.toFixed(2)}</td>
                     {s.d.map((v, j) => (
@@ -328,14 +389,57 @@ export function SectorRV() {
         </PanelShell>
 
         <PanelShell
-          title={"Sector Ratings Average · " + sector.name}
-          right={<span className="tabular text-caos-xs text-caos-muted">computed from peer set</span>}
+          title="Sub-Sector Market Average"
+          right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
+        >
+          <div className="overflow-auto h-full">
+            <table aria-label="Sub-sector market average" className="border-collapse text-caos-sm w-full min-w-[760px]">
+              <thead>
+                <tr className="border-b border-caos-border">
+                  <SortTh label="Sub-Sector" col="subSector" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Loans" col="n" align="right" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Avg Size ($Mn)" col="size" align="right" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Margin" col="margin" align="right" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Bid" col="bid" align="right" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Ask" col="ask" align="right" sort={sortSub} onSort={handleSortSub} />
+                  {DELTA_COLS.map((c, i) => (
+                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortSub} onSort={handleSortSub} />
+                  ))}
+                  <SortTh label="Mid YTM" col="ytm" align="right" sort={sortSub} onSort={handleSortSub} />
+                  <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sortSub} onSort={handleSortSub} />
+                </tr>
+              </thead>
+              <tbody>
+                {sortedSub.map((b) => (
+                  <tr key={b.subSector} className="border-b border-caos-border/40">
+                    <td className={td + " text-caos-text max-w-[260px] truncate"}>{b.subSector}</td>
+                    <td className={td + " text-right text-caos-text"}>{b.n.toLocaleString()}</td>
+                    <td className={td + " text-right text-caos-text"}>{b.size === null ? "—" : Math.round(b.size).toLocaleString()}</td>
+                    <td className={td + " text-right text-caos-text"}>{b.margin === null ? "—" : Math.round(b.margin)}</td>
+                    <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>
+                    <td className={td + " text-right text-caos-text"}>{fmt(b.ask)}</td>
+                    {b.d.map((v, j) => (
+                      <DeltaCell key={j} v={v} />
+                    ))}
+                    <td className={td + " text-right text-caos-text"}>{fmt(b.ytm, 1)}</td>
+                    <td className={td + " text-right text-caos-text"}>{b.dm === null ? "—" : Math.round(b.dm).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </PanelShell>
+
+        <PanelShell
+          title="Sector Ratings Average"
+          right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
         >
           <div className="overflow-auto h-full">
             <table aria-label="Sector ratings average" className="border-collapse text-caos-sm w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />
+                  <SortTh label="Loans" col="n" align="right" sort={sortAvg} onSort={handleSortAvg} />
                   <SortTh label="Avg Size ($Mn)" col="size" align="right" sort={sortAvg} onSort={handleSortAvg} />
                   <SortTh label="Margin" col="margin" align="right" sort={sortAvg} onSort={handleSortAvg} />
                   <SortTh label="Bid" col="bid" align="right" sort={sortAvg} onSort={handleSortAvg} />
@@ -351,6 +455,9 @@ export function SectorRV() {
                 {sortedAvg.map((b) => (
                   <tr key={b.bucket} className="border-b border-caos-border/40">
                     <td className={td + " text-caos-text"}>{b.bucket}</td>
+                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
+                      {b.n.toLocaleString()}
+                    </td>
                     <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
                       {b.size === null ? "—" : Math.round(b.size).toLocaleString()}
                     </td>

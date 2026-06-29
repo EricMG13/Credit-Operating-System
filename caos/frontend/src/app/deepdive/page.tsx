@@ -206,8 +206,8 @@ function DeepDive() {
           </span>
         ) : (
           // noRun: issuer exists but was never analysed; suppress seeded figures.
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views.`}>
-            no run for {code} · no issuer-specific output
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views. Run a new simulation in pipeline or model builder to populate.`}>
+            no run for {code} · run analysis to populate
           </span>
         )}
         <div className="flex-1"></div>
@@ -282,6 +282,7 @@ function DeepDive() {
                         key={id}
                         onClick={() => setTab(id)}
                         title={name}
+                        aria-label={name}
                         className={
                           "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
                           (sel ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
@@ -356,6 +357,15 @@ function DeepDive() {
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />
               <div className="tabular text-caos-xl">{gateId} {gateState(gateId) === "running" ? "running…" : "awaiting upstream dependencies"}</div>
+              {(() => {
+                const planStep = SIM_PLAN.find((s) => s.id === gateId);
+                const upstreamDeps = planStep ? planStep.deps : [];
+                return upstreamDeps.length > 0 ? (
+                  <div className="text-caos-xs tabular text-caos-muted">
+                    Awaiting: <span style={{ color: "var(--caos-accent)" }}>{upstreamDeps.join(", ")}</span>
+                  </div>
+                ) : null;
+              })()}
               <div className="text-caos-md">output unlocks when the producing module clears its gate</div>
             </div>
           )}

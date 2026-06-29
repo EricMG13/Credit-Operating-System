@@ -7,6 +7,7 @@ import { StatusGlyph } from "./StatusGlyph";
 import { RailShell } from "./RailShell";
 import { FlashOnChange } from "./FlashOnChange";
 import { ScopeToggle } from "./ScopeToggle";
+import { FilterHeader } from "./TableColumnFilter";
 
 afterEach(cleanup);
 
@@ -80,6 +81,109 @@ describe("ScopeToggle", () => {
     expect(screen.getByRole("button", { name: "issuer" }).getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: "issuer" }));
     expect(onChange).toHaveBeenCalledWith("issuer");
+  });
+});
+
+describe("FilterHeader", () => {
+  it("opens from the visible filter button and closes on outside pointerdown", () => {
+    render(
+      <div>
+        <FilterHeader
+          label="Sector"
+          col="sector"
+          rows={[{ sector: "Telecom" }]}
+          getValue={(row) => row.sector}
+          selected={undefined}
+          onChange={() => {}}
+        >
+          Sector
+        </FilterHeader>
+        <button type="button">outside</button>
+      </div>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter Sector" }));
+    expect(screen.getByRole("dialog", { name: "Filter Sector" })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Search Sector values"), { target: { value: "missing" } });
+    expect(screen.getByText("No values")).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "outside" }));
+    expect(screen.queryByRole("dialog", { name: "Filter Sector" })).toBeNull();
+  });
+
+  it("caps large option lists and preserves the full value in a title", () => {
+    const rows = Array.from({ length: 101 }, (_, i) => ({
+      sector: `Very long sector option ${String(i).padStart(3, "0")} with extra credit wording`,
+    }));
+
+    render(
+      <FilterHeader
+        label="Sector"
+        col="sector"
+        rows={rows}
+        getValue={(row) => row.sector}
+        selected={undefined}
+        onChange={() => {}}
+      >
+        Sector
+      </FilterHeader>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Filter Sector" }));
+    expect(screen.getAllByRole("checkbox")).toHaveLength(100);
+    expect(screen.getByText("Showing first 100 of 101 values")).toBeTruthy();
+    expect(screen.getByText(rows[0].sector).getAttribute("title")).toBe(rows[0].sector);
+  });
+
+  it("handles Clear and All actions correctly", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <FilterHeader
+        label="Sector"
+        col="sector"
+        rows={[{ sector: "Telecom" }, { sector: "Tech" }]}
+        getValue={(row) => row.sector}
+        selected={undefined}
+        onChange={onChange}
+      >
+        Sector
+      </FilterHeader>
+    );
+
+    // Open filter dialog
+    fireEvent.click(screen.getByRole("button", { name: "Filter Sector" }));
+    
+    // Default/undefined selected state should check all checkboxes
+    const checkboxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(checkboxes[0].checked).toBe(true);
+    expect(checkboxes[1].checked).toBe(true);
+
+    // Clicking Clear should call onChange with []
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onChange).toHaveBeenCalledWith("sector", []);
+
+    // Rerender with selected={[]} (active but empty)
+    rerender(
+      <FilterHeader
+        label="Sector"
+        col="sector"
+        rows={[{ sector: "Telecom" }, { sector: "Tech" }]}
+        getValue={(row) => row.sector}
+        selected={[]}
+        onChange={onChange}
+      >
+        Sector
+      </FilterHeader>
+    );
+
+    // Checkboxes should be unchecked
+    expect(checkboxes[0].checked).toBe(false);
+    expect(checkboxes[1].checked).toBe(false);
+
+    // Clicking All should call onChange with undefined
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(onChange).toHaveBeenCalledWith("sector", undefined);
   });
 });
 

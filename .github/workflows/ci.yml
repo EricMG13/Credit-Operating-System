@@ -159,10 +159,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 20
-      # Fails the PR only on dead code / duplication INTRODUCED by the diff
-      # (--gate new-only ignores the existing backlog). JS/TS only; run from the
-      # repo root so .fallowrc.json (ignores the design-sync dirs) is picked up.
-      - run: npx --yes fallow audit --base "origin/${{ github.base_ref }}" --gate new-only --fail-on-issues
+      # Fails the PR only on dead code / duplication introduced by the diff.
+      # JS/TS only; run from the repo root so .fallowrc.json (ignores the
+      # design-sync dirs) is picked up.
+      - run: npx --yes fallow dead-code --changed-since "origin/${{ github.base_ref }}" --ci
+      - run: npx --yes fallow dupes --changed-since "origin/${{ github.base_ref }}" --ci
 
   corpus:
     name: Corpus — taxonomy consistency

@@ -9,9 +9,9 @@ const node = (kind: string, extra: Partial<GraphNode> = {}): GraphNode => ({
 
 describe("hueFor", () => {
   it("is the neutral gray for no group", () => {
-    expect(hueFor(null)).toBe("#6b7280");
-    expect(hueFor(undefined)).toBe("#6b7280");
-    expect(hueFor("")).toBe("#6b7280");
+    expect(hueFor(null)).toBe("var(--caos-muted)");
+    expect(hueFor(undefined)).toBe("var(--caos-muted)");
+    expect(hueFor("")).toBe("var(--caos-muted)");
   });
   it("is deterministic per group string", () => {
     expect(hueFor("Telecom")).toBe(hueFor("Telecom"));
@@ -49,15 +49,15 @@ describe("nodeStyle — shape resolution", () => {
   it("known kind → rect tinted from the KIND palette", () => {
     const s = nodeStyle(node("driver"));
     expect(s.shape).toBe("rect");
-    expect(s.fill).toBe("#2a1f08");
+    expect(s.fill).toBe("rgba(245, 165, 36, 0.15)");
     expect(s.stroke).toBe(CHART_HEX.warning);
     expect(s.r).toBe(13);
   });
   it("unknown kind → rect with default fill/stroke", () => {
     const s = nodeStyle(node("mystery"));
     expect(s.shape).toBe("rect");
-    expect(s.fill).toBe("#15151d");
-    expect(s.stroke).toBe("#33333f");
+    expect(s.fill).toBe("var(--caos-panel)");
+    expect(s.stroke).toBe("var(--caos-border)");
   });
   it("flagged rect overrides stroke to warning", () => {
     expect(nodeStyle(node("claim", { flag: true })).stroke).toBe(CHART_HEX.warning);

@@ -84,6 +84,9 @@ export function SectorReview({
     >
       <div
         ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Sector Review: ${row.sector}`}
         onClick={(e) => e.stopPropagation()}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden"
         style={{ boxShadow: "var(--shadow-modal)" }}

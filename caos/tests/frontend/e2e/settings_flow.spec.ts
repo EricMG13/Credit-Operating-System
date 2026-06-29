@@ -10,6 +10,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Fill the Audience default, save, and wait for the confirmation.
 async function saveAudience(page: Page, value: string) {
+  await page.getByRole("button", { name: "Research" }).click();
   await page.getByLabel("Audience").fill(value);
   await page.getByRole("button", { name: "Save" }).click();
   // exact: the panel heading also contains "saved".
@@ -20,8 +21,9 @@ async function saveAudience(page: Page, value: string) {
 test.describe("Settings", () => {
   test("mirrors the server workspace configuration", async ({ page }) => {
     await page.goto("/settings/");
+    await page.getByRole("button", { name: "Workspace" }).click();
 
-    await expect(page.getByRole("heading", { name: /Research defaults/ })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Workspace configuration · set via environment, restart to change" })).toBeVisible({
       timeout: 10000,
     });
     // These rows only render once /api/settings resolves (not the loading/error state).
@@ -37,6 +39,7 @@ test.describe("Settings", () => {
     await saveAudience(page, value);
 
     await page.reload();
+    await page.getByRole("button", { name: "Research" }).click();
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 

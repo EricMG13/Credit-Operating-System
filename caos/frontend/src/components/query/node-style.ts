@@ -12,7 +12,7 @@ import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, "#a78bfa", "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
 
 export function hueFor(group: string | null | undefined): string {
-  if (!group) return "#6b7280";
+  if (!group) return "var(--caos-muted)";
   let h = 0;
   for (let i = 0; i < group.length; i++) h = (h * 31 + group.charCodeAt(i)) >>> 0;
   return CATEGORICAL[h % CATEGORICAL.length];
@@ -22,17 +22,17 @@ export function hueFor(group: string | null | undefined): string {
 // Node strokes mirror semantic tokens (via chart-colors); fills are graph-only
 // dark tints with no token twin, so they stay literal.
 const KIND: Record<string, { fill: string; stroke: string }> = {
-  driver: { fill: "#2a1f08", stroke: CHART_HEX.warning },
-  module: { fill: "#15151d", stroke: "#3a4a6a" },
-  claim: { fill: "#15151d", stroke: CHART_HEX.accent },
-  evidence: { fill: "#15151d", stroke: "#33333f" },
-  chunk: { fill: "#0f1a12", stroke: CHART_HEX.success },
-  metric: { fill: "#15151d", stroke: CHART_HEX.accent },
-  "point-bull": { fill: "#0f2417", stroke: CHART_HEX.success },
-  "point-bear": { fill: "#2a1212", stroke: CHART_HEX.critical },
-  "finding-crit": { fill: "#2a1212", stroke: CHART_HEX.critical },
-  "finding-mat": { fill: "#2a1f08", stroke: CHART_HEX.warning },
-  "finding-min": { fill: "#1d2030", stroke: "#3f3f46" },
+  driver: { fill: "rgba(245, 165, 36, 0.15)", stroke: CHART_HEX.warning },
+  module: { fill: "var(--caos-panel)", stroke: "var(--caos-border)" },
+  claim: { fill: "var(--caos-panel)", stroke: CHART_HEX.accent },
+  evidence: { fill: "var(--caos-panel)", stroke: "var(--caos-border)" },
+  chunk: { fill: "rgba(34, 197, 94, 0.10)", stroke: CHART_HEX.success },
+  metric: { fill: "var(--caos-panel)", stroke: CHART_HEX.accent },
+  "point-bull": { fill: "rgba(34, 197, 94, 0.15)", stroke: CHART_HEX.success },
+  "point-bear": { fill: "rgba(239, 68, 68, 0.15)", stroke: CHART_HEX.critical },
+  "finding-crit": { fill: "rgba(239, 68, 68, 0.15)", stroke: CHART_HEX.critical },
+  "finding-mat": { fill: "rgba(245, 165, 36, 0.15)", stroke: CHART_HEX.warning },
+  "finding-min": { fill: "var(--caos-elevated)", stroke: "var(--caos-idle)" },
 };
 
 export type NodeStyle = {
@@ -70,11 +70,11 @@ export function nodeStyle(n: GraphNode): NodeStyle {
   const isCircle = n.kind === "issuer" || n.kind === "center";
   let fill: string, stroke: string, r: number, sw: number;
   if (n.kind === "center") {
-    fill = "#10131f"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
+    fill = "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
   } else if (n.kind === "issuer") {
     fill = groupColor + "33"; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
   } else {
-    fill = palette?.fill ?? "#15151d"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "#33333f"; r = 13; sw = 1.4;
+    fill = palette?.fill ?? "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "var(--caos-border)"; r = 13; sw = 1.4;
   }
   const isMono = n.kind === "claim" || n.kind === "evidence" || n.kind === "metric" || n.kind === "module";
   const shape = isCircle ? "circle" : n.kind === "sector" ? "pill" : "rect";

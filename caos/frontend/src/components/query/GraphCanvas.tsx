@@ -11,7 +11,7 @@ const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
   cite: { stroke: CHART_HEX.accent, width: 1.2 },
   driver: { stroke: CHART_HEX.warning, width: 2.4 },
-  member: { stroke: "#2a2a36", width: 1 },
+  member: { stroke: "var(--caos-border)", width: 1 },
   seq: { stroke: CHART_HEX.accent, width: 1.8 },
   bull: { stroke: CHART_HEX.success, width: 1.5, dash: "4 3" },
   bear: { stroke: CHART_HEX.critical, width: 1.5, dash: "4 3" },
@@ -287,7 +287,7 @@ export function GraphCanvas({
 
 function EdgeLine({ edge, x1, y1, x2, y2 }: { edge: GraphEdge; x1: number; y1: number; x2: number; y2: number }) {
   const k = edge.kind;
-  const base = k && EDGE[k] ? EDGE[k] : { stroke: "#3a5a8a", width: 1 + (edge.weight ?? 0) * 3, dash: undefined };
+  const base = k && EDGE[k] ? EDGE[k] : { stroke: "var(--caos-border)", width: 1 + (edge.weight ?? 0) * 3, dash: undefined };
   const arrow = k === "dep" || k === "cite" || k === "seq" || k === "bull" || k === "bear";
   return (
     <g>

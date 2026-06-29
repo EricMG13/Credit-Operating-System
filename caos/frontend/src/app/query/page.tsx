@@ -28,7 +28,9 @@ export default function QueryPage() {
 
 // Predefined prompts, richest-first; the page shows the first few that are
 // runnable given what's stored (so the suggestions never offer a dead edge).
-const PROMPTS: { id: string; text: string; sub: string }[] = [
+export type QueryPrompt = { id: string; text: string; sub: string };
+
+const PROMPTS: QueryPrompt[] = [
   { id: "peer-set", text: "Map peers by credit profile", sub: "issuer graph · CP-1C" },
   { id: "contagion", text: "Co-move under an energy shock", sub: "contagion overlay · CP-2" },
   { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
@@ -53,7 +55,11 @@ const KEYWORDS: [string, string][] = [
   ["disagree", "tension"], ["diff", "run-diff"], ["changed", "run-diff"], ["sponsor", "sponsor-graph"],
 ];
 
-function Query() {
+export function Query() {
+  return <QueryWorkspace />;
+}
+
+export function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPrompt[] }) {
   const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
   const [capsErr, setCapsErr] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphResult | null>(null);
@@ -111,18 +117,19 @@ function Query() {
         if (cancelled) return;
         setCaps(c);
         const enabled = new Set(c.groups.flatMap((g) => g.capabilities.filter((x) => x.enabled).map((x) => x.id)));
-        const first = PREFER.find((id) => enabled.has(id)) || [...enabled][0];
+        const promptPreference = promptSet.map((p) => p.id);
+        const first = [...promptPreference, ...PREFER].find((id) => enabled.has(id)) || [...enabled][0];
         if (first) run(first);
       })
       .catch((e) => {
         if (!cancelled) setCapsErr((e as Error)?.message || "could not load capabilities");
       });
     return () => { cancelled = true; };
-  }, [run]);
+  }, [promptSet, run]);
 
   const prompts = useMemo(
-    () => PROMPTS.filter((p) => capById.get(p.id)?.enabled).slice(0, 5),
-    [capById]
+    () => promptSet.filter((p) => capById.get(p.id)?.enabled).slice(0, 5),
+    [capById, promptSet]
   );
 
   // Score every capability by alias hits (weight 2) + label-word overlap (weight 1),

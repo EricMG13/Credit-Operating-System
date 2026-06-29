@@ -1,9 +1,8 @@
 "use client";
 
-// Global shortcuts: hold SPACE and press ←/→ to cycle concepts; S focuses issuer
+// Global shortcuts: hold ALT and press ←/→ to cycle concepts; S focuses issuer
 // search; K opens Ask; C broadcasts collapse/open panes. Mounted once in the root
-// layout. Inactive while typing in inputs/textareas/contenteditables so the
-// spacebar still types spaces there.
+// layout. Inactive while typing in inputs/textareas/contenteditables.
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -26,17 +25,13 @@ export function ConceptHotkeys() {
   const pathname = usePathname();
   const pathRef = useRef(pathname);
   pathRef.current = pathname;
-  const spaceHeld = useRef(false);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        if (!isEditable(e.target)) spaceHeld.current = true;
-        return;
-      }
-      if (!spaceHeld.current) return;
+      if (!e.altKey) return;
+      if (isEditable(e.target)) return;
+
       if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
-        if (isEditable(e.target)) return;
         e.preventDefault();
         if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:issuer-search-focus"));
         if (e.key.toLowerCase() === "k") window.dispatchEvent(new Event("caos:ask-toggle"));
@@ -44,7 +39,6 @@ export function ConceptHotkeys() {
         return;
       }
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      if (isEditable(e.target)) return;
       e.preventDefault();
       const dir = e.key === "ArrowRight" ? 1 : -1;
       const cur = CONCEPTS.findIndex((c) => (pathRef.current || "").startsWith(c));
@@ -56,19 +50,9 @@ export function ConceptHotkeys() {
           : (cur + dir + CONCEPTS.length) % CONCEPTS.length;
       router.push(CONCEPTS[next]);
     };
-    const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") spaceHeld.current = false;
-    };
-    const clear = () => {
-      spaceHeld.current = false;
-    };
     window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", clear);
     return () => {
       window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", clear);
     };
   }, [router]);
 

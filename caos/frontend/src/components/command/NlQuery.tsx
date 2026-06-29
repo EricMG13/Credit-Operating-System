@@ -101,17 +101,26 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
     return base;
   }, [res.columns, res.rows]);
   const rows = useColumnFilters(res.rows, filters, filterVals);
-  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const setFilter = (col: string, values: string[] | undefined) =>
+    setFilters((f) => {
+      const next = { ...f };
+      if (values === undefined) {
+        delete next[col];
+      } else {
+        next[col] = values;
+      }
+      return next;
+    });
   return (
     <div className="overflow-auto" style={{ maxHeight: 260 }}>
       <table aria-label="Ranked query results" className="w-full border-collapse">
         <thead>
           <tr className="text-left">
             <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">
-              <FilterHeader label="Rank" col="rank" rows={res.rows} getValue={filterVals.rank} selected={filters.rank || []} onChange={setFilter}>#</FilterHeader>
+              <FilterHeader label="Rank" col="rank" rows={res.rows} getValue={filterVals.rank} selected={filters.rank} onChange={setFilter}>#</FilterHeader>
             </th>
             <th className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal py-1 pr-2">
-              <FilterHeader label="Issuer" col="issuer" rows={res.rows} getValue={filterVals.issuer} selected={filters.issuer || []} onChange={setFilter}>Issuer</FilterHeader>
+              <FilterHeader label="Issuer" col="issuer" rows={res.rows} getValue={filterVals.issuer} selected={filters.issuer} onChange={setFilter}>Issuer</FilterHeader>
             </th>
             {res.columns.map((c) => (
               <th
@@ -120,7 +129,7 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
                 style={{ color: c.key === res.rank_by ? "var(--caos-accent)" : "var(--caos-muted)" }}
                 title={c.higher_is_better ? "higher is stronger" : "higher is weaker / more exposed"}
               >
-                <FilterHeader label={c.label} col={c.key} rows={res.rows} getValue={filterVals[c.key]} selected={filters[c.key] || []} onChange={setFilter}>
+                <FilterHeader label={c.label} col={c.key} rows={res.rows} getValue={filterVals[c.key]} selected={filters[c.key]} onChange={setFilter}>
                   {c.label}
                 </FilterHeader>
               </th>
@@ -349,14 +358,30 @@ export function NlQueryBody() {
   );
 }
 
-export function NlQuery() {
+export function NlQuery({ compact = false }: { compact?: boolean }) {
+  const [expanded, setExpanded] = useState(true);
   return (
     <PanelShell
       title="Ask across issuers · cross-issuer query"
       className="shrink-0"
       right={<span className="tabular text-caos-xs text-caos-muted">grounded in the metric store · cited where run-derived</span>}
     >
-      <div className="p-2.5"><NlQueryBody /></div>
+      {expanded ? (
+        <div className="p-2.5"><NlQueryBody /></div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="m-2.5 flex items-center gap-2 rounded border border-caos-border bg-caos-bg px-2.5 py-2 text-left text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+        >
+          <span className="text-caos-accent text-caos-2xl" aria-hidden="true">✦</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-caos-lg text-caos-text">Ask across issuers</span>
+            <span className="block tabular text-caos-xs text-caos-muted truncate">Open the cited metric-store query lane</span>
+          </span>
+          <span className="tabular text-caos-xs text-caos-accent">OPEN</span>
+        </button>
+      )}
     </PanelShell>
   );
 }

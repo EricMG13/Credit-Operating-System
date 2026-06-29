@@ -12,7 +12,8 @@ import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { ALERTS } from "@/lib/command/data";
+import { ALERTS, GAPS, PORTFOLIO, QA_QUEUE } from "@/lib/command/data";
+import { SECTORS as RV_SECTORS } from "@/lib/command/rvdata";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { SimControls, ToggleGroup } from "@/components/pipeline/atoms";
@@ -45,6 +46,17 @@ function CommandCenter() {
   const portfolio = usePortfolio();
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
+  const rvLoanCount = RV_SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
+  const lensNote = view === "rv"
+    ? "Market-data file — not positions"
+    : view === "res"
+    ? "Research QA lens"
+    : "Sample portfolio — not live";
+  const lensNoteTitle = view === "rv"
+    ? "Sector RV uses the loaded market-data file and is not a portfolio position view."
+    : view === "res"
+    ? "Research lens: coverage freshness, CP-5 QA, and CP-0 source gaps."
+    : "Sample US HY sleeve for the Phase-1 showcase — not live positions. (The NL Query lane is live.)";
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -56,6 +68,7 @@ function CommandCenter() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
+        <span className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap hidden lg:inline" />
         <ToggleGroup
           className="shrink-0"
           value={view}
@@ -73,38 +86,59 @@ function CommandCenter() {
             ? "Coverage Health — US HY"
             : "Sector Relative Value — Loan Universe"}
         </span>
-        {/* The Command Center is a Phase-1 showcase (sample sleeve), not live
-            positions — there is no portfolio-level live aggregate yet. Label it so
-            it's never read as live posture. The NL Query lane below IS live. (#29) */}
         <span
           className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0"
           role="note"
-          title="Sample US HY sleeve for the Phase-1 showcase — not live positions. (The NL Query lane is live.)"
-          style={{ color: "var(--caos-warning)" }}
+          title={lensNoteTitle}
+          style={{ color: view === "res" ? "var(--caos-accent)" : "var(--caos-warning)" }}
         >
-          Sample portfolio — not live
+          {lensNote}
         </span>
         <div className="flex-1 min-w-0"></div>
         {/* Progressive disclosure by value (header is too dense to show all at
             laptop widths). Always: the live "what changed" signal
-            (Watch/QA/Alerts). ≥1536: portfolio context KPIs. ≥1780: demo
-            sim controls + clock. The title truncates rather than push KPIs off. */}
-        <div className="hidden 2xl:flex items-center gap-5 shrink-0">
-          {headStat("Avg 3Y DM", "+504bps")}
-          {headStat("Names", "10")}
-        </div>
-        <div className="h-4 w-px bg-caos-border hidden 2xl:block shrink-0" />
-        {headStat("Watch", "3", "var(--caos-critical)", true)}
-        {headStat("QA open", "5", "var(--caos-warning)", true)}
-        <Link
-          href="/monitor"
-          title="Open Monitor — live CP-MON email intelligence & alert routing"
-          className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
-        >
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts today</span>
-          <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
-          <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
-        </Link>
+            (Watch/QA/Alerts). ≥1280: portfolio context KPIs. */}
+        {view === "rv" ? (
+          <>
+            <div className="hidden xl:flex items-center gap-5 shrink-0">
+              {headStat("Universe", "US HY Loan")}
+              {headStat("Sectors", String(RV_SECTORS.length))}
+              {headStat("Peer Loans", String(rvLoanCount))}
+            </div>
+            <div className="h-4 w-px bg-caos-border hidden xl:block shrink-0" />
+            {headStat("Source", "market-data.json", "var(--caos-accent)")}
+            {headStat("File Date", "Jun 29 08:39")}
+          </>
+        ) : view === "res" ? (
+          <>
+            <div className="hidden xl:flex items-center gap-5 shrink-0">
+              {headStat("Compliance", "L1–L6 SLA")}
+              {headStat("Refreshes Due", "2", "var(--caos-warning)", true)}
+            </div>
+            <div className="h-4 w-px bg-caos-border hidden xl:block shrink-0" />
+            {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", true)}
+            {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", true)}
+          </>
+        ) : (
+          <>
+            <div className="hidden xl:flex items-center gap-5 shrink-0">
+              {headStat("Avg 3Y DM", "+504bps")}
+              {headStat("Issuers", String(portfolio.issuerCount || PORTFOLIO.length))}
+            </div>
+            <div className="h-4 w-px bg-caos-border hidden xl:block shrink-0" />
+            {headStat("Watch List", "3", "var(--caos-critical)", true)}
+            {headStat("QA Posture", "5 open", "var(--caos-warning)", true)}
+            <Link
+              href="/monitor"
+              title="Open Monitor — live CP-MON email intelligence & alert routing"
+              className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
+            >
+              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts today</span>
+              <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
+              <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
+            </Link>
+          </>
+        )}
         <div className="hidden min-[1780px]:flex items-center gap-5 shrink-0">
           <SimControls run={run} />
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
@@ -133,11 +167,9 @@ function CommandCenter() {
             <PanelShell
               title="Coverage"
               className="flex-[3]"
-              right={<span className="tabular text-caos-xs text-caos-muted">10 issuers · marks {run.clock}</span>}
+              right={<span className="tabular text-caos-xs text-caos-muted">{PORTFOLIO.length} positions · marks {run.clock}</span>}
             >
-              <div className="overflow-x-auto">
-                <PortfolioTable selected={selected} onSelect={setSelected} tick={tick} />
-              </div>
+              <PortfolioTable selected={selected} onSelect={setSelected} tick={tick} />
             </PanelShell>
             <PanelShell
               title="Sector Review Board · CP-SR"

@@ -1,0 +1,234 @@
+---
+name: "CAOS - Credit Agent OS"
+description: "A precise, defensible, alert leveraged-finance credit workspace."
+colors:
+  workspace-bg: "#0a0a0f"
+  panel: "#11131d"
+  elevated: "#1d2030"
+  border: "#34384a"
+  text: "#e6e6ef"
+  muted: "#a1a1b5"
+  accent: "#63a1ff"
+  consumer: "#c4b5fd"
+  warning: "#f5a524"
+  critical: "#ef4444"
+  success: "#22c55e"
+  idle: "#3f3f46"
+  success-bright: "#4ade80"
+  warning-bright: "#fbbf24"
+  critical-bright: "#f87171"
+  tranche-1l: "#2dd4bf"
+  tranche-2l: "#4f8cff"
+  tranche-unsec: "#f5a524"
+  tranche-sub: "#a855f7"
+  tranche-eq: "#64748b"
+  paper: "#f7f5ee"
+  paper-ink: "#16161e"
+  paper-meta: "#5c5c66"
+typography:
+  display:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "30px"
+    fontWeight: 700
+    lineHeight: 1.04
+    letterSpacing: "-0.01em"
+  headline:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "22px"
+    fontWeight: 600
+    lineHeight: 1.1
+  title:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "16px"
+    fontWeight: 600
+    lineHeight: 1.15
+  body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "10.5px"
+    fontWeight: 400
+    lineHeight: 1.5
+  label:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "8.5px"
+    fontWeight: 500
+    lineHeight: 1.5
+    letterSpacing: "0.08em"
+rounded:
+  sm: "2px"
+  md: "6px"
+  pill: "999px"
+spacing:
+  hairline: "1px"
+  xs: "4px"
+  sm: "8px"
+  md: "12px"
+  lg: "16px"
+  xl: "24px"
+components:
+  panel:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: "0"
+  button-primary:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.workspace-bg}"
+    rounded: "{rounded.md}"
+    padding: "4px 8px"
+  button-ghost:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.muted}"
+    rounded: "{rounded.md}"
+    padding: "4px 8px"
+  input:
+    backgroundColor: "{colors.workspace-bg}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: "6px 10px"
+  chip-active:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.workspace-bg}"
+    rounded: "{rounded.md}"
+    padding: "4px 8px"
+---
+
+# Design System: CAOS - Credit Agent OS
+
+## 1. Overview
+
+**Creative North Star: "The Committee Terminal"**
+
+CAOS is a refined institutional terminal for buy-side credit analysts. It should feel calm enough for investment committee work, live enough for desk posture, and exact enough that every number reads as traceable rather than decorative.
+
+The workspace is dark, dense, and single-mode. Density is earned with fixed panel chrome, aligned numerics, small labels, and restrained state color. The Report Studio and research documents deliberately invert the workspace into light paper: ink on cream, file-ready, and visually distinct from the live analytical surface.
+
+CAOS explicitly rejects friendly consumer SaaS, oversized marketing dashboards, pastel card layouts, decorative gradients, glow effects, and raw terminal dumps. The product can be dense, but it must always be organized.
+
+**Key Characteristics:**
+- Dense analytical hierarchy with a 32px panel header as the structural unit.
+- Color reserved for state, selection, seniority, and evidence lineage.
+- Mono numerics and small uppercase labels for desk-readable precision.
+- Motion only for live, running, selected, or changed state.
+- Light paper output only inside Report Studio and research deliverables.
+
+## 2. Colors
+
+The palette is a restrained dark desk: black workspace, cool panels, hairline borders, one blue accent, and semantic colors used only as signal.
+
+### Primary
+- **Desk Accent**: Primary action, current selection, active navigation, linked lineage, and live-query affordance.
+
+### Secondary
+- **Downstream Consumer**: Downstream lineage and consumer-side graph semantics. Use sparingly beside Desk Accent.
+
+### Tertiary
+- **Tranche Ramp**: 1L, 2L, unsecured, subordinated, and equity categories. These hues identify security type and must not be repurposed for decoration.
+
+### Neutral
+- **Black Workspace**: Page background and deepest table/model canvas.
+- **Panel Surface**: Primary framed work surface.
+- **Elevated Surface**: Hover, selected resting state, menu background, and nested tools.
+- **Hairline Border**: Panel, table, chip, modal, and nav separation.
+- **Desk Text**: Primary readable text.
+- **Muted Label**: Metadata, labels, inactive controls, and secondary copy.
+- **Paper Surface**: Report and research output background only.
+- **Paper Ink**: Report and research output primary text.
+- **Paper Meta**: Report and research output masthead and supporting metadata.
+
+### Named Rules
+
+**The Signal-Only Color Rule.** Accent and semantic colors are forbidden as decoration. They mean action, selection, status, seniority, or lineage.
+
+**The Dark Workspace Rule.** Analytical surfaces stay in the dark single-mode palette. Light surfaces are reserved for filed output and research paper views.
+
+## 3. Typography
+
+**Display Font:** Inter via `var(--font-sans)` with system fallback.
+**Body Font:** Inter via `var(--font-sans)` with system fallback.
+**Label/Mono Font:** JetBrains Mono via `var(--font-mono)` with ui-monospace fallback.
+
+**Character:** One technical sans plus one mono. The sans carries all UI prose; the mono carries numerics, labels, ids, timestamps, and desk metadata.
+
+### Hierarchy
+- **Display** (700, 30px, 1.04): Single focal answer on a surface, such as verdicts or anchor metrics. Never use for routine labels.
+- **Headline** (600, 22px, 1.1): Page-level or report title where the interface has room.
+- **Title** (600, 16px, 1.15): Major row, modal, or paper-section titles.
+- **Body** (400, 10.5px, 1.5): Dense workspace copy, cells, rail text, and tool bodies.
+- **Label** (500, 8.5px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
+
+### Named Rules
+
+**The Numeric Truth Rule.** Financial values, ids, ratings, dates, and confidence scores use mono tabular styling so columns scan and decimals align.
+
+**The No Display Labels Rule.** Product labels, buttons, table headers, and nav chips never use display sizing or decorative typography.
+
+## 4. Elevation
+
+CAOS is flat by default and uses tonal layering before shadow. Depth is created by background steps, hairline borders, sticky layers, and focus/selection rings. Shadows are reserved for overlays and floating tools, not panels or ordinary cards.
+
+### Shadow Vocabulary
+- **Modal Shadow** (`0 24px 80px -24px rgba(0, 0, 0, 0.9)`): Dialogs and large evidence modals.
+- **Popover Shadow** (`0 8px 28px -10px rgba(0, 0, 0, 0.8)`): Filters, menus, and compact floating tools.
+- **Paper Shadow** (`0 24px 70px -24px rgba(0,0,0,0.85)`): Report Studio and research document sheets over the dark gutter.
+
+### Named Rules
+
+**The Flat-Until-Floating Rule.** A resting panel gets a border, not a shadow. Shadow means the object floats above the workflow.
+
+## 5. Components
+
+### Buttons
+- **Shape:** Compact rectangular controls with modest corners (6px).
+- **Primary:** Accent background with dark text for active navigation and committed actions.
+- **Hover / Focus:** 160ms color, border, shadow, and transform channels; visible `focus-ring` for keyboard users.
+- **Secondary / Ghost:** Border plus muted text at rest, text brightens and border shifts toward accent on hover.
+
+### Chips
+- **Style:** Navigation chips and status chips use mono text, small SVG glyphs when available, hairline borders, and compact padding.
+- **State:** Selected chips invert to accent background and dark text. Inactive chips stay muted and bordered.
+
+### Cards / Containers
+- **Corner Style:** Gently curved institutional containers (6px).
+- **Background:** Panels use Panel Surface; contained tools may use Black Workspace or Elevated Surface.
+- **Shadow Strategy:** No shadow at rest. Modal, popover, and paper surfaces use the shadow vocabulary.
+- **Border:** Hairline Border is mandatory for framed panels.
+- **Internal Padding:** Dense by default: 8px to 16px depending on scan density.
+
+### Inputs / Fields
+- **Style:** Black Workspace fill, Hairline Border, Desk Text, muted placeholder, compact radius.
+- **Focus:** Accent border plus visible focus ring. The focus treatment must survive dark panels and scrollable containers.
+- **Error / Disabled:** Error is semantic Critical with text or glyph. Disabled lowers opacity only when the control remains readable.
+
+### Navigation
+- **Style:** Concept navigation is compact chip navigation with inline SVG marks. Compact headers show only the active label; inactive concepts rely on icon plus tooltip.
+- **Typography:** Mono, small, tabular, and uppercase where the surrounding header requires it.
+- **State:** Active equals Accent fill. Hover brightens text and border without changing layout.
+
+### Panel
+
+The shared panel is the signature CAOS frame: Panel Surface, Hairline Border, 6px radius, 32px uppercase header, and a focusable scrollable body. A panel is a section, not a decorative card.
+
+### Status Glyphs
+
+Status meaning must never be color alone. Pair severity color with a drawn glyph, text label, position, or all three. Emoji are forbidden in product chrome.
+
+## 6. Do's and Don'ts
+
+### Do:
+- **Do** use `workspace-bg`, `panel`, `elevated`, and `border` as the core surface ladder.
+- **Do** keep dense financial values in mono tabular type.
+- **Do** pair every semantic color with a label, glyph, or spatial convention.
+- **Do** use the shared Panel, TextInput, ScopeToggle, StatusGlyph, and ConceptNav patterns before inventing new chrome.
+- **Do** honor reduced motion. Running pulse and flash cues must stop under `prefers-reduced-motion`.
+- **Do** reserve Paper Surface and Paper Ink for Report Studio and research deliverables.
+
+### Don't:
+- **Don't** drift toward friendly consumer SaaS.
+- **Don't** create oversized marketing dashboards.
+- **Don't** use pastel card layouts.
+- **Don't** add decorative gradients, glow effects, or glassmorphism.
+- **Don't** ship raw terminal dumps. Density must stay organized.
+- **Don't** encode status or tranche meaning by color alone.
+- **Don't** use emoji in product chrome.
+- **Don't** add shadows to ordinary panels or cards.
+- **Don't** use side-stripe borders, gradient text, huge rounded cards, or identical decorative card grids.

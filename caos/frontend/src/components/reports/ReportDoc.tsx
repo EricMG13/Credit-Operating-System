@@ -247,8 +247,8 @@ export function ReportDoc({
         <div
           role="note"
           style={{
-            margin: "6px 0", padding: "4px 8px", border: "1px solid #b91c1c",
-            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+            margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
+            color: "var(--caos-critical)", fontSize: "10px", letterSpacing: "0.05em",
             textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
           }}
         >

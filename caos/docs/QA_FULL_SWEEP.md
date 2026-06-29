@@ -489,3 +489,60 @@ observation (OBS-004, an unreachable trailing-slash 404) is documented for aware
   is no longer present in the tree (reverted in parallel WIP); booted the QA backend directly
   via env (`PORT=8010 DATABASE_URL=…caos_qa.db CAOS_STORAGE_DIR=…vault_qa ANTHROPIC_API_KEY=""
   SESSION_SECRET=… .venv311/bin/python run.py`).
+
+---
+
+## Session 7 (2026-06-29) — production-like local rerun after frontend drift
+
+Re-ran the goal against the current dirty tree using the existing acceptance-criteria
+inventory as the source of truth: `caos/docs/qa/FEATURE_TRACKER.csv` contains **302**
+user-facing rows across Command Center, Pipeline, Deep-Dive, Model Builder, Report
+Studio, Monitor, Research, Query, Upload, Shell, Auth, and Settings. The QA stack was
+isolated and production-shaped: static Next export served by FastAPI on `127.0.0.1:8010`,
+py3.11 prod-parity deps (`fastapi 0.138.0`, `starlette 1.3.1`), `caos_qa.db`,
+`vault_qa`, stable local session secret, LLM keys cleared, council/debate off. The
+scale seeder was idempotent: **30 sanitized issuers already present, 0 created**.
+
+### Bugs found and fixed
+- **BUG-005 — Global issuer search shared the directory search accessible name.**
+  Playwright `getByLabel("Search issuers")` matched both the page-local directory
+  search and the shell search. Fixed the shell input label to `Global issuer search`;
+  directory search is unique again.
+- **BUG-006 — Settings E2E still assumed the old untabbed Settings page.**
+  The product now defaults to the Models tab. Updated the real-user test to open
+  Workspace before checking server config and Research before saving/reloading
+  defaults.
+- **BUG-007 — Command sector cards nested remove buttons inside clickable cards and
+  used sub-24px remove targets.** Axe flagged WCAG 4.1.2 / 2.5.8. Fixed the card
+  click target as a sibling overlay button and made remove controls 24×24.
+- **BUG-008 — Query graph SVG exposed interactive nodes under `role="img"` and
+  nested wiki links inside selectable node buttons.** Fixed SVG role to `group`
+  and rendered wiki links as sibling SVG anchors.
+
+### Evidence
+- Static build: **pass** (`next build`, 15 static routes, 172 files staged).
+- Frontend typecheck: **pass** (`npx tsc --noEmit`).
+- Frontend unit/component: **248 passed** across 37 files.
+- Frontend lint: **pass** (`eslint src`).
+- Browser E2E against `127.0.0.1:8010`: **11 passed**.
+- Axe WCAG 2.0/2.1/2.2 A+AA route walk against `127.0.0.1:8010`: **0 violations** across
+  `/`, `/command`, `/issuers`, `/deepdive`, `/pipeline`, `/model`, `/reports`,
+  `/research`, `/upload`, `/settings`, `/query`, `/monitor`.
+- Server regression on prod-parity py3.11 isolated test setup: **794 passed / 2 skipped**
+  (1 Starlette/httpx deprecation warning).
+- In-app browser smoke: `/command/` rendered, sector remove controls measured 24×24,
+  no nested role-button/button pairs; `/query/` rendered, graph SVG role `group`,
+  no nested SVG button/link pairs.
+
+### GitNexus / worktree note
+Pre-edit impact checks for `GlobalIssuerSearch`, `SectorBoard`, `GraphCanvas`, and
+`Settings` were **LOW** risk. Post-edit `detect_changes` reported **CRITICAL** because
+the worktree already contains broad unrelated WIP across 16 files (AGENTS/CLAUDE,
+Command, Deep-Dive, Sector RV, Model Sheet, table filters, etc.). That is a repo-wide
+dirty-tree signal, not solely the Session 7 patch. This session only deliberately
+touched `GlobalIssuerSearch.tsx`, the SectorBoard hunk in `views.tsx`,
+`GraphCanvas.tsx`, `settings_flow.spec.ts`, rebuilt local `server/static`, and this log.
+
+### Verdict
+**Clean pass on the current production-like local stack.** No blocked handoff items from
+this rerun. Existing unrelated WIP remains unstaged and was not reverted.
