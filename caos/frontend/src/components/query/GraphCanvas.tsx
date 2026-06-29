@@ -196,7 +196,7 @@ export function GraphCanvas({
         width="100%"
         height="100%"
         preserveAspectRatio="xMidYMid meet"
-        role="img"
+        role="group"
         aria-label={`Graph: ${graph.title}`}
         style={{ display: "block" }}
       >
@@ -335,7 +335,22 @@ function NodeMark({
 
   const s = nodeStyle(n);
 
+  const wikiLink = n.obsidian_url ? (
+    <a
+      href={n.obsidian_url}
+      title="Reveal in Obsidian Wiki"
+      className="focus-ring"
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{ cursor: "pointer" }}
+      aria-label={`Reveal ${n.label} in Obsidian Wiki`}
+    >
+      <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill="#a78bfa" stroke="#0a0a0f" strokeWidth={1} />
+      <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
+    </a>
+  ) : null;
+
   const wrap = (children: React.ReactNode) => (
+    <>
     <g
       opacity={n.dim ? 0.5 : 1}
       style={{ cursor: isChunk || onSelectNode ? "pointer" : "grab" }}
@@ -353,6 +368,8 @@ function NodeMark({
       <title>{n.title || n.label}</title>
       {children}
     </g>
+    {wikiLink}
+    </>
   );
 
   // Compact cluster member: a small dot, name on hover only
@@ -384,21 +401,6 @@ function NodeMark({
           {short(n.sub, 24)}
         </text>
       ) : null}
-
-      {/* Obsidian Wiki deep-link action icon */}
-      {n.obsidian_url && (
-        <a
-          href={n.obsidian_url}
-          title="Reveal in Obsidian Wiki"
-          className="focus-ring"
-          onClick={(e) => e.stopPropagation()} // Prevent trigger select node
-          onMouseDown={(e) => e.stopPropagation()} // Prevent drag start when clicking link
-          style={{ cursor: "pointer" }}
-        >
-          <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill="#a78bfa" stroke="#0a0a0f" strokeWidth={1} />
-          <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
-        </a>
-      )}
     </>
   );
 }
@@ -430,7 +432,7 @@ function legendFor(nodes: GraphNode[]): { label: string; color: string }[] {
       if (n.exposed) add("exposed", CHART_HEX.warning);
     } else if (n.kind === "chunk") add("source chunk", CHART_HEX.success);
     else if (n.kind === "claim") add("claim", CHART_HEX.accent);
-    else if (n.kind === "evidence") add("evidence", "#8a8a9a");
+    else if (n.kind === "evidence") add("evidence", CHART_HEX.muted);
     else if (n.kind === "module") add("module", "#3a4a6a");
     else if (n.kind === "driver") add("risk driver", CHART_HEX.warning);
     else if (n.kind === "point-bull") add("bull point", CHART_HEX.success);

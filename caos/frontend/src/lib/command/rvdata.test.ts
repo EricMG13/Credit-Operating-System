@@ -27,7 +27,7 @@ describe("sector RV market data", () => {
     ]);
     expect(DELTA_COLS).toEqual(["Δ 1M", "Δ YTD"]);
     expect(INDEX_STATS).toHaveLength(SECTORS.length);
-    expect(SECTORS.every((sector) => sector.color !== "#8a8a9a")).toBe(true);
+    expect(SECTORS.every((sector) => sector.color !== "#a1a1b5")).toBe(true);
   });
 
   it("computes sector rating averages from the selected sector", () => {

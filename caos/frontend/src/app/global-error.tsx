@@ -31,9 +31,9 @@ export default function GlobalError({
           style={{
             maxWidth: "28rem",
             padding: "1.75rem",
-            border: "1px solid #262633",
+            border: "1px solid #34384a",
             borderRadius: "0.5rem",
-            background: "#12121a",
+            background: "#11131d",
           }}
         >
           <div
@@ -49,11 +49,11 @@ export default function GlobalError({
           <h1 style={{ fontSize: "1.125rem", margin: "0.5rem 0", color: "#e6e6ef" }}>
             The workspace failed to load
           </h1>
-          <p style={{ fontSize: "0.75rem", color: "#8a8a9a", margin: 0 }}>
+          <p style={{ fontSize: "0.75rem", color: "#a1a1b5", margin: 0 }}>
             Try again. If this keeps happening, contact your CAOS administrator.
           </p>
           {error.digest && (
-            <p style={{ fontSize: "0.75rem", color: "#8a8a9a", marginTop: "0.5rem" }}>
+            <p style={{ fontSize: "0.75rem", color: "#a1a1b5", marginTop: "0.5rem" }}>
               ref {error.digest}
             </p>
           )}
@@ -66,8 +66,8 @@ export default function GlobalError({
               fontSize: "0.875rem",
               fontWeight: 600,
               color: "#0a0a0f",
-              background: "#4f8cff",
-              border: "1px solid #4f8cff",
+              background: "#63a1ff",
+              border: "1px solid #63a1ff",
               borderRadius: "0.25rem",
               cursor: "pointer",
             }}

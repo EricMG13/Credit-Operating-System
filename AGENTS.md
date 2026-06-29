@@ -58,9 +58,9 @@ Hold the dense, dark credit-desk feel while making every pixel intentional.
 Inherit the established system (do not reinvent it):
 
 - **Dark workspace, single mode.** Surfaces ramp `--caos-bg #0a0a0f` →
-  `--caos-panel #12121a` → `--caos-elevated #1a1a24`; hairline borders
-  `--caos-border #262633`; text `#e6e6ef`, muted `#8a8a9a`; accent blue
-  `#4f8cff`.
+  `--caos-panel #11131d` → `--caos-elevated #1d2030`; hairline borders
+  `--caos-border #34384a`; text `#e6e6ef`, muted `#a1a1b5`; accent blue
+  `#63a1ff`.
 - **Color is signal, never decoration:** warning `#f5a524`, critical `#ef4444`,
   success `#22c55e`, idle `#3f3f46`. Categorical seniority/tranche ramp (1L teal,
   2L blue, unsec amber, sub purple, equity slate) — distinct hues, no lightness
@@ -105,7 +105,7 @@ visible focus ring.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Credit-Operating-System** (8472 symbols, 14265 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Credit-Operating-System** (8888 symbols, 15108 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

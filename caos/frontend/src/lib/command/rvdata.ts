@@ -178,7 +178,7 @@ export interface Sector {
 
 export const SECTORS: Sector[] = [...new Set(rows.map((r) => r.sector))].map((name) => ({
   name,
-  color: SECTOR_COLORS[name] ?? "#8a8a9a",
+  color: SECTOR_COLORS[name] ?? "#a1a1b5",
   rows: rows.filter((r) => r.sector === name),
 }));
 

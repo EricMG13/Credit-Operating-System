@@ -22,13 +22,13 @@ export const TRANCHE_HEX_PAPER: Record<string, string> = {
 // mirror --caos-accent/success/warning/critical/muted and --tranche-1l/eq; the
 // slates are chart-only categorical neutrals (no DOM token equivalent).
 export const CHART_HEX = {
-  accent: "#4f8cff", // --caos-accent / --tranche-2l
+  accent: "#63a1ff", // --caos-accent / --tranche-2l (but note tranche-2l blue is #4f8cff)
   teal: "#2dd4bf", // --tranche-1l — line/point accent
   tealDeep: "#14b8a6",
   success: "#22c55e", // --caos-success
   warning: "#f5a524", // --caos-warning / --tranche-unsec
   critical: "#ef4444", // --caos-critical
-  muted: "#8a8a9a", // --caos-muted
+  muted: "#a1a1b5", // --caos-muted
   eq: "#64748b", // --tranche-eq
   slate: "#5b6b85",
   slateDeep: "#46506b",

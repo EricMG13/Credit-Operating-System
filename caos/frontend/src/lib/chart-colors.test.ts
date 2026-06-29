@@ -6,11 +6,11 @@ import { CHART_HEX, TRANCHE_HEX, TRANCHE_HEX_PAPER } from "./chart-colors";
 // this test fails if the two drift apart. When a token changes, update both the
 // token and chart-colors.ts (and this contract) together.
 const CAOS = {
-  accent: "#4f8cff",
+  accent: "#63a1ff",
   success: "#22c55e",
   warning: "#f5a524",
   critical: "#ef4444",
-  muted: "#8a8a9a",
+  muted: "#a1a1b5",
 };
 const TRANCHE = {
   "1l": "#2dd4bf",

@@ -32,7 +32,7 @@ const KIND: Record<string, { fill: string; stroke: string }> = {
   "point-bear": { fill: "#2a1212", stroke: CHART_HEX.critical },
   "finding-crit": { fill: "#2a1212", stroke: CHART_HEX.critical },
   "finding-mat": { fill: "#2a1f08", stroke: CHART_HEX.warning },
-  "finding-min": { fill: "#1a1a24", stroke: "#3f3f46" },
+  "finding-min": { fill: "#1d2030", stroke: "#3f3f46" },
 };
 
 export type NodeStyle = {

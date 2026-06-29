@@ -14,9 +14,6 @@ const nextConfig = {
   // emits folder/index.html for clean URLs.
   skipTrailingSlashRedirect: true,
   images: { unoptimized: true },
-  // Lint runs as its own step (npm run lint — ESLint v9 flat config); the
-  // legacy in-build `next lint` pass is incompatible with it.
-  eslint: { ignoreDuringBuilds: true },
   experimental: {
     optimizePackageImports: ["@antv/g2"],
   },
