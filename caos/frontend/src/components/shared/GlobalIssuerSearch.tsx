@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import { getIssuers } from "@/lib/api";
 import { issuerProfileHref } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
+import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 
 export function GlobalIssuerSearch() {
   const router = useRouter();
+  const { openProfile } = useIssuerProfileOverlay();
   const ref = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<Issuer[]>([]);
@@ -40,7 +42,7 @@ export function GlobalIssuerSearch() {
   const pick = (issuer: Issuer) => {
     setQ("");
     setOpen(false);
-    router.push(issuerProfileHref(issuer));
+    openProfile(issuer.id);
   };
 
   const hasText = q.trim().length > 0;
@@ -57,7 +59,7 @@ export function GlobalIssuerSearch() {
           if (e.key === "Escape") setOpen(false);
         }}
         placeholder="Issuer search"
-        aria-label="Search issuers"
+        aria-label="Global issuer search"
         className="w-full h-9 rounded-full border border-caos-accent/60 bg-caos-panel pl-3 pr-12 tabular text-caos-md text-caos-text placeholder:text-transparent group-hover:placeholder:text-caos-muted focus:placeholder:text-caos-muted outline-none transition-caos focus:border-caos-accent"
       />
       <span className="pointer-events-none absolute right-2 top-1.5 tabular text-caos-2xs px-1 rounded border border-caos-border text-caos-muted">

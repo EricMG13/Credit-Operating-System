@@ -6,6 +6,7 @@ import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
 import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
 import { NotificationProvider } from "@/components/shared/Notifications";
+import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       >
         <AuthProvider>
           <NotificationProvider>
+          <IssuerProfileOverlayProvider>
           <AskProvider>
             <ConceptHotkeys />
             {/* Skip link — first focusable; visible only on keyboard focus (WCAG 2.4.1). */}
@@ -42,7 +44,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <GlobalIssuerSearch />
             </div>
             <AskLauncher />
+            <IssuerProfileOverlay />
           </AskProvider>
+          </IssuerProfileOverlayProvider>
           </NotificationProvider>
         </AuthProvider>
       </body>

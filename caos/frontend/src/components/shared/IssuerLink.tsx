@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ReactNode, MouseEvent } from "react";
 import type { Issuer } from "@/types/issuers";
 import { issuerProfileHref, issuerSearchHref } from "@/lib/issuers";
+import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 
 export function IssuerLink({
   issuer,
@@ -18,10 +18,25 @@ export function IssuerLink({
   className?: string;
   title?: string;
 }) {
+  const { openProfile } = useIssuerProfileOverlay();
   const href = issuer ? issuerProfileHref(issuer) : issuerSearchHref(query || "");
+
+  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    const idOrQuery = issuer?.id || query;
+    if (idOrQuery) {
+      openProfile(idOrQuery);
+    }
+  };
+
   return (
-    <Link href={href} title={title || "Open issuer profile"} className={"no-underline " + className}>
+    <a
+      href={href}
+      onClick={handleClick}
+      title={title || "Open issuer profile"}
+      className={"no-underline cursor-pointer " + className}
+    >
       {children}
-    </Link>
+    </a>
   );
 }

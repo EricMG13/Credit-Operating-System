@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
+import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import { TextInput } from "@/components/shared/TextInput";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -45,6 +46,7 @@ const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
   const router = useRouter();
+  const { openProfile } = useIssuerProfileOverlay();
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -103,7 +105,16 @@ function IssuersDirectory() {
     action: () => "UPLOAD",
   }), []);
   const shownIssuers = useColumnFilters(issuers, filters, filterVals);
-  const setFilter = (col: string, values: string[]) => setFilters((f) => ({ ...f, [col]: values }));
+  const setFilter = (col: string, values: string[] | undefined) =>
+    setFilters((f) => {
+      const next = { ...f };
+      if (values === undefined) {
+        delete next[col];
+      } else {
+        next[col] = values;
+      }
+      return next;
+    });
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -228,7 +239,7 @@ function IssuersDirectory() {
                     col={filterKeys[i]}
                     rows={issuers}
                     getValue={filterVals[filterKeys[i]]}
-                    selected={filters[filterKeys[i]] || []}
+                    selected={filters[filterKeys[i]]}
                     onChange={setFilter}
                     className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
                   >
@@ -249,10 +260,14 @@ function IssuersDirectory() {
                       and a single keyboard/SR-focusable control per row. Replaces the
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
-                  <Link
+                  <a
                     href={issuerProfileHref(issuer)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      openProfile(issuer.id);
+                    }}
                     aria-label={`Open profile for ${issuer.name}`}
-                    className="absolute inset-0 z-0 focus-ring"
+                    className="absolute inset-0 z-0 focus-ring cursor-pointer"
                   />
                   <span className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
@@ -282,7 +297,7 @@ function IssuersDirectory() {
           onClose={() => setShowForm(false)}
           onCreated={(issuer) => {
             setIssuers((prev) => [...prev, issuer]);
-            router.push(issuerProfileHref(issuer));
+            openProfile(issuer.id);
           }}
         />
       ) : null}

@@ -11,6 +11,7 @@ import { TextInput } from "@/components/shared/TextInput";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
 import type { Issuer } from "@/types/issuers";
+import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 
 type Dropzone = ReturnType<typeof useDropzone>;
 
@@ -307,6 +308,7 @@ export function ResultStep({
   totalChunks: number;
   onReset: () => void;
 }) {
+  const { openProfile } = useIssuerProfileOverlay();
   // A vaulted doc that produced 0 chunks has no extractable text (scanned /
   // encrypted PDF, or an image-only file) — it is stored but NOT searchable or
   // analysed. Surface it as a warning so the analyst isn't silently working from
@@ -357,12 +359,21 @@ export function ResultStep({
         >
           UPLOAD ANOTHER
         </button>
-        <Link
-          href={selectedIssuer ? "/issuers/profile?id=" + encodeURIComponent(selectedIssuer.id) : "/issuers"}
-          className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-        >
-          OPEN ISSUER PROFILE →
-        </Link>
+        {selectedIssuer ? (
+          <button
+            onClick={() => openProfile(selectedIssuer.id)}
+            className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+          >
+            OPEN ISSUER PROFILE →
+          </button>
+        ) : (
+          <Link
+            href="/issuers"
+            className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+          >
+            OPEN ISSUER PROFILE →
+          </Link>
+        )}
         <Link
           href="/issuers"
           className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
