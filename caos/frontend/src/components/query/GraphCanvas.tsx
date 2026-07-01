@@ -273,9 +273,9 @@ export function GraphCanvas({
         )}
       </div>
 
-      <div className="shrink-0 flex items-center gap-x-4 gap-y-1 flex-wrap px-1 pt-2">
+      <div className="shrink-0 flex items-center gap-x-4 gap-y-1 px-1 pt-2 overflow-x-auto whitespace-nowrap sm:flex-wrap">
         {legend.map((l) => (
-          <span key={l.label} className="inline-flex items-center gap-1.5 tabular text-caos-2xs text-caos-muted">
+          <span key={l.label} className="inline-flex items-center gap-1.5 shrink-0 tabular text-caos-2xs text-caos-muted">
             <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: l.color }} />
             {l.label}
           </span>

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
-import { Profile } from "@/app/issuers/profile/page";
+import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { PORTFOLIO } from "@/lib/command/data";

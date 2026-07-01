@@ -87,6 +87,7 @@ function ModelBuilder() {
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // evidence modal cited-by needs the report set
   const reports = useMemo(() => buildReports(), []);
@@ -165,14 +166,20 @@ function ModelBuilder() {
   };
   const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
   const resetAll = () => setOverrides({});
-  const saveCurrentModel = () => saveIssuerModel(issuerId, {
-    version: 1,
-    assumptions,
-    overrides,
-    collapsedRows: [...collapsedRows],
-    view: { showQuarters, showAssumptions, showScenarios },
-    model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
-  }).then((r) => setSavedAt(r.updated_at)).catch(() => {});
+  const saveCurrentModel = () => {
+    setSaving(true);
+    return saveIssuerModel(issuerId, {
+      version: 1,
+      assumptions,
+      overrides,
+      collapsedRows: [...collapsedRows],
+      view: { showQuarters, showAssumptions, showScenarios },
+      model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
+    })
+      .then((r) => setSavedAt(r.updated_at))
+      .catch(() => {})
+      .finally(() => setSaving(false));
+  };
 
   const yearsKey = (caseKey: "base" | "down"): "baseYears" | "downYears" => (caseKey === "base" ? "baseYears" : "downYears");
   const setAsmp = (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) =>
@@ -271,7 +278,11 @@ function ModelBuilder() {
         </button>
         {ovCount ? (
           <button
-            onClick={resetAll}
+            onClick={() => {
+              if (window.confirm(`Are you sure you want to reset all ${ovCount} manual cell overrides?`)) {
+                resetAll();
+              }
+            }}
             title="Clear all manual overrides"
             className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
             style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)" }}
@@ -281,11 +292,11 @@ function ModelBuilder() {
         ) : null}
         <button
           onClick={saveCurrentModel}
-          disabled={!hasIssuerModel}
+          disabled={!hasIssuerModel || saving}
           title="Save this issuer model to the database; Report Builder reads the saved version only"
           className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
         >
-          SAVE MODEL
+          {saving ? "SAVING..." : "SAVE MODEL"}
         </button>
         {savedAt ? <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap hidden xl:inline">SAVED {new Date(savedAt).toLocaleString()}</span> : null}
         <button
@@ -316,6 +327,8 @@ function ModelBuilder() {
               overrides={overrides}
               onResetCell={resetCell}
               onOpenEvidence={setEvModal}
+              showQ={showQuarters}
+              collapsedRows={collapsedRows}
             />
             <div className="flex-1 min-h-0 flex gap-2">
               {showAssumptions ? (

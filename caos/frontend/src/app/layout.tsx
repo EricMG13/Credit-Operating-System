@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/components/shared/AuthProvider";
 import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
@@ -7,9 +6,6 @@ import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
 import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Credit Agent OS (CAOS)",
@@ -24,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-caos-bg text-caos-text min-h-screen`}
+        className="font-sans bg-caos-bg text-caos-text min-h-screen"
       >
         <AuthProvider>
           <NotificationProvider>

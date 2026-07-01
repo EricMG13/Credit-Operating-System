@@ -4,7 +4,6 @@
 // left deliverable queue + right lineage / compose / export rails.
 
 import type { Report, Section } from "@/lib/reports/builders";
-import { useState } from "react";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { EvChip } from "./EvidenceModal";
@@ -39,7 +38,6 @@ export function ReportList({
   onSel: (id: string) => void;
   onCollapse?: () => void;
 }) {
-  const [memoOpen, setMemoOpen] = useState(false);
   return (
     <Panel
       title="Committee Deliverables"
@@ -47,24 +45,6 @@ export function ReportList({
       right={onCollapse ? <button onClick={onCollapse} className="tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring">COLLAPSE</button> : undefined}
     >
       <div className="p-1.5 flex flex-col gap-1">
-        <button
-          onClick={() => setMemoOpen((v) => !v)}
-          className="px-2 py-1 rounded border border-caos-border bg-caos-bg text-left hover:border-caos-accent/60 transition-caos focus-ring"
-          aria-expanded={memoOpen}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-caos-xl text-caos-text flex-1">IC Memo</span>
-            <span className="tabular text-caos-xs text-caos-muted">{memoOpen ? "−" : "+"}</span>
-          </div>
-          <div className="tabular text-caos-2xs text-caos-muted">Credit Snapshot front page · L1/L2/L3/L4/L6 pages · L5 appendix</div>
-          {memoOpen ? (
-            <div className="mt-1 grid grid-cols-2 gap-1 tabular text-caos-3xs uppercase tracking-wide text-caos-muted">
-              {["L1 Business", "L2 Risk", "L3 Capital", "L4 Model", "L6 Committee", "L5 Appendix"].map((x) => (
-                <span key={x} className="rounded border border-caos-border/70 px-1 py-0.5">{x}</span>
-              ))}
-            </div>
-          ) : null}
-        </button>
         {reports.map((r) => {
           const sel = r.id === active;
           return (
@@ -147,6 +127,64 @@ export function ComposePanel({
 }) {
   const omitted = omit || {};
   const onCount = rep.sections.length - Object.keys(omitted).length;
+  const hasPages = rep.sections.some(s => s.page);
+
+  if (hasPages) {
+    const groups: { name: string; items: { s: Section; idx: number }[] }[] = [];
+    rep.sections.forEach((s, i) => {
+      const pageName = s.page || "Page Group";
+      let g = groups.find((gr) => gr.name === pageName);
+      if (!g) {
+        g = { name: pageName, items: [] };
+        groups.push(g);
+      }
+      g.items.push({ s, idx: i });
+    });
+
+    return (
+      <Panel
+        title="Compose"
+        right={<span className="tabular text-caos-xs text-caos-muted">{onCount}/{rep.sections.length} sections</span>}
+      >
+        <div className="flex flex-col gap-3 p-2 overflow-y-auto max-h-[calc(100vh-140px)]">
+          {groups.map((g) => (
+            <div key={g.name} className="flex flex-col border border-caos-border bg-caos-panel rounded overflow-hidden">
+              <div className="bg-caos-bg px-2 py-1 border-b border-caos-border text-[9px] font-semibold text-caos-accent uppercase tracking-wider">
+                {g.name}
+              </div>
+              <div className="flex flex-col py-1">
+                {g.items.map(({ s, idx }) => {
+                  const off = !!omitted[idx];
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => onToggle(idx)}
+                      className="w-full flex items-center gap-2 px-2.5 py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos"
+                    >
+                      <span
+                        className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
+                        style={{
+                          borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
+                          background: off ? "transparent" : "rgba(79,140,255,0.2)",
+                          color: "var(--caos-accent)",
+                        }}
+                      >
+                        {!off ? "✓" : null}
+                      </span>
+                      <span className={"tabular text-caos-2xs uppercase tracking-wide truncate " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
+                        {secLabel(s)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    );
+  }
+
   return (
     <Panel
       title="Compose"

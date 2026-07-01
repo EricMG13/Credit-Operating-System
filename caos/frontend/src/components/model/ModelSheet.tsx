@@ -18,6 +18,16 @@ export interface CellRef {
   col: string;
 }
 
+export function getColLetter(idx: number): string {
+  let letter = "";
+  let temp = idx;
+  while (temp >= 0) {
+    letter = String.fromCharCode((temp % 26) + 65) + letter;
+    temp = Math.floor(temp / 26) - 1;
+  }
+  return letter;
+}
+
 interface ColDef {
   key: string;
   group: string;
@@ -94,6 +104,69 @@ export function Sheet({
   const labelColor = (c: ColDef) =>
     c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (editing) return;
+
+    const selectableRows = ROWS.filter((row) => row.id && !hidden.has(row.id));
+    const rowIds = selectableRows.map((r) => r.id!);
+    const colKeys = colDefs.map((c) => c.key);
+
+    if (!sel || rowIds.length === 0 || colKeys.length === 0) return;
+
+    let rowIdx = rowIds.indexOf(sel.row);
+    let colIdx = colKeys.indexOf(sel.col);
+
+    if (rowIdx === -1 || colIdx === -1) return;
+
+    let preventDefault = true;
+
+    switch (e.key) {
+      case "ArrowUp":
+        if (rowIdx > 0) rowIdx--;
+        break;
+      case "ArrowDown":
+        if (rowIdx < rowIds.length - 1) rowIdx++;
+        break;
+      case "ArrowLeft":
+        if (colIdx > 0) colIdx--;
+        break;
+      case "ArrowRight":
+        if (colIdx < colKeys.length - 1) colIdx++;
+        break;
+      case "Tab":
+        if (e.shiftKey) {
+          if (colIdx > 0) {
+            colIdx--;
+          } else if (rowIdx > 0) {
+            rowIdx--;
+            colIdx = colKeys.length - 1;
+          }
+        } else {
+          if (colIdx < colKeys.length - 1) {
+            colIdx++;
+          } else if (rowIdx < rowIds.length - 1) {
+            rowIdx++;
+            colIdx = 0;
+          }
+        }
+        break;
+      case "Enter":
+        const rowId = sel.row;
+        const colKey = sel.col;
+        if (isEditable(rowId, colKey)) {
+          onEdit({ row: rowId, col: colKey });
+        }
+        break;
+      default:
+        preventDefault = false;
+    }
+
+    if (preventDefault) {
+      e.preventDefault();
+      onSel({ row: rowIds[rowIdx], col: colKeys[colIdx] });
+    }
+  };
+
   const renderCell = (rowId: string, c: ColDef, opts: { bold?: 1; pct?: 1; shade?: 1; line?: 1; isHl?: boolean }) => {
     const isSel = sel != null && sel.row === rowId && sel.col === c.key;
     const colHl = hlGroup === c.group;
@@ -118,7 +191,8 @@ export function Sheet({
         style={{
           width: c.w, marginLeft: c.gap ? 8 : 0,
           background: cellBackground({ isSel, cellHl, colHl, isHl: !!opts.isHl, shade: !!opts.shade }),
-          borderTop: opts.line ? "1px solid var(--caos-border)" : "none",
+          borderRight: "1px solid var(--caos-border)",
+          borderBottom: "1px solid var(--caos-border)",
           boxShadow: cellBoxShadow(isSel, cellHl),
         }}
       >
@@ -140,12 +214,23 @@ export function Sheet({
     );
   };
 
+  let rowCounter = 0;
+
   return (
-    <div tabIndex={0} aria-label="Model worksheet" className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring">
+    <div
+      tabIndex={0}
+      aria-label="Model worksheet"
+      onKeyDown={handleKeyDown}
+      className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring"
+    >
       <div style={{ width: "max-content", minWidth: "100%" }}>
         {/* group bar */}
         <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
-          <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
+          <div
+            className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
+            style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
+          />
+          <div className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
@@ -163,9 +248,14 @@ export function Sheet({
         </div>
         {/* period labels */}
         <div className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
-          <div className="sticky left-0 z-10 shrink-0" style={{ width: LBL, background: "var(--caos-bg)" }}></div>
-          {colDefs.map((c) => (
-            <div key={c.key} className="shrink-0 flex items-baseline justify-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0 }}>
+          <div
+            className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
+            style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
+          />
+          <div className="sticky z-10 shrink-0" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}></div>
+          {colDefs.map((c, colIdx) => (
+            <div key={c.key} className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
+              <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(colIdx)}</span>
               <span
                 className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
                 style={{ color: labelColor(c) }}
@@ -178,19 +268,52 @@ export function Sheet({
 
         {ROWS.filter((row) => !row.id || !hidden.has(row.id)).map((row, ri) => {
           if (row.sec) {
+            rowCounter++;
             return (
               <div key={"s" + ri} className="flex mt-1.5">
-                <div className="sticky left-0 z-10 shrink-0 px-2 flex items-center" style={{ width: LBL, background: "var(--caos-bg)" }}>
+                <div
+                  className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
+                  style={{
+                    width: 24,
+                    background: "var(--caos-panel)",
+                    borderRight: "1px solid var(--caos-border)",
+                    borderBottom: "1px solid var(--caos-border)",
+                    color: "var(--caos-muted)",
+                  }}
+                >
+                  {rowCounter}
+                </div>
+                <div
+                  className="sticky z-10 shrink-0 px-2 flex items-center"
+                  style={{
+                    left: 24,
+                    width: LBL,
+                    background: "var(--caos-bg)",
+                    borderRight: "1px solid var(--caos-border)",
+                    borderBottom: "1px solid var(--caos-border)",
+                  }}
+                >
                   <span className="text-caos-md font-semibold text-caos-text">{row.sec}</span>
                 </div>
-                {groups.map((gr, i) => (
-                  <div key={i} className="shrink-0 flex items-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+                {colDefs.map((c) => (
+                  <div
+                    key={c.key}
+                    className="shrink-0 flex items-center"
+                    style={{
+                      width: c.w,
+                      marginLeft: c.gap ? 8 : 0,
+                      borderRight: "1px solid var(--caos-border)",
+                      borderBottom: "1px solid var(--caos-border)",
+                    }}
+                  >
                     <div className="w-full mx-px h-[13px] rounded-sm" style={{ background: "rgba(79,140,255,0.16)" }}></div>
                   </div>
                 ))}
               </div>
             );
           }
+          rowCounter++;
+          const rowIdx = rowCounter;
           const isHl = hl != null && row.src === hl;
           const collapsible = !!row.id && !!collapseChildren[row.id];
           const collapsed = !!row.id && !!collapsedRows?.has(row.id);
@@ -202,8 +325,26 @@ export function Sheet({
               style={{ background: isHl ? "rgba(79,140,255,0.10)" : "transparent" }}
             >
               <div
-                className="sticky left-0 z-10 shrink-0 flex items-baseline gap-1.5 px-2"
-                style={{ width: LBL, background: isHl ? "#15202f" : "var(--caos-bg)", borderTop: row.line ? "1px solid var(--caos-border)" : "none" }}
+                className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
+                style={{
+                  width: 24,
+                  background: isHl ? "color-mix(in srgb, var(--caos-accent) 10%, var(--caos-bg))" : "var(--caos-panel)",
+                  borderRight: "1px solid var(--caos-border)",
+                  borderBottom: "1px solid var(--caos-border)",
+                  color: "var(--caos-muted)",
+                }}
+              >
+                {rowIdx}
+              </div>
+              <div
+                className="sticky z-10 shrink-0 flex items-baseline gap-1.5 px-2"
+                style={{
+                  left: 24,
+                  width: LBL,
+                  background: isHl ? "color-mix(in srgb, var(--caos-accent) 10%, var(--caos-bg))" : "var(--caos-bg)",
+                  borderRight: "1px solid var(--caos-border)",
+                  borderBottom: "1px solid var(--caos-border)",
+                }}
               >
                 {collapsible ? (
                   <button
@@ -235,7 +376,7 @@ export function Sheet({
 // flow. Extracting would scatter the bar's layout for no real simplification.
 // fallow-ignore-next-line complexity
 export function FormulaBar({
-  model, sel, severity, overrides, onResetCell, onOpenEvidence,
+  model, sel, severity, overrides, onResetCell, onOpenEvidence, showQ, collapsedRows,
 }: {
   model: Model;
   sel: CellRef | null;
@@ -243,6 +384,8 @@ export function FormulaBar({
   overrides: Overrides;
   onResetCell: (key: string) => void;
   onOpenEvidence: (id: string) => void;
+  showQ: boolean;
+  collapsedRows: Set<string>;
 }) {
   if (!sel) {
     return (
@@ -263,9 +406,40 @@ export function FormulaBar({
   const caseNote = ctx.kind === "b" ? "base case = sponsor model − CP-6A chair haircut ($35M) − CP-1B phasing"
     : ctx.kind === "d" ? `downside = CP-2B pathway P1 (OEM destocking) at severity ×${severity.toFixed(2)}`
     : ctx.derived ? "derived period — Q4-25 management accounts missing (gap G-02)" : null;
+
+  // Calculate grid cell coordinate (e.g. C12)
+  const colDefs = model.columns.filter((c) => showQ || c.group !== "Q");
+  const colIdx = colDefs.findIndex((c) => c.key === sel.col);
+  const colLetter = colIdx !== -1 ? getColLetter(colIdx) : "";
+
+  const collapseChildren: Record<string, string[]> = {
+    rev: ["segD", "gsegD", "segF", "gsegF", "segA", "gsegA"],
+    adj: ROWS.filter((r) => r.id?.startsWith("ab")).map((r) => r.id!).filter((id) => id !== "ab"),
+    secured: ["rcf", "tlb", "ssn"],
+    tdebt: ["rcf", "tlb", "ssn", "sub"],
+  };
+  const hidden = new Set(Object.entries(collapseChildren).flatMap(([parent, kids]) => collapsedRows?.has(parent) ? kids : []));
+
+  let visibleRowIndex = -1;
+  let currentVisibleIndex = 0;
+  for (const r of ROWS) {
+    if (hidden.has(r.id ?? "")) continue;
+    currentVisibleIndex++;
+    if (r.id === sel.row) {
+      visibleRowIndex = currentVisibleIndex;
+      break;
+    }
+  }
+  const cellCoord = colLetter && visibleRowIndex !== -1 ? `${colLetter}${visibleRowIndex}` : "";
+
   return (
     <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-hidden">
       <span className="tabular text-caos-xl text-caos-accent">ƒ</span>
+      {cellCoord ? (
+        <span className="tabular text-caos-xs px-1.5 py-0.5 rounded bg-caos-elevated border border-caos-accent/40 text-caos-accent font-semibold select-none">
+          {cellCoord}
+        </span>
+      ) : null}
       <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{row.l} · {ctx.label}</span>
       <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{fmt(v, row.f) || "—"}</span>
       <span className="w-px h-4 bg-caos-border shrink-0"></span>

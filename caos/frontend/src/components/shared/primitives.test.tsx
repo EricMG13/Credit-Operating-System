@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { StatCard } from "./StatCard";
+import { Panel } from "./Panel";
 import { SectionHeader } from "./SectionHeader";
 import { StatusGlyph } from "./StatusGlyph";
 import { RailShell } from "./RailShell";
@@ -203,5 +204,47 @@ describe("FlashOnChange", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("Panel", () => {
+  it("renders title, children and right content by default", () => {
+    render(
+      <Panel title="Test Panel" right={<span>Right Content</span>}>
+        <div>Body Content</div>
+      </Panel>
+    );
+    expect(screen.getByText("Test Panel")).toBeTruthy();
+    expect(screen.getByText("Right Content")).toBeTruthy();
+    expect(screen.getByText("Body Content")).toBeTruthy();
+  });
+
+  it("does not render body when defaultCollapsed is true", () => {
+    render(
+      <Panel title="Collapsed Panel" collapsible defaultCollapsed>
+        <div>Hidden Body</div>
+      </Panel>
+    );
+    expect(screen.getByText("Collapsed Panel")).toBeTruthy();
+    expect(screen.queryByText("Hidden Body")).toBeNull();
+  });
+
+  it("toggles body visibility when the collapse button is clicked", () => {
+    render(
+      <Panel title="Toggling Panel" collapsible>
+        <div>Toggle Body</div>
+      </Panel>
+    );
+    expect(screen.getByText("Toggle Body")).toBeTruthy();
+
+    const collapseButton = screen.getByRole("button", { name: "Collapse Toggling Panel panel" });
+    fireEvent.click(collapseButton);
+
+    expect(screen.queryByText("Toggle Body")).toBeNull();
+
+    const expandButton = screen.getByRole("button", { name: "Expand Toggling Panel panel" });
+    fireEvent.click(expandButton);
+
+    expect(screen.getByText("Toggle Body")).toBeTruthy();
   });
 });

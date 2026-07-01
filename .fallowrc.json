@@ -3,5 +3,15 @@
   "ignorePatterns": ["ds-bundle/**", ".ds-sync/**", ".design-sync/**", "outputs/**"],
   "ignoreExportsUsedInFile": true,
   "ignoreDependencies": ["axe-core", "eslint-config-next"],
-  "entry": ["caos/tests/frontend/e2e/**/*.spec.ts"]
+  "entry": ["caos/tests/frontend/e2e/**/*.spec.ts"],
+  "ignoreExports": [
+    {
+      "file": "caos/frontend/src/lib/command/data.ts",
+      "exports": ["*"]
+    },
+    {
+      "file": "caos/frontend/src/lib/command/rvdata.ts",
+      "exports": ["*"]
+    }
+  ]
 }

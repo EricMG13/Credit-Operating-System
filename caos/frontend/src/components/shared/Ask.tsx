@@ -15,9 +15,13 @@ import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
+import { RelativeValueTable } from "@/components/query/RelativeValueTable";
+import { ScatterCanvas } from "@/components/query/ScatterCanvas";
+import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
+import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -87,29 +91,41 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
     { id: "scatter", text: "Plot leverage × coverage", sub: "cross-issuer scatter" },
     { id: "trace-source", text: "Trace the IC verdict to its sources", sub: "provenance walk" },
+    ANALYST_MEMO_PROMPT,
   ],
 };
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname() || "";
   useEffect(() => {
     // fallow-ignore-next-line complexity
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setOpen((v) => !v);
+        if (pathname.startsWith("/query")) {
+          window.dispatchEvent(new Event("caos:query-focus"));
+        } else {
+          setOpen((v) => !v);
+        }
       } else if (e.key === "Escape") {
         setOpen(false);
       }
     };
-    const onAskToggle = () => setOpen((v) => !v);
+    const onAskToggle = () => {
+      if (pathname.startsWith("/query")) {
+        window.dispatchEvent(new Event("caos:query-focus"));
+      } else {
+        setOpen((v) => !v);
+      }
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("caos:ask-toggle", onAskToggle);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("caos:ask-toggle", onAskToggle);
     };
-  }, []);
+  }, [pathname]);
   const value = useMemo(() => ({ open, setOpen, toggle: () => setOpen((v) => !v) }), [open]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -144,6 +160,8 @@ export function AskLauncher() {
   // outside RequireAuth). Loading/error/needs-login all resolve to "not ready".
   if (!user || needsLogin) return null;
 
+  if (pathname.startsWith("/query")) return null;
+
   // Floating trigger, hidden while open. Deep-Dive also has an in-panel ASK
   // button, but this keeps ⌘K discoverable everywhere.
   const trigger = !open ? (
@@ -153,7 +171,7 @@ export function AskLauncher() {
       className="fixed bottom-3 right-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
-      <span className="text-caos-2xl">✦</span> Ask
+      <AskMark /> Ask
       <span className="tabular text-caos-2xs px-1 rounded border border-caos-border">Alt+K</span>
     </button>
   ) : null;
@@ -173,18 +191,6 @@ export function AskLauncher() {
 
 // Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets
 // focus-trap / restore / scroll-lock + dialog semantics via useModalA11y.
-const KEYWORDS: [string, string][] = [
-  ["profile", "peer-profile"], ["peer", "peer-set"], ["energy", "contagion"], ["co-move", "contagion"],
-  ["contagion", "contagion"], ["theme", "shared-theme"], ["flag", "shared-theme"], ["mention", "shared-theme"],
-  ["sector", "concentration-map"], ["concentration", "concentration-map"], ["cluster", "concentration-map"],
-  ["scatter", "scatter"], ["percentile", "distribution"], ["rank", "distribution"], ["trend", "metric-trend"],
-  ["verdict", "trace-source"], ["trace", "trace-source"], ["source", "trace-source"], ["lineage", "lineage-audit"],
-  ["orphan", "orphan-claims"], ["ungrounded", "orphan-claims"], ["impact", "impact-analysis"],
-  ["coverage", "coverage-completeness"], ["finding", "open-findings"], ["lane", "gate-lane"],
-  ["committee", "committee-board"], ["debate", "debate-digest"], ["tension", "tension"],
-  ["disagree", "tension"], ["diff", "run-diff"], ["changed", "run-diff"], ["sponsor", "sponsor-graph"],
-];
-
 function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const concept = conceptFor(pathname);
@@ -201,6 +207,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
   const [hasQueried, setHasQueried] = useState(false);
+  const [layout, setLayout] = useState<"graph" | "trace" | "rv" | "scatter">("graph");
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -257,21 +264,8 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const submit = useCallback(() => {
     const q = text.trim().toLowerCase();
     if (!q) return;
-    const tokens = q.split(/\W+/).filter(Boolean);
     const allCaps = caps?.groups.flatMap((g) => g.capabilities) ?? [];
-    const aliasBy = new Map<string, string[]>();
-    for (const [kw, id] of KEYWORDS) aliasBy.set(id, [...(aliasBy.get(id) ?? []), kw]);
-
-    const scored = allCaps
-      .map((c) => {
-        const labelWords = c.label.toLowerCase().split(/\W+/);
-        let s = 0;
-        for (const a of aliasBy.get(c.id) ?? []) if (q.includes(a)) s += 2;
-        for (const t of tokens) if (labelWords.includes(t)) s += 1;
-        return { c, s };
-      })
-      .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s || Number(b.c.enabled) - Number(a.c.enabled));
+    const scored = rankQueryCapabilities(q, allCaps);
 
     const runnable = scored.filter((x) => x.c.enabled).map((x) => x.c);
     if (scored.length === 0) {
@@ -313,14 +307,14 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
           <>
             <div className="flex items-center justify-between pb-1.5 border-b border-caos-border/50">
               <div className="flex items-center gap-2">
-                <span className="text-caos-accent text-caos-xl">✦</span>
+                <AskMark />
                 <span className="tabular text-caos-xs text-caos-muted uppercase tracking-wider font-mono">Ask CAOS</span>
               </div>
               <CloseButton onClick={onClose} title="Close (Esc)" />
             </div>
 
             <div className="flex items-center gap-2 bg-caos-elevated border border-caos-border rounded px-3 py-2 focus-within:border-caos-accent/70 transition-caos">
-              <span className="text-caos-accent text-caos-2xl">✦</span>
+              <AskMark />
               <input
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -380,7 +374,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                 ← Back
               </button>
               <div className="flex-1 flex items-center gap-2 bg-caos-panel border border-caos-border rounded px-2.5 py-1 focus-within:border-caos-accent/70 transition-caos">
-                <span className="text-caos-accent text-caos-xl">✦</span>
+                <AskMark />
                 <input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
@@ -422,32 +416,63 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                 )}
 
                 {graph && !graphErr && (
-                  <div className="flex items-center gap-2 flex-wrap shrink-0">
-                    <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
-                      {graph.mode}
-                    </span>
-                    <span className="tabular text-caos-md text-caos-text">{graph.title}</span>
-                    {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running…</span>}
-                    <span className="flex-1" />
-                    {graph.meta.map((m, i) => (
-                      <span key={i} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap">
-                        {m}
-                        {i < graph.meta.length - 1 ? " ·" : ""}
+                  <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
+                        {graph.mode}
                       </span>
-                    ))}
-                    <div className="flex gap-1.5 ml-2">
-                      <button
-                        onClick={() => downloadQueryCsv(graph)}
-                        className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer"
-                      >
-                        CSV
-                      </button>
-                      <button
-                        onClick={() => window.print()}
-                        className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos cursor-pointer"
-                      >
-                        PDF
-                      </button>
+                      <span className="tabular text-caos-md text-caos-text">{graph.title}</span>
+                      {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running…</span>}
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Layout Switcher */}
+                      <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5">
+                        {(
+                          [
+                            { id: "graph", label: "Graph" },
+                            { id: "trace", label: "Lineage Flow" },
+                            { id: "rv", label: "Table" },
+                            { id: "scatter", label: "Scatter" },
+                          ] as const
+                        ).map((l) => (
+                          <button
+                            key={l.id}
+                            onClick={() => setLayout(l.id)}
+                            className={`tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono ${
+                              layout === l.id
+                                ? "bg-caos-accent text-caos-bg font-semibold"
+                                : "text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40"
+                            }`}
+                          >
+                            {l.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="h-4 w-px bg-caos-border hidden sm:block" />
+
+                      {graph.meta.map((m, i) => (
+                        <span key={i} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap hidden sm:inline">
+                          {m}
+                          {i < graph.meta.length - 1 ? " ·" : ""}
+                        </span>
+                      ))}
+
+                      <div className="flex gap-1.5 ml-2">
+                        <button
+                          onClick={() => downloadQueryCsv(graph)}
+                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer"
+                        >
+                          CSV
+                        </button>
+                        <button
+                          onClick={() => window.print()}
+                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos cursor-pointer"
+                        >
+                          PDF
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -469,6 +494,33 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                     <div className="flex-1 flex items-center justify-center text-center px-6">
                       <div className="tabular text-caos-md text-caos-muted">Submit a query to view results.</div>
                     </div>
+                  ) : layout === "rv" ? (
+                    <RelativeValueTable
+                      graph={graph}
+                      selectedNodeId={selectedNode?.id}
+                      onSelectNode={(node) => {
+                        setSelectedNode(node);
+                        setReaderOpen(true);
+                      }}
+                    />
+                  ) : layout === "scatter" ? (
+                    <ScatterCanvas
+                      graph={graph}
+                      selectedNodeId={selectedNode?.id}
+                      onSelectNode={(node) => {
+                        setSelectedNode(node);
+                        setReaderOpen(true);
+                      }}
+                    />
+                  ) : layout === "trace" ? (
+                    <LineageFlow
+                      graph={graph}
+                      selectedNodeId={selectedNode?.id}
+                      onSelectNode={(node) => {
+                        setSelectedNode(node);
+                        setReaderOpen(true);
+                      }}
+                    />
                   ) : (
                     <GraphCanvas
                       graph={graph}
@@ -576,5 +628,16 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
     </div>
+  );
+}
+
+function AskMark({ small = false }: { small?: boolean }) {
+  const size = small ? "w-3.5 h-3.5" : "w-4 h-4";
+  return (
+    <span className={`${size} shrink-0 rounded-sm border border-caos-accent/70 bg-caos-accent/15 text-caos-accent flex items-center justify-center`} aria-hidden="true">
+      <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 stroke-current" fill="none" strokeWidth="1.5" strokeLinecap="round">
+        <path d="M2 6h8M6 2v8" />
+      </svg>
+    </span>
   );
 }

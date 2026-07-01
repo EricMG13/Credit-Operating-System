@@ -34,8 +34,20 @@ export function ConceptHotkeys() {
       if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
         e.preventDefault();
         if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:issuer-search-focus"));
-        if (e.key.toLowerCase() === "k") window.dispatchEvent(new Event("caos:ask-toggle"));
+        if (e.key.toLowerCase() === "k") {
+          if (pathRef.current?.startsWith("/query")) {
+            window.dispatchEvent(new Event("caos:query-focus"));
+          } else {
+            window.dispatchEvent(new Event("caos:ask-toggle"));
+          }
+        }
         if (e.key.toLowerCase() === "c") window.dispatchEvent(new Event("caos:collapse-toggle"));
+        return;
+      }
+      if (e.key === "," || e.key === "." || e.code === "Comma" || e.code === "Period") {
+        e.preventDefault();
+        const dir = (e.key === "." || e.code === "Period") ? 1 : -1;
+        window.dispatchEvent(new CustomEvent("caos:subview-cycle", { detail: { direction: dir } }));
         return;
       }
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;

@@ -341,6 +341,30 @@ main table:not(.rd-table) :is(th, td) {
   body > div:not(.print-root) { display: none !important; }
   .print-root { display: block !important; }
   .print-root .rd-paper { width: 100%; box-shadow: none; padding: 0; }
+  .rd-page-container { page-break-after: always; }
+  .rd-page-container:last-child { page-break-after: avoid; }
   @page { size: letter; margin: 13mm 14mm; }
   @page model-appendix { size: letter landscape; margin: 6mm; }
+}
+
+/* Edit Mode Revert Dot styling */
+.rd-edit-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.rd-revert-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--caos-warning);
+  margin-left: 4px;
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+  border: none;
+  padding: 0;
+}
+.rd-revert-dot:hover {
+  transform: scale(1.4);
 }

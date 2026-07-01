@@ -7,7 +7,7 @@
 // Analytical Deep-Dive. Live CP-MON intake/alerts now live in the Monitor
 // concept — the header alerts badge deep-links there.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
@@ -39,6 +39,22 @@ export default function CommandPage() {
 function CommandCenter() {
   const [view, setView] = useState<"cio" | "res" | "rv">("cio");
   const [selected, setSelected] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onCycle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ direction: number }>;
+      const dir = customEvent.detail?.direction || 1;
+      const views = ["cio", "res", "rv"] as const;
+      setView((curr) => {
+        const idx = views.indexOf(curr);
+        const nextIdx = (idx + dir + views.length) % views.length;
+        return views[nextIdx];
+      });
+    };
+    window.addEventListener("caos:subview-cycle", onCycle);
+    return () => window.removeEventListener("caos:subview-cycle", onCycle);
+  }, []);
+
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
   const tick = run.sim.tick;
@@ -174,6 +190,7 @@ function CommandCenter() {
             <PanelShell
               title="Sector Review Board · CP-SR"
               className="flex-[2]"
+              collapsible
               right={<span className="tabular text-caos-xs text-caos-muted">8 sectors · 2 refreshes due</span>}
             >
               <SectorBoard />

@@ -56,7 +56,7 @@ export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
     ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
   ] as const;
   return (
-    <div className="text-caos-xl" style={{ minWidth: 760 }}>
+    <div className="text-caos-md" style={{ minWidth: 760 }}>
       <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
         {heads.map(([h, key], i) => (
           <FilterHeader
@@ -77,10 +77,10 @@ export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
         const rv = r.rv_recommendation;
         const frag = r.downside_fragility;
         return (
-          <div key={r.issuer_id} className={COLS + " px-3 py-[3px] border-b border-caos-border/50"}>
+          <div key={r.issuer_id} className={COLS + " px-3 py-[2px] border-b border-caos-border/50"}>
             <span className="flex items-center gap-1.5 min-w-0">
               <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
-              <span className="text-caos-text truncate text-caos-lg">{r.name}</span>
+              <span className="text-caos-text truncate text-caos-md">{r.name}</span>
             </span>
             <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
             <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>

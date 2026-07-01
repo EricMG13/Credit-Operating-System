@@ -39,12 +39,12 @@ export function cellTextColor(opts: {
       : pct
       ? v != null && v < 0
         ? "var(--caos-critical)"
-        : "rgba(79,140,255,0.9)"
+        : "var(--caos-accent)"
       : v != null && v < 0 && rowFmt === "m"
       ? "var(--caos-muted)"
       : bold
       ? "var(--caos-text)"
-      : "rgba(230,230,239,0.82)")
+      : "var(--caos-text)")
   );
 }
 

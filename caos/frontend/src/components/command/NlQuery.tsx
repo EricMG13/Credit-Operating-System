@@ -358,7 +358,7 @@ export function NlQueryBody() {
   );
 }
 
-export function NlQuery({ compact = false }: { compact?: boolean }) {
+export function NlQuery({ compact: _compact = false }: { compact?: boolean }) {
   const [expanded, setExpanded] = useState(true);
   return (
     <PanelShell

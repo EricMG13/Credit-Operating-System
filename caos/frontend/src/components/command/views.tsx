@@ -13,7 +13,6 @@ import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAILS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
   type EmailRow,
 } from "@/lib/command/data";
-import { SECTORS as RV_SECTORS } from "@/lib/command/rvdata";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
@@ -50,8 +49,6 @@ export function Spark({ data, color = "var(--caos-accent)", w = 72, h = 18 }: { 
 }
 
 /* ---------- CIO/PM view: portfolio table ---------- */
-const COLS = "grid grid-cols-[58px_170px_150px_86px_104px_90px_46px_74px_70px_58px_70px_44px_44px_54px_86px_86px_48px_48px_48px_48px_92px_44px_74px_36px] items-center gap-x-2";
-
 // Tooltips for the abbreviated / glyph-only column headers — F5: a column's
 // meaning shouldn't depend on prior knowledge or a bare glyph.
 const COL_TITLES: Record<string, string> = {
@@ -75,6 +72,7 @@ export function PortfolioTable({
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   const scrollerRef = useRef<HTMLDivElement>(null);
   const customizerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const [filters, setFilters] = useState<FilterState>({});
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((f) => {
@@ -87,8 +85,7 @@ export function PortfolioTable({
       return next;
     });
 
-  const keys = ["code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"] as const;
-  type PortfolioFilterKey = (typeof keys)[number];
+  type PortfolioFilterKey = "code" | "name" | "sector" | "subSector" | "figi" | "rank" | "rating" | "size" | "margin" | "maturity" | "bid" | "ask" | "dd" | "spark" | "ytdSpark" | "lev" | "snrLev" | "totalLev" | "cov" | "posture" | "conv" | "qa" | "alerts";
   const vals = useMemo<Record<PortfolioFilterKey, (p: (typeof PORTFOLIO)[number]) => string | number | null | undefined>>(() => ({
     code: (p) => p.code, name: (p) => p.borrower || p.name, sector: (p) => p.sector,
     subSector: (p) => p.subSector, figi: (p) => p.figi, rank: (p) => p.rank, rating: (p) => p.rating,
@@ -111,10 +108,10 @@ export function PortfolioTable({
     { key: "expand", head: "", width: "24px", sticky: "sticky left-0 z-30" },
     { key: "code", head: "Ticker", width: "58px", sticky: "sticky left-[32px] z-30" },
     { key: "name", head: "Company", width: "170px", sticky: "sticky left-[98px] z-30" },
-    { key: "sector", head: "Sector", width: "86px" },
-    { key: "subSector", head: "Sub-sector", width: "104px" },
+    { key: "sector", head: "Sector", width: "220px" },
+    { key: "subSector", head: "Sub-sector", width: "240px" },
     { key: "figi", head: "FIGI", width: "90px" },
-    { key: "rank", head: "Rank", width: "46px" },
+    { key: "rank", head: "Rank", width: "110px" },
     { key: "rating", head: "Ratings", width: "74px" },
     { key: "size", head: "Size", width: "70px" },
     { key: "margin", head: "Margin", width: "58px" },
@@ -141,6 +138,7 @@ export function PortfolioTable({
     if (!customizerOpen) return;
     const onPointer = (e: PointerEvent) => {
       if (customizerRef.current?.contains(e.target as Node)) return;
+      if (buttonRef.current?.contains(e.target as Node)) return;
       setCustomizerOpen(false);
     };
     window.addEventListener("pointerdown", onPointer);
@@ -149,7 +147,7 @@ export function PortfolioTable({
 
   const activeCols = ALL_COLS.filter((c) => visibleCols.includes(c.key));
   const gridTemplateColumns = activeCols.map((c) => c.width).join(" ");
-  const minWidth = activeCols.reduce((sum, c) => sum + parseInt(c.width), 0) + (activeCols.length - 1) * 8;
+  const minWidth = activeCols.reduce((sum, c) => sum + parseInt(c.width), 0) + (activeCols.length - 1) * 8 + 24;
 
   const renderCell = (key: string, p: (typeof PORTFOLIO)[number], sel: boolean) => {
     const stickyBg = sel ? "bg-caos-elevated" : "bg-caos-bg";
@@ -174,7 +172,7 @@ export function PortfolioTable({
           <IssuerLink
             key="code"
             query={p.code}
-            className={`sticky left-[32px] z-20 inline-flex items-center min-h-[20px] tabular text-caos-accent text-caos-lg transition-caos ${stickyBg} ${hoverBg}`}
+            className={`sticky left-[32px] z-20 inline-flex items-center min-h-[18px] tabular text-caos-accent transition-caos ${stickyBg} ${hoverBg}`}
             title={`Open ${p.code} profile`}
           >
             {p.code}
@@ -185,7 +183,7 @@ export function PortfolioTable({
           <IssuerLink
             key="name"
             query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[20px] text-caos-text truncate text-caos-lg hover:text-white transition-caos ${stickyBg} ${hoverBg}`}
+            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-white transition-caos ${stickyBg} ${hoverBg}`}
             title={`Open ${p.borrower || p.name} profile`}
           >
             {p.borrower || p.name}
@@ -217,8 +215,8 @@ export function PortfolioTable({
             key="dd"
             className="tabular text-right rounded px-0.5"
             style={{
-              color: p.dd < 0 ? "var(--caos-success-bright)" : p.dd > 0 ? "var(--caos-critical-bright)" : "var(--caos-muted)",
-              background: p.dd < 0 ? "rgba(34,197,94,0.06)" : p.dd > 0 ? "rgba(239,68,68,0.06)" : undefined,
+              color: p.dd > 0 ? "var(--caos-success-bright)" : p.dd < 0 ? "var(--caos-critical-bright)" : "var(--caos-muted)",
+              background: p.dd > 0 ? "rgba(34,197,94,0.06)" : p.dd < 0 ? "rgba(239,68,68,0.06)" : undefined,
             }}
           >
             {p.dd > 0 ? "+" : ""}{p.dd.toFixed(2)}
@@ -254,8 +252,8 @@ export function PortfolioTable({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-caos-xl">
-      <div className="flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-caos-border px-3 py-1">
+    <div className="flex h-full min-h-0 flex-col text-caos-md">
+      <div className="flex shrink-0 items-center gap-1 overflow-visible whitespace-nowrap border-b border-caos-border px-3 py-1">
         <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
         {([
           ["Desk", "full"],
@@ -283,6 +281,7 @@ export function PortfolioTable({
         <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-2">{shown.length} / {PORTFOLIO.length} shown</span>
         <div className="relative shrink-0 flex items-center">
           <button
+            ref={buttonRef}
             type="button"
             onClick={() => setCustomizerOpen(!customizerOpen)}
             className="shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring flex items-center gap-1 cursor-pointer"
@@ -335,7 +334,7 @@ export function PortfolioTable({
       </div>
       <div ref={scrollerRef} className="flex-1 min-h-0 overflow-auto">
         <div style={{ minWidth }}>
-          <div className="px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-20" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+          <div className="px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
             {activeCols.map((col) => {
               const alignsRight = ["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"].includes(col.key);
               if (col.key === "expand") {
@@ -382,7 +381,7 @@ export function PortfolioTable({
             return (
               <div
                 key={key}
-                className="group relative bg-caos-bg px-3 py-[3px] border-b border-caos-border/50 transition-caos hover:bg-caos-elevated/60 z-0"
+                className="group relative bg-caos-bg px-3 py-[2px] border-b border-caos-border/50 transition-caos hover:bg-caos-elevated/60 z-0 items-center"
                 style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
               >
                 {activeCols.map((col) => renderCell(col.key, p, sel))}

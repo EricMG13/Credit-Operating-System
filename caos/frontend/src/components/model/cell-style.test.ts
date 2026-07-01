@@ -36,7 +36,7 @@ describe("cellTextColor — priority order", () => {
     expect(cellTextColor({ ...base, isOv: true, bold: true })).toBe("var(--caos-warning)");
   });
   it("pct positive vs negative", () => {
-    expect(cellTextColor({ ...base, pct: true, v: 5 })).toBe("rgba(79,140,255,0.9)");
+    expect(cellTextColor({ ...base, pct: true, v: 5 })).toBe("var(--caos-accent)");
     expect(cellTextColor({ ...base, pct: true, v: -5 })).toBe("var(--caos-critical)");
   });
   it("negative money is muted", () => {
@@ -46,7 +46,7 @@ describe("cellTextColor — priority order", () => {
     expect(cellTextColor({ ...base, bold: true })).toBe("var(--caos-text)");
   });
   it("default cell color", () => {
-    expect(cellTextColor(base)).toBe("rgba(230,230,239,0.82)");
+    expect(cellTextColor(base)).toBe("var(--caos-text)");
   });
 });
 

@@ -1,14 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { getIssuers } from "@/lib/api";
-import { issuerProfileHref } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 
 export function GlobalIssuerSearch() {
-  const router = useRouter();
   const { openProfile } = useIssuerProfileOverlay();
   const ref = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState("");

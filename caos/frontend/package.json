@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "lint": "eslint src",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

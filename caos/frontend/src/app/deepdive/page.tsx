@@ -99,6 +99,23 @@ function DeepDive() {
   const code = isReference ? DEAL.code : (issuerMeta?.ticker || "—");
   const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? "Loading issuer…");
   const [tab, setTab] = useState(modParam || (isReference ? "CP-6A" : "CP-1"));
+
+  useEffect(() => {
+    const onCycle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ direction: number }>;
+      const dir = customEvent.detail?.direction || 1;
+      const allMods = GROUPS.flatMap((g) => g.mods);
+      setTab((curr) => {
+        const idx = allMods.indexOf(curr);
+        if (idx === -1) return allMods[0];
+        const nextIdx = (idx + dir + allMods.length) % allMods.length;
+        return allMods[nextIdx];
+      });
+    };
+    window.addEventListener("caos:subview-cycle", onCycle);
+    return () => window.removeEventListener("caos:subview-cycle", onCycle);
+  }, []);
+
   // keep the open module in sync when the ?mod= param changes (back/forward,
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);

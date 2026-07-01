@@ -192,6 +192,16 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
   onCollapse?: () => void;
 }) {
   const [caseKey, setCaseKey] = useState<"base" | "down">("base");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set(GROUPS.map((g) => g.title)));
+
+  const toggleGroup = (title: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title); else next.add(title);
+      return next;
+    });
+  };
+
   const ca = assumptions[caseKey];
   const yearsOv = (caseKey === "base" ? assumptions.baseYears : assumptions.downYears) ?? {};
   const accent = caseKey === "base" ? "var(--caos-success)" : "var(--caos-warning)";
@@ -237,11 +247,15 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
         </div>
 
         {/* column headers */}
-        <div className={GRID + " sticky top-0"}>
+        <div className={GRID + " sticky top-0 bg-caos-panel z-10 py-0.5 border-b border-caos-border/40"}>
           <span className="flex items-center">
             {changed > 0 ? (
               <button
-                onClick={() => onResetCase(caseKey)}
+                onClick={() => {
+                  if (window.confirm(`Are you sure you want to reset all ${changed} assumptions changes in the ${caseKey} case?`)) {
+                    onResetCase(caseKey);
+                  }
+                }}
                 title={`Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
                 className="tabular text-caos-3xs px-1.5 py-px rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
               >
@@ -257,29 +271,39 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
           ))}
         </div>
 
-        {GROUPS.map((g) => (
-          <div key={g.title} className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.title}</span>
-              <span className="h-px flex-1 bg-caos-border/60" />
+        {GROUPS.map((g) => {
+          const isExpanded = expanded.has(g.title);
+          return (
+            <div key={g.title} className="flex flex-col gap-1.5">
+              <button
+                onClick={() => toggleGroup(g.title)}
+                className="flex items-center justify-between w-full text-left py-1 hover:text-caos-text transition-caos border-b border-caos-border/40 select-none group"
+              >
+                <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold text-caos-muted group-hover:text-caos-text transition-caos">{g.title}</span>
+                <span className="tabular text-caos-3xs text-caos-accent font-bold">{isExpanded ? "−" : "+"}</span>
+              </button>
+              {isExpanded ? (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  {g.items.map((spec) => (
+                    <DriverRow
+                      key={spec.key}
+                      spec={spec}
+                      caseKey={caseKey}
+                      ca={ca}
+                      yearsOv={yearsOv}
+                      accent={accent}
+                      onChange={onChange}
+                      onChangeYear={onChangeYear}
+                      onResetYearCell={onResetYearCell}
+                      onScrub={onScrub}
+                      onScrubEnd={onScrubEnd}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
-            {g.items.map((spec) => (
-              <DriverRow
-                key={spec.key}
-                spec={spec}
-                caseKey={caseKey}
-                ca={ca}
-                yearsOv={yearsOv}
-                accent={accent}
-                onChange={onChange}
-                onChangeYear={onChangeYear}
-                onResetYearCell={onResetYearCell}
-                onScrub={onScrub}
-                onScrubEnd={onScrubEnd}
-              />
-            ))}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Panel>
   );

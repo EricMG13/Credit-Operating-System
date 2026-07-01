@@ -58,6 +58,22 @@ function PipelineVisualizer() {
   const issuerParam = searchParams.get("issuer");
   const [latestLiveIssuer, setLatestLiveIssuer] = useState<string | null>(null);
   const [view, setView] = useViewPreference("graph");
+
+  useEffect(() => {
+    const onCycle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ direction: number }>;
+      const dir = customEvent.detail?.direction || 1;
+      const views = ["graph", "lanes"] as const;
+      setView((curr) => {
+        const idx = views.indexOf(curr);
+        const nextIdx = (idx + dir + views.length) % views.length;
+        return views[nextIdx];
+      });
+    };
+    window.addEventListener("caos:subview-cycle", onCycle);
+    return () => window.removeEventListener("caos:subview-cycle", onCycle);
+  }, [setView]);
+
   const [modeK, setModeK] = useState("full");
   const [dimCompleted, setDimCompleted] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);

@@ -28,7 +28,7 @@ jobs:
       - run: npm run lint -- --max-warnings=0
       - run: npx tsc --noEmit
       - run: npm test
-      - run: npx next build
+      - run: npm run build
 
   server:
     name: Server — pytest
