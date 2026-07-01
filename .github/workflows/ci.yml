@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       - run: npm ci
@@ -83,6 +83,14 @@ jobs:
           pip install vulture==2.14
           vulture caos/server caos/scripts --min-confidence 80 --ignore-names cls
       - run: pip install -r caos/server/requirements.txt pytest pytest-asyncio httpx
+      # Engine type gate (mypy.ini: files=engine — the deterministic math core).
+      # The gate had drifted RED unnoticed because nothing in CI ran it; wire it in
+      # so a bad type in the engine can't merge. 3.11 leg only (mypy.ini pins 3.11).
+      - name: Engine type gate (mypy)
+        if: matrix.python-version == '3.11'
+        run: |
+          pip install mypy==2.1.0
+          cd caos/server && mypy
       # Default suite on SQLite (the existing tests + async; Postgres-only tests skipped).
       - run: python -m pytest caos/tests/server -q
       # Guards the perf-smoke percentile math (the script runs against a live
@@ -102,7 +110,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       - uses: actions/setup-python@v6
@@ -187,7 +195,7 @@ jobs:
           fetch-depth: 0 # full history so fallow can diff the PR against its base
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
       # Fails the PR only on dead code / duplication introduced by the diff.
       # JS/TS only; run from the repo root so .fallowrc.json (ignores the
       # design-sync dirs) is picked up.
@@ -216,7 +224,7 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       # OSS-only gate — no paid SaaS (project policy: no-paid-services). Each
