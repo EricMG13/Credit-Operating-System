@@ -176,7 +176,7 @@ export interface Sector {
   rows: RVRow[];
 }
 
-export const SECTORS: Sector[] = [...new Set(rows.map((r) => r.sector))].map((name) => ({
+export const RV_SECTORS: Sector[] = [...new Set(rows.map((r) => r.sector))].map((name) => ({
   name,
   color: SECTOR_COLORS[name] ?? "#a1a1b5",
   rows: rows.filter((r) => r.sector === name),
@@ -192,7 +192,7 @@ export interface IndexStat {
   dm: number;
 }
 
-export const INDEX_STATS: IndexStat[] = SECTORS.map((sector) => {
+export const INDEX_STATS: IndexStat[] = RV_SECTORS.map((sector) => {
   const mids = sector.rows.map((r) => (r.bid + r.ask) / 2);
   return {
     name: sector.name,
