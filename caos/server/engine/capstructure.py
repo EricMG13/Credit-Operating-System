@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from engine.periods import latest
+from engine.periods import is_finite_number, latest
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -93,7 +93,7 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 
         # A claim is "sized" only if it is a real positive number. None, 0, a negative,
         # or a non-numeric all count as unsized and trip the indeterminate cascade.
-        claim_is_sized = isinstance(claim, (int, float)) and claim > 0
+        claim_is_sized = is_finite_number(claim) and claim > 0
         if not claim_is_sized:
             indeterminate = True
 
@@ -123,7 +123,7 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
     eb = latest(nf.get("adj_ebitda") or {})
-    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if isinstance(eb, (int, float)) and eb else None
+    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb else None
 
 
 async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:
@@ -143,11 +143,11 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         )
 
     # Size the stack where amounts were stated; % of structure is recovery-relevant.
-    sized = [t for t in found if isinstance(t["amount_musd"], (int, float))]
+    sized = [t for t in found if is_finite_number(t["amount_musd"])]
     total = round(sum(t["amount_musd"] for t in sized), 1) if sized else None
     for t in found:
         t["pct_of_structure"] = (round(100 * t["amount_musd"] / total, 1)
-                                 if total and isinstance(t["amount_musd"], (int, float)) else None)
+                                 if total and is_finite_number(t["amount_musd"]) else None)
 
     ev = _distressed_ev(cp1)
     waterfall_basis = (f"absolute-priority waterfall vs ${ev:g}M distressed EV "
@@ -170,7 +170,7 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         "CP-1 supplied no LTM EBITDA; recovery not waterfalled — preference is seniority-only."]
     if total is None:
         limitations.append("No tranche sizes parsed; waterfall ran on named tranches only.")
-    if ev and any(isinstance(r["amount_musd"], (int, float)) and r["amount_musd"] > 0
+    if ev and any(is_finite_number(r["amount_musd"]) and r["amount_musd"] > 0
                   and r["recovery_pct"] is None for r in rows):
         limitations.append(
             "An unsized senior tranche broke the waterfall; recovery for tranches "

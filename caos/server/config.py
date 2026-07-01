@@ -175,10 +175,8 @@ class Settings(BaseSettings):
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
     caos_run_poll_seconds: float = 1.0   # worker loop tick
-    # Per-request LLM timeout (seconds). The SDK default is ~10 min, long enough
-    # for a stuck inference to pin a run/lane open; bound every Anthropic/Gemini
-    # client to this. google-genai wants milliseconds — convert at that call site.
-    caos_llm_timeout_s: float = 120.0
+    # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
+    # so convert at that call site.)
 
     # Optional: external markitdown CLI for structure-preserving document → text
     # extraction (tables, headings — better for financials/covenants than the

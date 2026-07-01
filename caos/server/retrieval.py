@@ -28,6 +28,11 @@ from database import Document, DocumentChunk
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _K1 = 1.5  # term-frequency saturation
 _B = 0.75  # length normalisation
+# ponytail: cap the cross-issuer BM25 fetch so an unfiltered corpus query can't
+# load every chunk of every issuer into Python. Sized well above the Phase-1
+# universe (~15 issuers) so ranking is unaffected today; swap for pgvector/ts_rank
+# (scoring in Postgres) if the corpus ever outgrows this.
+_CORPUS_SCAN_CAP = 5000
 
 
 def tokenize(text: str) -> List[str]:
@@ -150,6 +155,7 @@ async def retrieve_corpus(
     )
     if issuer_ids:
         stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+    stmt = stmt.limit(_CORPUS_SCAN_CAP)  # bound the in-Python BM25 corpus
     rows = (await db.execute(stmt)).all()
     meta = {r[0]: (r[2], r[3]) for r in rows}  # chunk_id -> (issuer_id, file_name)
     corpus = [(r[0], r[1]) for r in rows]

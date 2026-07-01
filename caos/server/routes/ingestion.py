@@ -73,7 +73,9 @@ async def _vault_document(
     if not issuer:
         raise HTTPException(404, "Issuer not found")
 
-    key = ingest.store(content, file.filename or "upload.bin")
+    # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
+    # doesn't block the event loop — matching the extract_* calls in the callers.
+    key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
     chunks = ingest.chunk_text(text)
 
     doc = Document(

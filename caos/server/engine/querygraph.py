@@ -673,6 +673,12 @@ async def _latest_run(session: AsyncSession, issuer_id: Optional[str],
     stmt = select(Run).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
+    # ponytail: bound the per-run COUNT probe below to the most recent N runs so a
+    # long history can't turn the fallback scan into an unbounded round-trip loop.
+    # The common case still returns on the first run with outputs; this only caps
+    # the degenerate "leading runs are all empty" tail. Rewrite as an EXISTS
+    # subquery if the probe ever shows up hot.
+    stmt = stmt.limit(200)
     fallback: Optional[Run] = None
     for run in (await session.execute(stmt)).scalars():
         has = (await session.execute(

@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   // Static export — the build output (out/) is served by the FastAPI server
-  // (caos/server) in deployment, so the whole app ships as one Databricks App.
+  // (caos/server) in deployment, so the whole app ships as one container.
   output: "export",
   // Emit folder/index.html per route so StaticFiles(html=True) resolves
   // clean URLs like /issuers without extra rewrite logic.

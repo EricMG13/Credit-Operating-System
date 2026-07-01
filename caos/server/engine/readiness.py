@@ -72,14 +72,23 @@ async def synthesize_source_readiness(session: AsyncSession, issuer: Issuer) -> 
         select(Document).where(Document.issuer_id == issuer.id)
     )).scalars().all()
 
+    # ponytail: fetch every doc's head chunk in ONE query instead of a per-document
+    # SELECT in the loop (was an N+1 = issuer doc count). First row per document_id
+    # in (document_id, seq) order is its lowest-seq head chunk.
+    heads: dict = {}
+    if docs:
+        rows = (await session.execute(
+            select(DocumentChunk.document_id, DocumentChunk.text)
+            .where(DocumentChunk.document_id.in_([d.id for d in docs]))
+            .order_by(DocumentChunk.document_id, DocumentChunk.seq)
+        )).all()
+        for did, text in rows:
+            heads.setdefault(did, text)
+
     present: Set[str] = set()
     doc_map: list = []
     for d in docs:
-        head = (await session.execute(
-            select(DocumentChunk.text)
-            .where(DocumentChunk.document_id == d.id)
-            .order_by(DocumentChunk.seq).limit(1)
-        )).scalar_one_or_none() or ""
+        head = heads.get(d.id, "")
         cats = _categorize(d, head)
         present |= cats
         doc_map.append({
