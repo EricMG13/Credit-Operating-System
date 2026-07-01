@@ -73,8 +73,6 @@ const signed = (v: number, suffix = "", digits = 1) => {
 
 const METRIC_LABEL: Record<string, string> = {
   net_leverage: "Net leverage",
-  senior_leverage: "Senior leverage",
-  total_leverage: "Total leverage",
   interest_coverage: "Interest coverage",
   ebitda_margin: "EBITDA margin", revenue: "Revenue", adj_ebitda: "Adj. EBITDA",
   fcf: "Free cash flow", fcf_conversion: "Cash conversion",
@@ -87,8 +85,6 @@ const TILE_DELTA: Record<string, { key?: string; suffix: string; digits?: number
   adj_ebitda: { key: "ebitda_growth_pct", suffix: "%", higherIsBetter: true },
   ebitda_margin: { key: "margin_change_pp", suffix: "pp", higherIsBetter: true },
   net_leverage: { suffix: "×", digits: 2, higherIsBetter: false, showMissing: true },
-  senior_leverage: { suffix: "×", digits: 2, higherIsBetter: false, showMissing: true },
-  total_leverage: { suffix: "×", digits: 2, higherIsBetter: false, showMissing: true },
   interest_coverage: { suffix: "×", higherIsBetter: true, showMissing: true },
   fcf_conversion: { suffix: "pp", higherIsBetter: true, showMissing: true },
 };
@@ -108,8 +104,6 @@ const STATUS_TOOLTIP: Record<string, string> = {
 
 const METRIC_TOOLTIP: Record<string, string> = {
   net_leverage: "Net Debt / Adjusted EBITDA. Measure of net leverage after cash offsets.",
-  senior_leverage: "Senior Secured Debt / Adjusted EBITDA. Leverage of senior secured tranches.",
-  total_leverage: "Total Debt / Adjusted EBITDA. Gross leverage before cash offsets.",
   interest_coverage: "Adjusted EBITDA / Interest Expense. Coverage capacity for cash interest.",
   ebitda_margin: "Adjusted EBITDA / Revenue. Measure of operating margin profitability.",
   revenue: "Total segment revenue.",
@@ -133,8 +127,7 @@ const PROV: Record<string, { sev: string; label: string }> = {
 // coverage / Altman worse low). null = neutral (ink, not colored).
 // fallow-ignore-next-line complexity
 function metricSev(key: string, v: number): string | null {
-  if (key === "net_leverage" || key === "total_leverage") return v >= 6 ? "critical" : v >= 4.5 ? "warning" : null;
-  if (key === "senior_leverage") return v >= 5 ? "critical" : v >= 3.5 ? "warning" : null;
+  if (key === "net_leverage") return v >= 6 ? "critical" : v >= 4.5 ? "warning" : null;
   if (key === "interest_coverage") return v < 1.5 ? "critical" : v < 2.5 ? "warning" : null;
   if (key === "altman_z") return v < 1.1 ? "critical" : v < 2.6 ? "warning" : null;
   return null;
@@ -253,6 +246,14 @@ export function Profile({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  // Snapshot + trend series come straight from the engine's metric facts. We do
+  // NOT synthesize senior/total leverage from net leverage — a fabricated figure
+  // would inherit net_leverage's "live run" provenance and ▸ src link, i.e. a
+  // made-up number that reads as sourced. Only keys the engine actually emits
+  // render; missing ones degrade to an empty state.
+  const series = useMemo(() => buildSeries(metrics), [metrics]);
+  const headline = useMemo(() => buildHeadline(metrics), [metrics]);
+
   const handleCopyLedger = () => {
     const activeSeries = filterSeriesByGranularity(series, gran);
     const activePeriods = Array.from(
@@ -274,6 +275,13 @@ export function Profile({
     });
 
     const tsv = [headerRow, ...rows].join("\n");
+    // navigator.clipboard is undefined in an insecure context — guard before
+    // calling so it degrades quietly instead of throwing synchronously (the
+    // .catch below only sees promise rejections, not the missing-API throw).
+    if (!navigator.clipboard) {
+      console.error("Clipboard copy failed: clipboard API unavailable (insecure context).");
+      return;
+    }
     navigator.clipboard.writeText(tsv)
       .then(() => {
         setCopied(true);
@@ -283,45 +291,6 @@ export function Profile({
         console.error("Clipboard copy failed: ", err);
       });
   };
-
-  const series = useMemo(() => {
-    const rawSeries = buildSeries(metrics);
-    if (rawSeries.net_leverage) {
-      rawSeries.senior_leverage = rawSeries.net_leverage.map((pt) => ({
-        ...pt,
-        metric_key: "senior_leverage",
-        value: Number((pt.value - 1.0).toFixed(2)),
-      }));
-      rawSeries.total_leverage = rawSeries.net_leverage.map((pt) => ({
-        ...pt,
-        metric_key: "total_leverage",
-        value: pt.value,
-      }));
-    }
-    return rawSeries;
-  }, [metrics]);
-
-  const headline = useMemo(() => {
-    const rawHeadline = buildHeadline(metrics);
-    const netLev = rawHeadline.find((m) => m.metric_key === "net_leverage");
-    if (netLev) {
-      const seniorLev = {
-        ...netLev,
-        metric_key: "senior_leverage",
-        value: Number((netLev.value - 1.0).toFixed(2)),
-      };
-      const totalLev = {
-        ...netLev,
-        metric_key: "total_leverage",
-        value: netLev.value,
-      };
-      const idx = rawHeadline.findIndex((m) => m.metric_key === "net_leverage");
-      const result = [...rawHeadline];
-      result.splice(idx + 1, 0, seniorLev, totalLev);
-      return result;
-    }
-    return rawHeadline;
-  }, [metrics]);
   // Build both granularities so the toggle shows only when there's something to
   // switch to, and each side draws only its own periods (annual vs quarterly).
   const fyCharts = useMemo(() => buildCharts(filterSeriesByGranularity(series, "FY")), [series]);

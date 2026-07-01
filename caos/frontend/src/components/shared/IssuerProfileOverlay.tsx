@@ -18,7 +18,10 @@ const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
 }));
 
 interface IssuerProfileOverlayContextType {
-  openProfile: (idOrQuery: string) => void;
+  /** Open directly by issuer id — the common path (callers holding an Issuer). */
+  openProfile: (id: string) => void;
+  /** Resolve a free-text ticker/name to an id, then open (Command Center rows). */
+  openProfileByQuery: (query: string) => void;
   closeProfile: () => void;
   isOpen: boolean;
   issuerId: string | null;
@@ -26,6 +29,7 @@ interface IssuerProfileOverlayContextType {
 
 const IssuerProfileOverlayContext = createContext<IssuerProfileOverlayContextType>({
   openProfile: () => {},
+  openProfileByQuery: () => {},
   closeProfile: () => {},
   isOpen: false,
   issuerId: null,
@@ -37,13 +41,26 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
   const [issuerId, setIssuerId] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
-  const openProfile = async (idOrQuery: string) => {
-    if (!idOrQuery) return;
+  // Open by issuer id. This is the source-of-truth path: the overlay fetches
+  // GET /issuers/{id}/profile, and a bad id surfaces as "Issuer not found".
+  // No search round-trip — getIssuers matches name/ticker/etc but NOT id, so
+  // searching an id would always miss (and could open the wrong issuer if a
+  // uuid fragment ever substring-hit a name/FIGI).
+  const openProfile = (id: string) => {
+    const clean = id.trim();
+    if (!clean) return;
+    setIssuerId(clean);
+    setIsOpen(true);
+  };
 
-    const term = idOrQuery.trim();
+  // Resolve a free-text ticker/name (e.g. a Command Center row that only knows
+  // a portfolio code) to an issuer id via search, then open. Falls back to the
+  // local DEMO_UNIVERSE sleeve, then to a direct pass-through of the term.
+  const openProfileByQuery = async (query: string) => {
+    const term = query.trim();
     if (!term) return;
 
-    // 1. Try to fetch from the server API
+    // 1. Try to resolve via the server API
     try {
       const results = await getIssuers(term);
       if (results && results.length > 0) {
@@ -54,9 +71,7 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
             i.ticker?.toLowerCase() === term.toLowerCase() ||
             i.name.toLowerCase() === term.toLowerCase()
         );
-        const match = exact || results[0];
-        setIssuerId(match.id);
-        setIsOpen(true);
+        openProfile((exact || results[0]).id);
         return;
       }
     } catch (err) {
@@ -76,14 +91,8 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
         (i.ticker && i.ticker.toLowerCase().includes(cleanQ))
     );
 
-    if (demoMatch) {
-      setIssuerId(demoMatch.id);
-      setIsOpen(true);
-    } else {
-      // Direct pass-through if nothing matches
-      setIssuerId(term);
-      setIsOpen(true);
-    }
+    // 3. Direct pass-through of the term if nothing matches
+    openProfile(demoMatch ? demoMatch.id : term);
   };
 
   const closeProfile = () => {
@@ -92,7 +101,7 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
   };
 
   return (
-    <IssuerProfileOverlayContext.Provider value={{ openProfile, closeProfile, isOpen, issuerId }}>
+    <IssuerProfileOverlayContext.Provider value={{ openProfile, openProfileByQuery, closeProfile, isOpen, issuerId }}>
       {children}
     </IssuerProfileOverlayContext.Provider>
   );

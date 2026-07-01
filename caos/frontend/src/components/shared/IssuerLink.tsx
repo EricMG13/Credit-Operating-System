@@ -18,14 +18,17 @@ export function IssuerLink({
   className?: string;
   title?: string;
 }) {
-  const { openProfile } = useIssuerProfileOverlay();
+  const { openProfile, openProfileByQuery } = useIssuerProfileOverlay();
   const href = issuer ? issuerProfileHref(issuer) : issuerSearchHref(query || "");
 
   const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
-    const idOrQuery = issuer?.id || query;
-    if (idOrQuery) {
-      openProfile(idOrQuery);
+    // Prefer the id path (direct open); only fall back to a text search when all
+    // we have is a free-text query (e.g. a Command Center portfolio code).
+    if (issuer?.id) {
+      openProfile(issuer.id);
+    } else if (query) {
+      openProfileByQuery(query);
     }
   };
 
