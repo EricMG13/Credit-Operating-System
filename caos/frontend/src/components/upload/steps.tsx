@@ -224,8 +224,8 @@ export function FileStep({
           {...getRootProps()}
           className="rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos"
           style={{
-            borderColor: isDragActive ? "var(--caos-accent)" : files.length ? "rgba(34,197,94,0.5)" : "var(--caos-border)",
-            background: isDragActive ? "rgba(79,140,255,0.06)" : files.length ? "rgba(34,197,94,0.04)" : "var(--caos-bg)",
+            borderColor: isDragActive ? "var(--caos-accent)" : files.length ? "color-mix(in srgb, var(--caos-success) 50%, transparent)" : "var(--caos-border)",
+            background: isDragActive ? "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" : files.length ? "color-mix(in srgb, var(--caos-success) 4%, transparent)" : "var(--caos-bg)",
           }}
         >
           <input {...getInputProps()} aria-label="Upload deal documents (PDF or XLSX)" />

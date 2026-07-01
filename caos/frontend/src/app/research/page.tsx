@@ -169,7 +169,7 @@ function Research() {
             {llmConfigured === false && (
               <div
                 className="flex items-baseline gap-2 px-2.5 py-2 rounded border"
-                style={{ borderColor: "var(--caos-warning)", background: "rgba(245,165,36,0.06)" }}
+                style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 6%, transparent)" }}
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider shrink-0" style={{ color: "var(--caos-warning)" }}>Demo mode</span>
                 <span className="tabular text-caos-xs text-caos-muted leading-snug">No model key configured — runs return a canned example report.</span>

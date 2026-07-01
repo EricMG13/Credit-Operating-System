@@ -295,7 +295,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
         aria-modal="true"
         aria-label="Ask with Query"
         onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full transition-all duration-300 ease-out flex flex-col overflow-hidden ${
+        className={`caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full transition-caos flex flex-col overflow-hidden ${
           hasQueried
             ? "max-w-6xl h-[82vh] max-h-[900px] mt-[6vh]"
             : "max-w-2xl mt-[18vh] p-4 gap-3.5"

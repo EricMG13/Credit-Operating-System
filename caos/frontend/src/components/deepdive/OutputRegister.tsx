@@ -191,7 +191,7 @@ export function StepOutputModal({
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_272px]">
           <div className="min-h-0 overflow-auto border-r border-caos-border bg-caos-bg p-3 flex flex-col gap-3">
             {narr ? (
-              <div className="rounded border px-3 py-2.5" style={{ borderColor: "rgba(79,140,255,0.35)", background: "rgba(79,140,255,0.06)" }}>
+              <div className="rounded border px-3 py-2.5" style={{ borderColor: "color-mix(in srgb, var(--tranche-2l) 35%, transparent)", background: "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" }}>
                 <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">Analyst narrative</div>
                 <div className="text-caos-xl text-caos-text leading-relaxed">
                   {narr.body}

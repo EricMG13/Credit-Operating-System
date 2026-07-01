@@ -304,7 +304,7 @@ export function NlQueryBody() {
         ) : null}
 
         {err ? (
-          <div role="alert" className="tabular text-caos-md px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)", background: "rgba(245,165,36,0.08)" }}>
+          <div role="alert" className="tabular text-caos-md px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
             <StatusGlyph kind="warning" /> {err}
           </div>
         ) : null}

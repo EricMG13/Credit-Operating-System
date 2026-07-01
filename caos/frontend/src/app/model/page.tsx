@@ -285,7 +285,7 @@ function ModelBuilder() {
             }}
             title="Clear all manual overrides"
             className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
-            style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.5)" }}
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }}
           >
             ↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET
           </button>
@@ -309,7 +309,7 @@ function ModelBuilder() {
         </button>
         <span
           className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden 2xl:inline"
-          style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}
+          style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
         >
           forecast cells unaudited — CP-5 scope is actuals only
         </span>
@@ -461,8 +461,8 @@ function ModelProvenance({ eng, model, allowSeededFallback }: { eng: ModelEngine
         className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"
         style={
           ties
-            ? { color: "var(--caos-success)", borderColor: "rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.08)" }
-            : { color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }
+            ? { color: "var(--caos-success)", borderColor: "color-mix(in srgb, var(--caos-success) 40%, transparent)", background: "color-mix(in srgb, var(--caos-success) 8%, transparent)" }
+            : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }
         }
         title={
           shown == null

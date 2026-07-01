@@ -3,7 +3,9 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
 import { nodeStyle } from "./node-style";
-import * as d3 from "d3";
+import { select } from "d3-selection";
+import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
+import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
 
 interface ScatterCanvasProps {
   graph: GraphResult;
@@ -23,9 +25,9 @@ export function ScatterCanvas({
   const px = (x: number) => PAD + x * (W - 2 * PAD);
   const py = (y: number) => PAD + y * (H - 2 * PAD);
 
-  const [transform, setTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity);
+  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   // Hovered node tracking for highlighting edges
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -33,9 +35,9 @@ export function ScatterCanvas({
   // Setup D3 Zoom
   useEffect(() => {
     if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+    const svg = select(svgRef.current);
     
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
+    const zoom = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 8])
       .on("zoom", (event) => {
         setTransform(event.transform);
@@ -43,15 +45,15 @@ export function ScatterCanvas({
       
     zoomBehaviorRef.current = zoom;
     svg.call(zoom);
-    svg.call(zoom.transform, d3.zoomIdentity);
+    svg.call(zoom.transform, zoomIdentity);
   }, [graph]);
 
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
-      d3.select(svgRef.current)
+      select(svgRef.current)
         .transition()
         .duration(300)
-        .call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+        .call(zoomBehaviorRef.current.transform, zoomIdentity);
     }
   };
 

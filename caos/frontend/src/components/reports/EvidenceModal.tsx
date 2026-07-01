@@ -40,8 +40,8 @@ export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => voi
       className="tabular text-caos-xs px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
       style={{
         color: open ? "var(--caos-warning)" : "var(--caos-accent)",
-        borderColor: synced ? "var(--caos-accent)" : open ? "rgba(245,165,36,0.5)" : "rgba(79,140,255,0.4)",
-        background: synced ? "rgba(79,140,255,0.18)" : "rgba(79,140,255,0.07)",
+        borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 40%, transparent)",
+        background: synced ? "color-mix(in srgb, var(--tranche-2l) 18%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 7%, transparent)",
         boxShadow: synced ? "0 0 0 1px var(--caos-accent)" : undefined,
       }}
     >
@@ -88,8 +88,8 @@ function StatusBadge({ status, label }: { status: "verified" | "open"; label?: s
       className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
       style={{
         color: status === "open" ? "var(--caos-warning)" : "var(--caos-success)",
-        borderColor: status === "open" ? "rgba(245,165,36,0.4)" : "rgba(34,197,94,0.4)",
-        background: status === "open" ? "rgba(245,165,36,0.08)" : "rgba(34,197,94,0.08)",
+        borderColor: status === "open" ? "color-mix(in srgb, var(--caos-warning) 40%, transparent)" : "color-mix(in srgb, var(--caos-success) 40%, transparent)",
+        background: status === "open" ? "color-mix(in srgb, var(--caos-warning) 8%, transparent)" : "color-mix(in srgb, var(--caos-success) 8%, transparent)",
       }}
     >
       {label ?? (status === "open" ? "UNRESOLVED" : "VERIFIED")}
@@ -263,8 +263,8 @@ export function EvidenceModal({
             className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
             style={{
               color: ev.status === "open" ? "var(--caos-warning)" : "var(--caos-success)",
-              borderColor: ev.status === "open" ? "rgba(245,165,36,0.4)" : "rgba(34,197,94,0.4)",
-              background: ev.status === "open" ? "rgba(245,165,36,0.08)" : "rgba(34,197,94,0.08)",
+              borderColor: ev.status === "open" ? "color-mix(in srgb, var(--caos-warning) 40%, transparent)" : "color-mix(in srgb, var(--caos-success) 40%, transparent)",
+              background: ev.status === "open" ? "color-mix(in srgb, var(--caos-warning) 8%, transparent)" : "color-mix(in srgb, var(--caos-success) 8%, transparent)",
             }}
           >
             {ev.status === "open" ? "UNRESOLVED" : "VERIFIED"}
@@ -304,7 +304,7 @@ export function EvidenceModal({
           {/* metadata rail */}
           <div className="min-h-0 overflow-auto">
             {ev.qa ? (
-              <div className="px-3 py-2.5 border-b border-caos-border" style={{ background: "rgba(245,165,36,0.06)" }}>
+              <div className="px-3 py-2.5 border-b border-caos-border" style={{ background: "color-mix(in srgb, var(--caos-warning) 6%, transparent)" }}>
                 <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>QA finding</div>
                 <div className="text-caos-md text-caos-text leading-snug">{ev.qa}</div>
               </div>

@@ -189,7 +189,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
       aria-modal={false}
       aria-label={label + " · Issuer Q&A"}
       className="fixed bottom-3 right-3 z-30 caos-enter flex flex-col bg-caos-panel border border-caos-accent/60 rounded-md overflow-hidden"
-      style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px rgba(79,140,255,0.12)" }}
+      style={{ width: 408, height: 560, maxHeight: "78vh", boxShadow: "0 20px 64px -16px rgba(0,0,0,0.9), 0 0 0 1px color-mix(in srgb, var(--tranche-2l) 12%, transparent)" }}
     >
       <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
         <span className="text-caos-accent text-caos-2xl">✦</span>
@@ -222,8 +222,8 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
             key={i}
             className={"max-w-[88%] rounded px-2.5 py-2 text-caos-lg leading-relaxed whitespace-pre-wrap border " + (m.role === "user" ? "self-end text-caos-text" : "self-start text-caos-text/90")}
             style={m.role === "user"
-              ? { background: "rgba(79,140,255,0.10)", borderColor: "rgba(79,140,255,0.4)" }
-              : { background: "var(--caos-panel)", borderColor: m.err ? "rgba(245,165,36,0.5)" : "var(--caos-border)" }}
+              ? { background: "color-mix(in srgb, var(--tranche-2l) 10%, transparent)", borderColor: "color-mix(in srgb, var(--tranche-2l) 40%, transparent)" }
+              : { background: "var(--caos-panel)", borderColor: m.err ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "var(--caos-border)" }}
           >
             {m.role === "assistant" ? (
               <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1 flex items-center gap-1">

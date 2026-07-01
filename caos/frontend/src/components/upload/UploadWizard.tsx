@@ -140,7 +140,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       <StepStrip step={step} selectedIssuer={selectedIssuer} modeMeta={modeMeta} filesCount={files.length} />
 
       {error ? (
-        <div className="rounded border px-3 py-2 flex items-center gap-2" style={{ borderColor: "rgba(239,68,68,0.5)", background: "rgba(239,68,68,0.07)" }}>
+        <div className="rounded border px-3 py-2 flex items-center gap-2" style={{ borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 7%, transparent)" }}>
           <Dot sev="critical" />
           <span className="text-caos-lg" style={{ color: "var(--caos-critical-bright)" }}>{error}</span>
         </div>

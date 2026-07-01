@@ -229,7 +229,7 @@ function PipelineRunState({
             <StatusGlyph kind={cfg.glyph} size={14} />
             <span className="tabular text-caos-sm uppercase tracking-[0.2em]">{state === "error" ? "Error" : state === "in_flight" ? "Pending" : "Empty"}</span>
           </div>
-          <h1 className="text-caos-text text-lg font-semibold">{cfg.head}</h1>
+          <h2 className="text-caos-text text-lg font-semibold">{cfg.head}</h2>
           <p className="text-caos-muted text-caos-md leading-relaxed">{cfg.body}</p>
           <div className="flex items-center justify-center gap-2 mt-1">
             <Link href="/upload" className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">

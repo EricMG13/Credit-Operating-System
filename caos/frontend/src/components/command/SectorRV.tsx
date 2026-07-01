@@ -20,19 +20,19 @@ import {
 } from "@/lib/command/rvdata";
 
 const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
-  High: { bg: "rgba(34,197,94,0.20)", fg: "var(--caos-success-bright)" },
-  Normal: { bg: "rgba(34,197,94,0.09)", fg: "var(--caos-success-bright)" },
-  OK: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
-  Concerning: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
+  High: { bg: "color-mix(in srgb, var(--caos-success) 20%, transparent)", fg: "var(--caos-success-bright)" },
+  Normal: { bg: "color-mix(in srgb, var(--caos-success) 9%, transparent)", fg: "var(--caos-success-bright)" },
+  OK: { bg: "color-mix(in srgb, var(--caos-warning) 14%, transparent)", fg: "var(--caos-warning-bright)" },
+  Concerning: { bg: "color-mix(in srgb, var(--caos-critical) 16%, transparent)", fg: "var(--caos-critical-bright)" },
   Impaired: { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
 const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
-  Cheap: { bg: "rgba(34,197,94,0.20)", fg: "var(--caos-success-bright)" },
-  Wide: { bg: "rgba(34,197,94,0.09)", fg: "var(--caos-success-bright)" },
-  Inline: { bg: "rgba(79,140,255,0.12)", fg: "var(--caos-accent)" },
-  Tight: { bg: "rgba(245,165,36,0.14)", fg: "var(--caos-warning-bright)" },
-  Rich: { bg: "rgba(239,68,68,0.16)", fg: "var(--caos-critical-bright)" },
+  Cheap: { bg: "color-mix(in srgb, var(--caos-success) 20%, transparent)", fg: "var(--caos-success-bright)" },
+  Wide: { bg: "color-mix(in srgb, var(--caos-success) 9%, transparent)", fg: "var(--caos-success-bright)" },
+  Inline: { bg: "color-mix(in srgb, var(--tranche-2l) 12%, transparent)", fg: "var(--caos-accent)" },
+  Tight: { bg: "color-mix(in srgb, var(--caos-warning) 14%, transparent)", fg: "var(--caos-warning-bright)" },
+  Rich: { bg: "color-mix(in srgb, var(--caos-critical) 16%, transparent)", fg: "var(--caos-critical-bright)" },
   "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
@@ -46,7 +46,7 @@ function DeltaCell({ v }: { v: number | null }) {
       className="px-2 py-[3px] text-right tabular"
       style={{
         color: pos ? "var(--caos-success-bright)" : neg ? "var(--caos-critical-bright)" : "var(--caos-muted)",
-        background: pos ? "rgba(34,197,94,0.06)" : neg ? "rgba(239,68,68,0.06)" : undefined,
+        background: pos ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : neg ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : undefined,
       }}
     >
       {/* Sign is explicit so direction isn't carried by color alone (colorblind

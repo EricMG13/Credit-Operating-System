@@ -78,7 +78,7 @@ export function EdgarImport({
         </div>
 
         {notConfigured ? (
-          <div className="rounded border px-3 py-2 text-caos-md leading-snug" style={{ borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.07)", color: "var(--caos-warning)" }}>
+          <div className="rounded border px-3 py-2 text-caos-md leading-snug" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)", color: "var(--caos-warning)" }}>
             EDGAR is not configured. Set <span className="tabular">EDGAR_USER_AGENT</span> server-side.
           </div>
         ) : null}

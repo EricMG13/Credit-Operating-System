@@ -5,7 +5,9 @@ import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
 import { hueFor, nodeStyle } from "./node-style";
-import * as d3 from "d3";
+import { select } from "d3-selection";
+import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
+import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
@@ -47,7 +49,7 @@ export function GraphCanvas({
   const py = (y: number) => PAD + y * (H - 2 * PAD);
 
   // Keep track of zoom transform
-  const [transform, setTransform] = useState<d3.ZoomTransform>(d3.zoomIdentity);
+  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   // Keep track of dragged node and positions
@@ -59,13 +61,13 @@ export function GraphCanvas({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
   // Zoom setup
-  const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   useEffect(() => {
     if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+    const svg = select(svgRef.current);
     
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
+    const zoom = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 8])
       .on("zoom", (event) => {
         setTransform(event.transform);
@@ -75,16 +77,16 @@ export function GraphCanvas({
     svg.call(zoom);
     
     // Reset transform on graph change
-    svg.call(zoom.transform, d3.zoomIdentity);
+    svg.call(zoom.transform, zoomIdentity);
   }, [graph]);
 
   // Reset zoom back to identity cleanly
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
-      d3.select(svgRef.current)
+      select(svgRef.current)
         .transition()
         .duration(300)
-        .call(zoomBehaviorRef.current.transform, d3.zoomIdentity);
+        .call(zoomBehaviorRef.current.transform, zoomIdentity);
     }
   };
 

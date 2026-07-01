@@ -216,7 +216,7 @@ export function PortfolioTable({
             className="tabular text-right rounded px-0.5"
             style={{
               color: p.dd > 0 ? "var(--caos-success-bright)" : p.dd < 0 ? "var(--caos-critical-bright)" : "var(--caos-muted)",
-              background: p.dd > 0 ? "rgba(34,197,94,0.06)" : p.dd < 0 ? "rgba(239,68,68,0.06)" : undefined,
+              background: p.dd > 0 ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : p.dd < 0 ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : undefined,
             }}
           >
             {p.dd > 0 ? "+" : ""}{p.dd.toFixed(2)}
@@ -716,8 +716,8 @@ export function SectorBoard() {
 
 /* ---------- Research view ---------- */
 const CELL_COLOR: Record<string, string> = {
-  fresh: "rgba(34,197,94,0.35)", aging: "rgba(245,165,36,0.35)", stale: "rgba(239,68,68,0.40)",
-  running: "rgba(99,161,255,0.25)", blocked: "rgba(239,68,68,0.35)",
+  fresh: "color-mix(in srgb, var(--caos-success) 35%, transparent)", aging: "color-mix(in srgb, var(--caos-warning) 35%, transparent)", stale: "color-mix(in srgb, var(--caos-critical) 40%, transparent)",
+  running: "color-mix(in srgb, var(--caos-accent) 25%, transparent)", blocked: "color-mix(in srgb, var(--caos-critical) 35%, transparent)",
 };
 
 const LAYER_TITLES: Record<string, string> = {

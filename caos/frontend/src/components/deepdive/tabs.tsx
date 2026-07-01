@@ -254,9 +254,9 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
                 <span className="tabular text-caos-sm text-caos-muted self-center">${e}M {e === 421 ? "(LTM adj.)" : e === 360 ? "(base stress)" : "(severe)"}</span>
                 {mults.map((m) => {
                   const r = recoveries(e * m)["2l"];
-                  const c = r >= 0.9 ? "rgba(34,197,94," : r >= 0.5 ? "rgba(245,165,36," : "rgba(239,68,68,";
+                  const cvar = r >= 0.9 ? "--caos-success" : r >= 0.5 ? "--caos-warning" : "--caos-critical";
                   return (
-                    <span key={m} className="h-8 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 cursor-default" style={{ background: c + (0.12 + r * 0.3) + ")" }}>
+                    <span key={m} className="h-8 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 cursor-default" style={{ background: `color-mix(in srgb, var(${cvar}) ${12 + r * 30}%, transparent)` }}>
                       <span className="tabular text-caos-lg" style={{ color: r >= 0.9 ? "var(--caos-success-bright)" : r >= 0.5 ? "var(--caos-warning-bright)" : "var(--caos-critical-bright)" }}>{(r * 100).toFixed(0)}</span>
                     </span>
                   );

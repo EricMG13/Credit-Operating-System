@@ -570,7 +570,7 @@ function ResultHeader({
             </span>
           )}
         </div>
-        <h1 className="tabular text-caos-hero text-caos-text font-semibold mt-1 truncate">{graph.title}</h1>
+        <h2 className="tabular text-caos-hero text-caos-text font-semibold mt-1 truncate">{graph.title}</h2>
         {!selectedNode && (
           <div className="tabular text-caos-3xs text-caos-muted font-mono mt-0.5">
             Select a node to inspect grounding evidence.

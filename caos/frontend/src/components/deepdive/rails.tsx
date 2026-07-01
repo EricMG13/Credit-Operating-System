@@ -20,7 +20,7 @@ export { Panel };
 function NoIssuerRailOutput({ code, onCollapse }: { code?: string; onCollapse?: () => void }) {
   const who = code && code !== "—" ? code : "this issuer";
   return (
-    <div role="note" className="bg-caos-panel border rounded-md px-3 py-2 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
+    <div role="note" className="bg-caos-panel border rounded-md px-3 py-2 shrink-0" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 45%, transparent)" }}>
       <div className="flex items-center gap-2">
         <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-warning)" }}>No issuer-specific rail output</span>
         {onCollapse ? (
@@ -231,7 +231,7 @@ export function DecisionRail({
       }
     >
       {isReference ? (
-        <div className="bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: "rgba(245,165,36,0.45)" }}>
+        <div className="bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 45%, transparent)" }}>
           <div className="flex items-center gap-2">
             <span className="text-caos-2xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⛨</span>
             <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-5 clearance</span>

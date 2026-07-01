@@ -6,6 +6,7 @@ import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
 import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
+import { RouteHeading } from "@/components/shared/RouteHeading";
 
 export const metadata: Metadata = {
   title: "Credit Agent OS (CAOS)",
@@ -35,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               Skip to content
             </a>
             {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
-            <main id="main-content">{children}</main>
+            <main id="main-content"><RouteHeading />{children}</main>
             <div className="fixed bottom-3 left-3 z-overlay hidden lg:block">
               <GlobalIssuerSearch />
             </div>

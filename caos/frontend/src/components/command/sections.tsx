@@ -133,7 +133,7 @@ export function KnowledgeSources({ data, refreshed, step }: { data: SectorReview
                 className="tabular text-caos-3xs px-1 py-px rounded border text-center"
                 style={
                   s.kind === "external"
-                    ? { borderColor: "rgba(79,140,255,0.5)", color: "var(--caos-accent)" }
+                    ? { borderColor: "color-mix(in srgb, var(--tranche-2l) 50%, transparent)", color: "var(--caos-accent)" }
                     : { borderColor: "var(--caos-border)", color: "var(--caos-muted)" }
                 }
               >
@@ -168,7 +168,7 @@ export function SectorThesis({ data, refreshed }: { data: SectorReviewData; refr
           </div>
         ))}
         {refreshed ? (
-          <div className="flex items-center gap-2 px-3 py-[6px] caos-enter" style={{ background: "rgba(79,140,255,0.06)" }}>
+          <div className="flex items-center gap-2 px-3 py-[6px] caos-enter" style={{ background: "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" }}>
             <Dot sev="running" />
             <span className="text-caos-md text-caos-text">{data.newFinding}</span>
             <span className="tabular text-caos-3xs px-1 py-px rounded border border-caos-accent/60 text-caos-accent ml-auto whitespace-nowrap">NEW · this refresh</span>

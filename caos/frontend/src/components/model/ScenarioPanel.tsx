@@ -25,8 +25,8 @@ const fmtUsd = (v: number) => fmtUsdAcct(v);
 const fmtMetric = (v: number, key: MetricKey) =>
   METRICS.find((m) => m.key === key)!.unit === "x" ? fmtX(v) : fmtUsd(v);
 
-const GOOD = "rgba(34,197,94,0.5)";
-const BAD = "rgba(239,68,68,0.5)";
+const GOOD = "color-mix(in srgb, var(--caos-success) 50%, transparent)";
+const BAD = "color-mix(in srgb, var(--caos-critical) 50%, transparent)";
 
 // Fragility is never carried by colour alone — the band word + a glyph travel
 // with it (a11y / colourblind-safe, per the design system).
@@ -103,7 +103,7 @@ function ScenarioComparison({ sc, active }: { sc: ScenarioLens; active?: string 
           Best · base · worst — FY26e–FY28e
         </span>
         {active ? (
-          <span className="tabular text-caos-3xs px-1 py-px rounded border whitespace-nowrap truncate" style={{ color: "var(--caos-accent)", borderColor: "rgba(79,140,255,0.4)", background: "rgba(79,140,255,0.08)" }} title={`Re-centered on scenario: ${active}`}>
+          <span className="tabular text-caos-3xs px-1 py-px rounded border whitespace-nowrap truncate" style={{ color: "var(--caos-accent)", borderColor: "color-mix(in srgb, var(--tranche-2l) 40%, transparent)", background: "color-mix(in srgb, var(--tranche-2l) 8%, transparent)" }} title={`Re-centered on scenario: ${active}`}>
             ▸ {active}
           </span>
         ) : null}
@@ -336,7 +336,7 @@ function ScenarioBuilder({
       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Scenario builder</div>
 
       {active ? (
-        <div className="rounded border px-2 py-1.5 flex flex-col gap-1" style={{ borderColor: "rgba(79,140,255,0.4)", background: "rgba(79,140,255,0.08)" }}>
+        <div className="rounded border px-2 py-1.5 flex flex-col gap-1" style={{ borderColor: "color-mix(in srgb, var(--tranche-2l) 40%, transparent)", background: "color-mix(in srgb, var(--tranche-2l) 8%, transparent)" }}>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-sm shrink-0" style={{ background: "var(--caos-accent)" }} />
             <span className="text-caos-md text-caos-text font-medium truncate">{active.label}</span>

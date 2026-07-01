@@ -165,7 +165,7 @@ export function ComposePanel({
                         className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
                         style={{
                           borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                          background: off ? "transparent" : "rgba(79,140,255,0.2)",
+                          background: off ? "transparent" : "color-mix(in srgb, var(--tranche-2l) 20%, transparent)",
                           color: "var(--caos-accent)",
                         }}
                       >
@@ -203,7 +203,7 @@ export function ComposePanel({
                 className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
                 style={{
                   borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                  background: off ? "transparent" : "rgba(79,140,255,0.2)",
+                  background: off ? "transparent" : "color-mix(in srgb, var(--tranche-2l) 20%, transparent)",
                   color: "var(--caos-accent)",
                 }}
               >

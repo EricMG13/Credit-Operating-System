@@ -237,7 +237,7 @@ export function Sheet({
             <div key={i} className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
               <div
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
-                style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "rgba(79,140,255,0.16)", transition: "background 160ms" }}
+                style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "color-mix(in srgb, var(--tranche-2l) 16%, transparent)", transition: "background 160ms" }}
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider font-semibold whitespace-nowrap" style={{ color: hlGroup === gr.group ? "var(--caos-bg)" : "var(--caos-text)" }}>
                   {GROUPS_META[gr.group]}
@@ -306,7 +306,7 @@ export function Sheet({
                       borderBottom: "1px solid var(--caos-border)",
                     }}
                   >
-                    <div className="w-full mx-px h-[13px] rounded-sm" style={{ background: "rgba(79,140,255,0.16)" }}></div>
+                    <div className="w-full mx-px h-[13px] rounded-sm" style={{ background: "color-mix(in srgb, var(--tranche-2l) 16%, transparent)" }}></div>
                   </div>
                 ))}
               </div>
@@ -322,7 +322,7 @@ export function Sheet({
               key={row.id}
               onDoubleClick={() => collapsible && onToggleRow?.(row.id!)}
               className="flex group"
-              style={{ background: isHl ? "rgba(79,140,255,0.10)" : "transparent" }}
+              style={{ background: isHl ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}
             >
               <div
                 className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
@@ -445,7 +445,7 @@ export function FormulaBar({
       <span className="w-px h-4 bg-caos-border shrink-0"></span>
       {isOv ? (
         <span className="flex items-center gap-1.5 shrink-0">
-          <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+          <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
             MANUAL OVERRIDE
           </span>
           <span className="text-caos-sm text-caos-muted whitespace-nowrap">analyst input replaces sourced actual · aggregates recomputed</span>
@@ -470,7 +470,7 @@ export function FormulaBar({
         <span className="flex items-center gap-1.5 shrink-0">
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">{src.chip}</span>
           {src.warn ? (
-            <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "rgba(245,165,36,0.4)", background: "rgba(245,165,36,0.08)" }}>
+            <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
               {src.warn}
             </span>
           ) : null}
