@@ -414,6 +414,12 @@ async def init_db() -> None:
             lock_conn = await lock_conn.execution_options(isolation_level="AUTOCOMMIT")
             await lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
             try:
+                # Re-read the schema snapshot INSIDE the lock: the read at the top of
+                # init_db happens before we serialize, so a racing replica that migrated
+                # in the gap would otherwise leave us acting on a stale {legacy,versioned}
+                # view — re-stamping 0001 and re-running DDL on an already-migrated schema.
+                # (confidence-review 2026-07-01)
+                state = await lock_conn.run_sync(_schema_state)
                 await asyncio.to_thread(_run_migrations, state)
             finally:
                 await lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY})

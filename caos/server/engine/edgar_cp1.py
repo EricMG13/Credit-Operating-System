@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import edgar  # the covenant/legal retrieval lane — reused for HTTP + CIK helpers
 from engine.distress import altman_z_double_prime
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.edgar")
@@ -109,7 +110,12 @@ def _annual_series(units: Sequence[dict], kind: str, max_years: int = 5) -> Dict
         elif start:  # instant facts carry only `end`
             continue
         val = e.get("val")
-        if not isinstance(val, (int, float)):
+        # is_finite_number (not a bare isinstance): edgar._get_json uses the default
+        # json decoder, which parses NaN/Infinity tokens — a plain isinstance passes
+        # them (and bool(NaN) is True), leaking a non-finite value into every CP-1
+        # series and on into e.g. interest_coverage_ltm. Reject at the parse boundary
+        # per the CLAUDE.md invariant. (confidence-review 2026-07-01)
+        if not is_finite_number(val):
             continue
         cur = best.get(end_d.year)
         if cur is None or str(e.get("filed", "")) > str(cur.get("filed", "")):

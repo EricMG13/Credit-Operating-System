@@ -63,7 +63,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           base="origin/${{ github.base_ref }}"
-          files=$(git diff --name-only --diff-filter=d "$base" -- '*.py' | grep -v '/.venv' || true)
+          # Three-dot (merge-base) scope so a file only changed on base since divergence
+          # isn't linted; exclude .venv and tracked .goal/ scratch (experiment .py files
+          # that would false-block). (confidence-review 2026-07-01)
+          files=$(git diff --name-only --diff-filter=d "$base...HEAD" -- '*.py' | grep -vE '(^|/)\.(venv|goal)/' || true)
           if [ -z "$files" ]; then echo "no Python changes"; exit 0; fi
           echo "$files" | xargs ruff check --select C901
       # Dead-code gate — vulture over the backend (currently zero findings at

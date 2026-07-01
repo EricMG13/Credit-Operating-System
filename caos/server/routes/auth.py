@@ -257,6 +257,14 @@ async def register(
         raise HTTPException(422, "Name is required.")
     if not _EMAIL_RE.match(email):
         raise HTTPException(422, "Enter a valid email address.")
+    # SECURITY.md §1: behind the edge proxy every caller carries a verified
+    # X-Forwarded-Email. Self-registration must resolve only to the caller's own SSO
+    # identity — a body email naming a different account is impersonation: it seeds a
+    # row the named colleague silently adopts on their first SSO login (create_profile
+    # re-attaches by email). Reject the mismatch; absent proxy (dev) this is a no-op.
+    sso_email = request.headers.get("x-forwarded-email")
+    if sso_email and sanitize_field(sso_email).strip().lower() != email:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Email must match your signed-in identity.")
 
     # Friendly pre-check: the unique email index is the real guard, but it's
     # case-sensitive, so match the same lowercased form we store.
