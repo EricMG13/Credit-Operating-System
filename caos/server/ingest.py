@@ -1,6 +1,6 @@
 """Document intake: content sniffing, vault storage, text chunking.
 
-Files land in the vault directory (a UC Volume on Databricks, local disk in
+Files land in the vault directory (a mounted volume in production, local disk in
 dev) and their extracted text is chunked into document_chunks rows for
 downstream retrieval.
 """

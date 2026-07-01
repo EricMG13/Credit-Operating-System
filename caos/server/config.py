@@ -14,7 +14,6 @@ overrides via the environment:
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -231,10 +230,9 @@ def is_deployed(settings: "Settings | None" = None) -> bool:
     Asymmetric on purpose, matching the cookie ``secure`` flag (routes/auth.py):
     treat ANY ``environment`` value other than the exact string ``"development"``
     as deployed (so ``prod``, ``Production``, a typo, or unset → deployed/guards
-    active), and the legacy ``DATABRICKS_APP_PORT`` as a deployed signal too. The
-    earlier ``environment == "production"`` checks failed *open* on a mistyped or
-    unset value — silently dropping the edge-secret / session-secret / signup-code
-    guards. This only ever makes things MORE strict, never less.
+    active). The earlier ``environment == "production"`` checks failed *open* on a
+    mistyped or unset value — silently dropping the edge-secret / session-secret /
+    signup-code guards. This only ever makes things MORE strict, never less.
     """
     s = settings or get_settings()
-    return s.environment != "development" or os.environ.get("DATABRICKS_APP_PORT") is not None
+    return s.environment != "development"

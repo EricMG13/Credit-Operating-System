@@ -1,4 +1,4 @@
-"""CAOS — single-process Databricks App.
+"""CAOS — single-process app.
 
 One FastAPI service serves both the JSON API (under /api) and the static
 Next.js frontend export (everything else). The edge (Caddy + oauth2-proxy)
@@ -139,7 +139,7 @@ app = FastAPI(
 # must allow 'unsafe-inline' for script/style — a static export can't carry a
 # per-request nonce. The remaining directives still constrain origins, framing,
 # base-uri and form targets. frame-ancestors is 'self'; relax it only if the app
-# is ever embedded cross-origin (e.g. inside the Databricks workspace UI).
+# is ever embedded cross-origin (e.g. inside another product's iframe).
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "

@@ -1,7 +1,7 @@
 """Async SQLAlchemy engine, session factory, and ORM models.
 
 SQLite (aiosqlite) by default; any async SQLAlchemy URL via DATABASE_URL —
-on Databricks that's Lakebase (postgresql+asyncpg). Schema is managed by Alembic
+production points it at Postgres (postgresql+asyncpg). Schema is managed by Alembic
 (see migrations/); ``init_db`` runs ``upgrade head`` on boot, stamping a
 pre-Alembic database at the baseline first so existing deployments migrate in
 place rather than colliding. On Postgres the upgrade is wrapped in a session-level

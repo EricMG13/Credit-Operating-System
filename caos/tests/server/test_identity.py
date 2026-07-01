@@ -85,9 +85,6 @@ def test_is_deployed_fails_closed(monkeypatch, env, expected):
 
     monkeypatch.delenv("DATABRICKS_APP_PORT", raising=False)
     assert config.is_deployed(config.Settings(environment=env)) is expected
-    # The legacy platform port forces deployed even for development.
-    monkeypatch.setenv("DATABRICKS_APP_PORT", "8443")
-    assert config.is_deployed(config.Settings(environment="development")) is True
 
 
 @pytest.mark.asyncio

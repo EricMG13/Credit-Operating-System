@@ -127,7 +127,7 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
     return layers
 
 
-async def synthesize_module(
+async def synthesize_module(  # noqa: C901  # pre-existing multi-branch dispatcher; decompose the dispatch table when reworked
     module_id: str, session: AsyncSession, issuer: Optional[Issuer],
     issuer_name: str, synthesizer, upstream: Dict[str, ModulePayload], retrieve,
 ) -> ModulePayload:
@@ -225,7 +225,7 @@ async def synthesize_module(
     )
 
 
-async def execute_run(session: AsyncSession, run: Run) -> None:
+async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  # 283-line orchestrator; decompose (QA phase + fact projection) when next touched
     """Execute the slice for ``run`` in place; sets status and gate roll-up.
 
     Synchronous for the slice (deterministic and easy to test); a queue/worker
