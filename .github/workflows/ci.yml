@@ -44,6 +44,8 @@ jobs:
           --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history so the complexity gate can diff the PR base
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -53,6 +55,23 @@ jobs:
       # before the heavier dependency install (config: ruff.toml).
       - run: pip install ruff==0.15.18
       - run: ruff check caos/server caos/tests
+      # Complexity gate — C901 (cyclomatic > 10) on the Python files THIS PR
+      # changed, mirroring the fallow new-only gate: never re-litigates the
+      # existing backlog, blocks new/edited functions that cross the threshold.
+      # A `# noqa: C901` marks a pre-existing offender when its file is next touched.
+      - name: Complexity gate (changed Python)
+        if: github.event_name == 'pull_request'
+        run: |
+          base="origin/${{ github.base_ref }}"
+          files=$(git diff --name-only --diff-filter=d "$base" -- '*.py' | grep -v '/.venv' || true)
+          if [ -z "$files" ]; then echo "no Python changes"; exit 0; fi
+          echo "$files" | xargs ruff check --select C901
+      # Dead-code gate — vulture over the backend (currently zero findings at
+      # conf>=80). `cls` is a classmethod-override signature arg, never dead code.
+      - name: Dead code (vulture)
+        run: |
+          pip install vulture==2.14
+          vulture caos/server caos/scripts --min-confidence 80 --ignore-names cls
       - run: pip install -r caos/server/requirements.txt pytest pytest-asyncio httpx
       # Default suite on SQLite (the existing tests + async; Postgres-only tests skipped).
       - run: python -m pytest caos/tests/server -q
