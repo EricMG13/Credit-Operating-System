@@ -97,8 +97,8 @@ const DODGE_BAR_STYLE = {
 // Grouped-bar spec for revenue vs adj. EBITDA over the periods both series share.
 // Null (→ chart omitted) unless ≥2 shared periods exist — no fake single-bar trend.
 export function financialsSpec(series: Record<string, ProfileMetric[]>): ChartSpec | null {
-  const rev = series.revenue || [];
-  const eb = series.adj_ebitda || [];
+  const rev = (series.revenue || []).filter((r) => Number.isFinite(r.value));
+  const eb = (series.adj_ebitda || []).filter((e) => Number.isFinite(e.value));
   const periods = rev.map((r) => r.period).filter((per) => eb.some((e) => e.period === per));
   if (periods.length < 2) return null;
   const data: { fy: string; s: string; v: number }[] = [];
@@ -120,10 +120,13 @@ export function financialsSpec(series: Record<string, ProfileMetric[]>): ChartSp
 export function lineSpec(
   pts: ProfileMetric[] | undefined, color: string, label: (v: number) => string,
 ): ChartSpec | null {
-  if (!pts || pts.length < 2) return null;
+  // value is typed number but arrives from JSON — drop null/NaN points so the label
+  // callback (v.toFixed) can't crash the chart render on a missing metric.
+  const nums = (pts ?? []).filter((p) => Number.isFinite(p.value));
+  if (nums.length < 2) return null;
   return {
     type: "view",
-    data: pts.map((p) => ({ fy: p.period, v: p.value })),
+    data: nums.map((p) => ({ fy: p.period, v: p.value })),
     children: [
       { type: "line", encode: { x: "fy", y: "v" }, style: { stroke: color, lineWidth: 2 } },
       { type: "point", encode: { x: "fy", y: "v" }, style: { fill: color },

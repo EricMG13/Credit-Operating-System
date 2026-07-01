@@ -51,6 +51,10 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # Verify a login against this when no account matches, so a missing email and a
 # wrong password cost the same scrypt work — no user enumeration via timing.
 _DUMMY_HASH = hash_password("caos-no-such-account")
+# Three dummies for the recovery lane — verifying against these when no account
+# matches costs the same scrypt work as three real words, so /recover can't leak
+# account existence by returning fast.
+_DUMMY_RECOVERY_HASHES = [_DUMMY_HASH, _DUMMY_HASH, _DUMMY_HASH]
 
 
 def _throttle(request: Request) -> None:
@@ -159,7 +163,10 @@ def _recovery_ok(words: list[str], hashes: list[str]) -> bool:
     cleaned = [sanitize_field(w).strip().lower() for w in words]
     if len(cleaned) != 3 or len(hashes or []) != 3:
         return False
-    return all(verify_password(w, h) for w, h in zip(cleaned, hashes))
+    # Non-short-circuiting: verify all three regardless of an earlier mismatch, so
+    # response time can't leak how many leading words were correct (all() would stop
+    # at the first wrong word).
+    return sum(verify_password(w, h) for w, h in zip(cleaned, hashes)) == 3
 
 
 @router.post("/profile", response_model=MeResponse, status_code=201)
@@ -319,7 +326,12 @@ async def recover_login(
     analyst = (await db.execute(
         select(Analyst).where(func.lower(Analyst.email) == email)
     )).scalar_one_or_none()
-    if analyst is None or not _recovery_ok(body.recovery_words, analyst.recovery_word_hashes or []):
+    # Verify against three hashes whether or not the account exists — the row's when
+    # present, dummies otherwise — so a missing email costs the same scrypt work as
+    # wrong words. No user enumeration via timing; mirrors the /login lane above.
+    stored = (analyst.recovery_word_hashes if analyst else None) or _DUMMY_RECOVERY_HASHES
+    ok = _recovery_ok(body.recovery_words, stored)
+    if not ok or analyst is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Recovery failed — contact admin.")
     _set_cookie(response, analyst)
     return _profile_response(analyst)

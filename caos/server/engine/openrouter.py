@@ -47,7 +47,7 @@ def _translate_messages(system: Any, messages: List[dict]) -> List[dict]:
             if system_text:
                 out.append({"role": "system", "content": system_text})
 
-    for m in messages:
+    for m in messages or []:
         role = m.get("role")
         content = m.get("content", "")
         # Normalize content to string

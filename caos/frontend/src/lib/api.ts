@@ -269,10 +269,20 @@ export const edgarVaultUrl = (
   api
     .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
-export const edgarVaultUrls = (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> =>
-  Promise.all(
-    urls.split(",").map((u) => u.trim()).filter(Boolean).map((u) => edgarVaultUrl(issuerId, u, runMode)),
-  );
+export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> => {
+  const list = urls.split(",").map((u) => u.trim()).filter(Boolean);
+  if (!list.length) return [];
+  const settled = await Promise.allSettled(list.map((u) => edgarVaultUrl(issuerId, u, runMode)));
+  const ok = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
+  // ponytail: partial failures are dropped, not surfaced per-URL. Throw only when
+  // every URL failed, so an all-fail 503 (not-configured) still reaches the caller's
+  // catch instead of one bad URL sinking the whole batch of successes.
+  if (!ok.length) {
+    const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    throw firstErr ? firstErr.reason : new Error("EDGAR URL vaulting failed.");
+  }
+  return ok;
+};
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────
 export interface ResearchBrief {
