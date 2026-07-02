@@ -28,7 +28,7 @@ export default function IssuersPage() {
 }
 
 
-const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "", sponsor: "" };
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
@@ -124,6 +124,12 @@ function IssuersDirectory() {
         <div className="flex-1" />
         <ConceptNav />
         <div className="h-4 w-px bg-caos-border" />
+        <Link
+          href="/sponsors"
+          className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+        >
+          SPONSORS
+        </Link>
         <Link
           href="/upload"
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
@@ -315,7 +321,8 @@ function NewIssuerModal({
     setCreating(true);
     setCreateError(null);
     try {
-      onCreated(await createIssuer(form));
+      // sponsor is a grouping key for /api/sponsors — never persist "" as a group.
+      onCreated(await createIssuer({ ...form, sponsor: form.sponsor.trim() || undefined }));
       onClose();
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -353,6 +360,7 @@ function NewIssuerModal({
             { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+" },
             { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1" },
             { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-" },
+            { key: "sponsor", label: "Sponsor / PE owner", required: false, ph: "e.g. Kestrel Capital Partners" },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>

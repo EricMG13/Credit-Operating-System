@@ -21,7 +21,9 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 import { SectorRV } from "@/components/command/SectorRV";
 import { NlQuery } from "@/components/command/NlQuery";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
+import { DailyDigestPanel } from "@/components/command/DailyDigestPanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
+import { useDigest } from "@/lib/engine/useDigest";
 import {
   CoverageMatrix, GapsList, IssuerStrip,
   PortfolioTable, QaQueue, SectorBoard,
@@ -60,6 +62,9 @@ function CommandCenter() {
   const tick = run.sim.tick;
   // Live cross-issuer posture from completed runs; empty → only the sample board shows.
   const portfolio = usePortfolio();
+  // Live coverage-health digest (staleness / WARF / CCC watch); empty → the
+  // research lens keeps only its seeded panels.
+  const { digest, live: digestLive } = useDigest();
 
   const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
   const rvLoanCount = RV_SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
@@ -198,6 +203,19 @@ function CommandCenter() {
           </div>
         ) : (
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
+            {digestLive && digest ? (
+              <PanelShell
+                title="Daily Digest · coverage & ratings"
+                className="flex-[2]"
+                right={
+                  <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>
+                    ● LIVE · as of {new Date(digest.as_of).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                }
+              >
+                <DailyDigestPanel digest={digest} />
+              </PanelShell>
+            ) : null}
             <PanelShell
               title="Module Coverage Matrix · L1–L6 freshness"
               className="flex-[3]"

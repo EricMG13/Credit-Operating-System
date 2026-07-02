@@ -278,6 +278,12 @@ def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
         "covenant_structure": cov.get("covenant_structure"),
         "covenant_headroom_turns": headroom.get("value"),
         "covenant_cushion_pct": headroom.get("ebitda_cushion_pct"),
+        # Covenant register (CP-4C extraction) — absent keys stay None.
+        "rp_basket_musd": cov.get("rp_basket_musd"),
+        "cross_default_musd": cov.get("cross_default_musd"),
+        "addback_cap_pct": cov.get("addback_cap_pct"),
+        "addback_utilization_pct": (cov.get("addback_audit") or {}).get("utilization_pct"),
+        "addback_breach": (cov.get("addback_audit") or {}).get("breach"),
         "revenue_growth_pct": earnings.get("revenue_growth_pct"),
         "ebitda_growth_pct": earnings.get("ebitda_growth_pct"),
         "margin_change_pp": earnings.get("margin_change_pp"),
