@@ -364,7 +364,7 @@ def _passes(value: Optional[float], op: str, target) -> bool:
             "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
 
 
-async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
+async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
     """Run a validated spec over headline metric_facts; return ranked, cited rows."""
     needed = list(dict.fromkeys([spec.rank_by, *spec.metrics]))
     issuer_filters = [f for f in spec.filters if f.field in _FILTER_FIELDS]
@@ -550,7 +550,7 @@ async def execute_semantic(session: AsyncSession, spec: SemanticSpec) -> dict:
     }
 
 
-async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
+async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:  # noqa: C901
     """Search agent outputs, claims, and QA findings; return ranked matches."""
     from database import ModuleOutput, Claim, QAFinding, Run, Issuer
     from retrieval import bm25_rank

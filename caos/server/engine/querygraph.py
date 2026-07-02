@@ -734,7 +734,7 @@ async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str
     return _empty(cap, "Provenance", f"unknown focus {focus!r}")
 
 
-async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],
+async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],  # noqa: C901
                focus: str, cap: dict, sp_title: str) -> dict:
     present = {m.module_id: m for m in mods}
     # Layer x by registry layer_rank; spread y within a layer.

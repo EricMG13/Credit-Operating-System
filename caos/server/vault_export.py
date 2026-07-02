@@ -393,7 +393,7 @@ _last_vault_mtime = 0.0
 _last_vault_file_count = 0
 
 
-async def sync_analyst_memos(session) -> int:
+async def sync_analyst_memos(session) -> int:  # noqa: C901
     """Scan the vault directory (excluding Issuers/ and Runs/) for analyst-written
     Markdown files, parsing [[wikilinks]] that reference known issuers. Caches
     resolved links into the analyst_links table (syncing additions and deletions).

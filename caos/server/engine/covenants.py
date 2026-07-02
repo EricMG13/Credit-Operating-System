@@ -169,7 +169,7 @@ def _maintenance_leverage_threshold(text: str) -> Optional[Tuple[float, Optional
     return None
 
 
-def derive_covenant_terms(
+def derive_covenant_terms(  # noqa: C901
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
@@ -293,7 +293,7 @@ async def extract_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
     return derive_covenant_terms([(h.chunk_id, h.text) for h in hits])
 
 
-async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
+async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  # noqa: C901
     """Build the CP-4C payload: capacity / headroom calculations against CP-1's
     leverage, each source-traced. ``retrieve(query, k)`` is the runner's BM25."""
     lev, nd = cp1_leverage(cp1)

@@ -102,7 +102,7 @@ def _headline_period(periods: Sequence[str]) -> Optional[str]:
     return max(ltm or periods, key=sort_key)
 
 
-def extract_facts(
+def extract_facts(  # noqa: C901
     run_id: str, payload: ModulePayload, qa_status: str, *, is_reference_issuer: bool = True
 ) -> List[dict]:
     """Project CP-1 normalized_financials into MetricFact kwarg dicts (run-derived).

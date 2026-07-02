@@ -12,6 +12,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Node ≥25 ships a broken global localStorage getter (undefined without
+    // --localstorage-file) that shadows jsdom's storage — the setup file swaps
+    // in an in-memory Storage so CI (Node 26) behaves like local Node.
+    setupFiles: ["./vitest.setup.ts"],
     // Some dense jsdom component specs exercise full cross-pane workflows and
     // regularly exceed Vitest's 5s default on local machines. Keep the default
     // command representative instead of forcing ad hoc CLI timeout overrides.

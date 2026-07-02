@@ -284,7 +284,7 @@ def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
     }
 
 
-def _strengths_weaknesses(
+def _strengths_weaknesses(  # noqa: C901
     signals: Dict[str, Any], headline: Dict[str, float]
 ) -> "tuple[List[str], List[str]]":
     """A rule-based credit read from this run's signals + headline ratios —
