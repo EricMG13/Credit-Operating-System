@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { getCrossDefaultMap, getIssuerProfile, queryGraph, type BusinessFact, type CrossDefaultMap, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -626,21 +626,39 @@ export function Profile({
             )}
           </Panel>
 
-          <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
-              <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
-              <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
-              <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months]} latest={!!latest_run} />
-              <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col gap-2">
-                <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
-                {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
-                  <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
-                ) : null}
-                <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
+          <div className="flex flex-col gap-3">
+            <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
+              <div className="px-3 py-2 flex flex-col gap-2">
+                <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
+                <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
+                <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
+                {/* Covenant register (CP-4C extraction) — rendered only when extracted. */}
+                <SigText label="RP / builder basket" v={signals.rp_basket_musd != null ? fmt(Number(signals.rp_basket_musd), "$M") + " capacity" : null} />
+                <SigText label="Cross-default" v={signals.cross_default_musd != null ? `trips at ${fmt(Number(signals.cross_default_musd), "$M")}` : null} />
+                <SigText
+                  label="Add-back cap"
+                  v={signals.addback_cap_pct != null
+                    ? `${(Number(signals.addback_cap_pct) * 100).toFixed(0)}% of EBITDA`
+                      + (signals.addback_utilization_pct != null
+                        ? ` · ${Number(signals.addback_utilization_pct).toFixed(0)}% used${signals.addback_breach === true ? " · BREACH" : ""}`
+                        : "")
+                    : null}
+                  sev={signals.addback_breach === true ? "critical"
+                    : signals.addback_utilization_pct != null && Number(signals.addback_utilization_pct) >= 80 ? "warning" : undefined}
+                />
+                <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months, signals.rp_basket_musd, signals.cross_default_musd, signals.addback_cap_pct]} latest={!!latest_run} />
+                <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col gap-2">
+                  <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
+                  {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
+                    <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
+                  ) : null}
+                  <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
+                </div>
               </div>
-            </div>
-          </Panel>
+            </Panel>
+
+            <CrossDefaultPanel issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
+          </div>
         </div>
 
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
@@ -896,6 +914,57 @@ function SigBand({ label, v, extra, gated = false }: { label: string; v: unknown
         {extra ? <span className="tabular text-caos-2xs text-caos-muted text-right">{extra}</span> : null}
       </span>
     </div>
+  );
+}
+
+// Cross-default dominoes — which tranches a single facility default pulls in
+// (CP-3B tranche register × the CP-4C material-indebtedness threshold). Fetched
+// lazily off the profile read; when the run extracted no threshold or tranches
+// the server's honest note renders instead — never a fabricated map.
+function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boolean }) {
+  const [map, setMap] = useState<CrossDefaultMap | null>(null);
+  useEffect(() => {
+    if (!hasRun) return;
+    let stale = false;
+    getCrossDefaultMap(issuerId)
+      .then((d) => { if (!stale) setMap(d); })
+      .catch(() => {}); // no backend / 404 → panel simply doesn't render
+    return () => { stale = true; };
+  }, [issuerId, hasRun]);
+  if (!hasRun || !map) return null;
+  const computable = map.threshold_musd != null && map.dominoes.length > 0;
+  return (
+    <Panel
+      title="Cross-default dominoes"
+      right={map.threshold_musd != null
+        ? <span className="tabular text-caos-2xs text-caos-muted">trips ≥ {fmt(map.threshold_musd, "$M")}</span>
+        : undefined}
+    >
+      {!computable ? (
+        <div className="px-3 py-2.5"><Empty>{map.note || "No domino map for this run."}</Empty></div>
+      ) : (
+        <div className="text-caos-md divide-y divide-caos-border/30">
+          {map.dominoes.map((d) => (
+            <div key={d.code} className="px-3 py-1.5 flex items-baseline gap-2">
+              <span className="tabular text-caos-sm text-caos-accent w-14 shrink-0">{d.code}</span>
+              <span className="text-caos-text text-caos-md truncate flex-1">{d.tranche}</span>
+              <span className="tabular text-caos-sm text-caos-muted">{d.amount_musd != null ? fmt(d.amount_musd, "$M") : "unsized"}</span>
+              <span
+                className="tabular text-caos-xs w-28 text-right shrink-0"
+                style={{ color: d.trips_cross_default === true ? "var(--caos-critical)" : "var(--caos-muted)" }}
+              >
+                {d.trips_cross_default === true
+                  ? `▸ pulls in ${d.pulls_in.length} tranche${d.pulls_in.length === 1 ? "" : "s"}`
+                  : d.trips_cross_default === false ? "below threshold" : "not computable"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {map.note && computable ? (
+        <div className="px-3 pb-2 tabular text-caos-2xs text-caos-muted">{map.note}</div>
+      ) : null}
+    </Panel>
   );
 }
 

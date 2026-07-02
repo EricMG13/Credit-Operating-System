@@ -17,9 +17,11 @@ import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
+import { DailyDigestPanel } from "@/components/command/DailyDigestPanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { liveQaItems } from "@/lib/command/qa";
 import { liveGaps } from "@/lib/command/gaps";
+import { useDigest } from "@/lib/engine/useDigest";
 import {
   GapsList, IssuerStrip,
   PortfolioTable, PostureSummary, QaQueue,
@@ -51,6 +53,9 @@ function CommandCenter() {
   const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
   // Live CP-0 source-gap board off the same portfolio fetch; seed fallback offline.
   const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
+  // Live coverage-health digest (staleness / WARF / CCC watch); empty → the
+  // research lens keeps only its seeded panels.
+  const { digest, live: digestLive } = useDigest();
 
   // A Live Coverage selection resolves against the LIVE rows, never the seeded
   // fixture — a live ticker matching a seeded code must not show sample figures
@@ -190,6 +195,25 @@ function CommandCenter() {
               </PanelShell>
             </div>
           </div>
+
+          {/* Daily Digest — live coverage-health readout (WARF, staleness,
+              CCC-cliff watch, 24h activity); hidden until the registry is
+              live so the research lens keeps only its seeded panels offline. */}
+          {digestLive && digest ? (
+            <PanelShell
+              title="Daily Digest · coverage & ratings"
+              className="flex-none min-h-0"
+              collapsible
+              defaultCollapsed={true}
+              right={
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>
+                  ● LIVE · as of {new Date(digest.as_of).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              }
+            >
+              <DailyDigestPanel digest={digest} />
+            </PanelShell>
+          ) : null}
 
           {/* Consolidated QA Findings & Source Gaps at the bottom. mb-9 keeps this
               panel's title bar clear of the floating Ask launcher (fixed
