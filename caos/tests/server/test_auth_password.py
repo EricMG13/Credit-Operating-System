@@ -91,3 +91,11 @@ def test_recovery_requires_all_words(client):
     assert bad.status_code == 401
     ok = client.post("/api/auth/recover", json={"email": "recover@firm.com", "recovery_words": ["alpha", "bravo", "charlie"]})
     assert ok.status_code == 200, ok.text
+
+
+def test_recovery_unknown_email_denied(client):
+    # No account for this email — the dummy-hash path must still verify (constant
+    # work, no enumeration) and deny, not crash or fast-path.
+    client.cookies.clear()
+    r = client.post("/api/auth/recover", json={"email": "nobody@firm.com", "recovery_words": ["alpha", "bravo", "charlie"]})
+    assert r.status_code == 401, r.text

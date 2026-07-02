@@ -1,62 +1,51 @@
 "use client";
 
-// Concept H — Query: the standalone search surface that *traverses* the
-// run-derived store. Where Command Center's Ask flattens the metric store and
-// ranks a column, Query walks edges — peer links, the provenance chain, the
-// module DAG, sector clusters — and renders each as a graph. The centre is a
-// search engine with a few predefined, data-grounded prompts; the left rail lists
-// every capability grouped by edge type, greyed when its edge can't be walked yet.
+// Concept H — Query: the standalone surface that traverses the run-derived
+// store (peer links, provenance chains, module DAGs, sector clusters) to widen
+// analysis beyond a single issuer. Layout is analyst-first: a question rail
+// grouped by job, one command bar (suggestions live in its focus dropdown),
+// and an answer that always leads with a plain-English synthesis line above
+// its native visualization. Views are gated per graph shape and reset on every
+// run; a permanent evidence dock keeps every conclusion one click from its
+// grounding (slide-over below lg so selection is never a silent no-op).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
-import { CapabilityRail } from "@/components/query/CapabilityRail";
+import { QuestionRail } from "@/components/query/QuestionRail";
+import { EvidenceDock } from "@/components/query/EvidenceDock";
+import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
 import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { useNotify } from "@/components/shared/Notifications";
-import { queryCapabilities, queryGraph } from "@/lib/api";
-import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
+import { acceptQueryLink, listQueryLinks, queryCapabilities, queryGraph, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
+import type { Capability, CapabilitiesResult, GraphResult, GraphNode, OverlayEdge, OverlayResult } from "@/lib/query/graph";
+import { pairKey } from "@/lib/query/graph";
 import { downloadQueryCsv } from "@/lib/query/export";
-import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
+import { rankQueryCapabilities } from "@/lib/query/routing";
+import { engineNote, questionFor, questionGroups } from "@/lib/query/questions";
+import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
+import { synthesize } from "@/lib/query/synthesis";
+import { MODEL_HUE } from "@/components/query/node-style";
 
 export default function QueryPage() {
   return (
     <RequireAuth>
-      <Query />
+      <QueryWorkspace />
     </RequireAuth>
   );
 }
 
-// Predefined prompts, richest-first; the page shows the first few that are
-// runnable given what's stored (so the suggestions never offer a dead edge).
-type QueryPrompt = { id: string; text: string; sub: string };
-
-const PROMPTS: QueryPrompt[] = [
-  { id: "peer-set", text: "Map peers by credit profile", sub: "issuer graph · CP-1C" },
-  { id: "contagion", text: "Co-move under an energy shock", sub: "contagion overlay · CP-2" },
-  { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
-  { id: "scatter", text: "Plot leverage × coverage", sub: "cross-issuer scatter" },
-  { id: "trace-source", text: "Trace the IC verdict to its sources", sub: "provenance walk" },
-  ANALYST_MEMO_PROMPT,
-  { id: "open-findings", text: "Show open QA findings", sub: "governance" },
-];
-
+// Auto-run preference: richest cross-issuer walks first, so the surface opens
+// on a live answer, not an empty canvas.
 const PREFER = ["peer-set", "contagion", "concentration-map", "scatter", "trace-source"];
-const LAYOUTS = [
-  { id: "graph", label: "Graph" },
-  { id: "trace", label: "Lineage" },
-  { id: "rv", label: "Table" },
-  { id: "scatter", label: "Scatter" },
-] as const;
 
-function Query() {
-  return <QueryWorkspace />;
-}
+type HistoryEntry = { text: string; capId: string; capLabel: string };
 
-function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPrompt[] }) {
+function QueryWorkspace() {
   const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
   const [capsErr, setCapsErr] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphResult | null>(null);
@@ -65,8 +54,20 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
   const [activeId, setActiveId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [text, setText] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [suggest, setSuggest] = useState<Capability[]>([]);
+  const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false); // sub-lg evidence slide-over
+  const [overlay, setOverlay] = useState<OverlayResult | null>(null);
+  const [overlayBusy, setOverlayBusy] = useState(false);
+  // Analyst-ratified links (phase 3): pairKey → link id, drives ACCEPT/UNDO state.
+  const [acceptedPairs, setAcceptedPairs] = useState<Map<string, string>>(new Map());
+  const [view, setView] = useState<QueryView>("graph");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [history, setHistory] = useState<{ text: string; capId: string; capLabel: string }[]>([]);
+  const notify = useNotify();
 
   useEffect(() => {
     try {
@@ -91,46 +92,41 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
   }, []);
 
   useEffect(() => {
-    if (window.innerWidth < 1024) {
-      setCollapsed(true);
-    }
+    if (window.innerWidth < 1024) setCollapsed(true);
   }, []);
 
+  // ⌘K routes here (AskProvider dispatches caos:query-focus on /query).
   useEffect(() => {
     const handleFocus = () => {
       inputRef.current?.focus();
       inputRef.current?.select();
     };
     window.addEventListener("caos:query-focus", handleFocus);
-    return () => {
-      window.removeEventListener("caos:query-focus", handleFocus);
-    };
+    return () => window.removeEventListener("caos:query-focus", handleFocus);
   }, []);
-  const [note, setNote] = useState<string | null>(null);
-  const [suggest, setSuggest] = useState<Capability[]>([]);
-  const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [layout, setLayout] = useState<"graph" | "trace" | "rv" | "scatter">("graph");
-  const notify = useNotify();
 
   const capById = useMemo(() => {
-    const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
+    const m = new Map<string, Capability>();
     caps?.groups.forEach((g) => g.capabilities.forEach((c) => m.set(c.id, c)));
     return m;
   }, [caps]);
-  const totalCaps = caps?.groups.reduce((s, g) => s + g.total, 0) ?? 0;
-  const totalReady = caps?.groups.reduce((s, g) => s + g.ready, 0) ?? 0;
+  const groups = useMemo(() => questionGroups(caps), [caps]);
+  const totalCaps = capById.size;
+  const totalReady = useMemo(
+    () => [...capById.values()].filter((c) => c.enabled).length,
+    [capById]
+  );
   const activeCap = activeId ? capById.get(activeId) : null;
+
   const selectNode = useCallback((node: GraphNode) => {
     setSelectedNode(node);
-    setInspectorOpen(true);
+    setSheetOpen(true);
   }, []);
 
   const runSeq = useRef(0);
-  const run = useCallback((capId: string, toast = false) => {
-    // Ignore out-of-order results: a slow earlier queryGraph must not clobber a newer
-    // one (graph/error/running guarded on the latest sequence). (review run-2 #FR2)
+  const run = useCallback((capId: string, capMode?: string, toast = false) => {
+    // Ignore out-of-order results: a slow earlier queryGraph must not clobber a
+    // newer one (graph/error/running guarded on the latest sequence).
     const seq = ++runSeq.current;
     setActiveId(capId);
     setRunning(true);
@@ -138,10 +134,16 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
     setNote(null);
     setSuggest([]);
     setSelectedNode(null);
-    setInspectorOpen(false);
+    setSheetOpen(false);
+    setOverlay(null); // model overlay belongs to ONE graph — never carries across runs
+    // Every run opens on its native view — a leftover Scatter/Lineage from the
+    // previous graph must never be the first render of a new one.
+    if (capMode) setView(nativeView(capId, capMode));
     queryGraph(capId)
       .then((g) => {
-        if (seq === runSeq.current) setGraph(g);
+        if (seq !== runSeq.current) return;
+        setGraph(g);
+        setView(nativeView(g.capability_id, g.mode));
         if (toast) notify("Query complete", g.title);
       })
       .catch((e) => {
@@ -154,53 +156,155 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
       .finally(() => { if (seq === runSeq.current) setRunning(false); });
   }, [notify]);
 
-  // Load capabilities, then auto-run the first runnable preferred capability so the
-  // surface opens on a live graph, not an empty canvas.
+  const pick = useCallback((capId: string) => {
+    run(capId, capById.get(capId)?.mode);
+  }, [run, capById]);
+
+  useEffect(() => {
+    listQueryLinks()
+      .then((r) => setAcceptedPairs(new Map(r.links.map((l) => [pairKey(l.issuer_a, l.issuer_b), l.id]))))
+      .catch(() => {}); // read-only state seed; absence just means no UNDO markers
+  }, []);
+
+  // Re-fetch the current graph WITHOUT clearing the overlay — after a ratify the
+  // deterministic payload now draws the solid accepted edge; the overlay stays up
+  // so the analyst can accept several proposals in one sitting.
+  const refreshGraph = useCallback(() => {
+    if (!activeId) return;
+    queryGraph(activeId).then(setGraph).catch(() => {});
+  }, [activeId]);
+
+  const acceptLink = useCallback((edge: OverlayEdge) => {
+    if (!activeId) return;
+    acceptQueryLink(edge, activeId, overlay?.model ?? null)
+      .then((l) => {
+        setAcceptedPairs((prev) => new Map(prev).set(pairKey(l.issuer_a, l.issuer_b), l.id));
+        notify("Link ratified", `${edge.source} ⇢ ${edge.target} is now stored graph data`);
+        refreshGraph();
+      })
+      .catch((e) => {
+        const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || (e as Error)?.message || "could not accept link";
+        notify("Accept failed", String(d));
+      });
+  }, [activeId, overlay, notify, refreshGraph]);
+
+  const retractLink = useCallback((linkId: string) => {
+    retractQueryLink(linkId)
+      .then(() => {
+        setAcceptedPairs((prev) => {
+          const next = new Map(prev);
+          for (const [k, v] of next) if (v === linkId) next.delete(k);
+          return next;
+        });
+        notify("Link retracted", "It will no longer be drawn");
+        refreshGraph();
+      })
+      .catch((e) => {
+        const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || (e as Error)?.message || "could not retract link";
+        notify("Retract failed", String(d));
+      });
+  }, [notify, refreshGraph]);
+
+  // Load capabilities, then auto-run the first runnable preferred walk so the
+  // surface opens on a live answer.
   useEffect(() => {
     let cancelled = false;
     queryCapabilities()
       .then((c) => {
         if (cancelled) return;
         setCaps(c);
-        const enabled = new Set(c.groups.flatMap((g) => g.capabilities.filter((x) => x.enabled).map((x) => x.id)));
-        const promptPreference = promptSet.map((p) => p.id);
-        const first = [...promptPreference, ...PREFER].find((id) => enabled.has(id)) || [...enabled][0];
-        if (first) run(first);
+        const flat = c.groups.flatMap((g) => g.capabilities);
+        const enabled = new Map(flat.filter((x) => x.enabled).map((x) => [x.id, x]));
+        const firstId = PREFER.find((id) => enabled.has(id)) || [...enabled.keys()][0];
+        if (firstId) run(firstId, enabled.get(firstId)?.mode);
       })
       .catch((e) => {
         if (!cancelled) setCapsErr((e as Error)?.message || "could not load capabilities");
       });
     return () => { cancelled = true; };
-  }, [promptSet, run]);
+  }, [run]);
 
-  const prompts = useMemo(
-    () => promptSet.filter((p) => capById.get(p.id)?.enabled).slice(0, 5),
-    [capById, promptSet]
-  );
+  // Suggestions for the command-bar dropdown: the richest runnable walks.
+  const prompts = useMemo(() => {
+    const flat = caps?.groups.flatMap((g) => g.capabilities) ?? [];
+    const enabled = flat.filter((c) => c.enabled);
+    const preferred = PREFER.map((id) => enabled.find((c) => c.id === id)).filter(Boolean) as Capability[];
+    const rest = enabled.filter((c) => !PREFER.includes(c.id));
+    return [...preferred, ...rest].slice(0, 5);
+  }, [caps]);
 
-  // Score every capability by alias hits (weight 2) + label-word overlap (weight 1),
-  // run the best *enabled* match, and never dead-end: a miss or a greyed best match
-  // surfaces the closest runnable capabilities as did-you-mean chips.
-  const submit = useCallback(() => {
+  // Keyword-route the free text to the best enabled walk; a miss or a greyed
+  // best match surfaces the closest runnable walks as did-you-mean chips.
+  const keywordSubmit = useCallback(() => {
     const q = text.trim().toLowerCase();
     if (!q) return;
     const allCaps = caps?.groups.flatMap((g) => g.capabilities) ?? [];
     const scored = rankQueryCapabilities(q, allCaps);
     const runnable = scored.filter((x) => x.c.enabled).map((x) => x.c);
     if (scored.length === 0) {
-      setNote("No capability matched. Try one of these:");
+      setNote("No walk matched. Try one of these:");
       setSuggest(allCaps.filter((c) => c.enabled).slice(0, 4));
       return;
     }
     const best = scored[0].c;
     if (best.enabled) {
       addToHistory(text, best.id, best.label);
-      run(best.id, true);
+      run(best.id, best.mode, true);
       return;
     }
     setNote(`${best.label} — ${best.reason}. Runnable instead:`);
     setSuggest(runnable.slice(0, 4));
   }, [text, caps, run, addToHistory]);
+
+  // Loud routing: prefer the LLM router (reasons shown, alternatives offered),
+  // degrade to the keyword router on empty candidates or any failure — routing
+  // never gets worse than the deterministic path.
+  const submit = useCallback(() => {
+    const q = text.trim();
+    if (!q) return;
+    setSearchOpen(false);
+    if (!caps?.availability?.model_lane) {
+      keywordSubmit();
+      return;
+    }
+    setNote("Routing…");
+    setSuggest([]);
+    queryRoute(q)
+      .then((r) => {
+        if (r.candidates.length === 0) {
+          keywordSubmit();
+          return;
+        }
+        const top = r.candidates.find((c) => c.enabled) ?? r.candidates[0];
+        const rest = r.candidates.filter((c) => c.id !== top.id);
+        const restCaps = rest
+          .map((c) => capById.get(c.id))
+          .filter(Boolean) as Capability[];
+        if (top.enabled) {
+          addToHistory(q, top.id, top.label);
+          run(top.id, capById.get(top.id)?.mode, true);
+          setNote(`Routed: ${top.reason || top.label}${restCaps.length ? " · also:" : ""}`);
+          setSuggest(restCaps);
+        } else {
+          setNote(`${top.label} — ${capById.get(top.id)?.reason ?? "unavailable"}. Runnable instead:`);
+          setSuggest(restCaps.filter((c) => c.enabled));
+        }
+      })
+      .catch(() => keywordSubmit());
+  }, [text, caps, capById, keywordSubmit, run, addToHistory]);
+
+  const views = graph ? viewsFor(graph.capability_id, graph.mode) : [];
+  const activeView = graph ? coerceView(view, graph.capability_id, graph.mode) : view;
+
+  // A ratified proposal is drawn solid by the deterministic graph — hide its
+  // dashed twin (a stale cached overlay can still contain the pair).
+  const visibleOverlayEdges = useMemo(() => {
+    if (!overlay) return undefined;
+    const drawn = new Set((graph?.edges ?? []).map((e) => pairKey(e.source, e.target)));
+    return overlay.edges.filter((e) => !drawn.has(pairKey(e.source, e.target)));
+  }, [overlay, graph]);
 
   return (
     <div className="h-screen flex flex-col">
@@ -213,42 +317,105 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2 overflow-hidden">
-          <MetricPill label="ready" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
-          <MetricPill label="active" value={activeCap?.label ?? "none"} />
+          <VaultMemoUpload
+            onUploaded={() => {
+              // New wikilinks may ungrey / repopulate the Wiki & Memos edge.
+              queryCapabilities().then(setCaps).catch(() => {});
+              if (activeId === "analyst-memos") pick("analyst-memos");
+            }}
+          />
+          <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
+          {activeCap && <MetricPill label="active" value={questionFor(activeCap)} />}
           {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">walking graph</span>}
         </div>
       </PageSubHeader>
 
       <div className="flex-1 min-h-0 flex bg-caos-bg">
-        <CapabilityRail
-          groups={caps?.groups ?? []}
+        <QuestionRail
+          groups={groups}
           activeId={activeId}
           collapsed={collapsed}
           onToggle={() => setCollapsed((v) => !v)}
-          onPick={run}
+          onPick={pick}
         />
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-          <section className="shrink-0 border-b border-caos-border bg-caos-panel/55 px-4 py-3">
-            <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-2 focus-within:border-caos-accent/70 transition-caos">
+          <section className="shrink-0 border-b border-caos-border bg-caos-panel/55 px-4 py-2.5 relative">
+            <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-1.5 focus-within:border-caos-accent/70 transition-caos">
               <QueryMark small />
               <input
                 ref={inputRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-                placeholder="Ask across coverage — or pick a starting point below"
+                onFocus={() => setSearchOpen(true)}
+                onBlur={() => setSearchOpen(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit();
+                  if (e.key === "Escape") setSearchOpen(false);
+                }}
+                placeholder={`Route a question across coverage — ${totalReady || "…"} walks ready`}
                 aria-label="Query coverage"
-                className="flex-1 bg-transparent outline-none tabular text-caos-xl text-caos-text placeholder:text-caos-muted"
+                className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
               />
+              <span className="tabular text-caos-3xs text-caos-muted font-mono border border-caos-border rounded px-1 py-0.5 hidden sm:inline" aria-hidden>
+                ⌘K
+              </span>
               <button
                 type="button"
                 onClick={submit}
-                className="tabular text-caos-md px-3 py-1 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
+                className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
               >
                 Run
               </button>
             </div>
+
+            {searchOpen && (history.length > 0 || prompts.length > 0) && (
+              <div className="absolute left-4 right-4 top-full -mt-1 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden" style={{ boxShadow: "var(--shadow-pop)" }}>
+                {history.length > 0 && (
+                  <div className="py-1 border-b border-caos-border/60">
+                    <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1">Recent</div>
+                    {history.slice(0, 3).map((h, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setText(h.text);
+                          setSearchOpen(false);
+                          pick(h.capId);
+                        }}
+                        className="w-full text-left px-3 py-1.5 flex items-baseline gap-2 hover:bg-caos-elevated/60 transition-caos focus-ring"
+                      >
+                        <span className="tabular text-caos-sm text-caos-text truncate">&quot;{h.text}&quot;</span>
+                        <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0">→ {h.capLabel}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {prompts.length > 0 && (
+                  <div className="py-1">
+                    <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1">Runnable now</div>
+                    {prompts.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSearchOpen(false);
+                          addToHistory(questionFor(p), p.id, p.label);
+                          pick(p.id);
+                        }}
+                        className="w-full text-left px-3 py-1.5 flex items-baseline gap-2 hover:bg-caos-elevated/60 transition-caos focus-ring"
+                      >
+                        <span className="tabular text-caos-sm text-caos-text truncate">{questionFor(p)}</span>
+                        <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0 truncate max-w-[45%]">{engineNote(p.id)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {note && (
               <div className="mt-2 flex items-center gap-2 flex-wrap">
                 <span className="tabular text-caos-sm text-caos-warning flex items-center gap-1">
@@ -259,7 +426,7 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => run(c.id)}
+                    onClick={() => pick(c.id)}
                     className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
                   >
                     {c.label}
@@ -267,85 +434,44 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
                 ))}
               </div>
             )}
-
-          {history.length > 0 && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Recent Queries</div>
-                <div className="h-px flex-1 bg-caos-border" />
-                <div className="tabular text-caos-3xs text-caos-muted font-mono">recent searches & clicks</div>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {history.map((h, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      setText(h.text);
-                      run(h.capId);
-                    }}
-                    className={
-                      "shrink-0 text-left bg-caos-bg border rounded-md px-3 py-1.5 min-h-[46px] transition-caos focus-ring max-w-[200px] border-caos-border hover:border-caos-accent/50 hover:bg-caos-elevated/35"
-                    }
-                  >
-                    <div className="tabular text-caos-xs text-caos-text truncate leading-normal" title={h.text}>
-                      &quot;{h.text}&quot;
-                    </div>
-                    <div className="tabular text-caos-3xs text-caos-muted font-mono mt-0.5 truncate">
-                      → {h.capLabel}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {prompts.length > 0 && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 mb-1.5">
-                <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Runnable now</div>
-                <div className="h-px flex-1 bg-caos-border" />
-                <div className="tabular text-caos-3xs text-caos-muted font-mono">grounded in stored data</div>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {prompts.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => {
-                      addToHistory(p.text, p.id, capById.get(p.id)?.label ?? p.text);
-                      run(p.id);
-                    }}
-                    className={
-                      "w-[190px] shrink-0 text-left bg-caos-bg border rounded-md px-3 py-2 min-h-[58px] transition-caos focus-ring " +
-                      (p.id === activeId ? "border-caos-accent caos-selected" : "border-caos-border hover:border-caos-accent/50 hover:bg-caos-elevated/35")
-                    }
-                  >
-                    <div className="tabular text-caos-md text-caos-text leading-snug">{p.text}</div>
-                    <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1">{p.sub}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           </section>
 
-          <ResultHeader graph={graph} running={running} activeLabel={activeCap?.label ?? null} selectedNode={selectedNode} />
+          {graph && (
+            <div className="shrink-0 px-4 py-3 border-b border-caos-border bg-caos-panel">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
+                  {graph.mode}
+                </span>
+                {activeCap && (
+                  <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{questionFor(activeCap)}</span>
+                )}
+                {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running</span>}
+              </div>
+              <h2 className="tabular text-caos-xl text-caos-text font-semibold mt-1 truncate">{graph.title}</h2>
+              <p className="text-caos-md text-caos-text font-sans leading-normal mt-1">{synthesize(graph)}</p>
+              {activeId && (
+                <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1">{engineNote(activeId)}</div>
+              )}
+            </div>
+          )}
+
           {graph ? (
             <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b border-caos-border bg-caos-bg flex-wrap">
-              <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5">
-                {LAYOUTS.map((l) => (
+              <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5" role="tablist" aria-label="Result view">
+                {views.map((v) => (
                   <button
-                    key={l.id}
+                    key={v}
                     type="button"
-                    onClick={() => setLayout(l.id)}
+                    role="tab"
+                    aria-selected={activeView === v}
+                    onClick={() => setView(v)}
                     className={`tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono ${
-                      layout === l.id
+                      activeView === v
                         ? "bg-caos-accent text-caos-bg font-semibold"
                         : "text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40"
                     }`}
                   >
-                    {l.label}
+                    {VIEW_LABELS[v]}
                   </button>
                 ))}
               </div>
@@ -353,27 +479,55 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setInspectorOpen((v) => !v)}
-                  className={`tabular text-caos-xs px-2 py-1 rounded border transition-caos cursor-pointer font-semibold ${
-                    inspectorOpen
-                      ? "border-caos-accent text-caos-accent bg-caos-accent/10"
-                      : "border-caos-border text-caos-muted hover:text-caos-text"
-                  }`}
-                  title="Toggle Evidence Panel"
+                  onClick={() => setSheetOpen((v) => !v)}
+                  className="lg:hidden tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring"
                 >
                   EVIDENCE
                 </button>
+                {caps?.availability?.model_lane && activeId && (
+                  <button
+                    type="button"
+                    disabled={overlayBusy}
+                    onClick={() => {
+                      if (overlay) {
+                        setOverlay(null);
+                        return;
+                      }
+                      setOverlayBusy(true);
+                      queryOverlay(activeId)
+                        .then((o) => {
+                          setOverlay(o);
+                          notify("Model overlay ready", `${o.edges.length} proposed link${o.edges.length === 1 ? "" : "s"}${o.cached ? " (cached)" : ""}`);
+                        })
+                        .catch((e) => {
+                          const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+                            || (e as Error)?.message || "model overlay failed";
+                          notify("Model overlay failed", String(d));
+                        })
+                        .finally(() => setOverlayBusy(false));
+                    }}
+                    className={`tabular text-caos-xs px-2 py-1 rounded border transition-caos focus-ring ${
+                      overlay
+                        ? "font-semibold"
+                        : "text-caos-muted hover:text-caos-text border-caos-border"
+                    } ${overlayBusy ? "opacity-60 cursor-wait" : ""}`}
+                    style={overlay ? { color: MODEL_HUE, borderColor: MODEL_HUE, backgroundColor: `${MODEL_HUE}15` } : undefined}
+                    title="Model-proposed links + commentary over this graph — labeled, cite-gated, excluded from print/CSV"
+                  >
+                    {overlayBusy ? "ANALYZING…" : overlay ? "MODEL OVERLAY ON" : "MODEL OVERLAY"}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => downloadQueryCsv(graph)}
-                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
                 >
                   EXPORT CSV
                 </button>
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
                 >
                   PRINT / PDF
                 </button>
@@ -387,29 +541,30 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
             ) : graphErr ? (
               <Center text={`Query failed — ${graphErr}`} warn />
             ) : !graph ? (
-              <Center text={running ? "Walking the graph…" : "Pick a capability to render its graph."} />
-            ) : layout === "rv" ? (
+              <Center text={running ? "Walking the graph…" : "Pick a question to render its answer."} />
+            ) : activeView === "rv" ? (
               <RelativeValueTable
                 graph={graph}
                 selectedNodeId={selectedNode?.id}
                 onSelectNode={selectNode}
               />
-            ) : layout === "scatter" ? (
+            ) : activeView === "scatter" ? (
               <ScatterCanvas
                 graph={graph}
                 selectedNodeId={selectedNode?.id}
                 onSelectNode={selectNode}
               />
-            ) : layout === "trace" ? (
+            ) : activeView === "trace" ? (
               <LineageFlow
                 graph={graph}
                 selectedNodeId={selectedNode?.id}
                 onSelectNode={selectNode}
               />
             ) : (
-              <GraphCanvas 
-                graph={graph} 
-                onOpenChunk={(id, label) => setCite({ id, label })} 
+              <GraphCanvas
+                graph={graph}
+                overlay={visibleOverlayEdges}
+                onOpenChunk={(id, label) => setCite({ id, label })}
                 onSelectNode={selectNode}
               />
             )}
@@ -423,99 +578,47 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
           )}
         </main>
 
-        {inspectorOpen && (
-          <aside 
-            className="hidden xl:flex w-[340px] border-l border-caos-border bg-caos-panel flex-col overflow-y-auto shrink-0 relative transition-caos"
-            aria-label="Evidence"
-          >
-            {selectedNode ? (
-              <>
-                <div className="p-4 flex items-start justify-between border-b border-caos-border bg-caos-elevated/35">
-                  <div>
-                    <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent font-mono">
-                      {selectedNode.kind.replace("-", " ")}
-                    </span>
-                    <h2 className="tabular text-caos-md font-mono text-caos-text mt-0.5 leading-snug break-all">
-                      {selectedNode.label}
-                    </h2>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedNode(null)}
-                    className="text-caos-muted hover:text-caos-text text-caos-xs font-mono px-1.5 focus-ring"
-                    title="Clear selection"
-                  >
-                    CLEAR
-                  </button>
-                </div>
-
-                <div className="flex-1 flex flex-col gap-3 min-h-0 p-4">
-                  {selectedNode.sub && (
-                    <div>
-                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description</div>
-                      <div className="text-caos-sm text-caos-text leading-relaxed font-sans">{selectedNode.sub}</div>
-                    </div>
-                  )}
-
-                  {selectedNode.title && (
-                    <div>
-                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Summary / Detail</div>
-                      <div className="text-caos-xs text-caos-text/90 leading-relaxed bg-caos-bg/50 border border-caos-border rounded p-2.5 font-mono whitespace-pre-wrap">
-                        {selectedNode.title}
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedNode.group && (
-                    <div>
-                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Category Group</div>
-                      <span className="tabular text-caos-2xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5 inline-block">
-                        {selectedNode.group}
-                      </span>
-                    </div>
-                  )}
-
-                  {selectedNode.confidence && (
-                    <div>
-                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence Score</div>
-                      <span
-                        className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
-                        style={{
-                          color: selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                          borderColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                          backgroundColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
-                        }}
-                      >
-                        {selectedNode.confidence}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {selectedNode.obsidian_url && (
-                  <div className="pt-3 border-t border-caos-border shrink-0">
-                    <a
-                      href={selectedNode.obsidian_url}
-                      className="w-full flex items-center justify-center gap-1.5 tabular text-caos-xs font-semibold py-2 px-3 rounded bg-caos-accent text-caos-bg hover:opacity-90 transition-caos text-center focus-ring"
-                    >
-                      <span>REVEAL IN OBSIDIAN WIKI</span>
-                      <span aria-hidden className="text-caos-2xs">↗</span>
-                    </a>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-                <QueryMark />
-                <div className="tabular text-caos-xs font-mono uppercase tracking-wider text-caos-text mt-3 mb-1">Evidence</div>
-                <div className="text-caos-2xs text-caos-muted font-mono max-w-xs leading-normal">
-                  Select a node to inspect grounding evidence.
-                </div>
-              </div>
-            )}
-          </aside>
-        )}
+        <aside
+          className="hidden lg:flex w-[300px] xl:w-[340px] border-l border-caos-border bg-caos-panel flex-col shrink-0"
+          aria-label="Evidence"
+        >
+          <EvidenceDock
+            graph={graph}
+            node={selectedNode}
+            overlay={overlay}
+            acceptedPairs={acceptedPairs}
+            onClear={() => setSelectedNode(null)}
+            onOpenChunk={(id, label) => setCite({ id, label })}
+            onPickWalk={pick}
+            onAcceptLink={acceptLink}
+            onRetractLink={retractLink}
+          />
+        </aside>
       </div>
+
+      {sheetOpen && (
+        <div className="lg:hidden fixed inset-0 z-overlay flex justify-end" role="dialog" aria-label="Evidence">
+          <button
+            type="button"
+            aria-label="Close evidence panel"
+            onClick={() => setSheetOpen(false)}
+            className="absolute inset-0 bg-[#050507]/60"
+          />
+          <div className="relative w-[320px] max-w-[90vw] h-full bg-caos-panel border-l border-caos-border flex flex-col caos-enter">
+            <EvidenceDock
+              graph={graph}
+              node={selectedNode}
+              overlay={overlay}
+              acceptedPairs={acceptedPairs}
+              onClear={() => setSheetOpen(false)}
+              onOpenChunk={(id, label) => setCite({ id, label })}
+              onPickWalk={pick}
+              onAcceptLink={acceptLink}
+              onRetractLink={retractLink}
+            />
+          </div>
+        </div>
+      )}
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
     </div>
@@ -527,7 +630,8 @@ function QueryMark({ small = false }: { small?: boolean }) {
   return (
     <span className={`${size} shrink-0 rounded-sm border border-caos-accent/70 bg-caos-accent/15 text-caos-accent flex items-center justify-center`} aria-hidden="true">
       <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 stroke-current" fill="none" strokeWidth="1.5" strokeLinecap="round">
-        <path d="M2 6h8M6 2v8" />
+        <circle cx="5" cy="5" r="3" />
+        <path d="M7.5 7.5 L10 10" />
       </svg>
     </span>
   );
@@ -539,52 +643,6 @@ function MetricPill({ label, value }: { label: string; value: string }) {
       <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted hidden md:inline">{label}</span>
       <span className="tabular text-caos-2xs text-caos-text truncate">{value}</span>
     </span>
-  );
-}
-
-function ResultHeader({
-  graph,
-  running,
-  activeLabel,
-  selectedNode,
-}: {
-  graph: GraphResult | null;
-  running: boolean;
-  activeLabel: string | null;
-  selectedNode: GraphNode | null;
-}) {
-  if (!graph) return null;
-  return (
-    <div className="shrink-0 flex items-start gap-3 px-4 py-3 border-b border-caos-border bg-caos-panel">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
-            {graph.mode}
-          </span>
-          {activeLabel && <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{activeLabel}</span>}
-          {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running</span>}
-          {selectedNode && (
-            <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-success border border-caos-success/40 bg-caos-success/10 rounded px-1.5 py-px flex items-center gap-1">
-              <span>Selected:</span>
-              <span className="font-mono truncate max-w-[120px]">{selectedNode.label}</span>
-            </span>
-          )}
-        </div>
-        <h2 className="tabular text-caos-hero text-caos-text font-semibold mt-1 truncate">{graph.title}</h2>
-        {!selectedNode && (
-          <div className="tabular text-caos-3xs text-caos-muted font-mono mt-0.5">
-            Select a node to inspect grounding evidence.
-          </div>
-        )}
-      </div>
-      <div className="hidden md:flex items-center gap-2 flex-wrap justify-end max-w-[42%]">
-        {graph.meta.map((m, i) => (
-          <span key={i} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap border border-caos-border rounded px-1.5 py-1 bg-caos-bg">
-            {m}
-          </span>
-        ))}
-      </div>
-    </div>
   );
 }
 

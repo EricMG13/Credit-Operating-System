@@ -1,21 +1,13 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import Link from "next/link";
 import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
 import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { PORTFOLIO } from "@/lib/command/data";
+import { DEMO_UNIVERSE } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
-
-const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
-  id: p.code,
-  name: p.name,
-  ticker: p.code,
-  sector: p.sector,
-  industry: p.sector,
-  country: "United States",
-}));
 
 interface IssuerProfileOverlayContextType {
   /** Open directly by issuer id — the common path (callers holding an Issuer). */
@@ -186,6 +178,18 @@ export function IssuerProfileOverlay() {
               >
                 CLOSE
               </button>
+              {/* Forward path out of a failed load (e.g. a demo-sleeve row whose
+                  id is a portfolio code, not a registry id) — Deep-Dive resolves
+                  codes, so it works where the profile read-model 404s. */}
+              {issuerId ? (
+                <Link
+                  href={"/deepdive?issuer=" + encodeURIComponent(issuerId)}
+                  onClick={closeProfile}
+                  className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+                >
+                  OPEN DEEP-DIVE
+                </Link>
+              ) : null}
             </div>
           </div>
         ) : (

@@ -132,6 +132,7 @@ function Settings() {
   const [queryModel, setQueryModel] = useState<string>("claude-sonnet-4-6");
   const [analystSettings, setAnalystSettings] = useState<AnalystSettings>({ model_lanes: {}, email_intelligence: { approved_senders: [] } });
   const [analystSaved, setAnalystSaved] = useState(false);
+  const [analystErr, setAnalystErr] = useState<string | null>(null);
   useEffect(() => {
     setQueryModel(localStorage.getItem("caos_query_model") || "claude-sonnet-4-6");
     getAnalystSettings().then(setAnalystSettings).catch(() => {});
@@ -153,11 +154,20 @@ function Settings() {
 
   const saveAnalyst = (next = analystSettings) => {
     setAnalystSettings(next);
+    setAnalystErr(null);
     saveAnalystSettings(next).then(() => {
       setAnalystSaved(true);
       window.setTimeout(() => setAnalystSaved(false), 2000);
-    }).catch(() => {});
+    }).catch((e) => {
+      const detail = e?.response?.data?.detail;
+      setAnalystErr(typeof detail === "string" && detail ? detail : "Save failed — not stored");
+    });
   };
+  const analystStatusTag = analystErr ? (
+    <span role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>✗ {analystErr}</span>
+  ) : analystSaved ? (
+    <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span>
+  ) : null;
 
   // ── Workspace config (server snapshot) ──
   const [cfg, setCfg] = useState<WorkspaceSettings | null>(null);
@@ -235,7 +245,7 @@ function Settings() {
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 {[
-                  { id: "claude-sonnet-4-6", name: "Claude 3.5 Sonnet", configured: cfg?.llm_configured ?? true, reqKey: "ANTHROPIC_API_KEY" },
+                  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", configured: cfg?.llm_configured ?? true, reqKey: "ANTHROPIC_API_KEY" },
                   { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", configured: cfg?.gemini_configured ?? false, reqKey: "GEMINI_API_KEY" },
                   { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", configured: cfg?.openrouter_configured ?? false, reqKey: "OPENROUTER_API_KEY" },
                 ].map((m) => (
@@ -273,9 +283,13 @@ function Settings() {
           {tab === "models" ? (
             <Panel
               title="Custom model routing · saved to analyst profile"
-              right={analystSaved ? <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
+              right={analystStatusTag}
             >
               <div className="p-3 flex flex-col gap-2">
+                <p className="tabular text-caos-2xs text-caos-warning leading-snug">
+                  Stored on your analyst profile — not yet applied. LLM lanes still run at the
+                  workspace tier above; per-lane wiring lands with the run-lane override rollout.
+                </p>
                 {[
                   ["module_synthesis", "Module synthesis"],
                   ["issuer_chat", "Issuer chat"],
@@ -379,7 +393,7 @@ function Settings() {
                     className={INPUT_BASE + " w-full px-2 py-1.5 text-caos-md resize-y leading-snug"}
                   />
                 </label>
-                {analystSaved ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
+                {analystStatusTag}
               </div>
             </Panel>
           ) : null}

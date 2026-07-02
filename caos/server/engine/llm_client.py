@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import anthropic
 
@@ -70,7 +70,7 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
 
     s = get_settings()
     fb = fallback_model or s.model_tier_cheap
-    call_kwargs = dict(
+    call_kwargs: dict[str, Any] = dict(
         system=kwargs.get("system"),
         messages=kwargs.get("messages"),
         max_tokens=kwargs.get("max_tokens"),
@@ -114,7 +114,7 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
     # _provider(fb) guard below would reject — making the fallback dead. Mirrors the
     # Gemini path.
     fb = fallback_model or s.model_tier_cheap
-    call_kwargs = dict(
+    call_kwargs: dict[str, Any] = dict(
         system=kwargs.get("system"),
         messages=kwargs.get("messages"),
         max_tokens=kwargs.get("max_tokens"),

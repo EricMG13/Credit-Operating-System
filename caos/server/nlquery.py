@@ -364,7 +364,7 @@ def _passes(value: Optional[float], op: str, target) -> bool:
             "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
 
 
-async def execute(session: AsyncSession, spec: QuerySpec) -> dict:
+async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
     """Run a validated spec over headline metric_facts; return ranked, cited rows."""
     needed = list(dict.fromkeys([spec.rank_by, *spec.metrics]))
     issuer_filters = [f for f in spec.filters if f.field in _FILTER_FIELDS]
@@ -550,11 +550,17 @@ async def execute_semantic(session: AsyncSession, spec: SemanticSpec) -> dict:
     }
 
 
-async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
+async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:  # noqa: C901
     """Search agent outputs, claims, and QA findings; return ranked matches."""
     from database import ModuleOutput, Claim, QAFinding, Run, Issuer
     from retrieval import bm25_rank
     import json
+
+    # ponytail: cap each scan so the in-request BM25 corpus can't grow unbounded
+    # with run history when no issuer/module filter is given. Newest-first, so the
+    # cap keeps the most recent runs. Raise, or push scoring into Postgres, if the
+    # platform accumulates enough runs that the tail matters.
+    _SYNTH_SCAN_CAP = 2000
 
     issuer_ids = None
     if spec.issuer_filter:
@@ -574,6 +580,7 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
     if spec.module_filter:
         stmt_m = stmt_m.where(ModuleOutput.module_id == spec.module_filter)
 
+    stmt_m = stmt_m.order_by(Run.created_at.desc()).limit(_SYNTH_SCAN_CAP)
     modules = (await session.execute(stmt_m)).all()
 
     stmt_c = (
@@ -587,6 +594,7 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
     if spec.module_filter:
         stmt_c = stmt_c.where(ModuleOutput.module_id == spec.module_filter)
 
+    stmt_c = stmt_c.order_by(Run.created_at.desc()).limit(_SYNTH_SCAN_CAP)
     claims = (await session.execute(stmt_c)).all()
 
     stmt_f = (
@@ -599,6 +607,7 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
     if spec.module_filter:
         stmt_f = stmt_f.where(QAFinding.module_id == spec.module_filter)
 
+    stmt_f = stmt_f.order_by(Run.created_at.desc()).limit(_SYNTH_SCAN_CAP)
     findings = (await session.execute(stmt_f)).all()
 
     corpus = []

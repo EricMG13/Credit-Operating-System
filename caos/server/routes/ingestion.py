@@ -9,22 +9,32 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import avscan
 import ingest
 import rate_limit
+import vault_export
 from database import Document, DocumentChunk, Issuer, get_db
 from identity import CallerIdentity, get_identity
 
+logger = logging.getLogger("caos.ingestion")
 router = APIRouter()
 
 # CP-X route templates — keep in sync with the frontend wizard / Concept B.
 RUN_MODES = {"full", "earnings", "rv", "legal"}
+
+# Analyst memo intake (→ the Obsidian vault, not document_chunks).
+MEMO_TYPES = {"market-commentary", "research", "memo"}
+_MEMO_EXTS = {".md", ".txt", ".pdf"}
 
 # Uploads parse + chunk + store, so cap per-caller (DoS / resource abuse).
 _UPLOAD_MAX_PER_MINUTE = 20
@@ -73,7 +83,9 @@ async def _vault_document(
     if not issuer:
         raise HTTPException(404, "Issuer not found")
 
-    key = ingest.store(content, file.filename or "upload.bin")
+    # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
+    # doesn't block the event loop — matching the extract_* calls in the callers.
+    key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
     chunks = ingest.chunk_text(text)
 
     doc = Document(
@@ -141,3 +153,77 @@ async def upload_pricing_sheet(
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
     return await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)
+
+
+class MemoUploadResponse(BaseModel):
+    note: str            # note title — the basename [[wikilinks]] resolve against
+    path: str            # path relative to the vault root
+    memo_type: str
+    issuer_links: List[str]  # issuer names the memo now references via wikilink
+    message: str
+
+
+@router.post("/upload/memo", response_model=MemoUploadResponse)
+async def upload_memo(
+    memo_type: str = Form("memo"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Analyst-authored commentary (market/research notes) into the Obsidian
+    vault's ``Analyst-Memos/`` — the folder ``sync_analyst_memos`` scans and the
+    Query graph deep-links. Known issuer names/tickers are auto-wikilinked so a
+    plain PDF or text note links itself into coverage. Vault-only: the memo is
+    not chunked into document_chunks (upload under an issuer for engine
+    retrieval)."""
+    _upload_rate_guard(caller)
+    from config import get_settings  # local: one patch of config.get_settings covers route + sync
+
+    settings = get_settings()
+    if not settings.vault_export_dir:
+        raise HTTPException(503, "No vault configured — set VAULT_EXPORT_DIR to accept memos.")
+    mtype = memo_type.strip().lower()
+    if mtype not in MEMO_TYPES:
+        raise HTTPException(400, f"memo_type must be one of {sorted(MEMO_TYPES)}")
+    name = file.filename or "memo.md"
+    ext = Path(name).suffix.lower()
+    if ext not in _MEMO_EXTS:
+        raise HTTPException(
+            400, f"Unsupported memo format {ext or '(none)'} — use one of {sorted(_MEMO_EXTS)}"
+        )
+
+    content = await ingest.read_capped(file)
+    await avscan.scan(content)  # scan before parse; no-op unless CLAMAV_HOST is set
+    if ext == ".pdf":
+        ingest.sniff_pdf(content)
+        # markitdown/pypdf is synchronous and CPU-bound — off-thread it (see upload_document).
+        text = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
+    else:
+        text = content.decode("utf-8", "replace")
+    if not text.strip():
+        raise HTTPException(
+            422, "No text could be extracted — scanned/encrypted PDF? Upload a text-based copy."
+        )
+
+    issuers = (await db.execute(select(Issuer))).scalars().all()
+    text, linked = vault_export.autolink_issuers(text, [(i.name, i.ticker) for i in issuers])
+
+    title = vault_export.memo_note_title(name)
+    md = vault_export.render_memo(
+        title, mtype, caller.email, name, text,
+        date=datetime.now(timezone.utc).date().isoformat(),
+    )
+    # Off-thread the disk write, matching _vault_document.
+    path = await asyncio.to_thread(vault_export.write_memo, settings.vault_export_dir, title, md)
+    try:
+        await vault_export.sync_analyst_memos(db)
+    except Exception as e:  # the note is written; the next Query read re-syncs links
+        logger.warning("analyst memo link sync failed after upload: %s", e)
+
+    return MemoUploadResponse(
+        note=path.stem,
+        path=f"{vault_export.MEMOS_DIR}/{path.name}",
+        memo_type=mtype,
+        issuer_links=sorted(linked),
+        message=f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s).",
+    )

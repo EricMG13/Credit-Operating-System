@@ -27,6 +27,9 @@ export const provRank = (p: string): number =>
 export function periodRank(p: string): number {
   const y4 = p.match(/(20\d{2})/);
   const y2 = p.match(/(\d{2})(?!\d)/);
+  // A bare undated "LTM" is the trailing-12m as of the LATEST data — rank it
+  // after every dated period, not at year 0 (which drew it as the oldest bar).
+  if (!y4 && !y2 && /ltm/i.test(p)) return Number.MAX_SAFE_INTEGER;
   const year = y4 ? Number(y4[1]) : y2 ? 2000 + Number(y2[1]) : 0;
   const q = p.match(/q([1-4])/i);
   return year * 10 + (q ? Number(q[1]) : /ltm/i.test(p) ? 9 : 0);
@@ -72,7 +75,14 @@ export function buildSeries(metrics: ProfileMetric[]): Record<string, ProfileMet
     if (!slot[m.period] || provRank(m.provenance) < provRank(slot[m.period].provenance)) slot[m.period] = m;
   }
   const out: Record<string, ProfileMetric[]> = {};
-  for (const k of Object.keys(by)) out[k] = Object.values(by[k]).sort((a, b) => periodRank(a.period) - periodRank(b.period));
+  for (const k of Object.keys(by)) {
+    // Engines emit both a bare "LTM" and a dated "LTM_Q1_26" for the same figure;
+    // plotting both draws the identical value twice (a fake flat period-over-period).
+    // When a dated LTM exists, the undated alias is dropped from the series.
+    const hasDatedLtm = Object.keys(by[k]).some((p) => /ltm/i.test(p) && /\d/.test(p));
+    const pts = Object.values(by[k]).filter((m) => !(hasDatedLtm && /^ltm$/i.test(m.period.trim())));
+    out[k] = pts.sort((a, b) => periodRank(a.period) - periodRank(b.period));
+  }
   return out;
 }
 
@@ -91,14 +101,14 @@ const DODGE_BAR_STYLE = {
   transform: [{ type: "dodgeX" }],
   legend: { color: { position: "top" } },
   axis: MC_AXIS,
-  labels: [{ text: "v", position: "top", fontSize: 8.5, transform: [{ type: "overlapHide" }] }],
+  labels: [{ text: "v", position: "top", fontSize: 9, transform: [{ type: "overlapHide" }] }],
 };
 
 // Grouped-bar spec for revenue vs adj. EBITDA over the periods both series share.
 // Null (→ chart omitted) unless ≥2 shared periods exist — no fake single-bar trend.
 export function financialsSpec(series: Record<string, ProfileMetric[]>): ChartSpec | null {
-  const rev = series.revenue || [];
-  const eb = series.adj_ebitda || [];
+  const rev = (series.revenue || []).filter((r) => Number.isFinite(r.value));
+  const eb = (series.adj_ebitda || []).filter((e) => Number.isFinite(e.value));
   const periods = rev.map((r) => r.period).filter((per) => eb.some((e) => e.period === per));
   if (periods.length < 2) return null;
   const data: { fy: string; s: string; v: number }[] = [];
@@ -117,17 +127,38 @@ export function financialsSpec(series: Record<string, ProfileMetric[]>): ChartSp
 }
 
 // Single-metric line+point over its periods. Null unless ≥2 points.
+// minSpan (same unit as the metric) floors the y-domain: without it G2 auto-fits
+// the domain to the data, so a flat series (margin 14.9→15.1) fills the full
+// chart height and stable reads as volatile. When the data span is narrower than
+// minSpan the domain is centred on the data at minSpan wide (floored at 0 for
+// non-negative series) — geometry is signal too.
 export function lineSpec(
-  pts: ProfileMetric[] | undefined, color: string, label: (v: number) => string,
+  pts: ProfileMetric[] | undefined, color: string, label: (v: number) => string, minSpan = 0,
 ): ChartSpec | null {
-  if (!pts || pts.length < 2) return null;
+  // value is typed number but arrives from JSON — drop null/NaN points so the label
+  // callback (v.toFixed) can't crash the chart render on a missing metric.
+  const nums = (pts ?? []).filter((p) => Number.isFinite(p.value));
+  if (nums.length < 2) return null;
+  let scale: Record<string, unknown> | undefined;
+  if (minSpan > 0) {
+    const vals = nums.map((p) => p.value);
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo < minSpan) {
+      const mid = (hi + lo) / 2;
+      let dMin = mid - minSpan / 2;
+      let dMax = mid + minSpan / 2;
+      if (lo >= 0 && dMin < 0) { dMax -= dMin; dMin = 0; }
+      scale = { y: { domainMin: dMin, domainMax: dMax } };
+    }
+  }
   return {
     type: "view",
-    data: pts.map((p) => ({ fy: p.period, v: p.value })),
+    ...(scale ? { scale } : {}),
+    data: nums.map((p) => ({ fy: p.period, v: p.value })),
     children: [
       { type: "line", encode: { x: "fy", y: "v" }, style: { stroke: color, lineWidth: 2 } },
       { type: "point", encode: { x: "fy", y: "v" }, style: { fill: color },
-        labels: [{ text: (d: { v: number }) => label(d.v), fontSize: 8.5, transform: [{ type: "overlapDodgeY" }] }] },
+        labels: [{ text: (d: { v: number }) => label(d.v), fontSize: 9, transform: [{ type: "overlapDodgeY" }] }] },
     ],
     axis: MC_AXIS,
   };
@@ -140,11 +171,11 @@ export function buildCharts(series: Record<string, ProfileMetric[]>): { title: s
   const out: { title: string; spec: ChartSpec }[] = [];
   const fin = financialsSpec(series);
   if (fin) out.push({ title: "Revenue & Adj. EBITDA ($M)", spec: fin });
-  const margin = lineSpec(series.ebitda_margin, CHART_HEX.teal, (v) => v.toFixed(1) + "%");
+  const margin = lineSpec(series.ebitda_margin, CHART_HEX.teal, (v) => v.toFixed(1) + "%", 4);
   if (margin) out.push({ title: "EBITDA margin (%)", spec: margin });
-  const lev = lineSpec(series.net_leverage, CHART_HEX.warning, (v) => v.toFixed(2).replace(/0$/, "") + "×");
+  const lev = lineSpec(series.net_leverage, CHART_HEX.warning, (v) => v.toFixed(2).replace(/0$/, "") + "×", 1);
   if (lev) out.push({ title: "Net leverage (×)", spec: lev });
-  const cov = lineSpec(series.interest_coverage, CHART_HEX.success, (v) => v.toFixed(1) + "×");
+  const cov = lineSpec(series.interest_coverage, CHART_HEX.success, (v) => v.toFixed(1) + "×", 1);
   if (cov) out.push({ title: "Interest coverage (×)", spec: cov });
   return out;
 }

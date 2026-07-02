@@ -21,8 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Document, DocumentChunk, Issuer, get_db
-from engine import querygraph
+from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
+from engine import querygraph, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
@@ -69,7 +69,11 @@ async def get_capabilities(
         await sync_analyst_memos(db)
     except Exception as e:
         logger.warning("Could not sync analyst memos: %s", e)
-    return await querygraph.capabilities(db)
+    result = await querygraph.capabilities(db)
+    # Whether the LLM lanes (router / model overlay) can run at all — the frontend
+    # hides their affordances when this is false (keyless deploys stay deterministic).
+    result["availability"]["model_lane"] = queryoverlay.available()
+    return result
 
 
 class GraphRequest(BaseModel):
@@ -98,6 +102,184 @@ async def query_graph(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown capability {body.capability_id!r}. See /api/query/capabilities.",
         ) from e
+
+
+class RouteRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/route")
+async def route_query(
+    body: RouteRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """LLM-route free text to up to 3 registry capabilities, each with a reason.
+
+    Contract: on ANY failure (no key, timeout, unparseable reply) this returns
+    ``{"candidates": [], "source": "keyword"}`` and the client falls back to its
+    local keyword router — routing never gets worse than the deterministic path.
+    """
+    if not rate_limit.hit(
+        f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query rate limit reached — try again in a minute.",
+        )
+    if not queryoverlay.available():
+        return {"candidates": [], "source": "keyword"}
+    caps = await querygraph.capabilities(db)
+    flat = [c for g in caps["groups"] for c in g["capabilities"]]
+    try:
+        return await queryoverlay.route(body.text, flat)
+    except Exception as e:  # noqa: BLE001 — fault-isolated lane: degrade, log, never 5xx
+        logger.warning("query-route LLM lane failed (%s) — keyword fallback", e)
+        return {"candidates": [], "source": "keyword"}
+
+
+_OVERLAY_MAX_PER_MINUTE = 10  # LLM spend — tighter than the read guard
+
+
+class OverlayRequest(BaseModel):
+    capability_id: str = Field(min_length=1, max_length=64)
+    issuer_id: Optional[str] = Field(default=None, max_length=36)
+    force: bool = False
+
+
+@router.post("/overlay")
+async def query_overlay(
+    body: OverlayRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The model overlay for one deterministic graph: citation-gated proposed
+    links + labeled commentary + suggested walks. Persisted + cached by graph
+    hash; read-only over the graph itself. Failures are loud (5xx with detail)
+    but isolated — /graph never depends on this lane."""
+    if not rate_limit.hit(
+        f"query-overlay:{caller.id}", max_attempts=_OVERLAY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Overlay rate limit reached — try again in a minute.",
+        )
+    if not queryoverlay.available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model lane unavailable — no provider key configured.",
+        )
+    try:
+        return await queryoverlay.overlay(
+            db, body.capability_id, body.issuer_id, analyst_id=caller.id, force=body.force
+        )
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown capability {body.capability_id!r}. See /api/query/capabilities.",
+        ) from e
+    except Exception as e:  # noqa: BLE001 — surface as an explicit lane failure
+        logger.warning("query-overlay LLM lane failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Model overlay failed — the deterministic graph is unaffected. Try again.",
+        ) from e
+
+
+# ── Analyst-ratified links (phase 3): the model proposes, the ANALYST writes ──
+
+def _link_dict(r: QueryAcceptedLink) -> dict:
+    return {
+        "id": r.id, "issuer_a": r.issuer_a, "issuer_b": r.issuer_b,
+        "capability_id": r.capability_id, "rationale": r.rationale or "",
+        "chunk_ids": r.chunk_ids or [], "confidence": r.confidence or "Low",
+        "model": r.model or "", "analyst_id": r.analyst_id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+class AcceptLinkRequest(BaseModel):
+    source_issuer_id: str = Field(min_length=1, max_length=36)
+    target_issuer_id: str = Field(min_length=1, max_length=36)
+    capability_id: str = Field(min_length=1, max_length=64)
+    rationale: str = Field(default="", max_length=300)
+    chunk_ids: list[str] = Field(default_factory=list, max_length=8)
+    confidence: str = Field(default="Low", max_length=16)
+    model: str = Field(default="", max_length=128)
+
+
+@router.get("/links")
+async def list_accepted_links(
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
+    _read_rate_guard(caller)
+    rows = (await db.execute(select(QueryAcceptedLink))).scalars().all()
+    return {"links": [_link_dict(r) for r in rows]}
+
+
+@router.post("/links")
+async def accept_link(
+    body: AcceptLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Ratify one model-proposed issuer↔issuer link. Analyst-initiated write —
+    the LLM lane never calls this. Idempotent per pair (normalized, undirected):
+    re-accepting returns the existing ratification."""
+    if not rate_limit.hit(
+        f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query rate limit reached — try again in a minute.",
+        )
+    a, b = sorted((body.source_issuer_id, body.target_issuer_id))
+    if a == b:
+        raise HTTPException(status_code=422, detail="A link needs two distinct issuers.")
+    issuers = (await db.execute(select(Issuer.id).where(Issuer.id.in_([a, b])))).scalars().all()
+    if len(set(issuers)) != 2:
+        raise HTTPException(status_code=404, detail="Both endpoints must be known issuers.")
+    existing = (await db.execute(
+        select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
+    )).scalars().first()
+    if existing is not None:
+        return {**_link_dict(existing), "created": False}
+    row = QueryAcceptedLink(
+        issuer_a=a, issuer_b=b, capability_id=body.capability_id,
+        rationale=body.rationale, chunk_ids=body.chunk_ids,
+        confidence=body.confidence if body.confidence in ("High", "Medium", "Low") else "Low",
+        model=body.model, analyst_id=caller.id,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {**_link_dict(row), "created": True}
+
+
+@router.delete("/links/{link_id}")
+async def retract_link(
+    link_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Retract a ratified link — it stops being drawn on the next graph build."""
+    if not rate_limit.hit(
+        f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query rate limit reached — try again in a minute.",
+        )
+    row = (await db.execute(
+        select(QueryAcceptedLink).where(QueryAcceptedLink.id == link_id)
+    )).scalars().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Link not found.")
+    await db.delete(row)
+    await db.commit()
+    return {"deleted": link_id}
 
 
 class ChunkResponse(BaseModel):

@@ -16,8 +16,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { PORTFOLIO } from "@/lib/command/data";
-import { COUNTRIES, issuerProfileHref, issuerSector } from "@/lib/issuers";
+import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerSector } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 export default function IssuersPage() {
@@ -30,18 +29,6 @@ export default function IssuersPage() {
 
 
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
-
-// Demo coverage universe shown when the registry is empty, so the entry point
-// reflects the same names the rest of the app works against (Command, Deep-Dive)
-// instead of dead-ending on "no issuers yet".
-const DEMO_UNIVERSE: Issuer[] = PORTFOLIO.map((p) => ({
-  id: p.code,
-  name: p.name,
-  ticker: p.code,
-  sector: p.sector,
-  industry: p.sector,
-  country: "United States",
-}));
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {

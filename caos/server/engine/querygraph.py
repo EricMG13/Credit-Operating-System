@@ -673,6 +673,12 @@ async def _latest_run(session: AsyncSession, issuer_id: Optional[str],
     stmt = select(Run).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
+    # ponytail: bound the per-run COUNT probe below to the most recent N runs so a
+    # long history can't turn the fallback scan into an unbounded round-trip loop.
+    # The common case still returns on the first run with outputs; this only caps
+    # the degenerate "leading runs are all empty" tail. Rewrite as an EXISTS
+    # subquery if the probe ever shows up hot.
+    stmt = stmt.limit(200)
     fallback: Optional[Run] = None
     for run in (await session.execute(stmt)).scalars():
         has = (await session.execute(
@@ -728,7 +734,7 @@ async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str
     return _empty(cap, "Provenance", f"unknown focus {focus!r}")
 
 
-async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],
+async def _dag(session: AsyncSession, run: Run, name: str, mods: List[ModuleOutput],  # noqa: C901
                focus: str, cap: dict, sp_title: str) -> dict:
     present = {m.module_id: m for m in mods}
     # Layer x by registry layer_rank; spread y within a layer.
@@ -1056,6 +1062,40 @@ def _clip(text: Optional[str], n: int = 90) -> str:
     return t if len(t) <= n else t[: n - 1].rstrip() + "…"
 
 
+# ── Analyst-ratified links (Query phase 3) ───────────────────────────────────
+async def _append_accepted_links(session: AsyncSession, graph: dict) -> dict:
+    """Draw analyst-accepted issuer links on any graph carrying both endpoints.
+
+    Accepted links are stored data (model-proposed, analyst-ratified — see
+    ``QueryAcceptedLink``), so they belong in the deterministic payload: solid
+    edge kind ``accepted``, present in table/CSV/print. A caveat line keeps the
+    provenance honest on the exhibit itself."""
+    from database import QueryAcceptedLink
+
+    node_ids = {n["id"] for n in graph.get("nodes", [])}
+    if len(node_ids) < 2:
+        return graph
+    rows = (await session.execute(select(QueryAcceptedLink))).scalars().all()
+    existing = {frozenset((e["source"], e["target"])) for e in graph.get("edges", [])}
+    drawn = 0
+    for r in rows:
+        pair = frozenset((r.issuer_a, r.issuer_b))
+        if r.issuer_a not in node_ids or r.issuer_b not in node_ids or pair in existing:
+            continue
+        graph["edges"].append({
+            "source": r.issuer_a, "target": r.issuer_b, "kind": "accepted",
+            "label": "accepted",
+        })
+        existing.add(pair)
+        drawn += 1
+    if drawn:
+        graph["caveats"] = list(graph.get("caveats", [])) + [
+            f"{drawn} analyst-accepted link{'s' if drawn != 1 else ''} drawn — "
+            "model-proposed, analyst-ratified (see Query overlay)."
+        ]
+    return graph
+
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 async def build_graph(session: AsyncSession, capability_id: str,
                       issuer_id: Optional[str] = None) -> dict:
@@ -1064,14 +1104,16 @@ async def build_graph(session: AsyncSession, capability_id: str,
         raise KeyError(capability_id)
     mode = cap["mode"]
     if mode == "peers":
-        return await _peers(session, issuer_id, cap)
-    if mode == "contagion":
-        return await _contagion(session, cap["params"].get("theme"), cap)
-    if mode == "concentration":
-        return await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
-    if mode == "provenance":
-        return await _provenance(session, cap["params"].get("focus", "trace"), issuer_id, cap)
-    raise ValueError(f"unknown mode {mode!r}")
+        graph = await _peers(session, issuer_id, cap)
+    elif mode == "contagion":
+        graph = await _contagion(session, cap["params"].get("theme"), cap)
+    elif mode == "concentration":
+        graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
+    elif mode == "provenance":
+        graph = await _provenance(session, cap["params"].get("focus", "trace"), issuer_id, cap)
+    else:
+        raise ValueError(f"unknown mode {mode!r}")
+    return await _append_accepted_links(session, graph)
 
 
 if __name__ == "__main__":  # ponytail: DB-free self-check over the pure logic

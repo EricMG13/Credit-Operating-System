@@ -11,7 +11,7 @@ import { FilterHeader, useColumnFilters, type FilterState } from "@/components/s
 import {
   DELTA_COLS,
   INDEX_STATS,
-  SECTORS,
+  RV_SECTORS,
   ratingAverages,
   subSectorAverages,
   type Liquidity,
@@ -260,7 +260,7 @@ const fmt = (v: number | null, digits = 2) => (v === null ? "—" : v.toFixed(di
 
 export function SectorRV() {
   const [active, setActive] = useState(0);
-  const sector = SECTORS[active];
+  const sector = RV_SECTORS[active];
   const averages = useMemo(() => ratingAverages(sector.rows), [sector]);
   const subSectorAvgs = useMemo(() => subSectorAverages(sector.rows), [sector]);
 
@@ -301,7 +301,7 @@ export function SectorRV() {
           onChange={(e) => setActive(Number(e.target.value))}
           className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2 tabular text-caos-sm text-caos-text outline-none transition-caos hover:border-caos-accent/60"
         >
-          {SECTORS.map((s, i) => (
+          {RV_SECTORS.map((s, i) => (
             <option key={s.name} value={i}>{s.name}</option>
           ))}
         </select>

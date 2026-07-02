@@ -538,7 +538,20 @@ def _payload_data_from_resp(resp) -> Optional[dict]:
     content = getattr(resp, "content", None) or []
     for block in content:
         if getattr(block, "type", None) == "tool_use":
-            return getattr(block, "input", None)
+            data = getattr(block, "input", None)
+            if not isinstance(data, dict):
+                return None
+            # The forced-tool path must reject non-finite floats too: a live model can
+            # emit NaN/Infinity in its tool args (openrouter parses func args with plain
+            # json.loads; the Anthropic SDK admits them as well), and validate_payload
+            # only checks shape/enums — so round-trip through loads_finite to fail closed
+            # into the repair lane, exactly like the text fallback below. Without this the
+            # NaN persists into runtime_output and breaks the whole API response
+            # (json.dumps allow_nan=True emits a bare NaN token). (confidence-review 2026-07-01)
+            try:
+                return loads_finite(json.dumps(data))
+            except (json.JSONDecodeError, ValueError):
+                return None
     text = next(
         (getattr(b, "text", "") for b in content if getattr(b, "type", None) == "text"), ""
     )

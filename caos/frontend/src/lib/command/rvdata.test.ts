@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DELTA_COLS, INDEX_STATS, SECTORS, ratingAverages, subSectorAverages } from "./rvdata";
+import { DELTA_COLS, INDEX_STATS, RV_SECTORS, ratingAverages, subSectorAverages } from "./rvdata";
 
 describe("sector RV market data", () => {
   it("loads the market-data file into sector RV tables", () => {
-    const rowCount = SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
+    const rowCount = RV_SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
 
     expect(rowCount).toBe(582);
-    expect(SECTORS.map((sector) => sector.name)).toEqual([
+    expect(RV_SECTORS.map((sector) => sector.name)).toEqual([
       "Industrials",
       "Financials",
       "Consumer Discretionary",
@@ -22,13 +22,13 @@ describe("sector RV market data", () => {
       "Telecoms",
     ]);
     expect(DELTA_COLS).toEqual(["Δ 1M", "Δ YTD"]);
-    expect(INDEX_STATS).toHaveLength(SECTORS.length);
+    expect(INDEX_STATS).toHaveLength(RV_SECTORS.length);
     expect(INDEX_STATS.reduce((sum, sector) => sum + sector.n, 0)).toBe(rowCount);
-    expect(SECTORS.every((sector) => sector.color !== "#a1a1b5")).toBe(true);
+    expect(RV_SECTORS.every((sector) => sector.color !== "#a1a1b5")).toBe(true);
   });
 
   it("computes sector and sub-sector averages from the selected sector", () => {
-    const industrials = SECTORS.find((sector) => sector.name === "Industrials")!;
+    const industrials = RV_SECTORS.find((sector) => sector.name === "Industrials")!;
     const averages = ratingAverages(industrials.rows);
     const subSectors = subSectorAverages(industrials.rows);
 
@@ -39,14 +39,14 @@ describe("sector RV market data", () => {
   });
 
   it("uses the other agency rating when the first side is N/A, but leaves NR alone", () => {
-    const industrials = SECTORS.find((sector) => sector.name === "Industrials")!;
+    const industrials = RV_SECTORS.find((sector) => sector.name === "Industrials")!;
 
     expect(industrials.rows.find((row) => row.company === "MillerKnoll")?.bucket).toBe("Ba1");
     expect(industrials.rows.find((row) => row.company === "Advantage Sales & Marketing")?.bucket).toBe("NR");
   });
 
   it("does not show RV versus bucket for single-name sector/rating comps", () => {
-    const energy = SECTORS.find((sector) => sector.name === "Energy")!;
+    const energy = RV_SECTORS.find((sector) => sector.name === "Energy")!;
 
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rv).toBe("N/A");
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rvBp).toBeNull();

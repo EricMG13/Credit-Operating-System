@@ -172,6 +172,20 @@ export const uploadPricingSheet = (formData: FormData) =>
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
 
+export interface VaultMemoResult {
+  note: string;
+  path: string;
+  memo_type: string;
+  issuer_links: string[];
+  message: string;
+}
+
+// Analyst commentary → the Obsidian vault's Analyst-Memos/ (auto-wikilinked).
+export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
+  api.post("/api/ingestion/upload/memo", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+
 // ─── Analytical engine (runs) ───────────────────────────────────────────────
 import type {
   ModuleDetailDTO,
@@ -225,7 +239,7 @@ export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
-import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
+import type { AcceptedLink, CapabilitiesResult, GraphResult, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
 
 // The capability rail: which graph edges are runnable now (+ grey reasons).
 export const queryCapabilities = (): Promise<CapabilitiesResult> =>
@@ -234,6 +248,46 @@ export const queryCapabilities = (): Promise<CapabilitiesResult> =>
 // Run one capability → a positioned node-link graph.
 export const queryGraph = (capabilityId: string, issuerId?: string): Promise<GraphResult> =>
   api.post("/api/query/graph", { capability_id: capabilityId, issuer_id: issuerId }).then((r) => r.data);
+
+// LLM-route free text → up to 3 registry candidates with reasons. Contract: any
+// failure returns { candidates: [], source: "keyword" } and the caller uses its
+// local keyword router — never worse than the deterministic path.
+export const queryRoute = (text: string): Promise<RouteResult> =>
+  api.post("/api/query/route", { text }).then((r) => r.data);
+
+// The model overlay for one deterministic graph — citation-gated proposed links
+// + labeled commentary. Persisted server-side; cached by graph hash. The heavy
+// lane runs 30–60s live (cache hits are instant), so this one call outlives the
+// 20s default timeout; the server's own lane cap is 120s.
+export const queryOverlay = (capabilityId: string, issuerId?: string): Promise<OverlayResult> =>
+  api.post(
+    "/api/query/overlay",
+    { capability_id: capabilityId, issuer_id: issuerId },
+    { timeout: 130_000 },
+  ).then((r) => r.data);
+
+// Phase 3 — analyst ratification. Accept is the analyst-initiated write that
+// turns a model proposal into stored, attributed graph data; retract undoes it.
+export const listQueryLinks = (): Promise<{ links: AcceptedLink[] }> =>
+  api.get("/api/query/links").then((r) => r.data);
+
+export const acceptQueryLink = (
+  edge: OverlayEdge,
+  capabilityId: string,
+  model: string | null,
+): Promise<AcceptedLink & { created: boolean }> =>
+  api.post("/api/query/links", {
+    source_issuer_id: edge.source,
+    target_issuer_id: edge.target,
+    capability_id: capabilityId,
+    rationale: edge.rationale,
+    chunk_ids: edge.chunk_ids,
+    confidence: edge.confidence,
+    model: model ?? "",
+  }).then((r) => r.data);
+
+export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =>
+  api.delete(`/api/query/links/${encodeURIComponent(linkId)}`).then((r) => r.data);
 
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.
@@ -269,10 +323,20 @@ export const edgarVaultUrl = (
   api
     .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
-export const edgarVaultUrls = (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> =>
-  Promise.all(
-    urls.split(",").map((u) => u.trim()).filter(Boolean).map((u) => edgarVaultUrl(issuerId, u, runMode)),
-  );
+export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> => {
+  const list = urls.split(",").map((u) => u.trim()).filter(Boolean);
+  if (!list.length) return [];
+  const settled = await Promise.allSettled(list.map((u) => edgarVaultUrl(issuerId, u, runMode)));
+  const ok = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
+  // ponytail: partial failures are dropped, not surfaced per-URL. Throw only when
+  // every URL failed, so an all-fail 503 (not-configured) still reaches the caller's
+  // catch instead of one bad URL sinking the whole batch of successes.
+  if (!ok.length) {
+    const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
+    throw firstErr ? firstErr.reason : new Error("EDGAR URL vaulting failed.");
+  }
+  return ok;
+};
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────
 export interface ResearchBrief {

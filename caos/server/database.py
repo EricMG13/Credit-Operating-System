@@ -1,7 +1,7 @@
 """Async SQLAlchemy engine, session factory, and ORM models.
 
 SQLite (aiosqlite) by default; any async SQLAlchemy URL via DATABASE_URL —
-on Databricks that's Lakebase (postgresql+asyncpg). Schema is managed by Alembic
+production points it at Postgres (postgresql+asyncpg). Schema is managed by Alembic
 (see migrations/); ``init_db`` runs ``upgrade head`` on boot, stamping a
 pre-Alembic database at the baseline first so existing deployments migrate in
 place rather than colliding. On Postgres the upgrade is wrapped in a session-level
@@ -88,6 +88,9 @@ class Issuer(Base):
     rating_sp: Mapped[Optional[str]] = mapped_column(String(16))
     rating_moody: Mapped[Optional[str]] = mapped_column(String(16))
     rating_fitch: Mapped[Optional[str]] = mapped_column(String(16))
+    # Analyst-entered private-equity sponsor (exact-string grouped by the sponsor
+    # track-record view — no free ownership feed). NULL = not sponsor-owned/unknown.
+    sponsor: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -355,6 +358,55 @@ class AnalystLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class QueryAcceptedLink(Base):
+    """An analyst-ratified model-proposed link between two issuers (Query phase 3).
+
+    The model proposes (QueryOverlay, read-only); an ANALYST accepts — this row is
+    that ratification: analyst-attributed, model-credited, citation-carrying. Once
+    stored it is deterministic data: builders draw it (edge kind ``accepted``)
+    whenever both endpoints are on the canvas. Endpoints are normalized
+    (``issuer_a`` < ``issuer_b`` lexically) so a pair exists once regardless of
+    proposal direction. Only issuer↔issuer links are acceptable — run-scoped nodes
+    (claims, modules) have no stable identity across runs."""
+
+    __tablename__ = "query_accepted_links"
+    __table_args__ = (
+        UniqueConstraint("issuer_a", "issuer_b", name="uq_accepted_link_pair"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_a: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    issuer_b: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    capability_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    chunk_ids: Mapped[list] = mapped_column(JSON, default=list)
+    confidence: Mapped[str] = mapped_column(String(16), default="Low")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class QueryOverlay(Base):
+    """A persisted model-overlay artifact for one Query graph (frozen, reproducible).
+
+    The overlay lane proposes links/commentary over a deterministic graph; the
+    validated output is persisted so an exhibit references a fixed record
+    (model id + payload + timestamp), never a fresh non-reproducible call.
+    ``graph_hash`` keys the cache: same capability + same underlying graph →
+    same artifact, no repeat spend."""
+
+    __tablename__ = "query_overlays"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    capability_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    graph_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 
 def _alembic_config():
     from alembic.config import Config
@@ -414,6 +466,12 @@ async def init_db() -> None:
             lock_conn = await lock_conn.execution_options(isolation_level="AUTOCOMMIT")
             await lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _MIGRATION_LOCK_KEY})
             try:
+                # Re-read the schema snapshot INSIDE the lock: the read at the top of
+                # init_db happens before we serialize, so a racing replica that migrated
+                # in the gap would otherwise leave us acting on a stale {legacy,versioned}
+                # view — re-stamping 0001 and re-running DDL on an already-migrated schema.
+                # (confidence-review 2026-07-01)
+                state = await lock_conn.run_sync(_schema_state)
                 await asyncio.to_thread(_run_migrations, state)
             finally:
                 await lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _MIGRATION_LOCK_KEY})

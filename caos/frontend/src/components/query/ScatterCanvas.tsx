@@ -94,9 +94,13 @@ export function ScatterCanvas({
         </button>
       </div>
 
-      {/* Axis metadata overlay */}
+      {/* Axis metadata overlay — real metric axes come from the builder's meta
+          (e.g. "x = net leverage →"); the fallback names the normalized layout. */}
       <div className="absolute bottom-2 left-4 z-10 tabular text-caos-3xs text-caos-muted font-mono uppercase tracking-wider">
-        Horizontal Axis: X coordinate (0.0 → 1.0) · Vertical Axis: Y coordinate (0.0 → 1.0)
+        {(() => {
+          const axes = graph.meta.filter((m) => /^[xy] = /.test(m));
+          return axes.length > 0 ? axes.join(" · ") : "positions normalized 0 → 1 (no metric axes)";
+        })()}
       </div>
 
       <svg

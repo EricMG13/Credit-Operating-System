@@ -1,7 +1,7 @@
 """Issuer Q&A chat backed by Claude.
 
 Uses the official Anthropic SDK with claude-opus-4-8. The API key comes from
-ANTHROPIC_API_KEY (a Databricks secret in deployment). When no key is
+ANTHROPIC_API_KEY (injected from the environment in deployment). When no key is
 configured the endpoint degrades to a deterministic demo reply so the app
 remains fully demoable.
 """

@@ -22,6 +22,7 @@ import { CitationViewer } from "@/components/command/CitationViewer";
 import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
+import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -207,7 +208,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
   const [hasQueried, setHasQueried] = useState(false);
-  const [layout, setLayout] = useState<"graph" | "trace" | "rv" | "scatter">("graph");
+  const [layout, setLayout] = useState<QueryView>("graph");
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -248,7 +249,11 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
 
     queryGraph(capId)
       .then((g) => {
-        if (seq === runSeq.current) setGraph(g);
+        if (seq !== runSeq.current) return;
+        setGraph(g);
+        // Every run opens on its native view — a leftover Scatter/Lineage from
+        // the previous graph must never be the first render of a new one.
+        setLayout(nativeView(g.capability_id, g.mode));
       })
       .catch((e) => {
         if (seq !== runSeq.current) return;
@@ -426,26 +431,19 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                     </div>
 
                     <div className="flex items-center gap-3">
-                      {/* Layout Switcher */}
+                      {/* Layout switcher — only the views valid for this graph shape */}
                       <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5">
-                        {(
-                          [
-                            { id: "graph", label: "Graph" },
-                            { id: "trace", label: "Lineage Flow" },
-                            { id: "rv", label: "Table" },
-                            { id: "scatter", label: "Scatter" },
-                          ] as const
-                        ).map((l) => (
+                        {viewsFor(graph.capability_id, graph.mode).map((v) => (
                           <button
-                            key={l.id}
-                            onClick={() => setLayout(l.id)}
+                            key={v}
+                            onClick={() => setLayout(v)}
                             className={`tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono ${
-                              layout === l.id
+                              layout === v
                                 ? "bg-caos-accent text-caos-bg font-semibold"
                                 : "text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40"
                             }`}
                           >
-                            {l.label}
+                            {VIEW_LABELS[v]}
                           </button>
                         ))}
                       </div>

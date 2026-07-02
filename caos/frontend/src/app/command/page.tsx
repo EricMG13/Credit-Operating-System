@@ -13,7 +13,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS, GAPS, PORTFOLIO, QA_QUEUE } from "@/lib/command/data";
-import { SECTORS as RV_SECTORS } from "@/lib/command/rvdata";
+import { RV_SECTORS } from "@/lib/command/rvdata";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { SimControls, ToggleGroup } from "@/components/pipeline/atoms";

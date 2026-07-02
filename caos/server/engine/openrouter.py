@@ -35,8 +35,8 @@ class _Response:
         self.usage = usage
         self.stop_reason = stop_reason
 
-def _translate_messages(system: Any, messages: List[dict]) -> List[dict]:
-    out = []
+def _translate_messages(system: Any, messages: Optional[List[dict]]) -> List[dict]:
+    out: List[dict] = []
     # If system prompt is present, prepend it as a system message
     if system:
         if isinstance(system, str):
@@ -47,7 +47,7 @@ def _translate_messages(system: Any, messages: List[dict]) -> List[dict]:
             if system_text:
                 out.append({"role": "system", "content": system_text})
 
-    for m in messages:
+    for m in messages or []:
         role = m.get("role")
         content = m.get("content", "")
         # Normalize content to string
@@ -72,7 +72,7 @@ def _translate_tools(tools: Optional[List[dict]], tool_choice: Optional[dict]) -
             }
         })
     
-    openai_tool_choice = None
+    openai_tool_choice: Any = None
     if tool_choice:
         if tool_choice.get("type") == "tool":
             openai_tool_choice = {
@@ -88,7 +88,7 @@ def _translate_tools(tools: Optional[List[dict]], tool_choice: Optional[dict]) -
 
 def _normalize_response(data: dict) -> _Response:
     choices = data.get("choices", [])
-    blocks = []
+    blocks: List[Any] = []
     stop_reason = "end_turn"
     
     if choices:
@@ -128,7 +128,7 @@ def _normalize_response(data: dict) -> _Response:
     
     return _Response(blocks, usage, stop_reason)
 
-async def call(*, lane: str, model: str, system: Any = None, messages: List[dict] = None,
+async def call(*, lane: str, model: str, system: Any = None, messages: Optional[List[dict]] = None,
                max_tokens: Optional[int] = None, tools: Optional[List[dict]] = None,
                tool_choice: Optional[dict] = None, effort: Optional[str] = None):
     s = get_settings()
@@ -139,7 +139,7 @@ async def call(*, lane: str, model: str, system: Any = None, messages: List[dict
     translated_messages = _translate_messages(system, messages)
     openai_tools, openai_tool_choice = _translate_tools(tools, tool_choice)
     
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": translated_messages,
     }

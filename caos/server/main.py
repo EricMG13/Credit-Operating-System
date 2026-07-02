@@ -1,4 +1,4 @@
-"""CAOS — single-process Databricks App.
+"""CAOS — single-process app.
 
 One FastAPI service serves both the JSON API (under /api) and the static
 Next.js frontend export (everything else). The edge (Caddy + oauth2-proxy)
@@ -25,7 +25,7 @@ from config import get_settings, is_deployed
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, edgar, health, ingestion, issuers, models, portfolio, query, research, runs, scenario, settings as settings_routes
+from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, query, research, runs, scenario, settings as settings_routes, sponsors
 from research_executor import ResearchExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
@@ -139,7 +139,7 @@ app = FastAPI(
 # must allow 'unsafe-inline' for script/style — a static export can't carry a
 # per-request nonce. The remaining directives still constrain origins, framing,
 # base-uri and form targets. frame-ancestors is 'self'; relax it only if the app
-# is ever embedded cross-origin (e.g. inside the Databricks workspace UI).
+# is ever embedded cross-origin (e.g. inside another product's iframe).
 _CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline'; "
@@ -268,6 +268,8 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
+app.include_router(sponsors.router, prefix="/api/sponsors", tags=["sponsors"])
+app.include_router(digest.router, prefix="/api/digest", tags=["digest"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
@@ -295,7 +297,11 @@ if _static.is_dir():
     async def spa_not_found(request: Request, exc):  # type: ignore[no-untyped-def]
         """Serve the exported 404 page for unknown non-API paths."""
         if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
+            # Keep the endpoint's own 404 detail ("Issuer not found", "No analyst
+            # profile — settings not saved.") — this handler also catches every
+            # HTTPException(404) raised inside /api routes, not just unmatched paths.
+            detail = getattr(exc, "detail", None) or "Not Found"
+            return JSONResponse({"detail": detail}, status_code=404)
         not_found = _static / "404.html"
         if not_found.is_file():
             return FileResponse(not_found, status_code=404)

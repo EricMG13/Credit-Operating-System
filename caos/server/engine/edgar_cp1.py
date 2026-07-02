@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import edgar  # the covenant/legal retrieval lane — reused for HTTP + CIK helpers
 from engine.distress import altman_z_double_prime
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.edgar")
@@ -78,7 +79,7 @@ class Cp1Build:
 
 
 # ── Pure XBRL parsing (unit-tested, no network) ──────────────────────────────
-def _annual_series(units: Sequence[dict], kind: str, max_years: int = 5) -> Dict[int, Tuple[float, str]]:
+def _annual_series(units: Sequence[dict], kind: str, max_years: int = 5) -> Dict[int, Tuple[float, str]]:  # noqa: C901 — flat XBRL point filter; splitting would obscure the form/fp/span guards
     """Annual values keyed by the period's **end year** → (value, accession).
 
     Annual-report points only (form 10-K*, fp FY); full-year spans for flow
@@ -109,7 +110,12 @@ def _annual_series(units: Sequence[dict], kind: str, max_years: int = 5) -> Dict
         elif start:  # instant facts carry only `end`
             continue
         val = e.get("val")
-        if not isinstance(val, (int, float)):
+        # is_finite_number (not a bare isinstance): edgar._get_json uses the default
+        # json decoder, which parses NaN/Infinity tokens — a plain isinstance passes
+        # them (and bool(NaN) is True), leaking a non-finite value into every CP-1
+        # series and on into e.g. interest_coverage_ltm. Reject at the parse boundary
+        # per the CLAUDE.md invariant. (confidence-review 2026-07-01)
+        if not is_finite_number(val):
             continue
         cur = best.get(end_d.year)
         if cur is None or str(e.get("filed", "")) > str(cur.get("filed", "")):
@@ -180,46 +186,45 @@ def _m(v: float) -> float:
     return round(v / 1e6, 1)
 
 
-def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Optional[ModulePayload]:
-    """Reported-basis CP-1 payload from SEC company facts, or None if the facts
-    carry no usable revenue series (the minimum to ground a foundation)."""
-    us = (facts.get("facts") or {}).get("us-gaap") or {}
+@dataclass
+class _LevFacts:
+    """Leverage-year debt/cash/coverage facts derived at the EBITDA period."""
 
-    rev_c, rev = _series(us, _REVENUE, "flow")
-    if not rev:
-        return None
-    op_c, opinc = _series(us, _OP_INCOME, "flow")
-    da_c, da = _da_series(us)
-    int_c, interest = _series(us, _INTEREST, "flow")
-    imp_c, impair = _series(us, _IMPAIRMENT, "flow")
-    cfo_c, cfo = _series(us, _CFO, "flow")
-    capex_c, capex = _series(us, _CAPEX, "flow")
+    total_debt: float
+    net_debt: float
+    leverage: Optional[float]
+    debt_fresh: bool
+    int_ly: Optional[Tuple[float, str]]
+    int_fresh: bool
+    ltd_c: Optional[str]
+    dc_c: Optional[str]
+    cash_c: Optional[str]
 
-    years = sorted(rev)[-max_years:]
-    # Reported EBITDA proxy = operating income + D&A, plus a non-cash impairment add-back
-    # ONLY in a year the impairment drove operating income negative (Six Flags FY25: op
-    # income -$1.4bn on a ~$1.5bn goodwill write-down, masking a cash-generative
-    # business). On a profitable year, adding the impairment back would overstate EBITDA
-    # and understate leverage, and companyfacts gives no calc-linkbase to confirm the
-    # charge sits above the operating-income subtotal — so gate on opinc < 0. (#26)
-    ebitda = {y: opinc[y][0] + da[y][0] + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
-              for y in years if y in opinc and y in da}
 
-    revenue = {f"FY{y}": _m(rev[y][0]) for y in years}
-    adj_ebitda = {f"FY{y}": _m(ebitda[y]) for y in sorted(ebitda)}
+def _ebitda_proxy(years: Sequence[int], opinc: Dict[int, Tuple[float, str]],
+                  da: Dict[int, Tuple[float, str]],
+                  impair: Dict[int, Tuple[float, str]]) -> Dict[int, float]:
+    """Reported EBITDA proxy = operating income + D&A, plus a non-cash impairment add-back
+    ONLY in a year the impairment drove operating income negative (Six Flags FY25: op
+    income -$1.4bn on a ~$1.5bn goodwill write-down, masking a cash-generative
+    business). On a profitable year, adding the impairment back would overstate EBITDA
+    and understate leverage, and companyfacts gives no calc-linkbase to confirm the
+    charge sits above the operating-income subtotal — so gate on opinc < 0. (#26)"""
+    return {y: opinc[y][0] + da[y][0] + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
+            for y in years if y in opinc and y in da}
 
-    ly = max(ebitda) if ebitda else max(years)
-    eb_ly = ebitda.get(ly)
-    eb_accn = opinc[ly][1] if ly in opinc else ""
+
+def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
+                           interest: Dict[int, Tuple[float, str]], financials: dict) -> _LevFacts:
+    """Debt/cash at the leverage year, net leverage and interest coverage. Mutates
+    ``financials`` with net_debt_ltm / net_leverage_adj_ltm / interest_coverage_ltm
+    when meaningful; returns the facts the claims + limitation flags consume."""
     # Debt/cash at the leverage year, picking the concept with the most recent
     # coverage — filers (e.g. Viasat) stop tagging LongTermDebtNoncurrent and switch
     # to LongTermDebtAndCapitalLeaseObligations, so never trust a stale concept.
     ltd_at = _recent_instant(us, _LT_DEBT, ly)
     dcur_at = _recent_instant(us, _DEBT_CURRENT, ly)
     cash_at = _recent_instant(us, _CASH, ly)
-    ltd_c = ltd_at[3] if ltd_at else None
-    dc_c = dcur_at[3] if dcur_at else None
-    cash_c = cash_at[3] if cash_at else None
     total_debt = (ltd_at[1] if ltd_at else 0.0) + (dcur_at[1] if dcur_at else 0.0)
     net_debt = total_debt - (cash_at[1] if cash_at else 0.0)
     # Don't compute leverage off stale legs: net debt is summed from three
@@ -239,45 +244,33 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     # EBITDA. Gate on freshness like debt (mirror debt_fresh). (#25)
     int_year = ly if ly in interest else max((y for y in interest if y <= ly), default=None)
     int_fresh = int_year is not None and int_year >= ly - 1
-
-    # normalized_financials matches the CP-1 contract the adapter + metric-facts
-    # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
-    financials: dict = {"revenue": revenue, "adj_ebitda": adj_ebitda}
-    # Free cash flow = operating cash flow − capex, per fiscal year (both 10-K FY
-    # flows; capex is reported positive). Drives the FCF / cash-conversion snapshot
-    # metrics (metrics.py computes conversion = FCF / revenue).
-    fcf = {y: cfo[y][0] - capex[y][0] for y in years if y in cfo and y in capex}
-    if fcf:
-        financials["free_cash_flow"] = {f"FY{y}": _m(fcf[y]) for y in sorted(fcf)}
-    leverage = None
     # Only emit leverage when it is meaningful: positive EBITDA and positive net
     # debt. A loss year, a net-cash position, or captive-finance debt not fully
     # captured by these tags (e.g. Ford Credit) would otherwise yield a
     # misleading figure (negative or absurd leverage).
+    leverage = None
     if eb_ly and eb_ly > 0 and total_debt and net_debt > 0 and debt_fresh:
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
     if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_fresh:
         financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
+    return _LevFacts(
+        total_debt=total_debt, net_debt=net_debt, leverage=leverage, debt_fresh=debt_fresh,
+        int_ly=int_ly, int_fresh=int_fresh,
+        ltd_c=ltd_at[3] if ltd_at else None, dc_c=dcur_at[3] if dcur_at else None,
+        cash_c=cash_at[3] if cash_at else None,
+    )
 
-    nf: dict = {
-        "basis": "reported_gaap_xbrl",
-        "ebitda_definition": "operating_income_plus_dna_and_impairments",
-        "source": "SEC EDGAR company facts (us-gaap)",
-        "normalized_financials": financials,
-        "xbrl_concepts": {k: v for k, v in {
-            "revenue": rev_c, "operating_income": op_c, "d_and_a": da_c,
-            "impairment": imp_c, "interest_expense": int_c, "long_term_debt": ltd_c,
-            "current_debt": dc_c, "cash": cash_c,
-            "operating_cash_flow": cfo_c, "capex": capex_c}.items() if v},
-    }
 
-    # Altman Z'' distress score (balance-sheet only) when every input is present
-    # AND fresh. _inst_at returns (year, value): the leverage path already gates on
-    # debt_fresh, so the Z'' inputs must get the same freshness discipline or a
-    # long-discontinued balance-sheet tag would feed a score the FY{ly} label
-    # silently mislabels. (#17)
+def _altman_distress(us: dict, ly: int, opinc: Dict[int, Tuple[float, str]],
+                     nf: dict) -> Tuple[Optional[Tuple[float, str]], bool]:
+    """Altman Z'' distress score (balance-sheet only) when every input is present
+    AND fresh. Mutates ``nf['distress']`` when a score is emitted; returns
+    ``(z, bs_stale)`` for the claims + limitation flags. _inst_at returns (year,
+    value): the leverage path already gates on debt_fresh, so the Z'' inputs must get
+    the same freshness discipline or a long-discontinued balance-sheet tag would feed
+    a score the FY{ly} label silently mislabels. (#17)"""
     def _inst_at(names: Sequence[str]) -> Optional[Tuple[int, float]]:
         _, s = _series(us, names, "instant")
         yrs = [y for y in s if y <= ly]
@@ -314,7 +307,14 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
             z = altman_z_double_prime(ebit=ebit, **bs)  # type: ignore[arg-type]
             if z is not None:
                 nf["distress"] = {"altman_z": z[0], "zone": z[1], "model": "Altman Z''"}
+    return z, bs_stale
 
+
+def _claims(rev: Dict[int, Tuple[float, str]], rev_c: Optional[str], ly: int,
+            op_c: Optional[str], eb_accn: str, eb_ly: Optional[float],
+            lev: _LevFacts, z: Optional[Tuple[float, str]]) -> List[ClaimSpec]:
+    """Source-cited CP-1 claims: reported revenue, plus net leverage and the Altman
+    Z'' distress signal when each was derived."""
     def src(concept: Optional[str], year: int, accn: str) -> str:
         return f"SEC EDGAR XBRL · us-gaap:{concept} · FY{year} · accession {accn or 'n/a'}"
 
@@ -324,12 +324,12 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         claim_text=f"FY{ly} reported revenue was approximately ${_m(rly[0]):,.0f}M (SEC filing, us-gaap:{rev_c}).",
         evidence=[EvidenceSpec("E-EDG-1", "table_value", "Directly Sourced", src(rev_c, ly, rly[1]), "High")],
     )]
-    if leverage is not None:
+    if lev.leverage is not None:
         claims.append(ClaimSpec(
             claim_id="C-EDG-LEV",
             claim_text=(
-                f"Reported net leverage is approximately {leverage:g}x at FY{ly} "
-                f"(net debt ${_m(net_debt):,.0f}M / reported EBITDA ${_m(eb_ly):,.0f}M). EBITDA is a "
+                f"Reported net leverage is approximately {lev.leverage:g}x at FY{ly} "
+                f"(net debt ${_m(lev.net_debt):,.0f}M / reported EBITDA ${_m(eb_ly):,.0f}M). EBITDA is a "
                 "GAAP proxy (operating income + D&A + non-cash impairments); covenant-adjusted EBITDA "
                 "and add-backs require the credit agreement and are not reflected here."
             ),
@@ -347,7 +347,16 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
                 f"SEC EDGAR XBRL balance sheet (Assets, current assets/liabilities, retained "
                 f"earnings, liabilities, equity) + operating income · FY{ly}", "Medium")],
         ))
+    return claims
 
+
+def _limitation_flags(impair: Dict[int, Tuple[float, str]], imp_c: Optional[str], ly: int,
+                      opinc: Dict[int, Tuple[float, str]], interest: Dict[int, Tuple[float, str]],
+                      eb_ly: Optional[float], ebitda: Dict[int, float], financials: dict,
+                      lev: _LevFacts, bs_stale: bool) -> List[str]:
+    """The reported-vs-adjusted caveat plus the not-derived reasons (impairment add-back,
+    stale interest / balance-sheet / debt tags, net-cash) that make a reported figure
+    something to verify against the filing."""
     limitations = [
         "EBITDA is a reported GAAP proxy (operating income + D&A + non-cash impairments) "
         "from XBRL — not covenant-adjusted EBITDA. Adjusted EBITDA / add-backs require the "
@@ -357,7 +366,7 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
         limitations.append(
             f"FY{ly} reported EBITDA adds back a ${_m(impair[ly][0]):,.0f}M non-cash impairment "
             f"(us-gaap:{imp_c}) that drove reported operating income negative.")
-    if interest and eb_ly and eb_ly > 0 and "interest_coverage_ltm" not in financials and not int_fresh:
+    if interest and eb_ly and eb_ly > 0 and "interest_coverage_ltm" not in financials and not lev.int_fresh:
         limitations.append(
             "Interest coverage not derived: the latest interest-expense XBRL tag predates the "
             "EBITDA period (the filer likely switched interest concepts) — verify against the filing.")
@@ -367,16 +376,71 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
             f"period (FY{ly}) — a distress score from stale inputs would mislabel the period.")
     if not ebitda:
         limitations.append("No operating-income/D&A XBRL tags found — EBITDA and leverage not derived.")
-    elif total_debt and leverage is None and not debt_fresh:
+    elif lev.total_debt and lev.leverage is None and not lev.debt_fresh:
         limitations.append(
             "Net leverage not derived: a long-term-debt, current-debt, or cash XBRL tag predates "
             "the EBITDA period (the filer likely switched concepts) — verify net debt against the "
             "most recent balance sheet.")
-    elif total_debt and leverage is None:
+    elif lev.total_debt and lev.leverage is None:
         limitations.append(
             "Net leverage not derived: reported net debt <= 0 or EBITDA <= 0 from XBRL tags "
             "(net cash, a loss year, or captive-finance debt not fully captured) — verify total "
             "debt against the filing.")
+    return limitations
+
+
+def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Optional[ModulePayload]:
+    """Reported-basis CP-1 payload from SEC company facts, or None if the facts
+    carry no usable revenue series (the minimum to ground a foundation)."""
+    us = (facts.get("facts") or {}).get("us-gaap") or {}
+
+    rev_c, rev = _series(us, _REVENUE, "flow")
+    if not rev:
+        return None
+    op_c, opinc = _series(us, _OP_INCOME, "flow")
+    da_c, da = _da_series(us)
+    int_c, interest = _series(us, _INTEREST, "flow")
+    imp_c, impair = _series(us, _IMPAIRMENT, "flow")
+    cfo_c, cfo = _series(us, _CFO, "flow")
+    capex_c, capex = _series(us, _CAPEX, "flow")
+
+    years = sorted(rev)[-max_years:]
+    ebitda = _ebitda_proxy(years, opinc, da, impair)
+
+    revenue = {f"FY{y}": _m(rev[y][0]) for y in years}
+    adj_ebitda = {f"FY{y}": _m(ebitda[y]) for y in sorted(ebitda)}
+
+    ly = max(ebitda) if ebitda else max(years)
+    eb_ly = ebitda.get(ly)
+    eb_accn = opinc[ly][1] if ly in opinc else ""
+
+    # normalized_financials matches the CP-1 contract the adapter + metric-facts
+    # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
+    financials: dict = {"revenue": revenue, "adj_ebitda": adj_ebitda}
+    # Free cash flow = operating cash flow − capex, per fiscal year (both 10-K FY
+    # flows; capex is reported positive). Drives the FCF / cash-conversion snapshot
+    # metrics (metrics.py computes conversion = FCF / revenue).
+    fcf = {y: cfo[y][0] - capex[y][0] for y in years if y in cfo and y in capex}
+    if fcf:
+        financials["free_cash_flow"] = {f"FY{y}": _m(fcf[y]) for y in sorted(fcf)}
+    lev = _leverage_and_coverage(us, ly, eb_ly, interest, financials)
+
+    nf: dict = {
+        "basis": "reported_gaap_xbrl",
+        "ebitda_definition": "operating_income_plus_dna_and_impairments",
+        "source": "SEC EDGAR company facts (us-gaap)",
+        "normalized_financials": financials,
+        "xbrl_concepts": {k: v for k, v in {
+            "revenue": rev_c, "operating_income": op_c, "d_and_a": da_c,
+            "impairment": imp_c, "interest_expense": int_c, "long_term_debt": lev.ltd_c,
+            "current_debt": lev.dc_c, "cash": lev.cash_c,
+            "operating_cash_flow": cfo_c, "capex": capex_c}.items() if v},
+    }
+
+    z, bs_stale = _altman_distress(us, ly, opinc, nf)
+    claims = _claims(rev, rev_c, ly, op_c, eb_accn, eb_ly, lev, z)
+    limitations = _limitation_flags(
+        impair, imp_c, ly, opinc, interest, eb_ly, ebitda, financials, lev, bs_stale)
 
     return ModulePayload(
         module_id="CP-1",

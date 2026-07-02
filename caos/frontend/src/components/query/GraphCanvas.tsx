@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef, Fragment } from "react";
-import type { GraphEdge, GraphNode, GraphResult } from "@/lib/query/graph";
+import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
-import { hueFor, nodeStyle } from "./node-style";
+import { hueFor, nodeStyle, MODEL_HUE } from "./node-style";
 import { select } from "d3-selection";
 import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
 import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
@@ -18,6 +18,8 @@ const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   bull: { stroke: CHART_HEX.success, width: 1.5, dash: "4 3" },
   bear: { stroke: CHART_HEX.critical, width: 1.5, dash: "4 3" },
   finding: { stroke: CHART_HEX.warning, width: 1.2 },
+  // Analyst-ratified model proposal: solid (ratified) in the model hue (origin).
+  accepted: { stroke: MODEL_HUE, width: 1.8 },
 };
 
 const W = 1000;
@@ -38,10 +40,12 @@ type SelectNode = (node: GraphNode) => void;
 
 export function GraphCanvas({
   graph,
+  overlay,
   onOpenChunk,
   onSelectNode,
 }: {
   graph: GraphResult;
+  overlay?: OverlayEdge[]; // model-proposed links — dashed, labeled, excluded from print
   onOpenChunk: OpenChunk;
   onSelectNode?: SelectNode;
 }) {
@@ -52,13 +56,24 @@ export function GraphCanvas({
   const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  // Keep track of dragged node and positions
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
-  const [draggedNode, setDraggedNode] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-
   // Keep track of hovered node for visual connection path highlighting
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
+  // Fit the initial view to the node bounding box — a sparse walk (5 nodes in a
+  // corner) should fill the canvas, not float in 90% empty dark.
+  const fitTransform = useMemo(() => {
+    if (graph.nodes.length === 0) return zoomIdentity;
+    const xs = graph.nodes.map((n) => px(n.x));
+    const ys = graph.nodes.map((n) => py(n.y));
+    const M = 110; // labels render below/beside nodes
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    const k = Math.max(0.3, Math.min(1.5, (W - 2 * M) / Math.max(bw, 1), (H - 2 * M) / Math.max(bh, 1)));
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return zoomIdentity.translate(W / 2 - k * cx, H / 2 - k * cy).scale(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
 
   // Zoom setup
   const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
@@ -66,38 +81,29 @@ export function GraphCanvas({
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = select(svgRef.current);
-    
+
     const zoom = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 8])
       .on("zoom", (event) => {
         setTransform(event.transform);
       });
-      
+
     zoomBehaviorRef.current = zoom;
     svg.call(zoom);
-    
-    // Reset transform on graph change
-    svg.call(zoom.transform, zoomIdentity);
-  }, [graph]);
 
-  // Reset zoom back to identity cleanly
+    // Fit to content on graph change
+    svg.call(zoom.transform, fitTransform);
+  }, [graph, fitTransform]);
+
+  // Reset zoom back to the fitted view cleanly
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
       select(svgRef.current)
         .transition()
         .duration(300)
-        .call(zoomBehaviorRef.current.transform, zoomIdentity);
+        .call(zoomBehaviorRef.current.transform, fitTransform);
     }
   };
-
-  // Initialize node positions when the graph payload is replaced
-  useEffect(() => {
-    const pos: Record<string, { x: number; y: number }> = {};
-    graph.nodes.forEach((n) => {
-      pos[n.id] = { x: px(n.x), y: py(n.y) };
-    });
-    setPositions(pos);
-  }, [graph]);
 
   const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
 
@@ -124,63 +130,8 @@ export function GraphCanvas({
     );
   }
 
-  // Handle drag interaction coordinates cleanly relative to SVG box
-  const handleMouseDown = (e: React.MouseEvent, nodeId: string) => {
-    e.preventDefault();
-    setDraggedNode(nodeId);
-
-    if (!svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const svgX_raw = (mouseX / (rect.width || 1)) * W;
-    const svgY_raw = (mouseY / (rect.height || 1)) * H;
-
-    const svgX = (svgX_raw - transform.x) / transform.k;
-    const svgY = (svgY_raw - transform.y) / transform.k;
-
-    const nodePos = positions[nodeId] || { x: px(byId[nodeId].x), y: py(byId[nodeId].y) };
-    setDragOffset({
-      x: svgX - nodePos.x,
-      y: svgY - nodePos.y,
-    });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!draggedNode || !svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // Convert mouse coordinate from screen size to SVG viewBox size (W x H)
-    const svgX_raw = (mouseX / (rect.width || 1)) * W;
-    const svgY_raw = (mouseY / (rect.height || 1)) * H;
-
-    // Convert mouse coordinate relative to active zoom scale/transform
-    const svgX = (svgX_raw - transform.x) / transform.k;
-    const svgY = (svgY_raw - transform.y) / transform.k;
-
-    setPositions((prev) => ({
-      ...prev,
-      [draggedNode]: { 
-        x: svgX - dragOffset.x, 
-        y: svgY - dragOffset.y 
-      },
-    }));
-  };
-
-  const handleMouseUp = () => {
-    setDraggedNode(null);
-  };
-
   return (
-    <div 
-      className="flex-1 min-h-0 flex flex-col relative select-none"
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
+    <div className="flex-1 min-h-0 flex flex-col relative select-none">
       {/* Zoom / Reset Floating Actions */}
       <div className="absolute top-2 right-2 z-10 flex gap-1 bg-caos-panel/90 border border-caos-border rounded p-1">
         <button
@@ -216,41 +167,55 @@ export function GraphCanvas({
             const a = byId[e.source];
             const b = byId[e.target];
             if (!a || !b) return null;
-            
-            // Get positions, defaulting to calculated backend positions if not dragged yet
-            const posA = positions[e.source] || { x: px(a.x), y: py(a.y) };
-            const posB = positions[e.target] || { x: px(b.x), y: py(b.y) };
-            
+
             // Hover highlight check: edge is highlighted if connected to hovered node
             const isDimmed = hoveredNodeId && (e.source !== hoveredNodeId && e.target !== hoveredNodeId);
 
             return (
               <g key={i} style={{ opacity: isDimmed ? 0.08 : 1.0, transition: "opacity 160ms ease-out" }}>
-                <EdgeLine edge={e} x1={posA.x} y1={posA.y} x2={posB.x} y2={posB.y} />
+                <EdgeLine edge={e} x1={px(a.x)} y1={py(a.y)} x2={px(b.x)} y2={py(b.y)} />
+              </g>
+            );
+          })}
+
+          {(overlay ?? []).map((e, i) => {
+            const a = byId[e.source];
+            const b = byId[e.target];
+            if (!a || !b) return null;
+            return (
+              // print:hidden — model-proposed links never enter a printed exhibit.
+              <g key={`ov-${i}`} className="print:hidden">
+                <line
+                  x1={px(a.x)} y1={py(a.y)} x2={px(b.x)} y2={py(b.y)}
+                  stroke={MODEL_HUE} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8}
+                />
+                <text
+                  x={(px(a.x) + px(b.x)) / 2} y={(py(a.y) + py(b.y)) / 2 - 5}
+                  textAnchor="middle" fill={MODEL_HUE} fontFamily="var(--font-mono)" fontSize={11} {...HALO}
+                >
+                  model · {e.confidence}
+                </text>
               </g>
             );
           })}
 
           {graph.nodes.map((n) => {
-            const pos = positions[n.id] || { x: px(n.x), y: py(n.y) };
-            
             // Hover highlight check: node is dimmed if another node is hovered and this isn't connected
             const isDimmed = hoveredNodeId && !adjacentNodeIds.has(n.id);
 
             return (
-              <g 
-                key={n.id} 
+              <g
+                key={n.id}
                 style={{ opacity: isDimmed ? 0.15 : 1.0, transition: "opacity 160ms ease-out" }}
                 onMouseEnter={() => setHoveredNodeId(n.id)}
                 onMouseLeave={() => setHoveredNodeId(null)}
               >
-                <NodeMark 
-                  n={n} 
-                  cx={pos.x} 
-                  cy={pos.y} 
-                  onOpenChunk={onOpenChunk} 
+                <NodeMark
+                  n={n}
+                  cx={px(n.x)}
+                  cy={py(n.y)}
+                  onOpenChunk={onOpenChunk}
                   onSelectNode={onSelectNode}
-                  onDragStart={(e) => handleMouseDown(e, n.id)}
                 />
               </g>
             );
@@ -282,6 +247,18 @@ export function GraphCanvas({
             {l.label}
           </span>
         ))}
+        {graph.edges.some((e) => e.kind === "accepted") && (
+          <span className="inline-flex items-center gap-1.5 shrink-0 tabular text-caos-2xs" style={{ color: MODEL_HUE }}>
+            <svg width="14" height="6" aria-hidden="true"><line x1="0" y1="3" x2="14" y2="3" stroke={MODEL_HUE} strokeWidth="1.8" /></svg>
+            analyst-accepted
+          </span>
+        )}
+        {overlay && overlay.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 shrink-0 tabular text-caos-2xs print:hidden" style={{ color: MODEL_HUE }}>
+            <svg width="14" height="6" aria-hidden="true"><line x1="0" y1="3" x2="14" y2="3" stroke={MODEL_HUE} strokeWidth="1.6" strokeDasharray="4 3" /></svg>
+            model-proposed ({overlay.length})
+          </span>
+        )}
       </div>
     </div>
   );
@@ -308,20 +285,18 @@ function EdgeLine({ edge, x1, y1, x2, y2 }: { edge: GraphEdge; x1: number; y1: n
   );
 }
 
-function NodeMark({ 
-  n, 
-  cx, 
-  cy, 
-  onOpenChunk, 
+function NodeMark({
+  n,
+  cx,
+  cy,
+  onOpenChunk,
   onSelectNode,
-  onDragStart 
-}: { 
-  n: GraphNode; 
-  cx: number; 
-  cy: number; 
-  onOpenChunk: OpenChunk; 
+}: {
+  n: GraphNode;
+  cx: number;
+  cy: number;
+  onOpenChunk: OpenChunk;
   onSelectNode?: SelectNode;
-  onDragStart: (e: React.MouseEvent) => void;
 }) {
   const isChunk = !!n.chunk_id;
   
@@ -346,7 +321,7 @@ function NodeMark({
       style={{ cursor: "pointer" }}
       aria-label={`Reveal ${n.label} in Obsidian Wiki`}
     >
-      <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill="#a78bfa" stroke="#0a0a0f" strokeWidth={1} />
+      <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill={MODEL_HUE} stroke="#0a0a0f" strokeWidth={1} />
       <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
     </a>
   ) : null;
@@ -355,9 +330,8 @@ function NodeMark({
     <>
     <g
       opacity={n.dim ? 0.5 : 1}
-      style={{ cursor: isChunk || onSelectNode ? "pointer" : "grab" }}
+      style={{ cursor: "pointer" }}
       onClick={handleClick}
-      onMouseDown={onDragStart}
       className="graph-node select-none focus-ring"
       role="button"
       tabIndex={0}

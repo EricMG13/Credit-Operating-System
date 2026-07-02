@@ -14,7 +14,6 @@ overrides via the environment:
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -175,10 +174,8 @@ class Settings(BaseSettings):
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
     caos_run_poll_seconds: float = 1.0   # worker loop tick
-    # Per-request LLM timeout (seconds). The SDK default is ~10 min, long enough
-    # for a stuck inference to pin a run/lane open; bound every Anthropic/Gemini
-    # client to this. google-genai wants milliseconds — convert at that call site.
-    caos_llm_timeout_s: float = 120.0
+    # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
+    # so convert at that call site.)
 
     # Optional: external markitdown CLI for structure-preserving document → text
     # extraction (tables, headings — better for financials/covenants than the
@@ -233,10 +230,9 @@ def is_deployed(settings: "Settings | None" = None) -> bool:
     Asymmetric on purpose, matching the cookie ``secure`` flag (routes/auth.py):
     treat ANY ``environment`` value other than the exact string ``"development"``
     as deployed (so ``prod``, ``Production``, a typo, or unset → deployed/guards
-    active), and the legacy ``DATABRICKS_APP_PORT`` as a deployed signal too. The
-    earlier ``environment == "production"`` checks failed *open* on a mistyped or
-    unset value — silently dropping the edge-secret / session-secret / signup-code
-    guards. This only ever makes things MORE strict, never less.
+    active). The earlier ``environment == "production"`` checks failed *open* on a
+    mistyped or unset value — silently dropping the edge-secret / session-secret /
+    signup-code guards. This only ever makes things MORE strict, never less.
     """
     s = settings or get_settings()
-    return s.environment != "development" or os.environ.get("DATABRICKS_APP_PORT") is not None
+    return s.environment != "development"

@@ -61,5 +61,55 @@ export interface CapabilityGroup {
 
 export interface CapabilitiesResult {
   groups: CapabilityGroup[];
-  availability: Record<string, boolean>;
+  availability: Record<string, boolean>; // includes model_lane — LLM lanes usable at all
 }
+
+// ── Model lanes (routes/query.py /route + /overlay) ──────────────────────────
+
+export interface RouteCandidate {
+  id: string;
+  label: string;
+  enabled: boolean;
+  reason: string;
+}
+
+export interface RouteResult {
+  candidates: RouteCandidate[];
+  source: "llm" | "keyword"; // keyword = degrade contract: use the local router
+}
+
+export interface OverlayEdge {
+  source: string;
+  target: string;
+  rationale: string;
+  chunk_ids: string[];
+  confidence: "High" | "Medium" | "Low";
+}
+
+export interface OverlayResult {
+  edges: OverlayEdge[];
+  commentary: string;
+  suggested_walks: string[];
+  capability_id: string;
+  model: string | null;
+  created_at: string | null;
+  cached: boolean;
+}
+
+// An analyst-ratified model-proposed link (phase 3) — stored, attributed,
+// drawn by the deterministic builders as edge kind "accepted".
+export interface AcceptedLink {
+  id: string;
+  issuer_a: string;
+  issuer_b: string;
+  capability_id: string;
+  rationale: string;
+  chunk_ids: string[];
+  confidence: string;
+  model: string;
+  analyst_id: string | null;
+  created_at: string | null;
+}
+
+// Normalized undirected pair key — mirrors the server's (issuer_a < issuer_b).
+export const pairKey = (a: string, b: string): string => [a, b].sort().join("|");

@@ -6,10 +6,16 @@
 import type { GraphNode } from "@/lib/query/graph";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 
+// The model-lane / analyst-ratified provenance hue — the categorical purple
+// below (the "sub" tranche family). Named once so the overlay UI (dashed
+// proposed edges, commentary chrome, accept state) references one definition
+// instead of scattering the literal.
+export const MODEL_HUE = "#a78bfa";
+
 // Categorical hues for issuer grouping (industry/country). Distinct, no banding —
 // pairs with the always-present text label, so meaning is never color-only. The
 // first three mirror tokens (via chart-colors); the rest are graph-only hues.
-const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, "#a78bfa", "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
+const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, MODEL_HUE, "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
 
 export function hueFor(group: string | null | undefined): string {
   if (!group) return "var(--caos-muted)";

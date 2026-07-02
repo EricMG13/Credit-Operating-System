@@ -8,7 +8,7 @@ deliberately excluded; booleans expose whether a key/UA is present, not its valu
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,7 +93,10 @@ async def write_analyst_settings(
 ):
     analyst = await db.get(Analyst, caller.id)
     if analyst is None:
-        return body
+        # No persisted profile for this identity (e.g. proxy/local caller without a
+        # profile row) — nothing to write to. 404 rather than a silent 200 that would
+        # tell the client the save stuck when it didn't.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No analyst profile — settings not saved.")
     analyst.settings = body.model_dump()
     await db.commit()
     return body

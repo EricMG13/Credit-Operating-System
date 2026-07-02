@@ -69,7 +69,7 @@ const fm = (v: number | null | undefined): string => {
   return r < 0 ? "(" + s + ")" : s;
 };
 const fp = (v: number | null | undefined): string => (v == null || Number.isNaN(v) ? "" : (v * 100).toFixed(1) + "%");
-const fx = (v: number | null | undefined): string => (v == null || Number.isNaN(v) ? "" : v.toFixed(2) + "x");
+const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
 const APPENDIX_PCT_BLUE = "#2f64b7";
 
 /* ---------- financials grid (FY22…LTM, template layout) ---------- */
@@ -140,8 +140,8 @@ function getCapitalStructure(model: Model) {
   const rcf = 120, tlb = 1850, ssn = 900, sub = 400;
   const secured = rcf + tlb + ssn, tdebt = secured + sub, cash = Math.round(l1.cash);
   const ev = Math.round(9.5 * structEbitda), equity = ev - tdebt;
-  const xm = (d: number) => (d / structEbitda).toFixed(2) + "x";
-  const pev = (d: number) => ((d / ev) * 100).toFixed(0) + "%";
+  const xm = (d: number) => { const m = d / structEbitda; return Number.isFinite(m) ? m.toFixed(2) + "x" : ""; };
+  const pev = (d: number) => { const p = (d / ev) * 100; return Number.isFinite(p) ? p.toFixed(0) + "%" : ""; };
   const pfInt = Math.round(l1.int);
   return { reported, addbacks, adj, structEbitda, rcf, tlb, ssn, sub, secured, tdebt, cash, ev, equity, xm, pev, pfInt };
 }

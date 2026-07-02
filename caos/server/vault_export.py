@@ -10,6 +10,10 @@ the link text and the filename are kept identical via ``_title``):
 
     {vault}/Issuers/{Issuer}.md        hub   — YAML frontmatter + links to its runs
     {vault}/Runs/{Issuer - tag}.md     spoke — one finished run, sectioned by module
+    {vault}/Analyst-Memos/{Title}.md   memo  — analyst-uploaded commentary
+                                       (routes/ingestion.py), auto-wikilinked to
+                                       covered issuers; read back by
+                                       ``sync_analyst_memos``
 
 No vector DB, no new deps. An analyst who wants in-vault RAG points a local
 Obsidian plugin (e.g. Smart Connections) at the folder; CAOS keeps its own
@@ -19,8 +23,9 @@ BM25/evidence stack untouched. See caos/docs/OBSIDIAN_DATABANK.md.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-from typing import Any, List, Sequence
+from typing import Any, List, Optional, Sequence, Tuple
 
 # Strip only what breaks a filesystem name or an Obsidian wikilink; keep spaces
 # so the human title doubles as both the filename and the [[link]] target.
@@ -291,11 +296,104 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
     )
 
 
+# ── Analyst memo intake (uploaded market/research commentary) ────────────────
+# The folder sync_analyst_memos scans and the Query graph's obsidian:// deep
+# links point at — keep the two in step.
+MEMOS_DIR = "Analyst-Memos"
+
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+
+
+def _mention_pattern(term: str) -> str:
+    """Whole-word-ish pattern for an issuer mention. ``\\b`` only works against a
+    word char, so it is applied per edge — a legal name ending '.', e.g.
+    'Acme Holdings Corp.', must still match before a space."""
+    lead = r"\b" if term[:1].isalnum() else ""
+    tail = r"\b" if term[-1:].isalnum() else ""
+    return rf"(?<!\[){lead}({re.escape(term)}){tail}(?!\])"
+
+
+def autolink_issuers(
+    text: str, issuers: Sequence[Tuple[str, Optional[str]]]
+) -> Tuple[str, List[str]]:
+    """Wrap the first plain mention of each known issuer in a ``[[wikilink]]`` so
+    an uploaded memo links itself into the issuer graph without the analyst
+    hand-writing links. The full name matches case-insensitively (the link keeps
+    the memo's own casing — ``sync_analyst_memos`` resolves targets lowercased);
+    the ticker is the fallback, matched case-sensitively as a whole word and only
+    when ≥2 chars (so Ford's 'F' can't eat every letter F). An issuer already
+    wikilinked in the text is counted but left untouched.
+
+    Returns ``(linked_text, [issuer names now referenced by a wikilink])``.
+    """
+    linked: List[str] = []
+    existing = {m.group(1).strip().lower() for m in _WIKILINK_RE.finditer(text)}
+    for name, ticker in issuers:
+        if not (name or "").strip():
+            continue
+        tick = (ticker or "").strip()
+        if name.lower() in existing or (tick and tick.lower() in existing):
+            linked.append(name)
+            continue
+        # ponytail: lookarounds only block a match hard against [[ ]] brackets —
+        # a name inside an alias label can still double-wrap; fine for memos.
+        m = re.search(_mention_pattern(name), text, re.IGNORECASE)
+        if m is None and len(tick) >= 2:
+            m = re.search(_mention_pattern(tick), text)
+        if m is None:
+            continue
+        text = f"{text[:m.start(1)]}[[{m.group(1)}]]{text[m.end(1):]}"
+        linked.append(name)
+    return text, linked
+
+
+def memo_note_title(file_name: str) -> str:
+    """Vault-safe note title from an uploaded filename — basename, no extension,
+    illegal filesystem/wikilink chars stripped (also kills path traversal)."""
+    return _title(Path(file_name).stem)
+
+
+def render_memo(
+    title: str,
+    memo_type: str,
+    uploaded_by: str,
+    source_file: str,
+    body: str,
+    date: Optional[str] = None,
+) -> str:
+    """An uploaded analyst memo as a vault note: frontmatter for metadata queries
+    + H1 + the memo body verbatim (already auto-wikilinked)."""
+    head = _yaml_block({
+        "type": "analyst-memo",
+        "memo_type": memo_type,
+        "uploaded_by": uploaded_by,
+        "source_file": source_file,
+        "date": date,
+    })
+    return f"{head}\n\n# {title}\n\n{body.strip()}\n"
+
+
+def write_memo(vault_dir: str | Path, title: str, md: str) -> Path:
+    """Write a memo into ``{vault}/Analyst-Memos/``, deduping the filename
+    ('Title - 2.md', 'Title - 3.md', …) rather than overwriting an analyst's
+    earlier note — uploads are analyst-authored, so unlike run notes there is no
+    canonical DB row to make an overwrite safe."""
+    d = Path(vault_dir) / MEMOS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{title}.md"
+    n = 2
+    while path.exists():
+        path = d / f"{title} - {n}.md"
+        n += 1
+    path.write_text(md, encoding="utf-8")
+    return path
+
+
 _last_vault_mtime = 0.0
 _last_vault_file_count = 0
 
 
-async def sync_analyst_memos(session) -> int:
+async def sync_analyst_memos(session) -> int:  # noqa: C901
     """Scan the vault directory (excluding Issuers/ and Runs/) for analyst-written
     Markdown files, parsing [[wikilinks]] that reference known issuers. Caches
     resolved links into the analyst_links table (syncing additions and deletions).
@@ -417,5 +515,22 @@ if __name__ == "__main__":  # ponytail: one runnable self-check for the render/l
     assert "## QA findings" in spoke_md and "Re-anchor E-44." in spoke_md, "gate output stored"
     assert '"Committee Ready"' in spoke_md, "status stamped in frontmatter"
     assert "[[Industrials]]" in hub_md and "[[US]]" in hub_md, "sector/geo graph links"
+
+    # analyst memo intake: auto-wikilink + render
+    _memo_txt, _linked = autolink_issuers(
+        "Spreads widened. acme corp / eu reported; peers [[Beta Industries]] and BETA held.",
+        [("Acme Corp / EU", "ACME"), ("Beta Industries", "BETA"), ("Gamma Plc", "F")],
+    )
+    assert "[[acme corp / eu]]" in _memo_txt, "name auto-wikilinked (memo casing kept)"
+    assert _memo_txt.count("[[Beta Industries]]") == 1, "already-linked issuer untouched"
+    assert set(_linked) == {"Acme Corp / EU", "Beta Industries"}, _linked
+    assert "[[F]]" not in _memo_txt, "1-char ticker never matched"
+    _memo_md = render_memo("Weekly Wrap", "market-commentary", "a@b.c", "wrap.pdf",
+                           _memo_txt, date="2026-07-02")
+    assert _memo_md.startswith("---\n") and '"analyst-memo"' in _memo_md
+    assert "# Weekly Wrap" in _memo_md and "[[acme corp / eu]]" in _memo_md
+    assert memo_note_title("../..\\evil:note?.md") and all(
+        c not in memo_note_title("../..\\evil:note?.md") for c in '\\/:?'
+    ), "memo title sanitized"
     print("vault_export self-check OK")
     print("---- spoke ----\n" + spoke_md)

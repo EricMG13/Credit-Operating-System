@@ -17,7 +17,7 @@ the headers are absent and a stable local analyst identity is returned so the UI
 works unchanged. A header-less, cookie-less request in any deployed context means
 the edge was bypassed, so it is rejected (401) — enforced in any deployed context,
 i.e. whenever ENVIRONMENT is anything other than "development" (so a typo/unset
-fails closed) or the legacy DATABRICKS_APP_PORT is set (config.is_deployed).
+fails closed; config.is_deployed).
 
 Trusting these headers is safe only because the edge proxy is the sole network
 path to the app; see caos/docs/SECURITY.md §1. As defense-in-depth, set
@@ -110,8 +110,7 @@ _LOCAL_DEV = CallerIdentity(
 )
 
 # The deployed-context predicate lives in config.is_deployed: any ENVIRONMENT other
-# than "development" (typo/unset fail closed), or the legacy DATABRICKS_APP_PORT
-# the old Databricks Apps platform injected, counts as deployed.
+# than "development" (typo/unset fail closed) counts as deployed.
 
 
 async def get_identity(

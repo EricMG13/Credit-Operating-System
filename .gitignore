@@ -7,6 +7,7 @@
 # Node / Next.js
 node_modules/
 .next/
+.next-qa*/
 out/
 *.tsbuildinfo
 
@@ -41,3 +42,6 @@ caos/frontend/.ds-tailwind.css
 
 # Playwright E2E auth state (created by global-setup)
 caos/tests/frontend/e2e/.auth/
+
+# impeccable hook cache (generated per app dir)
+**/.impeccable/
