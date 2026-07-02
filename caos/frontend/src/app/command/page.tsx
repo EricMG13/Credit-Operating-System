@@ -13,6 +13,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ALERTS, GAPS, PORTFOLIO, QA_QUEUE } from "@/lib/command/data";
+import { PORTFOLIO_AVG_DM_LABEL } from "@/lib/command/stats";
 import { RV_SECTORS } from "@/lib/command/rvdata";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
@@ -24,7 +25,7 @@ import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import {
   CoverageMatrix, GapsList, IssuerStrip,
-  PortfolioTable, QaQueue, SectorBoard,
+  PortfolioTable, PostureSummary, QaQueue, SectorBoard,
 } from "@/components/command/views";
 
 export default function CommandPage() {
@@ -95,12 +96,8 @@ function CommandCenter() {
             { k: "rv", l: "SECTOR RV" },
           ] as const}
         />
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">
-          {view === "cio"
-            ? "Coverage — US HY"
-            : view === "res"
-            ? "Coverage Health — US HY"
-            : "Sector Relative Value — Loan Universe"}
+        <span className="text-caos-md text-caos-muted truncate min-w-0">
+          {view === "rv" ? "Loan universe" : "US HY sleeve"}
         </span>
         <span
           className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0"
@@ -138,12 +135,12 @@ function CommandCenter() {
         ) : (
           <>
             <div className="hidden xl:flex items-center gap-5 shrink-0">
-              {headStat("Avg 3Y DM", "+504bps")}
+              {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
               {headStat("Issuers", String(portfolio.issuerCount || PORTFOLIO.length))}
             </div>
             <div className="h-4 w-px bg-caos-border hidden xl:block shrink-0" />
-            {headStat("Watch List", "3", "var(--caos-critical)", true)}
-            {headStat("QA Posture", "5 open", "var(--caos-warning)", true)}
+            {/* Posture / on-watch / QA now live in the PostureSummary band (real
+                data). Header keeps only the distinct live intake count. */}
             <Link
               href="/monitor"
               title="Open Monitor — live CP-MON email intelligence & alert routing"
@@ -168,6 +165,7 @@ function CommandCenter() {
           <SectorRV />
         ) : view === "cio" ? (
           <div className="flex flex-col gap-2 min-h-0 min-w-0">
+            <PostureSummary />
             <NlQuery />
             {portfolio.coveredCount > 0 ? (
               <PanelShell

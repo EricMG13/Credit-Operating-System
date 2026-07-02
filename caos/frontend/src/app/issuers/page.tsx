@@ -1,6 +1,6 @@
 "use client";
 
-// Issuer Directory — the workspace hub, in the CAOS design language shared by
+// Issuer Register — the workspace hub, in the CAOS design language shared by
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
 import { useEffect, useMemo, useState } from "react";
@@ -16,7 +16,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerSector } from "@/lib/issuers";
+import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 export default function IssuersPage() {
@@ -80,18 +80,19 @@ function IssuersDirectory() {
     if (q) setQuery(q);
   }, []);
 
-  const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
-  const filterKeys = ["ticker", "name", "sector", "sub_sector", "country", "figi", "action"] as const;
+  const cols = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+  const filterKeys = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
   const filterVals = useMemo<Record<(typeof filterKeys)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
     ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
     name: (i) => i.name,
+    rating: (i) => issuerRating(i) || "—",
     sector: (i) => issuerSector(i) || "—",
     sub_sector: (i) => i.sub_sector || "—",
     country: (i) => i.country || "—",
-    figi: (i) => i.figi || "—",
     action: () => "UPLOAD",
   }), []);
   const shownIssuers = useColumnFilters(issuers, filters, filterVals);
+  const ratedCount = useMemo(() => issuers.filter((i) => issuerRating(i)).length, [issuers]);
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((f) => {
       const next = { ...f };
@@ -113,13 +114,13 @@ function IssuersDirectory() {
           <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
         </span>
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Issuer Directory</span>
+        <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap">Issuer Register</span>
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
           {loading
             ? "loading…"
             : query
             ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
-            : issuers.length + " issuers · US HY sleeve"}
+            : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve"}
         </span>
         <div className="flex-1" />
         <ConceptNav />
@@ -189,10 +190,22 @@ function IssuersDirectory() {
           }
         >
           {loading ? (
-            <div className="px-3 py-3 text-caos-lg text-caos-muted">Loading issuers…</div>
+            <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className={cols + " px-3 py-[7px] border-b border-caos-border/50"}>
+                  <span className="h-2.5 w-9 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-44 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-8 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-24 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-20 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-16 rounded-sm bg-caos-elevated/70" />
+                  <span />
+                </div>
+              ))}
+            </div>
           ) : issuers.length === 0 && query ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-2xl font-medium">No matches for “{query}”</p>
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for “{query}”</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
                 Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
               </p>
@@ -205,7 +218,7 @@ function IssuersDirectory() {
             </div>
           ) : issuers.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-2xl font-medium">No issuers yet</p>
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No issuers yet</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
                 Add your first issuer, then drop its deal documents and pick a run mode to start a run.
               </p>
@@ -219,7 +232,7 @@ function IssuersDirectory() {
           ) : (
             <div className="text-caos-xl">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-                {["Ticker", "Issuer", "Sector", "Sub-sector", "Country", "FIGI", ""].map((h, i) => (
+                {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
                     key={i}
                     label={h || "Action"}
@@ -259,11 +272,22 @@ function IssuersDirectory() {
                   <span className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span className="text-caos-text text-caos-xl truncate group-hover:text-white transition-caos">{issuer.name}</span>
+                  <span className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+                  {(() => {
+                    const r = issuerRating(issuer);
+                    return (
+                      <span
+                        className="tabular text-caos-md truncate"
+                        title={r ? "Agency rating — S&P / Moody’s / Fitch (first on file)" : "No agency rating on file"}
+                        style={{ color: r ? (ratingDistressed(r) ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
+                      >
+                        {r || "—"}
+                      </span>
+                    );
+                  })()}
                   <span className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
                   <span className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
                   <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
-                  <span className="tabular text-caos-muted text-caos-sm truncate">{issuer.figi || "—"}</span>
                   <button
                     onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
                     aria-label={`Upload documents for ${issuer.name}`}

@@ -31,6 +31,60 @@ const STANCE_COLOR: Record<string, string> = {
   CAUTIOUS: "var(--caos-warning)", NEGATIVE: "var(--caos-critical)",
 };
 
+/* ---------- CIO/PM view: posture lead band ---------- */
+// The command-center "verdict" — portfolio posture at a glance before any table.
+// Figures derive from the sample PORTFOLIO (the header lens note already marks it
+// not-live); each posture's color is paired with its OW/HOLD/UW/REDUCE label and
+// count, so meaning survives without hue (WCAG 1.4.1).
+const POSTURE_ORDER = ["OVERWEIGHT", "HOLD", "UNDERWEIGHT", "REDUCE"] as const;
+const POSTURE_SHORT: Record<string, string> = { OVERWEIGHT: "OW", HOLD: "HOLD", UNDERWEIGHT: "UW", REDUCE: "REDUCE" };
+
+export function PostureSummary() {
+  const total = PORTFOLIO.length;
+  const by: Record<string, number> = { OVERWEIGHT: 0, HOLD: 0, UNDERWEIGHT: 0, REDUCE: 0 };
+  let alerting = 0;
+  for (const p of PORTFOLIO) {
+    by[p.posture] = (by[p.posture] || 0) + 1;
+    if (p.alerts) alerting += 1;
+  }
+  return (
+    <div className="shrink-0 flex items-center gap-4 px-3 py-2 rounded-md border border-caos-border bg-caos-panel">
+      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0">
+        Posture · {total} positions
+      </span>
+      <div
+        className="flex h-2.5 flex-1 min-w-0 overflow-hidden rounded-sm border border-caos-border/60"
+        role="img"
+        aria-label={"Posture distribution — " + POSTURE_ORDER.map((k) => POSTURE_SHORT[k] + " " + by[k]).join(", ")}
+      >
+        {POSTURE_ORDER.map((k) => (by[k] ? <div key={k} title={k + " · " + by[k]} style={{ width: (by[k] / total) * 100 + "%", background: POSTURE_COLOR[k] }} /> : null))}
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        {POSTURE_ORDER.map((k) => (
+          <span key={k} className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{POSTURE_SHORT[k]}</span>
+            <span className="tabular text-caos-md" style={{ color: POSTURE_COLOR[k] }}>{by[k]}</span>
+          </span>
+        ))}
+      </div>
+      <div className="h-5 w-px bg-caos-border shrink-0 hidden md:block" />
+      <Link
+        href="/monitor"
+        title="Positions with open CP-MON alerts — open Monitor"
+        className="no-underline hidden md:flex items-baseline gap-1.5 shrink-0 group"
+      >
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">On watch</span>
+        <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>{alerting}</span>
+        <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
+      </Link>
+      <span className="hidden md:flex items-baseline gap-1.5 shrink-0">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">QA open</span>
+        <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>{QA_QUEUE.length}</span>
+      </span>
+    </div>
+  );
+}
+
 /* ---------- sparkline ---------- */
 export function Spark({ data, color = "var(--caos-accent)", w = 72, h = 18 }: { data: number[]; color?: string; w?: number; h?: number }) {
   const min = Math.min(...data), max = Math.max(...data);
@@ -96,7 +150,7 @@ export function PortfolioTable({
   }), []);
   const shown = useColumnFilters(PORTFOLIO, filters, vals);
 
-  const [colPreset, setColPreset] = useState<"full" | "credit" | "market" | "custom">("full");
+  const [colPreset, setColPreset] = useState<"full" | "credit" | "market" | "custom">("credit");
 
   const presetKeys = {
     full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
@@ -104,15 +158,27 @@ export function PortfolioTable({
     market: ["expand", "code", "name", "sector", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "posture", "alerts"],
   } as const;
 
+  // Order front-loads the "what needs me" signal (posture · conviction · QA ·
+  // alerts) right after identity, then leverage, then market/taxonomy detail —
+  // so the columns that answer the CIO lens are reachable without scrolling past
+  // the analyst firehose. Render order follows this array; presets only filter.
   const ALL_COLS = [
     { key: "expand", head: "", width: "24px", sticky: "sticky left-0 z-30" },
     { key: "code", head: "Ticker", width: "58px", sticky: "sticky left-[32px] z-30" },
     { key: "name", head: "Company", width: "170px", sticky: "sticky left-[98px] z-30" },
     { key: "sector", head: "Sector", width: "220px" },
+    { key: "rating", head: "Ratings", width: "74px" },
+    { key: "posture", head: "Posture", width: "92px" },
+    { key: "conv", head: "Conv.", width: "44px" },
+    { key: "qa", head: "QA", width: "74px" },
+    { key: "alerts", head: "⚑", width: "36px" },
+    { key: "lev", head: "NetLev", width: "48px" },
+    { key: "snrLev", head: "SnrLev", width: "48px" },
+    { key: "totalLev", head: "TotLev", width: "48px" },
+    { key: "cov", head: "IntCov", width: "48px" },
     { key: "subSector", head: "Sub-sector", width: "240px" },
     { key: "figi", head: "FIGI", width: "90px" },
     { key: "rank", head: "Rank", width: "110px" },
-    { key: "rating", head: "Ratings", width: "74px" },
     { key: "size", head: "Size", width: "70px" },
     { key: "margin", head: "Margin", width: "58px" },
     { key: "maturity", head: "Maturity", width: "70px" },
@@ -121,17 +187,9 @@ export function PortfolioTable({
     { key: "dd", head: "Δ 1D", width: "54px" },
     { key: "spark", head: "30D Chart", width: "86px" },
     { key: "ytdSpark", head: "YTD Chart", width: "86px" },
-    { key: "lev", head: "NetLev", width: "48px" },
-    { key: "snrLev", head: "SnrLev", width: "48px" },
-    { key: "totalLev", head: "TotLev", width: "48px" },
-    { key: "cov", head: "IntCov", width: "48px" },
-    { key: "posture", head: "Posture", width: "92px" },
-    { key: "conv", head: "Conv.", width: "44px" },
-    { key: "qa", head: "QA", width: "74px" },
-    { key: "alerts", head: "⚑", width: "36px" },
   ] as const;
 
-  const [visibleCols, setVisibleCols] = useState<string[]>(() => [...presetKeys.full]);
+  const [visibleCols, setVisibleCols] = useState<string[]>(() => [...presetKeys.credit]);
   const [customizerOpen, setCustomizerOpen] = useState(false);
 
   useEffect(() => {
@@ -183,7 +241,7 @@ export function PortfolioTable({
           <IssuerLink
             key="name"
             query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-white transition-caos ${stickyBg} ${hoverBg}`}
+            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
             title={`Open ${p.borrower || p.name} profile`}
           >
             {p.borrower || p.name}
@@ -254,7 +312,7 @@ export function PortfolioTable({
   return (
     <div className="flex h-full min-h-0 flex-col text-caos-md">
       <div className="flex shrink-0 items-center gap-1 overflow-visible whitespace-nowrap border-b border-caos-border px-3 py-1">
-        <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
+        <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">View</span>
         {([
           ["Desk", "full"],
           ["Credit", "credit"],
@@ -583,8 +641,11 @@ export function SectorBoard() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("caos-command-sectors-v2") || "[]");
-      if (Array.isArray(saved) && saved.length) setVisible(new Set(saved));
+      if (Array.isArray(saved) && saved.length) { setVisible(new Set(saved)); return; }
     } catch {}
+    // First run (no saved set): seed the reviewed sectors so the board teaches
+    // its value instead of opening as a single empty "Add sector" tile.
+    setVisible(new Set(SECTORS.slice(0, 4).map((s) => s.sector)));
   }, []);
   useEffect(() => {
     try { localStorage.setItem("caos-command-sectors-v2", JSON.stringify([...visible])); } catch {}
@@ -794,7 +855,7 @@ export function CoverageMatrix() {
                 className={"h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")}
                 style={{ background: CELL_COLOR[st] }}
               >
-                <span className="tabular text-caos-3xs uppercase font-medium text-white">{st}</span>
+                <span className="tabular text-caos-3xs uppercase font-medium text-[#f4f4f8]">{st}</span>
               </div>
             );
           })}
@@ -900,9 +961,9 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
           OPEN DEEP-DIVE →
         </Link>
       ) : (
-        <span className="tabular text-caos-xs text-caos-muted">deep-dive mocked for ATLF only</span>
+        <span className="tabular text-caos-xs text-caos-muted">Deep-Dive available for ATLF in this preview</span>
       )}
-      <button onClick={onClose} className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">✕</button>
+      <CloseButton onClick={onClose} title="Close (Esc)" />
     </div>
   );
 }
