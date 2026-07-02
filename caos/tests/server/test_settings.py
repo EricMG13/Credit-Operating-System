@@ -20,3 +20,14 @@ def test_settings_returns_snapshot_without_secrets():
     blob = json.dumps(body).lower()
     for forbidden in ("sk-ant", "api_key", "anthropic_api_key", "database_url", "postgresql", "storage_dir", "edgar_user_agent"):
         assert forbidden not in blob, f"settings leaked: {forbidden}"
+
+
+def test_api_404_detail_passes_through_spa_handler():
+    """The SPA 404 exception handler must not mask an endpoint's own 404 detail
+    ("Issuer not found") behind a generic {"detail": "Not Found"}."""
+    from main import app
+
+    with TestClient(app) as c:
+        r = c.get("/api/issuers/does-not-exist-xyz")
+    assert r.status_code == 404
+    assert r.json() == {"detail": "Issuer not found"}

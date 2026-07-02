@@ -295,7 +295,11 @@ if _static.is_dir():
     async def spa_not_found(request: Request, exc):  # type: ignore[no-untyped-def]
         """Serve the exported 404 page for unknown non-API paths."""
         if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
+            # Keep the endpoint's own 404 detail ("Issuer not found", "No analyst
+            # profile — settings not saved.") — this handler also catches every
+            # HTTPException(404) raised inside /api routes, not just unmatched paths.
+            detail = getattr(exc, "detail", None) or "Not Found"
+            return JSONResponse({"detail": detail}, status_code=404)
         not_found = _static / "404.html"
         if not_found.is_file():
             return FileResponse(not_found, status_code=404)

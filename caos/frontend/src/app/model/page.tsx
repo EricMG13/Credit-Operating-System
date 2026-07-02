@@ -88,6 +88,7 @@ function ModelBuilder() {
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   // evidence modal cited-by needs the report set
   const reports = useMemo(() => buildReports(), []);
@@ -168,6 +169,7 @@ function ModelBuilder() {
   const resetAll = () => setOverrides({});
   const saveCurrentModel = () => {
     setSaving(true);
+    setSaveError(false);
     return saveIssuerModel(issuerId, {
       version: 1,
       assumptions,
@@ -177,7 +179,7 @@ function ModelBuilder() {
       model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
     })
       .then((r) => setSavedAt(r.updated_at))
-      .catch(() => {})
+      .catch(() => setSaveError(true))
       .finally(() => setSaving(false));
   };
 
@@ -298,7 +300,13 @@ function ModelBuilder() {
         >
           {saving ? "SAVING..." : "SAVE MODEL"}
         </button>
-        {savedAt ? <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap hidden xl:inline">SAVED {new Date(savedAt).toLocaleString()}</span> : null}
+        {saveError ? (
+          <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
+            ✗ SAVE FAILED — model not stored; Report Studio reads the last saved version
+          </span>
+        ) : savedAt ? (
+          <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap hidden xl:inline">SAVED {new Date(savedAt).toLocaleString()}</span>
+        ) : null}
         <button
           onClick={() => exportModel(model, showQuarters, overrides)}
           disabled={!hasIssuerModel}
