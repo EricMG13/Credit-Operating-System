@@ -25,12 +25,20 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { G2Chart } from "@/components/charts/G2Chart";
-import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta, periodRank, SNAPSHOT_ORDER } from "@/lib/issuer-profile-charts";
+import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
 const GRAN_OPTS = [{ k: "FY" as const, l: "Full year" }, { k: "Q" as const, l: "Quarters" }];
+
+// Issuer-scoped jumps into the other concepts, rendered in the bottom bar.
+const ISSUER_ACTIONS = [
+  { href: "/pipeline?issuer=", label: "Run analysis" },
+  { href: "/model?issuer=", label: "Model Builder" },
+  { href: "/reports?issuer=", label: "Report Studio" },
+  { href: "/upload?issuer=", label: "Upload docs" },
+];
 
 export default function IssuerProfilePage() {
   return (
@@ -221,30 +229,6 @@ export function Profile({
     ? ((sponsor as { ledger: { flag: string; chunk_id?: string }[] }).ledger) : [];
 
   const [gran, setGran] = useState<"FY" | "Q">("FY");
-  const [layout, setLayout] = useState<"unified" | "bloomberg">("unified");
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        document.activeElement?.tagName === "INPUT" ||
-        document.activeElement?.tagName === "TEXTAREA" ||
-        document.activeElement?.getAttribute("contenteditable") === "true"
-      ) {
-        return;
-      }
-      if (e.altKey && e.key.toLowerCase() === "l") {
-        e.preventDefault();
-        setLayout((prev) => (prev === "unified" ? "bloomberg" : "unified"));
-      }
-      if (e.altKey && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        setGran((prev) => (prev === "FY" ? "Q" : "FY"));
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
 
   // Snapshot + trend series come straight from the engine's metric facts. We do
   // NOT synthesize senior/total leverage from net leverage — a fabricated figure
@@ -254,43 +238,6 @@ export function Profile({
   const series = useMemo(() => buildSeries(metrics), [metrics]);
   const headline = useMemo(() => buildHeadline(metrics), [metrics]);
 
-  const handleCopyLedger = () => {
-    const activeSeries = filterSeriesByGranularity(series, gran);
-    const activePeriods = Array.from(
-      new Set(Object.values(activeSeries).flatMap((pts) => pts.map((p) => p.period)))
-    ).sort((a, b) => periodRank(a) - periodRank(b));
-
-    if (activePeriods.length === 0) return;
-
-    const headerRow = ["Metric", ...activePeriods].join("\t");
-    const rows = SNAPSHOT_ORDER.map((key) => {
-      const pts = activeSeries[key] || [];
-      const label = METRIC_LABEL[key] || key;
-      const periodVals = activePeriods.map((p) => {
-        const pt = pts.find((m) => m.period === p);
-        if (!pt || typeof pt.value !== "number") return "—";
-        return fmt(pt.value, pt.unit);
-      });
-      return [label, ...periodVals].join("\t");
-    });
-
-    const tsv = [headerRow, ...rows].join("\n");
-    // navigator.clipboard is undefined in an insecure context — guard before
-    // calling so it degrades quietly instead of throwing synchronously (the
-    // .catch below only sees promise rejections, not the missing-API throw).
-    if (!navigator.clipboard) {
-      console.error("Clipboard copy failed: clipboard API unavailable (insecure context).");
-      return;
-    }
-    navigator.clipboard.writeText(tsv)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      })
-      .catch((err) => {
-        console.error("Clipboard copy failed: ", err);
-      });
-  };
   // Build both granularities so the toggle shows only when there's something to
   // switch to, and each side draws only its own periods (annual vs quarterly).
   const fyCharts = useMemo(() => buildCharts(filterSeriesByGranularity(series, "FY")), [series]);
@@ -300,230 +247,7 @@ export function Profile({
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
-  // ─── Bloomberg Classic Layout ──────────────────────────────────────────────
-  const renderBloomberg = () => {
-    const activeSeries = filterSeriesByGranularity(series, gran);
-    const activePeriods = Array.from(
-      new Set(Object.values(activeSeries).flatMap((pts) => pts.map((p) => p.period)))
-    ).sort((a, b) => periodRank(a) - periodRank(b));
-
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-1 gap-2 items-start">
-          {/* Main Financial Ledger Grid */}
-          <Panel 
-            title="Financial Ledger (Historical Comparison)" 
-            right={
-              <div className="flex items-center gap-2">
-                {snapshotProv ? <Tag sev={PROV[snapshotProv].sev}>{PROV[snapshotProv].label}</Tag> : null}
-                <button
-                  onClick={handleCopyLedger}
-                  className="px-2 py-1 text-caos-2xs rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos uppercase font-mono tracking-wider bg-transparent cursor-pointer"
-                  title="Copy ledger data in TSV format to clipboard"
-                >
-                  {copied ? "Copied ✓" : "Copy Ledger"}
-                </button>
-                {fyCharts.length || qCharts.length ? (
-                  <ToggleGroup options={GRAN_OPTS} value={gran} onChange={setGran} size="sm" />
-                ) : null}
-              </div>
-            }
-          >
-            {activePeriods.length === 0 ? (
-              <div className="px-3 py-2.5">
-                <Empty>No metric history available for this granularity level.</Empty>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-caos-md">
-                  <thead>
-                    <tr className="border-b border-caos-border bg-caos-panel">
-                      <th className="py-2 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">Metric</th>
-                      {activePeriods.map((p) => (
-                        <th key={p} className="py-2 px-3 text-right text-caos-2xs uppercase tracking-wider text-caos-muted min-w-[95px]">
-                          {p}
-                        </th>
-                      ))}
-                      <th className="py-2 px-3 text-right text-caos-2xs uppercase tracking-wider text-caos-muted w-[80px]">Source</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-caos-border/30 font-mono text-caos-sm">
-                    {SNAPSHOT_ORDER.map((key) => {
-                      const pts = activeSeries[key] || [];
-                      const latestPt = pts[pts.length - 1];
-
-                      return (
-                        <tr key={key} className="hover:bg-caos-elevated/40 transition-caos" title={METRIC_TOOLTIP[key] || ""}>
-                          <td className="py-2 px-3 text-caos-muted uppercase font-sans tracking-wide text-caos-xs font-semibold">
-                            {METRIC_LABEL[key] || key}
-                          </td>
-                          {activePeriods.map((p) => {
-                            const pt = pts.find((m) => m.period === p);
-                            if (!pt || typeof pt.value !== "number") {
-                              return (
-                                <td key={p} className="py-2 px-3 text-right text-caos-muted/40 tabular">
-                                  —
-                                </td>
-                              );
-                            }
-                            const sev = metricSev(key, pt.value);
-                            return (
-                              <td key={p} className="py-2 px-3 text-right font-semibold text-caos-text tabular" style={{ color: sev ? sevSurface(sev).color : undefined }}>
-                                {fmt(pt.value, pt.unit)}
-                              </td>
-                            );
-                          })}
-                          <td className="py-2 px-3 text-right">
-                            {latestPt && latestPt.document_chunk_id ? (
-                              <Link href={deepHref + "&mod=CP-1"} className="no-underline text-caos-xs text-caos-muted hover:text-caos-accent transition-caos font-sans font-bold" title="See source in Deep-Dive">
-                                ▸ src
-                              </Link>
-                            ) : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        {/* Dense Middle Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
-          {/* Covenants & Structure */}
-          <Panel title="Covenant & Structure Ledger">
-            <div className="px-3 py-2 text-caos-sm divide-y divide-caos-border/30 font-mono">
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Headroom</span>
-                <span className="text-caos-text font-bold">
-                  {signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : "—"}
-                </span>
-              </div>
-              <div className="py-2 flex flex-col gap-1">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Structure</span>
-                <span className="text-caos-text text-right truncate" title={signals.covenant_structure as string}>
-                  {signals.covenant_structure as string || "—"}
-                </span>
-              </div>
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Liquidity Runway</span>
-                <span className="text-caos-text font-bold">
-                  {signals.runway_months != null ? `${signals.runway_months} months` : "—"}
-                </span>
-              </div>
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Governance Risk</span>
-                <span className="text-caos-text font-bold">
-                  {typeof (sponsor as { governance_risk_score?: number }).governance_risk_score === "number"
-                    ? `Score ${(sponsor as { governance_risk_score: number }).governance_risk_score}`
-                    : "—"}
-                </span>
-              </div>
-            </div>
-          </Panel>
-
-          {/* Sponsor Ownership & Business Facts */}
-          <Panel title="Ownership & Business Facts">
-            <div className="p-2 flex flex-col gap-2">
-              {factsByCode(["ownership", "transaction"]).slice(0, 2).map((f, i) => (
-                <div key={i} className="text-caos-xs border border-caos-border/40 rounded p-2 bg-caos-bg">
-                  <p className="m-0 text-caos-text/90 leading-snug">{f.statement}</p>
-                  <div className="flex justify-between items-center mt-1 text-caos-2xs text-caos-muted">
-                    <span>{f.fact_area}</span>
-                    {f.chunk_id ? <Link href={deepHref + "&mod=CP-1A"} className="no-underline text-caos-accent">▸ src</Link> : null}
-                  </div>
-                </div>
-              ))}
-              {sponsorLedger.length ? (
-                <div className="flex flex-col gap-1 pt-1 border-t border-caos-border/40">
-                  {sponsorLedger.slice(0, 2).map((fl, i) => (
-                    <span key={i} className="flex items-center gap-1.5 font-mono text-caos-2xs" style={{ color: sevSurface("warning").color }}>
-                      <StatusGlyph kind="warning" size={9} /> {fl.flag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </Panel>
-
-          {/* Coverage & Audit Gaps */}
-          <Panel title="Audit & Coverage Status">
-            <div className="px-3 py-2 text-caos-sm divide-y divide-caos-border/30 font-mono">
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Readiness</span>
-                <span className="text-caos-text font-bold">
-                  {coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "—"}
-                </span>
-              </div>
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">Documents</span>
-                <span className="text-caos-text font-bold">{Number(coverage.documents) || 0} loaded</span>
-              </div>
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">EDGAR XBRL</span>
-                <span className="text-caos-text font-bold">{coverage.edgar_available ? "Available" : "No"}</span>
-              </div>
-              <div className="py-2 flex justify-between">
-                <span className="text-caos-muted font-sans text-caos-xs uppercase">QA Findings</span>
-                <span className="font-bold" style={{ color: totalFindings > 0 ? "var(--caos-warning)" : undefined }}>
-                  {totalFindings ? `${totalFindings} open` : "None"}
-                </span>
-              </div>
-            </div>
-          </Panel>
-        </div>
-
-        {/* Run Audit Ledger */}
-        <Panel title={`Historical Audit Log · ${runs.length} Runs`}>
-          {runs.length === 0 ? (
-            <Empty>No run history ledger entries.</Empty>
-          ) : (
-            <div className="text-caos-md overflow-x-auto">
-              <table className="w-full text-left border-collapse font-mono text-caos-sm">
-                <thead>
-                  <tr className="border-b border-caos-border bg-caos-panel">
-                    <th className="py-1 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">Date</th>
-                    <th className="py-1 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">Run Status</th>
-                    <th className="py-1 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">QA Verification</th>
-                    <th className="py-1 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">Committee Review</th>
-                    <th className="py-1 px-3 text-caos-2xs uppercase tracking-wider text-caos-muted">Analyst ID</th>
-                    <th className="py-1 px-3 text-right"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-caos-border/40">
-                  {runs.map((r) => {
-                    const date = r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : "—";
-                    return (
-                      <tr key={r.id} className="hover:bg-caos-elevated/60 transition-caos group">
-                        <td className="py-1.5 px-3 text-caos-muted">{date}</td>
-                        <td className="py-1.5 px-3">
-                          <Tag sev={RUN_SEV[r.status] ?? "low"}>{r.status}</Tag>
-                        </td>
-                        <td className="py-1.5 px-3 text-caos-text">{r.qa_status}</td>
-                        <td className="py-1.5 px-3 text-caos-text">{r.committee_status}</td>
-                        <td className="py-1.5 px-3 text-caos-muted truncate max-w-[120px]">{r.analyst_id || "—"}</td>
-                        <td className="py-1.5 px-3 text-right">
-                          <Link href={deepHref + "&run=" + encodeURIComponent(r.id)} className="no-underline text-caos-accent font-sans text-caos-xs">
-                            OPEN →
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-      </div>
-    );
-  };
-
-  // ─── Unified Workspace Layout ──────────────────────────────────────────────
-  const renderUnified = () => {
-    return (
+  const body = (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-2 items-start">
         {/* Column 1: Financials & Trends (40%) */}
         <div className="flex flex-col gap-2">
@@ -535,27 +259,6 @@ export function Profile({
               <div className="px-3 py-2.5"><Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty></div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3">
-                {/* Credit Ratings Tile */}
-                <div className="px-3 py-2 border-b border-r border-caos-border/40 flex flex-col justify-between" title="Issuer credit ratings from major rating agencies (S&P, Moody's, Fitch)">
-                  <div>
-                    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Credit Ratings</div>
-                    <div className="flex flex-col gap-0.5 mt-1">
-                      {ratings.length ? (
-                        <div className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-caos-text font-mono font-semibold text-xs mt-1">
-                          {ratings.map((r) => (
-                            <span key={r.ag} className="border border-caos-border/40 rounded px-1.5 py-0.5 bg-caos-bg">
-                              <span className="text-caos-muted">{r.ag.substring(0, 3)}</span> <span className="text-caos-accent font-bold">{r.v}</span>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="tabular text-caos-muted text-xs">No ratings</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="tabular text-[9px] text-caos-muted mt-1 uppercase tracking-wider">Agency assessment</div>
-                </div>
-
                 {headline.map((m) => {
                   const sev = metricSev(m.metric_key, m.value);
                   const d = TILE_DELTA[m.metric_key];
@@ -716,8 +419,7 @@ export function Profile({
           </Panel>
         </div>
       </div>
-    );
-  };
+  );
 
   return (
     <div className={`${isOverlay ? "h-full" : "h-screen"} flex flex-col bg-caos-bg text-caos-text`}>
@@ -746,7 +448,7 @@ export function Profile({
           </span>
           {ratings.length ? (
             <span className="flex items-center gap-1 shrink-0">
-              {ratings.slice(0, 2).map((r) => (
+              {ratings.map((r) => (
                 <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
                   <span className="text-caos-muted">{r.ag.substring(0, 3)}</span> <span className="text-caos-text font-semibold">{r.v}</span>
                 </span>
@@ -777,18 +479,6 @@ export function Profile({
           </>
         )}
 
-        {/* Layout Switcher */}
-        <ToggleGroup
-          options={[
-            { k: "unified" as const, l: "Unified Workspace" },
-            { k: "bloomberg" as const, l: "Bloomberg Classic" },
-          ]}
-          value={layout}
-          onChange={setLayout}
-          size="sm"
-        />
-
-        <div className="h-4 w-px bg-caos-border shrink-0" />
         <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0">
           OPEN DEEP-DIVE →
         </Link>
@@ -800,25 +490,23 @@ export function Profile({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-2 pb-16 flex flex-col gap-2">
-        {/* Dynamic Layout Rendering */}
-        {layout === "unified" ? renderUnified() : renderBloomberg()}
+      <div className="flex-1 min-h-0 overflow-auto p-2 flex flex-col gap-2">
+        {body}
       </div>
 
-      {/* Floating Action Dock (Centered, non-clashing with bottom-left search and bottom-right ask widgets) */}
-      <div 
-        className={`${isOverlay ? "absolute" : "fixed"} bottom-3 left-1/2 -translate-x-1/2 z-overlay bg-caos-panel/90 border border-caos-border rounded-md px-3 py-1.5 flex items-center gap-2 shadow-lg backdrop-blur-sm shrink-0`}
-        style={{ boxShadow: "0 12px 40px -12px rgba(0,0,0,0.85)" }}
-      >
-        <Action href={deepHref} primary>Open Deep-Dive</Action>
-        <Action href={"/pipeline?issuer=" + encodeURIComponent(id)}>Run / re-run analysis</Action>
-        <Action href={"/model?issuer=" + encodeURIComponent(id)}>Model Builder</Action>
-        <Action href={"/reports?issuer=" + encodeURIComponent(id)}>Report Studio</Action>
-        <Action href={"/upload?issuer=" + encodeURIComponent(id)}>Upload documents</Action>
-        <div className="h-4 w-px bg-caos-border/50 mx-1" />
-        <span className="text-[10px] text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap pr-1">
-          Alt+L · Alt+G
-        </span>
+      {/* Issuer-scoped jumps — static desk function bar (Deep-Dive stays the
+          header's single primary action). In overlay mode ConceptNav is hidden,
+          so this bar is the only issuer-context route to the other concepts. */}
+      <div className="h-8 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-1 px-2">
+        {ISSUER_ACTIONS.map((a) => (
+          <Link
+            key={a.href}
+            href={a.href + encodeURIComponent(id)}
+            className="no-underline tabular text-caos-2xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos"
+          >
+            {a.label}
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -950,14 +638,6 @@ function RunRow({ r, href }: { r: ProfileRun; href: string }) {
       <span className="tabular text-caos-sm text-caos-text">{r.committee_status}</span>
       <span className="tabular text-caos-sm text-caos-muted truncate">{r.analyst_id || "—"}</span>
       <span className="tabular text-caos-2xs text-caos-muted text-right group-hover:text-caos-accent transition-caos">OPEN →</span>
-    </Link>
-  );
-}
-
-function Action({ href, children, primary }: { href: string; children: React.ReactNode; primary?: boolean }) {
-  return (
-    <Link href={href} className={"no-underline tabular text-caos-md px-3 py-1.5 rounded border transition-caos " + (primary ? "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")}>
-      {children}
     </Link>
   );
 }
