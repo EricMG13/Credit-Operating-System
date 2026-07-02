@@ -26,6 +26,15 @@ ENV PYTHONUNBUFFERED=1 \
     ENVIRONMENT=production
 WORKDIR /app
 
+# Scanned/image PDFs carry no text layer — pypdf yields 0 chunks. ocrmypdf (wraps
+# Tesseract + Ghostscript) is the last-resort OCR lane, shelled out via
+# CAOS_OCRMYPDF_CMD only when markitdown and pypdf both come back empty. Own layer,
+# before the pip install, so it caches independently of the app deps. Heavier OCR
+# (tables/equations) = olmOCR, but that needs a GPU → Phase-2.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ocrmypdf tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
 # Python deps first for layer caching. If a wheel build ever fails on slim,
 # add: RUN apt-get update && apt-get install -y --no-install-recommends gcc
 #
