@@ -31,3 +31,25 @@ def test_api_404_detail_passes_through_spa_handler():
         r = c.get("/api/issuers/does-not-exist-xyz")
     assert r.status_code == 404
     assert r.json() == {"detail": "Issuer not found"}
+
+
+def test_analyst_settings_roundtrip_with_profile_cookie():
+    """model_lanes/email_intelligence persist per-analyst once a profile exists."""
+    from main import app
+
+    with TestClient(app) as c:
+        login = c.post("/api/auth/profile", json={"code": "131113", "name": "Lane Router"})
+        assert login.status_code in (200, 201), login.text
+
+        body = {
+            "model_lanes": {"module_synthesis": "claude-opus-4-8"},
+            "email_intelligence": {"approved_senders": ["ir@issuer.com"]},
+        }
+        r = c.put("/api/settings/analyst", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json() == body
+
+        r2 = c.get("/api/settings/analyst")
+        assert r2.status_code == 200
+        assert r2.json()["model_lanes"] == {"module_synthesis": "claude-opus-4-8"}
+        assert r2.json()["email_intelligence"]["approved_senders"] == ["ir@issuer.com"]
