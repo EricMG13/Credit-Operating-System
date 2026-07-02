@@ -88,6 +88,9 @@ class Issuer(Base):
     rating_sp: Mapped[Optional[str]] = mapped_column(String(16))
     rating_moody: Mapped[Optional[str]] = mapped_column(String(16))
     rating_fitch: Mapped[Optional[str]] = mapped_column(String(16))
+    # Analyst-entered private-equity sponsor (exact-string grouped by the sponsor
+    # track-record view — no free ownership feed). NULL = not sponsor-owned/unknown.
+    sponsor: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

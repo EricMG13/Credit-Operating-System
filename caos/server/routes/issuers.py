@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import (
     Document, Issuer, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
+from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
@@ -29,6 +30,7 @@ class IssuerCreate(BaseModel):
     rating_sp: Optional[str] = Field(default=None, max_length=16)
     rating_moody: Optional[str] = Field(default=None, max_length=16)
     rating_fitch: Optional[str] = Field(default=None, max_length=16)
+    sponsor: Optional[str] = Field(default=None, max_length=255)
 
 
 class IssuerResponse(BaseModel):
@@ -43,6 +45,7 @@ class IssuerResponse(BaseModel):
     rating_sp: Optional[str] = None
     rating_moody: Optional[str] = None
     rating_fitch: Optional[str] = None
+    sponsor: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -62,6 +65,7 @@ class IssuerResponse(BaseModel):
                 "rating_sp": obj.rating_sp,
                 "rating_moody": obj.rating_moody,
                 "rating_fitch": obj.rating_fitch,
+                "sponsor": obj.sponsor,
             }
         return super().model_validate(data, *args, **kwargs)
 
@@ -434,4 +438,101 @@ async def get_issuer_profile(
         strengths=strengths,
         weaknesses=weaknesses,
         earnings=earnings,
+    )
+
+
+# ── Cross-default domino map ─────────────────────────────────────────────────
+# Which tranches get pulled in when one facility defaults: a *read-model* over
+# the latest complete run — CP-3B's tranche register + CP-4C's extracted
+# cross-default (material-indebtedness) threshold. Deterministic set comparison,
+# no LLM, nothing persisted. One doc-level threshold is applied to every tranche
+# (the "Material Indebtedness" definition normally governs the whole agreement);
+# per-facility thresholds would need per-tranche extraction first.
+
+
+class CrossDefaultDomino(BaseModel):
+    code: str
+    tranche: str
+    amount_musd: Optional[float] = None
+    # True/False when computable; None when the tranche is unsized or no
+    # threshold was extracted (honest "cannot say", never a guess).
+    trips_cross_default: Optional[bool] = None
+    pulls_in: List[str] = []
+
+
+class CrossDefaultMapResponse(BaseModel):
+    issuer_id: str
+    run_id: Optional[str] = None
+    threshold_musd: Optional[float] = None
+    threshold_chunk_id: Optional[str] = None
+    dominoes: List[CrossDefaultDomino] = []
+    note: Optional[str] = None
+
+
+def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDefaultDomino]:
+    """Domino rows from a CP-3B tranche register + a doc-level threshold ($M).
+
+    A tranche whose principal meets the threshold trips the cross-default in
+    every other tranche's document when it defaults. Inputs are unvalidated
+    runtime_output, so every field is gated; a non-finite threshold or unsized
+    tranche degrades that row to ``trips_cross_default=None``.
+    """
+    thr = float(threshold) if is_finite_number(threshold) else None
+    rows: List[CrossDefaultDomino] = []
+    clean = [t for t in tranches if isinstance(t, dict) and t.get("code")]
+    for t in clean:
+        amt = t.get("amount_musd")
+        sized = is_finite_number(amt)
+        trips: Optional[bool] = None
+        if thr is not None and sized:
+            trips = float(amt) >= thr
+        rows.append(CrossDefaultDomino(
+            code=str(t["code"]),
+            tranche=str(t.get("tranche") or t["code"]),
+            amount_musd=float(amt) if sized else None,
+            trips_cross_default=trips,
+            pulls_in=[str(o["code"]) for o in clean if o is not t] if trips else [],
+        ))
+    return rows
+
+
+@router.get("/{issuer_id}/cross-default", response_model=CrossDefaultMapResponse)
+async def get_cross_default_map(
+    issuer_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    run = (await db.execute(
+        select(Run).where(Run.issuer_id == issuer_id, Run.status == "complete")
+        .order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+    if run is None:
+        return CrossDefaultMapResponse(
+            issuer_id=issuer_id, note="No completed run — run the pipeline first.")
+
+    mods = (await db.execute(
+        select(ModuleOutput).where(
+            ModuleOutput.run_id == run.id, ModuleOutput.module_id.in_(("CP-3B", "CP-4C")))
+    )).scalars().all()
+    by_id = {m.module_id: (m.runtime_output or {}) for m in mods}
+    tranches = by_id.get("CP-3B", {}).get("tranches") or []
+    threshold = by_id.get("CP-4C", {}).get("cross_default_musd")
+
+    thr = float(threshold) if is_finite_number(threshold) else None
+    notes = []
+    if not tranches:
+        notes.append("No debt tranches identified in the latest run (CP-3B).")
+    if thr is None:
+        notes.append("No cross-default / material-indebtedness threshold extracted (CP-4C).")
+
+    return CrossDefaultMapResponse(
+        issuer_id=issuer_id,
+        run_id=run.id,
+        threshold_musd=thr,
+        dominoes=_domino_map(tranches, thr),
+        note=" ".join(notes) or None,
     )

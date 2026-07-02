@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from engine.covenants import (
+    addback_cap_finding,
     covlite_finding,
     derive_covenant_terms,
     synthesize_covenants,
@@ -199,6 +200,94 @@ def test_synthesize_sources_covenant_without_cp1_leverage():
     assert p.claims[0].evidence[0].lineage_class == "Directly Sourced"
     assert all(c["name"] != "Net leverage covenant headroom" for c in p.runtime_output["calculations"])
     assert any("headroom is not computed" in f for f in p.limitation_flags)
+
+
+# ── Covenant register: RP basket / cross-default / add-back cap ──────────────
+_RP = ("The credit agreement permits restricted payments under a general basket "
+       "of $150 million plus the builder basket.")
+_XD = ("Material Indebtedness means Indebtedness in an aggregate principal amount "
+       "in excess of $50.0 million; a payment default triggers the cross-default.")
+_CAP_SFA = ("Senior facilities agreement. The EBITDA definition caps cost-saving "
+            "add-backs at 25 percent over a trailing 24 month period.")
+
+
+def test_derive_terms_rp_basket():
+    assert derive_covenant_terms([("c-rp", _RP)])["rp_basket_musd"] == (150.0, "c-rp", True)
+
+
+def test_derive_terms_cross_default_threshold():
+    assert derive_covenant_terms([("c-xd", _XD)])["cross_default_musd"] == (50.0, "c-xd", True)
+
+
+def test_derive_terms_addback_cap_both_shapes():
+    # Verb-after shape ("shall not exceed 20%") and verb-before shape ("caps ... at 25 percent").
+    assert derive_covenant_terms([("c1", _CAP_SFA)])["addback_cap_pct"] == (0.25, "c1", True)
+    verb = "Cost savings and synergies shall not exceed 20% of Consolidated EBITDA."
+    assert derive_covenant_terms([("c2", verb)])["addback_cap_pct"] == (0.20, "c2", True)
+
+
+def test_derive_terms_addback_load_or_uncapped_is_not_a_cap():
+    # The disclosed *load* ("represent 18.2 percent", adjusted.py's job) and an
+    # "uncapped" statement carry no capping verb — neither may parse as a cap.
+    load = "Adjusted EBITDA add-backs represent 18.2 percent of adjusted EBITDA."
+    unc = "Add-backs to consolidated EBITDA are uncapped."
+    assert derive_covenant_terms([("c1", load)]) is None
+    assert derive_covenant_terms([("c2", unc)]) is None
+
+
+def _cp1_with_recon(load):
+    p = _cp1()
+    p.runtime_output["adjusted_ebitda_reconciliation"] = {"addback_pct": load}
+    return p
+
+
+def test_synthesize_addback_audit_within_cap():
+    p = asyncio.run(synthesize_covenants(_cp1_with_recon(0.182), _retrieve(_CAP_SFA, "c-sfa")))
+    assert validate_payload(p) == []
+    audit = p.runtime_output["addback_audit"]
+    assert audit["cap_pct"] == 0.25 and audit["breach"] is False
+    assert audit["utilization_pct"] == pytest.approx(72.8, abs=0.1)
+    assert p.runtime_output["addback_cap_pct"] == 0.25
+    calc = next(c for c in p.runtime_output["calculations"] if "add-back cap" in c["name"])
+    assert calc["value"] == pytest.approx(72.8, abs=0.1) and calc["unit"] == "%"
+    assert addback_cap_finding(p) is None  # within cap → no finding
+
+
+def test_synthesize_addback_audit_breach_and_finding():
+    p = asyncio.run(synthesize_covenants(_cp1_with_recon(0.30), _retrieve(_CAP_SFA, "c-sfa")))
+    audit = p.runtime_output["addback_audit"]
+    assert audit["breach"] is True and audit["utilization_pct"] == pytest.approx(120.0, abs=0.1)
+    f = addback_cap_finding(p)
+    assert f is not None and f.severity == "MINOR" and f.lane == 3
+    assert f.finding_id == "CP-4C-ADDBACK-CAP"
+    assert any("exceed the covenant cap" in c.claim_text for c in p.claims)
+
+
+def test_synthesize_cap_without_recon_still_sourced():
+    # No CP-1 add-back disclosure → the cap is still surfaced as a sourced fact;
+    # no audit is fabricated.
+    p = asyncio.run(synthesize_covenants(_cp1(), _retrieve(_CAP_SFA, "c-sfa")))
+    assert p.runtime_output["addback_cap_pct"] == 0.25
+    assert "addback_audit" not in p.runtime_output
+    assert any("caps add-backs at 25%" in c.claim_text for c in p.claims)
+
+
+def test_addback_finding_rejects_nonfinite_audit():
+    # Trust boundary: a persisted/replayed payload could carry NaN — no finding.
+    p = ModulePayload(module_id="CP-4C", module_name="X", owned_object="o",
+                      runtime_output={"addback_audit": {
+                          "breach": True, "disclosed_addback_pct": float("nan"), "cap_pct": 0.25}})
+    assert addback_cap_finding(p) is None
+    assert addback_cap_finding(None) is None
+
+
+def test_synthesize_rp_and_cross_default_surfaced():
+    p = asyncio.run(synthesize_covenants(_cp1(), _retrieve(_RP + " " + _XD, "c-mix")))
+    assert validate_payload(p) == []
+    assert p.runtime_output["rp_basket_musd"] == 150.0
+    assert p.runtime_output["cross_default_musd"] == 50.0
+    ids = [c.claim_id for c in p.claims]
+    assert "C-CAP3" in ids and "C-CAP4" in ids
 
 
 # ── Citation provenance honesty (LLM path) ───────────────────────────────────

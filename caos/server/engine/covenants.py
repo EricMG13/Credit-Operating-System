@@ -36,7 +36,9 @@ logger = logging.getLogger("caos.engine")
 _RETRIEVE_QUERY = (
     "maximum permitted total leverage ratio financial maintenance covenant "
     "compliance certificate shall not permit as of the last day of any fiscal "
-    "quarter; incremental incurrence debt capacity basket"
+    "quarter; incremental incurrence debt capacity basket; restricted payments "
+    "builder basket available amount; cross-default material indebtedness in "
+    "excess of; EBITDA definition add-backs cost savings synergies cap percent"
 )
 # Incremental / incurrence debt capacity: the $-amount tied to the incremental
 # clause (same sentence), in millions or billions — NOT the first dollar figure
@@ -50,6 +52,64 @@ _INCREMENTAL_AMT = re.compile(
     r"(?:incremental|incurrence)[^.]{0,140}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
     re.IGNORECASE,
 )
+
+# Restricted-payments / builder-basket capacity — same keyword-then-amount,
+# same-sentence convention (and the same known ceiling) as _INCREMENTAL_AMT.
+_RP_BASKET_AMT = re.compile(
+    r"(?:restricted\s+payments?|builder\s+basket|available\s+amount|general\s+basket)"
+    r"[^.]{0,140}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
+    re.IGNORECASE,
+)
+
+# Cross-default / cross-acceleration threshold. The $-figure usually sits under
+# the "Material Indebtedness" definition the default clause references, so anchor
+# on either phrase, then an excess-of verb, then the amount — same sentence.
+_CROSS_DEFAULT_AMT = re.compile(
+    r"(?:cross[-\s]?default|cross[-\s]?accelerat\w+|material\s+indebtedness)"
+    r"[^.]{0,160}?(?:in\s+excess\s+of|exceed(?:s|ing)?|greater\s+than|more\s+than|at\s+least)"
+    r"[^.]{0,60}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
+    re.IGNORECASE,
+)
+
+# Covenant-EBITDA add-back cap ("cost savings ... shall not exceed 25% of
+# EBITDA" / "caps cost-saving add-backs at 25 percent"). Two shapes so the
+# capping verb can sit on either side of the add-back keyword. Distinct from the
+# *disclosed load* ("add-backs represent 18.2 percent"), which adjusted.py owns —
+# a cap requires a capping verb, so "represent"/"are" never match here.
+_ADDBACK_CAP_PATTERNS = (
+    re.compile(
+        r"(?:add[-\s]?backs?|cost[-\s]sav\w+|synerg\w+)"
+        r"[^.]{0,160}?(?:shall\s+not\s+exceed|not\s+to\s+exceed|capped\s+at|limited\s+to|cap\s+of)"
+        r"[^.]{0,40}?(\d{1,2}(?:\.\d+)?)\s*(?:%|percent)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"caps?\b[^.]{0,80}?add[-\s]?backs?[^.]{0,60}?(?:at|to)\s*(\d{1,2}(?:\.\d+)?)\s*(?:%|percent)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _amount_match(pattern: "re.Pattern", text: str) -> Optional[float]:
+    """First keyword-anchored $-amount in ``text`` per ``pattern``, normalised to $M."""
+    m = pattern.search(text)
+    if not m:
+        return None
+    amt = float(m.group(1).replace(",", ""))
+    if m.group(2).lower() == "billion":
+        amt *= 1000
+    return amt
+
+
+def _addback_cap(text: str) -> Optional[float]:
+    """Covenant add-back cap as a fraction of EBITDA (e.g. 0.25), range-guarded."""
+    for pat in _ADDBACK_CAP_PATTERNS:
+        m = pat.search(text)
+        if m:
+            v = float(m.group(1))
+            if 0 < v <= 60:
+                return v / 100.0
+    return None
 
 # The financial *maintenance* leverage covenant — distinct from the many incurrence
 # ratio tests an agreement also carries (e.g. "…the Secured Leverage Ratio does not
@@ -113,13 +173,17 @@ def derive_covenant_terms(
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
-    text)``. Returns ``{incremental_musd, leverage_covenant_x}`` (each a
-    ``(value, chunk_id, exact)`` or None) plus ``leverage_covenant_basis`` — the
-    leverage basis the maintenance covenant is measured on (senior_secured /
-    first_lien / total / None) — or None if neither term is found. Deterministic
-    path: each figure is regex-matched in that exact chunk, so ``exact`` is True."""
+    text)``. Returns ``{incremental_musd, leverage_covenant_x, rp_basket_musd,
+    cross_default_musd, addback_cap_pct}`` (each a ``(value, chunk_id, exact)``
+    or None) plus ``leverage_covenant_basis`` — the leverage basis the
+    maintenance covenant is measured on (senior_secured / first_lien / total /
+    None) — or None if no term is found. Deterministic path: each figure is
+    regex-matched in that exact chunk, so ``exact`` is True."""
     incremental: Optional[Tuple[float, str, bool]] = None
     leverage_cov: Optional[Tuple[float, str, bool]] = None
+    rp_basket: Optional[Tuple[float, str, bool]] = None
+    cross_default: Optional[Tuple[float, str, bool]] = None
+    addback_cap: Optional[Tuple[float, str, bool]] = None
     leverage_basis: Optional[str] = None
     for cid, text in chunks:
         low = text.lower()
@@ -135,10 +199,26 @@ def derive_covenant_terms(
             if res is not None:
                 val, leverage_basis = res
                 leverage_cov = (val, cid, True)
-    if incremental is None and leverage_cov is None:
+        if rp_basket is None and ("restricted payment" in low or "builder basket" in low
+                                  or "available amount" in low or "general basket" in low):
+            amt2 = _amount_match(_RP_BASKET_AMT, text)
+            if amt2 is not None:
+                rp_basket = (amt2, cid, True)
+        if cross_default is None and (("cross" in low and ("default" in low or "accelerat" in low))
+                                      or "material indebtedness" in low):
+            amt3 = _amount_match(_CROSS_DEFAULT_AMT, text)
+            if amt3 is not None:
+                cross_default = (amt3, cid, True)
+        if addback_cap is None and ("add-back" in low or "add back" in low or "addback" in low
+                                    or "cost-sav" in low or "cost sav" in low or "synerg" in low):
+            cap = _addback_cap(text)
+            if cap is not None:
+                addback_cap = (cap, cid, True)
+    if all(t is None for t in (incremental, leverage_cov, rp_basket, cross_default, addback_cap)):
         return None
     return {"incremental_musd": incremental, "leverage_covenant_x": leverage_cov,
-            "leverage_covenant_basis": leverage_basis}
+            "leverage_covenant_basis": leverage_basis, "rp_basket_musd": rp_basket,
+            "cross_default_musd": cross_default, "addback_cap_pct": addback_cap}
 
 
 async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
@@ -151,31 +231,52 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
         "id|null, \"leverage_covenant_x\": number|null (maximum net leverage maintenance "
         "covenant, in turns), \"leverage_basis\": \"total\"|\"senior_secured\"|\"first_lien\""
         "|null (the leverage basis that covenant is measured on), \"leverage_chunk_id\": "
-        "id|null}. Use null when a term is not present. Never invent a figure.\n\n" + UNTRUSTED_RULE
+        "id|null, \"rp_basket_musd\": number|null (restricted payments / builder basket "
+        "capacity in $millions), \"rp_chunk_id\": id|null, \"cross_default_musd\": "
+        "number|null (cross-default / material-indebtedness threshold in $millions), "
+        "\"cross_default_chunk_id\": id|null, \"addback_cap_pct\": number|null (covenant "
+        "EBITDA add-back / cost-savings cap as a FRACTION of EBITDA, e.g. 0.25), "
+        "\"addback_cap_chunk_id\": id|null}. Use null when a term is not present. "
+        "Never invent a figure.\n\n" + UNTRUSTED_RULE
     )
     res = await extract_json(retrieve, query=_RETRIEVE_QUERY, k=10, system=system)
     if res is None:
         return None
     data, hits = res
-    incr = data.get("incremental_musd")
-    lev = data.get("leverage_covenant_x")
+
     # Each term carries (value, chunk_id, exact); exact is False when the model
     # fabricated/omitted the id (safe_chunk_id substitutes the top hit) so the
     # caller can downgrade the citation instead of overstating provenance.
-    lev_cov = None
-    if isinstance(lev, (int, float)) and lev > 0:
-        cid, exact = safe_chunk_id(data.get("leverage_chunk_id"), hits)
-        lev_cov = (float(lev), cid, exact)
-    incr_t = None
-    if isinstance(incr, (int, float)) and incr > 0:
-        cid, exact = safe_chunk_id(data.get("incremental_chunk_id"), hits)
-        incr_t = (float(incr), cid, exact)
+    def amount_term(value: object, id_key: str) -> Optional[Tuple[float, str, bool]]:
+        if is_finite_number(value) and not isinstance(value, bool) and value > 0:
+            cid, exact = safe_chunk_id(data.get(id_key), hits)
+            return (float(value), cid, exact)
+        return None
+
+    lev_cov = amount_term(data.get("leverage_covenant_x"), "leverage_chunk_id")
+    incr_t = amount_term(data.get("incremental_musd"), "incremental_chunk_id")
+    rp_t = amount_term(data.get("rp_basket_musd"), "rp_chunk_id")
+    xd_t = amount_term(data.get("cross_default_musd"), "cross_default_chunk_id")
+
+    cap_t = None
+    cap_raw = data.get("addback_cap_pct")
+    if is_finite_number(cap_raw) and not isinstance(cap_raw, bool) and cap_raw > 0:
+        v = float(cap_raw)
+        if 1 <= v <= 60:
+            v /= 100.0  # model answered in percent despite the FRACTION ask
+        if 0 < v < 1:
+            cid, exact = safe_chunk_id(data.get("addback_cap_chunk_id"), hits)
+            cap_t = (v, cid, exact)
+
     out: Dict[str, object] = {
         "incremental_musd": incr_t,
         "leverage_covenant_x": lev_cov,
         "leverage_covenant_basis": _normalize_basis(data.get("leverage_basis")) if lev_cov else None,
+        "rp_basket_musd": rp_t,
+        "cross_default_musd": xd_t,
+        "addback_cap_pct": cap_t,
     }
-    return out if (out["incremental_musd"] or out["leverage_covenant_x"]) else None
+    return out if any((incr_t, lev_cov, rp_t, xd_t, cap_t)) else None
 
 
 async def extract_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
@@ -309,6 +410,81 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
             "(cov-lite): no leverage-based early-warning trip before a payment default."
         )
 
+    rp = terms.get("rp_basket_musd")
+    if rp:
+        amt, cid, rp_exact = rp
+        claims.append(ClaimSpec(
+            claim_id="C-CAP3",
+            claim_text=f"The restricted payments / builder basket provides ${amt:g}M of capacity.",
+            evidence=[EvidenceSpec("E-CAP3", "table_value",
+                                   "Directly Sourced" if rp_exact else "Inferred",
+                                   "Restricted payments basket (governing document)",
+                                   "High" if rp_exact else "Medium", resolved_chunk_id=cid)],
+        ))
+
+    xd = terms.get("cross_default_musd")
+    if xd:
+        amt, cid, xd_exact = xd
+        claims.append(ClaimSpec(
+            claim_id="C-CAP4",
+            claim_text=(f"Cross-default trips on a default of other indebtedness above ${amt:g}M "
+                        "(material-indebtedness threshold)."),
+            evidence=[EvidenceSpec("E-CAP4", "table_value",
+                                   "Directly Sourced" if xd_exact else "Inferred",
+                                   "Cross-default threshold (governing document)",
+                                   "High" if xd_exact else "Medium", resolved_chunk_id=cid)],
+        ))
+
+    # Add-back cap audit: the covenant's own EBITDA definition vs the add-back
+    # load the issuer actually discloses (CP-1's embedded reported-vs-adjusted
+    # reconciliation). Load > cap = adjustments beyond the definition — the
+    # "phantom EBITDA" read. Both operands gated (unvalidated runtime_output).
+    cap = terms.get("addback_cap_pct")
+    addback_audit: Optional[dict] = None
+    if cap:
+        cap_pct, cid, cap_exact = cap
+        recon = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
+        load = recon.get("addback_pct")
+        if is_finite_number(load) and is_finite_number(cap_pct) and cap_pct > 0:
+            load_f = float(load)
+            util = round(load_f / cap_pct * 100, 1)
+            breach = load_f > cap_pct
+            addback_audit = {
+                "disclosed_addback_pct": round(load_f, 4),
+                "cap_pct": round(cap_pct, 4),
+                "utilization_pct": util,
+                "breach": breach,
+            }
+            calcs.append({
+                "name": "EBITDA add-back cap utilization",
+                "formula": "disclosed add-backs / covenant add-back cap",
+                "numerator": round(load_f * 100, 1), "denominator": round(cap_pct * 100, 1),
+                "period": "LTM", "value": util, "unit": "%",
+                "source": "Add-back cap (governing document) + CP-1 add-back disclosure",
+            })
+            claims.append(ClaimSpec(
+                claim_id="C-CAP5",
+                claim_text=(
+                    f"Disclosed add-backs ({load_f * 100:g}% of EBITDA) exceed the covenant cap "
+                    f"({cap_pct * 100:g}%) — adjustments beyond the governing definition."
+                    if breach else
+                    f"Disclosed add-backs ({load_f * 100:g}% of EBITDA) use {util:g}% of the "
+                    f"{cap_pct * 100:g}% covenant add-back cap."
+                ),
+                evidence=[EvidenceSpec("E-CAP5", "calculated_metric", "Calculated",
+                                       "Add-back cap (governing document) + CP-1 add-back disclosure",
+                                       "High" if cap_exact else "Medium", resolved_chunk_id=cid)],
+            ))
+        else:
+            claims.append(ClaimSpec(
+                claim_id="C-CAP5",
+                claim_text=f"The EBITDA definition caps add-backs at {cap_pct * 100:g}% of EBITDA.",
+                evidence=[EvidenceSpec("E-CAP5", "table_value",
+                                       "Directly Sourced" if cap_exact else "Inferred",
+                                       "EBITDA add-back cap (governing document)",
+                                       "High" if cap_exact else "Medium", resolved_chunk_id=cid)],
+            ))
+
     runtime_output: dict = {"calculations": calcs, "covenant_structure": covenant_structure}
     if is_finite_number(lev):
         runtime_output["current_net_leverage"] = round(lev, 2)
@@ -316,6 +492,14 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
         runtime_output["leverage_covenant_x"] = lev_cov[0]
         if cov_basis in ("senior_secured", "first_lien"):
             runtime_output["covenant_basis"] = cov_basis
+    if rp:
+        runtime_output["rp_basket_musd"] = rp[0]
+    if xd:
+        runtime_output["cross_default_musd"] = xd[0]
+    if cap:
+        runtime_output["addback_cap_pct"] = cap[0]
+    if addback_audit is not None:
+        runtime_output["addback_audit"] = addback_audit
 
     return ModulePayload(
         module_id="CP-4C", module_name="CovenantCapacityCalculator",
@@ -325,6 +509,31 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:
         limitation_flags=limitations,
         downstream_consumers=["CP-6A", "CP-6E", "CP-RENDER"],
         claims=claims,
+    )
+
+
+def addback_cap_finding(cp4c: Optional[ModulePayload]) -> Optional[Finding]:
+    """A MINOR (informational) finding when disclosed add-backs exceed the covenant
+    add-back cap — a quality-of-EBITDA red flag to scrutinise, not a defect. None
+    otherwise. Operands re-gated here: runtime_output is unvalidated at this
+    boundary (a persisted/replayed payload could carry NaN)."""
+    if cp4c is None:
+        return None
+    audit = (cp4c.runtime_output or {}).get("addback_audit") or {}
+    if audit.get("breach") is not True:
+        return None
+    disclosed, cap = audit.get("disclosed_addback_pct"), audit.get("cap_pct")
+    if not (is_finite_number(disclosed) and is_finite_number(cap)):
+        return None
+    return Finding(
+        finding_id="CP-4C-ADDBACK-CAP", severity="MINOR", lane=3, module_id="CP-4C",
+        description=(
+            f"Disclosed EBITDA add-backs ({float(disclosed) * 100:g}% of EBITDA) exceed the "
+            f"covenant add-back cap ({float(cap) * 100:g}%): adjustments beyond the governing "
+            "definition inflate marketed EBITDA relative to covenant EBITDA. Reconcile the "
+            "disclosed adjustments against the credit-agreement definition."
+        ),
+        required_remediation="Re-derive covenant EBITDA strictly per the agreement definition.",
     )
 
 

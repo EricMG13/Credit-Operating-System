@@ -36,7 +36,7 @@ from engine.fixtures import DEMO_FIXTURE_LIMITATION, REFERENCE_ISSUER_ID, demo_f
 from engine.adjusted import reconcile_adjusted_ebitda, reconciliation_finding
 from engine.factpack import synthesize_fact_pack
 from engine.council import get_reviewer
-from engine.covenants import covlite_finding, synthesize_covenants
+from engine.covenants import addback_cap_finding, covlite_finding, synthesize_covenants
 from engine.capstructure import synthesize_recovery_preference
 from engine.catalysts import synthesize_catalysts
 from engine.debate import synthesize_debate
@@ -407,6 +407,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         covlite = covlite_finding(upstream.get("CP-4C"))
         if covlite is not None:
             findings.append(covlite)
+        addback_cap = addback_cap_finding(upstream.get("CP-4C"))
+        if addback_cap is not None:
+            findings.append(addback_cap)
         monitor = monitoring_finding(upstream.get("CP-1B"))
         if monitor is not None:
             findings.append(monitor)
