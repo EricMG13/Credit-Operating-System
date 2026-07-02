@@ -108,7 +108,9 @@ async def route(text: str, capabilities: list[dict]) -> dict:
     resp = await llm_client.create(
         _client(),
         lane="query-route",
-        model=presets.model_for(presets.LIGHT),
+        # A bounded classify, not a reasoning task — pin the fast lane (Haiku when
+        # an Anthropic key exists) so routing doesn't inherit DeepSeek's ~19s burn.
+        model=presets.route_model(),
         effort=presets.effort_for(presets.LIGHT),
         max_tokens=300,
         system=_ROUTE_SYSTEM,
