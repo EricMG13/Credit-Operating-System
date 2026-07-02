@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List
+from typing import Awaitable, Callable, List, Optional
 
 import anthropic
 from pydantic import BaseModel, Field
@@ -211,7 +211,27 @@ def _compose_report(text_parts: List[str], truncated: bool) -> str:
     return report
 
 
-async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
+ProgressCb = Callable[[dict], Awaitable[None]]
+
+
+async def _emit_progress(cb: "Optional[ProgressCb]", sources: List[Source], searches: int) -> None:
+    """Report the REAL running counts (unique sources so far, searches run).
+
+    Best-effort: a failing/ slow progress sink must never abort or slow the
+    research run itself, so swallow anything it raises — the report is what
+    matters, the live counter is a nicety."""
+    if cb is None:
+        return
+    try:
+        uniq = len({s.url for s in sources})
+        await cb({"sources": uniq, "searches": searches})
+    except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
+        logger.debug("research progress callback failed", exc_info=True)
+
+
+async def run_deep_research(
+    brief: ResearchBrief, on_progress: "Optional[ProgressCb]" = None
+) -> ResearchResult:
     prompt = build_brief(brief)
 
     if not llm_configured():
@@ -229,6 +249,7 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
 
     text_parts: List[str] = []
     sources: List[Source] = []
+    searches = 0  # cumulative web_search_tool_result blocks — the real search count
 
     last_stop: str | None = None
     fb_model = settings.synth_executor_model
@@ -263,7 +284,13 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
         for block in msg.content:
             if getattr(block, "type", None) == "text":
                 text_parts.append(block.text)
+            if getattr(block, "type", None) == "web_search_tool_result":
+                searches += 1
             _collect_sources(block, sources)
+
+        # Report the real running counts after each turn so the polled UI shows
+        # sources genuinely accumulating (never a fabricated number).
+        await _emit_progress(on_progress, sources, searches)
 
         last_stop = msg.stop_reason
         # pause_turn = the server tool loop hit its per-turn cap; resume the same

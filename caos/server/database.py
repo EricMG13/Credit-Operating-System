@@ -212,6 +212,10 @@ class ResearchJob(Base):
     sources: Mapped[list] = mapped_column(JSON, default=list)
     demo: Mapped[bool] = mapped_column(Boolean, default=False)
     truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Live running counts ({"sources": n, "searches": m}), rewritten per
+    # continuation turn so the polled UI shows sources actually accumulating.
+    # Null until the first turn reports (and on demo/instant completions).
+    progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

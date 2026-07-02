@@ -362,9 +362,16 @@ export interface ResearchResult {
   demo: boolean;
   truncated?: boolean;
 }
+// Live running counts the server rewrites per continuation turn — real work, not
+// a fabricated ticker. Absent until the first turn reports.
+export interface ResearchProgress {
+  sources: number;
+  searches: number;
+}
 interface ResearchJob extends ResearchResult {
   id: string;
   status: "running" | "complete" | "failed";
+  progress?: ResearchProgress | null;
   error?: string | null;
 }
 
@@ -380,7 +387,10 @@ const _RESEARCH_DEADLINE_MS = 15 * 60 * 1000; // generous backstop; deep researc
 const _RESEARCH_MAX_POLL_ERRORS = 10; // ~20s of consecutive transport failures → give up
 const _detail = (detail: string) => ({ response: { data: { detail } } });
 
-export const deepResearch = async (brief: ResearchBrief): Promise<ResearchResult> => {
+export const deepResearch = async (
+  brief: ResearchBrief,
+  onProgress?: (p: ResearchProgress | null) => void,
+): Promise<ResearchResult> => {
   const { id } = (await api.post("/api/research", brief)).data as { id: string };
   const deadline = Date.now() + _RESEARCH_DEADLINE_MS;
   let pollErrors = 0;
@@ -402,6 +412,7 @@ export const deepResearch = async (brief: ResearchBrief): Promise<ResearchResult
     if (job.status === "complete")
       return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated };
     if (job.status === "failed") throw _detail(job.error || "Research failed — try again.");
+    onProgress?.(job.progress ?? null); // still running — surface live counts
   }
   throw _detail("Research timed out on the client — it may still be completing; retry shortly.");
 };
