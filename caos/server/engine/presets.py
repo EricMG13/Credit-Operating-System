@@ -159,6 +159,22 @@ def effort_for(lane_class: str) -> str:
     return _EFFORT[current_mode()][lane_class]
 
 
+def route_model() -> str:
+    """Model for the Query route lane — a bounded closed-set classification, not a
+    reasoning task.
+
+    The LIGHT tier defaults to DeepSeek-v4-flash, which burns reasoning tokens even
+    at ``minimal`` effort (~19s for a one-shot classify). Prefer the fast, cheap
+    Anthropic Haiku whenever an Anthropic key is set (no reasoning-token burn,
+    ~1–2s). Without an Anthropic key, fall back to the LIGHT-lane model so an
+    OpenRouter-only deploy still gets a router (just slower). Keyless: the lane
+    never runs — ``queryoverlay.available()`` is already False."""
+    s = get_settings()
+    if s.anthropic_api_key:
+        return _ANTHROPIC_FALLBACK["cheap"]  # claude-haiku-4-5 — fast, cheap, no reasoning burn
+    return model_for(LIGHT)
+
+
 def reviewer_model() -> str:
     """Model for the adversarial council seats (CP-5C). With ``council_cross_model``
     on, this is a model on the OPPOSITE provider from the heavy (synth) model — the
