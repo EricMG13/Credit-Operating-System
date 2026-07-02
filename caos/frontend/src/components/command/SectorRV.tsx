@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import {
+  BUCKETS,
   DELTA_COLS,
   INDEX_STATS,
   RV_SECTORS,
@@ -35,6 +36,13 @@ const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
   Rich: { bg: "color-mix(in srgb, var(--caos-critical) 16%, transparent)", fg: "var(--caos-critical-bright)" },
   "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
+
+// Left-edge flag on the actionable tails only (cheap/rich) — alert, not
+// decoration. Transparent (not absent) elsewhere so column alignment holds.
+const rvEdge = (s: RVSignal): string =>
+  s === "Cheap" ? "3px solid var(--caos-success-bright)"
+    : s === "Rich" ? "3px solid var(--caos-critical-bright)"
+      : "3px solid transparent";
 
 function DeltaCell({ v }: { v: number | null }) {
   if (v === null)
@@ -152,6 +160,7 @@ function SortTh<T>({
         >
           {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
           <span className="truncate">{label}</span>
+          {!active && <span aria-hidden="true" className="text-caos-2xs text-caos-muted opacity-40">↕</span>}
           {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
         </button>
         {filterNode}
@@ -161,7 +170,8 @@ function SortTh<T>({
 }
 
 function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" | "market" | "rv" }) {
-  const [sort, setSort] = useState<SortConfig>({ col: null, asc: true });
+  // Default: lead with the actionable tail — cheapest (widest rvBp) on top.
+  const [sort, setSort] = useState<SortConfig>({ col: "rv", asc: false });
   const [filters, setFilters] = useState<FilterState>({});
   const filterVal = useMemo<Record<string, (r: RVRow) => SortVal>>(() => ({
     company: (r: RVRow) => r.company, subSector: (r: RVRow) => r.subSector, subGroup: (r: RVRow) => r.subGroup,
@@ -207,6 +217,7 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
       <thead>
         <tr className="border-b border-caos-border">
           {showCol("company") && <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />}
+          {showCol("rv") && <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
           {showCol("subSector") && <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />}
           {showCol("subGroup") && <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />}
           {showCol("loanType") && <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />}
@@ -219,7 +230,6 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
           {showCol("bid") && <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.bid} filters={filters} onFilter={setFilter} />}
           {showCol("ask") && <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ask} filters={filters} onFilter={setFilter} />}
           {showCol("liq") && <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.liq} filters={filters} onFilter={setFilter} />}
-          {showCol("rv") && <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
           {DELTA_COLS.map((c, i) => (
             showCol(`d${i}`) && <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal[`d${i}`]} filters={filters} onFilter={setFilter} />
           ))}
@@ -230,7 +240,8 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
       <tbody>
         {sorted.map((r, i) => (
           <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos group">
-            {showCol("company") && <td className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
+            {showCol("company") && <td style={{ borderLeft: rvEdge(r.rv) }} className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
+            {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
             {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
             {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
             {showCol("loanType") && <td className={td + " text-caos-muted"}>{r.loanType}</td>}
@@ -243,7 +254,6 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
             {showCol("bid") && <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>}
             {showCol("ask") && <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>}
             {showCol("liq") && <td className={td}><Chip liq={r.liq} label={r.liq} /></td>}
-            {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
             {r.d.map((v, j) => (
               showCol(`d${j}`) && <DeltaCell key={j} v={v} />
             ))}
@@ -258,13 +268,95 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
 
 const fmt = (v: number | null, digits = 2) => (v === null ? "—" : v.toFixed(digits));
 
+const bucketMedian = (xs: number[]): number | null => {
+  const v = xs.filter((x) => x > 0).sort((a, b) => a - b);
+  if (v.length < 2) return null; // matches the rvdata benchmark rule (n ≥ 2)
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+
+// Sector RV made spatial: 3Y DM by rating bucket, one dot per loan, a tick at
+// each bucket's benchmark median. Dots ABOVE the tick are wide (cheap), below
+// are tight (rich) — vertical position carries the signal for colorblind users;
+// hue doubles it. This is the "relative" the tables only implied.
+function RVScatter({ rows, color }: { rows: RVRow[]; color: string }) {
+  const W = 820, H = 200, padL = 46, padR = 14, padT = 12, padB = 24;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const present = BUCKETS.filter((b) => rows.some((r) => r.bucket === b));
+  if (!present.length) return null;
+
+  // Robust domain: clamp to the 5th–95th percentile so a single junk DM value
+  // (the feed carries a few, e.g. 579,028bp) can't flatten the distribution.
+  // Out-of-range dots pin to the plot edge; the real value stays in the tooltip.
+  const dms = rows.map((r) => r.dm);
+  const sortedDm = [...dms].sort((a, b) => a - b);
+  const q = (p: number) => {
+    const idx = (sortedDm.length - 1) * p;
+    const l = Math.floor(idx), h = Math.ceil(idx);
+    return sortedDm[l] + (sortedDm[h] - sortedDm[l]) * (idx - l);
+  };
+  const yMin = q(0.05), yMax = q(0.95);
+  const pad = (yMax - yMin || 1) * 0.08;
+  const lo = yMin - pad, hi = yMax + pad;
+  const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
+  const scaleY = (v: number) => clamp(padT + ((hi - v) / (hi - lo)) * plotH, padT, padT + plotH);
+  const bandW = plotW / present.length;
+  const bandX = (i: number) => padL + (i + 0.5) * bandW;
+  const gridVals = [hi, (hi + lo) / 2, lo];
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full h-full"
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label="Three-year discount margin by rating bucket, with each bucket's benchmark median marked"
+    >
+      {gridVals.map((v, i) => (
+        <g key={i}>
+          <line x1={padL} y1={scaleY(v)} x2={W - padR} y2={scaleY(v)} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.5} />
+          <text x={padL - 6} y={scaleY(v) + 3} textAnchor="end" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(v)}</text>
+        </g>
+      ))}
+      <text x={13} y={padT + plotH / 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" transform={`rotate(-90 13 ${padT + plotH / 2})`} className="uppercase tracking-wider">3Y DM (bp)</text>
+      {/* baseline carries the active-sector color — the one place the sector hue does real work */}
+      <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke={color} strokeWidth={1.5} strokeOpacity={0.6} />
+      {present.map((bucket, i) => {
+        const members = rows.filter((r) => r.bucket === bucket);
+        const med = bucketMedian(members.map((r) => r.dm));
+        const cx = bandX(i);
+        const m = members.length;
+        return (
+          <g key={bucket}>
+            {med !== null && (
+              <line x1={cx - bandW * 0.32} y1={scaleY(med)} x2={cx + bandW * 0.32} y2={scaleY(med)} stroke="var(--caos-text)" strokeWidth={1.5} strokeOpacity={0.7}>
+                <title>{`${bucket} benchmark · median 3Y DM ${Math.round(med)}bp`}</title>
+              </line>
+            )}
+            {members.map((r, j) => {
+              const off = m > 1 ? (j / (m - 1) - 0.5) * bandW * 0.62 : 0;
+              return (
+                <circle key={r.figi + j} cx={cx + off} cy={scaleY(r.dm)} r={3.4} fill={RV_STYLE[r.rv].fg} fillOpacity={0.85}>
+                  <title>{`${r.company} · DM ${r.dm} · ${r.rv}${r.rvBp === null ? "" : ` ${r.rvBp > 0 ? "+" : ""}${Math.round(r.rvBp)}bp`}`}</title>
+                </circle>
+              );
+            })}
+            <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{bucket}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export function SectorRV() {
   const [active, setActive] = useState(0);
   const sector = RV_SECTORS[active];
   const averages = useMemo(() => ratingAverages(sector.rows), [sector]);
   const subSectorAvgs = useMemo(() => subSectorAverages(sector.rows), [sector]);
 
-  const [colPreset, setColPreset] = useState<"full" | "market" | "rv">("full");
+  const [colPreset, setColPreset] = useState<"full" | "market" | "rv">("rv");
 
   const [sortIdx, setSortIdx] = useState<SortConfig>({ col: null, asc: true });
   const handleSortIdx = (col: string) => setSortIdx((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
@@ -306,7 +398,7 @@ export function SectorRV() {
           ))}
         </select>
         <span className="flex-1" />
-        <div className="hidden items-center gap-1 lg:flex">
+        <div className="flex items-center gap-1">
           <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
           {([
             ["Full", "full"],
@@ -333,13 +425,28 @@ export function SectorRV() {
         </span>
       </div>
 
+      {/* RV distribution — the spatial view of the "relative" the tables imply */}
+      <PanelShell
+        title={sector.name + " — RV Distribution"}
+        className="h-[200px] shrink-0"
+        right={
+          <span className="tabular text-caos-xs text-caos-muted">
+            3Y DM by rating · tick = bucket median · above = wide / cheap
+          </span>
+        }
+      >
+        <div className="h-full w-full px-2 py-1">
+          <RVScatter rows={sector.rows} color={sector.color} />
+        </div>
+      </PanelShell>
+
       {/* peer table */}
       <PanelShell
         title={sector.name + " — Sector Peers · Relative Value"}
         className="flex-[3] min-h-0"
         right={
           <span className="tabular text-caos-xs text-caos-muted">
-            issuer + loan data · liquidity · RV versus sector/rating median
+            RV = 3Y DM − sector×rating median (n ≥ 2) · sorted cheap → rich
           </span>
         }
       >
@@ -352,6 +459,7 @@ export function SectorRV() {
       <div className="flex-[2] grid grid-cols-1 xl:grid-cols-3 gap-2 min-h-0">
         <PanelShell
           title="Market Data Summary"
+          className="order-3"
           right={<span className="tabular text-caos-xs text-caos-muted">derived from file sectors</span>}
         >
           <div className="overflow-auto h-full">
@@ -390,6 +498,7 @@ export function SectorRV() {
 
         <PanelShell
           title="Sub-Sector Market Average"
+          className="order-2"
           right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
         >
           <div className="overflow-auto h-full">
@@ -432,6 +541,7 @@ export function SectorRV() {
 
         <PanelShell
           title="Sector Ratings Average"
+          className="order-1"
           right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
         >
           <div className="overflow-auto h-full">

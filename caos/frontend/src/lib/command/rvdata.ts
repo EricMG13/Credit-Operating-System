@@ -72,7 +72,7 @@ const SECTOR_COLORS: Record<string, string> = {
   "Communication Services": "#e879f9",
 };
 
-const BUCKETS = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3", "Caa1", "Caa2", "Caa3", "NR"];
+export const BUCKETS = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3", "Caa1", "Caa2", "Caa3", "NR"];
 const SP_TO_MOODYS: Record<string, string> = {
   "BB+": "Ba1",
   BB: "Ba2",
@@ -246,5 +246,5 @@ export function ratingAverages(data: RVRow[]): RatingAvg[] {
       bucket,
       ...averageRow(members),
     };
-  }).filter((b) => b.n > 0 || ["Caa2", "NR"].includes(b.bucket));
+  }).filter((b) => b.n > 0);
 }
