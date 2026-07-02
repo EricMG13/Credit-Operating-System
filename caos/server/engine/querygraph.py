@@ -1062,6 +1062,40 @@ def _clip(text: Optional[str], n: int = 90) -> str:
     return t if len(t) <= n else t[: n - 1].rstrip() + "…"
 
 
+# ── Analyst-ratified links (Query phase 3) ───────────────────────────────────
+async def _append_accepted_links(session: AsyncSession, graph: dict) -> dict:
+    """Draw analyst-accepted issuer links on any graph carrying both endpoints.
+
+    Accepted links are stored data (model-proposed, analyst-ratified — see
+    ``QueryAcceptedLink``), so they belong in the deterministic payload: solid
+    edge kind ``accepted``, present in table/CSV/print. A caveat line keeps the
+    provenance honest on the exhibit itself."""
+    from database import QueryAcceptedLink
+
+    node_ids = {n["id"] for n in graph.get("nodes", [])}
+    if len(node_ids) < 2:
+        return graph
+    rows = (await session.execute(select(QueryAcceptedLink))).scalars().all()
+    existing = {frozenset((e["source"], e["target"])) for e in graph.get("edges", [])}
+    drawn = 0
+    for r in rows:
+        pair = frozenset((r.issuer_a, r.issuer_b))
+        if r.issuer_a not in node_ids or r.issuer_b not in node_ids or pair in existing:
+            continue
+        graph["edges"].append({
+            "source": r.issuer_a, "target": r.issuer_b, "kind": "accepted",
+            "label": "accepted",
+        })
+        existing.add(pair)
+        drawn += 1
+    if drawn:
+        graph["caveats"] = list(graph.get("caveats", [])) + [
+            f"{drawn} analyst-accepted link{'s' if drawn != 1 else ''} drawn — "
+            "model-proposed, analyst-ratified (see Query overlay)."
+        ]
+    return graph
+
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 async def build_graph(session: AsyncSession, capability_id: str,
                       issuer_id: Optional[str] = None) -> dict:
@@ -1070,14 +1104,16 @@ async def build_graph(session: AsyncSession, capability_id: str,
         raise KeyError(capability_id)
     mode = cap["mode"]
     if mode == "peers":
-        return await _peers(session, issuer_id, cap)
-    if mode == "contagion":
-        return await _contagion(session, cap["params"].get("theme"), cap)
-    if mode == "concentration":
-        return await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
-    if mode == "provenance":
-        return await _provenance(session, cap["params"].get("focus", "trace"), issuer_id, cap)
-    raise ValueError(f"unknown mode {mode!r}")
+        graph = await _peers(session, issuer_id, cap)
+    elif mode == "contagion":
+        graph = await _contagion(session, cap["params"].get("theme"), cap)
+    elif mode == "concentration":
+        graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
+    elif mode == "provenance":
+        graph = await _provenance(session, cap["params"].get("focus", "trace"), issuer_id, cap)
+    else:
+        raise ValueError(f"unknown mode {mode!r}")
+    return await _append_accepted_links(session, graph)
 
 
 if __name__ == "__main__":  # ponytail: DB-free self-check over the pure logic

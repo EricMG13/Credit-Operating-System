@@ -239,7 +239,7 @@ export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
-import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
+import type { AcceptedLink, CapabilitiesResult, GraphResult, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
 
 // The capability rail: which graph edges are runnable now (+ grey reasons).
 export const queryCapabilities = (): Promise<CapabilitiesResult> =>
@@ -248,6 +248,46 @@ export const queryCapabilities = (): Promise<CapabilitiesResult> =>
 // Run one capability → a positioned node-link graph.
 export const queryGraph = (capabilityId: string, issuerId?: string): Promise<GraphResult> =>
   api.post("/api/query/graph", { capability_id: capabilityId, issuer_id: issuerId }).then((r) => r.data);
+
+// LLM-route free text → up to 3 registry candidates with reasons. Contract: any
+// failure returns { candidates: [], source: "keyword" } and the caller uses its
+// local keyword router — never worse than the deterministic path.
+export const queryRoute = (text: string): Promise<RouteResult> =>
+  api.post("/api/query/route", { text }).then((r) => r.data);
+
+// The model overlay for one deterministic graph — citation-gated proposed links
+// + labeled commentary. Persisted server-side; cached by graph hash. The heavy
+// lane runs 30–60s live (cache hits are instant), so this one call outlives the
+// 20s default timeout; the server's own lane cap is 120s.
+export const queryOverlay = (capabilityId: string, issuerId?: string): Promise<OverlayResult> =>
+  api.post(
+    "/api/query/overlay",
+    { capability_id: capabilityId, issuer_id: issuerId },
+    { timeout: 130_000 },
+  ).then((r) => r.data);
+
+// Phase 3 — analyst ratification. Accept is the analyst-initiated write that
+// turns a model proposal into stored, attributed graph data; retract undoes it.
+export const listQueryLinks = (): Promise<{ links: AcceptedLink[] }> =>
+  api.get("/api/query/links").then((r) => r.data);
+
+export const acceptQueryLink = (
+  edge: OverlayEdge,
+  capabilityId: string,
+  model: string | null,
+): Promise<AcceptedLink & { created: boolean }> =>
+  api.post("/api/query/links", {
+    source_issuer_id: edge.source,
+    target_issuer_id: edge.target,
+    capability_id: capabilityId,
+    rationale: edge.rationale,
+    chunk_ids: edge.chunk_ids,
+    confidence: edge.confidence,
+    model: model ?? "",
+  }).then((r) => r.data);
+
+export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =>
+  api.delete(`/api/query/links/${encodeURIComponent(linkId)}`).then((r) => r.data);
 
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.

@@ -358,6 +358,55 @@ class AnalystLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class QueryAcceptedLink(Base):
+    """An analyst-ratified model-proposed link between two issuers (Query phase 3).
+
+    The model proposes (QueryOverlay, read-only); an ANALYST accepts — this row is
+    that ratification: analyst-attributed, model-credited, citation-carrying. Once
+    stored it is deterministic data: builders draw it (edge kind ``accepted``)
+    whenever both endpoints are on the canvas. Endpoints are normalized
+    (``issuer_a`` < ``issuer_b`` lexically) so a pair exists once regardless of
+    proposal direction. Only issuer↔issuer links are acceptable — run-scoped nodes
+    (claims, modules) have no stable identity across runs."""
+
+    __tablename__ = "query_accepted_links"
+    __table_args__ = (
+        UniqueConstraint("issuer_a", "issuer_b", name="uq_accepted_link_pair"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_a: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    issuer_b: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    capability_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    chunk_ids: Mapped[list] = mapped_column(JSON, default=list)
+    confidence: Mapped[str] = mapped_column(String(16), default="Low")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class QueryOverlay(Base):
+    """A persisted model-overlay artifact for one Query graph (frozen, reproducible).
+
+    The overlay lane proposes links/commentary over a deterministic graph; the
+    validated output is persisted so an exhibit references a fixed record
+    (model id + payload + timestamp), never a fresh non-reproducible call.
+    ``graph_hash`` keys the cache: same capability + same underlying graph →
+    same artifact, no repeat spend."""
+
+    __tablename__ = "query_overlays"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    capability_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    graph_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 
 def _alembic_config():
     from alembic.config import Config
