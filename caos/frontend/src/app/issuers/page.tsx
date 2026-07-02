@@ -33,7 +33,7 @@ export default function IssuersPage() {
 // Ratings are no longer typed here — collected from ingested structured sheets
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
-const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "" };
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
 const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
@@ -185,6 +185,12 @@ function IssuersDirectory() {
       <>
         <ConceptNav compact />
         <span className="h-4 w-px bg-caos-border shrink-0" />
+        <Link
+          href="/sponsors"
+          className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+        >
+          SPONSORS
+        </Link>
         <Link
           href="/upload"
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
@@ -503,7 +509,8 @@ function NewIssuerModal({
     setCreating(true);
     setCreateError(null);
     try {
-      onCreated(await createIssuer(form));
+      // sponsor is a grouping key for /api/sponsors — never persist "" as a group.
+      onCreated(await createIssuer({ ...form, sponsor: form.sponsor.trim() || undefined }));
       onClose();
     } catch (err) {
       setCreateError(toErrorMessage(err, "Couldn't create the issuer. Check the details and try again."));
@@ -539,6 +546,7 @@ function NewIssuerModal({
             { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
             { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
+            { key: "sponsor", label: "Sponsor / PE owner", required: false, ph: "e.g. Kestrel Capital Partners", max: 255 },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>

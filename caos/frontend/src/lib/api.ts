@@ -223,7 +223,7 @@ export interface IssuerProfile {
   runs: ProfileRun[];
   metrics: ProfileMetric[];
   // Free-form roll-ups (nullable values) — Deep-Dive owns module detail.
-  signals: Record<string, number | string | null>;
+  signals: Record<string, number | string | boolean | null>;
   coverage: Record<string, unknown>;
   findings: Record<string, number>;
   business: BusinessFact[];           // CP-1A sourced facts
@@ -234,6 +234,34 @@ export interface IssuerProfile {
 }
 export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
   api.get(`/api/issuers/${id}/profile`).then((r) => r.data);
+
+// Sponsor track record — CP-2D governance scores/flags rolled up across a
+// sponsor's covered names (analyst-entered Issuer.sponsor grouping).
+export interface SponsorSummary {
+  sponsor: string;
+  issuer_count: number;
+}
+export interface SponsorIssuerRow {
+  issuer_id: string;
+  name: string;
+  ticker: string | null;
+  run_id: string | null;
+  qa_status: string | null;
+  governance_risk_score: number | null;
+  flags: string[];
+  net_leverage: number | null;
+}
+export interface SponsorTrackRecord {
+  sponsor: string;
+  issuer_count: number;
+  avg_governance_risk_score: number | null;
+  flag_counts: Record<string, number>;
+  issuers: SponsorIssuerRow[];
+}
+export const getSponsors = (): Promise<SponsorSummary[]> =>
+  api.get("/api/sponsors/").then((r) => r.data);
+export const getSponsorTrackRecord = (name: string): Promise<SponsorTrackRecord> =>
+  api.get(`/api/sponsors/${encodeURIComponent(name)}`).then((r) => r.data);
 
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {

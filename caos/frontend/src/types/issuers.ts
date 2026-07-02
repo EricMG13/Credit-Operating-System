@@ -10,4 +10,5 @@ export interface Issuer {
   rating_sp?: string | null;
   rating_moody?: string | null;
   rating_fitch?: string | null;
+  sponsor?: string | null;
 }
