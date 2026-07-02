@@ -29,6 +29,7 @@ verification.
 
 | ID | Class | Sev | Closed | Fault | Verification |
 | --- | --- | --- | --- | --- | --- |
+| FL-005 | Correctness | MED | 2026-07-03 | Sector RV peer table (command-55) cheap→rich default sort surfaced a junk feed mark (`mid3yDm` ~579,028 → `rvBp` +578683 flagged "Cheap") at the very top of the committee-facing table; the RVScatter clamped the same junk but the table sort/flag did not. | `credibleDm` guard nulls `rvBp` for non-credible DM in `frontend/src/lib/command/rvdata.ts`; retest live — top row now Cornerstone +2207, no 5+digit magnitudes, junk row → RV=N/A at bottom. `npx vitest run src/lib/command/rvdata.test.ts` → 5 passed (new F1 lock); full `vitest run` → 303 passed; `tsc`/`eslint` clean. |
 | FL-003 | Correctness | HIGH | 2026-06-28 | Phase-0 golden-master runner availability checked at entry. | `server/.venv/bin/python -m pytest tests/server/golden/test_golden_cp1.py -q` -> 2 passed. |
 | FL-004 | Correctness | HIGH | 2026-06-28 | Deep-Dive live run with a missing module could fall back to seeded ATLF output. | `npm test -- ModuleView.test.tsx` -> 1 passed. |
 | FL-001 | Correctness | HIGH | 2026-06-28 | Engine surface freeze was not declared; in-flight `.goal/` refinements needed land/defer status. | `caos/docs/qa/ENGINE_FREEZE_PHASE0.md`; `npx tsc --noEmit` -> passed. |
