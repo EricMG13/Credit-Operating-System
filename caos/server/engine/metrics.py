@@ -43,8 +43,10 @@ METRIC_CATALOG: List[MetricDef] = [
               "Net debt / adjusted EBITDA (lower is stronger credit)."),
     MetricDef("interest_coverage", "Interest coverage", "x", "leverage", True,
               "Adjusted EBITDA / interest."),
-    MetricDef("fcf_conversion", "FCF conversion", "%", "cash", True,
-              "Free cash flow as a percent of adjusted EBITDA."),
+    # Key kept for payload stability; display renamed — the computation (below)
+    # is FCF / revenue (an FCF margin), NOT the desk's FCF/EBITDA "conversion".
+    MetricDef("fcf_conversion", "FCF margin", "%", "cash", True,
+              "Free cash flow as a percent of revenue."),
     MetricDef("energy_cost_pct", "Energy cost exposure", "%", "cost exposure", False,
               "Energy as a percent of the cost base — a proxy for how exposed "
               "margins are to energy-price inflation (higher = more exposed)."),
