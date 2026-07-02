@@ -127,8 +127,8 @@ async def get_identity(
     session revocation (token_version) — see the cookie branch below.
     """
     settings = get_settings()
-    # Fail closed: ANY environment other than "development" (typo/unset included),
-    # or the legacy platform port, counts as deployed. (config.is_deployed)
+    # Fail closed: ANY environment other than "development" (typo/unset included)
+    # counts as deployed. (config.is_deployed)
     deployed = is_deployed(settings)
 
     # Edge-proxy origin check FIRST — before any identity is resolved — so that a
