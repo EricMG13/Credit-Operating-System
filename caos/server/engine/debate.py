@@ -87,7 +87,7 @@ def _leverage(cp1: Optional[ModulePayload]) -> Optional[float]:
     return float(lev) if isinstance(lev, (int, float)) else None
 
 
-def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]:
+def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]:  # noqa: C901
     """Bull/bear points for the CP-6A credit debate, from the wired upstreams.
 
     CP-1 / CP-2 / CP-4C are the module's declared deps (always present when it

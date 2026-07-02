@@ -179,6 +179,38 @@ def _collect_sources(block, out: List[Source]) -> None:
         pass
 
 
+def _compose_report(text_parts: List[str], truncated: bool) -> str:
+    """Join the streamed prose and apply the truncation / empty-report fallbacks.
+
+    Pure string assembly, moved verbatim from the tail of run_deep_research
+    (after every await and side effect) so the live loop stays under the C901
+    gate. Branch order and strings are byte-identical to the inline original.
+    """
+    report = "".join(text_parts).strip()
+    # Visible in-report banner so the analyst never reads a cut-off report as a
+    # complete one (the report itself is the committee-facing artifact). No emoji
+    # per the product-chrome rule. L2.
+    _TRUNC_BANNER = (
+        "> **Report may be incomplete** — research stopped at its "
+        "continuation/length cap before the model signaled completion. "
+        "Re-run or narrow the brief for the full report.\n\n"
+    )
+    if not report:
+        if truncated:
+            # Cap hit before any prose: say so — don't claim "the model finished".
+            report = _TRUNC_BANNER + "_No report text was produced before the cap was reached._"
+        else:
+            # Rare: ended with only tool/thinking blocks and no prose.
+            report = (
+                "### No report produced\n\n"
+                "The model finished without writing a report — this is uncommon. "
+                "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
+            )
+    elif truncated:
+        report = _TRUNC_BANNER + report
+    return report
+
+
 async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     prompt = build_brief(brief)
 
@@ -249,27 +281,6 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     seen: set = set()
     deduped = [s for s in sources if not (s.url in seen or seen.add(s.url))]
 
-    report = "".join(text_parts).strip()
-    # Visible in-report banner so the analyst never reads a cut-off report as a
-    # complete one (the report itself is the committee-facing artifact). No emoji
-    # per the product-chrome rule. L2.
-    _TRUNC_BANNER = (
-        "> **Report may be incomplete** — research stopped at its "
-        "continuation/length cap before the model signaled completion. "
-        "Re-run or narrow the brief for the full report.\n\n"
-    )
-    if not report:
-        if truncated:
-            # Cap hit before any prose: say so — don't claim "the model finished".
-            report = _TRUNC_BANNER + "_No report text was produced before the cap was reached._"
-        else:
-            # Rare: ended with only tool/thinking blocks and no prose.
-            report = (
-                "### No report produced\n\n"
-                "The model finished without writing a report — this is uncommon. "
-                "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
-            )
-    elif truncated:
-        report = _TRUNC_BANNER + report
+    report = _compose_report(text_parts, truncated)
 
     return ResearchResult(report=report, sources=deduped, demo=False, truncated=truncated)
