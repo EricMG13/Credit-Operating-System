@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DELTA_COLS, INDEX_STATS, RV_SECTORS, ratingAverages, subSectorAverages } from "./rvdata";
+import { DELTA_COLS, INDEX_STATS, RV_SECTORS, isPlausibleMark, ratingAverages, subSectorAverages } from "./rvdata";
 
 describe("sector RV market data", () => {
   it("loads the market-data file into sector RV tables", () => {
@@ -50,5 +50,26 @@ describe("sector RV market data", () => {
 
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rv).toBe("N/A");
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rvBp).toBeNull();
+  });
+
+  it("keeps implausible feed marks out of RV signals and sector aggregates", () => {
+    // Sanity-check the ceilings against the known-bad feed row.
+    expect(isPlausibleMark(5790.1, 579028)).toBe(false); // Advantage Sales & Marketing
+    expect(isPlausibleMark(36.4, 3267)).toBe(true); // Cornerstone: real distressed, kept
+
+    const industrials = RV_SECTORS.find((sector) => sector.name === "Industrials")!;
+    const advantage = industrials.rows.find((row) => row.company === "Advantage Sales & Marketing")!;
+
+    // The row is still listed (raw datum preserved), but emits no RV signal.
+    expect(advantage.dm).toBe(579028);
+    expect(advantage.rvBp).toBeNull();
+    expect(advantage.rv).toBe("N/A");
+
+    // No sector's average yield/DM is skewed by a garbage mark.
+    expect(INDEX_STATS.every((sector) => sector.dm < 5000 && sector.ytm < 60)).toBe(true);
+
+    // The bucket average that Advantage falls into (Industrials · NR) stays sane.
+    const nr = ratingAverages(industrials.rows).find((bucket) => bucket.bucket === "NR")!;
+    expect(nr.dm === null || nr.dm < 5000).toBe(true);
   });
 });

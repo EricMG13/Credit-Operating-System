@@ -12,6 +12,7 @@ import {
   DELTA_COLS,
   INDEX_STATS,
   RV_SECTORS,
+  isPlausibleMark,
   ratingAverages,
   subSectorAverages,
   type Liquidity,
@@ -247,8 +248,10 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
             {r.d.map((v, j) => (
               showCol(`d${j}`) && <DeltaCell key={j} v={v} />
             ))}
-            {showCol("ytm") && <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>}
-            {showCol("dm") && <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>}
+            {/* An implausible feed mark is shown as "n/m" (not meaningful) rather
+                than a raw 5-figure DM — the row stays, the garbage number doesn't. */}
+            {showCol("ytm") && <td className={td + " text-right " + (isPlausibleMark(r.ytm, r.dm) ? "text-caos-text" : "text-caos-muted")} title={isPlausibleMark(r.ytm, r.dm) ? undefined : "Implausible feed value — excluded from RV"}>{isPlausibleMark(r.ytm, r.dm) ? r.ytm.toFixed(1) : "n/m"}</td>}
+            {showCol("dm") && <td className={td + " text-right " + (isPlausibleMark(r.ytm, r.dm) ? "text-caos-text" : "text-caos-muted")} title={isPlausibleMark(r.ytm, r.dm) ? undefined : "Implausible feed value — excluded from RV"}>{isPlausibleMark(r.ytm, r.dm) ? r.dm.toLocaleString() : "n/m"}</td>}
           </tr>
         ))}
       </tbody>

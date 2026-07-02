@@ -87,6 +87,21 @@ const SP_TO_MOODYS: Record<string, string> = {
 };
 
 const isNum = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
+
+// A leveraged-loan mark can be deeply distressed (bid <70 → DM in the low
+// thousands of bps, YTM ~40%), but a 4-figure YTM or a 5-figure DM is a corrupt
+// feed row, not a signal — one such value poisons every sector/bucket mean and
+// median it lands in (a raw 579,028bp DM turns the RV signal into "Cheap +…" and
+// blows up the sector average). `isNum` accepts these because they are finite;
+// this gate rejects them from all RV math while the row itself stays in the peer
+// table. Ceilings sit well above the real distressed tail (~3,300bp / ~36% on
+// this feed) and orders of magnitude below the garbage (≥6,900bp / ≥72%).
+// ponytail: flat ceiling; revisit only if a genuine mark ever legitimately clears it.
+const DM_CEILING = 5000; // bps
+const YTM_CEILING = 60; // %
+export const isPlausibleMark = (ytm: number | null | undefined, dm: number | null | undefined): boolean =>
+  isNum(ytm) && ytm > 0 && ytm <= YTM_CEILING && isNum(dm) && dm > 0 && dm <= DM_CEILING;
+
 const mean = (xs: number[]): number | null => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
@@ -135,7 +150,10 @@ const dmBenchmarks = new Map<string, number | null>();
 for (const r of validRows) {
   const key = `${r.sector}|${ratingBucket(r.ratings)}`;
   if (dmBenchmarks.has(key)) continue;
-  const comps = validRows.filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key).map((x) => x.mid3yDm).filter((x): x is number => isNum(x) && x > 0);
+  const comps = validRows
+    .filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key && isPlausibleMark(x.midYtm, x.mid3yDm))
+    .map((x) => x.mid3yDm)
+    .filter((x): x is number => isNum(x) && x > 0);
   dmBenchmarks.set(
     key,
     comps.length < 2 ? null : median(comps)
@@ -145,7 +163,9 @@ for (const r of validRows) {
 const rows: RVRow[] = validRows.map((r) => {
   const bucket = ratingBucket(r.ratings);
   const benchmark = dmBenchmarks.get(`${r.sector}|${bucket}`) ?? null;
-  const rvBp = benchmark === null ? null : r.mid3yDm! - benchmark;
+  // No RV signal for an implausible mark — it must not surface as "Cheap +…" or
+  // sort to the top of the RV column.
+  const rvBp = benchmark === null || !isPlausibleMark(r.midYtm, r.mid3yDm) ? null : r.mid3yDm! - benchmark;
   return {
     company: r.company,
     sector: r.sector,
@@ -194,14 +214,17 @@ export interface IndexStat {
 
 export const INDEX_STATS: IndexStat[] = RV_SECTORS.map((sector) => {
   const mids = sector.rows.map((r) => (r.bid + r.ask) / 2);
+  // Average yield/DM only over plausible marks so one garbage row can't skew the
+  // sector stat by orders of magnitude. Count/MV/price stay over all rows.
+  const priced = sector.rows.filter((r) => isPlausibleMark(r.ytm, r.dm));
   return {
     name: sector.name,
     n: sector.rows.length,
     mv: sector.rows.reduce((sum, r) => sum + r.size, 0) / 1000,
     avgPrice: mean(mids) ?? 0,
     d: DELTA_COLS.map((_, i) => mean(sector.rows.map((r) => r.d[i]).filter(isNum))),
-    ytm: mean(sector.rows.map((r) => r.ytm)) ?? 0,
-    dm: mean(sector.rows.map((r) => r.dm)) ?? 0,
+    ytm: mean(priced.map((r) => r.ytm)) ?? 0,
+    dm: mean(priced.map((r) => r.dm)) ?? 0,
   };
 });
 
@@ -217,16 +240,21 @@ export interface RatingAvg {
   dm: number | null;
 }
 
-const averageRow = (members: RVRow[]) => ({
-  n: members.length,
-  size: mean(members.map((r) => r.size)),
-  margin: mean(members.map((r) => r.margin)),
-  bid: mean(members.map((r) => r.bid)),
-  ask: mean(members.map((r) => r.ask)),
-  d: DELTA_COLS.map((_, i) => mean(members.map((r) => r.d[i]).filter(isNum))),
-  ytm: mean(members.map((r) => r.ytm)),
-  dm: mean(members.map((r) => r.dm)),
-});
+const averageRow = (members: RVRow[]) => {
+  // Same rule as the index stats: yield/DM averages skip implausible marks so a
+  // corrupt row can't poison the bucket/sub-sector average it falls into.
+  const priced = members.filter((r) => isPlausibleMark(r.ytm, r.dm));
+  return {
+    n: members.length,
+    size: mean(members.map((r) => r.size)),
+    margin: mean(members.map((r) => r.margin)),
+    bid: mean(members.map((r) => r.bid)),
+    ask: mean(members.map((r) => r.ask)),
+    d: DELTA_COLS.map((_, i) => mean(members.map((r) => r.d[i]).filter(isNum))),
+    ytm: mean(priced.map((r) => r.ytm)),
+    dm: mean(priced.map((r) => r.dm)),
+  };
+};
 
 export interface SubSectorAvg extends Omit<RatingAvg, "bucket"> {
   subSector: string;
