@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { CapabilityRail } from "@/components/query/CapabilityRail";
+import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
@@ -213,6 +214,13 @@ function QueryWorkspace({ prompts: promptSet = PROMPTS }: { prompts?: QueryPromp
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2 overflow-hidden">
+          <VaultMemoUpload
+            onUploaded={() => {
+              // New wikilinks may ungrey / repopulate the Wiki & Memos edge.
+              queryCapabilities().then(setCaps).catch(() => {});
+              if (activeId === "analyst-memos") run("analyst-memos");
+            }}
+          />
           <MetricPill label="ready" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
           <MetricPill label="active" value={activeCap?.label ?? "none"} />
           {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">walking graph</span>}

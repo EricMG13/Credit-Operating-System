@@ -172,6 +172,20 @@ export const uploadPricingSheet = (formData: FormData) =>
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
 
+export interface VaultMemoResult {
+  note: string;
+  path: string;
+  memo_type: string;
+  issuer_links: string[];
+  message: string;
+}
+
+// Analyst commentary → the Obsidian vault's Analyst-Memos/ (auto-wikilinked).
+export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
+  api.post("/api/ingestion/upload/memo", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  }).then((r) => r.data);
+
 // ─── Analytical engine (runs) ───────────────────────────────────────────────
 import type {
   ModuleDetailDTO,
