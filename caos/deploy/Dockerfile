@@ -17,7 +17,7 @@ RUN npm run build
 
 # ─── Stage 2: Python runtime (FastAPI + static UI) ──────────────────────────
 # Pinned by digest (#24); refresh with:
-#   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
+#   docker buildx imagetools inspect python:3.14-slim --format '{{.Manifest.Digest}}'
 FROM python:3.14-slim@sha256:63a4c7f612a00f92042cbdcc7cdc6a306f38485af0a200b9c89de7d9b1607d15 AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -46,7 +46,7 @@ RUN apt-get update \
 # Regenerate after editing requirements.txt:
 #   pip-compile --generate-hashes --strip-extras --output-file=server/requirements.lock \
 #     <(cat server/requirements.txt; echo 'markitdown[pdf]==0.1.6')
-# The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.11 runtime
+# The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.14 runtime
 # installs the CLI straight onto PATH (/usr/local/bin/markitdown). [pdf] not
 # [all] — PDF pilot; xlsx falls back to the built-in openpyxl path.
 COPY server/requirements.lock ./

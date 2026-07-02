@@ -393,6 +393,35 @@ _last_vault_mtime = 0.0
 _last_vault_file_count = 0
 
 
+def _scan_memo_files(vault_path: Path) -> "tuple[list[Path], float, int]":
+    """Sync vault walk + per-file mtime, off-loaded from the event loop via
+    asyncio.to_thread. Returns (memo paths, newest mtime, count), excluding the
+    generated Runs/ and Issuers/ trees."""
+    import os
+
+    md_files = []
+    for p in vault_path.rglob("*.md"):
+        parts = p.relative_to(vault_path).parts
+        if parts and parts[0] in ("Runs", "Issuers"):
+            continue
+        md_files.append(p)
+    if not md_files:
+        return [], 0.0, 0
+    return md_files, max(os.path.getmtime(f) for f in md_files), len(md_files)
+
+
+def _read_memo_notes(md_files: "list[Path]") -> "list[tuple[str, list[str]]]":
+    """Sync read of each memo file (off-loaded). Returns (note stem, lines) for
+    every readable file; unreadable files are skipped."""
+    notes = []
+    for p in md_files:
+        try:
+            notes.append((p.stem, p.read_text(encoding="utf-8").splitlines()))
+        except Exception:
+            continue
+    return notes
+
+
 async def sync_analyst_memos(session) -> int:  # noqa: C901
     """Scan the vault directory (excluding Issuers/ and Runs/) for analyst-written
     Markdown files, parsing [[wikilinks]] that reference known issuers. Caches
@@ -401,8 +430,8 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
     from sqlalchemy import select, delete
     from database import Issuer, AnalystLink
     from config import get_settings
+    import asyncio
     import re
-    import os
 
     settings = get_settings()
     if not settings.vault_export_dir:
@@ -413,12 +442,10 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
         return 0
 
     global _last_vault_mtime, _last_vault_file_count
-    md_files = []
-    for p in vault_path.rglob("*.md"):
-        parts = p.relative_to(vault_path).parts
-        if parts and parts[0] in ("Runs", "Issuers"):
-            continue
-        md_files.append(p)
+    # Vault walk + per-file stat/read are blocking FS calls; off-load them so the
+    # async event loop isn't held during the scan on the /query hot paths
+    # (get_capabilities / query_graph call this on every request).
+    md_files, max_mtime, file_count = await asyncio.to_thread(_scan_memo_files, vault_path)
 
     if not md_files:
         if _last_vault_file_count > 0:
@@ -427,9 +454,6 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
             _last_vault_mtime = 0.0
             return 1
         return 0
-
-    max_mtime = max(os.path.getmtime(f) for f in md_files)
-    file_count = len(md_files)
 
     if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
         return 0
@@ -444,19 +468,9 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
     parsed_links = []
     link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
-    for p in vault_path.rglob("*.md"):
-        parts = p.relative_to(vault_path).parts
-        if parts and parts[0] in ("Runs", "Issuers"):
-            continue
-
-        try:
-            content = p.read_text(encoding="utf-8")
-        except Exception:
-            continue
-
-        note_name = p.stem
-        lines = content.splitlines()
-        for idx, line in enumerate(lines):
+    notes = await asyncio.to_thread(_read_memo_notes, md_files)
+    for note_name, lines in notes:
+        for line in lines:
             for match in link_re.finditer(line):
                 target_name = match.group(1).strip()
                 target_id = issuer_map.get(target_name.lower())

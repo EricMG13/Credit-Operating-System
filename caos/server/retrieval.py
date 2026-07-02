@@ -178,6 +178,7 @@ async def retrieve_corpus_by_issuer(
         select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
         .join(Document, Document.id == DocumentChunk.document_id)
         .where(Document.issuer_id.in_(list(issuer_ids)))
+        .limit(_CORPUS_SCAN_CAP)  # bound the in-Python BM25 corpus (mirror retrieve_corpus)
     )).all()
     meta = {r[0]: (r[2], r[3]) for r in rows}
     corpus = [(r[0], r[1]) for r in rows]
