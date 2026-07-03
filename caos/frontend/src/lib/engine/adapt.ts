@@ -89,7 +89,9 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
     sections.push({
       type: "table",
       title: reported ? "CP-1 · Reported financials ($M, GAAP proxy)" : "CP-1 · Normalized financials ($M)",
-      cols: ["", ...periods], align: [0, ...periods.map(() => 1)],
+      // Humanize the period LABELS ("LTM_Q1_26" → "LTM Q1-26"); the raw key `p`
+      // is still used below to index the data. (critique: machine keys in tables)
+      cols: ["", ...periods.map(humanize)], align: [0, ...periods.map(() => 1)],
       rows: [
         ["Revenue", ...periods.map((p) => num(rev[p]))],
         [ebLabel, ...periods.map((p) => num(eb[p]))],
@@ -104,7 +106,8 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   }
   return {
     kpis: [
-      { l: levLabel, v: `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
+      // Unit suffix only on a real figure — "—x" reads as a broken render.
+      { l: levLabel, v: fin.net_leverage_adj_ltm == null ? "—" : `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
       { l: "Periods normalized", v: num(rt.periods_normalized) },
       { l: "KPIs registered", v: num(rt.kpis_registered) },
       { l: "Coverage gate", v: String(rt.coverage_gate ?? "—"), sev: "ok" },
@@ -116,12 +119,19 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
 // Columns not worth a table header (opaque ids the analyst never reads).
 const SKIP_COL = /(^|_)(id|chunk_id|issuer_id|figi)$/i;
 
-function humanize(k: string): string {
+// Finance acronyms humanize() would otherwise title-case into "Ebitda"/"Fcf".
+// Whole-word, case-insensitive → upper.
+const ACRONYMS = /\b(ebitda|ltm|fcf|dscr|fccr|wacc|roic|sofr|oid|mfn|nav|ev|dm|rcf|tlb|lme|yoy|qoq|ytd)\b/gi;
+
+export function humanize(k: string): string {
   return k
     .replace(/_/g, " ")
     .replace(/\bmusd\b/gi, "$M")
     .replace(/\bpct\b/gi, "%")
-    .replace(/\bltm\b/gi, "LTM")
+    // Re-glue a quarter to its 2-digit year so "ltm_q1_26" reads "LTM Q1-26",
+    // not the machine key "LTM Q1 26". (critique: raw keys leak into tables)
+    .replace(/\bq([1-4])\s+'?(\d{2})\b/gi, (_m, q, y) => `Q${q}-${y}`)
+    .replace(ACRONYMS, (m) => m.toUpperCase())
     .replace(/^\w/, (c) => c.toUpperCase());
 }
 

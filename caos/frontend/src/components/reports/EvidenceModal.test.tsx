@@ -4,6 +4,9 @@ import { render, screen, cleanup } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   getChunk: vi.fn().mockResolvedValue({ text: "LIVE CHUNK TEXT", chunk_id: "chunk-1" }),
+  // The seeded viewer mounts the shared FlagToQa action (offline-safe stubs).
+  listQaFlags: vi.fn().mockResolvedValue([]),
+  createQaFlag: vi.fn().mockResolvedValue({ id: "f1" }),
 }));
 
 import { EvidenceModal } from "./EvidenceModal";

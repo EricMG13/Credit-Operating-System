@@ -34,7 +34,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           ["Capex", "(96)", "(108)", "(118)", "(121)"],
           ["Free cash flow", "142", "158", "169", "172"],
           ["Net debt", "2,392", "2,371", "2,380", "2,391"],
-          ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.68x"],
+          ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.7x"],
           ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
         ]},
         { type: "flags", title: "CP-1-10 · Definition conflict register", items: [

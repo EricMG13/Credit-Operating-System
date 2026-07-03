@@ -105,6 +105,7 @@ function ReportStudio() {
   const [hydrated, setHydrated] = useState(false);
 
   // restore persisted workspace state
+  const reportParam = searchParams.get("report");
   // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
@@ -117,8 +118,11 @@ function ReportStudio() {
       const e = JSON.parse(localStorage.getItem("caos-e-edits") || "{}");
       if (e && typeof e === "object") setEdits(e);
     } catch { /* first visit */ }
+    // Deep link (?report=) beats the remembered workspace tab — a module-export
+    // jump from Deep-Dive must land on its exhibit, not last session's.
+    if (reportParam && reports.some((r) => r.id === reportParam)) setActiveId(reportParam);
     setHydrated(true);
-  }, [reports]);
+  }, [reports, reportParam]);
   // persist only after restore has run — writing earlier clobbers stored
   // state with the initial defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-active", activeId); } catch {} }, [hydrated, activeId]);

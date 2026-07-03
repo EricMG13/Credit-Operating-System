@@ -7,7 +7,7 @@
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays
 // the run and outputs unlock as their producing modules clear.
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -88,16 +88,21 @@ function DeepDive() {
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const [issuerMeta, setIssuerMeta] = useState<{ name: string; ticker?: string | null } | null>(null);
+  // A failed lookup must not read as an eternal "Loading issuer…" — track the
+  // failure and offer a retry instead of a permanent loading label.
+  const [issuerErr, setIssuerErr] = useState(false);
+  const [issuerAttempt, setIssuerAttempt] = useState(0);
   useEffect(() => {
     if (isReference) { setIssuerMeta(null); return; }
     let stale = false;
+    setIssuerErr(false);
     getIssuer(issuerId)
       .then((d) => { if (!stale) setIssuerMeta({ name: d.name, ticker: d.ticker }); })
-      .catch(() => { if (!stale) setIssuerMeta(null); });
+      .catch(() => { if (!stale) { setIssuerMeta(null); setIssuerErr(true); } });
     return () => { stale = true; };
-  }, [issuerId, isReference]);
+  }, [issuerId, isReference, issuerAttempt]);
   const code = isReference ? DEAL.code : (issuerMeta?.ticker || "—");
-  const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? "Loading issuer…");
+  const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? (issuerErr ? "Issuer unavailable" : "Loading issuer…"));
   const [tab, setTab] = useState(modParam || (isReference ? "CP-6A" : "CP-1"));
 
   useEffect(() => {
@@ -125,18 +130,77 @@ function DeepDive() {
   useEffect(() => setLayout(loadLayout()), []);
   const pickLayout = (l: DeepDiveLayout) => { setLayout(l); saveLayout(l); };
 
-  // Module-launcher accordion: each layer collapses to its name + status dots to
-  // save space; clicking a layer reveals its modules (by name). The active tab's
-  // layer always stays open; wide screens (≥2xl) open every layer.
+  // Module-launcher accordion. Wide screens (≥2xl) open every layer at once —
+  // there is room for the whole tree. Below 2xl the accordion is EXCLUSIVE: one
+  // layer open at a time (opening a layer closes the others), so the strip never
+  // accumulates open layers and grows past the viewport into a scroll-hunt.
+  // (critique: launcher overflow) The active tab's layer is always the open one
+  // after a navigation.
   const activeLayer = GROUPS.find((g) => g.mods.includes(tab))?.label ?? null;
+  const [wide, setWide] = useState(false);
   const [openLayers, setOpenLayers] = useState<Set<string>>(() => new Set(activeLayer ? [activeLayer] : []));
+  // Track the 2xl breakpoint so the accordion knows whether to be all-open or
+  // exclusive; matchMedia so it flips exactly at the layout boundary.
   useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth >= 1536) setOpenLayers(new Set(GROUPS.map((g) => g.label)));
+    const mq = window.matchMedia("(min-width: 1536px)");
+    const apply = () => setWide(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, []);
+  // Reset to the mode default when the breakpoint flips: all-open when wide,
+  // just the active layer when narrow (collapses everything else).
   useEffect(() => {
-    if (activeLayer) setOpenLayers((prev) => (prev.has(activeLayer) ? prev : new Set(prev).add(activeLayer)));
-  }, [activeLayer]);
-  const toggleLayer = (l: string) => setOpenLayers((prev) => { const n = new Set(prev); if (n.has(l)) n.delete(l); else n.add(l); return n; });
+    setOpenLayers(wide ? new Set(GROUPS.map((g) => g.label)) : new Set(activeLayer ? [activeLayer] : []));
+    // Only re-seed on a breakpoint flip; navigations are handled below so a
+    // user's opened layer isn't wiped on every resize tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wide]);
+  // Keep the active layer visible on tab navigation — exclusive when narrow.
+  useEffect(() => {
+    if (!activeLayer) return;
+    setOpenLayers((prev) => (wide ? new Set(prev).add(activeLayer) : new Set([activeLayer])));
+  }, [activeLayer, wide]);
+  const toggleLayer = (l: string) => setOpenLayers((prev) => {
+    if (wide) { const n = new Set(prev); if (n.has(l)) n.delete(l); else n.add(l); return n; }
+    // Narrow: exclusive. Re-clicking the only open layer collapses it.
+    return prev.has(l) && prev.size === 1 ? new Set() : new Set([l]);
+  });
+
+  // Launcher strip horizontal-scroll affordance: edge fades + chevrons that
+  // appear only when there's more off-screen, and the active chip is scrolled
+  // into view on navigation so it's never stranded past the fold. (critique:
+  // active chip can sit outside the viewport / only affordance is a 7px bar)
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const syncEdges = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    setEdges({
+      left: el.scrollLeft > 4,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
+    });
+  }, []);
+  const nudgeStrip = (dir: number) => {
+    const el = stripRef.current;
+    // Instant paging, not smooth: this is a flow-state terminal control, and an
+    // instant jump is also the correct reduced-motion behaviour.
+    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7 });
+  };
+  // Re-measure the fades whenever the content width can change (layer open/close,
+  // breakpoint flip) and on window resize.
+  useEffect(() => {
+    syncEdges();
+    window.addEventListener("resize", syncEdges);
+    return () => window.removeEventListener("resize", syncEdges);
+  }, [syncEdges, openLayers, wide]);
+  // Bring the selected module chip into view after a navigation (click, ?mod=,
+  // or Alt+,/. cycle) or when its layer (re)opens.
+  useEffect(() => {
+    stripRef.current
+      ?.querySelector('[data-active-chip="true"]')
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [tab, openLayers]);
   // Evidence/source rail starts collapsed: traceability is on-demand (the E-xx
   // citation chips open the source directly), so it shouldn't hold prime
   // analytical real estate by default. The analyst expands it when they want it.
@@ -182,10 +246,14 @@ function DeepDive() {
   }, [railOpen, decisionOpen]);
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
+  // Launcher/gate display state. The ATLF sim narrates the reference deal only;
+  // a real issuer's module is "pass" when this run produced it and hollow-idle
+  // otherwise — never the reference sim's green theater. (critique: implied
+  // completion that is not this issuer's)
+  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : (live.liveOuts[id] ? "pass" : "idle"));
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
-  const unlocked = isCleared(gateState(gateId));
   // Reference deal → bespoke showcase tab. Real issuers never borrow ATLF
   // showcase output; they render live ModuleView data or an explicit no-output state.
   const useBespoke = BESPOKE_TABS.has(tab) && isReference;
@@ -194,6 +262,12 @@ function DeepDive() {
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
   // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
   const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
+  // The replay sim gates the reference showcase only. A real issuer is never
+  // sim-locked (its honest empty state is the module view's own no-output
+  // screen), and live output is never held behind replay theater — otherwise
+  // the pane reads "awaiting upstream" under a ● LIVE badge. (critique: two
+  // state machines disagreeing)
+  const unlocked = !isReference || moduleIsLive || isCleared(gateState(gateId));
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
@@ -209,9 +283,25 @@ function DeepDive() {
         <div className="h-4 w-px bg-caos-border" />
         <ConceptNav compact />
         <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{dealLabel}</span>
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
+        {issuerErr && !isReference ? (
+          <button
+            onClick={() => setIssuerAttempt((a) => a + 1)}
+            className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring whitespace-nowrap"
+            title="Issuer lookup failed — retry"
+          >
+            RETRY
+          </button>
+        ) : null}
         {caveatKind === "reference" ? (
-          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline">RUN #2641 · {run.completed}/{run.total} modules complete</span>
+          // The reference showcase must never costume itself as a database run:
+          // SEEDED leads, the run id is part of the fiction and says so on hover.
+          <span
+            className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
+            title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
+          >
+            SEEDED RUN #2641 · {run.completed}/{run.total} modules
+          </span>
         ) : caveatKind === "loading" ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
         ) : caveatKind === "live" ? (
@@ -228,13 +318,17 @@ function DeepDive() {
           </span>
         )}
         <div className="flex-1"></div>
-        <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">click any E-xx chip to open its source · replay run to watch outputs unlock →</span>
+        {/* No persistent tip string here: the E-xx guidance lives in the
+            one-time FirstRunHint below, and the old "replay to watch outputs
+            unlock →" clause pointed at SimControls that are themselves gated to
+            2xl. Carrying it in the bar forced the deal label to crush and the
+            row to wrap in the 1280–1535 laptop band. (critique P1) */}
         <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
           {([
-            { v: "core" as const, t: "Workflow register, then sections in source order" },
-            { v: "base" as const, t: "Conclusion first; steps in up to 4 stretched columns" },
-            { v: "dense" as const, t: "Conclusion first; steps in packed newspaper columns" },
+            { v: "core" as const, label: "Source", t: "Source order: workflow register, then sections as the module produced them" },
+            { v: "base" as const, label: "Report", t: "Report order: conclusion first, steps in up to 4 stretched columns" },
+            { v: "dense" as const, label: "Dense", t: "Report order, packed: conclusion first, steps in tight newspaper columns" },
           ]).map((o) => (
             <button
               key={o.v}
@@ -243,13 +337,13 @@ function DeepDive() {
               onClick={() => pickLayout(o.v)}
               title={o.t}
               className={
-                "tabular text-caos-2xs capitalize px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
                 (layout === o.v
                   ? "bg-caos-elevated text-caos-text border-caos-accent"
                   : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
               }
             >
-              {o.v}
+              {o.label}
             </button>
           ))}
         </div>
@@ -258,9 +352,16 @@ function DeepDive() {
       </div>
 
       {/* module launcher strip — each layer collapses to its name + status dots;
-          click a layer to reveal its modules (named; short label on smaller panes). */}
-      <div className="h-9 shrink-0 border-b border-caos-border bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto">
-        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline">Module outputs</span>
+          click a layer to reveal its modules (named; short label on smaller panes).
+          Wrapped so edge fades + chevrons sit above the scroller and signal
+          off-screen layers (the native bar is hidden — redundant noise). */}
+      <div className="relative shrink-0 border-b border-caos-border">
+      <div
+        ref={stripRef}
+        onScroll={syncEdges}
+        className="h-9 bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto caos-no-scrollbar"
+      >
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline" title="Alt + , / .  cycles the open module">Module outputs</span>
         {/* fallow-ignore-next-line complexity */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
@@ -276,10 +377,12 @@ function DeepDive() {
                 {!open ? (
                   <span className="flex items-center gap-0.5">
                     {g.mods.map((id) => {
-                      const st = gateState(GATE[id] || id);
+                      const st = modState(id);
                       return isCleared(st)
                         ? <Dot key={id} sev={st} pulse={st === "running"} />
-                        : <StatusGlyph key={id} kind="locked" />;
+                        // Padlock = sim-gated (reference replay); a real issuer's
+                        // missing module is hollow-idle "no output", not locked.
+                        : <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
                     })}
                   </span>
                 ) : null}
@@ -289,7 +392,7 @@ function DeepDive() {
                 <span className="flex items-center gap-1">
                   {/* fallow-ignore-next-line complexity */}
                   {g.mods.map((id) => {
-                    const st = gateState(GATE[id] || id);
+                    const st = modState(id);
                     const ok = isCleared(st);
                     const sel = tab === id;
                     const name = MODULES.find((m) => m.id === id)?.name ?? id;
@@ -300,13 +403,18 @@ function DeepDive() {
                         onClick={() => setTab(id)}
                         title={name}
                         aria-label={name}
+                        aria-current={sel ? "true" : undefined}
+                        data-active-chip={sel ? "true" : undefined}
                         className={
-                          "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+                          "flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap focus-ring " +
                           (sel ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
                         }
-                        style={{ opacity: ok || sel ? 1 : 0.55 }}
                       >
-                        {!ok ? <StatusGlyph kind="locked" /> : <Dot sev={st} pulse={st === "running"} />}
+                        {/* Recess a pending module by dimming only the GLYPH, not
+                            the whole chip — the label stays at full muted contrast
+                            (AA), state is carried by the padlock/idle shape.
+                            (critique: locked-chip labels failed contrast) */}
+                        {!ok ? <span className="opacity-60"><StatusGlyph kind={isReference ? "locked" : "idle"} /></span> : <Dot sev={st} pulse={st === "running"} />}
                         <span className="hidden 2xl:inline">{name}</span>
                         <span className="2xl:hidden">{short}</span>
                       </button>
@@ -318,10 +426,42 @@ function DeepDive() {
           );
         })}
       </div>
+        {/* Edge affordances — shown only when the strip actually overflows past
+            that edge; chevrons page by ~70% of the visible width. */}
+        {edges.left ? (
+          <>
+            <div aria-hidden className="pointer-events-none absolute left-0 inset-y-0 w-12" style={{ background: "linear-gradient(to right, var(--caos-strip-bg), transparent)" }} />
+            <button
+              type="button"
+              onClick={() => nudgeStrip(-1)}
+              aria-label="Scroll module layers left"
+              className="absolute left-0 inset-y-0 px-1.5 flex items-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
+              style={{ background: "var(--caos-strip-bg)" }}
+            >
+              ‹
+            </button>
+          </>
+        ) : null}
+        {edges.right ? (
+          <>
+            <div aria-hidden className="pointer-events-none absolute right-0 inset-y-0 w-12" style={{ background: "linear-gradient(to left, var(--caos-strip-bg), transparent)" }} />
+            <button
+              type="button"
+              onClick={() => nudgeStrip(1)}
+              aria-label="Scroll module layers right"
+              className="absolute right-0 inset-y-0 px-1.5 flex items-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
+              style={{ background: "var(--caos-strip-bg)" }}
+            >
+              ›
+            </button>
+          </>
+        ) : null}
+      </div>
 
       <FirstRunHint id="deepdive-panes" className="mx-2 mt-2 shrink-0">
         <span className="text-white font-medium">Three panes:</span> sources &amp; evidence (left) · module analysis (center) · the IC decision &amp; sizing (right). Click any{" "}
-        <span className="tabular text-caos-accent">E-xx</span> chip to open its cited source.
+        <span className="tabular text-caos-accent">E-xx</span> chip to open its cited source.{" "}
+        <span className="text-caos-muted">Hold <span className="tabular text-caos-text">Alt</span> — <span className="tabular text-caos-text">,</span>/<span className="tabular text-caos-text">.</span> cycle modules, <span className="tabular text-caos-text">C</span> collapse panes, <span className="tabular text-caos-text">K</span> ask.</span>
       </FirstRunHint>
 
       {/* three-pane workspace */}
@@ -375,6 +515,9 @@ function DeepDive() {
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />
               <div className="tabular text-caos-xl">{gateId} {gateState(gateId) === "running" ? "running…" : "awaiting upstream dependencies"}</div>
               {(() => {
+                // "Awaiting" and "running…" are mutually exclusive truths: once
+                // the gate module is running its dependencies have cleared.
+                if (gateState(gateId) === "running") return null;
                 const planStep = SIM_PLAN.find((s) => s.id === gateId);
                 const upstreamDeps = planStep ? planStep.deps : [];
                 return upstreamDeps.length > 0 ? (

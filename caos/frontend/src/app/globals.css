@@ -137,10 +137,14 @@ body {
   border-radius: 4px;
 }
 
-/* Source-vault clause highlight (Evidence Sync target) */
+/* Source-vault clause highlight (Evidence Sync target): highlighter wash +
+   full hairline in the same hue. Deliberately NOT a left side-stripe — the
+   verbatim/quoted meaning is carried by the wash plus the adjacent
+   "(verbatim)" / "source extract" labels, and a full border reads as a
+   highlight, not a severity accent. */
 .clause-highlight {
   background: rgba(245, 165, 36, 0.14);
-  box-shadow: inset 3px 0 0 var(--caos-warning);
+  border: 1px solid color-mix(in srgb, var(--caos-warning) 45%, transparent);
   border-radius: 2px;
 }
 
@@ -174,6 +178,15 @@ main table:not(.rd-table) :is(th, td) {
 ::-webkit-scrollbar-track { background: var(--caos-bg); }
 ::-webkit-scrollbar-thumb { background: var(--caos-border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #374151; }
+
+/* A horizontal scroller whose overflow is signalled by edge fades + chevrons
+   (the module-launcher strip), so the thin native bar is redundant noise. */
+.caos-no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.caos-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* Rendered colour of the launcher strip (panel/40 over the page bg) — the
+   opaque stop for its edge-fade gradients so chips fade into the strip, not a
+   mismatched block. */
+:root { --caos-strip-bg: color-mix(in srgb, var(--caos-panel) 40%, var(--caos-bg)); }
 
 /* ===== Report Studio: rendered document (rd-*) — Concept E ===== */
 .rd-paper { position: relative; width: 980px; color: #16161e; font-family: var(--font-sans), system-ui, sans-serif; padding: 40px 46px 26px; box-shadow: 0 24px 70px -24px rgba(0,0,0,0.85); }

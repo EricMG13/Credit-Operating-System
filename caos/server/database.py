@@ -411,6 +411,26 @@ class QueryOverlay(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AnalystQaFlag(Base):
+    """An analyst-raised QA flag on a module/step output (Deep-Dive register).
+
+    Deliberately NOT a QAFinding: engine findings gate runs (CP-5 abort, 409 on
+    committee export), while an analyst flag is an audit-trail escalation that
+    must never trip those gates. issuer_id/run_id are plain strings (no FK) so
+    the flag survives its subject — it is an audit record, not run state.
+    """
+
+    __tablename__ = "qa_flags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    module_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    step_ref: Mapped[Optional[str]] = mapped_column(String(120))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
 
 def _alembic_config():
     from alembic.config import Config

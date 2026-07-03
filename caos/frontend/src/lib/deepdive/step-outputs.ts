@@ -272,7 +272,7 @@ const O0: Record<string, StepOutput> = {
         ["Capex", "(96)", "(108)", "(118)", "(121)"],
         ["Free cash flow", "142", "158", "169", "172"],
         ["Net debt", "2,392", "2,371", "2,380", "2,391"],
-        ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.68x"],
+        ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.7x"],
         ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
       ]),
       X("Status", "Canonical table — these are the figures every downstream module consumes. Any module quoting different values is a CP-5 consistency defect.", ["E-103"]),

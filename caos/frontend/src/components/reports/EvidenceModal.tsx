@@ -13,6 +13,7 @@ import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { FlagToQa } from "@/components/shared/FlagToQa";
 import { getChunk } from "@/lib/api";
 import type { LiveEvidence } from "@/lib/engine/useLiveRun";
 
@@ -97,11 +98,11 @@ function StatusBadge({ status, label }: { status: "verified" | "open"; label?: s
   );
 }
 
-function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+function Row({ k, v, accent, title }: { k: string; v: string; accent?: boolean; title?: string }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-caos-muted whitespace-nowrap">{k}</span>
-      <span className={"tabular text-right break-words" + (accent ? " text-caos-accent" : "")}>{v}</span>
+      <span className={"tabular text-right break-words" + (accent ? " text-caos-accent" : "")} title={title}>{v}</span>
     </div>
   );
 }
@@ -174,7 +175,9 @@ function LiveEvidencePanel({
           <Row k="Lineage class" v={ev.lineage_class} />
           <Row k="Confidence" v={ev.confidence} />
           <Row k="Trace status" v={status === "open" ? "lineage flagged" : "CP-5B verified"} />
-          <Row k="Chunk id" v={ev.document_chunk_id || "—"} />
+          {/* Short source ref, not a raw 36-char UUID dump on an analyst
+              surface; full id stays on hover for lineage debugging. (critique) */}
+          <Row k="Source ref" v={ev.document_chunk_id ? ev.document_chunk_id.slice(0, 8) : "—"} title={ev.document_chunk_id || undefined} />
         </div>
       </div>
     </EvShell>
@@ -349,12 +352,12 @@ export function EvidenceModal({
               {!cites.length ? <div className="text-caos-sm text-caos-muted">No registered citations.</div> : null}
             </div>
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
-                OPEN IN SOURCE VAULT
-              </button>
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">
-                FLAG TO QA · CP-5
-              </button>
+              {/* Same recorded flag lane as the step-output modal — flagging a
+                  citation from the source you're doubting is the natural spot.
+                  The old "OPEN IN SOURCE VAULT" button had no target (fixture
+                  docs carry no vault entry) and is gone until a real deep link
+                  exists — no affordance beats a silent no-op. */}
+              <FlagToQa moduleId={ev.module} stepRef={`evidence ${id}`} />
             </div>
           </div>
         </div>

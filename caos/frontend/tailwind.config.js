@@ -42,8 +42,8 @@ module.exports = {
       // code. Headings keep a tight line-height; font-size otherwise inherits the
       // 1.5 base and the dense UI tunes leading per context.
       fontSize: {
-        "caos-3xs": "8.5px", // micro  (alias of 2xs)
-        "caos-2xs": "8.5px", // micro
+        "caos-3xs": "9px", // micro  (alias of 2xs) — at the 9px label floor
+        "caos-2xs": "9px", // micro — 9px is the design-context minimum label size
         "caos-xs": "9.5px", //  label
         "caos-sm": "9.5px", //  label  (alias of xs)
         "caos-md": "10.5px", // body
