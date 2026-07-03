@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, Fragment } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
