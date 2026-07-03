@@ -61,6 +61,13 @@ body {
   color: var(--caos-text);
 }
 
+html,
+body,
+main#main-content {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 /* Monospaced numerics with aligned decimals (Blueprint §5.2) */
 .tabular {
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;

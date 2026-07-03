@@ -546,3 +546,51 @@ touched `GlobalIssuerSearch.tsx`, the SectorBoard hunk in `views.tsx`,
 ### Verdict
 **Clean pass on the current production-like local stack.** No blocked handoff items from
 this rerun. Existing unrelated WIP remains unstaged and was not reverted.
+
+---
+
+## Session 8 (2026-07-02) — realistic scenario streak, first failure
+
+Ran a five-case realistic Scenario Builder corpus through the offline translator. First
+failure was **BUG-009 — upside demand wording mapped as recession**:
+`pricing improves and demand recovery accelerates` produced `rev_growth_delta=-0.05`
+and `margin_delta=-0.02` because the deterministic mapper treated any `demand` token
+as weaker demand before checking recovery/upside context.
+
+### Fix
+- `server/scenario.py` now classifies demand recovery/improvement/acceleration as
+  upside before the generic demand downside rule and gives explicit positive-pricing
+  phrasing a modest margin lift.
+- Regression: `test_recovery_demand_is_not_treated_as_recession`.
+- Benchmark guard: `tests/perf/test_scenario_benchmark.py` keeps the realistic
+  deterministic corpus local and sub-100ms for 500 translations.
+
+Continuing the corpus found **BUG-010 — spread tightening signed as higher rates**:
+`spreads tighten 75bps after refinancing clears` produced `rate_delta=+0.0075`
+because the explicit-bps parser only treated cut/ease/lower/fall wording as negative.
+Fixed the sign rule for spread tightening and rate relief. Regression coverage was
+added to `test_explicit_bps_rate_move_signed`; the benchmark corpus now includes both
+spread tightening and rate relief cases.
+
+After the restart, the corpus reached 8 passes and found **BUG-011 — input-cost
+deflation was a no-op**: `raw material deflation lifts gross margin` raised
+`ScenarioError("no recognizable driver movement in the scenario")`. Fixed the
+deterministic mapper with the upside counterpart to the existing input-cost inflation
+rule. Regression: `test_input_cost_deflation_lifts_margin`; benchmark corpus includes
+the deflation phrase.
+
+After the next restart, the corpus reached 10 passes and found **BUG-012 — capex
+bps cuts were parsed as rate cuts plus capex increases**:
+`management cuts capex by 150bps to preserve liquidity` produced
+`rate_delta=-0.015` and `capex_delta=+0.02`. Fixed the explicit-bps parser to route
+clear capex-bps and margin-bps phrases to those drivers instead of always rates, and
+to avoid generic double-counting. Regression coverage now pins capex cuts and margin
+compression bps; benchmark corpus includes both.
+
+After the next restart, the corpus reached 11 passes and found **BUG-013 — volume
+recovery with pricing power mapped as cost inflation plus weak demand**:
+`volume recovery with pricing power` tripped both the generic `volume` downside rule
+and the `power` input-cost rule. Fixed volume to follow the same upside-context gate
+as demand and excluded `pricing power` from utility/input-cost matching. Regression:
+`test_volume_recovery_with_pricing_power_is_upside`; benchmark corpus includes the
+phrase.
