@@ -51,6 +51,7 @@ test.describe("Settings", () => {
 
     // Same browser context → localStorage carries the standing lens to Research.
     await page.goto("/research/");
+    await page.getByRole("button", { name: "Advanced brief" }).click();
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 });

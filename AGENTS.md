@@ -28,6 +28,12 @@ downstream) or crashing on a zero denominator. `is_finite_number` rejects
 `0` (e.g. `ebitda * (1 - pct)` when `pct → 1`) — return `None`/degrade rather than
 divide. This pattern recurs across CP-2B/2E/2F/3B/3D and the Altman score.
 
+## Red-team decision gate
+
+Before committing to an architecture, interface, or rollout plan, record a
+critic pass in [.agent-reviews/redteam.md](.agent-reviews/redteam.md). Fix and
+verify each high-impact objection, or document why the risk is accepted.
+
 ## Design Context
 
 ### Users
