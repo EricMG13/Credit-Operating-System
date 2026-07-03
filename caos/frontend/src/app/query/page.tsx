@@ -212,10 +212,16 @@ function QueryWorkspace() {
 
   const acceptLink = useCallback((edge: OverlayEdge) => {
     if (!activeId) return;
+    // Resolve edge endpoints to their node labels for the toast — a raw UUID
+    // pair ("33333333-… ⇢ a71f0000-…") is unreadable at the desk. Fall back to
+    // the id only if the current graph has no label for it.
+    const labelOf = new Map((graph?.nodes ?? []).map((n) => [n.id, n.label]));
+    const src = labelOf.get(edge.source) ?? edge.source;
+    const tgt = labelOf.get(edge.target) ?? edge.target;
     acceptQueryLink(edge, activeId, overlay?.model ?? null)
       .then((l) => {
         setAcceptedPairs((prev) => new Map(prev).set(pairKey(l.issuer_a, l.issuer_b), l.id));
-        notify("Link ratified", `${edge.source} ⇢ ${edge.target} is now stored graph data`);
+        notify("Link ratified", `${src} ⇢ ${tgt} is now stored graph data`);
         refreshGraph();
       })
       .catch((e) => {
@@ -223,7 +229,7 @@ function QueryWorkspace() {
           || (e as Error)?.message || "could not accept link";
         notify("Accept failed", String(d));
       });
-  }, [activeId, overlay, notify, refreshGraph]);
+  }, [activeId, overlay, notify, refreshGraph, graph]);
 
   const retractLink = useCallback((linkId: string) => {
     retractQueryLink(linkId)
@@ -291,7 +297,15 @@ function QueryWorkspace() {
     const best = scored[0].c;
     if (best.enabled) {
       addToHistory(text, best.id, best.label);
-      run(best.id, best.mode, true); // clears note/suggest for the new run
+      // Carry the analyst's question into the theme walk so a keyword-routed
+      // theme match answers what they asked — not the default energy theme.
+      if (best.id === "shared-theme") {
+        const t = themeFromQuery(text.trim());
+        setTheme(t);
+        run(best.id, best.mode, true, t); // clears note/suggest for the new run
+      } else {
+        run(best.id, best.mode, true); // clears note/suggest for the new run
+      }
       // A matched fallback is a neutral result, not a warning; a bare keyword
       // hit leaves the note cleared as before. Set AFTER run() so it survives.
       if (lead) {
@@ -335,7 +349,10 @@ function QueryWorkspace() {
         if (seq !== routeSeq.current) return; // cancelled / superseded
         setRouting(false);
         if (r.candidates.length === 0) {
-          keywordSubmit();
+          // Non-silent: the router found no candidate, so we degrade to the
+          // deterministic keyword match — say so (info, not a warning) so the
+          // analyst sees why the walk was chosen rather than a silent swap.
+          keywordSubmit("No model match —");
           return;
         }
         const top = r.candidates.find((c) => c.enabled) ?? r.candidates[0];

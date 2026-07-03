@@ -13,6 +13,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
+import { nativeView } from "@/lib/query/views";
 
 interface QueryPrintSheetProps {
   graph: GraphResult;
@@ -33,6 +34,151 @@ const INK = "#1a1a1a";
 const MUTED = "#5a5a5a";
 const RULE = "#c9c4b5";
 const PAPER = "#faf8f2";
+
+// Ink-on-cream chart palette for the static print exhibit — deliberately NOT the
+// dark-app tokens. Dark ink for node strokes/labels, muted grey for edges, a very
+// light fill so the paper shows through. A filed document, not a lit terminal.
+const CHART_INK = "#16161e";
+const CHART_EDGE = "#5c5c66";
+const CHART_FILL = "#efece2";
+
+// Print-exhibit geometry — same normalized layout the interactive canvases use
+// (W×H, PAD), so node positions read identically; PAD is a touch tighter (70) to
+// leave room for the un-truncated ink labels.
+const CW = 1000;
+const CH = 600;
+const CPAD = 70;
+
+// The walk's native view (mirrors lib/query/views.ts). Only graph- and
+// scatter-native walks get a chart exhibit; list-native walks (peer-set,
+// concentration-map, analyst-memos) are already served by the answer table.
+const capLabel = (capabilityId: string): string =>
+  capabilityId.replace(/-(map|graph)$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+// A static, print-appropriate node-link SVG. No d3, no zoom refs, no Reset-View
+// chrome — a fit-to-content exhibit fixed on the paper. Nodes carry their FULL
+// label in ink (wrapped, never 18-char clipped like the live canvas). Returns
+// null when there is nothing to draw, so the caller can fall back to the table.
+function PrintChart({ graph }: { graph: GraphResult }): React.ReactElement | null {
+  if (graph.nodes.length === 0) return null;
+
+  const px = (x: number) => CPAD + x * (CW - 2 * CPAD);
+  const py = (y: number) => CPAD + y * (CH - 2 * CPAD);
+
+  // Fit the node bounding box into the viewBox with a margin, so a sparse walk
+  // (a few nodes in one corner) fills the exhibit rather than floating. Mirrors
+  // the canvases' fit math, expressed as a plain SVG transform (no d3 identity).
+  const xs = graph.nodes.map((n) => px(n.x));
+  const ys = graph.nodes.map((n) => py(n.y));
+  const M = 120; // room for un-truncated labels above/beside nodes
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const bw = Math.max(...xs) - minX;
+  const bh = Math.max(...ys) - minY;
+  const k = Math.max(0.3, Math.min(1.5, (CW - 2 * M) / Math.max(bw, 1), (CH - 2 * M) / Math.max(bh, 1)));
+  const cx0 = (Math.max(...xs) + minX) / 2;
+  const cy0 = (Math.max(...ys) + minY) / 2;
+  const tx = CW / 2 - k * cx0;
+  const ty = CH / 2 - k * cy0;
+
+  const byId: Record<string, GraphNode> = {};
+  for (const n of graph.nodes) byId[n.id] = n;
+
+  // Wrap a full label onto up to two lines at the space nearest the midpoint —
+  // no clipping (this is a filed exhibit). A single overlong word stays one line.
+  const wrap = (s: string, budget = 22): string[] => {
+    if (s.length <= budget) return [s];
+    const mid = s.length / 2;
+    let best = -1;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === " " && (best === -1 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+    }
+    if (best === -1) return [s];
+    return [s.slice(0, best), s.slice(best + 1)];
+  };
+
+  return (
+    <svg
+      viewBox={`0 0 ${CW} ${CH}`}
+      style={{ width: "100%", height: "auto", display: "block" }}
+      role="img"
+      aria-label={`Exhibit: ${graph.title}`}
+    >
+      <g transform={`translate(${tx}, ${ty}) scale(${k})`}>
+        {/* edges — muted grey lines a→b, with any edge label ("#1") in ink */}
+        {graph.edges.map((e, i) => {
+          const a = byId[e.source];
+          const b = byId[e.target];
+          if (!a || !b) return null;
+          const ax = px(a.x);
+          const ay = py(a.y);
+          const bx = px(b.x);
+          const by = py(b.y);
+          return (
+            <g key={`e-${i}`}>
+              <line x1={ax} y1={ay} x2={bx} y2={by} stroke={CHART_EDGE} strokeWidth={1.2} />
+              {e.label && (
+                <text
+                  x={(ax + bx) / 2}
+                  y={(ay + by) / 2 - 3}
+                  textAnchor="middle"
+                  fill={CHART_EDGE}
+                  fontSize="9px"
+                  fontFamily='"JetBrains Mono", monospace'
+                >
+                  {e.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* nodes — issuers/center as circles, everything else as a small rect;
+            light fill, ink stroke, full ink label wrapped beneath. */}
+        {graph.nodes.map((n) => {
+          const cx = px(n.x);
+          const cy = py(n.y);
+          const isCircle = n.kind === "issuer" || n.kind === "center";
+          const isCenter = n.kind === "center" || n.center;
+          const r = isCenter ? 13 : 8;
+          const lines = wrap(n.label);
+          return (
+            <g key={n.id}>
+              {isCircle ? (
+                <circle cx={cx} cy={cy} r={r} fill={CHART_FILL} stroke={CHART_INK} strokeWidth={isCenter ? 2.2 : 1.4} />
+              ) : (
+                <rect
+                  x={cx - r}
+                  y={cy - r}
+                  width={r * 2}
+                  height={r * 2}
+                  rx={2}
+                  fill={CHART_FILL}
+                  stroke={CHART_INK}
+                  strokeWidth={1.4}
+                />
+              )}
+              {lines.map((ln, li) => (
+                <text
+                  key={li}
+                  x={cx}
+                  y={cy + r + 12 + li * 12}
+                  textAnchor="middle"
+                  fill={CHART_INK}
+                  fontSize="11px"
+                  fontWeight={isCenter ? 700 : 400}
+                  fontFamily='Inter, "Helvetica Neue", Arial, sans-serif'
+                >
+                  {ln}
+                </text>
+              ))}
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
 
 export function QueryPrintSheet({ graph, question, engineNote, synthesis }: QueryPrintSheetProps) {
   const [mounted, setMounted] = useState(false);
@@ -107,7 +253,7 @@ export function QueryPrintSheet({ graph, question, engineNote, synthesis }: Quer
       >
         <span style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "0.12em" }}>CAOS · QUERY</span>
         <span style={{ fontSize: "9px", letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED }}>
-          {graph.mode} · committee exhibit
+          {capLabel(graph.capability_id)} · committee exhibit
         </span>
       </div>
 
@@ -172,6 +318,32 @@ export function QueryPrintSheet({ graph, question, engineNote, synthesis }: Quer
           </ul>
         </div>
       )}
+
+      {/* exhibit chart — only for graph/scatter-native walks (list-native walks
+          are already served by the answer table below). Guarded: empty nodes →
+          no SVG. The chart accompanies, never replaces, the table. */}
+      {(() => {
+        const view = nativeView(graph.capability_id, graph.mode);
+        if (view !== "graph" && view !== "scatter") return null;
+        if (graph.nodes.length === 0) return null;
+        return (
+          <div style={{ marginBottom: "16px" }}>
+            <div
+              style={{
+                fontFamily: '"JetBrains Mono", monospace',
+                fontSize: "8px",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: MUTED,
+                marginBottom: "6px",
+              }}
+            >
+              Exhibit
+            </div>
+            <PrintChart graph={graph} />
+          </div>
+        );
+      })()}
 
       {/* answer table */}
       {graph.nodes.length > 0 && (

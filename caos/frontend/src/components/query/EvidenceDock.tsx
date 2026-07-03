@@ -84,6 +84,11 @@ function ModelCommentary({
   const issuerIds = new Set(
     (graph?.nodes ?? []).filter((n) => n.kind === "issuer" || n.kind === "center").map((n) => n.id)
   );
+  // The analyst ratifies by name, not by raw UUID — resolve endpoint ids to
+  // their node labels. A node id can drop out (run-scoped nodes vary across
+  // runs), so fall back to a short slug rather than leak the full UUID.
+  const labelOf = new Map((graph?.nodes ?? []).map((n) => [n.id, n.label]));
+  const resolveId = (id: string) => labelOf.get(id) ?? id.slice(0, 8);
   return (
     <div className="p-4 pt-0 flex flex-col gap-3 print:hidden" data-testid="model-commentary">
       <div className="border-t border-caos-border pt-3">
@@ -118,7 +123,7 @@ function ModelCommentary({
               return (
                 <li key={i} className="text-caos-2xs font-mono leading-normal border border-caos-border rounded p-2 bg-caos-bg/50">
                   <div className="text-caos-text">
-                    {e.source} ⇢ {e.target}
+                    <span title={e.source}>{resolveId(e.source)}</span> ⇢ <span title={e.target}>{resolveId(e.target)}</span>
                     <span className="text-caos-muted"> · {e.confidence}</span>
                   </div>
                   {e.rationale && <div className="text-caos-muted mt-0.5 font-sans text-caos-xs">{e.rationale}</div>}
