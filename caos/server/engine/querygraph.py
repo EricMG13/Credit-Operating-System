@@ -5,12 +5,15 @@ Where the NL query ([nlquery.py]) *flattens* the store and ranks a column, Query
 (provenance chains, the module DAG, issuer↔issuer peer links, sector clusters)
 and returns a positioned node-link graph the frontend renders directly.
 
-Four builders cover the whole capability surface via params:
+Five builders cover the whole capability surface via params:
 
   - ``_peers``         — issuer↔issuer similarity over the metric store (CP-1C math,
                          computed live so it works on seed data before any run).
-  - ``_contagion``     — a shared-driver overlay: issuers linked to one risk driver
-                         via ``energy_cost_pct`` + BM25 corpus overlap.
+  - ``_contagion``     — the *energy* shock overlay: issuers linked to the energy
+                         driver via ``energy_cost_pct`` + BM25 corpus overlap.
+  - ``_shared_theme``  — a generic risk-theme overlay: issuers whose filings/memos
+                         co-mention an analyst-supplied ``theme`` (BM25 corpus only,
+                         no fact anchor — so any theme works, not just energy).
   - ``_concentration`` — clustered views (sector/country, provenance split, scatter,
                          percentile, coverage, committee/gate rollups).
   - ``_provenance``    — layered DAGs over one run's modules → claims → evidence →
@@ -36,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import (
     Claim,
+    Document,
     DocumentChunk,
     EvidenceItem,
     Issuer,
@@ -373,6 +377,62 @@ async def _contagion(session: AsyncSession, theme: Optional[str], cap: dict) -> 
     cav = ["Shared-driver links corroborate (energy_cost_pct + BM25 corpus overlap) — "
            "not a modeled correlation."]
     return _result(cap, "Energy-shock contagion", nodes, edges, meta, cav)
+
+
+# ── Builder: shared theme (generic corpus co-mention overlay) ────────────────
+async def _shared_theme(session: AsyncSession, theme: Optional[str], cap: dict) -> dict:
+    """Issuers whose filings/memos co-mention an analyst-supplied ``theme``.
+
+    Unlike ``_contagion`` (anchored on the ``energy_cost_pct`` fact + threshold),
+    this overlay is anchored purely on BM25 corpus overlap, so *any* risk theme
+    works — 'tariff exposure', 'refinancing wall', 'FX translation' — not just
+    energy. Members are the distinct issuers with a corpus hit; the rest of the
+    documented universe sits below as dim, un-linked context so the synthesis
+    denominator reflects coverage, not just the matched set."""
+    theme = (theme or "").strip()
+    if not theme:
+        return _empty(cap, "Shared-theme overlay",
+                      "Supply a risk theme to overlay (e.g. 'tariff exposure', 'refinancing wall').")
+
+    hits = await retrieve_corpus(session, theme, k=24)
+    member_ids: List[str] = []
+    seen = set()
+    for h in hits:  # distinct issuers, best-BM25 order preserved
+        if h.issuer_id not in seen:
+            seen.add(h.issuer_id)
+            member_ids.append(h.issuer_id)
+    member_ids = member_ids[:12]  # keep the canvas legible
+    if not member_ids:
+        return _empty(cap, "Shared-theme overlay",
+                      f"No issuer in the corpus co-mentions “{_clip(theme, 60)}”.")
+
+    # Documented universe = issuers with any source doc (only they *can* co-mention).
+    # ponytail: dim "others" unbounded; fine for the Phase-1 loans universe (dozens).
+    # Cap + "+N more" summary node if the documented set ever reaches the hundreds.
+    doc_ids = set((await session.execute(select(Document.issuer_id).distinct())).scalars())
+    all_ids = list(dict.fromkeys(member_ids + [i for i in doc_ids if i not in seen]))
+    issuers = {i.id: i for i in (await session.execute(
+        select(Issuer).where(Issuer.id.in_(all_ids)))).scalars()}
+    member_ids = [i for i in member_ids if i in issuers]
+    other_ids = [i for i in doc_ids if i not in seen and i in issuers]
+
+    driver = "theme"
+    nodes = [_node(driver, _clip(theme, 40), "driver", 0.5, 0.12)]
+    edges: List[dict] = []
+    for iid, (x, y) in zip(member_ids, _spread(len(member_ids), y=0.45, x0=0.16, x1=0.84)):
+        iss = issuers[iid]
+        nodes.append(_node(iid, iss.name, "issuer", x, y, group=iss.industry,
+                           exposed=True, sub="corpus co-mention"))
+        edges.append(_edge(driver, iid, kind="driver"))
+    for iid, (x, y) in zip(other_ids, _spread(len(other_ids), y=0.85, x0=0.16, x1=0.84)):
+        nodes.append(_node(iid, issuers[iid].name, "issuer", x, y, dim=True, sub="no co-mention"))
+
+    denom = len(member_ids) + len(other_ids)
+    meta = [f"{len(member_ids)} of {denom} documented issuers co-mention the theme",
+            f"theme: “{_clip(theme, 60)}”"]
+    cav = ["Membership = BM25 corpus co-mention of the theme terms across filings / "
+           "analyst memos — a shared-language overlay, not a modeled correlation."]
+    return _result(cap, f"Shared theme — {_clip(theme, 40)}", nodes, edges, meta, cav)
 
 
 def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[float, float]]:
@@ -1106,7 +1166,13 @@ async def build_graph(session: AsyncSession, capability_id: str,
     if mode == "peers":
         graph = await _peers(session, issuer_id, cap)
     elif mode == "contagion":
-        graph = await _contagion(session, cap["params"].get("theme"), cap)
+        # Two overlays share the render mode but not the anchor: shared-theme is
+        # a generic corpus co-mention driven by the analyst's ``theme``; contagion
+        # stays the energy-fact overlay and ignores any supplied theme.
+        if capability_id == "shared-theme":
+            graph = await _shared_theme(session, theme or cap["params"].get("theme"), cap)
+        else:
+            graph = await _contagion(session, cap["params"].get("theme"), cap)
     elif mode == "concentration":
         graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
     elif mode == "provenance":
@@ -1161,4 +1227,4 @@ if __name__ == "__main__":  # ponytail: DB-free self-check over the pure logic
     assert _clip("x" * 200).endswith("…") and len(_clip("x" * 200)) <= 90
 
     print("querygraph self-check OK —", len(ids), "capabilities,",
-          len({c['mode'] for c in CAP_BY_ID.values()}), "builders")
+          len({c['mode'] for c in CAP_BY_ID.values()}), "render modes")
