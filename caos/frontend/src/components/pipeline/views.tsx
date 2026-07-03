@@ -395,8 +395,8 @@ export function LineagePanel({
             </span>
           </button>
           {d.evs.length ? (
-            // pt-1 / gap-y-2: keeps ≥24px touch-target spacing (WCAG 2.5.8) between
-            // the compact chips and the driver button above / wrapped chip rows.
+            // Each EvChip is itself a ≥24×24 target (WCAG 2.5.8) — size, not
+            // spacing, carries the requirement here.
             <div className="px-3 pb-2 pt-1 flex flex-wrap items-center gap-x-1 gap-y-2">
               <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">sources</span>
               {d.evs.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}

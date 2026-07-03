@@ -338,7 +338,7 @@ function ReportStudio() {
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
-            {rep ? <div style={{ zoom }}>
+            {rep ? <div style={{ zoom, "--rd-zoom": zoom } as React.CSSProperties}>
               <ReportDoc
                 rep={rep}
                 omit={repOmit}
