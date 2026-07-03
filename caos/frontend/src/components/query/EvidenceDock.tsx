@@ -257,7 +257,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         <CloseButton onClick={onClear} title="Clear selection" />
       </div>
 
-      <div className="flex-1 flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-3 p-4">
         {node.sub && (
           <div>
             <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description</div>
@@ -284,7 +284,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
-          {node.group && (
+          {node.group && node.group !== node.sub && (
             <span className="tabular text-caos-2xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5">
               {node.group}
             </span>

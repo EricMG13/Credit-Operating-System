@@ -516,9 +516,19 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
         for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
             nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name, compact=True))
             edges.append(_edge(gid, iss.id, kind="member"))
-    top = ordered[0]
-    meta = [f"{total} analyzed issuers", f"{len(ordered)} {field} groups",
-            f"{top[0]} = {round(100 * len(top[1]) / total)}% (largest)"]
+    # Only claim a single "largest" cluster when there is a strict maximum. On a
+    # tie (e.g. four one-name sectors all at 25%) naming one "largest" is a false
+    # superlative — mirror the client synthesis line and report the tie honestly.
+    top_len = len(ordered[0][1])
+    top_pct = round(100 * top_len / total)
+    n_top = sum(1 for _, m in ordered if len(m) == top_len)
+    if n_top == len(ordered):
+        conc = f"evenly split — {top_pct}% each"
+    elif n_top == 1:
+        conc = f"{ordered[0][0]} = {top_pct}% (largest)"
+    else:
+        conc = f"{n_top} groups tied at {top_pct}%"
+    meta = [f"{total} analyzed issuers", f"{len(ordered)} {field} groups", conc]
     cav = [f"Covered issuers only (≥1 fact or run). Grouped by {field}; >30% flags concentration."]
     return _result(cap, f"Concentration by {field}", nodes, edges, meta, cav)
 

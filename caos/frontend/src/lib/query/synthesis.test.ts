@@ -81,4 +81,89 @@ describe("synthesize", () => {
     });
     expect(synthesize(g)).toBe("Open findings — 3 findings · 2 issuers.");
   });
+
+  it("concentration: no superlative on a 4-way tie, and calls it evenly split", () => {
+    const g = base({
+      mode: "concentration",
+      nodes: [
+        node("s1", "sector", { label: "Tech · 1" }), node("s2", "sector", { label: "Autos · 1" }),
+        node("s3", "sector", { label: "Energy · 1" }), node("s4", "sector", { label: "Retail · 1" }),
+        node("i1", "issuer"), node("i2", "issuer"), node("i3", "issuer"), node("i4", "issuer"),
+      ],
+      edges: [
+        { source: "s1", target: "i1", kind: "member" },
+        { source: "s2", target: "i2", kind: "member" },
+        { source: "s3", target: "i3", kind: "member" },
+        { source: "s4", target: "i4", kind: "member" },
+      ],
+    });
+    expect(synthesize(g)).toBe("Coverage splits into 4 clusters — evenly split.");
+  });
+
+  it("concentration: strips the '· N' label suffix from the named cluster", () => {
+    const g = base({
+      mode: "concentration",
+      nodes: [
+        node("s1", "sector", { label: "Industrials · 2" }), node("s2", "sector", { label: "Autos · 1" }),
+        node("i1", "issuer"), node("i2", "issuer"), node("i3", "issuer"),
+      ],
+      edges: [
+        { source: "s1", target: "i1", kind: "member" },
+        { source: "s1", target: "i2", kind: "member" },
+        { source: "s2", target: "i3", kind: "member" },
+      ],
+    });
+    expect(synthesize(g)).toBe("Coverage splits into 2 clusters; the largest is Industrials with 2 names.");
+  });
+
+  it("concentration: ignores a hub↔sector edge so a lone member isn't inflated (wiki walk)", () => {
+    const g = base({
+      capability_id: "wiki-links",
+      mode: "concentration",
+      nodes: [
+        node("wiki:center", "center"),
+        node("s1", "sector", { label: "Technology" }), node("s2", "sector", { label: "Industrials" }),
+        node("i1", "issuer"), node("i2", "issuer"),
+      ],
+      edges: [
+        { source: "wiki:center", target: "s1", kind: "member" },
+        { source: "wiki:center", target: "s2", kind: "member" },
+        { source: "s1", target: "i1", kind: "member" },
+        { source: "s2", target: "i2", kind: "member" },
+      ],
+    });
+    // Each real sector has exactly 1 issuer → a tie → neutral, not a false "· 1" superlative.
+    expect(synthesize(g)).toBe("Coverage splits into 2 clusters — evenly split.");
+  });
+
+  it("analyst-memos: honest count sentence, no repeated name or '0 custom' noise", () => {
+    const withMemos = base({
+      capability_id: "analyst-memos", mode: "provenance",
+      title: "Analyst memos for Acme",
+      nodes: [
+        node("acme", "center", { label: "Acme" }),
+        node("m1", "claim"), node("m2", "claim"),
+      ],
+      meta: ["focus: Acme", "2 custom memos"],
+    });
+    expect(synthesize(withMemos)).toBe("2 analyst memos linked to Acme across the vault.");
+
+    const noMemos = base({
+      capability_id: "analyst-memos", mode: "provenance",
+      title: "Analyst memos for Acme",
+      nodes: [node("acme", "center", { label: "Acme" })],
+      meta: ["focus: Acme", "0 custom analyst memos"],
+    });
+    expect(synthesize(noMemos)).toBe("0 analyst memos linked to Acme across the vault.");
+  });
+
+  it("scatter: leads with the axis sentence derived from meta, no superlative", () => {
+    const g = base({
+      capability_id: "scatter", mode: "concentration",
+      title: "Leverage × coverage",
+      nodes: [node("i1", "issuer"), node("i2", "issuer"), node("i3", "issuer")],
+      meta: ["x = net leverage →", "y = interest coverage ↑", "3 issuers"],
+    });
+    expect(synthesize(g)).toBe("3 issuers positioned by net leverage × interest coverage.");
+  });
 });

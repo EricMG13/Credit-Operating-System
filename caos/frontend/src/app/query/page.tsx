@@ -9,7 +9,7 @@
 // run; a permanent evidence dock keeps every conclusion one click from its
 // grounding (slide-over below lg so selection is never a silent no-op).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { QuestionRail } from "@/components/query/QuestionRail";
@@ -20,6 +20,7 @@ import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
 import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { QueryPrintSheet } from "@/components/query/QueryPrintSheet";
 import { useNotify } from "@/components/shared/Notifications";
 import { acceptQueryLink, listQueryLinks, queryCapabilities, queryGraph, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode, OverlayEdge, OverlayResult } from "@/lib/query/graph";
@@ -45,6 +46,17 @@ const PREFER = ["peer-set", "contagion", "concentration-map", "scatter", "trace-
 
 type HistoryEntry = { text: string; capId: string; capLabel: string };
 
+// Human-readable mode label for the answer-header chip — never surface the raw
+// engine enum ("CONCENTRATION" over a leverage scatter reads as jargon).
+const MODE_LABELS: Record<string, string> = {
+  peers: "Peer set",
+  contagion: "Contagion",
+  concentration: "Concentration",
+  provenance: "Provenance",
+};
+const modeLabel = (mode: string): string =>
+  MODE_LABELS[mode] ?? mode.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
 function QueryWorkspace() {
   const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
   const [capsErr, setCapsErr] = useState<string | null>(null);
@@ -56,6 +68,10 @@ function QueryWorkspace() {
   const [text, setText] = useState("");
   const [theme, setTheme] = useState(""); // free-text risk theme for the shared-theme walk
   const [note, setNote] = useState<string | null>(null);
+  // Note tone: Routed/Routing read as info (accent/muted, no "!"); only real
+  // misses and failures read as a warning.
+  const [noteKind, setNoteKind] = useState<"info" | "warn">("warn");
+  const [routing, setRouting] = useState(false); // in-flight LLM route (pulse + Cancel)
   const [suggest, setSuggest] = useState<Capability[]>([]);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -68,6 +84,7 @@ function QueryWorkspace() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const tablistRef = useRef<HTMLDivElement>(null);
   const notify = useNotify();
 
   useEffect(() => {
@@ -125,10 +142,16 @@ function QueryWorkspace() {
   }, []);
 
   const runSeq = useRef(0);
+  // Route sequence: a late resolve (or a Cancel) from a superseded in-flight
+  // route must never overwrite a newer run; picking a walk directly also
+  // supersedes any pending route.
+  const routeSeq = useRef(0);
   const run = useCallback((capId: string, capMode?: string, toast = false, themeArg?: string) => {
     // Ignore out-of-order results: a slow earlier queryGraph must not clobber a
     // newer one (graph/error/running guarded on the latest sequence).
     const seq = ++runSeq.current;
+    routeSeq.current++; // a direct run supersedes any in-flight route
+    setRouting(false);
     setActiveId(capId);
     setRunning(true);
     setGraphErr(null);
@@ -239,26 +262,46 @@ function QueryWorkspace() {
 
   // Keyword-route the free text to the best enabled walk; a miss or a greyed
   // best match surfaces the closest runnable walks as did-you-mean chips.
-  const keywordSubmit = useCallback(() => {
+  // `lead` prefixes the note when the deterministic path is a fallback (e.g. the
+  // model router was unavailable) so a 503 stays distinguishable from "no match".
+  const keywordSubmit = useCallback((lead?: string) => {
     const q = text.trim().toLowerCase();
     if (!q) return;
+    const prefix = lead ? `${lead} ` : "";
     const allCaps = caps?.groups.flatMap((g) => g.capabilities) ?? [];
     const scored = rankQueryCapabilities(q, allCaps);
     const runnable = scored.filter((x) => x.c.enabled).map((x) => x.c);
     if (scored.length === 0) {
-      setNote("No walk matched. Try one of these:");
+      setNoteKind("warn");
+      setNote(`${prefix}No walk matched. Try one of these:`);
       setSuggest(allCaps.filter((c) => c.enabled).slice(0, 4));
       return;
     }
     const best = scored[0].c;
     if (best.enabled) {
       addToHistory(text, best.id, best.label);
-      run(best.id, best.mode, true);
+      run(best.id, best.mode, true); // clears note/suggest for the new run
+      // A matched fallback is a neutral result, not a warning; a bare keyword
+      // hit leaves the note cleared as before. Set AFTER run() so it survives.
+      if (lead) {
+        setNoteKind("info");
+        setNote(`${lead} matched by keyword: ${best.label}`);
+      }
       return;
     }
-    setNote(`${best.label} — ${best.reason}. Runnable instead:`);
+    setNoteKind("warn");
+    setNote(`${prefix}${best.label} — ${best.reason}. Runnable instead:`);
     setSuggest(runnable.slice(0, 4));
   }, [text, caps, run, addToHistory]);
+
+  // Cancel abandons an in-flight route: bump the sequence so the pending
+  // .then()/.catch() short-circuits, and clear the pending note.
+  const cancelRoute = useCallback(() => {
+    routeSeq.current++;
+    setRouting(false);
+    setNote(null);
+    setSuggest([]);
+  }, []);
 
   // Loud routing: prefer the LLM router (reasons shown, alternatives offered),
   // degrade to the keyword router on empty candidates or any failure — routing
@@ -271,10 +314,15 @@ function QueryWorkspace() {
       keywordSubmit();
       return;
     }
+    const seq = ++routeSeq.current;
+    setRouting(true);
+    setNoteKind("info");
     setNote("Routing…");
     setSuggest([]);
     queryRoute(q)
       .then((r) => {
+        if (seq !== routeSeq.current) return; // cancelled / superseded
+        setRouting(false);
         if (r.candidates.length === 0) {
           keywordSubmit();
           return;
@@ -286,19 +334,51 @@ function QueryWorkspace() {
           .filter(Boolean) as Capability[];
         if (top.enabled) {
           addToHistory(q, top.id, top.label);
-          run(top.id, capById.get(top.id)?.mode, true);
+          // Carry the analyst's question into the theme walk so the answer
+          // matches what they asked — not the default energy theme.
+          if (top.id === "shared-theme") {
+            const t = q.slice(0, 200);
+            setTheme(t);
+            run(top.id, capById.get(top.id)?.mode, true, t);
+          } else {
+            run(top.id, capById.get(top.id)?.mode, true);
+          }
+          setNoteKind("info");
           setNote(`Routed: ${top.reason || top.label}${restCaps.length ? " · also:" : ""}`);
           setSuggest(restCaps);
         } else {
+          setNoteKind("warn");
           setNote(`${top.label} — ${capById.get(top.id)?.reason ?? "unavailable"}. Runnable instead:`);
           setSuggest(restCaps.filter((c) => c.enabled));
         }
       })
-      .catch(() => keywordSubmit());
+      .catch(() => {
+        if (seq !== routeSeq.current) return; // cancelled / superseded
+        setRouting(false);
+        // Distinguish a model-lane failure (503) from "no match": say so, then
+        // fall back to the deterministic keyword router.
+        keywordSubmit("Model router unavailable —");
+      });
   }, [text, caps, capById, keywordSubmit, run, addToHistory]);
 
-  const views = graph ? viewsFor(graph.capability_id, graph.mode) : [];
+  const views = useMemo(() => (graph ? viewsFor(graph.capability_id, graph.mode) : []), [graph]);
   const activeView = graph ? coerceView(view, graph.capability_id, graph.mode) : view;
+
+  // Roving arrow-key nav across the view tabs (ArrowLeft/Right, Home/End) — a
+  // WAI-ARIA tablist must be operable without a mouse.
+  const onTabKeyDown = useCallback((e: KeyboardEvent) => {
+    const keys = ["ArrowLeft", "ArrowRight", "Home", "End"];
+    if (!keys.includes(e.key) || views.length === 0) return;
+    e.preventDefault();
+    const i = Math.max(0, views.indexOf(activeView));
+    const next =
+      e.key === "Home" ? 0
+      : e.key === "End" ? views.length - 1
+      : e.key === "ArrowLeft" ? (i - 1 + views.length) % views.length
+      : (i + 1) % views.length;
+    setView(views[next]);
+    (tablistRef.current?.children[next] as HTMLElement | undefined)?.focus();
+  }, [views, activeView]);
 
   // A ratified proposal is drawn solid by the deterministic graph — hide its
   // dashed twin (a stale cached overlay can still contain the pair).
@@ -327,7 +407,8 @@ function QueryWorkspace() {
             }}
           />
           <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
-          {activeCap && <MetricPill label="active" value={questionFor(activeCap)} />}
+          {/* The active question already leads the answer header below — no need
+              to triplicate it here. */}
           {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">walking graph</span>}
         </div>
       </PageSubHeader>
@@ -418,38 +499,56 @@ function QueryWorkspace() {
               </div>
             )}
 
-            {note && (
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <span className="tabular text-caos-sm text-caos-warning flex items-center gap-1">
-                  <span aria-hidden>!</span>
-                  {note}
+            {/* aria-live so screen readers announce Routing…/Routed/misses as
+                they arrive; a routed/routing note reads neutral (accent/muted),
+                only real misses and failures read as a warning. */}
+            <div role="status" aria-live="polite" className={note ? "mt-2 flex items-center gap-2 flex-wrap" : "sr-only"}>
+              {note && (
+                <span className={`tabular text-caos-sm flex items-center gap-1 ${noteKind === "warn" ? "text-caos-warning" : "text-caos-muted"}`}>
+                  {noteKind === "warn" ? (
+                    <span aria-hidden>!</span>
+                  ) : routing ? (
+                    <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-caos-accent caos-running" />
+                  ) : null}
+                  <span className={noteKind === "warn" ? "" : "text-caos-text"}>{note}</span>
                 </span>
-                {suggest.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => pick(c.id)}
-                    className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            )}
+              )}
+              {routing && (
+                <button
+                  type="button"
+                  onClick={cancelRoute}
+                  className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+                >
+                  Cancel
+                </button>
+              )}
+              {suggest.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => pick(c.id)}
+                  className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+                >
+                  {questionFor(c)}
+                </button>
+              ))}
+            </div>
           </section>
 
           {graph && (
             <div className="shrink-0 px-4 py-3 border-b border-caos-border bg-caos-panel">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
-                  {graph.mode}
-                </span>
+                {/* The question is the lead; the mode is a small human-readable
+                    tag (never the raw engine enum) after it. */}
                 {activeCap && (
-                  <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{questionFor(activeCap)}</span>
+                  <span className="tabular text-caos-sm text-caos-text font-medium">{questionFor(activeCap)}</span>
                 )}
+                <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
+                  {modeLabel(graph.mode)}
+                </span>
                 {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running</span>}
               </div>
-              <h2 className="tabular text-caos-xl text-caos-text font-semibold mt-1 truncate">{graph.title}</h2>
+              <h2 className="tabular text-caos-xl text-caos-text font-semibold mt-1 truncate" title={graph.title}>{graph.title}</h2>
               <p className="text-caos-md text-caos-text font-sans leading-normal mt-1">{synthesize(graph)}</p>
               {activeId && (
                 <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1">{engineNote(activeId)}</div>
@@ -488,13 +587,14 @@ function QueryWorkspace() {
 
           {graph ? (
             <div className="shrink-0 flex items-center justify-between gap-2 px-4 py-2 border-b border-caos-border bg-caos-bg flex-wrap">
-              <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5" role="tablist" aria-label="Result view">
+              <div ref={tablistRef} className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5" role="tablist" aria-label="Result view" onKeyDown={onTabKeyDown}>
                 {views.map((v) => (
                   <button
                     key={v}
                     type="button"
                     role="tab"
                     aria-selected={activeView === v}
+                    tabIndex={activeView === v ? 0 : -1}
                     onClick={() => setView(v)}
                     className={`tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono ${
                       activeView === v
@@ -652,6 +752,17 @@ function QueryWorkspace() {
       )}
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
+
+      {/* Committee print exhibit (display:none until window.print()); the
+          PRINT/PDF button prints this light tear-sheet, not the dark app. */}
+      {graph && (
+        <QueryPrintSheet
+          graph={graph}
+          question={activeCap ? questionFor(activeCap) : graph.title}
+          engineNote={activeId ? engineNote(activeId) : ""}
+          synthesis={synthesize(graph)}
+        />
+      )}
     </div>
   );
 }

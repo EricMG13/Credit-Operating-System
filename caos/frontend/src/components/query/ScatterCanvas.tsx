@@ -32,28 +32,47 @@ export function ScatterCanvas({
   // Hovered node tracking for highlighting edges
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
+  // Fit the initial view to the node bounding box (as GraphCanvas does) — points
+  // clustered in one corner should fill the plot, not float in empty dark.
+  const fitTransform = useMemo(() => {
+    if (graph.nodes.length === 0) return zoomIdentity;
+    const xs = graph.nodes.map((n) => px(n.x));
+    const ys = graph.nodes.map((n) => py(n.y));
+    const M = 110; // labels render above nodes
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    const k = Math.max(0.3, Math.min(1.5, (W - 2 * M) / Math.max(bw, 1), (H - 2 * M) / Math.max(bh, 1)));
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return zoomIdentity.translate(W / 2 - k * cx, H / 2 - k * cy).scale(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
+
   // Setup D3 Zoom
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = select(svgRef.current);
-    
+
     const zoom = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 8])
       .on("zoom", (event) => {
         setTransform(event.transform);
       });
-      
+
     zoomBehaviorRef.current = zoom;
     svg.call(zoom);
-    svg.call(zoom.transform, zoomIdentity);
-  }, [graph]);
+    svg.call(zoom.transform, fitTransform);
+  }, [graph, fitTransform]);
 
+  // Reset to the fitted view. Honor prefers-reduced-motion (instant) and
+  // otherwise stay within the 160ms system rhythm.
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
+      const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       select(svgRef.current)
         .transition()
-        .duration(300)
-        .call(zoomBehaviorRef.current.transform, zoomIdentity);
+        .duration(reduce ? 0 : 180)
+        .call(zoomBehaviorRef.current.transform, fitTransform);
     }
   };
 
@@ -146,6 +165,23 @@ export function ScatterCanvas({
                 strokeWidth={1}
                 strokeDasharray="2 3"
               />
+            ))}
+          </g>
+
+          {/* Normalized tick labels (0 → 1) — honest for the normalized layout.
+              y increases downward, so the y-axis reads 1 at top → 0 at bottom.
+              Small mono muted, outside the plot; opacity full (grid is dimmed). */}
+          <g className="grid-ticks" fill="var(--caos-muted)" fontSize={10}
+            fontFamily="var(--font-mono)" opacity={0.75}>
+            {[0, 0.25, 0.5, 0.75, 1.0].map((v) => (
+              <text key={`tx-${v}`} x={px(v)} y={py(1) + 16} textAnchor="middle">
+                {v.toFixed(2)}
+              </text>
+            ))}
+            {[0, 0.25, 0.5, 0.75, 1.0].map((v) => (
+              <text key={`ty-${v}`} x={px(0) - 8} y={py(v) + 3.5} textAnchor="end">
+                {(1 - v).toFixed(2)}
+              </text>
             ))}
           </g>
 

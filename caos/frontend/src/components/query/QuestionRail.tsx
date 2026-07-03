@@ -119,11 +119,11 @@ export function QuestionRail({
                           key={c.id}
                           title={engineNote(c.id)}
                           aria-disabled="true"
-                          className="w-full px-2 py-1.5 rounded opacity-55 cursor-not-allowed"
+                          className="w-full px-2 py-1.5 rounded cursor-not-allowed"
                         >
                           <div className="flex items-center gap-2">
                             <StatusGlyph kind="idle" size={8} className="text-caos-muted shrink-0" />
-                            <span className="tabular text-caos-sm text-caos-muted leading-snug">{questionFor(c)}</span>
+                            <span className="tabular text-caos-sm text-caos-muted leading-snug opacity-60">{questionFor(c)}</span>
                           </div>
                           <div className="tabular text-caos-3xs text-caos-muted font-mono mt-0.5 pl-4 leading-snug">
                             {c.reason ?? "unavailable"}

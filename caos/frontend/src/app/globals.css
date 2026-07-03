@@ -164,10 +164,10 @@ body {
 }
 
 /* Dense app tables: even cells, centered values. Paper deliverables keep rd-* rules. */
-main table:not(.rd-table) {
+main table:not(.rd-table):not(.rv-table) {
   border-spacing: 0;
 }
-main table:not(.rd-table) :is(th, td) {
+main table:not(.rd-table):not(.rv-table) :is(th, td) {
   text-align: center;
   padding-left: 0.625rem;
   padding-right: 0.625rem;

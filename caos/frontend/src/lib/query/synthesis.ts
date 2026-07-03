@@ -8,8 +8,20 @@ import type { GraphResult, GraphNode } from "@/lib/query/graph";
 const fallback = (g: GraphResult) =>
   g.meta.length ? `${g.title} — ${g.meta.join(" · ")}.` : `${g.title}.`;
 
+// Cluster pills ship their size as a "· N" label suffix (e.g. "Industrials · 3").
+// That decoration must never leak into a sentence — it reads as part of the name
+// and, worse, doubles as a count the sentence claims to have derived itself.
+const stripCount = (label: string): string => label.replace(/\s*·\s*\d+\s*$/, "");
+
 export function synthesize(g: GraphResult): string {
   if (g.nodes.length === 0) return g.meta[0] || g.title;
+  // Capability-aware branches first: a few walks share a mode but carry a
+  // different node vocabulary (memos are documents, not claims; scatter has no
+  // clusters), so the generic mode template would misread them.
+  switch (g.capability_id) {
+    case "analyst-memos": return memos(g);
+    case "scatter": return scatter(g);
+  }
   switch (g.mode) {
     case "peers": return peers(g);
     case "contagion": return contagion(g);
@@ -43,17 +55,35 @@ function contagion(g: GraphResult): string {
 function concentration(g: GraphResult): string {
   const sectors = g.nodes.filter((n) => n.kind === "sector");
   if (sectors.length === 0) return fallback(g);
-  const members = new Map<string, number>();
+  const sectorIds = new Set(sectors.map((s) => s.id));
+  const byId = new Map(g.nodes.map((n) => [n.id, n]));
+  // Count only genuine issuer members of each sector: a "member" edge whose one
+  // endpoint is a sector and whose *other* endpoint is an issuer node. This
+  // excludes hub↔sector edges (the wiki walk hangs sectors off a "center"), which
+  // otherwise inflated every cluster by one; the sector's own "· N" label suffix
+  // is likewise never read as a count.
+  const members = new Map<string, number>(sectors.map((s) => [s.id, 0]));
   for (const e of g.edges) {
     if (e.kind !== "member") continue;
-    for (const end of [e.source, e.target]) {
-      if (sectors.some((s) => s.id === end)) members.set(end, (members.get(end) ?? 0) + 1);
-    }
+    const s = sectorIds.has(e.source) ? e.source : sectorIds.has(e.target) ? e.target : null;
+    if (!s) continue;
+    const other = byId.get(s === e.source ? e.target : e.source);
+    if (other?.kind === "issuer") members.set(s, (members.get(s) ?? 0) + 1);
   }
-  const top = [...sectors].sort((a, b) => (members.get(b.id) ?? 0) - (members.get(a.id) ?? 0))[0];
-  const n = members.get(top.id) ?? 0;
-  if (!n) return `Coverage splits into ${sectors.length} clusters.`;
-  return `Coverage splits into ${sectors.length} clusters; the largest is ${top.label} with ${n} ${n === 1 ? "name" : "names"}.`;
+  const counts = sectors.map((s) => members.get(s.id) ?? 0);
+  const max = Math.max(...counts);
+  const clusters = `Coverage splits into ${sectors.length} ${sectors.length === 1 ? "cluster" : "clusters"}`;
+  // A superlative is only honest with a strict maximum (no tie for first) and a
+  // grounded count. On a tie or an ungrounded count, stay neutral — and call an
+  // even split what it is.
+  if (max === 0) return `${clusters}.`;
+  const leaders = sectors.filter((s) => (members.get(s.id) ?? 0) === max);
+  if (leaders.length > 1) {
+    const even = counts.every((c) => c === max);
+    return `${clusters}${even ? " — evenly split" : ""}.`;
+  }
+  const top = stripCount(leaders[0].label);
+  return `${clusters}; the largest is ${top} with ${max} ${max === 1 ? "name" : "names"}.`;
 }
 
 function provenance(g: GraphResult): string {
@@ -65,4 +95,31 @@ function provenance(g: GraphResult): string {
   if (!claims || !modules) return fallback(g);
   const tail = flagged ? `; ${flagged} flagged weak` : "";
   return `${claims} ${claims === 1 ? "claim" : "claims"} traced through ${modules} ${modules === 1 ? "module" : "modules"} to ${sources} ${sources === 1 ? "source" : "sources"}${tail}.`;
+}
+
+// Analyst memos ride the provenance mode but are documents linked to one focus
+// issuer, not claims through modules — so count the memos honestly against the
+// focus rather than falling through to the (name-repeating) meta join.
+function memos(g: GraphResult): string {
+  const focus = g.nodes.find((n) => n.kind === "center" || n.center);
+  const n = g.nodes.filter((n) => n.kind === "claim").length;
+  if (!focus) return fallback(g);
+  return `${n} analyst ${n === 1 ? "memo" : "memos"} linked to ${focus.label} across the vault.`;
+}
+
+// Scatter positions issuers on two metric axes — there are no clusters to name.
+// Read the axes off the "x = …" / "y = …" meta entries (the builder emits them);
+// only fall back to the canonical pair if both are literally present.
+function scatter(g: GraphResult): string {
+  const issuers = g.nodes.filter((n) => n.kind === "issuer").length;
+  const axis = (p: string): string | null => {
+    const raw = g.meta.find((m) => m.trim().toLowerCase().startsWith(`${p} =`));
+    if (!raw) return null;
+    // "x = net leverage →" → "net leverage" (drop the axis-direction arrow).
+    return raw.slice(raw.indexOf("=") + 1).replace(/[→↑↓←]/g, "").trim() || null;
+  };
+  const x = axis("x");
+  const y = axis("y");
+  if (!issuers || !x || !y) return fallback(g);
+  return `${issuers} ${issuers === 1 ? "issuer" : "issuers"} positioned by ${x} × ${y}.`;
 }

@@ -96,6 +96,60 @@ async def test_shared_theme_with_no_corpus_hit_is_empty(seeded_db):
     assert "No issuer" in g["meta"][0]
 
 
+@pytest_asyncio.fixture
+async def tied_concentration(seeded_db):
+    """Two covered issuers in two distinct, uniquely-tokenised industries, each
+    with one headline fact → a strict tie for the top cluster. Torn down in FK
+    order (facts before issuers) so the shared process-global DB is left clean."""
+    from database import AsyncSessionLocal, Issuer, MetricFact
+
+    ids: list = []
+    async with AsyncSessionLocal() as s:
+        for ind in ("ZZTieAlphaSector", "ZZTieBetaSector"):
+            iss = Issuer(name=f"TieCo {ind}", industry=ind)
+            s.add(iss)
+            await s.flush()
+            s.add(MetricFact(issuer_id=iss.id, metric_key="net_leverage",
+                             period="LTM", value=5.0, headline=True))
+            ids.append(iss.id)
+        await s.commit()
+    yield ids
+    async with AsyncSessionLocal() as s:
+        from sqlalchemy import delete
+        await s.execute(delete(MetricFact).where(MetricFact.issuer_id.in_(ids)))
+        await s.execute(delete(Issuer).where(Issuer.id.in_(ids)))
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_concentration_never_crowns_a_false_largest(tied_concentration):
+    """The concentration meta must not name one cluster "largest" on a tie (the
+    demo seed is one-name sectors all at equal %). Seed-robust: it validates the
+    superlative against the graph's own distribution, not a hardcoded %, so it
+    holds if the shared process-global DB carries extra covered issuers."""
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as s:
+        g = await querygraph.build_graph(s, "concentration-map")
+
+    sizes: dict = {}
+    for n in g["nodes"]:
+        if n["kind"] == "issuer":
+            sizes[n.get("group")] = sizes.get(n.get("group"), 0) + 1
+    if not sizes:
+        pytest.skip("no covered issuers to cluster")
+
+    conc = g["meta"][2]  # the concentration summary line
+    top = max(sizes.values())
+    n_top = sum(1 for v in sizes.values() if v == top)
+    if n_top == len(sizes):
+        assert "evenly split" in conc and "(largest)" not in conc
+    elif n_top == 1:
+        assert conc.endswith("(largest)")
+    else:
+        assert "tied at" in conc and "(largest)" not in conc
+
+
 @pytest.mark.asyncio
 async def test_contagion_walk_stays_itself_and_ignores_theme(seeded_db):
     """The energy contagion walk is a different builder: it never becomes the
