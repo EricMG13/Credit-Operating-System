@@ -18,7 +18,7 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -75,16 +75,30 @@ async def get_portfolio(
 
     issuers = (await db.execute(select(Issuer))).scalars().all()
 
-    # Latest complete run per issuer: scan complete runs newest-first, keep the
-    # first seen for each issuer. One query; the universe is small.
+    # Latest complete run per issuer, DB-side. Run is append-only (never pruned),
+    # so the old "scan every complete run newest-first, keep first-seen" fold
+    # materialized the entire run history per board load (BE6-2); the issuer
+    # universe is small but the run count isn't. Same rn==1 window idiom as the
+    # querygraph fact reads.
+    win = (
+        select(
+            Run.id.label("rid"),
+            func.row_number()
+            .over(
+                partition_by=Run.issuer_id,
+                order_by=(Run.created_at.desc().nullslast(), Run.id.desc()),
+            )
+            .label("rn"),
+        )
+        .where(Run.status == "complete")
+        .subquery()
+    )
     runs = (
         await db.execute(
-            select(Run).where(Run.status == "complete").order_by(Run.created_at.desc())
+            select(Run).where(Run.id.in_(select(win.c.rid).where(win.c.rn == 1)))
         )
     ).scalars().all()
-    latest: Dict[str, Run] = {}
-    for r in runs:
-        latest.setdefault(r.issuer_id, r)
+    latest: Dict[str, Run] = {r.issuer_id: r for r in runs}
     run_ids = list({r.id for r in latest.values()})
     if not run_ids:
         return PortfolioResponse(rows=[], issuer_count=len(issuers), covered_count=0)

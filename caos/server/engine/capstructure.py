@@ -99,7 +99,13 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 
         if indeterminate:
             # Unknown senior claim above (or at) this tranche -> recovery cannot be stated.
-            waterfall.append({**tranche, "recovery_musd": None, "recovery_pct": None})
+            # Null a non-finite echo too: `{**tranche}` would otherwise carry a NaN
+            # amount straight into the payload (the BE2-1 raw-NaN class) even though
+            # every COMPUTED field is already guarded.
+            row = {**tranche, "recovery_musd": None, "recovery_pct": None}
+            if not is_finite_number(row.get("amount_musd")):
+                row["amount_musd"] = None
+            waterfall.append(row)
             continue
 
         # Absolute priority: this tranche takes the lesser of its claim and what is left.

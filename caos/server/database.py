@@ -39,7 +39,13 @@ if settings.database_url.startswith("sqlite"):
 # engine on different event loops; a pooled connection cleaned up after its
 # creating loop closed raises "Event loop is closed" (notably with asyncpg).
 # NullPool in test mode avoids cross-loop connection reuse. Production keeps the
-# default pool.
+# default pool (5 + 10 overflow).
+# ponytail: pool size and caos_run_concurrency are COUPLED (BE8-1) — each active
+# run holds one connection for its whole transaction, so raising the run
+# concurrency toward ~13+ without an explicit pool_size here exhausts the pool
+# and stalls requests for pool_timeout. Inert at the shipped default (2 runs vs
+# 15 slots); size pool_size ≈ caos_run_concurrency + request headroom if you
+# ever raise it.
 _engine_kwargs: dict = {"pool_pre_ping": True}
 if os.environ.get("CAOS_TEST") == "1":
     _engine_kwargs["poolclass"] = NullPool
@@ -526,7 +532,8 @@ async def erase_analyst_data(
     scrubbed. ``analyst_id``/``uploaded_by`` are loose string stamps, not FKs, so
     nothing cascades; this is pure DML. Runs stamp ``analyst_id`` and research jobs
     key on the analyst id, while documents stamp the email — so scrub both keys.
-    Returns the row counts touched. Caller commits via the session/dependency.
+    Returns the row counts touched. Commits itself (see below) so both callers —
+    the self-service route and the operator CLI — get an atomic erase.
     """
     keys = [k for k in (analyst_id, email) if k]
 

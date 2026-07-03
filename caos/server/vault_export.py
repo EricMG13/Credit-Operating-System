@@ -400,11 +400,13 @@ def _scan_memo_files(vault_path: Path) -> "tuple[list[Path], float, int]":
     import os
 
     md_files = []
-    for p in vault_path.rglob("*.md"):
-        parts = p.relative_to(vault_path).parts
-        if parts and parts[0] in ("Runs", "Issuers"):
-            continue
-        md_files.append(p)
+    # Prune the generated Runs/ and Issuers/ trees DURING the walk — rglob visits
+    # every exported run note first and filters after, so the per-request scan
+    # grew with total run history (BE5-6). Both trees live at the vault root.
+    for root, dirs, files in os.walk(vault_path):
+        if Path(root) == vault_path:
+            dirs[:] = [d for d in dirs if d not in ("Runs", "Issuers")]
+        md_files.extend(Path(root) / f for f in files if f.endswith(".md"))
     if not md_files:
         return [], 0.0, 0
     return md_files, max(os.path.getmtime(f) for f in md_files), len(md_files)

@@ -37,6 +37,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from engine.periods import is_finite_number
+
 from database import (
     Claim,
     Document,
@@ -93,10 +95,6 @@ GROUPS: List[dict] = [
         _cap("scatter", "Cross-issuer scatter", "concentration", {"by": "scatter"}, "facts"),
         _cap("metric-trend", "Metric trend", "concentration", {"by": "trend"}, "periods2"),
     ]},
-    {"id": "versions", "label": "Run versions", "icon": "versions", "caps": [
-        _cap("run-diff", "Run diff (what changed)", "provenance", {"focus": "diff"}, "runs2"),
-        _cap("coverage-changed", "Coverage what-changed", "provenance", {"focus": "diff"}, "runs2"),
-    ]},
     {"id": "qa", "label": "QA / governance", "icon": "shield-check", "caps": [
         _cap("open-findings", "Open findings", "provenance", {"focus": "findings"}, "findings"),
         _cap("gate-lane", "Gate-lane rollup", "concentration", {"by": "gate_lane"}, "findings"),
@@ -120,7 +118,6 @@ _REASONS: Dict[str, str] = {
     "issuers": "no issuers in coverage",
     "docs": "no source documents ingested",
     "runs": "needs a completed run",
-    "runs2": "needs ≥2 runs of one issuer",
     "periods2": "needs ≥2 reporting periods",
     "findings": "no QA findings yet",
     "debate": "no IC debate run yet",
@@ -141,25 +138,7 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
     findings = await count(select(func.count()).select_from(QAFinding))
     debate = await count(select(func.count()).select_from(ModuleOutput).where(ModuleOutput.module_id == "CP-6A"))
 
-    # ≥2 *fact-bearing* runs for some issuer — the real precondition for a diff.
-    # Counting bare Run rows over-reports: a run that never persisted headline facts
-    # can't be compared, so the rail would greenlight a diff with nothing to diff.
-    # HAVING…LIMIT 1 existence check: the DB answers the boolean and stops at the
-    # first qualifying issuer — was O(fact-bearing runs) rows pulled into Python on
-    # every /capabilities and /route call, growing unbounded with run history.
-    fact_runs_sq = (
-        select(Run.issuer_id.label("iid"))
-        .join(MetricFact, MetricFact.run_id == Run.id)
-        .where(MetricFact.headline.is_(True))
-        .group_by(Run.issuer_id, MetricFact.run_id)
-        .subquery()
-    )
-    runs2 = (await session.execute(
-        select(fact_runs_sq.c.iid).group_by(fact_runs_sq.c.iid)
-        .having(func.count() >= 2).limit(1)
-    )).first() is not None
-
-    # ≥2 distinct periods for some (issuer, metric): the trend axis. Same
+    # ≥2 distinct periods for some (issuer, metric): the trend axis.
     # HAVING…LIMIT 1 existence check — don't materialize every group to test any().
     periods2 = (await session.execute(
         select(MetricFact.issuer_id)
@@ -173,7 +152,6 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
         "issuers": issuers > 0,
         "docs": chunks > 0,
         "runs": runs > 0,
-        "runs2": runs2,
         "periods2": periods2,
         "findings": findings > 0,
         "debate": debate > 0,
@@ -374,12 +352,15 @@ async def _contagion(session: AsyncSession, theme: Optional[str], cap: dict) -> 
     if not rows:
         return _empty(cap, "Contagion overlay", "No issuers expose this driver in the store.")
 
-    present = [v for _i, v, _h in rows if v is not None]
+    # is_finite_number, not is-None: the store is write-gated finite, but this
+    # consumer feeds median()/round()/a divide — a smuggled NaN would 500 every
+    # /graph contagion request for all analysts (BE5-3 defense-in-depth).
+    present = [v for _i, v, _h in rows if is_finite_number(v)]
     thresh = max(15.0, median(present)) if present else 15.0
     driver = "driver"
     nodes = [_node(driver, "Energy input cost ↑", "driver", 0.5, 0.12)]
     edges: List[dict] = []
-    exposed = [(iss, v) for iss, v, h in rows if (v is not None and v >= thresh) or h and v is not None]
+    exposed = [(iss, v) for iss, v, h in rows if is_finite_number(v) and (v >= thresh or h)]
     others = [iss for iss, v, h in rows if (iss, v) not in exposed]
 
     ex_pos = _spread(len(exposed), y=0.45, x0=0.16, x1=0.84)
@@ -494,7 +475,7 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
     covered = set((await session.execute(
         select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
     )).scalars())
-    covered |= set((await session.execute(select(Run.issuer_id))).scalars())
+    covered |= set((await session.execute(select(Run.issuer_id).distinct())).scalars())
     if not covered:
         return _empty(cap, "Concentration", "No analyzed issuers yet.")
     issuers = (await session.execute(select(Issuer).where(Issuer.id.in_(covered)))).scalars().all()
@@ -606,8 +587,15 @@ async def _scatter(session: AsyncSession, cap: dict) -> dict:
     for iss, x, y in pts:
         nodes.append(_node(iss.id, iss.name, "issuer",
                            0.1 + 0.8 * _norm(x, xlo, xhi), 0.9 - 0.8 * _norm(y, ylo, yhi),
-                           group=iss.industry, sub=f"{x:.1f}x / {y:.1f}x"))
-    meta = ["x = net leverage →", "y = interest coverage ↑", f"{len(pts)} issuers"]
+                           group=iss.industry,
+                           sub=f"net leverage {x:.1f}x · interest coverage {y:.1f}x"))
+    # Axis names carry the metric range for immediate scale; the machine-readable
+    # xdomain/ydomain lines let the scatter place real-value ticks (they don't
+    # match the "x = "/"y = " axis-name filter, so they never render as labels).
+    meta = [f"x = net leverage ({xlo:.1f}x → {xhi:.1f}x)",
+            f"y = interest coverage ({ylo:.1f}x → {yhi:.1f}x)",
+            f"{len(pts)} issuers",
+            f"xdomain={xlo:.2f}|{xhi:.2f}", f"ydomain={ylo:.2f}|{yhi:.2f}"]
     return _result(cap, "Leverage × coverage", nodes, [], meta, [_BASIS_CAVEAT])
 
 
@@ -856,8 +844,6 @@ async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str
         return await _findings(session, run, name, cap, sp_title)
     if focus in ("debate", "tension"):
         return await _debate(name, mods, focus, cap, sp_title)
-    if focus == "diff":
-        return await _diff(session, run, name, cap, sp_title)
     return _empty(cap, "Provenance", f"unknown focus {focus!r}")
 
 
@@ -1028,65 +1014,17 @@ async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict, sp
                    ["The chair verdict is a reproducible function of point weights, not a judgement."])
 
 
-async def _diff(session: AsyncSession, run: Run, name: str, cap: dict, sp_title: str) -> dict:
-    # A diff needs two runs that BOTH persisted headline facts. Bare Run rows
-    # over-report — many runs never extracted facts — so select fact-bearing runs,
-    # newest first, for an issuer that has at least two (preferring the run in hand).
-    rows = (await session.execute(
-        select(MetricFact.run_id, Run.issuer_id, Run.created_at, Run.as_of_date)
-        .join(Run, Run.id == MetricFact.run_id)
-        .where(MetricFact.headline.is_(True))
-        .group_by(MetricFact.run_id, Run.issuer_id, Run.created_at, Run.as_of_date)
-    )).all()
-    by_issuer: Dict[str, List[Tuple]] = {}
-    for rid, iid, created, asof in rows:
-        by_issuer.setdefault(iid, []).append((created, rid, asof))
-    eligible = {iid: sorted(v, reverse=True) for iid, v in by_issuer.items() if len(v) >= 2}
-    if not eligible:
-        return _empty(cap, "Run diff", "No issuer has two runs with comparable headline facts yet.")
-    iid = run.issuer_id if run.issuer_id in eligible else max(eligible, key=lambda i: eligible[i][0][0])
-    issuer = await session.get(Issuer, iid)
-    iname = issuer.name if issuer else name
-    (_c1, cur_id, cur_asof), (_c2, prev_id, prev_asof) = eligible[iid][0], eligible[iid][1]
-
-    async def facts(rid: str) -> Dict[str, float]:
-        rs = (await session.execute(
-            select(MetricFact.metric_key, MetricFact.value)
-            .where(MetricFact.run_id == rid, MetricFact.headline.is_(True))
-        )).all()
-        return {k: v for k, v in rs}
-
-    a, b = await facts(cur_id), await facts(prev_id)
-    keys = sorted(set(a) | set(b))
-    nodes, edges = [], []
-    pos = _spread(len(keys), y=0.5, x0=0.12, x1=0.88)
-    moved = 0
-    for k, (x, _y) in zip(keys, pos):
-        md = CATALOG_BY_KEY.get(k)
-        av, bv = a.get(k), b.get(k)
-        if av is None:
-            kind, sub = "metric", "dropped"
-        elif bv is None:
-            kind, sub = "metric", "new"
-        else:
-            delta = round(av - bv, 2)
-            # Adverse = the metric moved in its *bad* direction (polarity-aware).
-            worse = bool(md) and ((delta > 0 and not md.higher_is_better) or (delta < 0 and md.higher_is_better))
-            kind = "metric" if delta == 0 else ("finding-mat" if worse else "point-bull")
-            sub = f"{bv:g} → {av:g}" + (f" ({'+' if delta >= 0 else ''}{delta})" if delta else " (flat)")
-            moved += 1 if delta else 0
-        nodes.append(_node(f"d:{k}", md.label if md else k, kind, x, 0.5, sub=sub, run_spoke_title=sp_title))
-    meta = [iname, f"{cur_asof or 'current'} vs {prev_asof or 'prior'}",
-            f"{len(keys)} metrics · {moved} moved"]
-    return _result(cap, f"{iname} — what changed", nodes, edges, meta,
-                   ["Current vs prior fact-bearing run. Amber = adverse move, green = improvement (polarity-aware)."])
+# Wiki graph bounds: the vault mirrors every run as a note, but the GRAPH is a
+# structural overview, not a ledger — render the newest few spokes per issuer.
+_WIKI_RUNS_PER_ISSUER = 2
+_WIKI_RUN_CAP = 300  # same posture as _GATE_NODE_CAP
 
 
 async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
     covered = set((await session.execute(
         select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
     )).scalars())
-    covered |= set((await session.execute(select(Run.issuer_id))).scalars())
+    covered |= set((await session.execute(select(Run.issuer_id).distinct())).scalars())
     if not covered:
         return _empty(cap, "Wiki Graph", "No analyzed issuers to display in the wiki.")
 
@@ -1094,8 +1032,25 @@ async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
         select(Issuer).where(Issuer.id.in_(covered))
     )).scalars().all()
 
+    # Run is append-only (never pruned), so an uncapped select here grows without
+    # bound and every node lands in the overlay LLM prompt (BE5-1). Newest runs
+    # per issuer via the same SQL window the fact reads use (rn ≤ per-issuer cap),
+    # then a severity-neutral total cap; true totals stay in meta.
+    win = select(
+        Run.id.label("rid"),
+        func.row_number().over(
+            partition_by=Run.issuer_id,
+            order_by=(Run.created_at.desc().nullslast(), Run.id.desc()),
+        ).label("rn"),
+    ).where(Run.issuer_id.in_(covered)).subquery()
+    total_runs = int((await session.execute(
+        select(func.count()).select_from(Run).where(Run.issuer_id.in_(covered))
+    )).scalar() or 0)
     runs = (await session.execute(
-        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id).where(Run.issuer_id.in_(covered))
+        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id)
+        .where(Run.id.in_(select(win.c.rid).where(win.c.rn <= _WIKI_RUNS_PER_ISSUER)))
+        .order_by(Run.created_at.desc().nullslast(), Run.id.desc())
+        .limit(_WIKI_RUN_CAP)
     )).all()
 
     nodes = []
@@ -1121,14 +1076,28 @@ async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
             edges.append(_edge(center_id, iss.id, kind="member"))
 
     from vault_export import spoke_title
-    for i, (run, issuer) in enumerate(runs):
+    # Anchor each run spoke just outside its issuer's ring position (was a fixed
+    # (0.5, 0.5) — every run node stacked on the canvas centre); siblings step
+    # further out so an issuer's newest-2 spokes never overlap.
+    issuer_xy = {iss.id: xy for iss, xy in zip(issuers, iss_pos)}
+    seen_per_issuer: Dict[str, int] = {}
+    for run, issuer in runs:
         sp_title = spoke_title(issuer.name, {"id": run.id, "as_of_date": run.as_of_date})
         nid = f"run:{run.id}"
         label = f"Run {run.as_of_date or run.id[:8]}"
-        nodes.append(_node(nid, label, "module", 0.5, 0.5, run_spoke_title=sp_title, sub=run.committee_status))
+        j = seen_per_issuer.get(issuer.id, 0)
+        seen_per_issuer[issuer.id] = j + 1
+        ix, iy = issuer_xy.get(issuer.id, (0.5, 0.5))
+        dx, dy = ix - 0.5, iy - 0.5
+        norm = (dx * dx + dy * dy) ** 0.5 or 1.0
+        reach = 0.52 + 0.07 * j
+        rx = min(0.96, max(0.04, 0.5 + dx / norm * reach))
+        ry = min(0.96, max(0.04, 0.5 + dy / norm * reach))
+        nodes.append(_node(nid, label, "module", rx, ry, run_spoke_title=sp_title, sub=run.committee_status))
         edges.append(_edge(issuer.id, nid, kind="dep"))
 
-    meta = [f"{len(issuers)} issuers", f"{len(runs)} runs", f"{len(industries)} sectors"]
+    shown = f"{total_runs} runs" if total_runs == len(runs) else f"{total_runs} runs · showing newest {len(runs)}"
+    meta = [f"{len(issuers)} issuers", shown, f"{len(industries)} sectors"]
     return _result(cap, "Wiki Knowledge Graph", nodes, edges, meta,
                    ["Traverses the derived wiki note structure. Issuers link to sectors, runs link to issuers."])
 

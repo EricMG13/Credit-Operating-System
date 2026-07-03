@@ -91,8 +91,11 @@ jobs:
         run: |
           pip install mypy==2.1.0
           cd caos/server && mypy
-      # Default suite on SQLite (the existing tests + async; Postgres-only tests skipped).
-      - run: python -m pytest caos/tests/server -q
+      # Default suite on SQLite (the existing tests + async; Postgres-only tests
+      # skipped). stress + cohort carry offline tests too (the mock-Anthropic wire
+      # shape, the cohort-fetch predicates) — previously never collected anywhere,
+      # so the stress mock could rot green (BE9-2).
+      - run: python -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q
       # Guards the perf-smoke percentile math (the script runs against a live
       # deployment, not CI — see caos/tests/perf/smoke.py).
       - name: Perf smoke self-test

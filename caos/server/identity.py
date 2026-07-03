@@ -78,8 +78,8 @@ def read_session_token(token: str, secret: str) -> dict | None:
     The browser cookie's max-age is only a client-side hint — a copied raw token
     value would otherwise be valid until SESSION_SECRET rotates. So an `exp` claim
     (epoch seconds, set at mint) is enforced here server-side: a token past its exp
-    is rejected regardless of the cookie. Tokens without an exp (legacy) are still
-    accepted for back-compat.
+    is rejected regardless of the cookie, and a token WITHOUT an exp (pre-#32
+    legacy) is treated as expired — see the exp check below.
     """
     try:
         raw, sig = token.rsplit(".", 1)

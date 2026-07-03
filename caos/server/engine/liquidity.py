@@ -116,8 +116,11 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
 
     # Sum only true liquidity SOURCES — the maturity wall is a use, not a source, so it
     # must not inflate disclosed liquidity or the interest runway. (review run-2 #B1)
+    # is_finite_number, not isinstance: bool(NaN) is True, so a NaN amount would
+    # pass isinstance, sum to NaN, and ship a raw NaN + "~$nanM" summary (BE2-1).
+    # Matches the sibling sized-sum gates (capstructure/relval).
     quantified = [f for f in found
-                  if f["source"] != _MATURITY_WALL and isinstance(f["amount_musd"], (int, float))]
+                  if f["source"] != _MATURITY_WALL and is_finite_number(f["amount_musd"])]
     total = round(sum(f["amount_musd"] for f in quantified), 1) if quantified else None
     cash_interest, runway = _interest_runway_months(total, cp1)
 

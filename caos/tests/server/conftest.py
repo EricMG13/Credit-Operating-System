@@ -19,9 +19,14 @@ sys.path.insert(0, str(SERVER_DIR))
 _TMP = tempfile.mkdtemp(prefix="caos-tests-")
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TMP}/caos_tests.db")
 os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
-os.environ.setdefault("ANTHROPIC_API_KEY", "")
-os.environ.setdefault("GEMINI_API_KEY", "")
-os.environ.setdefault("OPENROUTER_API_KEY", "")
+# Force-blank (NOT setdefault): with a real key exported, run-creating tests flip
+# from the fixture path to LIVE synth — fixture-path assertions break and the
+# suite spends real tokens (BE9-1). Export CAOS_TEST_LIVE=1 to deliberately keep
+# your exported keys for a live lane.
+if not os.environ.get("CAOS_TEST_LIVE"):
+    os.environ["ANTHROPIC_API_KEY"] = ""
+    os.environ["GEMINI_API_KEY"] = ""
+    os.environ["OPENROUTER_API_KEY"] = ""
 os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
 # Demo seeding is now OFF by default (prod safe-by-default, #34); the TestClient
 # lifespan suite relies on the seeded demo issuers / reference deal, so opt in here.

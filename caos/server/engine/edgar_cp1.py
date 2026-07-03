@@ -253,7 +253,10 @@ def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
-    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_fresh:
+    # int_ly[0] > 0, not just truthy — symmetric with the leverage guard above: a
+    # filer tagging interest as a negative XBRL value would otherwise emit a
+    # nonsensical NEGATIVE coverage (finite but wrong-signed, BE1-1).
+    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_ly[0] > 0 and int_fresh:
         financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
     return _LevFacts(
         total_debt=total_debt, net_debt=net_debt, leverage=leverage, debt_fresh=debt_fresh,

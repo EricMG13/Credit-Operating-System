@@ -21,7 +21,7 @@ export const QUERY_KEYWORDS: [string, string][] = [
   ["orphan", "orphan-claims"], ["ungrounded", "orphan-claims"], ["impact", "impact-analysis"],
   ["coverage", "coverage-completeness"], ["finding", "open-findings"], ["lane", "gate-lane"],
   ["committee", "committee-board"], ["debate", "debate-digest"], ["tension", "tension"],
-  ["disagree", "tension"], ["diff", "run-diff"], ["changed", "run-diff"], ["sponsor", "sponsor-graph"],
+  ["disagree", "tension"], ["sponsor", "sponsor-graph"],
 ];
 
 export function rankQueryCapabilities(text: string, capabilities: Capability[]) {

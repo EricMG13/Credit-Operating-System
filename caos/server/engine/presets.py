@@ -116,6 +116,13 @@ def current_query_model() -> Optional[str]:
     return _query_model_var.get()
 
 
+def _allowed_query_models(s) -> set:
+    """The client-pinnable universe: the four configured tier models plus their
+    Anthropic degrade targets — exactly what the mode table itself can resolve to."""
+    return ({_tier_model(s, t) for t in ("cheap", "fast", "strong", "top")}
+            | set(_ANTHROPIC_FALLBACK.values()))
+
+
 def resolved_query_model() -> str:
     """The resolved model ID for query lanes, falling back to the standard Light
     preset model when no custom query model override is set or its key is missing.
@@ -123,6 +130,12 @@ def resolved_query_model() -> str:
     s = get_settings()
     model = current_query_model()
     if not model or model in ("null", "undefined"):
+        return model_for(LIGHT)
+    # Allowlist against the configured tiers (BE6-1): X-Query-Model is caller
+    # input, and passing it through verbatim let an analyst pin ANY id the
+    # deploy's key could reach — bypassing the mode-tier cost table. An id
+    # outside the configured universe degrades to the standard Light lane.
+    if model not in _allowed_query_models(s):
         return model_for(LIGHT)
     if model.startswith("gemini") and not s.gemini_api_key:
         return model_for(LIGHT)

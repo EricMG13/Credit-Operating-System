@@ -216,6 +216,12 @@ def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     if cp1 is None:
         return None
     ro = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
+    # A live CP-1 may emit this key as a truthy non-dict ("not disclosed"), which
+    # `or {}` keeps and `.get` would then raise on — aborting the whole run in the
+    # QA phase (BE3-1). The runner only overwrites the key when its own reconcile
+    # produced a dict, so the model's scalar can survive to here. Degrade instead.
+    if not isinstance(ro, dict):
+        return None
     pct, gap = ro.get("addback_pct"), ro.get("leverage_gap_turns")
     # A persisted/replayed CP-1 payload could carry a NaN (-> "nan%" committee
     # text) or a str (-> a TypeError that fails the whole run) here. is_finite_number

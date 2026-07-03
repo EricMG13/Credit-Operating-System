@@ -649,10 +649,15 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
 
     for m_out, run, issuer in modules:
         key = f"m:{m_out.id}"
+        # Row count is capped (_SYNTH_SCAN_CAP) but a runtime_output can be tens
+        # of KB (CP-1 FactPack) — serialize a bounded slice so the on-loop
+        # tokenize/rank stays O(cap × 2KB), not O(cap × payload) (BE5-4). BM25
+        # ranks on term overlap; a 2KB head is plenty of signal for retrieval.
+        payload = json.dumps(m_out.runtime_output, ensure_ascii=False)[:2000]
         text = (
             f"Module: {m_out.module_name} ({m_out.module_id}). "
             f"Confidence: {m_out.confidence}. QA Status: {m_out.qa_status}. "
-            f"Output payload: {json.dumps(m_out.runtime_output, ensure_ascii=False)}"
+            f"Output payload: {payload}"
         )
         corpus.append((key, text))
         meta[key] = {
