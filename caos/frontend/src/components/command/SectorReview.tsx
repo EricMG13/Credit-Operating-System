@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { useModalA11y } from "@/lib/use-modal-a11y";
-import { SECTOR_REVIEWS } from "@/lib/command/srdata";
+import { SECTOR_REVIEWS, STANCE_COLOR, refreshOutcome } from "@/lib/command/srdata";
 import type { SectorRow } from "@/lib/command/data";
 import {
   ImpactedIssuers,
@@ -20,13 +20,6 @@ import {
   SectorThesis,
   TimeframeBar,
 } from "./sections";
-
-const STANCE_COLOR: Record<string, string> = {
-  CONSTRUCTIVE: "var(--caos-success)",
-  NEUTRAL: "var(--caos-muted)",
-  CAUTIOUS: "var(--caos-warning)",
-  NEGATIVE: "var(--caos-critical)",
-};
 
 // A refresh needs no new uploads: CP-SR scans the existing document vault and
 // searches external sources, then synthesizes the update.
@@ -52,6 +45,7 @@ export function SectorReview({
   const [tf, setTf] = useState(1); // default 1M
   const [running, setRunning] = useState(false);
   const [step, setStep] = useState(0);
+  const [retried, setRetried] = useState(false);
   const refreshed = !!refreshedAt;
   // Keep callback identity out of the interval effect — the parent re-renders
   // on every sim tick and would otherwise reset the step timer.
@@ -76,6 +70,33 @@ export function SectorReview({
 
   if (!data) return null;
 
+  // A source flagged unreachable degrades the run to `partial` until a retry
+  // re-attempts every source. `partial` only surfaces once a run has completed.
+  const outcome = refreshOutcome(data.sources, retried);
+  const partial = refreshed && outcome.partial;
+
+  // Start a run; a retry re-attempts every source and clears the partial state.
+  const startRun = (isRetry: boolean) => {
+    if (isRetry) setRetried(true);
+    setStep(0);
+    setRunning(true);
+    // The button re-renders disabled and would drop focus to <body>; park focus
+    // on the dialog so keyboard/AT users stay inside.
+    panelRef.current?.focus();
+  };
+
+  // Single polite live region so assistive tech follows the otherwise
+  // visual-only refresh run (staged trace, completion receipt, or warning).
+  const liveMsg = running
+    ? step < REFRESH_STEPS.length
+      ? `Step ${step + 1} of ${REFRESH_STEPS.length}: ${REFRESH_STEPS[step]}`
+      : "Finalizing knowledge update"
+    : refreshed
+      ? partial
+        ? `Knowledge update finished with warnings. ${outcome.reached} of ${outcome.total} sources reached; ${outcome.total - outcome.reached} unreachable. Retry to re-attempt.`
+        : `Knowledge update complete. ${data.sources.length} sources searched, impacted issuers re-scored with no change, board stamped.`
+      : "";
+
   return (
     <div
       className="fixed inset-0 z-modal flex items-center justify-center p-6"
@@ -91,6 +112,7 @@ export function SectorReview({
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden"
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
+        <div className="sr-only" role="status" aria-live="polite">{liveMsg}</div>
         {/* chrome */}
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60 shrink-0">
           <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">Sector Review · CP-SR — {row.sector}</span>
@@ -103,8 +125,10 @@ export function SectorReview({
             </span>
           ) : null}
           <div className="flex-1" />
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-            {refreshed ? "reviewed today · knowledge current" : "rev. " + row.reviewed + (row.due ? " · REFRESH DUE" : "")}
+          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: partial ? "var(--caos-warning)" : "var(--caos-muted)" }}>
+            {refreshed
+              ? partial ? "reviewed today · partial — retry to complete" : "reviewed today · knowledge current"
+              : "rev. " + row.reviewed + (row.due ? " · REFRESH DUE" : "")}
           </span>
           <CloseButton onClick={onClose} title="Close (Esc)" />
         </div>
@@ -115,7 +139,8 @@ export function SectorReview({
           setTf={setTf}
           refreshed={refreshed}
           running={running}
-          onUpdate={() => { setStep(0); setRunning(true); }}
+          partial={partial}
+          onUpdate={() => startRun(refreshed)}
         />
 
         {/* refresh run trace */}
@@ -126,7 +151,7 @@ export function SectorReview({
 
           {/* knowledge sources — retrieved by the refresh search */}
           {(running && step >= 1) || refreshed ? (
-            <KnowledgeSources data={data} refreshed={refreshed} step={step} />
+            <KnowledgeSources data={data} refreshed={refreshed} step={step} retried={retried} />
           ) : null}
 
           <SectorThesis data={data} refreshed={refreshed} />
@@ -141,9 +166,11 @@ export function SectorReview({
             {data.issuers.filter((i) => i.held).length} held · {data.issuers.filter((i) => !i.held).length} peers monitored
           </span>
           <span className="flex-1" />
-          <span className="tabular text-caos-xs" style={{ color: refreshed ? "var(--caos-success)" : "var(--caos-muted)" }}>
+          <span className="tabular text-caos-xs" style={{ color: refreshed ? (partial ? "var(--caos-warning)" : "var(--caos-success)") : "var(--caos-muted)" }}>
             {refreshed
-              ? "knowledge updated " + refreshedAt + " · " + data.sources.length + " sources searched · issuers re-scored · board stamped"
+              ? partial
+                ? "knowledge partially updated " + refreshedAt + " · " + outcome.reached + " of " + outcome.total + " sources reached · retry to complete"
+                : "knowledge updated " + refreshedAt + " · " + data.sources.length + " sources searched · issuers re-scored · no change · board stamped"
               : "last full review " + row.reviewed}
           </span>
         </div>

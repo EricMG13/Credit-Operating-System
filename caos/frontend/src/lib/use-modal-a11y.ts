@@ -1,5 +1,18 @@
 import { useEffect, useRef } from "react";
 
+// Body scroll-lock is refcounted across all open overlays, not saved/restored
+// per-modal. Two reasons: (1) a per-modal save-string desyncs when overlay
+// lifecycles interleave (open B while A is open, close A first) — A's unmount
+// would unlock while B is still open, or leave a stuck `overflow:hidden` with no
+// dialog on screen; (2) capturing a "previous" value is a trap here — this hook
+// is the ONLY writer of body overflow in the app, so the previous value is
+// always "". Once a buggy restore left "hidden" behind, every later modal
+// captured and re-restored "hidden" forever. So: lock on first open, and on the
+// last close clear the inline style outright rather than restore a captured one.
+// ponytail: module-global counter — fine for one window; a portal/iframe multi-
+// document app would need per-document state.
+let scrollLockCount = 0;
+
 // Modal behavior in one place — consolidates the per-modal Escape-to-close
 // effect that was copy-pasted across every overlay, and adds the focus
 // management none of them had:
@@ -21,10 +34,15 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
   onCloseRef.current = onClose;
   useEffect(() => {
     const panel = ref.current;
+    // A consumer that calls this hook unconditionally but renders `null` while
+    // closed (e.g. a globally-mounted overlay) must not engage the lock/trap —
+    // otherwise it pins body scroll-lock the whole time it sits closed. No panel
+    // on screen ⇒ no modal ⇒ no side effects.
+    if (!panel) return;
     const prevFocus = document.activeElement as HTMLElement | null;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    if (panel && !panel.hasAttribute("tabindex")) panel.tabIndex = -1;
+    if (scrollLockCount === 0) document.body.style.overflow = "hidden";
+    scrollLockCount++;
+    if (!panel.hasAttribute("tabindex")) panel.tabIndex = -1;
 
     const focusables = (): HTMLElement[] =>
       panel
@@ -56,8 +74,14 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
       }
       const first = els[0];
       const last = els[els.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || active === panel)) {
+      const active = document.activeElement as HTMLElement | null;
+      // Recapture: if focus has escaped the panel (e.g. the control that had
+      // focus re-rendered `disabled` and dropped focus to <body>), the next Tab
+      // pulls it back in rather than walking the page behind the modal.
+      if (!active || !panel.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && (active === first || active === panel)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
@@ -68,7 +92,8 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      scrollLockCount = Math.max(0, scrollLockCount - 1);
+      if (scrollLockCount === 0) document.body.style.overflow = "";
       prevFocus?.focus?.();
     };
   }, []);

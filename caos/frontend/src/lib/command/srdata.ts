@@ -5,6 +5,15 @@
 
 export const TIMEFRAMES = ["1W", "1M", "3M", "6M", "YTD", "1Y"] as const;
 
+// Sector stance → signal color. Single source of truth for the board tile and
+// the Sector Review modal header (they must not desync on a color change).
+export const STANCE_COLOR: Record<string, string> = {
+  CONSTRUCTIVE: "var(--caos-success)",
+  NEUTRAL: "var(--caos-muted)",
+  CAUTIOUS: "var(--caos-warning)",
+  NEGATIVE: "var(--caos-critical)",
+};
+
 // US Leveraged Loan index DM move (bps) per timeframe — comparison baseline.
 export const INDEX_MOVE: number[] = [-4, -12, 18, 9, 6, -22];
 
@@ -28,6 +37,9 @@ export interface KnowledgeSource {
   name: string;
   detail: string;
   url?: string;
+  // false = source did not respond on this refresh (e.g. a wire timeout). A
+  // retry re-attempts it. Undefined/true = reached normally.
+  reachable?: boolean;
 }
 
 export interface SectorReviewData {
@@ -44,6 +56,19 @@ export interface SectorReviewData {
 /** Issuer ΔDM (bps) for a timeframe index. */
 export function issuerMove(s: SectorReviewData, i: ImpactedIssuer, tf: number): number {
   return Math.round(i.beta * s.dm[tf] + i.idio * IDIO_SCALE[tf]);
+}
+
+/**
+ * Outcome of a knowledge-refresh over a source set. A source flagged
+ * `reachable: false` doesn't respond on the first pass (→ partial); a retry
+ * re-attempts every source (→ full). This is the seam the real CP-SR inherits:
+ * a live newswire/pricing timeout degrades to `partial` instead of silently
+ * claiming a clean update.
+ */
+export function refreshOutcome(sources: KnowledgeSource[], retried: boolean): { reached: number; total: number; partial: boolean } {
+  const total = sources.length;
+  const unreached = retried ? 0 : sources.filter((s) => s.reachable === false).length;
+  return { reached: total - unreached, total, partial: unreached > 0 };
 }
 
 export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
@@ -67,7 +92,7 @@ export const SECTOR_REVIEWS: Record<string, SectorReviewData> = {
     sources: [
       { kind: "external", name: "ISM / S&P Global", detail: "May PMI release + new-orders subindex" },
       { kind: "external", name: "Keene Research", detail: "Industrials distributor channel checks (Jun 09)" },
-      { kind: "external", name: "Reuters", detail: "steel & freight input cost wire — weekly series" },
+      { kind: "external", name: "Reuters", detail: "steel & freight input cost wire — weekly series", reachable: false },
       { kind: "vault", name: "ATLF Q1-26 compliance certificate", detail: "vault E-103 · covenant calc 5.68x" },
       { kind: "vault", name: "ATLF lender presentation", detail: "vault D-06 · aftermarket mix disclosure" },
     ],
