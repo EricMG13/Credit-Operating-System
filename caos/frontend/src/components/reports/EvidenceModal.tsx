@@ -41,8 +41,8 @@ export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => voi
       className="tabular text-caos-xs px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
       style={{
         color: open ? "var(--caos-warning)" : "var(--caos-accent)",
-        borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 40%, transparent)",
-        background: synced ? "color-mix(in srgb, var(--tranche-2l) 18%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 7%, transparent)",
+        borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--caos-accent) 40%, transparent)",
+        background: synced ? "color-mix(in srgb, var(--caos-accent) 18%, transparent)" : "color-mix(in srgb, var(--caos-accent) 7%, transparent)",
         boxShadow: synced ? "0 0 0 1px var(--caos-accent)" : undefined,
       }}
     >

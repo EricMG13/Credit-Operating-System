@@ -6,6 +6,7 @@
 // overlaid (edits) and captured inline (onEdit) when edit mode is active.
 
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
+import { MODULE_NAMES } from "@/lib/reports/deal";
 import { G2Chart } from "@/components/charts/G2Chart";
 
 export type ReportEdits = Record<string, string>;
@@ -210,6 +211,48 @@ function RDSection({ s, p, ctx }: { s: Section; p: string; ctx: EditCtx }) {
   return null;
 }
 
+/* ---------- citations-on-paper: numbered evidence register ---------- */
+function citeModuleName(chip: string): string {
+  const id = chip.split(" ")[0];
+  const X: Record<string, string> = { MKT: "Market data feed", "M-118": "Cash-flow model M-118" };
+  return MODULE_NAMES[id] || X[chip] || X[id] || "render input";
+}
+
+function RDSources({ srcs, onOpenEvidence }: { srcs: Report["srcs"]; onOpenEvidence?: (id: string) => void }) {
+  return (
+    <div className="rd-sources">
+      <div className="rd-sources-h">SOURCES</div>
+      <ol>
+        {srcs.map((s) => (
+          <li key={s.chip}>
+            <span className="rd-src-chip">{s.chip}</span>
+            <span className="rd-src-name">{citeModuleName(s.chip)}</span>
+            {s.ev.map((id) =>
+              onOpenEvidence ? (
+                <button
+                  key={id}
+                  type="button"
+                  className="rd-cite"
+                  onClick={() => onOpenEvidence(id)}
+                  title={"Open source " + id}
+                  aria-label={"Open source " + id}
+                >
+                  {id}
+                </button>
+              ) : (
+                <sup key={id} className="rd-cite rd-cite-print">
+                  {id}
+                </sup>
+              )
+            )}
+            {!s.ev.length ? <span className="rd-cite-none">no registered evidence id</span> : null}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 /* ---------- the full sheet ---------- */
 export function ReportDoc({
   rep,
@@ -219,6 +262,7 @@ export function ReportDoc({
   edits,
   onEdit,
   hideAddbacks,
+  onOpenEvidence,
 }: {
   rep: Report;
   omit?: Record<number, boolean>;
@@ -227,17 +271,14 @@ export function ReportDoc({
   edits?: ReportEdits;
   onEdit?: OnEdit;
   hideAddbacks?: boolean;
+  onOpenEvidence?: (id: string) => void;
 }) {
   const ctx: EditCtx = { edits, onEdit, hideAddbacks };
   const isModelAppendix = rep.id === "model";
+  const overrideN = edits ? Object.keys(edits).length : 0;
   const secs = rep.sections
     .map((s, i) => ({ s, i }))
     .filter((x) => !(omit && omit[x.i]));
-  const srcline =
-    "SOURCES · " +
-    rep.srcs
-      .map((s) => s.chip + (s.ev.length ? " [" + s.ev.join(" · ") + "]" : ""))
-      .join("   ·   ");
 
   const hasPages = rep.sections.some(s => s.page);
 
@@ -266,6 +307,20 @@ export function ReportDoc({
           </div>
         ) : null}
 
+        {/* Fixture disclaimer — the paged IC memo is the deliverable most likely
+            handed to committee; stamp it so a printed PDF is never mistaken for a
+            live issuer run. (#19) Kept in normal flow so it prints. */}
+        <div
+          role="note"
+          style={{
+            margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
+            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+            textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
+          }}
+        >
+          Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
+        </div>
+
         {pages.map((pg, pi) => (
           <div key={pg.name} className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
             <div className="rd-mast">
@@ -291,9 +346,14 @@ export function ReportDoc({
           </div>
         ))}
 
-        {showSources ? (
-          <div className="rd-srcline">
-            <E p="srcline" v={srcline} ctx={ctx} />
+        {showSources ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}
+
+        {overrideN > 0 || hideAddbacks ? (
+          <div className="rd-colophon">
+            {[
+              overrideN > 0 ? overrideN + " analyst override" + (overrideN === 1 ? "" : "s") + " applied" : null,
+              hideAddbacks ? "EBITDA add-back detail suppressed" : null,
+            ].filter(Boolean).join(" · ")}
           </div>
         ) : null}
 
@@ -341,6 +401,18 @@ export function ReportDoc({
           Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
         </div>
       )}
+      {/* Model appendix is a dense landscape sheet with no masthead/banner/foot.
+          Give it a single compact provenance line so it can't be mistaken for a
+          real issuer run. (#19) */}
+      {isModelAppendix ? (
+        <div className="rd-mast" style={{ borderBottomWidth: 1 }}>
+          <span className="rd-mast-brand">
+            <span className="rd-mark">C</span>
+            <span>CREDIT OS · MODEL APPENDIX · REFERENCE FIXTURE</span>
+          </span>
+          <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · NOT A LIVE ISSUER RUN</span>
+        </div>
+      ) : null}
       <h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1>
       <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
       <div className="rd-secs">
@@ -348,9 +420,13 @@ export function ReportDoc({
           <RDSection key={x.i} s={x.s} p={"s" + x.i} ctx={ctx} />
         ))}
       </div>
-      {showSources && !isModelAppendix ? (
-        <div className="rd-srcline">
-          <E p="srcline" v={srcline} ctx={ctx} />
+      {showSources && !isModelAppendix ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}
+      {!isModelAppendix && (overrideN > 0 || hideAddbacks) ? (
+        <div className="rd-colophon">
+          {[
+            overrideN > 0 ? overrideN + " analyst override" + (overrideN === 1 ? "" : "s") + " applied" : null,
+            hideAddbacks ? "EBITDA add-back detail suppressed" : null,
+          ].filter(Boolean).join(" · ")}
         </div>
       ) : null}
       {isModelAppendix ? null : (
@@ -359,6 +435,14 @@ export function ReportDoc({
           <span>For internal committee use only — not for distribution</span>
         </div>
       )}
+      {isModelAppendix && (overrideN > 0 || hideAddbacks) ? (
+        <div className="rd-colophon">
+          {[
+            overrideN > 0 ? overrideN + " analyst override" + (overrideN === 1 ? "" : "s") + " applied" : null,
+            hideAddbacks ? "EBITDA add-back detail suppressed" : null,
+          ].filter(Boolean).join(" · ")}
+        </div>
+      ) : null}
     </div>
   );
 }

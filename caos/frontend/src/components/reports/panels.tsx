@@ -26,6 +26,8 @@ const REPORT_GLYPH: Record<string, string> = {
   dashboard: "▦", trend: "↗", gavel: "⚖", scroll: "§", bell: "◷",
 };
 
+const plural = (n: number, w: string) => n + " " + w + (n === 1 ? "" : "s");
+
 /* ---------- left rail: deliverable queue ---------- */
 export function ReportList({
   reports,
@@ -51,6 +53,7 @@ export function ReportList({
             <button
               key={r.id}
               onClick={() => onSel(r.id)}
+              aria-current={sel ? "true" : undefined}
               className={
                 "w-full flex items-start gap-2.5 px-2.5 py-2 rounded border text-left transition-caos " +
                 (sel
@@ -66,7 +69,7 @@ export function ReportList({
                   {r.title}
                 </span>
                 <span className="tabular text-caos-2xs text-caos-muted truncate">
-                  {r.sections.length} sections · {citeCount(r)} citations
+                  {plural(r.sections.length, "section")} · {plural(citeCount(r), "citation")}
                 </span>
               </span>
               <StatusTag held={!!r.watermark} />
@@ -146,7 +149,7 @@ export function ComposePanel({
         title="Compose"
         right={<span className="tabular text-caos-xs text-caos-muted">{onCount}/{rep.sections.length} sections</span>}
       >
-        <div className="flex flex-col gap-3 p-2 overflow-y-auto max-h-[calc(100vh-140px)]">
+        <div className="flex flex-col gap-3 p-2">
           {groups.map((g) => (
             <div key={g.name} className="flex flex-col border border-caos-border bg-caos-panel rounded overflow-hidden">
               <div className="bg-caos-bg px-2 py-1 border-b border-caos-border text-[9px] font-semibold text-caos-accent uppercase tracking-wider">
@@ -159,13 +162,14 @@ export function ComposePanel({
                     <button
                       key={idx}
                       onClick={() => onToggle(idx)}
+                      aria-pressed={!off}
                       className="w-full flex items-center gap-2 px-2.5 py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos"
                     >
                       <span
                         className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
                         style={{
                           borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                          background: off ? "transparent" : "color-mix(in srgb, var(--tranche-2l) 20%, transparent)",
+                          background: off ? "transparent" : "color-mix(in srgb, var(--caos-accent) 20%, transparent)",
                           color: "var(--caos-accent)",
                         }}
                       >
@@ -197,13 +201,14 @@ export function ComposePanel({
             <button
               key={i}
               onClick={() => onToggle(i)}
+              aria-pressed={!off}
               className="w-full flex items-center gap-2 px-3 py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos"
             >
               <span
                 className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
                 style={{
                   borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                  background: off ? "transparent" : "color-mix(in srgb, var(--tranche-2l) 20%, transparent)",
+                  background: off ? "transparent" : "color-mix(in srgb, var(--caos-accent) 20%, transparent)",
                   color: "var(--caos-accent)",
                 }}
               >
@@ -261,7 +266,7 @@ export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report;
             </span>
           </div>
         ) : (
-          <span className="text-caos-xs text-caos-muted">Clean export — CP-5 trace audit passed (1,142 citations).</span>
+          <span className="text-caos-xs text-caos-muted">{"Clean export — CP-5 trace audit passed · " + citeCount(rep) + (citeCount(rep) === 1 ? " citation" : " citations") + " resolved."}</span>
         )}
       </div>
     </Panel>

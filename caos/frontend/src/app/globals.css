@@ -259,10 +259,26 @@ main table:not(.rd-table):not(.rv-table) :is(th, td) {
 .rd-editing [contenteditable="true"]:empty { display: inline-block; min-width: 14px; min-height: 1em; }
 
 .rd-srcline { margin-top: 18px; font-family: var(--font-mono), monospace; font-size: 7.8px; font-weight: 500; color: #6c6c76; letter-spacing: 0.04em; line-height: 1.7; }
+
+/* On-paper citation register — models the research-doc .rdoc-sources block so the two paper surfaces share a language. */
+.rd-sources { margin-top: 18px; padding-top: 12px; border-top: 1px solid #16161e; position: relative; z-index: 2; }
+.rd-sources-h { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #5c5c66; margin-bottom: 7px; }
+.rd-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: rdsrc; }
+.rd-sources li { counter-increment: rdsrc; display: flex; align-items: baseline; gap: 8px; font-family: var(--font-mono), monospace; font-size: 8.2px; line-height: 1.5; color: #5c5c66; }
+.rd-sources li::before { content: counter(rdsrc, decimal-leading-zero); font-weight: 700; color: #16161e; }
+.rd-src-chip { font-weight: 700; color: #16161e; white-space: nowrap; }
+.rd-src-name { color: #6c6c76; flex: 1; }
+.rd-cite { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; color: #1f4fa0; border: 1px solid rgba(31,79,160,0.35); border-radius: 2px; padding: 0 3px; margin-left: 4px; background: rgba(31,79,160,0.06); cursor: pointer; text-decoration: none; }
+button.rd-cite:hover { background: rgba(31,79,160,0.14); border-color: rgba(31,79,160,0.6); }
+button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; }
+.rd-cite-print { vertical-align: super; border: none; background: none; padding: 0; }
+.rd-cite-none { font-style: italic; color: #8a8a93; margin-left: 4px; }
+
 .rd-foot { display: flex; justify-content: space-between; border-top: 1px solid #16161e; margin-top: 8px; padding-top: 6px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; letter-spacing: 0.06em; }
+.rd-colophon { margin-top: 10px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; letter-spacing: 0.05em; color: #a24310; text-transform: uppercase; }
 
 .rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; display: flex; flex-direction: column; justify-content: space-around; align-items: center; transform: rotate(-16deg); }
-.rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: rgba(190,84,16,0.09); }
+.rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: rgba(190,84,16,0.18); }
 
 /* ===== Deep Research: the report files as a paper tear-sheet =====
    A deliverable, so it's the deliberate LIGHT counterpoint to the dark

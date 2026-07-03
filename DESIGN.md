@@ -25,6 +25,7 @@ colors:
   paper: "#f7f5ee"
   paper-ink: "#16161e"
   paper-meta: "#5c5c66"
+  paper-critical: "#b91c1c"
 typography:
   display:
     fontFamily: "var(--font-sans), system-ui, sans-serif"
