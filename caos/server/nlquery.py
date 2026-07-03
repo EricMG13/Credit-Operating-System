@@ -22,7 +22,7 @@ import re
 from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
@@ -364,41 +364,75 @@ def _passes(value: Optional[float], op: str, target) -> bool:
             "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
 
 
+# ── Latest-per (issuer, metric) collapse ─────────────────────────────────────
+_DERIVED_PROVENANCE = ("run", "fixture")  # run/fixture outrank seed in the collapse tier
+
+
+def _derived(provenance: str) -> int:
+    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
+    return 1 if provenance in _DERIVED_PROVENANCE else 0
+
+
+def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
+    """True if ``fact`` should replace ``prev`` as the kept value for one
+    (issuer, metric): run/fixture-derived beats seed, then most-recent created_at
+    within the same tier. Several runs of one issuer collapse to the latest.
+
+    NB two sharp edges any SQL-window reimplementation must reproduce exactly:
+    (1) when either created_at is null the tie stays with ``prev`` (first seen) — an
+        iteration-order dependence a window ORDER BY must pin with a deterministic id
+        tiebreak, and whose NULLS position differs SQLite(dev)↔Postgres(prod);
+    (2) this tiers run==fixture, unlike engine.querygraph._best_fact which tops only
+        'run' — the two collapses can pick different facts. See test_fact_collapse.py.
+    """
+    if prev is None:
+        return True
+    pt, ft = _derived(prev.provenance), _derived(fact.provenance)
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+
+
 async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
     """Run a validated spec over headline metric_facts; return ranked, cited rows."""
     needed = list(dict.fromkeys([spec.rank_by, *spec.metrics]))
     issuer_filters = [f for f in spec.filters if f.field in _FILTER_FIELDS]
     metric_filters = [f for f in spec.filters if f.field in CATALOG_BY_KEY]
 
-    stmt = (
-        select(MetricFact, Issuer)
+    # Bound the scan: pick one winning fact per (issuer, metric) in SQL via a window
+    # ordered to mirror _better_fact — run/fixture tier, then newest created_at, then a
+    # deterministic id tiebreak (which also pins the null-created_at case the Python fold
+    # left to iteration order). Keeps the read at issuers×metrics, not O(run history).
+    # _better_fact stays the pinned reference this ORDER BY must match (test_fact_collapse).
+    tier = case((MetricFact.provenance.in_(_DERIVED_PROVENANCE), 1), else_=0)
+    win = (
+        select(
+            MetricFact.id.label("fid"),
+            func.row_number().over(
+                partition_by=(MetricFact.issuer_id, MetricFact.metric_key),
+                order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(),
+                          MetricFact.id.desc()),
+            ).label("rn"),
+        )
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(needed))
     )
     for f in issuer_filters:
         col = getattr(Issuer, f.field)
-        stmt = stmt.where(col.ilike(f"%{f.value}%") if f.op == "ilike" else col == f.value)
+        win = win.where(col.ilike(f"%{f.value}%") if f.op == "ilike" else col == f.value)
+    win = win.subquery()
 
+    stmt = (
+        select(MetricFact, Issuer)
+        .join(Issuer, MetricFact.issuer_id == Issuer.id)
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
+    )
     rows = (await session.execute(stmt)).all()
 
-    # Pivot per issuer; per (issuer, metric) keep the best fact: run-derived
-    # (a real run OR the demo fixture, #04) over seed, then most recent. Several
-    # runs of one issuer collapse to the latest.
-    def _derived(p: str) -> int:
-        return 1 if p in ("run", "fixture") else 0
-
+    # The window already collapsed to one fact per (issuer, metric) — just pivot.
     by_issuer: Dict[str, dict] = {}
     for fact, issuer in rows:
-        entry = by_issuer.setdefault(issuer.id, {"issuer": issuer, "metrics": {}})
-        prev = entry["metrics"].get(fact.metric_key)
-        better = (
-            prev is None
-            or _derived(fact.provenance) > _derived(prev.provenance)
-            or (_derived(fact.provenance) == _derived(prev.provenance)
-                and fact.created_at and prev.created_at and fact.created_at > prev.created_at)
-        )
-        if better:
-            entry["metrics"][fact.metric_key] = fact
+        by_issuer.setdefault(issuer.id, {"issuer": issuer, "metrics": {}})["metrics"][fact.metric_key] = fact
 
     md: MetricDef = CATALOG_BY_KEY[spec.rank_by]
     results = []

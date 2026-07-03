@@ -34,7 +34,7 @@ import logging
 from statistics import median
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import (
@@ -144,23 +144,29 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
     # ≥2 *fact-bearing* runs for some issuer — the real precondition for a diff.
     # Counting bare Run rows over-reports: a run that never persisted headline facts
     # can't be compared, so the rail would greenlight a diff with nothing to diff.
-    fact_runs = (await session.execute(
-        select(Run.issuer_id, MetricFact.run_id)
+    # HAVING…LIMIT 1 existence check: the DB answers the boolean and stops at the
+    # first qualifying issuer — was O(fact-bearing runs) rows pulled into Python on
+    # every /capabilities and /route call, growing unbounded with run history.
+    fact_runs_sq = (
+        select(Run.issuer_id.label("iid"))
         .join(MetricFact, MetricFact.run_id == Run.id)
         .where(MetricFact.headline.is_(True))
         .group_by(Run.issuer_id, MetricFact.run_id)
-    )).all()
-    per_issuer: Dict[str, int] = {}
-    for iid, _rid in fact_runs:
-        per_issuer[iid] = per_issuer.get(iid, 0) + 1
-    runs2 = any(c >= 2 for c in per_issuer.values())
+        .subquery()
+    )
+    runs2 = (await session.execute(
+        select(fact_runs_sq.c.iid).group_by(fact_runs_sq.c.iid)
+        .having(func.count() >= 2).limit(1)
+    )).first() is not None
 
-    # ≥2 distinct periods for some (issuer, metric): the trend axis.
-    periods = (await session.execute(
-        select(MetricFact.issuer_id, MetricFact.metric_key, func.count(func.distinct(MetricFact.period)))
+    # ≥2 distinct periods for some (issuer, metric): the trend axis. Same
+    # HAVING…LIMIT 1 existence check — don't materialize every group to test any().
+    periods2 = (await session.execute(
+        select(MetricFact.issuer_id)
         .group_by(MetricFact.issuer_id, MetricFact.metric_key)
-    )).all()
-    periods2 = any(c >= 2 for _i, _k, c in periods)
+        .having(func.count(func.distinct(MetricFact.period)) >= 2)
+        .limit(1)
+    )).first() is not None
 
     return {
         "facts": facts > 0,
@@ -239,29 +245,41 @@ def _empty(cap: dict, title: str, why: str) -> dict:
 
 # ── Latest-per (issuer, metric) fact selection (run > seed, then most recent) ─
 def _best_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
-    return (prev is None
-            or (fact.provenance == "run" and prev.provenance != "run")
-            or (fact.provenance == prev.provenance and fact.created_at and prev.created_at
-                and fact.created_at > prev.created_at))
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric): run/fixture
+    tier beats seed, then newest created_at within a tier; null created_at keeps prev.
+    Unified with nlquery._better_fact (same rule — the two collapses are pinned identical
+    by test_fact_collapse.py, so the Query graph and the NL rank never pick different
+    facts). Now the documented reference the _profile_values window ORDER BY mirrors."""
+    if prev is None:
+        return True
+    pt = 1 if prev.provenance in ("run", "fixture") else 0
+    ft = 1 if fact.provenance in ("run", "fixture") else 0
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
 
 
 async def _profile_values(session: AsyncSession, keys: Sequence[str]) -> Dict[str, dict]:
-    """{issuer_id: {"issuer": Issuer, "m": {key: value}}} over headline facts."""
+    """{issuer_id: {"issuer": Issuer, "m": {key: value}}} over headline facts — one winning
+    fact per (issuer, metric) via a bounded SQL window (mirrors _best_fact: run/fixture tier,
+    newest created_at, deterministic id tiebreak), so the read stays issuers×metrics rather
+    than O(run history)."""
+    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    win = select(
+        MetricFact.id.label("fid"),
+        func.row_number().over(
+            partition_by=(MetricFact.issuer_id, MetricFact.metric_key),
+            order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
+        ).label("rn"),
+    ).where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys))).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
-        .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)))
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
     )).all()
-    best: Dict[Tuple[str, str], MetricFact] = {}
-    issuers: Dict[str, Issuer] = {}
-    for fact, iss in rows:
-        issuers[iss.id] = iss
-        k = (iss.id, fact.metric_key)
-        if _best_fact(best.get(k), fact):
-            best[k] = fact
     out: Dict[str, dict] = {}
-    for (iid, mk), fact in best.items():
-        out.setdefault(iid, {"issuer": issuers[iid], "m": {}})["m"][mk] = fact.value
+    for fact, iss in rows:
+        out.setdefault(iss.id, {"issuer": iss, "m": {}})["m"][fact.metric_key] = fact.value
     return out
 
 
@@ -613,9 +631,21 @@ async def _percentile(session: AsyncSession, issuer_id: Optional[str], cap: dict
 
 async def _trend(session: AsyncSession, cap: dict) -> dict:
     from engine.periods import sort_key
+    # One winning fact per (issuer, metric, period) via a bounded window (mirrors the
+    # collapse: run/fixture tier, newest created_at, id tiebreak) so re-runs of the same
+    # period collapse deterministically and the read is issuers×metrics×periods, not ×runs.
+    # No headline filter — a trend needs the prior (non-headline) periods too.
+    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    win = select(
+        MetricFact.id.label("fid"),
+        func.row_number().over(
+            partition_by=(MetricFact.issuer_id, MetricFact.metric_key, MetricFact.period),
+            order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
+        ).label("rn"),
+    ).where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage"))).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer).join(Issuer, MetricFact.issuer_id == Issuer.id)
-        .where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage")))
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
     )).all()
     series: Dict[Tuple[str, str], List[Tuple[str, float]]] = {}
     issuers: Dict[str, Issuer] = {}
@@ -648,9 +678,12 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
 async def _coverage(session: AsyncSession, cap: dict) -> dict:
     designed = [s for s in all_specs() if s.implemented]
     total = len(designed)
+    # distinct (issuer, module): the by_issuer set-fold below dedups anyway, so push
+    # DISTINCT to the DB — bounds the scan to issuers×modules, not O(runs×modules).
     rows = (await session.execute(
         select(Run.issuer_id, ModuleOutput.module_id)
         .join(ModuleOutput, ModuleOutput.run_id == Run.id)
+        .distinct()
     )).all()
     if not rows:
         return _empty(cap, "Coverage completeness", "No completed runs yet.")
@@ -679,31 +712,55 @@ async def _coverage(session: AsyncSession, cap: dict) -> dict:
 
 
 async def _committee(session: AsyncSession, cap: dict) -> dict:
+    # Distinct (committee_status, issuer): the board shows an issuer once per state it
+    # has a run in — not once per run, which piled duplicate-id nodes on repeat issuers
+    # and scanned the whole (append-only) Run history. DB DISTINCT bounds this to
+    # states×issuers and fixes the duplicate-node id collision.
     rows = (await session.execute(
-        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id)
+        select(Run.committee_status, Issuer.id, Issuer.name)
+        .join(Issuer, Run.issuer_id == Issuer.id)
+        .distinct()
     )).all()
     if not rows:
         return _empty(cap, "Committee-readiness", "No runs yet.")
-    groups: Dict[str, List[Issuer]] = {}
-    for run, iss in rows:
-        groups.setdefault(run.committee_status or "Draft Only", []).append(iss)
+    groups: Dict[str, List[Tuple[str, str]]] = {}
+    for status, iid, name in rows:
+        groups.setdefault(status or "Draft Only", []).append((iid, name))
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
     centers = _grid_centers(len(ordered))
     nodes, edges = [], []
     for (status, members), (cx, cy) in zip(ordered, centers):
         gid = f"cs:{status}"
         nodes.append(_node(gid, f"{status} · {len(members)}", "sector", cx, cy, group=status))
-        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(f"{gid}:{iss.id}", iss.name, "issuer", mx, my, compact=True))
-            edges.append(_edge(gid, f"{gid}:{iss.id}", kind="member"))
-    meta = [f"{len(rows)} runs", f"{len(ordered)} committee states"]
+        for (iid, name), (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(f"{gid}:{iid}", name, "issuer", mx, my, compact=True))
+            edges.append(_edge(gid, f"{gid}:{iid}", kind="member"))
+    meta = [f"{sum(len(m) for _s, m in ordered)} issuer-states", f"{len(ordered)} committee states"]
     return _result(cap, "Committee-readiness board", nodes, edges, meta, [])
 
 
+_GATE_NODE_CAP = 300  # rollup graph, not a ledger — render the most-severe/newest slice
+
+
 async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
-    rows = (await session.execute(select(QAFinding))).scalars().all()
-    if not rows:
+    total = int((await session.execute(select(func.count()).select_from(QAFinding))).scalar() or 0)
+    if total == 0:
         return _empty(cap, "Gate-lane rollup", "No QA findings yet.")
+    crit = int((await session.execute(
+        select(func.count()).select_from(QAFinding).where(QAFinding.severity == "CRITICAL")
+    )).scalar() or 0)
+    # QAFinding grows O(modules×runs); a rollup past a few hundred nodes is both an
+    # unreadable canvas and a huge payload. Render the most-severe, newest slice so a
+    # cap never hides a CRITICAL behind newer MINORs; the full totals stay in meta.
+    sev_rank = case(
+        (QAFinding.severity == "CRITICAL", 0),
+        (QAFinding.severity == "MATERIAL", 1),
+        (QAFinding.severity == "MINOR", 2),
+        else_=3,
+    )
+    rows = (await session.execute(
+        select(QAFinding).order_by(sev_rank, QAFinding.id.desc()).limit(_GATE_NODE_CAP)
+    )).scalars().all()
     groups: Dict[str, List[QAFinding]] = {}
     for f in rows:
         groups.setdefault(f"Lane {f.lane}" if f.lane is not None else "Unscoped", []).append(f)
@@ -719,8 +776,8 @@ async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
                                mx, my, sub=f.severity, module=f.module_id, compact=True,
                                title=f"{f.finding_id} · {f.severity}: {_clip(f.description, 80)}"))
             edges.append(_edge(gid, f"f:{f.id}", kind="member"))
-    crit = sum(1 for f in rows if f.severity == "CRITICAL")
-    meta = [f"{len(rows)} findings", f"{len(ordered)} CP-5 lanes", f"{crit} CRITICAL"]
+    shown = f" ({len(rows)} shown)" if len(rows) < total else ""
+    meta = [f"{total} findings{shown}", f"{len(ordered)} CP-5 lanes", f"{crit} CRITICAL"]
     return _result(cap, "Gate findings by lane", nodes, edges, meta, [])
 
 
@@ -1158,7 +1215,8 @@ async def _append_accepted_links(session: AsyncSession, graph: dict) -> dict:
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 async def build_graph(session: AsyncSession, capability_id: str,
-                      issuer_id: Optional[str] = None) -> dict:
+                      issuer_id: Optional[str] = None,
+                      theme: Optional[str] = None) -> dict:
     cap = CAP_BY_ID.get(capability_id)
     if cap is None:
         raise KeyError(capability_id)
