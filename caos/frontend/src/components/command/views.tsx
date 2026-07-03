@@ -15,12 +15,17 @@ import {
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
-import { Dot, Tag } from "@/components/pipeline/atoms";
+import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
 import { FlashOnChange } from "@/components/shared/FlashOnChange";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { createRun, getRun } from "@/lib/api";
+import type { RunSummaryDTO } from "@/lib/engine/types";
+import {
+  COVERAGE_LAYERS, STATUS_RANK, worstStatus, rollupRunToCells, runnableIssuerId, ATLF_COVERAGE_ROW,
+} from "@/lib/command/coverage";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -776,11 +781,6 @@ export function SectorBoard() {
 }
 
 /* ---------- Research view ---------- */
-const CELL_COLOR: Record<string, string> = {
-  fresh: "color-mix(in srgb, var(--caos-success) 35%, transparent)", aging: "color-mix(in srgb, var(--caos-warning) 35%, transparent)", stale: "color-mix(in srgb, var(--caos-critical) 40%, transparent)",
-  running: "color-mix(in srgb, var(--caos-accent) 25%, transparent)", blocked: "color-mix(in srgb, var(--caos-critical) 35%, transparent)",
-};
-
 const LAYER_TITLES: Record<string, string> = {
   L1: "L1 — Data Foundation (financials, fact packs, performance deltas, peer benchmarks)",
   L2: "L2 — Fundamental Credit Synthesis (fundamental credit, downside pathways, event catalysts, governance, liquidity, macro sensitivity)",
@@ -790,48 +790,238 @@ const LAYER_TITLES: Record<string, string> = {
   L6: "L6 — Debate & Decision (IC debate, portfolio debate)",
 };
 
-export function CoverageMatrix() {
-  const [coverageData, setCoverageData] = useState(() => COVERAGE);
-  const [running, setRunning] = useState<Record<string, boolean>>({});
-  const layers = ["L1", "L2", "L3", "L4", "L5", "L6"];
+// Sequential freshness ramp — solid tinted fills only. Process states
+// (running / blocked) are NOT fills; they render as an outlined glyph cell so
+// `blocked` reads as categorical, never as "a slightly redder stale".
+const FRESH_FILL: Record<string, string> = {
+  fresh: "color-mix(in srgb, var(--caos-success) 32%, transparent)",
+  aging: "color-mix(in srgb, var(--caos-warning) 34%, transparent)",
+  stale: "color-mix(in srgb, var(--caos-critical) 40%, transparent)",
+};
+const CELL_SHORT: Record<string, string> = { fresh: "FRESH", aging: "AGING", stale: "STALE" };
 
-  const handleReRun = (id: string) => {
-    setRunning((prev) => ({ ...prev, [id]: true }));
-    setCoverageData((prevData) =>
-      prevData.map((item) => {
-        if (item.id === id || item.code === id) {
-          const newCells = { ...item.cells };
-          layers.forEach((l) => {
-            newCells[l] = "running";
-          });
-          return { ...item, cells: newCells };
-        }
-        return item;
-      })
+function CoverageCell({ status, title }: { status: string; title: string }) {
+  if (status === "blocked") {
+    // Categorical: outlined critical ring + ✕-glyph, no red fill — visually
+    // distinct from a solid-red `stale` even for a low-vision / colorblind read.
+    return (
+      <div
+        title={title}
+        className="h-5 rounded-sm flex items-center justify-center gap-0.5 border transition-caos hover:opacity-80"
+        style={{ borderColor: "var(--caos-critical)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)", color: "var(--caos-critical-bright)" }}
+      >
+        <StatusGlyph kind="blocked" size={9} />
+        <span className="tabular text-caos-3xs uppercase font-medium">BLKD</span>
+      </div>
     );
+  }
+  if (status === "running") {
+    // Accent ring + open-arc glyph + pulse. `caos-running` self-disables under
+    // prefers-reduced-motion; the glyph carries the meaning without the pulse.
+    return (
+      <div
+        title={title}
+        className="h-5 rounded-sm flex items-center justify-center gap-0.5 border caos-running transition-caos"
+        style={{ borderColor: "color-mix(in srgb, var(--caos-accent) 55%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 14%, transparent)", color: "var(--caos-accent)" }}
+      >
+        <StatusGlyph kind="running" size={9} />
+        <span className="tabular text-caos-3xs uppercase font-medium">RUN</span>
+      </div>
+    );
+  }
+  return (
+    <div
+      title={title}
+      className="h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80"
+      style={{ background: FRESH_FILL[status] || "transparent" }}
+    >
+      <span className="tabular text-caos-3xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
+    </div>
+  );
+}
 
-    setTimeout(() => {
-      setCoverageData((prevData) =>
-        prevData.map((item) => {
-          if (item.id === id || item.code === id) {
-            const newCells = { ...item.cells };
-            layers.forEach((l) => {
-              newCells[l] = "fresh";
-            });
-            return { ...item, cells: newCells };
-          }
-          return item;
-        })
-      );
-      setRunning((prev) => ({ ...prev, [id]: false }));
-    }, 2000);
+// On-system empty / cleared note — mirrors deepdive/rails NoIssuerRailOutput:
+// role="note", severity-tinted border, glyph + uppercase label + muted body.
+function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: string; body: string }) {
+  const color = tone === "success" ? "var(--caos-success)" : "var(--caos-warning)";
+  return (
+    <div role="note" className="m-3 bg-caos-panel border rounded-md px-3 py-2.5 shrink-0" style={{ borderColor: `color-mix(in srgb, ${color} 45%, transparent)` }}>
+      <div className="flex items-center gap-1.5">
+        <span style={{ color }}><StatusGlyph kind={tone === "success" ? "success" : "warning"} size={11} /></span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color }}>{label}</span>
+      </div>
+      <div className="text-caos-md text-caos-muted leading-snug mt-0.5">{body}</div>
+    </div>
+  );
+}
+
+type RowRun = { phase: "queuing" | "running" | "done" | "failed"; runId?: string; error?: string; at?: string };
+
+const errMsg = (e: unknown): string => {
+  const ax = e as { response?: { data?: { detail?: string } }; message?: string };
+  return ax?.response?.data?.detail || ax?.message || "request failed";
+};
+const shortId = (id?: string) => (id ? id.slice(0, 8) : "—");
+const nowStamp = () => new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
+
+function ReRunButton({ runnable, phase, error, code, onClick }: { runnable: boolean; phase?: RowRun["phase"]; error?: string; code: string; onClick: () => void }) {
+  if (!runnable) {
+    return (
+      <span
+        title={`Seeded sample — no live engine run for ${code} (Phase-1 runs ATLF only)`}
+        className="tabular text-caos-3xs uppercase text-caos-muted border border-caos-border/50 rounded px-1 py-0.5 text-center cursor-not-allowed select-none"
+      >
+        Seeded
+      </span>
+    );
+  }
+  const busy = phase === "queuing" || phase === "running";
+  const label = phase === "queuing" ? "QUEUING" : phase === "running" ? "RUNNING" : phase === "failed" ? "RETRY" : "RE-RUN";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      title={phase === "failed" && error ? `Run failed: ${error} — click to retry` : `Trigger a real engine run for ${code}`}
+      aria-label={`${label} ${code}`}
+      className={
+        "tabular text-caos-xs rounded px-1 py-0.5 border transition-caos focus-ring cursor-pointer disabled:cursor-wait " +
+        (phase === "failed"
+          ? "border-caos-critical/60 text-caos-critical-bright hover:border-caos-critical"
+          : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60") +
+        (busy ? " caos-running" : "")
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+export function CoverageMatrix() {
+  // ATLF (the seeded reference deal) is the one engine-backed issuer and is NOT
+  // in the demo sleeve, so it is prepended — otherwise no row is runnable and
+  // RE-RUN is unreachable dead code.
+  const [coverageData, setCoverageData] = useState(() => [ATLF_COVERAGE_ROW, ...COVERAGE]);
+  const [runs, setRuns] = useState<Record<string, RowRun>>({});
+  const [filter, setFilter] = useState<"all" | "blocked" | "stale" | "aging">("all");
+  // Default to issuer order: the seeded sample repeats a 10-row status pattern,
+  // so a worst-first default stacks ~38 byte-identical rows and reads as "all
+  // broken". Staleness triage stays one click away.
+  const [sortBy, setSortBy] = useState<"staleness" | "code">("code");
+  const mounted = useRef(true);
+  // Per-row in-flight guard — a synchronous ref (not the async `runs` state) so a
+  // second RE-RUN or a repeated bulk "Re-run stale" click can't spawn a second
+  // poll loop for a row already running and race setRuns/applyRollup.
+  const inflight = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  const rows = useMemo(() => {
+    const withWorst = coverageData.map((c) => ({ ...c, worst: worstStatus(c.cells) }));
+    const filtered = filter === "all" ? withWorst : withWorst.filter((r) => r.worst === filter);
+    return filtered.sort((a, b) =>
+      sortBy === "staleness"
+        ? ((STATUS_RANK[a.worst] ?? 9) - (STATUS_RANK[b.worst] ?? 9)) || a.code.localeCompare(b.code)
+        : a.code.localeCompare(b.code),
+    );
+  }, [coverageData, filter, sortBy]);
+
+  const applyRollup = (rowId: string, run: RunSummaryDTO) => {
+    inflight.current[rowId] = false;
+    const rolled = rollupRunToCells(run);
+    setCoverageData((prev) => prev.map((it) => (it.id === rowId ? { ...it, cells: { ...it.cells, ...rolled } } : it)));
+    setRuns((r) => ({ ...r, [rowId]: { phase: "done", runId: run.id, at: nowStamp() } }));
   };
 
+  const fail = (rowId: string, error: string, runId?: string) => {
+    inflight.current[rowId] = false;
+    setRuns((r) => ({ ...r, [rowId]: { phase: "failed", runId, error } }));
+  };
+
+  const poll = (rowId: string, runId: string, started: number) => {
+    if (!mounted.current) return;
+    getRun(runId)
+      .then((cur) => {
+        if (!mounted.current) return;
+        if (cur.status === "complete") return applyRollup(rowId, cur);
+        if (cur.status === "failed") return fail(rowId, cur.error || "run failed", runId);
+        if (Date.now() - started > 180_000) return fail(rowId, "timed out waiting for the run", runId);
+        setRuns((r) => ({ ...r, [rowId]: { phase: "running", runId } }));
+        window.setTimeout(() => poll(rowId, runId, started), 2500);
+      })
+      .catch((e) => {
+        if (!mounted.current) return;
+        fail(rowId, errMsg(e), runId);
+      });
+  };
+
+  // Real engine run — the honest replacement for the old setTimeout→all-fresh
+  // fake. Only fires for engine-backed rows (guarded; the button is disabled
+  // otherwise). Cells update from the REAL run's per-layer roll-up; a failure or
+  // timeout leaves the seeded cells untouched rather than fabricating freshness.
+  const reRun = (rowId: string, code: string) => {
+    const issuerId = runnableIssuerId(code);
+    if (!issuerId || inflight.current[rowId]) return; // seeded row, or already running
+    inflight.current[rowId] = true;
+    setRuns((r) => ({ ...r, [rowId]: { phase: "queuing" } }));
+    createRun(issuerId)
+      .then((created) => {
+        if (!mounted.current) return;
+        if (created.status === "complete") return applyRollup(rowId, created);
+        setRuns((r) => ({ ...r, [rowId]: { phase: "running", runId: created.id } }));
+        poll(rowId, created.id, Date.now());
+      })
+      .catch((e) => {
+        if (!mounted.current) return;
+        fail(rowId, errMsg(e));
+      });
+  };
+
+  const bulkStale = rows.filter((r) => runnableIssuerId(r.code) && r.worst !== "fresh" && r.worst !== "running");
+  const grid = "grid grid-cols-[120px_repeat(6,1fr)_84px] gap-1 items-center px-1";
+
   return (
-    <div className="p-2">
-      <div className="grid grid-cols-[110px_repeat(6,1fr)_70px] gap-1 items-center mb-1 px-1">
+    <div className="p-2 flex flex-col">
+      {/* triage controls */}
+      <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 px-1 mb-1.5">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Filter</span>
+        <ToggleGroup
+          size="sm"
+          value={filter}
+          onChange={(k) => setFilter(k)}
+          options={[
+            { k: "all", l: "All" }, { k: "blocked", l: "Blocked" }, { k: "stale", l: "Stale" }, { k: "aging", l: "Aging" },
+          ] as const}
+        />
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted ml-1">Sort</span>
+        <ToggleGroup
+          size="sm"
+          value={sortBy}
+          onChange={(k) => setSortBy(k)}
+          options={[{ k: "staleness", l: "Staleness" }, { k: "code", l: "Issuer" }] as const}
+        />
+        <span className="flex-1" />
+        <span className="tabular text-caos-2xs text-caos-muted">{rows.length} / {coverageData.length}</span>
+        <button
+          type="button"
+          onClick={() => bulkStale.forEach((r) => reRun(r.id, r.code))}
+          disabled={!bulkStale.length}
+          title={bulkStale.length ? `Trigger real engine runs for ${bulkStale.length} engine-backed issuer(s) needing a refresh` : "No engine-backed issuers need a refresh in view"}
+          className="tabular text-caos-2xs uppercase px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Re-run stale ({bulkStale.length})
+        </button>
+      </div>
+      {/* honesty banner — the matrix is a seeded sample; RE-RUN is real only where engine-backed */}
+      <div role="note" className="tabular text-caos-3xs text-caos-muted px-1 mb-1.5 leading-snug">
+        Seeded coverage sample · <span style={{ color: "var(--caos-accent)" }}>RE-RUN</span> triggers a real engine run where the issuer is engine-backed (Phase-1: ATLF); other rows are illustrative.
+      </div>
+
+      <div className={grid + " mb-1"}>
         <span className="tabular text-caos-xs uppercase text-caos-muted">Issuer</span>
-        {layers.map((l) => (
+        {COVERAGE_LAYERS.map((l) => (
           <span
             key={l}
             title={LAYER_TITLES[l]}
@@ -841,36 +1031,58 @@ export function CoverageMatrix() {
             {l}
           </span>
         ))}
-        <span className="tabular text-caos-xs uppercase text-caos-muted text-right">Refresh</span>
+        <span className="tabular text-caos-xs uppercase text-caos-muted text-center">Refresh</span>
       </div>
-      {coverageData.map((c) => (
-        <div key={c.id || c.code} className="grid grid-cols-[110px_repeat(6,1fr)_70px] gap-1 items-center mb-1 px-1">
-          <span className="tabular text-caos-lg text-caos-accent">{c.code}</span>
-          {layers.map((l) => {
-            const st = c.cells[l];
-            return (
-              <div
-                key={l}
-                title={`${c.code} ${LAYER_TITLES[l]} — ${st}`}
-                className={"h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 " + (st === "running" ? "caos-running" : "")}
-                style={{ background: CELL_COLOR[st] }}
-              >
-                <span className="tabular text-caos-3xs uppercase font-medium text-[#f4f4f8]">{st}</span>
+
+      {rows.length === 0 ? (
+        <EmptyNote tone="warning" label="No matching issuers" body={`No issuers are ${filter} in the current view. Switch the filter back to All to see full coverage.`} />
+      ) : (
+        rows.map((c) => {
+          const rr = runs[c.id];
+          const busy = rr?.phase === "queuing" || rr?.phase === "running";
+          const runnable = !!runnableIssuerId(c.code);
+          const sub = rr?.phase === "done" && rr.at
+            ? `run ${shortId(rr.runId)} · ${rr.at}`
+            : rr?.phase === "failed" ? "run failed" : runnable ? "engine-backed" : "seeded sample";
+          return (
+            <div key={c.id} className={grid + " mb-1"}>
+              <span className="min-w-0 flex flex-col leading-tight">
+                <IssuerLink query={c.code} title={`Open ${c.code} profile`} className="tabular text-caos-lg text-caos-accent hover:text-caos-text transition-caos truncate">
+                  {c.code}
+                </IssuerLink>
+                <span
+                  className="tabular text-caos-3xs truncate"
+                  style={{ color: rr?.phase === "failed" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}
+                >
+                  {sub}
+                </span>
+              </span>
+              {COVERAGE_LAYERS.map((l) => {
+                const st = busy ? "running" : c.cells[l];
+                return <CoverageCell key={l} status={st} title={`${c.code} ${LAYER_TITLES[l]} — ${st}`} />;
+              })}
+              <div className="flex justify-center">
+                <ReRunButton runnable={runnable} phase={rr?.phase} error={rr?.error} code={c.code} onClick={() => reRun(c.id, c.code)} />
               </div>
-            );
-          })}
-          <button
-            onClick={() => handleReRun(c.id || c.code)}
-            disabled={running[c.id || c.code]}
-            className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-0.5 hover:text-caos-text hover:border-caos-accent/60 transition-caos disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-          >
-            {running[c.id || c.code] ? "RUNNING" : "RE-RUN"}
-          </button>
-        </div>
-      ))}
-      <div className="flex gap-3 mt-2 px-1">
-        {Object.keys(CELL_COLOR).map((k) => (
-          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted"><span className="w-2 h-2 rounded-sm" style={{ background: CELL_COLOR[k] }}></span>{k}</span>
+            </div>
+          );
+        })
+      )}
+
+      {/* legend — two labelled groups so the sequential freshness ramp reads
+          apart from the categorical process states */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 px-1">
+        <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Freshness</span>
+        {["fresh", "aging", "stale"].map((k) => (
+          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
+            <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
+          </span>
+        ))}
+        <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted ml-2">State</span>
+        {["running", "blocked"].map((k) => (
+          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
+            <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
+          </span>
         ))}
       </div>
     </div>
@@ -878,14 +1090,29 @@ export function CoverageMatrix() {
 }
 
 export function QaQueue() {
+  if (QA_QUEUE.length === 0) {
+    return <EmptyNote tone="success" label="QA queue clear" body="No open CP-5 findings. New QA-gate failures land here for triage." />;
+  }
   return (
     <div>
       {QA_QUEUE.map((q) => (
         <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
-            <span className="tabular text-caos-md text-caos-accent">{q.id}</span>
-            <span className="tabular text-caos-md text-caos-muted">{q.issuer} · {q.module}</span>
+            <span className="tabular text-caos-md text-caos-muted">{q.id}</span>
+            {/* Drill-through: issuer → profile overlay; module → its Deep-Dive
+                view (where the cited evidence lives) — the P1 "one click from
+                evidence" fix. */}
+            <IssuerLink query={q.issuer} title={`Open ${q.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos">
+              {q.issuer}
+            </IssuerLink>
+            <Link
+              href={`/deepdive?issuer=${encodeURIComponent(q.issuer)}&mod=${encodeURIComponent(q.module)}`}
+              title={`Open ${q.issuer} ${q.module} in Deep-Dive`}
+              className="no-underline tabular text-caos-xs text-caos-muted hover:text-caos-accent border border-caos-border/70 hover:border-caos-accent/60 rounded px-1 transition-caos"
+            >
+              {q.module} →
+            </Link>
             <span className="tabular text-caos-xs text-caos-muted ml-auto">{q.age}</span>
           </div>
           <div className="text-caos-lg text-caos-text leading-snug mt-1">{q.text}</div>
@@ -905,13 +1132,18 @@ export function GapsList() {
       (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9) ||
       Date.parse(`${b.requested} 2026`) - Date.parse(`${a.requested} 2026`),
   );
+  if (gaps.length === 0) {
+    return <EmptyNote tone="success" label="No open gaps" body="Every covered issuer has its required sources. New CP-0 source gaps land here." />;
+  }
   return (
     <div>
       {gaps.map((g, i) => (
         <div key={i} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Dot sev={g.sev} />
-            <span className="tabular text-caos-md text-caos-accent">{g.issuer}</span>
+            <IssuerLink query={g.issuer} title={`Open ${g.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos">
+              {g.issuer}
+            </IssuerLink>
             <span className="text-caos-lg text-caos-text truncate">{g.doc}</span>
             <span className="tabular text-caos-xs text-caos-muted ml-auto">req. {g.requested}</span>
           </div>
