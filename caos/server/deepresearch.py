@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List
+from typing import Awaitable, Callable, List, Optional
 
 import anthropic
 from pydantic import BaseModel, Field
@@ -179,7 +179,59 @@ def _collect_sources(block, out: List[Source]) -> None:
         pass
 
 
-async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
+def _compose_report(text_parts: List[str], truncated: bool) -> str:
+    """Join the streamed prose and apply the truncation / empty-report fallbacks.
+
+    Pure string assembly, moved verbatim from the tail of run_deep_research
+    (after every await and side effect) so the live loop stays under the C901
+    gate. Branch order and strings are byte-identical to the inline original.
+    """
+    report = "".join(text_parts).strip()
+    # Visible in-report banner so the analyst never reads a cut-off report as a
+    # complete one (the report itself is the committee-facing artifact). No emoji
+    # per the product-chrome rule. L2.
+    _TRUNC_BANNER = (
+        "> **Report may be incomplete** — research stopped at its "
+        "continuation/length cap before the model signaled completion. "
+        "Re-run or narrow the brief for the full report.\n\n"
+    )
+    if not report:
+        if truncated:
+            # Cap hit before any prose: say so — don't claim "the model finished".
+            report = _TRUNC_BANNER + "_No report text was produced before the cap was reached._"
+        else:
+            # Rare: ended with only tool/thinking blocks and no prose.
+            report = (
+                "### No report produced\n\n"
+                "The model finished without writing a report — this is uncommon. "
+                "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
+            )
+    elif truncated:
+        report = _TRUNC_BANNER + report
+    return report
+
+
+ProgressCb = Callable[[dict], Awaitable[None]]
+
+
+async def _emit_progress(cb: "Optional[ProgressCb]", sources: List[Source], searches: int) -> None:
+    """Report the REAL running counts (unique sources so far, searches run).
+
+    Best-effort: a failing/ slow progress sink must never abort or slow the
+    research run itself, so swallow anything it raises — the report is what
+    matters, the live counter is a nicety."""
+    if cb is None:
+        return
+    try:
+        uniq = len({s.url for s in sources})
+        await cb({"sources": uniq, "searches": searches})
+    except Exception:  # noqa: BLE001 — progress is best-effort, never fatal
+        logger.debug("research progress callback failed", exc_info=True)
+
+
+async def run_deep_research(
+    brief: ResearchBrief, on_progress: "Optional[ProgressCb]" = None
+) -> ResearchResult:
     prompt = build_brief(brief)
 
     if not llm_configured():
@@ -197,6 +249,7 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
 
     text_parts: List[str] = []
     sources: List[Source] = []
+    searches = 0  # cumulative web_search_tool_result blocks — the real search count
 
     last_stop: str | None = None
     fb_model = settings.synth_executor_model
@@ -231,7 +284,13 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
         for block in msg.content:
             if getattr(block, "type", None) == "text":
                 text_parts.append(block.text)
+            if getattr(block, "type", None) == "web_search_tool_result":
+                searches += 1
             _collect_sources(block, sources)
+
+        # Report the real running counts after each turn so the polled UI shows
+        # sources genuinely accumulating (never a fabricated number).
+        await _emit_progress(on_progress, sources, searches)
 
         last_stop = msg.stop_reason
         # pause_turn = the server tool loop hit its per-turn cap; resume the same
@@ -249,27 +308,6 @@ async def run_deep_research(brief: ResearchBrief) -> ResearchResult:
     seen: set = set()
     deduped = [s for s in sources if not (s.url in seen or seen.add(s.url))]
 
-    report = "".join(text_parts).strip()
-    # Visible in-report banner so the analyst never reads a cut-off report as a
-    # complete one (the report itself is the committee-facing artifact). No emoji
-    # per the product-chrome rule. L2.
-    _TRUNC_BANNER = (
-        "> **Report may be incomplete** — research stopped at its "
-        "continuation/length cap before the model signaled completion. "
-        "Re-run or narrow the brief for the full report.\n\n"
-    )
-    if not report:
-        if truncated:
-            # Cap hit before any prose: say so — don't claim "the model finished".
-            report = _TRUNC_BANNER + "_No report text was produced before the cap was reached._"
-        else:
-            # Rare: ended with only tool/thinking blocks and no prose.
-            report = (
-                "### No report produced\n\n"
-                "The model finished without writing a report — this is uncommon. "
-                "Re-run, or narrow the brief (a tighter subject, fewer criteria)."
-            )
-    elif truncated:
-        report = _TRUNC_BANNER + report
+    report = _compose_report(text_parts, truncated)
 
     return ResearchResult(report=report, sources=deduped, demo=False, truncated=truncated)

@@ -467,7 +467,7 @@ export function Profile({
       <div className="h-12 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
         {!isOverlay ? (
           <>
-            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0" aria-label="Back to issuer directory">
+            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0" aria-label="Back to issuer register">
               <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
               <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
             </Link>

@@ -72,7 +72,7 @@ const SECTOR_COLORS: Record<string, string> = {
   "Communication Services": "#e879f9",
 };
 
-const BUCKETS = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3", "Caa1", "Caa2", "Caa3", "NR"];
+export const BUCKETS = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3", "Caa1", "Caa2", "Caa3", "NR"];
 const SP_TO_MOODYS: Record<string, string> = {
   "BB+": "Ba1",
   BB: "Ba2",
@@ -126,6 +126,18 @@ const rvSignal = (rvBp: number | null): RVSignal => {
   return "Inline";
 };
 
+// ponytail: fixed junk ceiling. No performing/distressed leveraged loan carries a
+// 3Y DM above ~5000bp; the feed carries a few junk marks (the stats.ts comment
+// names ±20000bp ticks; the scatter names a 579,028bp one). Left unguarded, such a
+// mark yields a huge positive rvBp that leads the peer table's cheap→rich default
+// sort as a bogus "Cheap" tail — the RVScatter already clamps these out of its
+// domain, so mirror that here: a non-credible DM produces a null rvBp ("N/A"),
+// excluded from the actionable tails and from the benchmark median. Raise the
+// ceiling only if a real mark ever legitimately exceeds it.
+const MAX_CREDIBLE_DM_BP = 5000;
+const credibleDm = (dm: number | null | undefined): dm is number =>
+  isNum(dm) && dm > 0 && dm < MAX_CREDIBLE_DM_BP;
+
 const validRows = RAW_ROWS.filter((r) =>
   r.company && r.sector && isNum(r.size) && isNum(r.margin) && isNum(r.bid) && isNum(r.ask) && isNum(r.midYtm) && isNum(r.mid3yDm)
 );
@@ -135,7 +147,7 @@ const dmBenchmarks = new Map<string, number | null>();
 for (const r of validRows) {
   const key = `${r.sector}|${ratingBucket(r.ratings)}`;
   if (dmBenchmarks.has(key)) continue;
-  const comps = validRows.filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key).map((x) => x.mid3yDm).filter((x): x is number => isNum(x) && x > 0);
+  const comps = validRows.filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key).map((x) => x.mid3yDm).filter(credibleDm);
   dmBenchmarks.set(
     key,
     comps.length < 2 ? null : median(comps)
@@ -145,7 +157,7 @@ for (const r of validRows) {
 const rows: RVRow[] = validRows.map((r) => {
   const bucket = ratingBucket(r.ratings);
   const benchmark = dmBenchmarks.get(`${r.sector}|${bucket}`) ?? null;
-  const rvBp = benchmark === null ? null : r.mid3yDm! - benchmark;
+  const rvBp = benchmark === null || !credibleDm(r.mid3yDm) ? null : r.mid3yDm - benchmark;
   return {
     company: r.company,
     sector: r.sector,
@@ -246,5 +258,5 @@ export function ratingAverages(data: RVRow[]): RatingAvg[] {
       bucket,
       ...averageRow(members),
     };
-  }).filter((b) => b.n > 0 || ["Caa2", "NR"].includes(b.bucket));
+  }).filter((b) => b.n > 0);
 }

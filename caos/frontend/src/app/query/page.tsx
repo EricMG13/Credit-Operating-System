@@ -54,6 +54,7 @@ function QueryWorkspace() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [text, setText] = useState("");
+  const [theme, setTheme] = useState(""); // free-text risk theme for the shared-theme walk
   const [note, setNote] = useState<string | null>(null);
   const [suggest, setSuggest] = useState<Capability[]>([]);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
@@ -124,7 +125,7 @@ function QueryWorkspace() {
   }, []);
 
   const runSeq = useRef(0);
-  const run = useCallback((capId: string, capMode?: string, toast = false) => {
+  const run = useCallback((capId: string, capMode?: string, toast = false, themeArg?: string) => {
     // Ignore out-of-order results: a slow earlier queryGraph must not clobber a
     // newer one (graph/error/running guarded on the latest sequence).
     const seq = ++runSeq.current;
@@ -139,7 +140,7 @@ function QueryWorkspace() {
     // Every run opens on its native view — a leftover Scatter/Lineage from the
     // previous graph must never be the first render of a new one.
     if (capMode) setView(nativeView(capId, capMode));
-    queryGraph(capId)
+    queryGraph(capId, undefined, themeArg)
       .then((g) => {
         if (seq !== runSeq.current) return;
         setGraph(g);
@@ -171,8 +172,9 @@ function QueryWorkspace() {
   // so the analyst can accept several proposals in one sitting.
   const refreshGraph = useCallback(() => {
     if (!activeId) return;
-    queryGraph(activeId).then(setGraph).catch(() => {});
-  }, [activeId]);
+    queryGraph(activeId, undefined, activeId === "shared-theme" ? theme : undefined)
+      .then(setGraph).catch(() => {});
+  }, [activeId, theme]);
 
   const acceptLink = useCallback((edge: OverlayEdge) => {
     if (!activeId) return;
@@ -451,6 +453,35 @@ function QueryWorkspace() {
               <p className="text-caos-md text-caos-text font-sans leading-normal mt-1">{synthesize(graph)}</p>
               {activeId && (
                 <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1">{engineNote(activeId)}</div>
+              )}
+              {activeId === "shared-theme" && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <label htmlFor="shared-theme-input" className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted shrink-0">
+                    Risk theme
+                  </label>
+                  <div className="flex items-center gap-1.5 bg-caos-bg border border-caos-border rounded px-2 py-1 focus-within:border-caos-accent/70 transition-caos min-w-0">
+                    <input
+                      id="shared-theme-input"
+                      value={theme}
+                      maxLength={200}
+                      onChange={(e) => setTheme(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && theme.trim()) run("shared-theme", activeCap?.mode, false, theme.trim());
+                      }}
+                      placeholder="e.g. tariff exposure, refinancing wall, FX translation"
+                      aria-label="Risk theme to overlay across coverage"
+                      className="min-w-[12rem] flex-1 bg-transparent outline-none tabular text-caos-sm text-caos-text placeholder:text-caos-muted"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => theme.trim() && run("shared-theme", activeCap?.mode, false, theme.trim())}
+                      disabled={!theme.trim() || running}
+                      className="tabular text-caos-2xs uppercase tracking-wider px-2 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-caos focus-ring shrink-0"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}

@@ -79,6 +79,9 @@ async def get_capabilities(
 class GraphRequest(BaseModel):
     capability_id: str = Field(min_length=1, max_length=64)
     issuer_id: Optional[str] = Field(default=None, max_length=36)
+    # Free-text risk theme for the shared-theme walk (BM25 corpus overlay).
+    # Ignored by every other capability. None → the capability's default seed.
+    theme: Optional[str] = Field(default=None, max_length=200)
 
 
 @router.post("/graph")
@@ -96,7 +99,7 @@ async def query_graph(
     except Exception as e:
         logger.warning("Could not sync analyst memos: %s", e)
     try:
-        return await querygraph.build_graph(db, body.capability_id, body.issuer_id)
+        return await querygraph.build_graph(db, body.capability_id, body.issuer_id, theme=body.theme)
     except KeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

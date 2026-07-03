@@ -186,6 +186,16 @@ class Settings(BaseSettings):
     markitdown_cmd: str = ""
     markitdown_timeout_s: int = 60
 
+    # Last-resort OCR for scanned/image PDFs (no text layer → pypdf yields 0
+    # chunks). External ocrmypdf CLI (wraps Tesseract), run out-of-process so the
+    # heavy native dep stays out of the server image. Only invoked when both
+    # markitdown and pypdf return empty, so normal text PDFs never pay for it.
+    # Default "ocrmypdf" = works if the binary is installed, degrades silently to
+    # 0-chunks (today's behavior) if not. Empty disables. OCR is slow → generous
+    # timeout. Needs a GPU-class model? That's olmOCR, Phase-2. See TOOLING_REVIEW.
+    ocrmypdf_cmd: str = "ocrmypdf"
+    ocrmypdf_timeout_s: int = 300
+
     # Optional: SEC EDGAR free filing-retrieval lane — covenant/legal source
     # acquisition for CP-4 (credit agreements = Ex-10.x, indentures = Ex-4.x,
     # covenant "Description of Notes" = S-4/424B). Off by default. SEC fair-access

@@ -51,4 +51,22 @@ describe("sector RV market data", () => {
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rv).toBe("N/A");
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rvBp).toBeNull();
   });
+
+  it("never surfaces a junk feed mark as an RV tail (F1)", () => {
+    const all = RV_SECTORS.flatMap((sector) => sector.rows);
+
+    // A non-credible 3Y DM (<=0 or >=5000bp — the feed carries ±20000 and
+    // ~579,028 junk ticks) must not produce an rvBp, or it would lead the peer
+    // table's cheap->rich default sort as a bogus "Cheap".
+    for (const row of all) {
+      if (row.dm <= 0 || row.dm >= 5000) {
+        expect(row.rvBp).toBeNull();
+        expect(row.rv).toBe("N/A");
+      }
+    }
+    // Invariant that fails pre-fix: no rendered rvBp is a junk magnitude.
+    expect(all.every((row) => row.rvBp === null || Math.abs(row.rvBp) < 5000)).toBe(true);
+    // And the guard is actually exercised by the sample book.
+    expect(all.some((row) => row.dm >= 5000)).toBe(true);
+  });
 });

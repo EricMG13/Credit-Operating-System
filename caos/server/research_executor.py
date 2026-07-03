@@ -63,8 +63,17 @@ async def _run_research(job_id: str) -> None:
         if job is None:
             logger.warning("execute_research_by_id: job %s vanished", job_id)
             return
+        async def _save_progress(p: dict) -> None:
+            # Persist the live counts so the polling GET can surface them. A fresh
+            # dict each call so SQLAlchemy detects the change; commit is cheap and
+            # only fires a handful of times (once per continuation turn).
+            job.progress = p
+            await session.commit()
+
         try:
-            result = await run_deep_research(ResearchBrief(**(job.brief or {})))
+            result = await run_deep_research(
+                ResearchBrief(**(job.brief or {})), on_progress=_save_progress
+            )
             job.report = result.report
             job.sources = [s.model_dump() for s in result.sources]
             job.demo = result.demo

@@ -332,7 +332,7 @@ export function ResultStep({
         {modeMeta?.label} ({modeMeta?.code}) run queued
         {failCount ? ` · ${failCount} failed` : ""}
         {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
-        <span className="text-caos-muted"> — return to the issuer dictionary to review coverage</span>
+        <span className="text-caos-muted"> — return to the issuer register to review coverage</span>
       </div>
       <div className="text-caos-md">
         {outcomes.map((o) => {
@@ -378,7 +378,7 @@ export function ResultStep({
           href="/issuers"
           className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
         >
-          ISSUER DICTIONARY →
+          ISSUER REGISTER →
         </Link>
       </div>
     </Panel>

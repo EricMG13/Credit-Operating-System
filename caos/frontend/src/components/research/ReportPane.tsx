@@ -6,18 +6,18 @@
 // empty manifest), each one branch of a single dispatch.
 
 import dynamic from "next/dynamic";
+import { useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
 import { labelCls } from "@/components/shared/styles";
-import type { ResearchResult } from "@/lib/api";
+import type { ResearchResult, ResearchProgress } from "@/lib/api";
 
 // react-markdown + remark-gfm (~40 kB) only render once a run resolves, so they
 // load on demand rather than weighing down the brief form's initial chunk.
 const ReportBody = dynamic(() => import("./ReportBody"), { ssr: false });
 
-// Staged status for the multi-minute run — there is no server-side progress to
-// stream, so cycle honest phase copy off elapsed time to keep the wait legible.
-// Paced (~25s/phase) so the long tail honestly rests on "Synthesizing" — the
-// genuinely slow step — rather than parking on a "finalizing" lie.
+// Staged status for the multi-minute run — a coarse, honest phase label derived
+// from elapsed time (there is no server-side phase to stream). The substance of
+// the running view is the REAL counters + criteria below, not this hint.
 const RESEARCH_PHASES = [
   "Searching sources",
   "Reading filings & rating actions",
@@ -41,53 +41,100 @@ const DELIVERABLE: [string, string][] = [
 const fileDate = () =>
   new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
 
-// Phase status reads by glyph shape AND opacity, never color alone: done = ✓,
-// active = pulsing filled dot, pending = hollow ring.
-function PhaseDot({ done, active }: { done: boolean; active: boolean }) {
+const _reduceMotion = () =>
+  typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+// Ease a displayed integer up to `target` so real counts read as *accumulating*
+// between the sparse (per-turn) poll updates. Only ever eases toward the real
+// value — it never shows more than the server has actually reported. Honors
+// prefers-reduced-motion by snapping.
+function useCountUp(target: number, ms = 700): number {
+  const [n, setN] = useState(target);
+  const from = useRef(target);
+  useEffect(() => {
+    if (from.current === target || _reduceMotion()) {
+      from.current = target;
+      setN(target);
+      return;
+    }
+    const start = from.current;
+    const t0 = performance.now();
+    let raf = 0;
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / ms);
+      const eased = 1 - Math.pow(1 - k, 3); // ease-out cubic
+      const val = Math.round(start + (target - start) * eased);
+      setN(val);
+      if (k < 1) raf = requestAnimationFrame(tick);
+      else from.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return n;
+}
+
+// A single real running metric (sources / searches). Number is mono tabular —
+// correct here, it's a figure, not prose.
+function Counter({ n, label }: { n: number; label: string }) {
+  const shown = useCountUp(n);
   return (
-    <span aria-hidden className="w-3 flex items-center justify-center shrink-0">
-      {done ? (
-        <span className="text-caos-sm leading-none" style={{ color: "var(--caos-success)" }}>✓</span>
-      ) : active ? (
-        <span className="h-1.5 w-1.5 rounded-full caos-running" style={{ background: "var(--caos-accent)" }} />
-      ) : (
-        <span className="h-1.5 w-1.5 rounded-full border" style={{ borderColor: "var(--caos-idle)" }} />
-      )}
-    </span>
+    <div className="border border-caos-border rounded px-3 py-2 bg-caos-panel/40">
+      <div className="tabular tabular-nums text-[22px] text-caos-text leading-none">{shown}</div>
+      <div className={labelCls + " mt-1"}>{label}</div>
+    </div>
   );
 }
 
-function RunningView({ elapsed, subj }: { elapsed: number; subj: string }) {
-  const phaseIdx = Math.min(Math.floor(elapsed / RESEARCH_PHASE_SECS), RESEARCH_PHASES.length - 1);
+function RunningView({
+  elapsed,
+  subj,
+  progress,
+  criteria,
+}: {
+  elapsed: number;
+  subj: string;
+  progress: ResearchProgress | null;
+  criteria: string[];
+}) {
+  const phase = RESEARCH_PHASES[Math.min(Math.floor(elapsed / RESEARCH_PHASE_SECS), RESEARCH_PHASES.length - 1)];
+  const sources = progress?.sources ?? 0;
+  const searches = progress?.searches ?? 0;
   return (
-    <div className="h-full flex items-center justify-center px-6">
-      <div className="w-full max-w-xs">
+    <div className="h-full overflow-auto px-6 py-8">
+      <div className="w-full max-w-sm mx-auto">
         <div className="flex items-baseline justify-between border-b border-caos-border pb-2 mb-4">
           <span className={labelCls}>Researching</span>
           <span className="tabular text-caos-2xs text-caos-muted">{mmss(elapsed)}</span>
         </div>
-        <div className="tabular text-caos-md text-caos-text mb-4 truncate" title={subj}>
+        <div className="tabular text-caos-xl text-caos-text mb-1 truncate" title={subj}>
           “{subj}”
         </div>
-        {/* Honest staged progress: phases advance off elapsed time (no
-            server-side stream). */}
-        <ol className="flex flex-col gap-2.5">
-          {RESEARCH_PHASES.map((p, i) => {
-            const done = i < phaseIdx;
-            const active = i === phaseIdx;
-            return (
-              <li key={p} className="flex items-center gap-2.5">
-                <PhaseDot done={done} active={active} />
-                <span className={"tabular text-caos-sm " + (active ? "text-caos-text" : done ? "text-caos-muted" : "text-caos-muted opacity-45")}>
-                  {p}
-                </span>
+        <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · live web research</p>
+
+        {/* Real running counts — the server's actual web-search progress, eased up
+            so it reads as accumulating. Never a fabricated number. */}
+        <div className="grid grid-cols-2 gap-2 mb-6">
+          <Counter n={sources} label={sources === 1 ? "source" : "sources"} />
+          <Counter n={searches} label={searches === 1 ? "search" : "searches"} />
+        </div>
+
+        {/* Claims being checked — the brief's own investigation criteria, each
+            live. We never mark one "done" (no per-criterion signal to honor). */}
+        <div className={labelCls + " mb-2"}>Checking against your criteria</div>
+        {criteria.length > 0 ? (
+          <ol className="flex flex-col gap-2">
+            {criteria.map((c, i) => (
+              <li key={i} className="flex items-start gap-2.5">
+                <span aria-hidden className="mt-1 h-1.5 w-1.5 rounded-full caos-running shrink-0" style={{ background: "var(--caos-accent)" }} />
+                <span className="text-caos-sm text-caos-muted leading-snug">{c}</span>
               </li>
-            );
-          })}
-        </ol>
-        <p className="tabular text-caos-2xs text-caos-muted leading-snug mt-4">
-          Live web research · typically 2–4 minutes.
-        </p>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-caos-sm text-caos-muted leading-snug">Working through the standard credit criteria.</p>
+        )}
+        <p className="text-caos-2xs text-caos-muted leading-snug mt-6">Typically 2–4 minutes.</p>
       </div>
     </div>
   );
@@ -95,13 +142,13 @@ function RunningView({ elapsed, subj }: { elapsed: number; subj: string }) {
 
 function ErrorView({ error }: { error: string }) {
   return (
-    <div role="alert" className="caos-enter h-full flex items-center justify-center px-6">
-      <div className="w-full max-w-xs">
+    <div role="alert" className="caos-enter h-full overflow-auto px-6 py-8">
+      <div className="w-full max-w-sm mx-auto">
         <div className="border-b pb-2 mb-4" style={{ borderColor: "var(--caos-critical)" }}>
           <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-critical-bright)" }}>Research failed</span>
         </div>
-        <p className="tabular text-caos-sm text-caos-text leading-snug">{error}</p>
-        <p className="tabular text-caos-2xs text-caos-muted leading-snug mt-3">Adjust the brief and run again.</p>
+        <p className="text-caos-sm text-caos-text leading-snug">{error}</p>
+        <p className="text-caos-2xs text-caos-muted leading-snug mt-3">Adjust the brief and run again.</p>
       </div>
     </div>
   );
@@ -130,7 +177,9 @@ function ResultView({ result, mode }: { result: ResearchResult; mode: "sector" |
         )}
         <footer className="rdoc-foot">
           <span>CAOS · Credit Agent OS</span>
-          <span>{result.sources.length} {result.sources.length === 1 ? "source" : "sources"}</span>
+          {/* Demo reports carry no structured citations; say "illustrative"
+              rather than the misleading "0 sources". */}
+          <span>{result.demo ? "Illustrative · demo" : `${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"}`}</span>
         </footer>
       </article>
     </div>
@@ -139,13 +188,13 @@ function ResultView({ result, mode }: { result: ResearchResult; mode: "sector" |
 
 function EmptyView() {
   return (
-    <div className="h-full flex items-center justify-center px-6">
-      <div className="w-full max-w-sm">
+    <div className="h-full overflow-auto px-6 py-8">
+      <div className="w-full max-w-sm mx-auto">
         <div className="flex items-baseline justify-between border-b border-caos-border pb-2 mb-4">
           <span className="tabular text-caos-xl text-caos-text">No report yet</span>
           <span className="tabular text-caos-2xs text-caos-muted">DRAFT</span>
         </div>
-        <p className="tabular text-caos-sm text-caos-muted leading-snug mb-5">
+        <p className="text-caos-sm text-caos-muted leading-snug mb-5">
           Fill the brief, then run. The finished report files here as a paper tear-sheet.
         </p>
         <div className={labelCls + " mb-1"}>The deliverable</div>
@@ -154,7 +203,7 @@ function EmptyView() {
             <li key={h} className="list-none flex items-baseline gap-3 py-2 border-b border-caos-border/50 last:border-0">
               <span className="tabular text-caos-2xs text-caos-muted w-5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
               <span className="tabular text-caos-sm text-caos-text shrink-0">{h}</span>
-              <span className="tabular text-caos-2xs text-caos-muted flex-1 min-w-0 text-right truncate">{d}</span>
+              <span className="text-caos-2xs text-caos-muted flex-1 min-w-0 text-right truncate">{d}</span>
             </li>
           ))}
         </ol>
@@ -170,6 +219,8 @@ export function ReportPane({
   running,
   error,
   result,
+  progress,
+  criteria,
   elapsed,
   subj,
   mode,
@@ -177,6 +228,8 @@ export function ReportPane({
   running: boolean;
   error: string | null;
   result: ResearchResult | null;
+  progress: ResearchProgress | null;
+  criteria: string[];
   elapsed: number;
   subj: string;
   mode: "sector" | "issuer";
@@ -203,7 +256,7 @@ export function ReportPane({
     <Panel title="Report" right={badge}>
       <div className="h-full overflow-auto">
         {running ? (
-          <RunningView elapsed={elapsed} subj={subj} />
+          <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} />
         ) : error ? (
           <ErrorView error={error} />
         ) : result ? (

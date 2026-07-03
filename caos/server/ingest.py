@@ -120,6 +120,39 @@ def _markitdown_text(content: bytes, filename: str) -> Optional[str]:
     return None
 
 
+def _ocrmypdf_text(content: bytes) -> str:
+    """Last-resort OCR for scanned/image PDFs via an external ocrmypdf CLI
+    (CAOS_OCRMYPDF_CMD). ocrmypdf wraps Tesseract (a heavy native dep), so it
+    runs out-of-process and stays out of the server image. Writes the recognized
+    text to a sidecar file and returns it; returns "" on any failure/timeout/
+    missing command so a scanned upload still vaults, just produces no chunks."""
+    cmd = settings.ocrmypdf_cmd
+    if not cmd:
+        return ""
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "in.pdf"
+            out = Path(td) / "out.pdf"  # discarded; we only want the sidecar text
+            sidecar = Path(td) / "text.txt"
+            src.write_bytes(content)
+            proc = subprocess.run(
+                [*shlex.split(cmd), "--force-ocr", "--sidecar", str(sidecar),
+                 str(src), str(out)],
+                capture_output=True,
+                timeout=settings.ocrmypdf_timeout_s,
+            )
+            if proc.returncode == 0 and sidecar.exists():
+                return sidecar.read_text("utf-8", "replace").strip()
+            logger.warning(
+                "ocrmypdf rc=%s — no OCR text. stderr=%s",
+                proc.returncode,
+                proc.stderr.decode("utf-8", "replace")[:200],
+            )
+    except (subprocess.SubprocessError, OSError) as exc:
+        logger.warning("ocrmypdf unavailable (%s) — no OCR text.", exc)
+    return ""
+
+
 def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> str:
     md = _markitdown_text(content, filename)
     if md is not None:
@@ -129,9 +162,11 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> str:
 
     try:
         reader = PdfReader(io.BytesIO(content))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+        text = "\n".join((page.extract_text() or "") for page in reader.pages)
     except Exception:
-        return ""  # scanned / encrypted PDFs vault fine, just produce no chunks
+        text = ""  # scanned / encrypted PDFs vault fine, just produce no chunks
+    # No text layer → try OCR before giving up (scanned/image PDF).
+    return text if text.strip() else _ocrmypdf_text(content)
 
 
 def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
