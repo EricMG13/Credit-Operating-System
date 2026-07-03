@@ -46,16 +46,27 @@ const PREFER = ["peer-set", "contagion", "concentration-map", "scatter", "trace-
 
 type HistoryEntry = { text: string; capId: string; capLabel: string };
 
-// Human-readable mode label for the answer-header chip — never surface the raw
-// engine enum ("CONCENTRATION" over a leverage scatter reads as jargon).
-const MODE_LABELS: Record<string, string> = {
-  peers: "Peer set",
-  contagion: "Contagion",
-  concentration: "Concentration",
-  provenance: "Provenance",
+// Short human tag for the answer-header chip, keyed on the CAPABILITY, not the
+// engine mode: several walks share mode "concentration" (scatter, distribution),
+// so a leverage scatter would wrongly read "CONCENTRATION". The id is the walk's
+// stable identity; strip the -map/-graph suffix and humanise (chip CSS uppercases).
+const capLabel = (capabilityId: string): string =>
+  capabilityId.replace(/-(map|graph)$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+// Distil a routed NL question into a concise risk theme for the shared-theme
+// walk — the raw sentence would otherwise become the driver node's label
+// ("…the which names mention a tariff theme driver"). Strips leading
+// interrogatives/verbs and the trailing theme/exposure tail; falls back to the
+// raw text when nothing meaningful survives. Heuristic — the analyst sees the
+// result in the Risk-theme box and can refine it.
+const themeFromQuery = (q: string): string => {
+  const cleaned = q
+    .replace(/^\s*((which|what|who|whose|any|show|find|list|names?|issuers?|credits?|that|do|does|have|has|share|shares|mention|mentions|exposed?|to|the|an?|are|is|with)\s+)+/gi, "")
+    .replace(/\s*\b(theme|exposure|exposed|risk|names?|issuers?|credits?)\s*\??$/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length >= 2 ? cleaned.slice(0, 120) : q.slice(0, 120);
 };
-const modeLabel = (mode: string): string =>
-  MODE_LABELS[mode] ?? mode.replace(/[-_]/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 
 function QueryWorkspace() {
   const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
@@ -337,7 +348,7 @@ function QueryWorkspace() {
           // Carry the analyst's question into the theme walk so the answer
           // matches what they asked — not the default energy theme.
           if (top.id === "shared-theme") {
-            const t = q.slice(0, 200);
+            const t = themeFromQuery(q);
             setTheme(t);
             run(top.id, capById.get(top.id)?.mode, true, t);
           } else {
@@ -419,7 +430,9 @@ function QueryWorkspace() {
           activeId={activeId}
           collapsed={collapsed}
           onToggle={() => setCollapsed((v) => !v)}
-          onPick={pick}
+          // Picking a rail walk supersedes any typed query — clear the stale
+          // command-bar text so it never mismatches the active answer.
+          onPick={(id) => { setText(""); pick(id); }}
         />
 
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
@@ -544,7 +557,7 @@ function QueryWorkspace() {
                   <span className="tabular text-caos-sm text-caos-text font-medium">{questionFor(activeCap)}</span>
                 )}
                 <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
-                  {modeLabel(graph.mode)}
+                  {capLabel(graph.capability_id)}
                 </span>
                 {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running</span>}
               </div>
