@@ -107,7 +107,7 @@ const STATUS_TOOLTIP: Record<string, string> = {
   "Passed": "QA check completed with zero critical findings",
   "Not Reviewed": "QA analysis has not yet been performed",
   "Overweight": "Recommended high conviction buy-side exposure relative to benchmark index",
-  "Neutral": "Hold resting exposure; no near-term change in credit stance",
+  "Neutral": "Hold existing exposure; no near-term change in credit stance",
   "Underweight": "Recommended reduced or zero credit exposure due to risk concerns",
 };
 
@@ -148,6 +148,14 @@ function metricSev(key: string, v: number): string | null {
   if (key === "altman_z") return v < 1.1 ? "critical" : v < 2.6 ? "warning" : null;
   return null;
 }
+
+// Plain-text threshold note for a breached metric — carried on the breach marker
+// so the amber/red value tint is never the sole signal (house "never color-alone").
+const BREACH_NOTE: Record<string, string> = {
+  net_leverage: "elevated leverage: ≥4.5× warning · ≥6.0× critical",
+  interest_coverage: "thin coverage: <2.5× warning · <1.5× critical",
+  altman_z: "distress zone: <2.6 warning · <1.1 critical",
+};
 
 // The least-trustworthy provenance among the shown metrics, surfaced ONCE as a
 // panel-level legend (distill) instead of repeating the word on every tile.
@@ -209,14 +217,14 @@ function IssuerProfileView() {
 function ErrorView({ id, msg }: { id: string | null; msg: string }) {
   return (
     <div className="h-screen flex flex-col items-center justify-center gap-3 bg-caos-bg text-center">
-      <StatusGlyph kind="warning" size={20} />
+      <span style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" size={20} /></span>
       <p className="text-caos-2xl text-caos-text font-medium">{msg}</p>
       <div className="flex gap-2">
-        <Link href="/issuers" className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">
+        <Link href="/issuers" className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring">
           ← BACK TO DIRECTORY
         </Link>
         {id ? (
-          <Link href={"/deepdive?issuer=" + encodeURIComponent(id)} className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
+          <Link href={"/deepdive?issuer=" + encodeURIComponent(id)} className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring">
             OPEN DEEP-DIVE
           </Link>
         ) : null}
@@ -274,12 +282,37 @@ export function Profile({
     () => headline.some((m) => m.provenance === "run") && headline.some((m) => m.provenance !== "run"),
     [headline]
   );
+  // "no prior" is only meaningful when SOME tile actually has a prior-period delta
+  // to contrast against; on a fresh single-period snapshot (no tile has a prior)
+  // the annotation wrongly implied the unlabeled tiles did have deltas.
+  const anyPriorDelta = useMemo(
+    () => headline.some((m) => {
+      const dd = TILE_DELTA[m.metric_key];
+      if (!dd) return false;
+      const sd = dd.key ? signals[dd.key] : latestPointDelta(series[m.metric_key]);
+      return typeof sd === "number";
+    }),
+    [headline, signals, series]
+  );
+
+  // Per-issuer tab identity — 40 open profiles are otherwise all "CAOS". Skipped
+  // in overlay mode (the host page owns the title). Restored on unmount.
+  useEffect(() => {
+    if (isOverlay) return;
+    const prev = document.title;
+    const who = issuer.ticker?.toUpperCase() || issuer.name || "Issuer";
+    document.title = `${who} · Issuer Profile · CAOS`;
+    return () => { document.title = prev; };
+  }, [isOverlay, issuer.ticker, issuer.name]);
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
   const body = (
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-2 items-start">
-        {/* Column 1: Financials & Trends (40%) */}
+      // Multi-window desk: 3 tracks only at full width (≥1280); an intermediate
+      // 2-track tier (≥1024) keeps a half-monitor from collapsing to one 1100px
+      // column (col 3 wraps under col 1). Single column only when truly narrow.
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
+        {/* Column 1: Financials & Trends */}
         <div className="flex flex-col gap-2">
           <Panel
             title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")}
@@ -290,7 +323,11 @@ export function Profile({
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3">
                 {headline.map((m, ti) => {
-                  const sev = metricSev(m.metric_key, m.value);
+                  const isLive = m.provenance === "run";
+                  // Breach tint fires only for a live run — a seed/derived value must
+                  // not paint the page's loudest colour on a number the system won't
+                  // stand behind. Non-live values also render muted (below).
+                  const sev = isLive ? metricSev(m.metric_key, m.value) : null;
                   const d = TILE_DELTA[m.metric_key];
                   const signalDelta = d?.key ? signals[d.key] : null;
                   const seriesDelta = d && !d.key ? latestPointDelta(series[m.metric_key]) : null;
@@ -303,9 +340,22 @@ export function Profile({
                     <div key={m.metric_key} className={"px-3 py-2 border-b border-r border-caos-border/40 " + tileEdge(ti, headline.length)} title={METRIC_TOOLTIP[m.metric_key] || ""}>
                       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
                       <div className="flex items-baseline gap-2 mt-1">
-                        <span className="tabular font-medium leading-none" style={{ fontSize: 16, color: sev ? sevSurface(sev).color : "var(--caos-text)" }}>{fmt(m.value, m.unit)}</span>
+                        <span
+                          className="tabular font-medium leading-none inline-flex items-center gap-1"
+                          style={{ fontSize: 16, color: sev ? sevSurface(sev).color : isLive ? "var(--caos-text)" : "var(--caos-muted)" }}
+                        >
+                          {sev ? (
+                            // role="img" so the threshold note is an accessible name AT
+                            // announces (aria-label on a bare generic span is dropped) —
+                            // the breach severity must not be color-alone for SR users.
+                            <span role="img" style={{ color: sevSurface(sev).color }} title={BREACH_NOTE[m.metric_key] || "breaches a credit threshold"} aria-label={`${sev === "critical" ? "Critical" : "Warning"} — ${BREACH_NOTE[m.metric_key] || "breaches a credit threshold"}`}>
+                              <StatusGlyph kind="warning" size={11} />
+                            </span>
+                          ) : null}
+                          {fmt(m.value, m.unit)}
+                        </span>
                         {d && delta != null && deltaSev ? <span className="tabular text-caos-xs font-medium" style={{ color: sevSurface(deltaSev).color }}>{signed(delta, d.suffix, d.digits)}</span> : null}
-                        {d?.showMissing && delta == null ? <span className="tabular text-caos-2xs text-caos-muted">no prior</span> : null}
+                        {d?.showMissing && delta == null && anyPriorDelta ? <span className="tabular text-caos-2xs text-caos-muted">no prior</span> : null}
                       </div>
                       <div className="flex items-center gap-1.5 mt-1">
                         <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}</span>
@@ -320,7 +370,7 @@ export function Profile({
                         ) : null}
                         <div className="flex-1" />
                         {m.document_chunk_id ? (
-                          <Link href={deepHref + "&mod=CP-1"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos" title="See source in Deep-Dive">▸ src</Link>
+                          <Link href={deepHref + "&mod=CP-1"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label={`See ${METRIC_LABEL[m.metric_key] || m.metric_key} source in Deep-Dive`}>▸ src</Link>
                         ) : null}
                       </div>
                     </div>
@@ -388,7 +438,7 @@ export function Profile({
           </Panel>
         </div>
 
-        {/* Column 2: Business & Narrative (30%) */}
+        {/* Column 2: Business & Narrative */}
         <div className="flex flex-col gap-2">
           <Panel title="Business profile">
             {business.length === 0 && sponsorLedger.length === 0 ? (
@@ -416,7 +466,7 @@ export function Profile({
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
 
-        {/* Column 3: Audit, Protection & History (30%) */}
+        {/* Column 3: Audit, Protection & History */}
         <div className="flex flex-col gap-2">
           {strengths.length || weaknesses.length ? (
             <Panel title="Key strengths & weaknesses" right={<span className="tabular text-caos-2xs text-caos-muted">derived</span>}>
@@ -448,7 +498,7 @@ export function Profile({
 
           <Panel title={`Run history · ${runs.length}`}>
             {runs.length === 0 ? (
-              <Empty>No runs yet.</Empty>
+              <div className="px-3 py-2.5"><Empty>No runs yet.</Empty></div>
             ) : (
               <div className="text-caos-md divide-y divide-caos-border/30">
                 {runs.slice(0, 3).map((r) => (
@@ -467,7 +517,7 @@ export function Profile({
       <div className="h-12 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
         {!isOverlay ? (
           <>
-            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0" aria-label="Back to issuer register">
+            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
               <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
               <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
             </Link>
@@ -483,7 +533,10 @@ export function Profile({
         {/* Identity shrinks (name truncates first) before actions ever clip. */}
         <div className="flex items-center gap-2 overflow-hidden mr-2 min-w-0">
           <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 16 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
-          <span className="text-caos-text font-medium leading-none truncate min-w-[64px]" style={{ fontSize: 14 }} title={issuer.name}>{issuer.name}</span>
+          {/* The issuer name is the page's content heading (h2 under the route's
+              sr-only h1) so assistive tech can jump straight to *whose* profile
+              this is — a plain span left the only heading as "Issuers". */}
+          <h2 className="text-caos-text font-medium leading-none truncate min-w-[64px] m-0" style={{ fontSize: 14 }} title={issuer.name} aria-label={`${issuer.ticker ? issuer.ticker.toUpperCase() + " " : ""}${issuer.name} — issuer profile`}>{issuer.name}</h2>
           <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
             {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
           </span>
@@ -518,17 +571,23 @@ export function Profile({
 
         <div className="flex-1" />
         {!isOverlay && (
-          /* Below ~1450px the full ConceptNav + identity row can't coexist
-             without pushing OPEN DEEP-DIVE off-viewport — the nav yields
-             (brand link + bottom function bar still route); the single
-             primary action never clips. */
-          <span className="hidden min-[1450px]:flex items-center gap-3 shrink-0">
-            <ConceptNav />
-            <div className="h-4 w-px bg-caos-border shrink-0" />
-          </span>
+          <>
+            {/* Full labelled nav only when the row has room (≥1450px). Between
+                1100 and 1450 a compact (icon + active-label) nav keeps every
+                concept reachable instead of vanishing; below 1100 it yields to
+                the identity row (brand link + bottom function bar still route). */}
+            <span className="hidden min-[1450px]:flex items-center gap-3 shrink-0">
+              <ConceptNav />
+              <div className="h-4 w-px bg-caos-border shrink-0" />
+            </span>
+            <span className="hidden min-[1100px]:flex min-[1450px]:hidden items-center gap-3 shrink-0">
+              <ConceptNav compact />
+              <div className="h-4 w-px bg-caos-border shrink-0" />
+            </span>
+          </>
         )}
 
-        <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0">
+        <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
           OPEN DEEP-DIVE →
         </Link>
         {isOverlay && onClose && (
@@ -551,7 +610,7 @@ export function Profile({
           <Link
             key={a.href}
             href={a.href + encodeURIComponent(id)}
-            className="no-underline tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos"
+            className="no-underline tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring"
           >
             {a.label}
           </Link>
@@ -609,7 +668,7 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
         ) : error ? (
           <div className="flex items-start gap-1.5 tabular text-caos-sm text-caos-warning">
             <span className="mt-0.5 shrink-0"><StatusGlyph kind="warning" size={10} /></span>
-            <span>Couldn&apos;t load analyst notes - {error}</span>
+            <span>Couldn&apos;t load analyst notes — {error}</span>
           </div>
         ) : notes.length === 0 ? (
           <Empty>No analyst notes linked to this issuer. Add {linkHint} in the vault.</Empty>
@@ -620,7 +679,7 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
                 <div className="flex items-center justify-between gap-2">
                   <span className="tabular text-caos-sm text-caos-text truncate">{note.title}</span>
                   {note.url ? (
-                    <a href={note.url} className="shrink-0 no-underline tabular text-caos-2xs text-caos-accent hover:text-caos-text transition-caos">
+                    <a href={note.url} className="shrink-0 no-underline tabular text-caos-2xs text-caos-accent hover:text-caos-text transition-caos rounded focus-ring">
                       OPEN IN VAULT
                     </a>
                   ) : null}
@@ -687,7 +746,7 @@ function RunRow({ r, href }: { r: ProfileRun; href: string }) {
     <Link
       href={href}
       title={`QA ${r.qa_status} · IC ${r.committee_status}${r.analyst_id ? " · " + r.analyst_id : ""}`}
-      className="no-underline grid grid-cols-[84px_auto_minmax(0,1fr)_44px] gap-x-2 px-3 py-[7px] border-b border-caos-border/50 items-center hover:bg-caos-elevated/60 transition-caos group"
+      className="no-underline grid grid-cols-[84px_auto_minmax(0,1fr)_44px] gap-x-2 px-3 py-[7px] border-b border-caos-border/50 items-center hover:bg-caos-elevated/60 transition-caos group focus-ring"
     >
       <span className="tabular text-caos-sm text-caos-muted">{date}</span>
       <Tag sev={RUN_SEV[r.status] ?? "low"}>{r.status}</Tag>
@@ -711,7 +770,7 @@ function BizCol({ title, facts, deepHref }: { title: string; facts: BusinessFact
               <p className="text-caos-md text-caos-text/90 leading-snug m-0">{f.statement}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="tabular text-caos-2xs text-caos-muted">{f.fact_area}</span>
-                {f.chunk_id ? <Link href={deepHref + "&mod=CP-1A"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos" title="See source in Deep-Dive">▸ src</Link> : null}
+                {f.chunk_id ? <Link href={deepHref + "&mod=CP-1A"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label="See source in Deep-Dive">▸ src</Link> : null}
               </div>
             </div>
           ))}
@@ -736,7 +795,7 @@ function OwnershipCol({ facts, ledger, score, deepHref }: {
           {facts.map((f, i) => (
             <div key={i}>
               <p className="text-caos-md text-caos-text/90 leading-snug m-0">{f.statement}</p>
-              {f.chunk_id ? <Link href={deepHref + "&mod=CP-1A"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos">▸ src</Link> : null}
+              {f.chunk_id ? <Link href={deepHref + "&mod=CP-1A"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label="See source in Deep-Dive">▸ src</Link> : null}
             </div>
           ))}
           {ledger.length ? (
