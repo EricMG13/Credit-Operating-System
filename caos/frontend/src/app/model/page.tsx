@@ -73,6 +73,9 @@ function ModelBuilder() {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  // No display-name source exists in useModelEngine; the issuerId is the honest
+  // minimum for a live name — do NOT fabricate a company name.
+  const issuerName = isReference ? "Atlas Forge Industrials" : issuerId;
   const [hl, setHl] = useState<string | null>(null);
   const [sel, setSel] = useState<CellRef | null>({ row: "netlev", col: "l1" });
   const [evModal, setEvModal] = useState<string | null>(null);
@@ -89,28 +92,63 @@ function ModelBuilder() {
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [armReset, setArmReset] = useState(false);
+  const savedSnapshot = useRef<string | null>(null);
+  const editErrTimer = useRef<number | null>(null);
+  const armTimer = useRef<number | null>(null);
 
   // evidence modal cited-by needs the report set
   const reports = useMemo(() => buildReports(), []);
 
+  // clear transient timers on unmount
+  useEffect(() => () => {
+    if (editErrTimer.current) window.clearTimeout(editErrTimer.current);
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+  }, []);
+
+  // Overrides localStorage key is per-issuer so a live issuer never inherits the
+  // reference demo's fabricated overrides (cross-issuer contamination). Legacy
+  // global key is adopted once, and only by the reference issuer.
+  const ovKey = "caos-d-overrides:" + issuerId;
+
   useEffect(() => {
+    // locals track what was actually loaded so the dirty-baseline snapshot below
+    // reflects restored state, not the stale render closure.
+    let lo: Overrides = {};
+    let la: Assumptions = DEFAULT_ASSUMPTIONS;
+    const lc: Set<string> = new Set();
     try {
-      const o = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
-      if (o && typeof o === "object") setOverrides(o);
-      setAssumptions(loadAssumptions());
+      let raw = localStorage.getItem(ovKey);
+      if (raw == null && isReference) {
+        const legacy = localStorage.getItem("caos-d-overrides");
+        if (legacy != null) raw = legacy; // reference issuer inherits old demo state
+      }
+      const o = JSON.parse(raw || "{}");
+      if (o && typeof o === "object") { lo = o; setOverrides(o); }
+      la = loadAssumptions(issuerId);
+      setAssumptions(la);
     } catch { /* first visit */ }
+    // baseline dirty at local-storage state; refined below if a DB model restores
+    savedSnapshot.current = serializeSavable(la, lo, lc);
     getSavedModel(issuerId).then((saved) => {
       if (!saved?.payload) return;
-      if (saved.payload.overrides && typeof saved.payload.overrides === "object") setOverrides(saved.payload.overrides as Overrides);
-      if (saved.payload.assumptions && typeof saved.payload.assumptions === "object") setAssumptions(saved.payload.assumptions as Assumptions);
-      if (Array.isArray(saved.payload.collapsedRows)) setCollapsedRows(new Set(saved.payload.collapsedRows as string[]));
+      const o = saved.payload.overrides && typeof saved.payload.overrides === "object" ? saved.payload.overrides as Overrides : undefined;
+      const a = saved.payload.assumptions && typeof saved.payload.assumptions === "object" ? saved.payload.assumptions as Assumptions : undefined;
+      const c = Array.isArray(saved.payload.collapsedRows) ? new Set(saved.payload.collapsedRows as string[]) : undefined;
+      if (o) setOverrides(o);
+      if (a) setAssumptions(a);
+      if (c) setCollapsedRows(c);
       setSavedAt(saved.updated_at);
+      // re-baseline the dirty flag at the just-restored DB state
+      savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
     }).catch(() => {});
     setHydrated(true);
-  }, [issuerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issuerId, ovKey, isReference]);
   // persist only after restore — writing earlier clobbers stored state with defaults
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
-  useEffect(() => { if (hydrated) saveAssumptions(assumptions); }, [hydrated, assumptions]);
+  useEffect(() => { if (hydrated) try { localStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
+  useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);
   useEffect(() => {
     const onCollapse = () => {
       const next = !(showAssumptions || showScenarios);
@@ -121,6 +159,28 @@ function ModelBuilder() {
     return () => window.removeEventListener("caos:collapse-toggle", onCollapse);
   }, [showAssumptions, showScenarios]);
 
+  // Keyhole guard: the two fixed flank panels (Assumptions 348 + Scenario 372)
+  // starve the sheet below ~1280 and push the action buttons off-canvas. On
+  // hydrate, collapse the flanks that don't fit; on resize ONE-WAY collapse as
+  // width crosses below a threshold (never force-expand — respect the user's
+  // choice above threshold). SSR-guarded via the hydrated gate.
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    const w0 = window.innerWidth;
+    if (w0 < 1280) setShowScenarios(false);
+    if (w0 < 1024) setShowAssumptions(false);
+    let prev = w0;
+    const onResize = () => {
+      const w = window.innerWidth;
+      if (prev >= 1280 && w < 1280) setShowScenarios(false);
+      if (prev >= 1024 && w < 1024) setShowAssumptions(false);
+      prev = w;
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
   // Prefer a live CP-1 run for the LTM/PF anchor. Only the ATLF reference page
   // may fall back to the seeded demo model.
   const eng = useModelEngine(issuerId);
@@ -129,9 +189,22 @@ function ModelBuilder() {
     [severity, overrides, eng.anchor, assumptions],
   );
   const hasIssuerModel = isReference || !!eng.anchor;
-  const b1 = model.cols.b1, d0 = model.cols.d0;
   const ovCount = Object.keys(overrides).length;
   const prevModel = useRef<Model | null>(null);
+
+  // Stable serialization of the savable payload — Report Studio reads only the
+  // DB-saved model, so compare current savable state against the last-saved
+  // snapshot to signal unsaved edits.
+  const serializeSavable = (a: Assumptions, o: Overrides, c: Set<string>): string =>
+    JSON.stringify({ a, o, c: [...c].sort() });
+  const currentSnapshot = serializeSavable(assumptions, overrides, collapsedRows);
+  const dirty = hasIssuerModel && savedSnapshot.current !== null && currentSnapshot !== savedSnapshot.current;
+
+  // Export masthead: reference keeps the ATLF demo lineage verbatim; a live
+  // issuer must NOT carry fabricated M-118 / #2641 lineage.
+  const exportMeta = isReference
+    ? { header: "Atlas Forge Industrials — cash-flow model M-118", subheader: "YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", filename: "ATLF Cash-Flow Model M-118.csv" }
+    : { header: `${issuerName} — cash-flow model`, subheader: `YE 31-Dec · $m${eng.runId ? " · RUN " + eng.runId : ""} · * derived period (G-02)`, filename: `${issuerName} Cash-Flow Model.csv` };
 
   useEffect(() => {
     const prev = prevModel.current;
@@ -152,14 +225,24 @@ function ModelBuilder() {
     return () => window.clearTimeout(t);
   }, [model]);
 
+  const flashEditError = (bad: string) => {
+    setEditError(bad);
+    if (editErrTimer.current) window.clearTimeout(editErrTimer.current);
+    editErrTimer.current = window.setTimeout(() => setEditError(null), 2500);
+  };
   const commitEdit = (txt: string | null) => {
     if (!editing) return;
     if (txt != null) {
+      const trimmed = txt.trim();
       const v = parseNum(txt);
       if (v != null) {
         const field = ovField(editing.row);
         const key = editing.col + ":" + field;
         setOverrides((o) => ({ ...o, [key]: v * OV_SIGN[field] }));
+        setSel({ row: editing.row, col: editing.col });
+      } else if (trimmed) {
+        // non-empty but unparseable — don't silently discard; surface it briefly
+        flashEditError(trimmed);
         setSel({ row: editing.row, col: editing.col });
       }
     }
@@ -178,7 +261,11 @@ function ModelBuilder() {
       view: { showQuarters, showAssumptions, showScenarios },
       model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
     })
-      .then((r) => setSavedAt(r.updated_at))
+      .then((r) => {
+        setSavedAt(r.updated_at);
+        // re-baseline the dirty flag to the just-saved state
+        savedSnapshot.current = serializeSavable(assumptions, overrides, collapsedRows);
+      })
       .catch(() => setSaveError(true))
       .finally(() => setSaving(false));
   };
@@ -225,30 +312,22 @@ function ModelBuilder() {
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
+      {/* sub-header — the dense action cluster is wrapped in a single flex-1
+          scroll container so a narrow viewport scrolls the header internally
+          instead of panning the whole page and pushing SAVE/EXPORT off-canvas. */}
       <PageSubHeader gap="gap-3">
-        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{isReference ? "Atlas Forge — cash-flow model" : "Model Builder — issuer model"}</span>
+        <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto">
+        {isReference ? (
+          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
+        ) : eng.runId ? (
+          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
+        ) : null}
+        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
         <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">
-          dbl-click historical cells to override
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden lg:inline">
+          dbl-click a quarterly / PF input to override
         </span>
         <span className="flex-1"></span>
-        {/* Net-lev status chips duplicate the Scenario panel — drop them first on
-            narrow screens; the panel toggles + Export stay reachable. */}
-        {hasIssuerModel ? <span className="hidden 2xl:flex items-center gap-3 shrink-0">
-          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-success)" }}></span>
-            <span className="text-caos-muted">BASE · net lev FY27e</span>
-            <span style={{ color: "var(--caos-success)" }}>{b1.netlev?.toFixed(2) ?? "—"}x</span>
-          </span>
-          <span className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap">
-            <span className="w-2 h-2 rounded-sm" style={{ background: "var(--caos-warning)" }}></span>
-            <span className="text-caos-muted">DOWNSIDE · peak</span>
-            <span style={{ color: "var(--caos-warning)" }}>{d0.netlev?.toFixed(2) ?? "—"}x</span>
-          </span>
-          <span className="h-4 w-px bg-caos-border" />
-        </span> : null}
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={
@@ -281,15 +360,28 @@ function ModelBuilder() {
         {ovCount ? (
           <button
             onClick={() => {
-              if (window.confirm(`Are you sure you want to reset all ${ovCount} manual cell overrides?`)) {
+              if (armReset) {
+                if (armTimer.current) window.clearTimeout(armTimer.current);
+                setArmReset(false);
                 resetAll();
+              } else {
+                setArmReset(true);
+                if (armTimer.current) window.clearTimeout(armTimer.current);
+                armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
               }
             }}
-            title="Clear all manual overrides"
+            title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
+            aria-pressed={armReset}
             className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }}
+            style={
+              armReset
+                ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
+                : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
+            }
           >
-            ↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET
+            {armReset
+              ? <>▲ CONFIRM RESET?</>
+              : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
           </button>
         ) : null}
         <button
@@ -304,30 +396,39 @@ function ModelBuilder() {
           <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
             ✗ SAVE FAILED — model not stored; Report Studio reads the last saved version
           </span>
+        ) : dirty ? (
+          <span
+            className="tabular text-caos-2xs whitespace-nowrap"
+            title="You have edits not yet saved to the database. Report Studio reads the last saved version."
+            style={{ color: "var(--caos-warning)" }}
+          >
+            ● UNSAVED{savedAt ? ` · saved ${new Date(savedAt).toLocaleString()}` : ""}
+          </span>
         ) : savedAt ? (
-          <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap hidden xl:inline">SAVED {new Date(savedAt).toLocaleString()}</span>
+          <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
         ) : null}
         <button
-          onClick={() => exportModel(model, showQuarters, overrides)}
+          onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
           disabled={!hasIssuerModel}
           title="Export the model grid (CSV — opens in Excel)"
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
         >
           ▦ EXPORT MODEL
         </button>
         <span
-          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden 2xl:inline"
+          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
           style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
         >
           forecast cells unaudited — CP-5 scope is actuals only
         </span>
+        </div>
       </PageSubHeader>
 
       {/* workspace */}
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2">
         {hasIssuerModel ? (
           <>
-            <Manifest hl={hl} setHl={setHl} />
+            <Manifest hl={hl} setHl={setHl} isReference={isReference} />
             <FormulaBar
               model={model}
               sel={sel}
@@ -337,7 +438,17 @@ function ModelBuilder() {
               onOpenEvidence={setEvModal}
               showQ={showQuarters}
               collapsedRows={collapsedRows}
+              isReference={isReference}
             />
+            {editError ? (
+              <div
+                role="alert"
+                className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start"
+                style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)" }}
+              >
+                ✗ &ldquo;{editError}&rdquo; is not a valid number — override discarded
+              </div>
+            ) : null}
             <div className="flex-1 min-h-0 flex gap-2">
               {showAssumptions ? (
                 <AssumptionsPanel
@@ -357,6 +468,7 @@ function ModelBuilder() {
                 <Sheet
                   model={model}
                   showQ={showQuarters}
+                  isReference={isReference}
                   hl={hl}
                   hlCells={hlCells}
                   sel={sel}
@@ -373,19 +485,25 @@ function ModelBuilder() {
                 />
               </div>
               {showScenarios ? (
-                <ScenarioPanel model={model} onCollapse={() => setShowScenarios(false)} />
+                <ScenarioPanel model={model} downside={eng.downside} onCollapse={() => setShowScenarios(false)} />
               ) : (
                 <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
               )}
             </div>
           </>
         ) : (
-          <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-2 text-center px-6">
+          <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-3 text-center px-6">
             <div className="tabular text-caos-xl text-caos-text">No issuer-specific model output</div>
             <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">
               Model Builder needs a completed run with a usable CP-1 anchor. Run the
               issuer first; the seeded Atlas Forge grid is available only in the reference demo.
             </div>
+            <a
+              href={`/deepdive?issuer=${encodeURIComponent(issuerId)}`}
+              className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+            >
+              Open {issuerName} in Deep-Dive →
+            </a>
           </div>
         )}
       </div>

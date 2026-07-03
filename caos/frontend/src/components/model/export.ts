@@ -17,7 +17,12 @@ function csvCell(v: string | number | null | undefined): string {
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-export function exportModel(model: Model, showQ: boolean, overrides: Overrides): void {
+export function exportModel(
+  model: Model,
+  showQ: boolean,
+  overrides: Overrides,
+  meta: { header: string; subheader: string; filename: string },
+): void {
   const colDefs = model.columns
     .filter((c) => showQ || c.group !== "Q")
     .map((c) => ({ ...c, ctx: model.cols[c.key] }));
@@ -26,8 +31,8 @@ export function exportModel(model: Model, showQ: boolean, overrides: Overrides):
     v == null || Number.isNaN(v) ? "" : Math.round(v * 1000) / 1000;
 
   const lines: string[] = [];
-  lines.push(["Atlas Forge Industrials — cash-flow model M-118", ...colDefs.map((c) => GROUPS_META[c.group])].map(csvCell).join(","));
-  lines.push(["YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", ...colDefs.map((c) => c.ctx.label + (c.ctx.derived ? "*" : ""))].map(csvCell).join(","));
+  lines.push([meta.header, ...colDefs.map((c) => GROUPS_META[c.group])].map(csvCell).join(","));
+  lines.push([meta.subheader, ...colDefs.map((c) => c.ctx.label + (c.ctx.derived ? "*" : ""))].map(csvCell).join(","));
 
   ROWS.forEach((row) => {
     if (row.sec) {
@@ -63,7 +68,7 @@ export function exportModel(model: Model, showQ: boolean, overrides: Overrides):
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "ATLF Cash-Flow Model M-118.csv";
+  a.download = meta.filename;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -43,6 +43,8 @@ export interface RowDef {
   pct?: 1;
   src?: string;
   formula?: string;
+  /** ATLF-specific lineage tail appended to `formula` only for the reference issuer. */
+  refNote?: string;
 }
 
 export const ROWS: RowDef[] = [
@@ -103,7 +105,7 @@ export const ROWS: RowDef[] = [
   { sec: "KPIs" },
   { id: "srsec", l: "Sr. Sec Net Leverage", g: (c) => c.srsec, f: "x", ind: 1 },
   { id: "totlev", l: "Total Leverage", g: (c) => c.totlev, f: "x", ind: 1 },
-  { id: "netlev", l: "Total Net Leverage", g: (c) => c.netlev, f: "x", bold: 1, src: "cp1", formula: "Total Net Leverage = (Total Debt − Cash) / Adj. EBITDA · ties to Q1-26 compliance cert 5.68x" },
+  { id: "netlev", l: "Total Net Leverage", g: (c) => c.netlev, f: "x", bold: 1, src: "cp1", formula: "Total Net Leverage = (Total Debt − Cash) / Adj. EBITDA", refNote: "ties to Q1-26 compliance cert 5.68x" },
   { id: "intcov", l: "Interest Coverage", g: (c) => c.intcov, f: "x", ind: 1 },
   { id: "fcfd", l: "FCF as % of Debt", g: (c) => c.fcfdebt, f: "p", ind: 1, pct: 1 },
   { id: "sga", l: "SG&A % of Sales", g: (c) => c.sga, f: "p", ind: 1, pct: 1, shade: 1 },

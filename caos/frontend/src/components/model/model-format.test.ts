@@ -46,6 +46,10 @@ describe("parseNum — analyst override input", () => {
   it("trims surrounding whitespace", () => {
     expect(parseNum("  42  ")).toBe(42);
   });
+  it("rejects non-finite input (an Infinity override would poison aggregates)", () => {
+    expect(parseNum("1e999")).toBeNull();
+    expect(parseNum("-1e999")).toBeNull();
+  });
 });
 
 describe("override editability", () => {

@@ -40,7 +40,9 @@ export function parseNum(input: string): number | null {
   let neg = false;
   const m = s.match(/^\((.*)\)$/);
   if (m) { neg = true; s = m[1]; }
-  const v = parseFloat(s);
-  if (Number.isNaN(v)) return null;
-  return neg ? -v : v;
+  const v = neg ? -parseFloat(s) : parseFloat(s);
+  // Reject every non-finite result (NaN *and* ±Infinity): "1e999" parses to
+  // Infinity, which would slip past a NaN-only guard and poison aggregates.
+  if (!Number.isFinite(v)) return null;
+  return v;
 }
