@@ -29,7 +29,10 @@ describe("adaptModule — empty live figures", () => {
     } as unknown as ModuleDetailDTO;
     const out = adaptModule(thin);
     const lev = out.kpis.find((k) => /leverage/i.test(k.l));
-    expect(lev?.v).toBe("—"); // not "—x"
+    // A "—" leverage figure is filtered out of the header entirely — never
+    // rendered as "—" (blank placeholder) and never "—x" (dangling suffix).
+    expect(lev).toBeUndefined();
+    expect(out.kpis.some((k) => k.v === "—")).toBe(false);
   });
 });
 
@@ -69,6 +72,82 @@ const CP1: ModuleDetailDTO = {
     },
   ],
 };
+
+// ── mock↔live seam guard ─────────────────────────────────────────────────────
+// The CP1 fixture above mirrors the DEMO payload (fixtures.py), which pre-counts
+// periods_normalized / kpis_registered / coverage_gate. A LIVE LLM-synth or EDGAR
+// CP-1 carries normalized_financials but NOT those pre-counted summary keys, and a
+// LIVE CP-0 carries gap_log but not gaps_logged. Adapting only the demo shape hid a
+// seam where every live issuer's header rendered those KPIs as "—". These pin the
+// LIVE shape: the derivable counts must resolve from the emitted lists, not "—".
+const base = {
+  module_name: "X", owned_object: "x", schema_family: "Nested",
+  confidence: "Medium", qa_status: "Passed", committee_status: "Committee Ready",
+  validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: [],
+};
+
+describe("adaptModule — LIVE-shaped payloads (mock↔live seam)", () => {
+  it("CP-1: derives 'Periods normalized' from live normalized_financials, not '—'", () => {
+    const live = { ...base, module_id: "CP-1", runtime_output: {
+      basis: "reported_gaap_xbrl",
+      normalized_financials: {
+        revenue: { FY22: 2400, FY23: 2588, FY24: 2742 },  // 3 periods, no periods_normalized key
+        adj_ebitda: { FY22: 350, FY23: 392, FY24: 415 },
+        net_leverage_adj_ltm: 5.76,
+      },
+    } } as unknown as ModuleDetailDTO;
+    const periods = adaptModule(live).kpis.find((k) => /periods normalized/i.test(k.l));
+    expect(periods?.v).toBe("3");  // derived from the 3 revenue periods, not "—"
+  });
+
+  it("CP-0: derives 'Gaps logged' from live gap_log, not '—'", () => {
+    const live = { ...base, module_id: "CP-0", runtime_output: {
+      readiness_score: 82, files_classified: 5,
+      gap_log: [{ id: "G-01", text: "x" }, { id: "G-02", text: "y" }],  // 2 gaps, no gaps_logged key
+      document_map: [{ doc: "D-01", name: "10-K", type: "Filing", grade: "A" }],
+    } } as unknown as ModuleDetailDTO;
+    const gaps = adaptModule(live).kpis.find((k) => /gaps logged/i.test(k.l));
+    expect(gaps?.v).toBe("2");  // derived from the 2 gap_log entries, not "—"
+  });
+
+  it("CP-1: shows live interest coverage and drops demo-only KPIs that have no live source", () => {
+    const live = { ...base, module_id: "CP-1", runtime_output: {
+      basis: "reported_gaap_xbrl",
+      normalized_financials: {
+        revenue: { FY22: 2400, FY23: 2588, FY24: 2742 },
+        adj_ebitda: { FY22: 350, FY23: 392, FY24: 415 },
+        net_leverage_adj_ltm: 5.76,
+        interest_coverage_ltm: 2.4,        // live-emitted (edgar_cp1.py / synth.py)
+        // no coverage_gate / kpis_registered (demo-fixture-only summary keys)
+      },
+    } } as unknown as ModuleDetailDTO;
+    const kpis = adaptModule(live).kpis;
+    expect(kpis.find((k) => /interest coverage/i.test(k.l))?.v).toBe("2.4x");
+    expect(kpis.some((k) => k.v === "—")).toBe(false);                          // no blank placeholders
+    expect(kpis.some((k) => /coverage gate|kpis registered/i.test(k.l))).toBe(false);
+  });
+
+  it("CP-1: labels a non-US reported-disclosure issuer in its own currency, not '$M'", () => {
+    // reported_cp1.py carries the £/€/$ symbol in runtime_output.currency; a £ issuer
+    // (VMO2 etc.) must NOT render its figures under a hardcoded "$M".
+    const live = { ...base, module_id: "CP-1", runtime_output: {
+      basis: "reported_disclosure", currency: "£",
+      normalized_financials: { revenue: { H1: 2742 }, adj_ebitda: { H1: 415 }, net_leverage_adj_ltm: 4.38 },
+    } } as unknown as ModuleDetailDTO;
+    const table = adaptModule(live).sections.find((s) => s.type === "table");
+    expect(table?.title).toContain("£M");
+    expect(table?.title).not.toContain("$M");
+  });
+
+  it("CP-1: defaults to $M when no currency is supplied (EDGAR / demo)", () => {
+    const live = { ...base, module_id: "CP-1", runtime_output: {
+      basis: "reported_gaap_xbrl",
+      normalized_financials: { revenue: { FY24: 2742 }, adj_ebitda: { FY24: 415 }, net_leverage_adj_ltm: 5.76 },
+    } } as unknown as ModuleDetailDTO;
+    const table = adaptModule(live).sections.find((s) => s.type === "table");
+    expect(table?.title).toContain("$M");
+  });
+});
 
 describe("adaptModule", () => {
   it("surfaces net leverage as a KPI for CP-1", () => {

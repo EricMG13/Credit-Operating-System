@@ -7,8 +7,10 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Panel } from "@/components/shared/Panel";
 import { labelCls } from "@/components/shared/styles";
+import { MODEL_HUE } from "@/components/query/node-style";
 import type { ResearchResult, ResearchProgress } from "@/lib/api";
 
 // react-markdown + remark-gfm (~40 kB) only render once a run resolves, so they
@@ -154,36 +156,68 @@ function ErrorView({ error }: { error: string }) {
   );
 }
 
+// The tear-sheet document itself — shared by the on-screen panel and the
+// body-level print portal so screen and exported paper carry identical
+// provenance (matrix 8.2: the AI-synthesis marker must survive export).
+function ResearchDoc({ result, mode, enter = false }: { result: ResearchResult; mode: "sector" | "issuer"; enter?: boolean }) {
+  return (
+    <article className={"research-doc" + (enter ? " caos-enter" : "")}>
+      <header className="rdoc-mast">
+        <span className="rdoc-brand"><span className="rdoc-mark">C</span>Deep Credit Research</span>
+        <span className="rdoc-meta">{mode === "sector" ? "Sector" : "Issuer"} · {fileDate()}</span>
+      </header>
+      <ReportBody report={result.report} />
+      {result.sources.length > 0 && (
+        <section className="rdoc-sources">
+          <div className="rdoc-sources-h">Sources ({result.sources.length})</div>
+          <ol>
+            {result.sources.map((s, i) => (
+              <li key={i}>
+                <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      <footer className="rdoc-foot">
+        <span>CAOS · Credit Agent OS</span>
+        {/* Demo reports carry no structured citations; say "illustrative"
+            rather than the misleading "0 sources". Live narrative is LLM-
+            synthesized — say so on the document itself (matrix 8.2), matching
+            the house provenance line ReportDoc/EvidenceDock already carry. */}
+        <span>
+          {result.demo
+            ? "Illustrative · demo"
+            : `AI-synthesized · ${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"} — verify against cited sources`}
+        </span>
+      </footer>
+    </article>
+  );
+}
+
 function ResultView({ result, mode }: { result: ResearchResult; mode: "sector" | "issuer" }) {
   return (
     <div className="research-paper-shell">
-      <article className="research-doc caos-enter">
-        <header className="rdoc-mast">
-          <span className="rdoc-brand"><span className="rdoc-mark">C</span>Deep Credit Research</span>
-          <span className="rdoc-meta">{mode === "sector" ? "Sector" : "Issuer"} · {fileDate()}</span>
-        </header>
-        <ReportBody report={result.report} />
-        {result.sources.length > 0 && (
-          <section className="rdoc-sources">
-            <div className="rdoc-sources-h">Sources ({result.sources.length})</div>
-            <ol>
-              {result.sources.map((s, i) => (
-                <li key={i}>
-                  <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-        <footer className="rdoc-foot">
-          <span>CAOS · Credit Agent OS</span>
-          {/* Demo reports carry no structured citations; say "illustrative"
-              rather than the misleading "0 sources". */}
-          <span>{result.demo ? "Illustrative · demo" : `${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"}`}</span>
-        </footer>
-      </article>
+      <ResearchDoc result={result} mode={mode} enter />
     </div>
   );
+}
+
+// EXPORT PDF is window.print(), and the global print rule hides every body
+// child except a body-level `.print-root` (globals.css) — without one, /research
+// printed blank pages. Portal a print-only copy of the doc to <body>, same
+// pattern as Report Studio (app/reports/page.tsx) and the Query exhibit.
+function ResearchPrintPortal({ result, mode }: { result: ResearchResult; mode: "sector" | "issuer" }) {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const d = document.createElement("div");
+    d.className = "print-root";
+    document.body.appendChild(d);
+    setEl(d);
+    return () => { document.body.removeChild(d); };
+  }, []);
+  if (!el) return null;
+  return createPortal(<ResearchDoc result={result} mode={mode} />, el);
 }
 
 function EmptyView() {
@@ -239,7 +273,18 @@ export function ReportPane({
       {result?.demo ? (
         <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>DEMO</span>
       ) : result ? (
-        <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE</span>
+        <>
+          <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE</span>
+          {/* Model-provenance marker (matrix 8.2) — same hue class as the Query
+              overlay's "Model commentary"; the narrative is LLM-synthesized. */}
+          <span
+            className="tabular text-caos-3xs uppercase tracking-wider px-1.5 py-px rounded border"
+            style={{ color: MODEL_HUE, borderColor: `${MODEL_HUE}88`, backgroundColor: `${MODEL_HUE}15` }}
+            title="Report narrative is LLM-synthesized from the cited sources"
+          >
+            AI-synthesized
+          </span>
+        </>
       ) : null}
       {result ? (
         <button
@@ -260,7 +305,10 @@ export function ReportPane({
         ) : error ? (
           <ErrorView error={error} />
         ) : result ? (
-          <ResultView result={result} mode={mode} />
+          <>
+            <ResultView result={result} mode={mode} />
+            <ResearchPrintPortal result={result} mode={mode} />
+          </>
         ) : (
           <EmptyView />
         )}

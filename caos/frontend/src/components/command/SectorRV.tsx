@@ -37,13 +37,6 @@ const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
   "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
-// Left-edge flag on the actionable tails only (cheap/rich) — alert, not
-// decoration. Transparent (not absent) elsewhere so column alignment holds.
-const rvEdge = (s: RVSignal): string =>
-  s === "Cheap" ? "3px solid var(--caos-success-bright)"
-    : s === "Rich" ? "3px solid var(--caos-critical-bright)"
-      : "3px solid transparent";
-
 function DeltaCell({ v }: { v: number | null }) {
   if (v === null)
     return <td className="px-2 py-[3px] text-right tabular text-caos-muted">—</td>;
@@ -213,7 +206,7 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
   const minWidthClass = preset === "full" ? "min-w-[1760px]" : preset === "market" ? "min-w-[1000px]" : "min-w-[760px]";
 
   return (
-    <table aria-label="Sector relative value" className={`border-collapse text-caos-sm ${minWidthClass} w-full`}>
+    <table aria-label="Sector relative value" className={`border-collapse text-caos-xs ${minWidthClass} w-full`}>
       <thead>
         <tr className="border-b border-caos-border">
           {showCol("company") && <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />}
@@ -240,7 +233,7 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
       <tbody>
         {sorted.map((r, i) => (
           <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos group">
-            {showCol("company") && <td style={{ borderLeft: rvEdge(r.rv) }} className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
+            {showCol("company") && <td className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
             {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
             {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
             {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
@@ -391,7 +384,7 @@ export function SectorRV() {
           id="sector-rv-select"
           value={active}
           onChange={(e) => setActive(Number(e.target.value))}
-          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2 tabular text-caos-sm text-caos-text outline-none transition-caos hover:border-caos-accent/60"
+          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2 tabular text-caos-xs text-caos-text outline-none transition-caos hover:border-caos-accent/60"
         >
           {RV_SECTORS.map((s, i) => (
             <option key={s.name} value={i}>{s.name}</option>
@@ -463,7 +456,7 @@ export function SectorRV() {
           right={<span className="tabular text-caos-xs text-caos-muted">derived from file sectors</span>}
         >
           <div className="overflow-auto h-full">
-            <table aria-label="Index statistics" className="border-collapse text-caos-sm w-full min-w-[760px]">
+            <table aria-label="Index statistics" className="border-collapse text-caos-xs w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
@@ -502,7 +495,7 @@ export function SectorRV() {
           right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
         >
           <div className="overflow-auto h-full">
-            <table aria-label="Sub-sector market average" className="border-collapse text-caos-sm w-full min-w-[760px]">
+            <table aria-label="Sub-sector market average" className="border-collapse text-caos-xs w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Sub-Sector" col="subSector" sort={sortSub} onSort={handleSortSub} />
@@ -545,7 +538,7 @@ export function SectorRV() {
           right={<span className="tabular text-caos-xs text-caos-muted">{sector.name} · peer set</span>}
         >
           <div className="overflow-auto h-full">
-            <table aria-label="Sector ratings average" className="border-collapse text-caos-sm w-full min-w-[760px]">
+            <table aria-label="Sector ratings average" className="border-collapse text-caos-xs w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-caos-border">
                   <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />

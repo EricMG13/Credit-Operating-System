@@ -174,7 +174,18 @@ function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
         role="dialog"
         aria-modal="true"
         aria-label="Issuer Profile Overlay"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          // This modal mounts in the root layout, ABOVE the router — a <Link>
+          // inside it swaps the route underneath without unmounting the overlay,
+          // stranding a scroll-locked focus trap over the new page. Delegated
+          // close: a plain left-click on a same-origin link closes; modified
+          // clicks (new tab/window) and external/protocol links ("OPEN IN
+          // VAULT" obsidian://) don't navigate this page, so the overlay stays.
+          const a = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
+          if (a && a.origin === window.location.origin &&
+              !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) onClose();
+        }}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden relative"
         style={{ boxShadow: "var(--shadow-modal)" }}
       >

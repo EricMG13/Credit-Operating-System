@@ -456,7 +456,10 @@ export function FormulaBar({
 
   const row = ROWS.find((r) => r.id === sel.row)!;
   const ctx = model.cols[sel.col];
-  const src = row.src ? SRC[row.src] : null;
+  // SRC is the seeded Atlas Forge module-output set (same registry the Manifest
+  // gates): rendering its chips / L-04 warn / E-xx evidence for a live issuer
+  // would fabricate lineage, so the whole chip block is reference-only.
+  const src = isReference && row.src ? SRC[row.src] : null;
   const v = row.g!(ctx);
   const editable = isEditable(sel.row, sel.col);
   const ovKey = sel.col + ":" + ovField(sel.row);
@@ -469,13 +472,21 @@ export function FormulaBar({
     ? (isReference
         ? "downside = CP-2B pathway P1 (OEM destocking)"
         : "downside = CP-2B first-order EBITDA-shock pathway")
-    : ctx.derived ? "derived period — Q4-25 management accounts missing (gap G-02)" : null;
+    : ctx.derived
+    ? (isReference
+        ? "derived period — Q4-25 management accounts missing (gap G-02)"
+        : "derived period")
+    : null;
 
   // Formula string: keep `row.formula` generic; append the ATLF-specific
   // `refNote` (e.g. the Q1-26 compliance-cert tie) ONLY for the reference issuer.
-  const formulaText = row.formula
-    ? row.formula + (isReference && row.refNote ? " · " + row.refNote : "")
-    : `${row.l} — sourced from ${src ? src.name : "model logic"}`;
+  // A refNote-only row (no generic formula exists) shows the note for the
+  // reference and falls through to the plain-source line for live issuers.
+  const refText = isReference && row.refNote
+    ? (row.formula ? row.formula + " · " + row.refNote : row.refNote)
+    : row.formula;
+  const formulaText = refText
+    || `${row.l} — sourced from ${src ? src.name : "model logic"}`;
 
   // Calculate grid cell coordinate (e.g. C12)
   const colDefs = model.columns.filter((c) => showQ || c.group !== "Q");
