@@ -12,22 +12,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
-import { QuestionRail } from "@/components/query/QuestionRail";
+import { GroupLauncher } from "@/components/query/GroupLauncher";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
+import { InsightFeed } from "@/components/query/InsightFeed";
+import { AiAnswer } from "@/components/query/AiAnswer";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
 import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { QueryPrintSheet } from "@/components/query/QueryPrintSheet";
+import { QueryReportSheet } from "@/components/query/QueryReportSheet";
+import { ReportRail } from "@/components/query/ReportRail";
 import { useNotify } from "@/components/shared/Notifications";
-import { acceptQueryLink, listQueryLinks, queryCapabilities, queryGraph, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
-import type { Capability, CapabilitiesResult, GraphResult, GraphNode, OverlayEdge, OverlayResult } from "@/lib/query/graph";
+import { acceptQueryLink, listQueryLinks, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
+import type { AnswerResult, Capability, CapabilitiesResult, GraphResult, GraphNode, InsightBrief, InsightCard, OverlayEdge, OverlayResult } from "@/lib/query/graph";
 import { pairKey } from "@/lib/query/graph";
+import { addSection, removeSection, sectionId, type ReportSection } from "@/lib/query/report";
 import { downloadQueryCsv } from "@/lib/query/export";
 import { rankQueryCapabilities } from "@/lib/query/routing";
-import { engineNote, questionFor, questionGroups } from "@/lib/query/questions";
+import { engineNote, QUESTIONS, questionFor, questionGroups } from "@/lib/query/questions";
 import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { synthesize } from "@/lib/query/synthesis";
 import { MODEL_HUE } from "@/components/query/node-style";
@@ -75,7 +80,8 @@ function QueryWorkspace() {
   const [graphErr, setGraphErr] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null); // launcher popover
+  const [railCollapsed, setRailCollapsed] = useState(false); // report/evidence panel
   const [text, setText] = useState("");
   const [theme, setTheme] = useState(""); // free-text risk theme for the shared-theme walk
   const [note, setNote] = useState<string | null>(null);
@@ -94,6 +100,24 @@ function QueryWorkspace() {
   const [view, setView] = useState<QueryView>("graph");
   const [searchOpen, setSearchOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  // Q1 Desk Brief — proactive AI research, loaded on open (no prompting).
+  const [brief, setBrief] = useState<InsightBrief | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefCollapsed, setBriefCollapsed] = useState(false);
+  // Layout F — the running report the analyst assembles, the right-rail tab, and
+  // which print-root is live (only one at a time so window.print never doubles).
+  const [report, setReport] = useState<ReportSection[]>([]);
+  const [railTab, setRailTab] = useState<"report" | "evidence">("report");
+  const [printMode, setPrintMode] = useState<"graph" | "report">("graph");
+  // Q2 grounded answer — the cited AI paragraph beside a typed question's walk.
+  const [answer, setAnswer] = useState<AnswerResult | null>(null);
+  const [answerLoading, setAnswerLoading] = useState(false);
+  const answerSeq = useRef(0);
+  // Q3 ambient overlay: fire the model overlay once per session on the analyst's
+  // first explicit walk, so there is model commentary without per-click spend.
+  const didAutoOverlay = useRef(false);
+  const userInitiated = useRef(false); // an explicit pick/submit happened (not the auto-run)
+  const briefPolls = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const tablistRef = useRef<HTMLDivElement>(null);
   const notify = useNotify();
@@ -120,10 +144,6 @@ function QueryWorkspace() {
     });
   }, []);
 
-  useEffect(() => {
-    if (window.innerWidth < 1024) setCollapsed(true);
-  }, []);
-
   // ⌘K routes here (AskProvider dispatches caos:query-focus on /query).
   useEffect(() => {
     const handleFocus = () => {
@@ -140,6 +160,17 @@ function QueryWorkspace() {
     return m;
   }, [caps]);
   const groups = useMemo(() => questionGroups(caps), [caps]);
+  // Route each grounded brief card to its group (by the card's walk → job), so a
+  // group popover can show the AI analysis already surfaced for that theme.
+  const cardsByGroup = useMemo(() => {
+    const out: Record<string, InsightCard[]> = {};
+    for (const card of brief?.cards ?? []) {
+      const job = card.walk ? QUESTIONS[card.walk]?.job : undefined;
+      if (!job) continue;
+      (out[job] ??= []).push(card);
+    }
+    return out;
+  }, [brief]);
   const totalCaps = capById.size;
   const totalReady = useMemo(
     () => [...capById.values()].filter((c) => c.enabled).length,
@@ -171,6 +202,11 @@ function QueryWorkspace() {
     setSelectedNode(null);
     setSheetOpen(false);
     setOverlay(null); // model overlay belongs to ONE graph — never carries across runs
+    // The grounded AI answer belongs to the previous question — clear it; a typed
+    // submit re-populates it below, a rail pick leaves it cleared.
+    answerSeq.current++;
+    setAnswer(null);
+    setAnswerLoading(false);
     // Every run opens on its native view — a leftover Scatter/Lineage from the
     // previous graph must never be the first render of a new one.
     if (capMode) setView(nativeView(capId, capMode));
@@ -192,14 +228,107 @@ function QueryWorkspace() {
   }, [notify]);
 
   const pick = useCallback((capId: string) => {
+    userInitiated.current = true; // an explicit walk — arms the one-shot ambient overlay
+    setBriefCollapsed(true); // collapse the brief so the graph is the hero (layout F)
     run(capId, capById.get(capId)?.mode);
   }, [run, capById]);
+
+  // Q1 — load the proactive Desk Brief. Returns instantly (persisted brief or
+  // deterministic highlights); while a background regeneration is in flight the
+  // payload says refreshing:true, so poll a bounded few times to swap in the AI
+  // brief when it lands. Never blocks the surface; a failure just leaves no panel.
+  const loadBrief = useCallback((force = false) => {
+    setBriefLoading(true);
+    queryInsights(force)
+      .then((b) => {
+        setBrief(b);
+        if (b.refreshing && briefPolls.current < 4) {
+          briefPolls.current += 1;
+          setTimeout(() => loadBrief(false), 8000);
+        } else {
+          briefPolls.current = 0;
+        }
+      })
+      .catch(() => { /* proactive extra; absence just hides the panel */ })
+      .finally(() => setBriefLoading(false));
+  }, []);
+
+  // Q2 — fetch the grounded AI answer for a typed question, beside its walk. Only
+  // runs when the model lane is up; sequence-guarded so a stale answer can't land
+  // over a newer question. Degrades to an explicit "unavailable" note, never throws.
+  const fetchAnswer = useCallback((question: string, capId: string, issuerId?: string) => {
+    if (!caps?.availability?.model_lane) return;
+    const seq = ++answerSeq.current;
+    setAnswer(null);
+    setAnswerLoading(true);
+    queryAnswer(question, capId, issuerId)
+      .then((a) => {
+        if (seq !== answerSeq.current) return;
+        setAnswer(a);
+        // Auto-assemble: a grounded answer drops into the running report as a
+        // cited section. Ungrounded/empty answers are not filed.
+        if (!a.unavailable && a.answer) {
+          setReport((prev) => addSection(prev, {
+            id: sectionId("answer", question), kind: "answer", title: question,
+            body: a.answer, sources: a.citations.map((c) => ({ label: c.label, chunk_id: c.chunk_id })),
+            capabilityId: capId, ai: true, addedAt: Date.now(),
+          }));
+        }
+      })
+      .catch(() => {
+        if (seq === answerSeq.current) {
+          setAnswer({
+            answer: "", sentences: [], citations: [], unavailable: true, model: null,
+            created_at: null, cached: false,
+            reason: "Model answer unavailable — the deterministic result stands.",
+          });
+        }
+      })
+      .finally(() => { if (seq === answerSeq.current) setAnswerLoading(false); });
+  }, [caps]);
+
+  // Layout F — pin a brief card into the report, export the report to PDF, drop a
+  // section, wipe the report. Export toggles the live print-root to the report
+  // sheet, prints, then flips back so the per-graph exhibit prints normally again.
+  const pinInsight = useCallback((card: InsightCard) => {
+    setReport((prev) => addSection(prev, {
+      id: sectionId("insight", card.headline), kind: "insight", title: card.headline,
+      body: card.detail, sources: card.evidence.map((e) => ({ label: e.label, chunk_id: e.chunk_id })),
+      capabilityId: card.walk ?? undefined, ai: true, addedAt: Date.now(),
+    }));
+    notify("Pinned to report", card.headline);
+  }, [notify]);
+
+  useEffect(() => {
+    if (printMode !== "report") return;
+    // Let the report print-root mount + paint before printing, then restore the
+    // graph print-root so the PRINT/PDF button keeps printing the single exhibit.
+    const t = setTimeout(() => { window.print(); setPrintMode("graph"); }, 120);
+    return () => clearTimeout(t);
+  }, [printMode]);
 
   useEffect(() => {
     listQueryLinks()
       .then((r) => setAcceptedPairs(new Map(r.links.map((l) => [pairKey(l.issuer_a, l.issuer_b), l.id]))))
       .catch(() => {}); // read-only state seed; absence just means no UNDO markers
   }, []);
+
+  // Q1 — the Desk Brief greets the analyst on open, no prompting.
+  useEffect(() => { loadBrief(false); }, [loadBrief]);
+
+  // Q3 — one ambient overlay per session, on the analyst's first explicit walk.
+  // Keyed off graph so it fires after the graph is on the canvas; guarded so the
+  // auto-run-on-load graph and every later walk don't spend a model call.
+  useEffect(() => {
+    if (!graph || didAutoOverlay.current || !userInitiated.current) return;
+    if (!caps?.availability?.model_lane) return;
+    didAutoOverlay.current = true;
+    setOverlayBusy(true);
+    queryOverlay(graph.capability_id)
+      .then((o) => setOverlay((cur) => cur ?? o)) // never clobber a manual toggle
+      .catch(() => { /* ambient — silent, the deterministic graph is untouched */ })
+      .finally(() => setOverlayBusy(false));
+  }, [graph, caps]);
 
   // Re-fetch the current graph WITHOUT clearing the overlay — after a ratify the
   // deterministic payload now draws the solid accepted edge; the overlay stays up
@@ -226,6 +355,12 @@ function QueryWorkspace() {
       .then((l) => {
         setAcceptedPairs((prev) => new Map(prev).set(pairKey(l.issuer_a, l.issuer_b), l.id));
         notify("Link ratified", `${src} ⇢ ${tgt} is now stored graph data`);
+        // A ratified connection files into the report as a deterministic section.
+        setReport((prev) => addSection(prev, {
+          id: sectionId("link", `${src} ${tgt}`), kind: "link", title: `${src} ⇢ ${tgt}`,
+          body: edge.rationale || "", sources: (edge.chunk_ids || []).map((cid) => ({ label: "source", chunk_id: cid })),
+          capabilityId: activeId, ai: false, addedAt: Date.now(),
+        }));
         refreshGraph();
       })
       .catch((e) => {
@@ -301,6 +436,8 @@ function QueryWorkspace() {
     const best = scored[0].c;
     if (best.enabled) {
       addToHistory(text, best.id, best.label);
+      userInitiated.current = true;
+      setBriefCollapsed(true);
       // Carry the analyst's question into the theme walk so a keyword-routed
       // theme match answers what they asked — not the default energy theme.
       if (best.id === "shared-theme") {
@@ -310,6 +447,8 @@ function QueryWorkspace() {
       } else {
         run(best.id, best.mode, true); // clears note/suggest for the new run
       }
+      // Q2 — a typed question also gets a grounded AI answer beside its walk.
+      fetchAnswer(text.trim(), best.id);
       // A matched fallback is a neutral result, not a warning; a bare keyword
       // hit leaves the note cleared as before. Set AFTER run() so it survives.
       if (lead) {
@@ -321,7 +460,7 @@ function QueryWorkspace() {
     setNoteKind("warn");
     setNote(`${prefix}${best.label} — ${best.reason}. Runnable instead:`);
     setSuggest(runnable.slice(0, 4));
-  }, [text, caps, run, addToHistory]);
+  }, [text, caps, run, addToHistory, fetchAnswer]);
 
   // Cancel abandons an in-flight route: bump the sequence so the pending
   // .then()/.catch() short-circuits, and clear the pending note.
@@ -366,6 +505,8 @@ function QueryWorkspace() {
           .filter(Boolean) as Capability[];
         if (top.enabled) {
           addToHistory(q, top.id, top.label);
+          userInitiated.current = true;
+          setBriefCollapsed(true);
           // Carry the analyst's question into the theme walk so the answer
           // matches what they asked — not the default energy theme.
           if (top.id === "shared-theme") {
@@ -375,6 +516,8 @@ function QueryWorkspace() {
           } else {
             run(top.id, capById.get(top.id)?.mode, true);
           }
+          // Q2 — grounded AI answer beside the routed walk.
+          fetchAnswer(q, top.id);
           setNoteKind("info");
           setNote(`Routed: ${top.reason || top.label}${restCaps.length ? " · also:" : ""}`);
           setSuggest(restCaps);
@@ -393,7 +536,7 @@ function QueryWorkspace() {
         const st = (e as { response?: { status?: number } })?.response?.status;
         keywordSubmit(st === 429 ? "Query rate limit reached —" : "Model router unavailable —");
       });
-  }, [text, caps, capById, keywordSubmit, run, addToHistory]);
+  }, [text, caps, capById, keywordSubmit, run, addToHistory, fetchAnswer]);
 
   const views = useMemo(() => (graph ? viewsFor(graph.capability_id, graph.mode) : []), [graph]);
   const activeView = graph ? coerceView(view, graph.capability_id, graph.mode) : view;
@@ -429,7 +572,7 @@ function QueryWorkspace() {
         <div className="min-w-0">
           <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
           <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted leading-none mt-1">
-            run-derived graph search
+            proactive research over coverage
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2 overflow-hidden">
@@ -448,18 +591,22 @@ function QueryWorkspace() {
       </PageSubHeader>
 
       <div className="flex-1 min-h-0 flex bg-caos-bg">
-        <QuestionRail
-          groups={groups}
-          activeId={activeId}
-          collapsed={collapsed}
-          onToggle={() => setCollapsed((v) => !v)}
-          // Picking a rail walk supersedes any typed query — clear the stale
-          // command-bar text so it never mismatches the active answer.
-          onPick={(id) => { setText(""); pick(id); }}
-        />
-
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-          <section className="shrink-0 border-b border-caos-border bg-caos-panel/55 px-4 py-2.5 relative">
+          {/* Layout F — the ask bar is anchored at the BOTTOM (order-last), so the
+              graph is the hero above it and the composer sits under the canvas. */}
+          <section className="order-last shrink-0 border-t border-caos-border bg-caos-panel/55 px-4 py-2.5 relative">
+            {/* The walk launcher — the question rail, moved to a click-to-open
+                group bar just above the composer. Opens upward. */}
+            <div className="mb-2">
+              <GroupLauncher
+                groups={groups}
+                cardsByGroup={cardsByGroup}
+                openId={openGroup}
+                onToggle={setOpenGroup}
+                onPick={(id) => { setText(""); setOpenGroup(null); pick(id); }}
+                onOpenChunk={(id, label) => setCite({ id, label })}
+              />
+            </div>
             <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-1.5 focus-within:border-caos-accent/70 transition-caos">
               <QueryMark small />
               <input
@@ -489,7 +636,7 @@ function QueryWorkspace() {
             </div>
 
             {searchOpen && (history.length > 0 || prompts.length > 0) && (
-              <div className="absolute left-4 right-4 top-full -mt-1 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden" style={{ boxShadow: "var(--shadow-pop)" }}>
+              <div className="absolute left-4 right-4 bottom-full mb-1 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden" style={{ boxShadow: "var(--shadow-pop)" }}>
                 {history.length > 0 && (
                   <div className="py-1 border-b border-caos-border/60">
                     <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1">Recent</div>
@@ -571,6 +718,17 @@ function QueryWorkspace() {
             </div>
           </section>
 
+          <InsightFeed
+            brief={brief}
+            loading={briefLoading}
+            collapsed={briefCollapsed}
+            onToggle={() => setBriefCollapsed((v) => !v)}
+            onRefresh={() => { briefPolls.current = 0; loadBrief(true); }}
+            onOpenWalk={(w) => { setBriefCollapsed(true); pick(w); }}
+            onOpenChunk={(id, label) => setCite({ id, label })}
+            onPin={pinInsight}
+          />
+
           {graph && (
             <div className="shrink-0 px-4 py-3 border-b border-caos-border bg-caos-panel">
               <div className="flex items-center gap-2 flex-wrap">
@@ -586,6 +744,17 @@ function QueryWorkspace() {
               </div>
               <h2 className="tabular text-caos-xl text-caos-text font-semibold mt-1 truncate" title={graph.title}>{graph.title}</h2>
               <p className="text-caos-md text-caos-text font-sans leading-normal mt-1">{synthesize(graph)}</p>
+              {/* Q2 — the grounded AI answer sits under the deterministic synthesis
+                  line: additive, cited, marked. Self-hides when no question is in play. */}
+              <AiAnswer answer={answer} loading={answerLoading} onOpenChunk={(id, label) => setCite({ id, label })} />
+              {/* Q3 — promote the overlay commentary out of the dock so model
+                  observations ride beside the answer, not behind a click. */}
+              {overlay?.commentary && (
+                <div className="mt-2 rounded-md border px-3 py-1.5 print:hidden" style={{ borderColor: `${MODEL_HUE}33`, borderLeft: `2px solid ${MODEL_HUE}` }}>
+                  <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold" style={{ color: MODEL_HUE }}>Model note</span>
+                  <p className="text-caos-xs text-caos-muted font-sans leading-relaxed mt-0.5">{overlay.commentary}</p>
+                </div>
+              )}
               {activeId && (
                 <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1">{engineNote(activeId)}</div>
               )}
@@ -708,7 +877,7 @@ function QueryWorkspace() {
             ) : graphErr ? (
               <Center text={`Query failed — ${graphErr}`} warn />
             ) : !graph ? (
-              <Center text={running ? "Walking the graph…" : "Pick a question to render its answer."} />
+              <Center text={running ? "Walking the graph…" : "Open a card from the desk brief above, or ask a question to render its answer."} />
             ) : activeView === "rv" ? (
               <RelativeValueTable
                 graph={graph}
@@ -745,22 +914,70 @@ function QueryWorkspace() {
           )}
         </main>
 
+        {railCollapsed ? (
+          <aside className="hidden lg:flex w-10 border-l border-caos-border bg-caos-panel flex-col items-center shrink-0 py-2 gap-2" aria-label="Report and evidence (collapsed)">
+            <button type="button" onClick={() => setRailCollapsed(false)} aria-label="Open report panel" title="Open report / evidence" className="text-caos-muted hover:text-caos-text focus-ring rounded p-1">
+              <svg viewBox="0 0 12 12" className="w-3 h-3 stroke-current" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M7.5 2.5 L4 6 L7.5 9.5" /></svg>
+            </button>
+            <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted" style={{ writingMode: "vertical-rl" }}>Report</span>
+            {report.length > 0 && (
+              <span className="tabular text-caos-3xs font-mono rounded-full px-1" style={{ color: MODEL_HUE, backgroundColor: `${MODEL_HUE}22` }}>{report.length}</span>
+            )}
+          </aside>
+        ) : (
         <aside
-          className="hidden lg:flex w-[300px] xl:w-[340px] border-l border-caos-border bg-caos-panel flex-col shrink-0"
-          aria-label="Evidence"
+          className="hidden lg:flex w-[320px] xl:w-[360px] border-l border-caos-border bg-caos-panel flex-col shrink-0"
+          aria-label="Report and evidence"
         >
-          <EvidenceDock
-            graph={graph}
-            node={selectedNode}
-            overlay={overlay}
-            acceptedPairs={acceptedPairs}
-            onClear={() => setSelectedNode(null)}
-            onOpenChunk={(id, label) => setCite({ id, label })}
-            onPickWalk={pick}
-            onAcceptLink={acceptLink}
-            onRetractLink={retractLink}
-          />
+          <div className="shrink-0 flex items-center border-b border-caos-border">
+            <div className="flex flex-1" role="tablist" aria-label="Right panel">
+              {(["report", "evidence"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={railTab === t}
+                  onClick={() => setRailTab(t)}
+                  className={`flex-1 tabular text-caos-2xs uppercase tracking-wider py-2 flex items-center justify-center gap-1.5 transition-caos focus-ring ${
+                    railTab === t ? "text-caos-text border-b-2 border-caos-accent" : "text-caos-muted hover:text-caos-text border-b-2 border-transparent"
+                  }`}
+                >
+                  {t}
+                  {t === "report" && report.length > 0 && (
+                    <span className="tabular text-caos-3xs font-mono rounded-full px-1.5" style={{ color: MODEL_HUE, backgroundColor: `${MODEL_HUE}22` }}>{report.length}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <button type="button" onClick={() => setRailCollapsed(true)} aria-label="Collapse report panel" title="Collapse panel" className="shrink-0 px-2 text-caos-muted hover:text-caos-text focus-ring">
+              <svg viewBox="0 0 12 12" className="w-3 h-3 stroke-current" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 2.5 L8 6 L4.5 9.5" /></svg>
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            {railTab === "report" ? (
+              <ReportRail
+                sections={report}
+                onRemove={(id) => setReport((prev) => removeSection(prev, id))}
+                onExport={() => setPrintMode("report")}
+                onClear={() => setReport([])}
+                onOpenChunk={(id, label) => setCite({ id, label })}
+              />
+            ) : (
+              <EvidenceDock
+                graph={graph}
+                node={selectedNode}
+                overlay={overlay}
+                acceptedPairs={acceptedPairs}
+                onClear={() => setSelectedNode(null)}
+                onOpenChunk={(id, label) => setCite({ id, label })}
+                onPickWalk={pick}
+                onAcceptLink={acceptLink}
+                onRetractLink={retractLink}
+              />
+            )}
+          </div>
         </aside>
+        )}
       </div>
 
       {sheetOpen && (
@@ -789,9 +1006,10 @@ function QueryWorkspace() {
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
 
-      {/* Committee print exhibit (display:none until window.print()); the
-          PRINT/PDF button prints this light tear-sheet, not the dark app. */}
-      {graph && (
+      {/* Committee print exhibits (display:none until window.print()). Only ONE
+          print-root is live at a time — the per-graph exhibit by default, the
+          multi-section research report while exporting — so print never doubles. */}
+      {graph && printMode === "graph" && (
         <QueryPrintSheet
           graph={graph}
           question={activeCap ? questionFor(activeCap) : graph.title}
@@ -799,6 +1017,7 @@ function QueryWorkspace() {
           synthesis={synthesize(graph)}
         />
       )}
+      {printMode === "report" && <QueryReportSheet sections={report} graph={graph} />}
     </div>
   );
 }

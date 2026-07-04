@@ -1,7 +1,9 @@
-# Broad-Run Test Corpus — 33 Issuers (Phase B / B5)
+# Broad-Run Test Corpus — 61 Issuers (Phase B / B5)
 
-*(30-name analyst cohort + 3 foreign reported-lane names added 2026-07-03 to
-thicken the `reported_cp1` path.)*
+*(30-name analyst cohort + 3 foreign reported-lane names 2026-07-03, +28 from
+analyst list 2 on 2026-07-04 — see [Batch 2](#batch-2--analyst-list-2-added-2026-07-04).
+Two of that list, **INEOS** and **Altice France/SFR**, were already in the core
+33 and are not double-counted.)*
 
 Breadth net for engine certification. **Distinct from the sealed golden set**
 (`../golden/`): goldens assert *exact numbers forever* (hand-verified, 3
@@ -36,8 +38,8 @@ days of up-front verification.
 
 | Lane | Count | Names |
 |------|-------|-------|
-| EDGAR XBRL (US-GAAP, has CIK) | 28 | all except the 5 below |
-| Reported-disclosure (`reported_cp1`, no CIK) | 5 | VMO2 (golden), Refresco, Altice France/SFR, INEOS, Cirsa |
+| EDGAR XBRL (has CIK) | 50 | 28 core + 22 Batch-2; ~9 Batch-2 file 20-F/40-F (see note) |
+| Reported-disclosure (`reported_cp1`, no CIK) | 11 | VMO2 (golden), Refresco, Altice France/SFR, INEOS, Cirsa + 6 Batch-2 euro-portal |
 
 **Known deltas — read before capture:**
 - **Reported lane thickened to 5** (was 2). VMO2 + Refresco + 3 true foreign
@@ -113,8 +115,55 @@ offline fixture (`_capture.py` pattern) so the corpus runs keyless in CI.
 | Boyd Gaming | BYD | 0000906553 | EDGAR |
 | Cirsa | private | — (🇪🇸 filer) | Reported — HY-bond gaming (IFRS); bondholder reports via IR. URL verify at capture |
 
+## Batch 2 — analyst list 2 (added 2026-07-04)
+
+28 names from the second analyst list, appended to
+[`caos/tests/cohort/cohort.csv`](../../cohort/cohort.csv). Two supplied names —
+**INEOS** and **Altice France/SFR** — were already in the core 33 (reported
+lane) and are *not* re-added. Sectors below are informational; CP-3 peer
+grouping keys off the engine's runtime SIC/sector classification, not this
+table.
+
+**Capture caveat — 20-F / 40-F filers (†).** `fetch_cohort.py` filters
+financials to **10-K + 10-Q**, so the foreign-private-issuer filers marked †
+yield **0 financials** through that script *even though they have a CIK*. Their
+XBRL still grounds keylessly via the CP-1 EDGAR/reported lane — just don't
+expect `fetch_cohort` to pull their annuals. Confirm each form at capture (a
+20-F ⇒ IFRS tags via EDGAR = bonus coverage).
+
+| Issuer | Ticker/Key | CIK | Sector (approx) | Lane / note |
+|--------|-----------|-----|-----------------|-------------|
+| Grifols † | GRFS | 0001439094 | Healthcare/Pharma | EDGAR (🇪🇸 20-F — confirm) |
+| Teva Pharmaceutical | TEVA | 0001058222 | Healthcare/Pharma | EDGAR (files 10-K) |
+| Icon plc | ICLR | 0001063644 | Healthcare/Pharma | EDGAR (🇮🇪 — files 10-K) |
+| Jazz Pharmaceuticals | JAZZ | 0001232524 | Healthcare/Pharma | EDGAR (🇮🇪 — files 10-K) |
+| Mallinckrodt | MNK | 0001563855 | Healthcare/Pharma | EDGAR (🇮🇪 — files 10-K; post-Ch.11) |
+| Flutter Entertainment | FLUT | 0001993499 | Gaming/Leisure | EDGAR (🇮🇪 — files 10-K 2024+) |
+| Carnival Corp | CCL | 0000215219 | Gaming/Leisure/Travel | EDGAR (US 10-K) |
+| Royal Caribbean | RCL | 0000884887 | Gaming/Leisure/Travel | EDGAR (US 10-K) |
+| Air Canada † | AC | 0001404113 | Travel | EDGAR (🇨🇦 40-F — confirm) |
+| Restaurant Brands † | QSR | 0001618756 | Consumer/Restaurants | EDGAR (🇨🇦 40-F — confirm) |
+| Allwyn Entertainment | ALLWYN | — | Gaming/Lottery | Reported (euro-portal) |
+| GardaWorld | GARDA | — | Business Services | Reported (🇨🇦 euro-portal) |
+| Bombardier Inc. † | BBD | 0000011674 | Industrials/Aerospace | EDGAR (🇨🇦 40-F/6-K — confirm) |
+| Cemex † | CX | 0001076378 | Materials | EDGAR (🇲🇽 20-F — confirm) |
+| JBS S.A. † | JBS | 0001471110 | Consumer/Protein | EDGAR (🇧🇷 20-F — confirm) |
+| Sensata Technologies | ST | 0001477294 | Industrials | EDGAR (files 10-K) |
+| Gates Industrial | GTES | 0001718512 | Industrials | EDGAR (files 10-K) |
+| Seagate Technology | STX | 0001137789 | Tech Hardware | EDGAR (🇮🇪 — files 10-K) |
+| NXP Semiconductors | NXPI | 0001413447 | Semiconductors | EDGAR (🇳🇱 — files 10-K) |
+| Ardagh Group † | ARD | 0001681014 | Packaging | EDGAR (🇱🇺 20-F — confirm; sister to AMBP) |
+| GFL Environmental † | GFL | 0001780262 | Environmental Svc | EDGAR (🇨🇦 40-F — confirm) |
+| TechnipFMC | FTI | 0001681459 | Energy Svc | EDGAR (🇬🇧 — files 10-K) |
+| Valaris | VAL | 0001469367 | Energy/Offshore | EDGAR (files 10-K; post-Ch.11) |
+| Vantiva † | VANTVA | 0001475730 | Telecom Equip | EDGAR (🇫🇷 ex-Technicolor — confirm form) |
+| Altice International | ALTICE_INT | — | Telecom/Cable | Reported (euro-portal; distinct from Altice USA/France) |
+| EG Group | EG_GROUP | — | Consumer/Fuel Retail | Reported (🇬🇧 euro-portal) |
+| Froneri | FRONERI | — | Consumer/Food | Reported (🇬🇧 JV euro-portal) |
+| Aston Martin | AML | — | Autos | Reported (🇬🇧 LSE — annual report, no 10-K) |
+
 ## Runtime
 
-33 × both-lanes must stay CI-affordable. Parallelize; target < ~5 min wall
+61 × both-lanes must stay CI-affordable. Parallelize; target < ~8 min wall
 nightly. Per-PR runs a 6-issuer smoke subset (one per sector — SSNC, THC,
 CHTR, TDG, CZR + VMO2 reported-lane) to keep the gate fast.

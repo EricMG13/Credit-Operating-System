@@ -134,6 +134,8 @@ _REVIEWED_LLM_CALL_SITES = {
     "engine/debate.py",      # CP-6A debate over derived payloads (+ UNTRUSTED_RULE)
     "engine/synth.py",       # module synth over upstream payloads (+ beta advisor branch)
     "engine/queryoverlay.py",  # Query route/overlay: chunks via wrap_untrusted (+ rule); output gated to registry ids + retrieved chunk ids
+    "engine/queryinsights.py",  # Desk Brief: pack via wrap_untrusted (+ rule); cards gated to pack ids + numeric grounding gate
+    "engine/queryanswer.py",   # Grounded answer: chunks via wrap_untrusted (+ rule); sentences gated to retrieved chunk ids + numeric grounding gate
     "llm.py",                # issuer chat (system prompt carries untrusted rule)
     "nlquery.py",            # NL→spec; output allowlist-validated to the catalog
     "scenario.py",           # scenario prompt (user text)

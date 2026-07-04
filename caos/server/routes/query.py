@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
-from engine import querygraph, queryoverlay
+from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
@@ -105,6 +105,71 @@ async def query_graph(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown capability {body.capability_id!r}. See /api/query/capabilities.",
+        ) from e
+
+
+@router.get("/insights")
+async def query_insights(
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The Desk Brief: proactive, cited, AI-written insight cards over what changed
+    in the book. Returns instantly (persisted brief or deterministic highlights);
+    regeneration is a background single-flight task, so this read never blocks on
+    the model. ``force`` requests a fresh build (rate-limited)."""
+    if force:
+        # A fresh build is LLM spend — hold it to the tighter overlay bucket.
+        if not rate_limit.hit(
+            f"query-insights:{caller.id}", max_attempts=_OVERLAY_MAX_PER_MINUTE, window_seconds=60
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Insight refresh rate limit reached — try again in a minute.",
+            )
+    else:
+        _read_rate_guard(caller)
+    return await queryinsights.insights(db, force=force, analyst_id=caller.id)
+
+
+class AnswerRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    capability_id: Optional[str] = Field(default=None, max_length=64)
+    issuer_id: Optional[str] = Field(default=None, max_length=36)
+    force: bool = False
+
+
+@router.post("/answer")
+async def query_answer(
+    body: AnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The grounded answer beside a walk: a cited AI paragraph written from vault
+    chunks (+ the walk graph). Loud on failure (502), isolated from /graph. A
+    cache hit over an unchanged corpus is free."""
+    if not rate_limit.hit(
+        f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query rate limit reached — try again in a minute.",
+        )
+    if not queryanswer.available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model lane unavailable — no provider key configured.",
+        )
+    try:
+        return await queryanswer.answer(
+            db, body.question, capability_id=body.capability_id,
+            issuer_id=body.issuer_id, analyst_id=caller.id, force=body.force,
+        )
+    except Exception as e:  # noqa: BLE001 — surface as an explicit lane failure
+        logger.warning("query-answer LLM lane failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Model answer failed — the deterministic result is unaffected. Try again.",
         ) from e
 
 

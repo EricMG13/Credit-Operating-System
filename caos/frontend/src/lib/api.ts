@@ -321,7 +321,7 @@ export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
-import type { AcceptedLink, CapabilitiesResult, GraphResult, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
+import type { AcceptedLink, AnswerResult, CapabilitiesResult, GraphResult, InsightBrief, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
 
 // The capability rail: which graph edges are runnable now (+ grey reasons).
 export const queryCapabilities = (): Promise<CapabilitiesResult> =>
@@ -372,6 +372,23 @@ export const acceptQueryLink = (
 
 export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =>
   api.delete(`/api/query/links/${encodeURIComponent(linkId)}`).then((r) => r.data);
+
+// The proactive Desk Brief — cited, AI-written insight cards over what changed in
+// the book. Returns instantly (persisted brief or deterministic highlights);
+// `refreshing:true` means a background regeneration is in flight, so poll. `force`
+// requests a fresh build (rate-limited, LLM spend).
+export const queryInsights = (force = false): Promise<InsightBrief> =>
+  api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
+
+// A grounded AI answer beside a walk — cited prose written from vault chunks (+
+// the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,
+// cache hits instant), so it outlives the 20s default timeout.
+export const queryAnswer = (question: string, capabilityId?: string, issuerId?: string): Promise<AnswerResult> =>
+  api.post(
+    "/api/query/answer",
+    { question, capability_id: capabilityId, issuer_id: issuerId },
+    { timeout: 130_000 },
+  ).then((r) => r.data);
 
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.
