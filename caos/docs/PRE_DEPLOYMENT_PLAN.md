@@ -10,7 +10,8 @@
 two concepts still mock) to **pre-deployment**: the final stage before transfer
 to enterprise, where the **only** outstanding items are
 (1) connecting the Monitor concept to the enterprise email client, and
-(2) connecting the market-data seam to Bloomberg or an Excel feed.
+(2) activating the **built** Bloomberg market-data connector with enterprise
+entitlements (live credentials + parallel-run reconciliation).
 Everything else: functional, live, and re-tested on a defined cadence.
 
 **Architecture of the plan:** eight gated phases (A–H). Each phase has work
@@ -34,7 +35,7 @@ alive (A3 open) · PR #95 OPEN (A4 open) · 12 dependabot PRs open (A5 open) ·
 
 | Term | Meaning here |
 |------|--------------|
-| **Pre-deployment** | Final stage before enterprise transfer. All exit gates A–H passed. Only the two named stubs outstanding. |
+| **Pre-deployment** | Final stage before enterprise transfer. All exit gates A–H passed. Only the two named items outstanding: EmailSink adapter + Bloomberg activation. |
 | **Live** | Renders real engine/DB output with provenance. A labeled sample ("Sample — not live") is *not* live; an explicit "no data" empty state *is* acceptable. |
 | **Functional** | Works end-to-end through the real path (UI → API → engine → DB), not through a simulation hook. |
 | **Tested regularly** | Covered by at least one recurring loop in §10 with the stated cadence, green for ≥2 consecutive cycles. |
@@ -50,13 +51,18 @@ inbox. The boundary is an `AlertSink` interface with two implementations:
 spec written for SMTP and MS Graph so enterprise IT picks one). Outstanding =
 implementing/pointing `EmailSink` at the enterprise mail system.
 
-**#2 Market data → Bloomberg/Excel.** The seam is in scope: a
-`MarketDataProvider` interface consumed by every DM/spread surface (Sector RV,
-Command Center marks), with `ManualQuoteProvider` (analyst-entered / CSV
-upload, live, tested) as the working implementation and `BloombergProvider` as
-a spec'd stub. Outstanding = wiring the real feed + the parallel-run
-reconciliation (DEVELOPMENT_PHASES Phase 5). DM remains the canonical spread
-metric (loans-only decision).
+**#2 Market data → Bloomberg.** Product decision 2026-07-03: the Bloomberg
+connector is **built in-plan** (C5), not left as a stub — persisted quote
+store feeding **all RV analysis app-wide**, Sector RV **refresh button**,
+Settings **login/API requirements** section, `BloombergProvider` implemented
+and tested offline against recorded response fixtures, with
+`ManualQuoteProvider` (analyst-entered / CSV) as the always-available
+fallback. Outstanding at pre-deployment is only what requires the enterprise:
+entitlements + credentials (transport per their licensing — BLPAPI Server
+API/B-PIPE or HAPI REST; the Desktop API needs a running Terminal and does not
+suit a server app), the first live connection, and the parallel-run
+reconciliation before cutover (DEVELOPMENT_PHASES Phase 5). DM remains the
+canonical spread metric (loans-only decision).
 
 ---
 
@@ -89,7 +95,7 @@ when in doubt, trust the greps below.
 | **Monitor concept is mock**: static `ALERTS`, simulated pipeline (`SIM_PLAN`/`useSimRun`), mock `EmailIntel` | `src/app/monitor/page.tsx` imports `@/lib/command/data` ALERTS | C |
 | Command Center sample board overlay ("Sample US HY sleeve — not live") | `src/app/command/page.tsx:62-76` (posture from runs IS live) | C |
 | Residual seeded panels in Deep-Dive / Report Studio (A-1 tail) | AUDIT A-1; needs fresh inventory | C |
-| No market-data seam — DM/spread surfaces have no provider interface | Sector RV feed marks ad hoc (see PR #95 guard) | C |
+| No market-data layer — no quote store, no provider seam, Sector RV marks ad hoc; Bloomberg connector + refresh + Settings section to build | Sector RV panel (see PR #95 guard) | C |
 | No OCR — scanned PDFs → 0 chunks | markitdown[pdf] only | D |
 | No RAG answer lane in Query | query vision gap #1 | D |
 | `querygraph.py` uncapped run-history scans (perf finding 2026-07-03) | **code fix landed cfacf8a** (existence check / DISTINCT / `_GATE_NODE_CAP`); regression test still missing | A |
@@ -236,13 +242,35 @@ C3 and C5 each get their own implementation plan at pickup.**
 - [ ] **C4 (M)** Deep-Dive / Report Studio residual seeded panels (from C1
   ledger): each → live adapter or explicit "no data / degraded" state. No
   unlabeled seed survives in a production build.
-- [ ] **C5 (L — own plan)** **Market-data seam.** `MarketDataProvider`
-  interface (quote: issuer/tranche → DM, price, as-of, source tag);
-  `ManualQuoteProvider` = analyst-entered + CSV upload, persisted, live,
-  tested; `BloombergProvider` = stub raising `NotConfigured` + spec doc
-  (fields, entitlement notes, parallel-run reconciliation plan per
-  DEVELOPMENT_PHASES Phase 5). Migrate Sector RV + any DM surface to consume
-  the seam only; PR #95's plausibility guard moves inside the provider.
+- [ ] **C5 (L — own plan)** **Market data: quote store + Bloomberg connector**
+  *(product decision 2026-07-03: build the integration now; only enterprise
+  entitlements/live validation remain at transfer — §0 #2).*
+  - **Persisted quote store** (`market_quotes` migration): issuer/tranche →
+    DM, price, as-of, source tag. **The single source for all RV analysis
+    app-wide** — Sector RV table, Deep-Dive RV, CP-3 peer percentiles,
+    Command Center marks, Query RV walks all read this store through one
+    read-model; no surface calls a feed directly.
+  - `MarketDataProvider` interface + provider chain: `BloombergProvider` →
+    `ManualQuoteProvider` (analyst-entered + CSV upload, live, tested).
+    Unconfigured/unreachable Bloomberg degrades to manual with an explicit
+    source tag — same fault-isolation invariant as the LLM lanes: a feed
+    outage never blanks an RV surface.
+  - **`BloombergProvider` implemented** (BLPAPI Server API/B-PIPE or HAPI
+    REST — final transport chosen with enterprise licensing): field mapping
+    to DM inputs, request throttling, error taxonomy. Tested offline against
+    recorded response fixtures; live validation is outstanding item #2.
+  - **Sector RV refresh button:** manual pull → provider chain → validate →
+    upsert store → table re-renders with as-of timestamp, per-row source tag,
+    stale-age indicator. Server-side rate limit on the refresh route. PR
+    #95's DM/YTM plausibility guard moves into the provider chain as the
+    validation stage (implausible marks rejected/flagged before the store).
+    E2E + a11y cover the control.
+  - **Settings → Market Data section:** login/API requirements documented
+    in-UI (what enterprise must supply: entitlements/EIDs, host, network
+    path); connection config (transport + credentials/API key — **admin-only**
+    under E2 roles); status readout (unconfigured / configured / live /
+    unreachable); test-connection button; last-refresh + quota readout.
+    Credentials are secrets: E4 inventory, masked in UI, never logged.
 - [ ] **C6 (M)** Concept-link suite (named, repeatable): one run flows
   Pipeline → Deep-Dive → Model Builder → Report Studio with the **same number
   identical on every surface**; Evidence Sync cross-pane selection; click-to-
@@ -267,7 +295,10 @@ C3 and C5 each get their own implementation plan at pickup.**
 **Exit gate:** `MOCK_LEDGER.md` burned to zero silent-mock and zero unlabeled
 sample in prod build · Monitor generates real alerts from a golden-issuer run
 end-to-end (rule → event → inbox → InAppSink; EmailSink stub records intent) ·
-all DM surfaces read only from `MarketDataProvider` · concept-link suite green
+all RV/DM surfaces read only the persisted quote store (provider chain behind
+it) · Sector RV refresh round-trips against the fixture-backed
+`BloombergProvider` and degrades cleanly to manual · Settings Market Data
+section live (admin-gated) · concept-link suite green
 · a11y axe re-run clean on new/changed routes (Monitor inbox especially).
 Expansion items C7–C9 are tracked here but **do not block this gate** (§14
 policy).
@@ -352,8 +383,10 @@ it. Runs parallel to C after B.
   `analyst_id`; this extends the pattern. Surface read-only in Settings.
 - [ ] **E4 (S)** Secrets runbook: inventory (SESSION_SECRET, EDGE_PROXY_SECRET,
   POSTGRES_PASSWORD, ANTHROPIC/OPENROUTER keys, oauth2 client + cookie
-  secret), rotation procedure per secret, fail-closed behavior re-verified
-  (EDGE_PROXY_SECRET already; check the rest), "never in logs" grep test.
+  secret, Bloomberg credentials/API key once configured via the Settings
+  Market Data section), rotation procedure per secret, fail-closed behavior
+  re-verified (EDGE_PROXY_SECRET already; check the rest), "never in logs"
+  grep test.
 - [ ] **E5 (M)** Security review pass: re-verify the pre-prod gate properties —
   **no LLM lane has tools/writes** (the key safety property) · SSRF allow-list
   on `vault-exhibit`/EDGAR fetches · header-spoof + edge-secret checks
@@ -482,24 +515,29 @@ A loop that isn't green for 2 consecutive cycles blocks the next phase exit.
   - SBOM/license report (E6)
   - Accepted-risk register (E2/E5 decisions, signed)
   - Support model: issue intake, triage SLA, release cadence
-- [ ] **H4 (S)** The two outstanding-item integration specs, transfer-ready:
+- [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready:
   - `EmailSink` adapter spec: SMTP + MS Graph variants; auth, rate limits,
     template rendering already proven by the stub's outbox records; test plan.
-  - `MarketDataProvider` Bloomberg/Excel spec: field mapping to DM inputs,
-    entitlement notes, **parallel-run reconciliation plan** (test-vs-real on
-    golden issuers, sign-off before cutover — DEVELOPMENT_PHASES Phase 5 is
-    executed by/with enterprise, never flip-the-switch).
+  - **Bloomberg activation runbook** (connector already built + fixture-tested
+    in C5): entitlement checklist (transport per enterprise licensing —
+    SAPI/B-PIPE or HAPI; EIDs; network path), credential entry via the
+    Settings Market Data section (test-connection green), then the
+    **parallel-run reconciliation** — Bloomberg vs manual marks on golden
+    issuers, material diffs explained and signed off before cutover
+    (DEVELOPMENT_PHASES Phase 5 is executed by/with enterprise, never
+    flip-the-switch). Rollback = provider chain falls back to manual.
 - [ ] **H5 (S)** Sign-off:
 
 | Role | Gate | Sign-off |
 |------|------|----------|
 | Deploying engineer | H1 + H2 green | |
 | Head of Research / QA | golden set + gap log + CP-5 gate | |
-| PM / CIO | accepted-risk register + the two named stubs | |
+| PM / CIO | accepted-risk register + the two named outstanding items | |
 
 **Exit gate = pre-deployment reached:** every phase gate A–G passed · H1/H2
-green · handover package complete · outstanding items = exactly the two named
-stubs, each with a transfer-ready spec.
+green · handover package complete · outstanding items = exactly two: the
+`EmailSink` adapter (spec'd) and Bloomberg activation (connector built;
+runbook ready).
 
 ---
 
@@ -531,6 +569,7 @@ nothing is missing by omission. "By design" links to a recorded decision.
 | Load testing | ⚠️ harness built, not characterized | G3 |
 | Migrations discipline | ✅ alembic self-migrate | + G5 up/down test |
 | Graceful LLM degradation | ✅ fault isolation by construction | exists; re-proven in stress loop |
+| Market-data integration | ❌ | C5 connector + store + refresh + Settings (built, fixture-tested); H4 activation w/ entitlements |
 | Data retention | ✅ run-fact pruning (DATA-1) | exists |
 | GDPR delete | ✅ transactional | re-verified E5 |
 | Empty/error/degraded states | ⚠️ most surfaces | C1/C4 ledger closes the rest |
