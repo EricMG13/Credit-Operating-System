@@ -325,6 +325,30 @@ def _mention_pattern(term: str) -> str:
     return rf"(?<!\[){lead}({re.escape(term)}){tail}(?!\])"
 
 
+def _in_url_or_email(text: str, pos: int) -> bool:
+    """True when ``pos`` sits inside a URL or email token — so an issuer name in
+    'https://ford.com' or 'ir@ford.com' is NOT wikilinked (which would break it:
+    'https://[[ford]].com'). Memos routinely cite the issuer's own IR page, whose
+    URL contains the issuer name/ticker."""
+    start = pos
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    end = pos
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    token = text[start:end]
+    return ("://" in token or "@" in token or "www." in token
+            or bool(re.search(r"\.[a-z]{2,}(?:[/:?#]|$)", token, re.IGNORECASE)))
+
+
+def _first_plain_mention(pattern: str, text: str, flags: int):
+    """First match of ``pattern`` not inside a URL/email token, or None."""
+    for m in re.finditer(pattern, text, flags):
+        if not _in_url_or_email(text, m.start(1)):
+            return m
+    return None
+
+
 def autolink_issuers(
     text: str, issuers: Sequence[Tuple[str, Optional[str]]]
 ) -> Tuple[str, List[str]]:
@@ -349,9 +373,9 @@ def autolink_issuers(
             continue
         # ponytail: lookarounds only block a match hard against [[ ]] brackets —
         # a name inside an alias label can still double-wrap; fine for memos.
-        m = re.search(_mention_pattern(name), text, re.IGNORECASE)
+        m = _first_plain_mention(_mention_pattern(name), text, re.IGNORECASE)
         if m is None and len(tick) >= 2:
-            m = re.search(_mention_pattern(tick), text)
+            m = _first_plain_mention(_mention_pattern(tick), text, 0)
         if m is None:
             continue
         text = f"{text[:m.start(1)]}[[{m.group(1)}]]{text[m.end(1):]}"

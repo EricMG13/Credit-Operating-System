@@ -50,11 +50,38 @@ def test_captures_both_leverage_figures():
     assert any(c.claim_id == "C-RPT-LEV2" for c in p.claims)  # second figure is cited
 
 
+def test_leverage_ignores_a_covenant_cap_and_picks_the_actual():
+    # A covenant THRESHOLD ("maximum net leverage of 6.0x") stated before the actual
+    # must NOT be picked as the headline — it is the cap, not the reported figure.
+    for t in (
+        "The group must maintain maximum net leverage of 6.0x. Net leverage was 4.2x at period end.",
+        "Permitted net leverage of 6.0x; the group reported net leverage of 4.2x.",
+    ):
+        assert extract_reported_metrics([("c", t)])["net_leverage"][0] == 4.2
+
+
+def test_leverage_keeps_actual_covenant_basis_metric():
+    # "covenant net leverage" is the ACTUAL figure on the covenant basis (not a cap)
+    # — the guard excludes only threshold words (maximum/permitted/…), never "covenant".
+    assert extract_reported_metrics(
+        [("c", "The covenant net leverage ratio was 4.38x.")])["net_leverage"][0] == 4.38
+
+
 def test_extract_amounts_currency_and_scale():
     m = extract_reported_metrics([("c", "Total Net Debt to EBITDA of 5.0x. Adjusted EBITDA was "
                                         "£901.7 million. Total revenue of €2.6 billion.")])
     assert m["adj_ebitda"][:2] == (901.7, "£")
     assert m["revenue"][:2] == (2600.0, "€")  # billion → million (×1000)
+
+
+def test_amount_from_to_growth_picks_the_current_not_the_prior():
+    # "increased from £A to £B" is a common growth phrasing — the metric-anchored
+    # scan used to land on the PRIOR value £A; the actual is the '... to £B' figure.
+    m = extract_reported_metrics([("c", "Net leverage 4.2x. Adjusted EBITDA increased from "
+                                        "£392 million to £415 million. Total revenue grew from "
+                                        "£2,588 million to £2,742 million.")])
+    assert m["adj_ebitda"][:2] == (415.0, "£")   # the 'to' figure, not the £392m prior
+    assert m["revenue"][:2] == (2742.0, "£")     # the 'to' figure, not the £2,588m prior
 
 
 def test_extract_none_without_disclosed_leverage():

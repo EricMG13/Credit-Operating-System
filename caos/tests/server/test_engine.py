@@ -125,10 +125,19 @@ def test_committee_status_mapping():
     assert committee_status_from("Passed", "Insufficient Information") == "Insufficient Information"
 
 
+def test_committee_status_fails_closed_on_unknown_status():
+    # Fail-closed hardening: an unrecognized/partial gate state must never present
+    # as committee-ready — it degrades to a non-committee status.
+    for bad in ("Pending", "", "Draft", "whatever"):
+        assert committee_status_from(bad, "High") == "Draft Only"
+
+
 def test_run_rollup_and_worst_confidence():
     assert roll_up_qa_status(["Passed", "Restricted"]) == "Restricted"
     assert roll_up_qa_status(["Passed", "Blocked", "Restricted"]) == "Blocked"
     assert roll_up_qa_status([]) == "Not Reviewed"
+    # Fail-closed: an unknown status ranks worst, so it (not "Passed") wins the roll-up.
+    assert roll_up_qa_status(["Passed", "Pending"]) == "Pending"
     assert worst_confidence(["High", "Medium", "Low"]) == "Low"
     assert worst_confidence([]) == "Insufficient Information"
 

@@ -623,8 +623,9 @@ async def _percentile(session: AsyncSession, issuer_id: Optional[str], cap: dict
         edges.append(_edge(target, nid, kind="member"))
     meta = [f"focus: {tgt.name}", f"{len(keys)} metrics vs {len(vals) - 1} peers",
             "x = percentile rank (polarity-adjusted)"]
+    # Same cross-issuer basis mix as peers/scatter — carry the same disclosure.
     return _result(cap, f"{tgt.name} percentile rank", nodes, edges, meta,
-                   ["p≤25 = bottom-quartile outlier."])
+                   [_BASIS_CAVEAT, "p≤25 = bottom-quartile outlier."])
 
 
 async def _trend(session: AsyncSession, cap: dict) -> dict:
