@@ -1,13 +1,15 @@
-# CLAUDE.md
+# CAOS — Agent Guide
 
-Guidance for Claude Code when working in this repository.
+Guidance for AI coding agents (Claude Code, Codex, and peers) working in this
+repository. This is the single canonical source: `AGENTS.md` is a symlink to
+`CLAUDE.md`, so the two never drift.
 
 ## Project
 
 **CAOS — Credit Agent OS**: an institutional leveraged-finance credit analysis
 platform. A five-concept Next.js 15 analyst UI (Command Center, Pipeline,
 Deep-Dive, Model Builder, Report Studio) backed by a FastAPI service, deployed
-as a single Databricks App. The analytical methodology is the 27-module
+as a self-hosted Docker stack (Caddy → oauth2-proxy → FastAPI → Postgres). The analytical methodology is the 27-module
 "Modular OS" prompt corpus under `Modular OS/`. The app lives under `caos/`
 (`frontend/` Next.js, `server/` FastAPI). See [caos/README.md](caos/README.md)
 and [caos/docs/](caos/docs/) for architecture and current build status.
@@ -27,6 +29,12 @@ downstream) or crashing on a zero denominator. `is_finite_number` rejects
 `NaN`/`±inf` while accepting `bool`/`0`. Also guard a denominator that can reach
 `0` (e.g. `ebitda * (1 - pct)` when `pct → 1`) — return `None`/degrade rather than
 divide. This pattern recurs across CP-2B/2E/2F/3B/3D and the Altman score.
+
+## Red-team decision gate
+
+Before committing to an architecture, interface, or rollout plan, record a
+critic pass in [.agent-reviews/redteam.md](.agent-reviews/redteam.md). Fix and
+verify each high-impact objection, or document why the risk is accepted.
 
 ## Design Context
 

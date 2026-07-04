@@ -107,6 +107,7 @@ when in doubt, trust the greps below.
 | Restore drill manual/one-off; no error-rate alerting; DR runbook unrehearsed | LAUNCH_PHASE1 §5 last boxes | G |
 | No license/SBOM report for transfer | — | E |
 | Beta cohort not run (registry = pilot noise, not built dictionary) | DEVELOPMENT_PHASES Phase 3 unchecked | F |
+| Only 3 frozen goldens — no broad breadth corpus to catch IFRS/XBRL/ingestion edge bugs | `tests/server/golden/` = VSAT/FUN/VMO2 | B (B5) |
 
 ---
 
@@ -115,7 +116,7 @@ when in doubt, trust the greps below.
 | Phase | Name | One-line | Size | Depends on |
 |-------|------|----------|------|-----------|
 | A | Trunk consolidation | merge everything, close known findings, reconcile trackers | ~1 wk | — |
-| B | Engine certification completion | both lanes clean on goldens, headless | ~1–2 wk | A |
+| B | Engine certification completion | both lanes clean on 3 goldens + 33-issuer breadth corpus, headless | ~2–3 wk | A |
 | C | All concepts live | kill the mock: Monitor engine, Command board, seams | ~3–5 wk | B |
 | D | Ingestion breadth | OCR, RAG answer lane, upload robustness | ~2 wk | B (∥ C) |
 | E | Enterprise hardening | security, authz, audit trail, stress CRIT/HIGH | ~2–3 wk | C |
@@ -189,12 +190,49 @@ closed; this phase re-proves the chain end-to-end and closes the loop.)*
 - [ ] **B4 (S)** CP-5 gate honesty re-check on goldens: inject one known-bad
   figure into a golden fixture copy; assert the gate raises a finding and the
   run aborts (extends the 45054ba tournament).
+- [ ] **B5 (L — own plan)** **33-issuer broad-run corpus** (30-name analyst
+  cohort + 3 foreign reported-lane names). A breadth net distinct from the
+  frozen goldens: the goldens assert *exact numbers forever* (expensive,
+  hand-verified, stays at 3-and-growing); this asserts *clean run* across 33
+  real issuers with **no oracle** — cheap to add, catches the robustness/
+  breadth bugs 3 issuers never will.
+  - **Selection — DELIVERED** (analyst cohort, 2026-07-03):
+    `caos/tests/server/corpus/MANIFEST.md` holds the 30, structured **5 sectors
+    × 6 names** (Software/Data · Healthcare/Pharma · Telecom-Cable-Media ·
+    Industrials/Materials · Gaming/Leisure/Travel) — 6-deep per sector so CP-3
+    peer percentiles / Sector RV have a real peer group each. Composition: 28
+    EDGAR-XBRL + 2 reported (VMO2 golden anchor + Refresco bond-only). Noted
+    deltas vs the original spec: reported lane thin (2 not ~8 — acceptable,
+    US-XBRL is the Phase-1 loans primary — but thickened to **5 reported-lane
+    names**: VMO2 + Refresco + 3 true foreign IFRS/bond-only issuers added
+    2026-07-03 — Altice France/SFR 🇫🇷, INEOS 🇬🇧/🇨🇭, Cirsa 🇪🇸, one per
+    sector, no SEC CIK, bondholder-reporting). No scanned-PDF here (left as a
+    **D1 to-do** — OCR sources its own fixture). 4 non-US-domicile EDGAR filers
+    give bonus IFRS/entity coverage (confirm 10-K vs 20-F at capture).
+  - **Capture:** one live SEC/doc fetch each, trimmed + frozen as offline
+    fixtures (same `_capture.py` pattern as the goldens) so the corpus runs
+    keyless in CI with no network.
+  - **Assertions per issuer (property, not value):** full 19-module DAG
+    completes without exception on **both** lanes · CP-5 gate emits a status
+    (fires honestly, not a rubber-stamp) · every claim's
+    `claim → evidence → chunk` resolves · `is_finite_number` holds on all
+    CP-1 divides (no NaN/inf leak) · DM (where computed) lands in a plausible
+    band · no surface returns a mock number tagged `prov=run`.
+  - **Promotion rule:** any corpus issuer that exposes a *class* of bug gets
+    hand-verified once and **promoted into the frozen golden set** — the cheap
+    net feeds the expensive net. This is the mechanism that grows goldens past
+    3 without 30 days of up-front verification.
+  - **Runtime cap:** 33 × both-lanes must stay CI-affordable — parallelize,
+    target < ~5 min wall; if it bloats, shard nightly vs a 6-issuer per-PR
+    smoke subset.
 
-**Exit gate:** both lanes clean on all goldens · provenance test green · 0
-CRIT/HIGH correctness faults open · `golden_e2e` marker runs in CI nightly.
+**Exit gate:** both lanes clean on all 3 goldens (exact) **and** all 33 corpus
+issuers (property) · provenance test green · 0 CRIT/HIGH correctness faults
+open · `golden_e2e` + `corpus_run` markers run in CI nightly · corpus MANIFEST
+committed.
 
-**Loops started:** nightly `golden_e2e` (drift alarm now covers the full chain,
-not just CP-1 recompute).
+**Loops started:** nightly `golden_e2e` (exact-drift alarm) · nightly
+`corpus_run` (33-issuer breadth net) · per-PR 6-issuer corpus smoke subset.
 
 ---
 
@@ -317,9 +355,11 @@ it. Runs parallel to C after B.
 - [ ] **D1 (M)** OCR lane: `ocrmypdf`/tesseract (free/OSS, no paid services)
   behind the existing markitdown path — scanned PDF → text layer → chunks > 0,
   chunk provenance tagged `ocr` (so CP-5 and analysts can discount
-  fidelity). Add a scanned-PDF fixture to the ingestion tests + one to the
-  golden set. Size/time cap so a 500-page scan can't wedge a worker (respect
-  parse timeouts).
+  fidelity). **Source the scanned-PDF fixture here** — the B5 corpus is
+  native-PDF only and does *not* cover OCR; D1 owns finding a genuinely-scanned
+  filing (image-only pages), adding it to the ingestion tests, and adding one
+  to the golden set. Size/time cap so a 500-page scan can't wedge a worker
+  (respect parse timeouts).
 - [ ] **D2 (L — own plan)** RAG answer lane in Query (vision gap #1):
   retrieval-grounded NL answers citing vault chunks; same provenance +
   fault-isolation invariants as every other LLM lane (Blocked gate or
@@ -480,6 +520,7 @@ A loop that isn't green for 2 consecutive cycles blocks the next phase exit.
 | Blast radius | GitNexus `impact` before edits, `detect_changes` before commit | per change | exists |
 | Golden-master drift | `tests/server/golden/` CP-1 recompute | per PR + nightly | exists |
 | Golden E2E (both lanes) | `-m golden_e2e` full-chain on VSAT/FUN/VMO2 | nightly | B |
+| Corpus breadth run | `-m corpus_run` 33-issuer property net, both lanes | nightly + 6-issuer per-PR smoke | B |
 | Concept-link suite | same-number-everywhere + Evidence Sync + click-to-source | nightly | C |
 | E2E | Playwright page specs (globalSetup auth) | nightly | exists → extended C |
 | Mock regression | prod build greps clean of mock imports in app routes | per PR | C |
@@ -581,7 +622,8 @@ nothing is missing by omission. "By design" links to a recorded decision.
 | User onboarding docs | ⚠️ §6 briefing only | H3 guide |
 | Support/maintenance model | ❌ | H3 |
 | Feature tracking / QA ledger | ✅ 354-row tracker | per-phase sweeps |
-| Regression corpus | ✅ sealed golden set | grows in F |
+| Regression corpus (exact) | ✅ 3 sealed goldens | grows in F + via B5 promotion |
+| Test corpus (breadth) | ❌ | B5 — 33-issuer property net |
 
 This table covers *platform/ops* expectations. The **product-capability**
 expectation map (analyst-workflow lifecycle: screen → analyse → model →
