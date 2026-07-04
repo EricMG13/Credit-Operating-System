@@ -22,10 +22,15 @@ BM25/evidence stack untouched. See caos/docs/OBSIDIAN_DATABANK.md.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
+
+# The issuer hub lists a run history; bound the load so a long-lived issuer's
+# ever-growing run set doesn't get re-read whole on every export (N2).
+_HUB_RUN_HISTORY_CAP = 200
 
 # Strip only what breaks a filesystem name or an Obsidian wikilink; keep spaces
 # so the human title doubles as both the filename and the [[link]] target.
@@ -269,8 +274,12 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
         }
         for m in modules
     ]
+    # Runs accumulate one-per-analysis forever; the hub only lists a history, so
+    # bound the load to the most recent N rather than re-reading the whole run
+    # history on every Committee-Ready export (N2).
     issuer_runs = (await session.execute(
         select(Run).where(Run.issuer_id == run.issuer_id)
+        .order_by(Run.as_of_date.desc()).limit(_HUB_RUN_HISTORY_CAP)
     )).scalars().all()
     findings = (await session.execute(
         select(QAFinding).where(QAFinding.run_id == run_id)
@@ -280,7 +289,10 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
     cp1c = next((m for m in modules if m.module_id == "CP-1C"), None)
     related = [p["name"] for p in ((cp1c.runtime_output or {}).get("peers") or [])] if cp1c else []
 
-    return write_run_to_vault(
+    # Off-thread the two sync note writes so a slow vault disk doesn't block the
+    # event loop (export runs on the executor's loop). (N2)
+    return await asyncio.to_thread(
+        write_run_to_vault,
         vault_dir,
         {"name": issuer.name, "ticker": issuer.ticker,
          "industry": issuer.industry, "country": issuer.country},
@@ -313,6 +325,30 @@ def _mention_pattern(term: str) -> str:
     return rf"(?<!\[){lead}({re.escape(term)}){tail}(?!\])"
 
 
+def _in_url_or_email(text: str, pos: int) -> bool:
+    """True when ``pos`` sits inside a URL or email token — so an issuer name in
+    'https://ford.com' or 'ir@ford.com' is NOT wikilinked (which would break it:
+    'https://[[ford]].com'). Memos routinely cite the issuer's own IR page, whose
+    URL contains the issuer name/ticker."""
+    start = pos
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    end = pos
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    token = text[start:end]
+    return ("://" in token or "@" in token or "www." in token
+            or bool(re.search(r"\.[a-z]{2,}(?:[/:?#]|$)", token, re.IGNORECASE)))
+
+
+def _first_plain_mention(pattern: str, text: str, flags: int):
+    """First match of ``pattern`` not inside a URL/email token, or None."""
+    for m in re.finditer(pattern, text, flags):
+        if not _in_url_or_email(text, m.start(1)):
+            return m
+    return None
+
+
 def autolink_issuers(
     text: str, issuers: Sequence[Tuple[str, Optional[str]]]
 ) -> Tuple[str, List[str]]:
@@ -337,9 +373,9 @@ def autolink_issuers(
             continue
         # ponytail: lookarounds only block a match hard against [[ ]] brackets —
         # a name inside an alias label can still double-wrap; fine for memos.
-        m = re.search(_mention_pattern(name), text, re.IGNORECASE)
+        m = _first_plain_mention(_mention_pattern(name), text, re.IGNORECASE)
         if m is None and len(tick) >= 2:
-            m = re.search(_mention_pattern(tick), text)
+            m = _first_plain_mention(_mention_pattern(tick), text, 0)
         if m is None:
             continue
         text = f"{text[:m.start(1)]}[[{m.group(1)}]]{text[m.end(1):]}"

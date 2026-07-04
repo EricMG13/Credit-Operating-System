@@ -63,12 +63,17 @@ async def _peer_facts(
     session: AsyncSession, issuer: Issuer, keys: List[str], same_industry: bool
 ) -> Dict[str, List[Tuple[str, float]]]:
     """{metric_key: [(peer_issuer_id, value)]} for headline facts, latest-per-issuer
-    (run over seed, then most recent), excluding the issuer itself."""
+    (run over seed, then most recent), excluding the issuer itself and any
+    fabricated demo_fixture rows."""
     stmt = (
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(keys),
-               MetricFact.issuer_id != issuer.id)
+               MetricFact.issuer_id != issuer.id,
+               # #10: never benchmark against fabricated figures — the ATLF fixture
+               # persisted for another keyless-run issuer (provenance demo_fixture)
+               # must not enter a real issuer's peer medians/percentiles (SEAM2-2).
+               MetricFact.provenance != "demo_fixture")
     )
     if same_industry and issuer.industry:
         stmt = stmt.where(Issuer.industry == issuer.industry)

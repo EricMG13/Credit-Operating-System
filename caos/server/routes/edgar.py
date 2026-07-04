@@ -193,7 +193,10 @@ async def vault_exhibit(
     # Offload the sync pypdf / HTML-regex parse so it doesn't block the event loop
     # (matches the sibling run_in_threadpool calls on the EDGAR entrypoints above).
     text = await run_in_threadpool(ingest.extract_text, content, file_name)
-    key = ingest.store(content, file_name)
+    # Off-thread the vault disk write too (up to 25 MB) — a sync write on the event
+    # loop stalls every other request, same reason the extract above is offloaded
+    # and matching the upload path (routes/ingestion.py).
+    key = await run_in_threadpool(ingest.store, content, file_name)
     chunks = ingest.chunk_text(text)
 
     doc = Document(

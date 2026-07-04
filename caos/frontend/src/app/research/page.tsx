@@ -16,7 +16,7 @@ import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { ReportPane } from "@/components/research/ReportPane";
 import { useNotify } from "@/components/shared/Notifications";
-import { deepResearch, getSettings, type ResearchBrief, type ResearchResult, type ResearchProgress } from "@/lib/api";
+import { deepResearch, getSettings, toErrorMessage, type ResearchBrief, type ResearchResult, type ResearchProgress } from "@/lib/api";
 import { DEFAULT_CRITERIA, loadPrefs, type AiMode } from "@/lib/research-prefs";
 
 export default function ResearchPage() {
@@ -104,9 +104,6 @@ function Research() {
       return next;
     });
 
-  // Cyclomatic is inflated by defensive optional-chaining in the error path;
-  // cognitive complexity is 4 — the flow is linear.
-  // fallow-ignore-next-line complexity
   async function run() {
     if (!canRun || running) return;
     setRunning(true);
@@ -130,9 +127,9 @@ function Research() {
       setResult(done);
       notify("Research complete", `${mode === "sector" ? "Sector" : "Issuer"} · ${brief.subject}`);
     } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        "Research failed — try again.";
+      // toErrorMessage handles the 422 list-shaped detail that a bare
+      // `detail ?? fallback` would render as a crashing JSX child. (SEAM3-1)
+      const msg = toErrorMessage(e, "Research failed — try again.");
       setError(msg);
       notify("Research failed", msg);
     } finally {
@@ -140,11 +137,14 @@ function Research() {
     }
   }
 
+  // maxLength mirrors the server-side ResearchBrief caps (deepresearch.py) so
+  // the 422 validation error is unreachable from typing. (SEAM3-1)
   const field = (
     label: string,
     value: string,
     set: (v: string) => void,
     placeholder: string,
+    maxLength: number,
     big = false, // the primary subject input — reads as the page's focal title entry
   ) => (
     <label className="flex flex-col gap-1">
@@ -153,6 +153,7 @@ function Research() {
         value={value}
         onChange={(e) => set(e.target.value)}
         placeholder={placeholder}
+        maxLength={maxLength}
         className={"w-full px-2 " + (big ? "py-2.5 text-[16px] leading-tight" : "py-1.5 text-caos-md")}
       />
     </label>
@@ -163,6 +164,7 @@ function Research() {
     value: string,
     set: (v: string) => void,
     placeholder: string,
+    maxLength?: number,
     rows = 2,
   ) => (
     <label className="flex flex-col gap-1">
@@ -172,6 +174,7 @@ function Research() {
         onChange={(e) => set(e.target.value)}
         placeholder={placeholder}
         rows={rows}
+        maxLength={maxLength}
         className={INPUT_BASE + " w-full px-2 py-1.5 text-caos-md leading-snug resize-y"}
       />
     </label>
@@ -209,6 +212,7 @@ function Research() {
                 subject,
                 setSubject,
                 mode === "sector" ? "e.g. North American & European enterprise software" : "e.g. Atlas Forge",
+                300,
                 true,
               )}
             </div>
@@ -230,14 +234,16 @@ function Research() {
               {adv && (
                 <div className="flex flex-col gap-4 caos-enter">
                   <div className="flex flex-col gap-3">
-                    {field("Audience", audience, setAudience, "the credit investment committee")}
-                    {field("Decision to inform", decision, setDecision, "position sizing and credit selection")}
-                    {field("Timeframe", timeframe, setTimeframe, "the last 12 months to present")}
+                    {field("Audience", audience, setAudience, "the credit investment committee", 200)}
+                    {field("Decision to inform", decision, setDecision, "position sizing and credit selection", 300)}
+                    {field("Timeframe", timeframe, setTimeframe, "the last 12 months to present", 200)}
                   </div>
                   <div className="flex flex-col gap-3">
-                    {area("Focus areas (optional)", focus, setFocus, "geographies, sub-segments, capital-structure tiers…")}
-                    {area("Exclusions (optional)", exclusions, setExclusions, "topics to avoid…")}
-                    {area("Investigation criteria — one per line", criteria, setCriteria, "", 7)}
+                    {area("Focus areas (optional)", focus, setFocus, "geographies, sub-segments, capital-structure tiers…", 1000)}
+                    {area("Exclusions (optional)", exclusions, setExclusions, "topics to avoid…", 1000)}
+                    {/* criteria is a server-capped 15-item LIST, not char-capped; an
+                        over-long list 422 degrades to a readable message via toErrorMessage */}
+                    {area("Investigation criteria — one per line", criteria, setCriteria, "", undefined, 7)}
                   </div>
                   <AiModeToggle value={aiMode} onChange={setAiMode} />
                 </div>

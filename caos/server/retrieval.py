@@ -14,6 +14,7 @@ Postgres — free/self-hostable, no new infra) behind the same interface.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 from collections import Counter
@@ -112,10 +113,13 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
             select(DocumentChunk.id, DocumentChunk.text)
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(Document.issuer_id == issuer_id)
+            .limit(_CORPUS_SCAN_CAP)  # bound the in-Python BM25 corpus (mirror retrieve_corpus)
         )
     ).all()
     corpus = [(r[0], r[1]) for r in rows]
-    return bm25_rank(query, corpus, k=k)
+    # bm25_rank tokenizes the whole corpus (CPU-bound) — off-thread so a large
+    # issuer corpus can't stall the event loop.
+    return await asyncio.to_thread(bm25_rank, query, corpus, k)
 
 
 async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
@@ -127,9 +131,12 @@ async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
             select(DocumentChunk.id, DocumentChunk.text)
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(Document.issuer_id == issuer_id)
+            .limit(_CORPUS_SCAN_CAP)  # bound the in-Python BM25 corpus (mirror retrieve_corpus)
         )
     ).all()
-    return build_index([(r[0], r[1]) for r in rows])
+    # Tokenizing the corpus is CPU-bound; off-thread the index build so run start
+    # doesn't block the loop for a large issuer corpus (W4).
+    return await asyncio.to_thread(build_index, [(r[0], r[1]) for r in rows])
 
 
 @dataclass(frozen=True)

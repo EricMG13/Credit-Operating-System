@@ -21,8 +21,13 @@ export function AnalystBadge() {
     setBusy(true);
     try {
       await logout();
-    } finally {
-      await refresh(); // re-resolve → RequireAuth shows the login landing
+      await refresh(); // re-resolve → RequireAuth shows the login landing (unmounts this)
+    } catch {
+      // Logout failed (network/timeout): the cookie is still valid, so reset busy
+      // and surface it — otherwise the button stays disabled for the rest of the
+      // session with no way to retry short of a full reload. SEAM4-5.
+      setBusy(false);
+      window.alert("Sign-out failed — check your connection and try again.");
     }
   };
 

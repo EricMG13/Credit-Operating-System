@@ -35,7 +35,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
@@ -211,14 +210,28 @@ class LiveReviewer:
         return _parse_ballot(text)
 
 
+def _first_json(text: str, open_ch: str):
+    """Decode the first complete JSON value that starts at ``open_ch`` ('[' or '{'),
+    ignoring prose/markdown fences around it. Replaces a greedy ``[.*]``/``{.*}``
+    regex that broke when a reviewer appended a bracketed note after the array
+    (first-'[' to last-']' then failed to parse → the seat's findings were silently
+    dropped, defeating a QA net). ``raw_decode`` stops at the value's true end and
+    ignores trailing text; scanning each opening char also tolerates a stray bracket
+    in leading prose. Returns the parsed value, or None if none parses."""
+    dec = json.JSONDecoder()
+    i = text.find(open_ch)
+    while i != -1:
+        try:
+            return dec.raw_decode(text, i)[0]
+        except json.JSONDecodeError:
+            i = text.find(open_ch, i + 1)
+    return None
+
+
 def _parse_ballot(text: str) -> Dict[str, dict]:
     """Parse a peer-vote response into {label: {keep, severity}} (defensive)."""
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        return {}
-    try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
+    data = _first_json(text, "{")
+    if not isinstance(data, dict):
         return {}
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
@@ -254,16 +267,13 @@ def _tally_votes(findings: List[Finding], ballots: Sequence[Dict[str, dict]]) ->
 
 def _parse(seat: Seat, text: str) -> List[Finding]:
     """Parse a seat's JSON array into Findings (defensive; bad output -> none)."""
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if not match:
-        return []
-    try:
-        items = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        logger.warning("council seat %s returned unparseable JSON: %s", seat.name, e)
+    items = _first_json(text, "[")
+    if not isinstance(items, list):
+        if items is None and "[" in text:
+            logger.warning("council seat %s returned unparseable JSON", seat.name)
         return []
     findings: List[Finding] = []
-    for i, d in enumerate(items if isinstance(items, list) else []):
+    for i, d in enumerate(items):
         if not isinstance(d, dict):
             continue
         severity = str(d.get("severity", "")).upper()

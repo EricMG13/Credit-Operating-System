@@ -97,6 +97,10 @@ class Issuer(Base):
     # Analyst-entered private-equity sponsor (exact-string grouped by the sponsor
     # track-record view — no free ownership feed). NULL = not sponsor-owned/unknown.
     sponsor: Mapped[Optional[str]] = mapped_column(String(255))
+    # Who created this row (Analyst.id, or the proxy email identity — mirrors
+    # Run.analyst_id). NULL for seed + pre-0023 rows. Governance attribution for
+    # the analyst-entered ratings/sponsor above. SEAM4-4.
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

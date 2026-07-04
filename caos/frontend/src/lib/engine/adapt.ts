@@ -66,7 +66,10 @@ function adaptCp0(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
     kpis: [
       { l: "Readiness", v: num(rt.readiness_score), sev: "ok" },
       { l: "Files classified", v: num(rt.files_classified) },
-      { l: "Gaps logged", v: num(rt.gaps_logged), sev: "warning" },
+      // Derive the count from the emitted gap_log so a LIVE run (whose readiness
+      // synth emits gap_log but not the demo-fixture's pre-counted gaps_logged)
+      // shows the real number, not "—". (mock↔live seam)
+      { l: "Gaps logged", v: num(rt.gaps_logged ?? gaps.length), sev: "warning" },
       { l: "Unresolved conflicts", v: num(rt.unresolved_conflicts), sev: "ok" },
     ],
     sections,
@@ -84,11 +87,16 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   const reported = rt.basis === "reported_gaap_xbrl";
   const ebLabel = reported ? "EBITDA (reported proxy)" : "Adj. EBITDA";
   const levLabel = reported ? "Net leverage (reported)" : "Net leverage (adj.)";
+  // Currency symbol from the engine (reported-disclosure CP-1 carries £/€/$ for a
+  // non-US issuer). EDGAR (us-gaap, USD) and the demo/LLM CP-1 omit it → default $.
+  // Without this, a £/€ issuer's figures rendered under a hardcoded "$M" — a
+  // material currency mislabel on the non-US reported-disclosure path.
+  const cur = (typeof rt.currency === "string" && rt.currency) || "$";
   const periods = Object.keys(rev);
   if (periods.length) {
     sections.push({
       type: "table",
-      title: reported ? "CP-1 · Reported financials ($M, GAAP proxy)" : "CP-1 · Normalized financials ($M)",
+      title: reported ? `CP-1 · Reported financials (${cur}M, GAAP proxy)` : `CP-1 · Normalized financials (${cur}M)`,
       // Humanize the period LABELS ("LTM_Q1_26" → "LTM Q1-26"); the raw key `p`
       // is still used below to index the data. (critique: machine keys in tables)
       cols: ["", ...periods.map(humanize)], align: [0, ...periods.map(() => 1)],
@@ -108,9 +116,16 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
     kpis: [
       // Unit suffix only on a real figure — "—x" reads as a broken render.
       { l: levLabel, v: fin.net_leverage_adj_ltm == null ? "—" : `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
-      { l: "Periods normalized", v: num(rt.periods_normalized) },
+      // Derive from the emitted financial periods so a LIVE/EDGAR run (which
+      // carries normalized_financials but not the demo-fixture's pre-counted
+      // periods_normalized) shows the real count, not "—". (mock↔live seam)
+      { l: "Periods normalized", v: num(rt.periods_normalized ?? periods.length) },
       { l: "KPIs registered", v: num(rt.kpis_registered) },
-      { l: "Coverage gate", v: String(rt.coverage_gate ?? "—"), sev: "ok" },
+      // Live/EDGAR CP-1 emits interest_coverage_ltm (both bases, nested in
+      // normalized_financials) but NOT the demo-only coverage_gate GREEN/RED.
+      // Show the real coverage figure; the adaptModule "—" filter drops it (and
+      // "KPIs registered") on a run that lacks the value. (mock↔live seam)
+      { l: "Interest coverage", v: fin.interest_coverage_ltm == null ? "—" : `${num(fin.interest_coverage_ltm)}x`, sev: "ok" },
     ],
     sections,
   };
@@ -233,10 +248,17 @@ export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
   const claims = claimsSection(detail.claims || []);
   if (claims) sections.push(claims);
 
-  // Reflect the gate on the lead KPI so a Restricted/Blocked module reads as such.
-  const kpis = base.kpis.length
-    ? base.kpis
-    : [{ l: "QA status", v: detail.qa_status, sev: qaSev(detail.qa_status) }];
+  // Drop any KPI whose value is "—": several demo-fixture summary KPIs (coverage
+  // gate, KPIs registered, unresolved conflicts) have no clean live source, and a
+  // blank placeholder in a header reads as a broken render. A live header shows
+  // only the KPIs it can back with real data. Fall back to the QA status only
+  // when nothing real is left (also the old empty-base behavior). (mock↔live seam)
+  const kpis = base.kpis.filter((k) => k.v !== "—");
 
-  return { kpis, sections };
+  return {
+    kpis: kpis.length
+      ? kpis
+      : [{ l: "QA status", v: detail.qa_status, sev: qaSev(detail.qa_status) }],
+    sections,
+  };
 }

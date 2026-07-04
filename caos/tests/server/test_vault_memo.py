@@ -54,6 +54,27 @@ def test_autolink_skips_already_linked_issuer():
     assert linked == ["Acme Corp"]
 
 
+def test_autolink_does_not_break_urls_or_emails():
+    # An issuer name inside its own IR-page URL or an email must NOT be wikilinked
+    # ('https://[[ford]].com' breaks the link). Memos routinely cite the issuer URL.
+    for txt in ("Refinancing at https://ford.com/investors today.",
+                "Contact ir@ford.com for the deck.",
+                "See ford.com for the latest."):
+        out, linked = autolink_issuers(txt, [("Ford", "FRD")])
+        assert "[[" not in out, out
+        assert linked == []
+
+
+def test_autolink_still_links_a_plain_mention_alongside_a_url():
+    # The URL match is skipped, but a plain mention elsewhere still links.
+    out, linked = autolink_issuers(
+        "See https://ford.com then Ford reported strong results.", [("Ford", "FRD")]
+    )
+    assert out.count("[[Ford]]") == 1
+    assert "https://ford.com" in out  # URL untouched
+    assert linked == ["Ford"]
+
+
 def test_autolink_ignores_one_char_ticker():
     text, linked = autolink_issuers("Grade F quarter, no names.", [("Ford Motor", "F")])
     assert "[[" not in text

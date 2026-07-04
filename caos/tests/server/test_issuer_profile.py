@@ -92,6 +92,20 @@ def test_issuer_ratings_round_trip(client):
     assert (iss["rating_sp"], iss["rating_moody"], iss["rating_fitch"]) == ("B+", "B1", "BB-")
 
 
+def test_issuer_created_by_stamped_from_identity_not_body(client):
+    # SEAM4-4: a created issuer records who created it (governance attribution for
+    # the analyst-entered agency ratings) — taken from the verified identity, and
+    # a spoofed created_by in the request body is ignored (not an IssuerCreate field).
+    me = client.post("/api/auth/profile", json={"code": "131113", "name": "Rater Ray"}).json()
+    try:
+        created = client.post("/api/issuers/", json={
+            "name": "Attributed Co", "rating_sp": "B+", "created_by": "spoofed-id",
+        }).json()
+        assert created["created_by"] == me["id"] != "spoofed-id"
+    finally:
+        client.post("/api/auth/logout")  # restore local-dev identity for later tests
+
+
 def test_strengths_weaknesses_rules():
     """The derived read is deterministic and direction-correct."""
     from routes.issuers import _strengths_weaknesses

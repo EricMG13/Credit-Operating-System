@@ -46,6 +46,7 @@ class IssuerResponse(BaseModel):
     rating_moody: Optional[str] = None
     rating_fitch: Optional[str] = None
     sponsor: Optional[str] = None
+    created_by: Optional[str] = None  # governance attribution (SEAM4-4); NULL for seed rows
 
     model_config = {"from_attributes": True}
 
@@ -66,6 +67,7 @@ class IssuerResponse(BaseModel):
                 "rating_moody": obj.rating_moody,
                 "rating_fitch": obj.rating_fitch,
                 "sponsor": obj.sponsor,
+                "created_by": obj.created_by,
             }
         return super().model_validate(data, *args, **kwargs)
 
@@ -135,7 +137,9 @@ async def create_issuer(
 ):
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
-    issuer = Issuer(**data)
+    # Attribution from the verified identity, never the request body (IssuerCreate
+    # carries no created_by field, so a spoofed body value is dropped). SEAM4-4.
+    issuer = Issuer(**data, created_by=caller.id)
     db.add(issuer)
     await db.flush()
     await db.refresh(issuer)

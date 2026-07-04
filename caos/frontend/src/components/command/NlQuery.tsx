@@ -59,7 +59,15 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
       >
         {fmtMetric(cell.value, cell.unit)}
       </span>
-      {cell.provenance === "fixture" ? (
+      {cell.provenance === "demo_fixture" ? (
+        <span
+          title="Fabricated Atlas Forge demo-fixture value — served because no model key is configured for this issuer; NOT sourced from its filings."
+          className="tabular text-caos-3xs font-semibold px-1 rounded"
+          style={{ color: "var(--caos-critical)", background: "color-mix(in srgb, var(--caos-critical) 12%, transparent)" }}
+        >
+          fab
+        </span>
+      ) : cell.provenance === "fixture" ? (
         <span
           title="Demo fixture value (Atlas Forge reference deal — not a real issuer run)"
           className="tabular text-caos-3xs"
@@ -141,9 +149,15 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
             const cells = row.metrics;
             const i = res.rows.indexOf(row);
             const provs = Object.values(cells).map((m) => m.provenance);
+            const anyFab = provs.includes("demo_fixture");
             const anyRun = provs.includes("run");
             const anyDerived = provs.includes("derived");
-            const badge = anyRun
+            // Fabricated takes priority over any positive label: one synthetic ATLF
+            // cell taints the row's trust, so it must never hide behind a LIVE/DERIVED
+            // badge (matches Issuer Profile's "fabricated is always marked" rule). #10
+            const badge = anyFab
+              ? { text: "FABRICATED", color: "var(--caos-critical)", title: "One or more values are synthetic Atlas Forge demo-fixture data (served with no model key) — NOT sourced from this issuer's filings." }
+              : anyRun
               ? { text: "CP-1 LIVE", color: "var(--caos-success)", title: "Financials are run-derived and cited (CP-1)." }
               : anyDerived
               ? { text: "DERIVED", color: "var(--caos-accent)", title: "Includes a value derived from this issuer's filings (cited)." }
@@ -366,30 +380,14 @@ export function NlQueryBody() {
   );
 }
 
-export function NlQuery({ compact: _compact = false }: { compact?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+export function NlQuery() {
   return (
     <PanelShell
       title="Ask across issuers · cross-issuer query"
       className="shrink-0"
       right={<span className="tabular text-caos-xs text-caos-muted">grounded in the metric store · cited where run-derived</span>}
     >
-      {expanded ? (
-        <div className="p-2.5"><NlQueryBody /></div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="m-2.5 flex items-center gap-2 rounded border border-caos-border bg-caos-bg px-2.5 py-2 text-left text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
-        >
-          <span className="text-caos-accent text-caos-2xl" aria-hidden="true">✦</span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-caos-lg text-caos-text">Ask across issuers</span>
-            <span className="block tabular text-caos-xs text-caos-muted truncate">Open the cited metric-store query lane</span>
-          </span>
-          <span className="tabular text-caos-xs text-caos-accent">OPEN</span>
-        </button>
-      )}
+      <div className="p-2.5"><NlQueryBody /></div>
     </PanelShell>
   );
 }

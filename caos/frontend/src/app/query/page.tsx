@@ -207,8 +207,12 @@ function QueryWorkspace() {
   const refreshGraph = useCallback(() => {
     if (!activeId) return;
     queryGraph(activeId, undefined, activeId === "shared-theme" ? theme : undefined)
-      .then(setGraph).catch(() => {});
-  }, [activeId, theme]);
+      .then(setGraph)
+      // The link IS stored server-side; only the redraw failed. Don't leave the
+      // "ratified" toast sitting over a graph that never drew the new edge —
+      // tell the analyst the view is stale so they reload. SEAM3-8.
+      .catch(() => notify("Graph not refreshed", "The link is stored — reload to see it drawn."));
+  }, [activeId, theme, notify]);
 
   const acceptLink = useCallback((edge: OverlayEdge) => {
     if (!activeId) return;
@@ -380,12 +384,14 @@ function QueryWorkspace() {
           setSuggest(restCaps.filter((c) => c.enabled));
         }
       })
-      .catch(() => {
+      .catch((e) => {
         if (seq !== routeSeq.current) return; // cancelled / superseded
         setRouting(false);
-        // Distinguish a model-lane failure (503) from "no match": say so, then
-        // fall back to the deterministic keyword router.
-        keywordSubmit("Model router unavailable —");
+        // A 429 is the query rate limiter, not an outage — tell the analyst to
+        // wait rather than mislabel it "unavailable". Either way, fall back to the
+        // deterministic keyword router. SEAM3-9.
+        const st = (e as { response?: { status?: number } })?.response?.status;
+        keywordSubmit(st === 429 ? "Query rate limit reached —" : "Model router unavailable —");
       });
   }, [text, caps, capById, keywordSubmit, run, addToHistory]);
 

@@ -181,8 +181,11 @@ export function AskLauncher() {
   if (!open) return trigger;
 
   // Model and other issuer-scoped concepts → the ATLF issuer Q&A slide-over.
+  // No specific module is in view from this generic launcher, so pass an empty
+  // tab: IssuerChat then omits the "currently viewing <module>" line instead of
+  // asserting a fabricated one (was hardcoded "M-118" on every route — N4).
   if (scope === "issuer") {
-    return <>{trigger}<IssuerChat tab="M-118" onClose={() => setOpen(false)} /></>;
+    return <>{trigger}<IssuerChat tab="" onClose={() => setOpen(false)} /></>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.

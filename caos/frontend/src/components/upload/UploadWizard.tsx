@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/lib/api";
+import { createIssuer, getIssuers, toErrorMessage, uploadDocument, uploadPricingSheet } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
@@ -67,8 +67,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       setNewIssuerName("");
       setNewIssuerTicker("");
     } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(detail || "Failed to create issuer");
+      setError(toErrorMessage(err, "Failed to create issuer"));
     }
   };
 
@@ -89,8 +88,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           : await uploadDocument(formData);
         results.push({ name: file.name, result: res });
       } catch (err) {
-        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-        results.push({ name: file.name, error: detail || "Upload failed" });
+        results.push({ name: file.name, error: toErrorMessage(err, "Upload failed") });
       }
     }
 

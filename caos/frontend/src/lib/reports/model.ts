@@ -211,10 +211,22 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   // committee EBITDA-adjustments panel would print a bridge that doesn't tie.
   c.ebitda = c.adj - c.ab;
   c.ndebt = a.netDebt;
+  // FE 4.3 / E2E-5d (branch re-base + main's mongrel-null, reconciled): re-base
+  // interest from the anchor's own reported coverage so intcov ties to the live
+  // figure AND is internally consistent (c.adj/c.int == a.intCov); suppress it when
+  // the run reported none. Guard a negative cash back-solve to NaN. Then null the
+  // debt-stack-derived KPIs the SEEDED stack can't honestly source for a live issuer.
   const cash = c.tdebt - c.ndebt;
   c.cash = cash >= 0 ? cash : NaN;
+  const cov = a.intCov;
+  if (cov != null && isFinite(cov) && cov > 0) {
+    c.int = c.adj / cov;
+    deriveCreditKpis(c);
+  } else {
+    deriveCreditKpis(c);
+    c.intcov = null;
+  }
   c.netlev = c.adj ? c.ndebt / c.adj : null;
-  c.intcov = a.intCov;
   c.totlev = null;
   c.srsec = null;
   c.fcfdebt = null;

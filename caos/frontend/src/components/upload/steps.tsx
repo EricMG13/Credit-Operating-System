@@ -155,12 +155,15 @@ export function IssuerStep({
           </button>
         ) : (
           <div className="flex flex-col gap-2">
+            {/* maxLength mirrors routes/issuers.py IssuerCreate + the issuers
+                DB columns so a length 422/500 is unreachable from typing */}
             <TextInput
               type="text"
               value={newIssuerName}
               onChange={(e) => setNewIssuerName(e.target.value)}
               placeholder="Issuer name (e.g. Atlas Forge Industrials)"
               aria-label="Issuer name"
+              maxLength={255}
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <TextInput
@@ -169,6 +172,7 @@ export function IssuerStep({
               onChange={(e) => setNewIssuerTicker(e.target.value)}
               placeholder="Ticker (optional)"
               aria-label="Ticker (optional)"
+              maxLength={32}
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <div className="flex gap-2">

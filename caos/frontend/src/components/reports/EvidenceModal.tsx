@@ -144,11 +144,12 @@ function EvShell({
 // Live click-to-source: resolve a run's own evidence to its real source chunk,
 // instead of the seeded demo map (which 404s for live ids).
 function LiveEvidencePanel({
-  id, ev, text, panelRef, onClose,
+  id, ev, text, error, panelRef, onClose,
 }: {
   id: string;
   ev: LiveEvidence;
   text: string | null;
+  error: boolean;
   panelRef: RefObject<HTMLDivElement>;
   onClose: () => void;
 }) {
@@ -161,6 +162,10 @@ function LiveEvidencePanel({
           {ev.document_chunk_id ? (
             text != null ? (
               <p className="text-caos-lg leading-[1.7] text-caos-text whitespace-pre-wrap">{text}</p>
+            ) : error ? (
+              <div role="alert" className="text-caos-md" style={{ color: "var(--caos-warning)" }}>
+                Source unavailable — the linked chunk could not be loaded. Retry, or reopen once the run finishes.
+              </div>
             ) : (
               <div className="text-caos-md text-caos-muted">Loading source…</div>
             )
@@ -232,16 +237,20 @@ export function EvidenceModal({
   // ATLF excerpt (cross-issuer "verified" leak).
   const ev = liveEv || isLiveRun ? undefined : EVIDENCE[id];
   const [chunkText, setChunkText] = useState<string | null>(null);
+  const [chunkErr, setChunkErr] = useState(false);
   const chunkId = liveEv?.document_chunk_id ?? null;
   useEffect(() => {
     if (!chunkId) return;
     let alive = true;
     setChunkText(null);
-    getChunk(chunkId).then((c) => { if (alive) setChunkText(c.text); }).catch(() => { /* leave loading→unavailable */ });
+    setChunkErr(false);
+    // On failure surface an explicit unavailable state — the render had no error
+    // branch, so a 404 / failed chunk fetch spun "Loading source…" forever. SEAM3-3.
+    getChunk(chunkId).then((c) => { if (alive) setChunkText(c.text); }).catch(() => { if (alive) setChunkErr(true); });
     return () => { alive = false; };
   }, [chunkId]);
 
-  if (liveEv) return <LiveEvidencePanel id={id} ev={liveEv} text={chunkText} panelRef={panelRef} onClose={onClose} />;
+  if (liveEv) return <LiveEvidencePanel id={id} ev={liveEv} text={chunkText} error={chunkErr} panelRef={panelRef} onClose={onClose} />;
   // Unknown id (neither live nor seeded): an explicit state, never a silent no-op.
   if (!ev) return <UnresolvedEvidencePanel id={id} panelRef={panelRef} onClose={onClose} />;
   const doc = DOCS.find((d) => d.id === ev.doc);

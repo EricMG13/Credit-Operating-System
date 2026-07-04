@@ -106,6 +106,25 @@ def test_extract_facts_projects_cp1_financials_with_citation():
     assert margin["headline"] is True
 
 
+def test_provenance_caveats_flag_fabricated_demo_fixture():
+    # SEAM2-1: demo_fixture (ATLF fixture persisted for a NON-demo issuer, #10)
+    # must produce a loud result-level caveat — the row badges alone read as seed.
+    from nlquery import _provenance_caveats
+
+    only_fab = _provenance_caveats("Net leverage", {"demo_fixture"})
+    assert len(only_fab) == 1 and "fabricated" in only_fab[0]
+    assert "NOT sourced" in only_fab[0]
+    # still called out when mixed with genuinely sourced values
+    mixed = _provenance_caveats("Net leverage", {"run", "demo_fixture"})
+    assert any("fabricated" in c for c in mixed)
+    # pre-existing chain intact
+    assert _provenance_caveats("Net leverage", {"seed"}) == [
+        "Net leverage is illustrative seed data (no sourced value yet)."]
+    assert _provenance_caveats("Net leverage", {"derived"}) == [
+        "Net leverage is derived from each issuer's filings (cited)."]
+    assert _provenance_caveats("Net leverage", {"run"}) == []
+
+
 # ── Endpoints over the seeded store ──────────────────────────────────────────
 @pytest.fixture(scope="module")
 def client():

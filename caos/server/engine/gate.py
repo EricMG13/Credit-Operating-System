@@ -50,6 +50,12 @@ def committee_status_from(qa_status: str, confidence: str) -> str:
         return "Restricted"
     if qa_status == "Not Reviewed":
         return "Draft Only"
+    # Fail-closed: only an explicit "Passed" can reach committee-ready. Any
+    # unrecognized/partial gate state (a stray "Pending", "", or a status a future
+    # code path introduces) must degrade to non-committee, never fall through to
+    # "Committee Ready" — a wrong-read on the money path.
+    if qa_status != "Passed":
+        return "Draft Only"
     if confidence == "Insufficient Information":
         return "Insufficient Information"
     return "Committee Ready"
@@ -60,7 +66,10 @@ def roll_up_qa_status(statuses: Iterable[str]) -> str:
     statuses = list(statuses)
     if not statuses:
         return "Not Reviewed"
-    return max(statuses, key=lambda s: _QA_RANK.get(s, -1))
+    # Fail-closed: an unrecognized status ranks WORST (99), not most-benign, so a
+    # stray/unknown module status can't let the run roll up to Passed and then
+    # slip through committee_status_from's fail-closed default too.
+    return max(statuses, key=lambda s: _QA_RANK.get(s, 99))
 
 
 def worst_confidence(confidences: Iterable[str]) -> str:

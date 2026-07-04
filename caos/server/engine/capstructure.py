@@ -8,17 +8,23 @@ Two steps, both deterministic:
   2. Run an absolute-priority recovery waterfall over those tranches against a
      distressed enterprise value (a multiple of CP-1 LTM EBITDA), giving an
      expected recovery % per tranche and a preference ranking (most-preferred =
-     highest expected recovery). No LLM; degrades to a seniority-only read when
-     no agreement text is ingested or CP-1 supplies no EBITDA.
+     highest expected recovery). Claims that share a seniority rank are treated
+     as pari-passu and split the value reaching that rank pro-rata by claim; the
+     waterfall cascades rank-by-rank. No LLM; degrades to a seniority-only read
+     when no agreement text is ingested or CP-1 supplies no EBITDA.
 
-ponytail: flat distressed EV = 5.0x LTM EBITDA, strict absolute priority, no
-fees/super-priority/structural-subordination haircut. Refine the multiple per
-sector (or take a CP-2B distressed-EBITDA input) if recovery precision matters.
+ponytail: flat distressed EV = 5.0x LTM EBITDA, absolute priority BETWEEN ranks
+and pari-passu (pro-rata) WITHIN a rank, no fees/super-priority/structural-
+subordination haircut. Lien priority is assumed, not parsed from the
+intercreditor agreement: RCF + first-lien term loan + senior secured notes
+default to the same first-lien rank. Refine the multiple per sector (or take a
+CP-2B distressed-EBITDA input) if recovery precision matters.
 """
 
 from __future__ import annotations
 
 import re
+from itertools import groupby
 from typing import List, Optional, Tuple
 
 from engine.periods import is_finite_number, latest
@@ -31,13 +37,19 @@ _QUERY = "term loan revolving credit facility senior secured notes second lien s
 _DISTRESS_EV_MULTIPLE = 5.0
 
 # (label, tranche code, seniority rank [lower = more senior], pattern).
+# RCF, first-lien term loan and senior secured notes share rank 0: in a typical US
+# leveraged/LBO structure they are first-lien pari-passu (same collateral, same
+# priority) and split it pro-rata by claim. The tool cannot read the intercreditor
+# agreement, so this is a default assumption, surfaced as a limitation_flag — a
+# super-senior/super-priority RCF or a junior/1.5-lien/split-collateral SSN is not
+# modelled. 2L (junior secured) < senior unsecured < subordinated below that.
 _TRANCHES: Tuple[Tuple[str, str, int, str], ...] = (
     ("Revolving credit facility", "RCF", 0, r"revolving credit facilit|\brcf\b|revolver"),
-    ("First-lien term loan", "1L", 1, r"first[-\s]lien|term loan b\b|\btlb\b"),
-    ("Senior secured notes", "SSN", 2, r"senior secured note"),
-    ("Second-lien term loan", "2L", 3, r"second[-\s]lien|\b2l\b"),
-    ("Senior unsecured notes", "SUN", 4, r"senior unsecured note|senior note"),
-    ("Subordinated notes", "SUB", 5, r"subordinat"),
+    ("First-lien term loan", "1L", 0, r"first[-\s]lien|term loan b\b|\btlb\b"),
+    ("Senior secured notes", "SSN", 0, r"senior secured note"),
+    ("Second-lien term loan", "2L", 1, r"second[-\s]lien|\b2l\b"),
+    ("Senior unsecured notes", "SUN", 2, r"senior unsecured note|senior note"),
+    ("Subordinated notes", "SUB", 3, r"subordinat"),
 )
 
 
@@ -51,7 +63,7 @@ def scan_tranches(chunks: List[Tuple[str, str]]) -> List[dict]:
 
 
 def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]:
-    """Run the absolute-priority recovery waterfall over a distressed enterprise value.
+    """Run the recovery waterfall over a distressed enterprise value.
 
     Credit reading (what an analyst is verifying line by line):
 
@@ -59,69 +71,79 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
       committee has to split in a distress/restructuring scenario (upstream this is
       roughly 5x LTM EBITDA). It is the only value that ever gets distributed.
     - The ``tranches`` list arrives already ordered senior -> junior (the caller sorts
-      on ``seniority_rank``). The *absolute priority rule* then applies in that order:
-      a senior claim must be paid in full before any junior claim recovers a cent.
-      This function trusts the incoming order and does NOT re-sort.
-    - Each tranche's *claim* is its principal outstanding, ``amount_musd`` ($M). Walking
-      senior -> junior we hand each tranche ``min(claim, value still on the table)`` and
-      shrink the remaining value by the full claim. ``recovery_pct`` is that tranche's
-      own recovery divided by its own claim -- cents on the dollar for THAT tranche, not
-      for the structure.
-    - An *unsized* senior tranche (claim unknown) makes everything below it
-      indeterminate: if we don't know how much a senior layer absorbs, we cannot know
-      how much value reaches the juniors behind it. So that tranche and ALL juniors are
-      reported as null (None) rather than guessed. Crediting juniors against the full
-      remaining EV -- as if the unsized senior claimed nothing -- would systematically
-      over-state their recovery; refusing to guess is the conservative, defensible read.
+      on ``seniority_rank``). *Absolute priority* applies BETWEEN ranks — every claim in
+      a senior rank must be satisfied before any junior rank recovers a cent — while
+      claims sharing a rank are *pari-passu* and split the value reaching that rank
+      pro-rata by claim size. This function trusts the incoming order and does NOT
+      re-sort; it pools consecutive same-rank tranches (the caller keeps them adjacent).
+    - Each tranche's *claim* is its principal outstanding, ``amount_musd`` ($M). A rank
+      with total claim ``S`` facing ``R`` remaining value hands each member
+      ``min(claim, R * claim / S)`` — full claim when ``R >= S``, else its pro-rata share
+      — then ``R`` shrinks by the full ``S`` (floored at 0). ``recovery_pct`` is a
+      tranche's own recovery over its own claim: cents on the dollar for THAT tranche.
+      A single-member rank collapses to plain ``min(claim, R)`` — strict priority.
+    - An *unsized* claim (unknown, 0, negative) makes its whole rank AND everything below
+      indeterminate: we cannot pro-rata a pool whose total is unknown, and we cannot know
+      how much value reaches the juniors behind it. Those tranches are reported null
+      (None) rather than guessed — over-crediting them would systematically over-state
+      recovery; refusing to guess is the conservative, defensible read.
 
-    Worked check (RCF 200, 1L 800, 2L 200 against EV 1000): RCF takes 200 (100%),
-    1L takes 800 (100%), 0 is left, 2L recovers 0 (0%) -- the 2L is wiped, as expected
-    when senior claims (1000) exactly consume the pie (1000).
+    Worked check (1L 500 + SSN 500 pari at rank 0, EV 600): S=1000, each takes
+    600*500/1000 = 300 (60%) — the two first-lien classes recover equally, not 100%/20%.
     """
-    # Total value available to distribute, narrowed as senior claims are satisfied.
+    # Total value available to distribute, narrowed as senior ranks are satisfied.
     # float() coerces ints/strings; a non-positive EV simply leaves nothing to hand out.
     remaining_ev = float(distressed_ev)
 
     waterfall: List[dict] = []
 
-    # Once an unsized senior claim appears, every junior recovery is indeterminate.
-    # This latch never resets: it is sticky senior -> junior, by design.
+    # Once an unsized claim appears in a rank, every claim in it and below is
+    # indeterminate. This latch never resets: it is sticky senior -> junior, by design.
     indeterminate = False
 
-    for tranche in tranches:
-        claim = tranche["amount_musd"]  # principal outstanding ($M); KeyError if absent, by contract
+    # Pool consecutive same-rank tranches: absolute priority between ranks,
+    # pari-passu (pro-rata) within one. KeyError on a missing seniority_rank, by contract.
+    for _rank, group_iter in groupby(tranches, key=lambda t: t["seniority_rank"]):
+        group = list(group_iter)
+        claims = [t["amount_musd"] for t in group]  # principal ($M); KeyError if absent, by contract
 
-        # A claim is "sized" only if it is a real positive number. None, 0, a negative,
-        # or a non-numeric all count as unsized and trip the indeterminate cascade.
-        claim_is_sized = is_finite_number(claim) and claim > 0
-        if not claim_is_sized:
+        # A rank is sized only if EVERY pari-passu claim in it is a real positive number.
+        # None, 0, a negative or a non-numeric anywhere in the pool trips the cascade.
+        if not all(is_finite_number(c) and c > 0 for c in claims):
             indeterminate = True
 
         if indeterminate:
-            # Unknown senior claim above (or at) this tranche -> recovery cannot be stated.
+            # Unknown claim at or above this rank -> recovery cannot be stated.
             # Null a non-finite echo too: `{**tranche}` would otherwise carry a NaN
             # amount straight into the payload (the BE2-1 raw-NaN class) even though
             # every COMPUTED field is already guarded.
-            row = {**tranche, "recovery_musd": None, "recovery_pct": None}
-            if not is_finite_number(row.get("amount_musd")):
-                row["amount_musd"] = None
-            waterfall.append(row)
+            for tranche in group:
+                row = {**tranche, "recovery_musd": None, "recovery_pct": None}
+                if not is_finite_number(row.get("amount_musd")):
+                    row["amount_musd"] = None
+                waterfall.append(row)
             continue
 
-        # Absolute priority: this tranche takes the lesser of its claim and what is left.
-        recovery = min(claim, remaining_ev) if remaining_ev > 0 else 0.0
+        # Pari-passu pool: total claim at this rank, guarded > 0 so the pro-rata never
+        # divides by zero (every claim is a positive finite number by the check above).
+        rank_claim = sum(claims)
+        for tranche, claim in zip(group, claims):
+            # Each member's share of the value reaching this rank, pro-rata by claim,
+            # capped at its own claim. The cap only bites when remaining_ev >= rank_claim
+            # (the whole rank is made whole).
+            recovery = (min(claim, remaining_ev * claim / rank_claim)
+                        if remaining_ev > 0 and rank_claim > 0 else 0.0)
+            waterfall.append({
+                **tranche,  # fresh dict: preserve every original key, never mutate the input
+                "recovery_musd": round(recovery, 1),
+                # Recovery rate on THIS tranche's own claim. round(x, 1) is banker's
+                # (half-even) rounding over the float repr -- e.g. 250/800 = 31.25 -> 31.2.
+                "recovery_pct": round(100 * recovery / claim, 1),
+            })
 
-        # The full claim is removed from the pie even if it was only partly satisfied;
-        # remaining value is floored at 0 so it can never go negative.
-        remaining_ev = max(0.0, remaining_ev - claim)
-
-        waterfall.append({
-            **tranche,  # fresh dict: preserve every original key, never mutate the input
-            "recovery_musd": round(recovery, 1),
-            # Recovery rate on THIS tranche's own claim. round(x, 1) is banker's
-            # (half-even) rounding over the float repr -- e.g. 250/800 = 31.25 -> 31.2.
-            "recovery_pct": round(100 * recovery / claim, 1),
-        })
+        # The full rank claim leaves the pie even if only partly satisfied; remaining
+        # value is floored at 0 so it can never go negative. Juniors split what is left.
+        remaining_ev = max(0.0, remaining_ev - rank_claim)
 
     return waterfall
 
@@ -129,7 +151,11 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
     eb = latest(nf.get("adj_ebitda") or {})
-    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb else None
+    # Require a POSITIVE EBITDA: a loss-making issuer has no positive going-concern
+    # EV to distribute, and `eb` alone (truthy) would pass a negative through to a
+    # nonsensical "-$500M distressed EV" figure in the payload. Degrade to
+    # seniority-only (None), exactly as the eb == 0 case already does.
+    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
 
 
 async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:
@@ -149,15 +175,19 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         )
 
     # Size the stack where amounts were stated; % of structure is recovery-relevant.
-    sized = [t for t in found if is_finite_number(t["amount_musd"])]
-    total = round(sum(t["amount_musd"] for t in sized), 1) if sized else None
+    # Funded debt EXCLUDES the RCF: an undrawn revolver commitment is not funded debt.
+    # (It still claims pari-passu in the distress waterfall, where a revolver is assumed
+    # drawn — so total_debt_musd and the waterfall claims can legitimately differ.)
+    funded = [t for t in found if t["code"] != "RCF" and is_finite_number(t["amount_musd"])]
+    total = round(sum(t["amount_musd"] for t in funded), 1) if funded else None
     for t in found:
         t["pct_of_structure"] = (round(100 * t["amount_musd"] / total, 1)
-                                 if total and is_finite_number(t["amount_musd"]) else None)
+                                 if total and t["code"] != "RCF"
+                                 and is_finite_number(t["amount_musd"]) else None)
 
     ev = _distressed_ev(cp1)
-    waterfall_basis = (f"absolute-priority waterfall vs ${ev:g}M distressed EV "
-                       f"({_DISTRESS_EV_MULTIPLE:g}x LTM EBITDA)") if ev else None
+    waterfall_basis = (f"absolute-priority waterfall (pari-passu within rank) vs ${ev:g}M "
+                       f"distressed EV ({_DISTRESS_EV_MULTIPLE:g}x LTM EBITDA)") if ev else None
     rows = recovery_waterfall(found, ev) if ev else [
         {**t, "recovery_musd": None, "recovery_pct": None} for t in found]
 
@@ -181,6 +211,16 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         limitations.append(
             "An unsized senior tranche broke the waterfall; recovery for tranches "
             "junior to it is left indeterminate rather than over-credited.")
+    # Disclose the pari-passu assumption only when it actually bit — i.e. two or more
+    # tranches shared a seniority rank (duplicate rank in the found stack).
+    ranks = [t["seniority_rank"] for t in found]
+    if ev and len(ranks) != len(set(ranks)):
+        limitations.append(
+            "Lien priority assumed pari-passu within each seniority rank (RCF, first-lien "
+            "term loan and senior secured notes treated as first-lien pari-passu, sharing "
+            "collateral pro-rata by claim); actual intercreditor sharing — and any "
+            "super-senior/super-priority RCF or junior/split-collateral secured notes — is "
+            "not parsed from the agreement text.")
 
     return ModulePayload(
         module_id="CP-3B", module_name="RecoveryInstrumentPreference",

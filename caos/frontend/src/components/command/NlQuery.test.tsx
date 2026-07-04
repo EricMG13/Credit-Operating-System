@@ -85,7 +85,49 @@ const synthesisResult: SynthesisResult = {
   ],
 };
 
+// A ranked result whose top issuer's only fact is the fabricated ATLF fixture
+// (keyless run on a non-demo issuer → provenance "demo_fixture", #10 / SEAM2-1).
+// It must be flagged FABRICATED, never read as a benign SEEDED value.
+const fabricatedResult: StructuredResult = {
+  mode: "structured",
+  interpretation: "Ranking issuers by net leverage, highest first.",
+  spec: {},
+  rank_by: "net_leverage",
+  columns: [{ key: "net_leverage", label: "Net Leverage", unit: "x", higher_is_better: false }],
+  total_ranked: 1,
+  caveats: ["Net leverage for one or more issuers is fabricated Atlas Forge demo-fixture data."],
+  rows: [
+    {
+      issuer: { id: "iss-9", name: "Northwind Coil", ticker: "NWC", industry: "Industrials", country: "US" },
+      rank_value: 5.68,
+      metrics: {
+        net_leverage: {
+          value: 5.68, unit: "x", provenance: "demo_fixture",
+          qa_status: "Restricted", period: "LTM", citation: null,
+        },
+      },
+    },
+  ],
+};
+
 describe("NlQuery", () => {
+  it("flags a fabricated demo_fixture row as FABRICATED, never SEEDED (#10 / SEAM2-1)", async () => {
+    mockNlQuery.mockResolvedValue(fabricatedResult);
+    render(<NlQuery />);
+
+    const input = screen.getByLabelText("Ask a question across issuers");
+    fireEvent.change(input, { target: { value: "which issuer is most levered" } });
+    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+
+    expect(await screen.findByText("Northwind Coil")).toBeTruthy();
+    // Row badge is the loud fabricated marker, not the benign seed label.
+    expect(screen.getByText("FABRICATED")).toBeTruthy();
+    expect(screen.queryByText("SEEDED")).toBeNull();
+    // Cell carries the critical "fab" chip (not the muted "seed" marker).
+    expect(screen.getByText("fab")).toBeTruthy();
+    expect(screen.queryByText("seed")).toBeNull();
+  });
+
   it("synthesis mode: renders issuer + excerpts without throwing (no columns key — SEAM1-1)", async () => {
     mockNlQuery.mockResolvedValue(synthesisResult);
     render(<NlQuery />);
