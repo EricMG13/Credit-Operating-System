@@ -6,16 +6,16 @@
 import type { Report, Section } from "@/lib/reports/builders";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
+import { sevSurface } from "@/lib/pipeline/sev";
 import { EvChip } from "./EvidenceModal";
 import { ExportToVaultButton } from "./ExportToVaultButton";
 import { Panel } from "@/components/shared/Panel";
 
 function StatusTag({ held }: { held: boolean }) {
-  const c = held ? "var(--caos-warning)" : "var(--caos-success)";
   return (
     <span
       className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
-      style={{ color: c, borderColor: c + "55", background: c + "14" }}
+      style={sevSurface(held ? "warning" : "ok", { border: 33, wash: 8 })}
     >
       {held ? "HELD" : "READY"}
     </span>

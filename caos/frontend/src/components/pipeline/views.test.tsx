@@ -93,6 +93,16 @@ describe("GraphView", () => {
     fireEvent.click(buttons[0]);
     expect(onSelect).toHaveBeenCalledWith(MODULES[0].id);
   });
+
+  // Regression for matrix 2.1: `SEV_COLOR[st] + "66"` emitted `var(--caos-…)66`
+  // (invalid CSS, silently dropped) — every colored node lost its status border.
+  it("gives a non-idle node a valid mixed border color, not a var+alpha concat", () => {
+    const sim: Sim = { mods: { [MODULES[0].id]: { state: "warning", prog: 0.5 } }, events: [], tick: 1, done: false };
+    render(<GraphView sim={sim} selected={null} onSelect={() => {}} dim={false} scope={fullScope()} />);
+    const style = screen.getAllByRole("button")[0].getAttribute("style") || "";
+    expect(style).toContain("color-mix");
+    expect(style).not.toMatch(/var\(--[a-z-]+\)\s*(0d|11|14|22|33|55|66)/);
+  });
 });
 
 describe("SwimlaneView", () => {

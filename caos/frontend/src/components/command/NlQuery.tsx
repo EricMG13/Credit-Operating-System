@@ -37,7 +37,7 @@ function Pill({ text, color, title }: { text: string; color: string; title?: str
     <span
       title={title}
       className="tabular text-caos-3xs uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
-      style={{ color, borderColor: color + "66", background: color + "14" }}
+      style={{ color, borderColor: `color-mix(in srgb, ${color} 40%, transparent)`, background: `color-mix(in srgb, ${color} 8%, transparent)` }}
     >
       {text}
     </span>

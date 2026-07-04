@@ -427,7 +427,7 @@ function NodePill({ cx, cy, label, color }: { cx: number; cy: number; label: str
   const w = Math.max(64, text.length * 8.2 + 22);
   return (
     <g>
-      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={color + "22"} stroke={color} strokeWidth={1.2} />
+      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={`color-mix(in srgb, ${color} 13%, transparent)`} stroke={color} strokeWidth={1.2} />
       <text x={cx} y={cy + 4.5} textAnchor="middle" fill={color} fontSize={12.5} fontWeight={500} fontFamily="var(--font-mono)" {...HALO}>{text}</text>
     </g>
   );

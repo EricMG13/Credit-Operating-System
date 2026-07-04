@@ -130,7 +130,7 @@ export function GraphView({
             className={"absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected z-10" : "")}
             style={{
               left: p.x - NW / 2, top: p.y - NH / 2, width: NW, height: NH,
-              borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : color + "66",
+              borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : `color-mix(in srgb, ${color} 40%, transparent)`,
               borderStyle: inScope ? "solid" : "dashed",
               opacity: !inScope ? 0.22 : related && !doneDim ? 1 : 0.32,
             }}
@@ -192,7 +192,7 @@ export function SwimlaneView({
                     aria-pressed={sel}
                     className={"text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected" : "")}
                     style={{
-                      borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : color + "55",
+                      borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : `color-mix(in srgb, ${color} 33%, transparent)`,
                       borderStyle: inScope ? "solid" : "dashed",
                       opacity: !inScope ? 0.25 : st === "idle" ? 0.55 : 1,
                     }}
@@ -322,8 +322,8 @@ export function Inspector({
                       className="tabular text-caos-3xs uppercase tracking-wider px-1 py-px rounded border whitespace-nowrap"
                       style={{
                         color: REQ_TAG_COLOR[r.tag],
-                        borderColor: REQ_TAG_COLOR[r.tag] + "55",
-                        background: REQ_TAG_COLOR[r.tag] + "14",
+                        borderColor: `color-mix(in srgb, ${REQ_TAG_COLOR[r.tag]} 33%, transparent)`,
+                        background: `color-mix(in srgb, ${REQ_TAG_COLOR[r.tag]} 8%, transparent)`,
                       }}
                     >
                       {r.tag}
