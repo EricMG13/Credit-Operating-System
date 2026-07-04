@@ -108,6 +108,42 @@ describe("buildModel — live CP-1 anchor", () => {
     }
   });
 
+  // Finding 4.3: only net leverage is live/live in an anchored column. The other
+  // ratios would mix live adj. EBITDA with the SEEDED debt stack / ATLF interest —
+  // fabricated committee numbers — so they are nulled, and interest coverage comes
+  // from the anchor's engine-reported figure instead.
+  it("consumes the anchor's reported interest coverage, not live-adj / seeded-interest", () => {
+    const m = buildModel(1, {}, ANCHOR);
+    for (const k of ["l1", "pf"] as const) {
+      expect(m.cols[k].intcov).toBe(ANCHOR.intCov);
+    }
+  });
+
+  it("nulls intcov when the anchor reports no coverage (renders —, never fabricates)", () => {
+    const m = buildModel(1, {}, { ...ANCHOR, intCov: null });
+    expect(m.cols.l1.intcov).toBeNull();
+    expect(m.cols.pf.intcov).toBeNull();
+  });
+
+  it("nulls the live/seeded mongrel KPIs (totlev / srsec / fcfdebt) in anchored columns", () => {
+    const m = buildModel(1, {}, ANCHOR);
+    for (const k of ["l1", "pf"] as const) {
+      expect(m.cols[k].totlev).toBeNull();
+      expect(m.cols[k].srsec).toBeNull();
+      expect(m.cols[k].fcfdebt).toBeNull();
+      expect(m.cols[k].netlev!).toBeCloseTo(ANCHOR.netDebt / ANCHOR.ltmAdjEbitda, 6); // stays live/live
+    }
+  });
+
+  it("degrades back-solved cash to NaN when live net debt exceeds the seeded debt stack", () => {
+    // seeded l1 tdebt = 55 + 1420 + 900 + 200 = 2575; netDebt 3200 would back-solve cash to -625
+    const m = buildModel(1, {}, { ...ANCHOR, netDebt: 3200, netLeverage: 7.1 });
+    for (const k of ["l1", "pf"] as const) {
+      expect(Number.isNaN(m.cols[k].cash)).toBe(true);
+      expect(m.cols[k].ndebt).toBe(3200); // reported net debt survives untouched
+    }
+  });
+
   it("preserves the seeded LTM leverage in provenance for the tie-out", () => {
     const seeded = buildModel();
     const anchored = buildModel(1, {}, ANCHOR);
