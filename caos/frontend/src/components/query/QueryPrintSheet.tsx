@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
 import { nativeView } from "@/lib/query/views";
+import { displayMeta } from "@/lib/query/format";
 
 interface QueryPrintSheetProps {
   graph: GraphResult;
@@ -295,7 +296,7 @@ export function QueryPrintSheet({ graph, question, engineNote, synthesis }: Quer
       )}
 
       {/* scope */}
-      {graph.meta.length > 0 && (
+      {displayMeta(graph.meta).length > 0 && (
         <div style={{ marginBottom: "16px" }}>
           <div
             style={{
@@ -310,7 +311,7 @@ export function QueryPrintSheet({ graph, question, engineNote, synthesis }: Quer
             Scope
           </div>
           <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "10px", color: INK }}>
-            {graph.meta.map((m, i) => (
+            {displayMeta(graph.meta).map((m, i) => (
               <li key={i} style={{ marginBottom: "1px" }}>
                 {m}
               </li>
