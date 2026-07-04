@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getIssuers, createIssuer } from "@/lib/api";
+import { getIssuers, createIssuer, toErrorMessage } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import { TextInput } from "@/components/shared/TextInput";
@@ -342,8 +342,7 @@ function NewIssuerModal({
       onCreated(await createIssuer(form));
       onClose();
     } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setCreateError(detail || "Couldn't create the issuer. Check the details and try again.");
+      setCreateError(toErrorMessage(err, "Couldn't create the issuer. Check the details and try again."));
     } finally {
       setCreating(false);
     }
@@ -368,19 +367,21 @@ function NewIssuerModal({
           <CloseButton onClick={onClose} />
         </div>
         <div className="p-3 flex flex-col gap-2.5">
+          {/* max mirrors the server caps (routes/issuers.py IssuerCreate + the
+              issuers DB columns) so a length 422/500 is unreachable from typing */}
           {([
-            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials" },
-            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
-            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials" },
-            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components" },
-            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
-            { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+" },
-            { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1" },
-            { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-" },
-          ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
+            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials", max: 255 },
+            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF", max: 32 },
+            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
+            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
+            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
+            { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+", max: 16 },
+            { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1", max: 16 },
+            { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-", max: 16 },
+          ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
-              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} className="w-full px-2.5 py-1.5 text-caos-lg" />
+              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} maxLength={max} className="w-full px-2.5 py-1.5 text-caos-lg" />
             </div>
           ))}
           <div>

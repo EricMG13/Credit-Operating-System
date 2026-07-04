@@ -48,6 +48,37 @@ api.interceptors.response.use(
   },
 );
 
+// ─── Error normalization ──────────────────────────────────────────────────
+// FastAPI's `detail` is only sometimes a string: 422 validation errors arrive
+// as a LIST of {loc, msg, type} objects, and structured errors (e.g. the
+// committee-export 409 in runs.py) as a DICT with .message. Passing either
+// into string-typed state and rendering it as a JSX child crashes React
+// ("Objects are not valid as a React child") — so every catch that surfaces a
+// detail to the user must parse it through here, never `detail || e.message`
+// directly. (SEAM3-1 / SEAM3-2)
+export function toErrorMessage(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => {
+        if (typeof d === "string") return d;
+        const { loc, msg } = (d ?? {}) as { loc?: unknown[]; msg?: unknown };
+        if (typeof msg !== "string") return "";
+        const field = Array.isArray(loc) && loc.length ? String(loc[loc.length - 1]) : "";
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+  }
+  const msg = (err as { message?: unknown })?.message;
+  return typeof msg === "string" && msg ? msg : fallback;
+}
+
 // ─── Identity ─────────────────────────────────────────────────────────────
 // Authentication is platform-managed (Databricks workspace OAuth at the
 // edge). /api/auth/me reflects the forwarded identity.
