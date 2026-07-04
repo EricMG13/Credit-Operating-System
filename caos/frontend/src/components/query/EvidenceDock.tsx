@@ -11,6 +11,7 @@ import type { GraphNode, GraphResult, OverlayEdge, OverlayResult } from "@/lib/q
 import { pairKey } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { QUESTIONS } from "@/lib/query/questions";
+import { displayMeta } from "@/lib/query/format";
 import { MODEL_HUE } from "@/components/query/node-style";
 
 type OpenChunk = (chunkId: string, label?: string | null) => void;
@@ -218,7 +219,7 @@ function AnswerNotes({ graph }: { graph: GraphResult | null }) {
       <div>
         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Scope</div>
         <div className="flex flex-col gap-1">
-          {graph.meta.map((m, i) => (
+          {displayMeta(graph.meta).map((m, i) => (
             <span key={i} className="tabular text-caos-2xs text-caos-text font-mono border border-caos-border rounded px-1.5 py-1 bg-caos-bg">
               {m}
             </span>
