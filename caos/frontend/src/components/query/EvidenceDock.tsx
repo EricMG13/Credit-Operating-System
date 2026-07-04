@@ -299,8 +299,8 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
               className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
               style={{
                 color: node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                borderColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                backgroundColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
+                borderColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
+                backgroundColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
               }}
             >
               {node.confidence} confidence

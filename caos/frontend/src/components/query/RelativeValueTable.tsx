@@ -302,10 +302,8 @@ export function RelativeValueTable({
                             className="inline-block text-caos-3xs font-semibold px-1.5 py-0.5 rounded border leading-none"
                             style={{
                               color: n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                              borderColor:
-                                (n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                              backgroundColor:
-                                (n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
+                              borderColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
+                              backgroundColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
                             }}
                           >
                             {n.confidence}
