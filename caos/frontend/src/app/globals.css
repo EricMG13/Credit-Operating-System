@@ -381,6 +381,7 @@ button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; 
   body > *:not(.print-root) { display: none !important; }
   .print-root { display: block !important; }
   .print-root .rd-paper { width: 100%; box-shadow: none; padding: 0; }
+  .print-root .research-doc { max-width: none; box-shadow: none; padding: 0; }
   .rd-page-container { page-break-after: always; }
   .rd-page-container:last-child { page-break-after: avoid; }
   @page { size: letter; margin: 13mm 14mm; }
