@@ -21,6 +21,8 @@ export function synthesize(g: GraphResult): string {
   switch (g.capability_id) {
     case "analyst-memos": return memos(g);
     case "scatter": return scatter(g);
+    case "covenant-register": return covenantRegister(g);
+    case "sponsor-graph": return sponsorGraph(g);
   }
   switch (g.mode) {
     case "peers": return peers(g);
@@ -122,4 +124,39 @@ function scatter(g: GraphResult): string {
   const y = axis("y");
   if (!issuers || !x || !y) return fallback(g);
   return `${issuers} ${issuers === 1 ? "issuer" : "issuers"} positioned by ${x} × ${y}.`;
+}
+
+// Covenant register: issuers split by structure (maintenance vs cov-lite), read
+// off each issuer node's group. Cov-lite is the loan-market norm — the "so what"
+// is how many maintenance names run thin headroom (<1.0x), never a "largest
+// cluster" superlative (that would misread a register as sector concentration).
+function covenantRegister(g: GraphResult): string {
+  const issuers = g.nodes.filter((n) => n.kind === "issuer");
+  if (issuers.length === 0) return fallback(g);
+  const maint = issuers.filter((n) => n.group === "Maintenance covenant");
+  const covlite = issuers.filter((n) => n.group === "Cov-lite");
+  const thin = maint.filter((n) => n.flag).length;
+  const tail = thin ? `; ${thin} running thin headroom (<1.0x)` : "";
+  return `${issuers.length} ${issuers.length === 1 ? "issuer" : "issuers"} by covenant structure — ${maint.length} maintenance, ${covlite.length} cov-lite${tail}.`;
+}
+
+// Sponsor graph: issuers hung off sponsor hubs (kind "sector"). Name the sponsor
+// backing the most names only on a strict maximum >1 (a book of one-name sponsors
+// has no meaningful "largest").
+function sponsorGraph(g: GraphResult): string {
+  const sponsors = g.nodes.filter((n) => n.kind === "sector");
+  const issuers = g.nodes.filter((n) => n.kind === "issuer");
+  if (sponsors.length === 0 || issuers.length === 0) return fallback(g);
+  const sizes = new Map<string, number>(sponsors.map((s) => [s.id, 0]));
+  for (const e of g.edges) {
+    if (e.kind !== "member") continue;
+    const hub = sponsors.find((s) => s.id === e.source || s.id === e.target);
+    if (hub) sizes.set(hub.id, (sizes.get(hub.id) ?? 0) + 1);
+  }
+  const max = Math.max(...sizes.values());
+  const leaders = sponsors.filter((s) => (sizes.get(s.id) ?? 0) === max);
+  const lead = leaders.length === 1 && max > 1
+    ? `; ${stripCount(leaders[0].label)} backs the most (${max})`
+    : "";
+  return `${issuers.length} sponsor-owned ${issuers.length === 1 ? "issuer" : "issuers"} across ${sponsors.length} ${sponsors.length === 1 ? "sponsor" : "sponsors"}${lead}.`;
 }

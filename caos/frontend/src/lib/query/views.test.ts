@@ -27,6 +27,14 @@ describe("viewsFor", () => {
     expect(nativeView("conclusion-lineage", "provenance")).toBe("trace");
   });
 
+  it("the two register walks override their mode default", () => {
+    // Covenant register is a table (names × terms) first, not a bare hub graph.
+    expect(nativeView("covenant-register", "concentration")).toBe("rv");
+    // Sponsor graph rides provenance mode but is a hub topology — pinned to graph,
+    // never the empty "trace" (Lineage) columns the mode default would pick.
+    expect(nativeView("sponsor-graph", "provenance")).toBe("graph");
+  });
+
   it("the scatter capability is scatter-native (metric-encoded x/y)", () => {
     expect(viewsFor("scatter", "concentration")).toEqual(["scatter", "rv"]);
     expect(nativeView("scatter", "concentration")).toBe("scatter");
