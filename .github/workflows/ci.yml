@@ -106,6 +106,24 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
         run: python -m pytest caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q
 
+  lock:
+    name: Lock — requirements.lock in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      # requirements.txt is the loose spec; requirements.lock is what the prod image
+      # installs (pip install --require-hashes). Dependabot bumps only the .txt and the
+      # rest of CI installs from the .txt, so a bumped floor or an added dep can silently
+      # miss the lock and never reach prod (this shipped anthropic 0.112 vs a >=0.115.1
+      # floor, and google-genai absent entirely). Fails when the lock doesn't satisfy
+      # every requirements.txt spec. Deterministic — no regen/network (a regen+diff guard
+      # is not reproducible: pip-compile bakes the input path + Python version into it).
+      - run: pip install "packaging>=24"
+      - run: python caos/scripts/check_lock_sync.py
+
   e2e:
     name: E2E — Playwright
     runs-on: ubuntu-latest
