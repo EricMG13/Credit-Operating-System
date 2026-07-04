@@ -382,8 +382,9 @@ def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
     (1) when either created_at is null the tie stays with ``prev`` (first seen) — an
         iteration-order dependence a window ORDER BY must pin with a deterministic id
         tiebreak, and whose NULLS position differs SQLite(dev)↔Postgres(prod);
-    (2) this tiers run==fixture, unlike engine.querygraph._best_fact which tops only
-        'run' — the two collapses can pick different facts. See test_fact_collapse.py.
+    (2) this tiers run==fixture, and engine.querygraph._best_fact was unified onto the
+        same rule — the two collapses are pinned identical by test_fact_collapse.py's
+        test_both_collapses_agree_after_unification.
     """
     if prev is None:
         return True
@@ -391,6 +392,30 @@ def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
     if ft != pt:
         return ft > pt
     return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+
+
+def _provenance_caveats(label: str, provs: set) -> List[str]:
+    """Result-level honesty sentences for the ranked metric's provenance mix.
+
+    The seed/derived chain keeps the pre-existing wording. demo_fixture is
+    checked INDEPENDENTLY of that chain: fabricated figures (the ATLF fixture
+    persisted for a non-demo issuer on a keyless run, #10) must be called out
+    even when mixed with sourced values — the row-level badges alone read as
+    benign seed (SEAM2-1)."""
+    out: List[str] = []
+    if provs == {"seed"}:
+        out.append(f"{label} is illustrative seed data (no sourced value yet).")
+    elif "seed" in provs:
+        out.append(f"{label} is derived from filings for some issuers, illustrative seed for others.")
+    elif provs == {"derived"}:
+        out.append(f"{label} is derived from each issuer's filings (cited).")
+    if "demo_fixture" in provs:
+        out.append(
+            f"{label} for one or more issuers is fabricated Atlas Forge demo-fixture data "
+            "(served because no model key is configured) — NOT sourced from those issuers' "
+            "filings; treat as illustrative only."
+        )
+    return out
 
 
 async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
@@ -490,15 +515,9 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
          "higher_is_better": CATALOG_BY_KEY[m].higher_is_better}
         for m in spec.metrics
     ]
-    caveats = []
     provs = {r["metrics"].get(spec.rank_by, {}).get("provenance") for r in results}
     provs.discard(None)
-    if provs == {"seed"}:
-        caveats.append(f"{md.label} is illustrative seed data (no sourced value yet).")
-    elif "seed" in provs:
-        caveats.append(f"{md.label} is derived from filings for some issuers, illustrative seed for others.")
-    elif provs == {"derived"}:
-        caveats.append(f"{md.label} is derived from each issuer's filings (cited).")
+    caveats = _provenance_caveats(md.label, provs)
     # Reported (EDGAR GAAP) vs adjusted (covenant/modeled) EBITDA are not directly
     # comparable; warn when a leverage/EBITDA ranking mixes them across issuers.
     if spec.rank_by in {"net_leverage", "adj_ebitda"}:

@@ -63,3 +63,18 @@ def test_atlf_cp1c_benchmarks_against_peers(client):
     lev = next(c for c in ro["comparisons"] if c["metric"] == "net_leverage")
     assert lev["issuer_value"] == 5.68    # ATLF's own value is stable
     assert lev["peer_median"] is not None and isinstance(lev["percentile"], int)
+
+
+def test_peer_facts_exclude_fabricated_demo_fixture_rows(client):
+    # #10 / SEAM2-2: a keyless run on a NON-reference issuer persists the ATLF
+    # fixture numbers under provenance demo_fixture. Those fabricated rows must
+    # never enter another issuer's peer distribution — same industry or not.
+    ref = client.get(f"/api/issuers/{REFERENCE_ISSUER_ID}").json()
+    iid = client.post("/api/issuers", json={
+        "name": "Fabricated Peer Co", "industry": ref["industry"],
+    }).json()["id"]
+    wait_for_run(client, client.post("/api/runs", json={"issuer_id": iid}).json()["id"])
+
+    run = wait_for_run(client, client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID}).json()["id"])
+    ro = client.get(f"/api/runs/{run['id']}/modules/CP-1C").json()["runtime_output"]
+    assert iid not in {p["issuer_id"] for p in ro["peers"]}
