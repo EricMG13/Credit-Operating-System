@@ -18236,6 +18236,14 @@ export const PORTFOLIO: PortfolioRow[] = [
 
 export const EMAIL_TILES = { critical: 3, high: 11, medium: 27, low: 64, dedup: 19, unresolved: 2 };
 
+// Single source for the day's message total: the sum of the four SEVERITY tiles
+// (critical/high/medium/low). Deduped/unresolved are meta-tiles, not part of the
+// classified total. The sub-header "Msgs today" stat and the tile strip both read
+// this, so they can never diverge (the old header hard-coded 105 while accruing
+// tiles drifted to 117 — a credibility defect on an "audited numbers" brand).
+export const EMAIL_TOTAL =
+  EMAIL_TILES.critical + EMAIL_TILES.high + EMAIL_TILES.medium + EMAIL_TILES.low; // 105
+
 export interface EmailRow {
   t: string;
   src: string;
@@ -18314,6 +18322,19 @@ export const ALERTS: AlertRow[] = [
   { sev: "high", issuer: "NWCF", code: "MON-H-2222", text: "Crossholder group retains counsel (2 sources, deduped) — temporal layer T0 confirmed", route: "CP-MON" },
   { sev: "medium", issuer: "ATLF", code: "MON-H-2223", text: "Sponsor (Kestrel) closes Fund VI at $4.2B — support capacity flag updated in CP-2D", route: "CP-2D" },
 ];
+
+// Critical items in the ROUTED alert stream — distinct from EMAIL_TILES.critical
+// (which counts intake emails ≥ 90 mat.). The sub-header labels this "Critical
+// alerts" so the two "critical" figures on the surface read as different things.
+export const CRITICAL_ALERTS = ALERTS.filter((a) => a.sev === "critical").length; // 2
+
+// Feed issuers that exist in the issuer register and therefore resolve to a real
+// profile. The other six names in this seeded feed are illustrative only — an
+// accent link on them dead-ends in "Issuer not found" (worst on the two
+// CRITICALs), so the UI renders non-members as plain text instead of a link.
+// ponytail: static authored set for static authored data; swap for a directory
+// lookup if the feed ever carries live issuers.
+export const FEED_LINKABLE_ISSUERS: ReadonlySet<string> = new Set(["ATLF"]);
 
 // Demo-sim only: a synthetic "accrued today" count animated off the sim tick —
 // NOT real data. Single-sourced so Command + Monitor never diverge.

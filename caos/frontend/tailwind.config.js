@@ -51,6 +51,7 @@ module.exports = {
         "caos-xl": "12px", //   row
         "caos-2xl": "12px", //  row    (alias of xl)
         "caos-metric": ["16px", { lineHeight: "1.15" }],
+        "caos-metric-lg": ["18px", { lineHeight: "1.12" }], // severity-ramp rung between metric and hero (email tiles)
         "caos-hero": ["22px", { lineHeight: "1.1" }],
         // Display tier — the single focal "answer" on a surface (committee
         // verdict, anchor metric). ~3x body so one element genuinely commands

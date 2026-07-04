@@ -4,7 +4,9 @@
 // CP-X module data. Pure, no React.
 
 export const SEV_COLOR: Record<string, string> = {
-  critical: "var(--caos-critical)", high: "#fb7185", warning: "var(--caos-warning)",
+  // high = the sanctioned bright-critical token; the old hardcoded #fb7185 was
+  // an undocumented near-twin of --caos-critical-bright (#f87171).
+  critical: "var(--caos-critical)", high: "var(--caos-critical-bright)", warning: "var(--caos-warning)",
   medium: "var(--caos-warning)", ok: "var(--caos-success)", pass: "var(--caos-success)",
   low: "var(--caos-muted)", info: "var(--caos-accent)", running: "var(--caos-accent)",
   idle: "var(--caos-idle)", held: "var(--caos-warning)", blocked: "var(--caos-critical)",
