@@ -197,6 +197,30 @@ def test_recovery_preference_ranks_by_recovery():
     assert p.runtime_output["preference"][0]["recovery_pct"] == 100.0
 
 
+def test_recovery_pari_passu_first_lien_splits_equally():
+    # First-lien term loan and senior secured notes are pari-passu at rank 0: on a
+    # stack the distressed EV cannot fully cover (2*1500 = 3000 > EV 2105), both
+    # recover at the SAME rate, and the pari-passu assumption is disclosed.
+    p = _run(synthesize_recovery_preference(_retrieve(
+        "The first-lien term loan B is $1500 million.",
+        "The senior secured notes total $1500 million."), _cp1()))
+    _ok(p, "CP-3B")
+    by = {t["code"]: t for t in p.runtime_output["tranches"]}
+    assert by["1L"]["recovery_pct"] == by["SSN"]["recovery_pct"]   # pari-passu → equal rate
+    assert 0 < by["1L"]["recovery_pct"] < 100                       # partial: EV < total claims
+    assert any("pari-passu" in f for f in p.limitation_flags)
+
+
+def test_distressed_ev_none_on_nonpositive_ebitda():
+    # A non-positive EBITDA has no positive going-concern EV: degrade to None (seniority-
+    # only) rather than display a negative distressed EV that zeroes every recovery.
+    from engine.capstructure import _distressed_ev
+    neg = ModulePayload("CP-1", "", "canonical_financials",
+                        {"normalized_financials": {"adj_ebitda": {"LTM_Q1_26": -100.0}}})
+    assert _distressed_ev(neg) is None
+    assert _distressed_ev(_cp1(ebitda=100.0)) == 500.0  # 100 * 5.0x, sanity
+
+
 # ── debate integration ─────────────────────────────────────────────────────────
 
 def test_overlays_feed_the_ic_debate():
@@ -229,10 +253,13 @@ def test_capstructure_sizes_tranches_and_pct():
         "The first-lien term loan B is $800 million.",
         "The second-lien term loan is $200 million.")))
     _ok(p, "CP-3B")
-    assert p.runtime_output["total_debt_musd"] == 1200.0
+    # Funded debt EXCLUDES the RCF (undrawn revolver commitment is not funded debt):
+    # 800 (1L) + 200 (2L) = 1000, not 1200.
+    assert p.runtime_output["total_debt_musd"] == 1000.0
     by = {t["code"]: t for t in p.runtime_output["tranches"]}
     assert by["1L"]["amount_musd"] == 800.0
-    assert by["1L"]["pct_of_structure"] == round(100 * 800 / 1200, 1)
+    assert by["1L"]["pct_of_structure"] == round(100 * 800 / 1000, 1)  # 80.0
+    assert by["RCF"]["pct_of_structure"] is None  # commitment, not funded debt
 
 
 def test_sponsor_ledger_captures_quantum():
