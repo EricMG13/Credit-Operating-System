@@ -258,6 +258,13 @@ export function Sheet({
   let rowCounter = 0;
 
   return (
+    <>
+      {/* Visually-hidden live region: names the active cell as selection moves.
+          Lives OUTSIDE the grid — an un-roled div with global ARIA as a direct
+          grid child violates aria-required-children. */}
+      <div className="sr-only" aria-live="polite">
+        {selectionSummary ? `Selected ${selectionSummary}` : ""}
+      </div>
     <div
       tabIndex={0}
       role="grid"
@@ -266,22 +273,19 @@ export function Sheet({
       onKeyDown={handleKeyDown}
       className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring"
     >
-      {/* Visually-hidden live region: names the active cell as selection moves. */}
-      <div className="sr-only" aria-live="polite">
-        {selectionSummary ? `Selected ${selectionSummary}` : ""}
-      </div>
       <div style={{ width: "max-content", minWidth: "100%" }}>
         {/* group bar */}
-        <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
+        <div role="row" className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
           <div
+            role="presentation"
             className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
             style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
           />
-          <div className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
+          <div role="columnheader" className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
-            <div key={i} className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
               <div
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "color-mix(in srgb, var(--tranche-2l) 16%, transparent)", transition: "background 160ms" }}
@@ -294,18 +298,19 @@ export function Sheet({
           ))}
         </div>
         {/* period labels */}
-        <div className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
+        <div role="row" className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
           <div
+            role="presentation"
             className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
             style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
           />
-          <div className="sticky z-10 shrink-0 flex items-end justify-end pr-1.5 pb-0.5" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
+          <div role="columnheader" className="sticky z-10 shrink-0 flex items-end justify-end pr-1.5 pb-0.5" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
             {colDefs.some((c) => c.ctx.derived) ? (
               <span className="tabular text-[9px] leading-[10px] whitespace-nowrap select-none" style={{ color: "var(--caos-warning)" }}>* derived period</span>
             ) : null}
           </div>
           {colDefs.map((c, colIdx) => (
-            <div key={c.key} className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
+            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
               <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(colIdx)}</span>
               <span
                 className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
@@ -321,7 +326,9 @@ export function Sheet({
           if (row.sec) {
             rowCounter++;
             return (
-              <div key={"s" + ri} role="row" className="flex mt-1.5">
+              // Section dividers are visual banding, not data rows — presentation
+              // keeps them out of the grid's aria-required-children contract.
+              <div key={"s" + ri} role="presentation" className="flex mt-1.5">
                 <div
                   className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
                   style={{
@@ -377,6 +384,7 @@ export function Sheet({
               style={{ background: isHl ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}
             >
               <div
+                role="presentation"
                 className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
                 style={{
                   width: 24,
@@ -389,6 +397,7 @@ export function Sheet({
                 {rowIdx}
               </div>
               <div
+                role="rowheader"
                 className="sticky z-10 shrink-0 flex items-baseline gap-1.5 px-2"
                 style={{
                   left: 24,
@@ -421,6 +430,7 @@ export function Sheet({
         <div className="h-2"></div>
       </div>
     </div>
+    </>
   );
 }
 

@@ -125,14 +125,18 @@ export function buildScenarios(
   model: Model = buildModel(1),
   adjust?: Partial<Drivers>,
 ): ScenarioLens {
-  const f25 = model.cols.f25, l1 = model.cols.l1;
+  const f25 = model.cols.f25;
   const B = [model.cols.b0, model.cols.b1, model.cols.b2];
   const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
   const anchor: Anchor = {
     rev0: f25.rev,                          // BASE forecast grows off FY25
     totalDebt: avg(B.map((c) => c.tdebt)),  // forecast debt stack
-    cash0: l1.cash,                         // forecast cash rolls from the LTM close
+    // Forecast cash rolls from the *seeded* LTM close, recovered from the b0
+    // chain (b0.cash = seeded l1.cash + b0.ncf) rather than read off l1: on a
+    // live-anchored model l1.cash is re-based — NaN when live net debt exceeds
+    // the seeded stack — and must not leak into this seeded-basis lens (4.3).
+    cash0: B[0].cash - B[0].ncf,
     daPct: avg(B.map((c) => c.da / c.rev)), // = base-case D&A assumption
     leases: avg(B.map((c) => c.leases)),    // = base-case leases assumption
     taxRate: TAX_RATE,

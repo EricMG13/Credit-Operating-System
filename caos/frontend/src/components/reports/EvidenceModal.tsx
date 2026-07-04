@@ -38,7 +38,7 @@ export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => voi
       onBlur={() => setActive(null)}
       title={"Open source for " + id}
       aria-label={"Open source for " + id}
-      className="tabular text-caos-xs px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
+      className="tabular text-caos-xs inline-flex items-center justify-center min-w-6 min-h-6 px-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
       style={{
         color: open ? "var(--caos-warning)" : "var(--caos-accent)",
         borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--caos-accent) 40%, transparent)",

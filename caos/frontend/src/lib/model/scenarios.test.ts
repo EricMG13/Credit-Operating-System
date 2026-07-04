@@ -116,6 +116,19 @@ describe("lens follows the BASE forecast assumptions", () => {
   });
 });
 
+describe("live-anchored model (finding 4.3: anchored l1.cash must not seed the lens)", () => {
+  it("rolls forecast cash from the seeded LTM close even when the anchor degrades l1.cash", () => {
+    const seeded = buildModel(1);
+    // live net debt above the seeded 2,575 stack → back-solved cash degrades
+    const anchored = buildModel(1, {}, { ltmRevenue: 2850, ltmAdjEbitda: 450, netDebt: 3200, netLeverage: 7.1, intCov: 2 });
+    expect(Number.isFinite(anchored.cols.l1.cash)).toBe(false); // precondition
+    const p = buildScenarios(anchored).project(buildScenarios(anchored).base);
+    const q = buildScenarios(seeded).project(buildScenarios(seeded).base);
+    expect(p.cash).toEqual(q.cash); // identical seeded-basis roll-forward, no NaN/negative leak
+    expect(p.cash.every((x) => Number.isFinite(x))).toBe(true);
+  });
+});
+
 describe("scenario builder adjust re-centers base & downside", () => {
   const model = buildModel(1);
   const exitLev = (l: ReturnType<typeof buildScenarios>, k: "best" | "base" | "worst") =>

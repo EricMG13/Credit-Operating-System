@@ -19,9 +19,17 @@ def test_energy_spike_lowers_margin_raises_rate():
     assert s.rev_growth_delta == 0 and s.capex_delta == 0
 
 
+def test_input_cost_deflation_lifts_margin():
+    s = _demo_translate("raw material deflation lifts gross margin")
+    assert s.margin_delta > 0
+    assert s.rate_delta == 0
+
+
 def test_explicit_bps_rate_move_signed():
     assert _demo_translate("a rate hike of 200bps").rate_delta == pytest.approx(0.02)
     assert _demo_translate("150 bps rate cut").rate_delta == pytest.approx(-0.015)
+    assert _demo_translate("spreads tighten 75bps after refinancing clears").rate_delta == pytest.approx(-0.0075)
+    assert _demo_translate("base rate relief 100bps offsets flat demand").rate_delta == pytest.approx(-0.01)
 
 
 def test_recession_hits_growth_and_margin():
@@ -29,9 +37,26 @@ def test_recession_hits_growth_and_margin():
     assert s.rev_growth_delta < 0 and s.margin_delta < 0
 
 
+def test_recovery_demand_is_not_treated_as_recession():
+    s = _demo_translate("pricing improves and demand recovery accelerates")
+    assert s.rev_growth_delta > 0
+    assert s.margin_delta >= 0
+    assert "weaker demand" not in s.rationale
+
+
+def test_volume_recovery_with_pricing_power_is_upside():
+    s = _demo_translate("volume recovery with pricing power")
+    assert s.rev_growth_delta > 0
+    assert s.margin_delta > 0
+    assert s.rate_delta == 0
+    assert "input-cost inflation" not in s.rationale
+
+
 def test_margin_compression_and_capex():
     assert _demo_translate("margin compression from pricing pressure").margin_delta < 0
+    assert _demo_translate("margins compress 150bps").margin_delta == pytest.approx(-0.015)
     assert _demo_translate("a capex surge for growth investment").capex_delta > 0
+    assert _demo_translate("management cuts capex by 150bps to preserve liquidity").capex_delta == pytest.approx(-0.015)
 
 
 # ── Validation / clamping ────────────────────────────────────────────────────

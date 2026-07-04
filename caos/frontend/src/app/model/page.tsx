@@ -601,7 +601,7 @@ function ModelProvenance({ eng, model, allowSeededFallback }: { eng: ModelEngine
         }
       >
         {ties
-          ? <>✓ ties to CP-1 {cp1.toFixed(2)}x</>
+          ? <>✓ net lev ties CP-1 {cp1.toFixed(2)}x</>
           : shown == null
           ? <><StatusGlyph kind="warning" /> CP-1 {cp1.toFixed(2)}x · grid n/a</>
           : <><StatusGlyph kind="warning" /> grid {shown.toFixed(2)}x vs CP-1 {cp1.toFixed(2)}x</>}

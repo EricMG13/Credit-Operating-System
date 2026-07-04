@@ -67,15 +67,19 @@ _M = ["revenue", "adj_ebitda", "ebitda_margin", "gross_margin",
       "net_leverage", "interest_coverage", "fcf_conversion", "energy_cost_pct"]
 _UNIT = {"revenue": "$M", "adj_ebitda": "$M", "ebitda_margin": "%", "gross_margin": "%",
          "net_leverage": "x", "interest_coverage": "x", "fcf_conversion": "%", "energy_cost_pct": "%"}
+# fcf_conversion is FCF as a % of adj. EBITDA (see engine/metrics.py), so it
+# must clear 1 - (interest + capex + tax)/EBITDA. Interest alone is
+# 1/interest_coverage of EBITDA, so a 2.1x-coverage name cannot convert 40%+
+# once capex and tax land; capex-heavy narratives (Meridian FTTH) sit lowest.
 SEED_METRICS = {
     "11111111-1111-1111-1111-111111111111":  # Acme (Technology)
         [1850, 555, 30.0, 62.0, 2.3, 8.5, 68, 4.0],
     "22222222-2222-2222-2222-222222222222":  # Meridian Telecom
-        [4200, 1680, 40.0, 55.0, 5.1, 3.2, 52, 7.0],
+        [4200, 1680, 40.0, 55.0, 5.1, 3.2, 12, 7.0],
     "33333333-3333-3333-3333-333333333333":  # Aurora Chemicals — energy-intensive
-        [3100, 527, 17.0, 24.0, 4.4, 3.8, 38, 28.0],
+        [3100, 527, 17.0, 24.0, 4.4, 3.8, 30, 28.0],
     REFERENCE_ISSUER_ID:                       # Atlas Forge (Industrials)
-        [2801, 421, 15.0, 26.5, 5.68, 2.1, 41, 12.0],
+        [2801, 421, 15.0, 26.5, 5.68, 2.1, 20, 12.0],
 }
 
 

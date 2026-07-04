@@ -47,13 +47,14 @@ test.describe("Deep Research", () => {
     await page.route("**/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "job-1", status: "running" } }),
     );
-    // Poll-again coverage: the first GET reports `running` (client must loop), the
-    // second reports `complete` — exercises the central durable-poll behavior.
+    // Poll-again coverage: the first GET reports `running` with live progress
+    // (client must render it + loop), the second reports `complete` — exercises
+    // the central durable-poll behavior.
     let polls = 0;
     await page.route("**/api/research/*", (route) => {
       polls += 1;
       if (polls < 2) {
-        route.fulfill({ json: { id: "job-1", status: "running" } });
+        route.fulfill({ json: { id: "job-1", status: "running", progress: { sources: 2, searches: 3 } } });
         return;
       }
       route.fulfill({
@@ -74,12 +75,20 @@ test.describe("Deep Research", () => {
     await expect(run).toBeEnabled();
     await run.click();
 
+    await expect(page.getByText("2", { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("sources", { exact: true })).toBeVisible();
+    await expect(page.getByText("3", { exact: true })).toBeVisible();
+    await expect(page.getByText("searches", { exact: true })).toBeVisible();
     await expect(page.getByText("DEMO", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible({
       timeout: 15000,
     });
-    // Cited sources render in the footer.
-    await expect(page.getByText("Sources (1)")).toBeVisible({ timeout: 15000 });
+    // Cited sources render in the footer. Scope to the on-screen sheet: EXPORT
+    // PDF mounts a duplicate .print-root portal copy (display:none off-print), so
+    // an unscoped getByText("Sources (1)") matches 2 elements (strict-mode fail).
+    await expect(
+      page.locator(".research-paper-shell").getByText("Sources (1)"),
+    ).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("link", { name: "Example credit filing" })).toBeVisible({
       timeout: 15000,
     });
