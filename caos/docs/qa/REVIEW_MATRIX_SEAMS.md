@@ -18,7 +18,7 @@ listed on agent authority alone.
 | Seam | Scope | Status | New findings | Verified | Notes |
 |---|---|---|---|---|---|
 | SEAM-1 API contract parity | `lib/api.ts` (+ stray fetches) vs `server/routes/*`; 42/42 tracker claim | **audited** | 2 (1 HIGH, 1 MED) | yes (inline re-verify) | Shape parity is otherwise excellent — 20+ endpoint pairs field-checked clean. The HIGH is a third `/api/query/nl` response mode the frontend cannot represent. 42/42 is stale on both axes. |
-| SEAM-2 mock-vs-live honesty | every seeded-mock surface; ATLF-fabrication guard | **audited** | 2 (2 MED) | yes (inline, self-adversarial) | Guard HOLDS server-side (3 layers, 3 dedicated tests). Gaps are downstream: query-lane + peer-benchmark consumption of `demo_fixture`. 3 known honesty HIGHs (FE 4.2/4.3/8.2) re-confirmed still open on this tree. |
+| SEAM-2 mock-vs-live honesty | every seeded-mock surface; ATLF-fabrication guard | **audited** | 2 (2 MED) | yes (inline, self-adversarial) | Guard HOLDS server-side (3 layers, 3 dedicated tests). Gaps are downstream: query-lane + peer-benchmark consumption of `demo_fixture`. Known honesty HIGHs FE 4.2/4.3 still open; **FE 8.2 FIXED+guarded 2026-07-04** (see SEAM-2 note — `report-provenance.test.tsx`). |
 | SEAM-3 error-surface parity | backend error/404/422 shapes vs frontend error surfaces | **audited** | 10 (2 MED, 8 LOW) | yes (inline re-verify) | Systemic pattern: the 422 list-shaped `detail` is handled correctly at 3 sites and crashes/garbles at the rest; plus a family of silent catches that render failure as empty/stale/mock. |
 | SEAM-4 auth seam | edge proxy → signed cookie → analyst_id stamping; frontend session | **audited** | 5 (1 MED, 4 LOW) | yes (inline re-verify) | Server chain battle-hardened (BE-7 confirmed again). The seam defect is client-side: mid-session identity loss is invisible to the frontend. Register SSO-bind question CLOSED for the reference deploy. Roles-lite: not implemented (matches DECIDED-not-built plan). |
 
@@ -200,9 +200,15 @@ modal-a11y) did not cover these:
   `c.cash = c.tdebt − a.netDebt` (`:205`) still goes negative for high-net-debt
   live issuers. The anchor's real reported `intCov`
   (`lib/engine/modelAnchor.ts:63`) still has zero consumers.
-- **FE 8.2 (HIGH)** — `ReportPane.tsx:157-186` live Deep Research tear-sheet
-  still exports with no AI-provenance marker (footer = "CAOS · Credit Agent OS"
-  + source count; only the demo branch says "Illustrative · demo").
+- **FE 8.2 (HIGH) → FIXED 2026-07-04** (reconciled during the E2E sweep, iter-6/7).
+  The live Deep Research tear-sheet **now carries the AI-provenance marker**:
+  `ReportPane.tsx:189-191` emits, on the non-demo branch, `"AI-synthesized · N
+  sources — verify against cited sources"` on the panel badge, the on-screen
+  footer, and the body-level `.print-root` (so the exported PDF carries it);
+  demo keeps "Illustrative · demo". Guarded by a dedicated regression,
+  `report-provenance.test.tsx` (live-marker on badge+document+print-root; demo
+  stays illustrative). The earlier "still exports with no marker" note was stale
+  (`ReportPane.tsx` was WIP-modified after the SEAM-2 audit).
 - Low residue unchanged: FE-3 IssuerChat ATLF starter questions on live path;
   FE 7.11 silent truncations.
 
@@ -341,11 +347,11 @@ NODE_PATH=node_modules npx playwright test <spec>` from `caos/frontend`. User's
 |---|---|---|---|---|
 | 1 | bootstrap: upload → pipeline → run | `upload_flow.spec.ts` | **partial** — stops at pre-upload wizard step | **DONE** (iter-1) |
 | 2 | deep-dive evidence-sync walk | — (unit only) | **none (E2E)** — jsdom unit test of the sync mechanism exists | **DONE** (iter-2) |
-| 3 | model scenario walk | — | **none** | PENDING |
-| 4 | query walk → committee exhibit | — | **none** | PENDING |
-| 5 | report generation | — | **none** | PENDING |
-| 6 | research flow | `research_flow.spec.ts` | good (form + scope toggle + stubbed run→report/sources) | PENDING |
-| 7 | settings / login | `settings_flow.spec.ts` + `global-setup.ts` | good (workspace mirror + localStorage defaults + login) | PENDING |
+| 3 | model scenario walk | — (unit/server only) | **none (E2E)** — rich jsdom unit + pytest server round-trip exist | **DONE** (iter-3) |
+| 4 | query walk → committee exhibit | — (unit only) | **none (E2E)** — pure-fn units + SEAM1-1 jsdom guard exist; no render/E2E | **DONE** (iter-4) |
+| 5 | report generation | — (unit only) | **none (E2E)** — builder/model units + EvidenceModal; tear-sheet never rendered | **DONE** (iter-5) |
+| 6 | research flow | `research_flow.spec.ts` | good render coverage; run test **stubs** the backend | **DONE** (iter-6) — 3/3 pass |
+| 7 | settings / login | `settings_flow.spec.ts` + `global-setup.ts` | Workspace+Research tabs; **login is API-only** (no UI walk) | **DONE** (iter-7) — 2/3 pass |
 
 ### Journey 1 — bootstrap: upload → pipeline → run (iter-1, 2026-07-04)
 
@@ -395,6 +401,274 @@ primitive check but stops at one chip in a bare provider. The journey needs (1) 
 `/deepdive` smoke asserting the three panes render, (2) a real cross-pane sync
 assertion (chip in one pane → ring on the matching chip/driver in another), and (3)
 a keyboard leg (`Tab`/focus → same sync + visible ring) to cover the a11y mandate.
+
+### Journey 3 — model scenario walk (iter-3, 2026-07-04, Workflow: 11 agents)
+
+**Method (ultracode).** Map ×3 (walk UX · existing coverage · backend path) +
+live probe @ :8010 → synth → adversarial verify (one skeptic per finding,
+default-to-refute, right-size per the house rule). The synth's lone HIGH was
+**downgraded to MED** on verification — the load-bearing failure path it called
+"nothing catches it" is in fact unit- and server-tested. **No E2E spec.** But
+this is the most-tested-in-pieces journey: jsdom unit (`ScenarioPanel`,
+`model-save`, `cell-style`, `model-format`, `formulabar-lineage`, `scenarios`,
+`modelAnchor`, `reports/model`) + pytest server round-trip
+(`test_saved_models.py`, `test_scenario.py`, `test_compute_pathways_contract.py`)
+— none stitched into one browser flow.
+
+**Live probe @ :8010 (proves the walk works offline/keyless):** `GET /model/` →
+200; `POST /api/scenario/nl {"revenue growth down 5 points…"}` → 200 deterministic
+`ScenarioSpec` (heuristic parse, **no LLM key**); non-driver text → 422
+committee-grade "no recognizable driver movement"; `PUT /api/models/{real-id}`
+then `GET` → **identical payload** (full save/load round-trip confirmed, stamped
+`analyst_id=local-dev`); `PUT /api/models/{unknown}` → 404 "Issuer not found".
+
+| id | sev | file:line | defect + evidence (post-verify) |
+|---|---|---|---|
+| E2E-3a | MED (coverage) | no `model_flow.spec.ts`; `playwright.config.ts:6` testDir holds only research/settings/upload | `/model` has **zero browser E2E** — the full open → live-CP-1-anchor-renders → override → NL-scenario → SAVE → reload → restore round-trip is never driven end-to-end. **Downgraded from HIGH:** the load-bearing SAVE-failure contract *is* unit-tested (`model-save.test.tsx` asserts the `role=alert` SAVE FAILED), the server round-trip *is* pinned (`test_saved_models.py`) and live-probe-confirmed on :8010, and the scenario/override math *is* unit-tested (`scenarios.test.ts`) — the seams exist in pieces, just never stitched in a real browser. Harness (globalSetup/storageState) already present → a spec slots in with no new infra. |
+| E2E-3b | MED (honesty coverage) | `app/model/page.tsx:540-611` (`ModelProvenance`) | The CP-1 **tie-out reconciliation badge** ("CP-1 LIVE · RUN" vs "SEEDED" vs "NO MODEL OUTPUT"; "✓ ties to CP-1 Xx" when drift ≤ 0.05 vs "grid Xx vs CP-1 Xx" warning, `:571-609`) is never **rendered** by any test. `model-save.test.tsx` — the only test that mounts `ModelPage` — hard-mocks `useModelEngine → anchor:null` (`:18`), so only the SEEDED branch runs; the live-anchor tie-out (`:566-609`) never renders. The tie-out *math* (`cp1ToAnchor`/`buildModel`) is unit-tested; the drift→badge mapping — the honesty guard against a fabricated "ties" claim on a different net-debt basis — is not. |
+| E2E-3c | MED (coverage) | `page.tsx:253-271` (success) + `:399-409` (dirty/saved) — only SAVE FAILED asserted (`model-save.test.tsx:32-40`) | SAVE **success** + the dirty→clean state machine are untested: nothing asserts `PUT /api/models/{id}` succeeds, `savedAt` re-baselines (`:265-267`), "SAVED <time>" renders, "● UNSAVED" appears after an edit, or the client re-hydration effect (`:134-145`) restoring overrides/assumptions/collapsedRows from `getSavedModel`. The failure path is pinned; the load-bearing success/restore half — which **Report Studio reads exclusively** — is the untested one. |
+| E2E-3d | LOW (coverage) | `components/model/ScenarioPanel.tsx:42-92` (`DownsideFragility`), wired `page.tsx:488` | **Downgraded from MED:** the NL→scenario wire *is* tested server-side (`test_scenario.py` hits `POST /api/scenario/nl` 200/422) and the panel error path *is* tested (`ScenarioPanel.test.tsx:99-111`); `cp2bToDownside` is unit-tested on live-shaped/NaN payloads. Only genuine gap: no test renders `<ScenarioPanel downside={…}>`, so the CP-2B **DownsideFragility** readout (the "separate panel, not grid DOWN columns" surface per project memory) never renders — but it's pure presentational JSX over already-validated scalars. |
+| E2E-3e | LOW (coverage) | `ModelSheet.tsx:40,220-264` + `page.tsx:233-250,443-451` | Grid **interaction** is unit-only: no test renders the Sheet (`role=grid` "Model worksheet") to drive cell-select→FormulaBar, double-click→override→`commitEdit`→"MANUAL OVERRIDE" badge/RESET CELL, the cell-flash, or the inline "…is not a valid number — override discarded" `role=alert`. Helpers (`cell-style`/`model-format`) are pure-unit tested; overrides persist to **localStorage only** (no server state) → contained blast radius. |
+| E2E-3f | LOW (coverage) | `AssumptionsPanel.tsx:76-154,249-282` + `page.tsx:360-386` | `AssumptionsPanel` is never rendered/driven: the driver Cell type/drag-scrub edit, Base/Downside case tab, ALL-broadcast vs year-pin, `scrubHighlight` flash, per-case reset, the two-click **arm-confirm** override RESET, and EXPORT MODEL CSV are all untested at the UI layer. Driver *math* is unit-tested (`model.test.ts`); localStorage-only, secondary interactions → LOW. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** widest E2E gap relative to
+risk, yet every load-bearing failure path is unit/server-pinned and the live probe
+proves every endpoint keyless/deterministic offline. Recommend **one** deterministic
+`model_flow.spec.ts`: open → live-anchor-renders → override → NL-scenario → SAVE →
+reload → restore, asserting the tie-out badge (3b) and SAVED/UNSAVED/SAVE-FAILED
+(3c). Closes the recurring "demo/golden-shaped tests bless live seams" pattern noted
+in project memory. Net: **3 MED, 3 LOW** (0 HIGH survived verification).
+
+### Journey 4 — query walk → committee exhibit (iter-4, 2026-07-04, Workflow: 11 agents)
+
+**Method (ultracode).** Map ×3 (walk UX · coverage · backend) + live probe @ :8010
+→ synth → adversarial verify. The walk has **three entry surfaces**: (A) the
+`/query` concept route (`app/query/page.tsx`, 833-line orchestrator), (B) the
+Command-Center "Ask" NlQuery panel (`components/command/NlQuery.tsx`), (C) the ⌘K
+`AskModal` (`components/shared/Ask.tsx`, reuses A's graph engine). **No Playwright
+E2E** and **no render-level test** of any of the three; only the pure query
+functions are unit-tested (`routing`/`views`/`synthesis`/`viz`/`export`/`format`/
+`questions`) plus the SEAM1-1 jsdom guard.
+
+**The synth flagged 2 HIGHs; adversarial verify DOWNGRADED both to LOW** — the
+house rule earned its keep here:
+- The SEAM1-1 synthesis-crash (real fixed HIGH, `06bc6439`) was **mislocated**. It
+  lives only on surface **B** (`NlQuery.tsx` `SemanticView`, over `/api/query/nl`);
+  `/query` (A) and `AskModal` (C) render a *different* API's payload
+  (`queryGraph → GraphResult`) and never touch `nlQuery`/`SynthesisResult` (grep
+  0 hits). And B's crash class **is** guarded at the exact layer the bug lived —
+  `NlQuery.test.tsx:131` renders the columns-less `mode:"synthesis"` fixture and
+  asserts no-throw + no chart. Backend `validate_synthesis` guards the other end.
+  So SEAM1-1 is guarded backend + at the render-logic layer; only a browser E2E is
+  missing = defense-in-depth, not an open regression class.
+
+**Live probe @ :8010 (walk works offline):** `/query`+`/command` → 200; structured
+`POST /api/query/nl` → ranked payload; **synthesis-word** question ("show the QA
+findings…") → backend returns `mode:"synthesis"` (crash class reachable, render
+survives); `POST /api/query/route` (keyless) → `{candidates:[],source:"keyword"}`
+(the deterministic degrade path fires as designed); `GET /api/query/graph` → node-link.
+
+| id | sev | file:line | defect + evidence (post-verify) |
+|---|---|---|---|
+| E2E-4c | MED (coverage) | `app/query/page.tsx:217` (`acceptLink`) → `EvidenceDock.tsx:150` (ACCEPT) / `:161` (UNDO) | The **only state-mutating step** in the whole Query walk — analyst ratify (`acceptQueryLink` POST `/api/query/links`, stamps `analyst_id`) and its ACCEPT → "✓ accepted" → UNDO (`retractQueryLink` DELETE) transition, plus `refreshGraph` solid-redraw — has **no UI/E2E test**. Backend round-trip *is* pytest-covered (`test_query_accepted_links.py`), but nothing verifies the UI issues the write, flips `acceptedPairs`, or redraws. MED: sole analyst-attributed mutation on the walk, but a single low-traffic action with a guarded server contract. |
+| E2E-4a | LOW (coverage) | `app/query/page.tsx` (833-line orchestrator; `find app/query -name '*.test.*'` = empty) | The `/query` orchestrator has zero render/component/E2E coverage — auto-run, `queryRoute` LLM→keyword degrade, `queryGraph` fetch, synthesize-before-pixels (`:582`), the `role="tablist"` roving-arrow view switch (`:626`), EvidenceDock — all verified only as isolated pure functions. **Downgraded from HIGH:** the SEAM1-1 crash it cited is on a *different* surface (B) and already guarded; `/query` degrades rather than crashes on an unknown mode (`views.ts:41` default `["graph","rv"]`, `synthesis.ts:30` `default: fallback` + empty-nodes guard `:17`, both unit-tested), and any residual canvas-shape risk is contained by the route error boundary. Secondary concept surface → LOW render-coverage debt. |
+| E2E-4b | LOW (regression-guard) | `components/command/NlQuery.test.tsx:131` (the one SEAM1-1 guard) | SEAM1-1 is guarded by exactly one jsdom test rendering only the NlQuery panel (mocks `@/lib/api`, stubs `G2Chart`). **Downgraded from HIGH:** the bug was a render-logic `TypeError` *upstream* of the chart, so the stubs are irrelevant to it — the guard sits at the layer that matters, backed by backend `validate_synthesis`. The crash class exists on exactly one surface and that surface's synthesis branch is covered. Only the browser layer is missing → LOW defense-in-depth, not "unguarded at every layer". |
+| E2E-4d | LOW (coverage) | `components/query/QueryPrintSheet.tsx:10,233` | The committee exhibit itself (portaled `.print-root` tear-sheet, masthead "CAOS · QUERY · committee exhibit", synthesis-before-pixels, Exhibit SVG, Answer table) has no render test, and `downloadQueryCsv`/`window.print` wiring is unexercised. **Downgraded from MED:** the load-bearing "model overlay never leaks into the printed exhibit/CSV" invariant is enforced **by construction** (print/CSV consume only `GraphResult`; overlay lives in a separate `OverlayResult` state never merged; a leak would need a type change TS catches) — not runtime logic a test guards; and `graphToCsv` (the only real logic: injection-escaping + non-finite) is already unit-tested (`export.test.ts`). Presentational print leaf → LOW. |
+| E2E-4e | LOW (coverage) | `components/shared/Ask.tsx` (no `Ask.test.*`); CSV/PDF `:464/:470` | The ⌘K/Alt+K `AskModal` (`role="dialog"` "Ask with Query") has no test. It reuses A's graph engine (`queryCapabilities`+`queryGraph`) and export, so its crash risk overlaps E2E-4a and it has no unique mutation; its primitives (`rankQueryCapabilities`, `graphToCsv`) are unit-tested. LOW. |
+| E2E-4f | LOW (coverage) | `lib/query/routing.test.ts` (2 assertions); `routing.ts` consumed `page.tsx:359` | The deterministic keyword router `rankQueryCapabilities` — the degrade target when the LLM route lane returns empty/503/keyless (proven live: `route → {candidates:[],source:"keyword"}`) — is covered by only 2 unit assertions (notes→memos, threshold→scatter). The rest of the ~40-keyword routing space (peer-set, contagion, trace-source, distribution, tie-breaks, no-match "!" fallback, and a genuine untested "coverage"→scatter-vs-completeness ambiguity) is unverified, and no test wires routing→views→synthesis as the real control flow does. Pure-function gap on a backend-proven degrade path → LOW. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the Query walk's *pure
+logic* is well unit-tested and the one real past crash (SEAM1-1) is guarded at the
+layer it lived; what's entirely missing is **render/browser** coverage of all three
+entry surfaces. The single highest-value add is one `query_flow.spec.ts` that drives
+`/query` → route a cross-issuer question → synthesis-before-pixels renders → **ratify
+a link** (E2E-4c, the sole mutation) → export CSV / print exhibit, plus a browser
+assertion that a synthesis-word question in the Ask panel renders without throwing
+(cheap SEAM1-1 defense-in-depth). Net: **1 MED, 5 LOW** (0 HIGH survived
+verification — both synth HIGHs refuted on the SEAM1-1 mislocation).
+
+### Journey 5 — report generation / Report Studio (iter-5, 2026-07-04, Workflow: 9 agents)
+
+**Method (ultracode).** Map ×3 (walk UX · coverage · vault/committee-gate backend) +
+live probe @ :8010 → synth → adversarial verify. **No Playwright E2E** and the
+tear-sheet render surface (`ReportDoc.tsx` + `panels.tsx`) is **never rendered** by
+any test — only builder pure-functions (`builders.test.ts`/`model.test.ts`) and
+`EvidenceModal` are covered.
+
+**Framing that caps everything at MED:** Report Studio builds tear-sheets only for
+the **seeded ATLF reference fixture** — `reports/page.tsx:88-91` gates
+`buildReports` on `isReference`; a real issuer gets `reports=[]` + a "No
+issuer-specific report output" empty state. So **no wrong committee output ships
+today**; every seam below is *latent*, arming the moment CP-RENDER wires live
+payloads. Also notable: `ExportToVaultButton` **never mounts on `/reports`** —
+`ExportPanel` is rendered without a `runId` prop (`page.tsx:379`) and the button is
+runId-gated (`panels.tsx:260`), so the only live vault-export mount is Deep-Dive.
+
+| id | sev | file:line | defect + evidence (post-verify) |
+|---|---|---|---|
+| E2E-5d | MED (honesty coverage) | `lib/reports/model.ts:195-207` (`applyAnchor`) + `:147-158` (`deriveCreditKpis`); gap at `model.test.ts:97-137` | **FE 4.3 mongrel-KPI seam guarded at NEITHER layer.** `applyAnchor` re-bases `rev/adj/ndebt/cash` from the live CP-1 anchor but **never re-bases `c.int`** (interest stays the seeded ATLF fixture value); `deriveCreditKpis` then computes `intcov = adj / int` — a **live-EBITDA numerator over a fixture-interest denominator**, surfacing on the tear-sheet as "Interest Cover" (`builders.ts:126`) and cap-structure "PF interest" (`builders.ts:237`). The one cross-source KPI the seam is about is **verified nowhere**: `model.test.ts:97-137` asserts `rev/adj/ndebt/netlev` under a live anchor but **never `intcov`** (the anchor fixture even carries `intCov:2.0`, unused), and no test renders `ReportDoc` with an anchor. Latent (isReference-gated) → MED; already KNOWN-open (FE matrix 4.3/10.3). Becomes a wrong-committee-output HIGH the instant live rendering is wired — exactly when the guard is needed. |
+| E2E-5a | MED (coverage) | `components/reports/ReportDoc.tsx:257` + `panels.tsx` (ReportList/ComposePanel/LineagePanel/ExportPanel) | The central deliverable of the journey — the committee tear-sheet render — has **zero render-layer or E2E coverage**. No test imports `ReportDoc`/`reports/panels` (grep 0). Untested: ReportList HELD/READY `StatusTag`, the CP-5 conditional watermark on the IC memo, `ComposePanel` omit/print parity, contentEditable analyst-edit persistence, zoom/paper chrome, `PrintPortal window.print()`. MED not HIGH: fixture-only surface today, so nothing wrong ships; but it's the load-bearing deliverable → not LOW. |
+| E2E-5c | LOW (regression-guard) | `lib/api.ts:268` (`exportReport`, zero call sites) vs `server/routes/runs.py:346-358` (409 dict) | The committee-export CP-5 gate has **no UI consumer and no 409-dict handler** (`exportReport` never called; grep `blocking_findings` in FE = 0; SEAM3-10). **Downgraded from MED:** the gate itself is **well-tested server-side** — `test_engine.py:311-315` unit-tests `committee_export_allowed` for all 4 statuses and `:335-341` HTTP-tests the Restricted **409 with a non-empty MATERIAL `blocking_findings[]`**. The governance seam with teeth is guarded; what's missing is only a browser guard for a UI consumer that doesn't exist yet. Already tracked as SEAM3-10 "LOW (latent)". → LOW. |
+| E2E-5b | LOW (coverage) | `components/reports/ExportToVaultButton.tsx:22`; `server/routes/runs.py:365` (vault) / `:319` (report 200) | Thin HTTP wrappers + FE button chrome untested: `ExportToVaultButton` has no test at any layer (busy/done/error + the 503 "not configured" branch — the only one reachable on :8010, `VAULT_EXPORT_DIR` unset) **and never mounts on `/reports`** (runId-gated → Deep-Dive only). Server: `test_vault_export.py` covers the `export_run` helpers + auto-export hook but **not** the `POST /{id}/vault` HTTP wrapper (503/404/500/429/shape), and `/report`'s Committee-Ready **200** assembled body is not HTTP-asserted (only the Restricted 409 is). Write logic + gate predicate are backend-unit-covered → LOW. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the Report Studio walk is
+safe today *only because it renders a fixture* — the render surface, the mongrel-KPI
+honesty seam, and both export mutations are all untested at the render/browser layer
+and all activate together when CP-RENDER builds live payloads. The single
+highest-value guard is a render/E2E test that drives `buildReports({anchor})` for a
+**live** shape and asserts `intcov` is either re-based or suppressed (E2E-5d) — that
+one assertion closes the sharpest honesty gap before it can ship. Net: **2 MED,
+2 LOW** (0 HIGH — one synth MED downgraded; the CP-5 gate is server-guarded).
+
+### Journey 6 — research flow (iter-6, 2026-07-04, spec RUN)
+
+**Ran** `research_flow.spec.ts` @ :8010 → **3/3 pass** (3.8s): brief-form-empty-report,
+scope-toggle (sector↔issuer), and running-research-renders-report+sources. This is
+the **best-covered** journey — the render pipeline and the durable-poll *loop*
+(running→complete transition) are genuinely exercised. Gap-analysis nonetheless
+finds three holes, two of them on **known-open seams that live on exactly this flow**.
+
+| id | sev | file:line | defect + evidence |
+|---|---|---|---|
+| E2E-6a | MED (coverage) | `research_flow.spec.ts:47-69` (`page.route` stubs both POST + poll) | The one run test **stubs `/api/research` at the network boundary** (POST → `201 {status:running}`, first GET → `running`, second → `complete` with a canned report/sources). So it verifies the frontend's render + poll-loop, but the **real durable async lane is never exercised E2E**: POST persists a job → `research_executor` runs the offline/demo path → the client polls the **real** GET to completion → boot-sweep of orphaned jobs. This is the app's most complex async governance lane and it *is* testable offline (demo executor, no key — the UI even relabels to "Run example research"), yet no test drives the real job lifecycle. |
+| E2E-6b | MED (regression-guard / known-open) | `app/research/page.tsx:41,45,46` (subject/focus/exclusions — **`maxLength` count = 0**) | **SEAM3-1 lives on this exact flow and is still open here.** The brief inputs have **no client `maxLength`** (grep-confirmed 0), so a 300+char subject → server 422 whose `detail` is a **list of objects** → truthy, bypasses the `|| message` fallback → set into string-typed state → React "Objects are not valid as a React child" → route/global error boundary (the toast variant crashes inside the root-layout `NotificationProvider`). The passing spec only ever types short subjects, so **nothing guards this crash**. Tracked as SEAM3-1 (owned by chip `task_762cc182`); this records that even the well-covered journey has no E2E for its known crash input. |
+| E2E-6c | LOW (honesty guard + reconciliation) | `components/research/ReportPane.tsx:189-191` (non-demo branch) vs `research_flow.spec.ts:65` (`demo:true`) | **Reconciliation:** FE 8.2 (matrix-8.2 AI-provenance marker) **appears FIXED in-tree** — `ReportPane.tsx:189-191` now emits, on the **live** (non-demo) branch, `"AI-synthesized · N sources — verify against cited sources"` (and `:285`), so the live tear-sheet *does* carry the marker. The SEAM-2 rollup still lists FE 8.2 as an open HIGH — **stale on this tree** (`ReportPane.tsx` is user-WIP-modified; matrix lags code). **Gap:** the run test stubs `demo:true`, exercising only the "Illustrative · demo" branch, so **no E2E asserts the live "AI-synthesized" marker survives** — the committee-defensibility invariant is unguarded even though the code now satisfies it. Also unguarded: the failed-job / "Lost contact with the research backend" 10-poll transport path (SEAM3-4). |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the research spec is the
+strongest in the suite (real render + poll-loop), but it stubs the backend and walks
+only the happy path — so the real durable job lifecycle, the SEAM3-1 over-long-input
+crash, and the live AI-provenance marker are all unguarded. Highest-value adds: (1)
+one un-stubbed "Run example research" E2E against the offline demo executor (real
+job → real poll → report), and (2) a maxLength/422-input assertion. **Reconciliation
+worth acting on:** FE 8.2 looks fixed in-tree — verify and update the SEAM-2 rollup.
+Net: **2 MED, 1 LOW** + 1 reconciliation (FE 8.2 likely closable).
+
+### Journey 7 — settings / login (iter-7, 2026-07-04, spec RUN)
+
+**Ran** `settings_flow.spec.ts` @ :8010 → **2 passed, 1 failed** (12.4s). Passing:
+workspace-config-mirror, research-defaults-persist-to-localStorage. The login leg is
+covered by `global-setup.ts` — but via **API** (`POST /api/auth/profile`), not the UI.
+
+| id | sev | file:line | defect + evidence |
+|---|---|---|---|
+| E2E-7b | MED (coverage) | `global-setup.ts:18-20` (API login); no `LoginLanding` UI test | The **login UI is never exercised E2E**. `global-setup` authenticates by POSTing `/api/auth/profile` and stashing the cookie in `storageState`, so every spec starts pre-authed — the actual `LoginLanding` form (enter access code + name → submit → land signed-in), the **wrong-code error**, and the **429 login rate-limit** have zero browser coverage. Login is the gate to the whole app and the one "spec exists" journey where the spec is really an API shortcut, not a UI walk. (SEAM4-1 mid-session identity loss + the non-SSO 401→needsLogin mapping are also unguarded, but harder to drive E2E.) |
+| E2E-7a | LOW (flaky spec) | `settings_flow.spec.ts:46-55` vs `app/research/page.tsx:230-244` (`{adv && …}`) | Test "saved defaults seed a new Research brief" is **RED**: `getByLabel('Audience')` finds **no element** on `/research` because the Audience field now sits inside the collapsed **"Advanced brief"** disclosure (`adv` defaults false) — the test navigates to `/research` and asserts without clicking "Advanced brief". **Not a live bug:** the value *is* seeded into state (`setAudience(p.audience)`, `research/page.tsx:65`) and test 2's localStorage-persistence (always-visible Settings field) passed. Stale spec after a UI reorg; fix = expand the disclosure before asserting. Caveat: served static export is 2026-07-02, spec 2026-07-03 — if the disclosure post-dates the build a fresh build should confirm it isn't a live seed regression. |
+| E2E-7c | LOW (coverage) | `AnalystBadge.tsx` (sign-out, SEAM4-5); Settings Models/Analyst tabs | **Logout + the other Settings tabs have no E2E.** `settings_flow` covers only Workspace + Research; the Models tab (`settings-models.test.tsx` unit-covers it) and analyst-profile settings have no browser test, and `AnalystBadge` sign-out — SEAM4-5, whose "button bricks on failed logout" was fixed — has no browser guard. LOW: unit-covered / low-traffic. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the Settings render paths are
+well covered, but "login" is a misnomer in the coverage claim — it's API-authed in
+setup, never walked through the UI. Highest-value add: a `login_flow.spec.ts` that
+does not consume `storageState` (fresh context), drives the real `LoginLanding` form,
+and asserts land-signed-in + wrong-code error. Also un-collapse the Audience
+disclosure in `settings_flow:46` to make it green. Net: **1 MED, 2 LOW**.
+
+---
+
+## E2E sweep — complete (7/7 journeys, 2026-07-04)
+
+All seven analyst journeys assessed. **Specs run:** 3 (`upload_flow` 4/5,
+`research_flow` 3/3, `settings_flow` 2/3 — 2 pre-existing spec failures, both stale
+selectors/assumptions, **no app bug**). **Gap-analyzed (no E2E):** journeys 1–5's
+render/browser layer + the whole of 2,3,4,5. Every workflow-assessed HIGH was
+adversarially **downgraded** — the house rule ("agents inflate") held on all three.
+
+| # | Journey | Method | Net (verified) |
+|---|---|---|---|
+| 1 | bootstrap upload→pipeline→run | spec + inline | **1 HIGH**, 1 LOW |
+| 2 | deep-dive evidence-sync | inline | 1 HIGH*, 1 MED |
+| 3 | model scenario walk | Workflow (11 ag) | 3 MED, 3 LOW |
+| 4 | query → committee exhibit | Workflow (11 ag) | 1 MED, 5 LOW |
+| 5 | report generation | Workflow (9 ag) | 2 MED, 2 LOW |
+| 6 | research flow | spec + inline | 2 MED, 1 LOW (+FE-8.2 reconciliation) |
+| 7 | settings / login | spec + inline | 1 MED, 2 LOW |
+
+**The single most-actionable gap: E2E-1b (HIGH)** — the bootstrap journey
+(upload→run→CP-5 gate→output→CoverageMatrix) is untested at *every* frontend layer;
+it is the app's primary workflow and runs keyless/deterministic, so it is directly
+E2E-able. `*` E2E-2a is recorded HIGH but, under the same adversarial rule the
+workflows applied (the sync *mechanism* is jsdom-unit-tested; only the cross-pane
+*browser* composition is missing), it is more precisely a **MED** — noted for
+consistency. Everything else is MED/LOW coverage debt on surfaces that are either
+fixture-only today, unit/server-guarded at the load-bearing layer, or degrade by
+construction. **Two pre-existing specs are RED** (`upload_flow:42` strict-mode
+selector, `settings_flow:46` un-expanded disclosure) — both cheap fixes, both spec
+bugs not app bugs. **One reconciliation:** FE 8.2 (AI-provenance marker) appears
+fixed in-tree; the SEAM-2 rollup is stale on it. Recommended new specs, by value:
+`bootstrap_flow` (1b) › `login_flow` (7b) › `model_flow` (3a–c) › `query_flow` (4c)
+› un-stubbed `research` (6a) › `report render` (5d). Report-only — no fixes applied.
+
+---
+
+## E2E — fix-all pass (2026-07-04)
+
+Acted on the sweep (user: "fix all"). All work verified against the isolated
+single-process QA server on :8010 (`caos_qa.db`, demo-fallback, fixed secret).
+
+**Spec bugs fixed (2, both stale spec assumptions — no app bug):**
+- `upload_flow.spec.ts:42` — `getByText("ISSUER REGISTER")` matched 2 nodes →
+  `getByRole("heading", { name: /Issuer Register/i })`.
+- `settings_flow.spec.ts:46` — the Audience field moved behind the collapsed
+  "Advanced brief" disclosure; the test now expands it before asserting.
+
+**FE 8.2 reconciliation → CLOSED.** The AI-provenance marker is present in source
+(`ReportPane.tsx:189-191`, live "AI-synthesized · N sources") AND unit-guarded
+(`report-provenance.test.tsx`). SEAM-2 notes updated from "open HIGH" to FIXED.
+
+**FE 4.3 / E2E-5d mongrel-KPI — CODE FIX.** `lib/reports/model.ts` `applyAnchor`
+now re-bases interest from the anchor's own reported coverage (`intCov`) so the
+tear-sheet's `intcov` (and the cap-structure PF coverage that reads the same
+interest line) tie to the live figure — or suppresses `intcov` when the run
+reported none — instead of computing live-EBITDA ÷ seeded-ATLF-interest. Guarded
+by 2 new `model.test.ts` cases (ties-to-reported-coverage · suppress-when-none).
+`model.test.ts` 14/14, `builders.test.ts` 3/3.
+
+**New E2E specs authored (6 files), verified against a rebuilt bundle → 31 passed,
+4 skipped (8 spec files, 35 tests):**
+- `login_flow.spec.ts` (E2E-7b) — 3/3. Drives the real `LoginLanding`: register →
+  land signed-in, wrong-invite-code error, wrong-passcode error. (Stubs only the
+  initial `/me`→401 to defeat the dev-stack auto-identity; register/login hit the
+  real backend.)
+- `bootstrap_flow.spec.ts` (E2E-1b, **the HIGH**) — 5/5, **0 skips**. create issuer
+  → `POST /api/runs` → poll to `complete` (keyless run is deterministic + instant,
+  23 modules) → assert live output in `/pipeline` (Live CP-X run, RUN prefix,
+  CLEARANCE, CP-5 node) and `/deepdive` (issuer chrome, "live engine output"
+  caveat, ● LIVE badge, EXPORT TO VAULT). The HIGH is now covered end-to-end.
+- `deepdive_flow.spec.ts` (E2E-2a/2b) — 3/3, **0 skips**. Three-pane smoke +
+  cross-pane evidence-sync ring on hover AND keyboard focus (25 EvChips; E-44
+  cross-highlights, E-09 does not).
+- `model_flow.spec.ts` (E2E-3a/3b/3c) — 4 passed, 1 skipped. Provenance badge,
+  scenario-preset re-center, real SAVE (`PUT /api/models` 200 → SAVED), reload
+  restores. Skip: CP-2B DownsideFragility (the demo run emits no CP-2B pathway —
+  a permanent offline limitation, not a bug).
+- `query_flow.spec.ts` (E2E-4a/4c + SEAM1-1) — 3 passed, 2 skipped. Auto-run
+  synthesis+view, typed question, EXPORT CSV download. Skips: ratify overlay
+  (green-or-skip — offline overlay is non-deterministic / needs model_lane); the
+  SEAM1-1 browser guard (see build-staleness below).
+- `research_run.spec.ts` (E2E-6a/6c) — 2 passed, 1 skipped. Un-stubbed real demo
+  run (`POST /api/research` → real poll → report) + stubbed live-provenance
+  render. Skip: the exact "AI-synthesized" text (see build-staleness below).
+
+**Build-staleness discovery (real, worth a redeploy).** Three specs independently
+found the served static bundle (`caos/server/static`, built 2026-07-02 23:16)
+**predates** the SEAM1-1 fix (`122c8fb5`) and the AI-marker — so the *deployed
+artifact still crashes*. A browser probe **reproduced the SEAM1-1 synthesis crash
+live** on that build: submitting "show the QA findings…" to the `/command` Ask panel
+throws `TypeError: Cannot read properties of undefined (reading 'find')` →
+"Something broke on this view" error boundary. The fix IS in source
+(`viz.ts:33` guards `res.columns.find` to structured/hybrid) and IS unit-guarded
+(`NlQuery.test.tsx:131`), so this is a **stale-deployed-bundle** issue, not a source
+regression. NB `next build --webpack` reused a stale cache (rebuilt `out/` kept the
+Jul-2 command chunk); a clean rebuild needs `rm -rf out .next-qa-build
+node_modules/.cache` first. **Action: rebuild + redeploy `caos/server/static`** —
+that ships the SEAM1-1 fix + AI-marker and flips the 2 build-staleness E2E skips
+(`query_flow` SEAM1-1 guard, `research_run` AI-marker) to green automatically. The
+guards are coded to auto-arm on a fresh bundle. Not touched here: the user's
+`caos/server/static` and running :8000 were left untouched (QA served a separate
+`out/` build via `CAOS_STATIC_DIR`).
+
+Net: 8 E2E fixes/additions + 1 honesty code fix, all green; 4 skips (2 permanent
+offline limits, 2 pending the redeploy). SEAM1-1 downgraded to a deployment task
+(fix + guard exist); FE 8.2 and FE 4.3 closed.
 
 ---
 
