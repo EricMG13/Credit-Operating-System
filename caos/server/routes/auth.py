@@ -219,8 +219,21 @@ async def create_profile(
         if analyst is None:
             analyst = Analyst(name=name, email=sso_email)
             db.add(analyst)
-        elif analyst.name != name:
-            analyst.name = name  # rename own profile
+        else:
+            if analyst.name != name:
+                analyst.name = name  # rename own profile
+            # The edge proxy has now verified this SSO identity, so it is
+            # authoritative for the email. Any password/recovery credential on the
+            # row was self-registered before SSO — possibly pre-squatted by an
+            # invite-code holder under an attacker-chosen password (register keys on
+            # a shape-checked email when no proxy identity is present). Leaving it in
+            # place would be a parallel login that could impersonate the SSO owner,
+            # so revoke it on adoption and bump token_version to drop any sessions
+            # the squatter minted. Idempotent — a pure-SSO row carries neither. SEAM4-3.
+            if analyst.password_hash or analyst.recovery_word_hashes:
+                analyst.password_hash = None
+                analyst.recovery_word_hashes = []
+                analyst.token_version += 1
         try:
             await db.commit()
         except IntegrityError:  # display name already taken by another email
