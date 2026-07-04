@@ -85,8 +85,18 @@ export interface SemanticResult {
   caveats: string[];
 }
 
-// The endpoint returns one or the other, discriminated by `mode`.
-export type NlQueryResult = StructuredResult | SemanticResult;
+// Synthesis (agent-wiki retrieval) results — same row shape as semantic, but
+// matched against agent syntheses / claims / QA findings instead of documents.
+export interface SynthesisResult {
+  mode: "synthesis";
+  interpretation: string;
+  rank_by: null;
+  rows: SemanticRow[];
+  caveats: string[];
+}
+
+// The endpoint returns one of these, discriminated by `mode`.
+export type NlQueryResult = StructuredResult | SemanticResult | SynthesisResult;
 
 // One ingested source chunk — backs the click-to-source citation viewer.
 export interface ChunkDTO {

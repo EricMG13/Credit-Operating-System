@@ -24,7 +24,9 @@ function median(xs: number[]): number {
 // A horizontal bar of the ranked metric across issuers, coloured by provenance.
 // null when the result isn't a rankable multi-row structured result (→ no chart).
 export function barSpecFor(res: NlQueryResult): G2Spec | null {
-  if (res.mode === "semantic") return null;
+  // Only structured/hybrid results carry columns + a rankable metric; semantic
+  // and synthesis (agent-wiki) results have no `columns` at all (SEAM1-1).
+  if (res.mode !== "structured" && res.mode !== "hybrid") return null;
   const col = res.columns.find((c) => c.key === res.rank_by);
   if (!col) return null;
   const data = res.rows
@@ -53,11 +55,14 @@ export function barSpecFor(res: NlQueryResult): G2Spec | null {
 
 // One- to two-line plain-language summary of the result. Always produced.
 export function narrate(res: NlQueryResult): string {
-  if (res.mode === "semantic") {
-    if (!res.rows.length) return "No issuer documents matched.";
+  if (res.mode === "semantic" || res.mode === "synthesis") {
+    const what = res.mode === "semantic" ? "document evidence" : "agent syntheses and QA findings";
+    if (!res.rows.length) {
+      return res.mode === "semantic" ? "No issuer documents matched." : "No matching agent syntheses, claims, or QA findings.";
+    }
     const top = res.rows[0];
     const total = res.rows.reduce((s, r) => s + r.excerpts.length, 0);
-    return `${res.rows.length} issuer${res.rows.length === 1 ? "" : "s"} matched on document evidence — top hit ${top.issuer.name} (${top.excerpts.length} excerpt${top.excerpts.length === 1 ? "" : "s"}, ${total} total).`;
+    return `${res.rows.length} issuer${res.rows.length === 1 ? "" : "s"} matched on ${what} — top hit ${top.issuer.name} (${top.excerpts.length} excerpt${top.excerpts.length === 1 ? "" : "s"}, ${total} total).`;
   }
   if (!res.rows.length) return "No issuers matched.";
   const col = res.columns.find((c) => c.key === res.rank_by);
