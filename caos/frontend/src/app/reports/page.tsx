@@ -105,6 +105,7 @@ function ReportStudio() {
   const [hydrated, setHydrated] = useState(false);
 
   // restore persisted workspace state
+  const reportParam = searchParams.get("report");
   // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
@@ -117,8 +118,11 @@ function ReportStudio() {
       const e = JSON.parse(localStorage.getItem("caos-e-edits") || "{}");
       if (e && typeof e === "object") setEdits(e);
     } catch { /* first visit */ }
+    // Deep link (?report=) beats the remembered workspace tab — a module-export
+    // jump from Deep-Dive must land on its exhibit, not last session's.
+    if (reportParam && reports.some((r) => r.id === reportParam)) setActiveId(reportParam);
     setHydrated(true);
-  }, [reports]);
+  }, [reports, reportParam]);
   // persist only after restore has run — writing earlier clobbers stored
   // state with the initial defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-active", activeId); } catch {} }, [hydrated, activeId]);
@@ -127,6 +131,43 @@ function ReportStudio() {
   useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-edits", JSON.stringify(edits)); } catch {} }, [hydrated, edits]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
+
+  // Auto-fit the sheet on first render (and per report) when it overflows the
+  // scroller — the common 1280px laptop otherwise opens to a clipped page. Only
+  // when the analyst has no remembered manual zoom.
+  useEffect(() => {
+    if (!hydrated) return;
+    let stored = "";
+    try { stored = localStorage.getItem("caos-e-zoom") || ""; } catch {}
+    if (stored) return; // respect a remembered manual zoom
+    const el = scrollRef.current;
+    if (el && el.scrollWidth > el.clientWidth) fitToWidth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, rep?.id]);
+
+  // Keyboard shortcuts for power users: +/- step zoom, f fits, 1..9 pick a report.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      const k = e.key;
+      if (k === "+" || k === "=") {
+        const next = ZOOMS.find((z) => z > zoom);
+        if (next != null) setZoom(next);
+      } else if (k === "-" || k === "_") {
+        const below = ZOOMS.filter((z) => z < zoom);
+        if (below.length) setZoom(below[below.length - 1]);
+      } else if (k === "f") {
+        fitToWidth();
+      } else if (k >= "1" && k <= "9") {
+        const d = Number(k);
+        if (reports.length && reports[d - 1]) setActiveId(reports[d - 1].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports, zoom]);
   const repOmit = rep ? omit[rep.id] || {} : {};
   const omitCount = Object.keys(repOmit).length;
   const repEdits = rep ? edits[rep.id] || {} : {};
@@ -144,7 +185,11 @@ function ReportStudio() {
 
   const applyEdit = (path: string, text: string) => {
     if (!rep) return;
-    setEdits((e) => ({ ...e, [rep.id]: { ...e[rep.id], [path]: text } }));
+    setEdits((e) => {
+      const cur = { ...e[rep.id] };
+      if (text == null) delete cur[path]; else cur[path] = text;
+      return { ...e, [rep.id]: cur };
+    });
   };
   const resetEdits = () => {
     if (!rep) return;
@@ -173,7 +218,7 @@ function ReportStudio() {
       {/* sub-header */}
       <PageSubHeader gap="gap-3">
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Report Studio — committee deliverables</span>
+        <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
         {caveatKind === "reference" ? (
           <span
             className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
@@ -211,8 +256,8 @@ function ReportStudio() {
             <button
               key={p.v}
               onClick={() => setPaper(p.v)}
-              title={"Paper tone — " + p.label}
-              className={"w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
+              title={"Paper tone — " + p.label + " · preview only (export prints white)"}
+              className={"focus-ring w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
               style={{ background: p.v }}
             />
           ))}
@@ -220,7 +265,7 @@ function ReportStudio() {
         <button
           onClick={() => setShowSources(!showSources)}
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -230,7 +275,7 @@ function ReportStudio() {
           onClick={() => setEditMode(!editMode)}
           title="Edit the deliverable inline — every figure, label and paragraph is editable; edits persist locally and carry into the PDF export"
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
@@ -240,7 +285,7 @@ function ReportStudio() {
           <button
             onClick={resetEdits}
             title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
-            className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
+            className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
           >
             ↺ {editCount}
           </button>
@@ -253,7 +298,7 @@ function ReportStudio() {
               key={z}
               onClick={() => setZoom(z)}
               className={
-                "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
+                "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
                 (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
               }
             >
@@ -263,7 +308,7 @@ function ReportStudio() {
           <button
             onClick={fitToWidth}
             title="Fit the page to the available width"
-            className="tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+            className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
           >
             FIT
           </button>
@@ -271,16 +316,20 @@ function ReportStudio() {
         <button
           onClick={() => window.print()}
           disabled={!rep}
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
         >
           ⎙ EXPORT PDF
         </button>
-        <span
-          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+        <button
+          type="button"
+          onClick={() => setEvModal("E-44")}
+          title="Open QA-117 finding (evidence E-44)"
+          aria-label="Open QA-117 finding (evidence E-44)"
+          className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
           style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
         >
           CP-5 CONDITIONAL — QA-117
-        </span>
+        </button>
       </PageSubHeader>
 
       {/* workspace */}
@@ -288,7 +337,7 @@ function ReportStudio() {
         {rep && leftOpen ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
-          <div className="flex justify-center py-7 px-6">
+          <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
             {rep ? <div style={{ zoom }}>
               <ReportDoc
                 rep={rep}
@@ -297,6 +346,7 @@ function ReportStudio() {
                 showSources={showSources}
                 edits={repEdits}
                 onEdit={editMode ? applyEdit : undefined}
+                onOpenEvidence={setEvModal}
                 hideAddbacks={hideAddbacks && rep.id === "model"}
               />
             </div> : (
@@ -311,7 +361,7 @@ function ReportStudio() {
           </div>
         </div>
 
-        {rep && rightOpen ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0">
+        {rep && rightOpen ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0 overflow-y-auto pb-12">
           <button onClick={() => setRightOpen(false)} className="tabular text-caos-xs text-caos-muted hover:text-caos-text self-end focus-ring">COLLAPSE</button>
           <LineagePanel rep={rep} onOpenEvidence={setEvModal} />
           {rep.id === "model" ? (

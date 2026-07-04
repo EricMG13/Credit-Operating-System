@@ -142,7 +142,10 @@ async def issuer_filings(
 @router.get("/exhibits", response_model=List[ExhibitOut])
 async def filing_exhibits(
     cik: str = Query(...),
-    accession: str = Query(...),
+    # SEC accession number, dashed or bare (BE6-4): the value is interpolated
+    # into the outbound SEC URL path (dash-strip only), so pin its shape here —
+    # a malformed value could only ever 404 at SEC, but don't send it at all.
+    accession: str = Query(..., pattern=r"^\d{10}-\d{2}-\d{6}$|^\d{18}$"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """A filing's documents, classified against the CP-4 covenant taxonomy."""

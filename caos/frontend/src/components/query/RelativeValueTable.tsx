@@ -31,7 +31,12 @@ export function RelativeValueTable({
   onSelectNode,
 }: RelativeValueTableProps) {
   const [filterText, setFilterText] = useState("");
-  const [sortBy, setSortBy] = useState<SortField>("label");
+  // A centred graph (peer set, contagion) exists to rank against the focus, so
+  // open on Rank asc (#1, #2, #3…) rather than alphabetical label — the ranking
+  // is the point. Non-centred graphs still open on label.
+  const [sortBy, setSortBy] = useState<SortField>(() =>
+    graph.nodes.some((n) => n.kind === "center" || n.center) ? "rank" : "label"
+  );
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const degrees = useMemo(() => {
@@ -167,7 +172,7 @@ export function RelativeValueTable({
           <input
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Filter by label, kind, group..."
+            placeholder="Filter by label, kind, group…"
             aria-label="Filter nodes"
             className="bg-transparent outline-none border-none tabular text-caos-xs text-caos-text placeholder:text-caos-muted w-48 font-mono"
           />
@@ -184,7 +189,7 @@ export function RelativeValueTable({
       </div>
 
       <div className="flex-1 overflow-auto min-h-0">
-        <table className="w-full border-collapse text-left text-caos-sm tabular">
+        <table className="rv-table w-full border-collapse text-left text-caos-sm tabular">
           <thead className="sticky top-0 bg-caos-panel border-b border-caos-border z-10">
             <tr className="text-caos-3xs uppercase tracking-wider text-caos-muted font-mono select-none">
               <Th field="label" className="pl-4">Node / Label</Th>
@@ -297,10 +302,8 @@ export function RelativeValueTable({
                             className="inline-block text-caos-3xs font-semibold px-1.5 py-0.5 rounded border leading-none"
                             style={{
                               color: n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                              borderColor:
-                                (n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                              backgroundColor:
-                                (n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
+                              borderColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
+                              backgroundColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
                             }}
                           >
                             {n.confidence}

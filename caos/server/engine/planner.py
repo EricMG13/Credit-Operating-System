@@ -347,8 +347,13 @@ def _gate_and_summary(
     """Step 1 + Step 7: overall gate status, CP-0 assessment, route summary.
 
     Gate ladder (order is contractual): a critically thin CP-0 (no files, no
-    EDGAR) blocks outright; any *executing* module on limitations degrades the
-    gate; otherwise Full Run. Verdict counts roll up over ALL routed modules.
+    EDGAR) LABELS the run BLOCKED; any *executing* module on limitations degrades
+    the gate; otherwise Full Run. Verdict counts roll up over ALL routed modules.
+
+    The gate status is a persisted LABEL, not an execution switch (BE3-7): the
+    runner gates execution per-module via each verdict, so a zero-source run
+    still executes its degradable modules — which then flag limitations and land
+    behind the CP-5 gate. That is the intended degrade-and-disclose posture.
     """
     if files == 0 and not edgar:
         gate_status = BLOCKED
@@ -381,10 +386,19 @@ def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[Module
     """
     specs = list(specs) if specs is not None else all_specs()
     rt = cp0_payload.runtime_output or {}
-    present: Set[str] = set(rt.get("categories_present", []))
+    # Defensive casts: the deterministic CP-0 emits exact types, but the
+    # deleted-issuer fallback path synthesizes CP-0 via the LLM, whose interior
+    # types are unvalidated — a "fourteen" files count or scalar categories list
+    # would raise here, OUTSIDE the per-module guard, and abort the run (BE3-4).
+    raw_present = rt.get("categories_present")
+    present: Set[str] = ({c for c in raw_present if isinstance(c, str)}
+                         if isinstance(raw_present, (list, tuple, set)) else set())
     edgar = bool(rt.get("edgar_available", False))
-    files = int(rt.get("files_classified", 0) or 0)
-    cp0_flags = list(cp0_payload.limitation_flags or [])
+    try:
+        files = int(rt.get("files_classified", 0) or 0)
+    except (TypeError, ValueError):
+        files = 0
+    cp0_flags = [f for f in (cp0_payload.limitation_flags or []) if isinstance(f, str)]
 
     # Step 4 (precedes verdicts): one-owner-per-object validation (VE-009).
     ownership, excluded = _validate_ownership(specs)

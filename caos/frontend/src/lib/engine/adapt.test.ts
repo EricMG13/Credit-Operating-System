@@ -1,6 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { adaptModule } from "./adapt";
+import { adaptModule, humanize } from "./adapt";
 import type { ModuleDetailDTO } from "./types";
+
+describe("humanize — engine keys → analyst labels", () => {
+  it("uppercases finance acronyms instead of title-casing them", () => {
+    expect(humanize("ebitda_growth_pct")).toBe("EBITDA growth %");
+    expect(humanize("fcf_conversion")).toBe("FCF conversion");
+    expect(humanize("ev_multiple")).toBe("EV multiple");
+  });
+  it("re-glues a quarter to its year instead of leaving the raw key", () => {
+    expect(humanize("ltm_q1_26")).toBe("LTM Q1-26");
+    expect(humanize("q3_25_actual")).toBe("Q3-25 actual");
+  });
+  it("keeps the existing musd/pct/first-letter handling", () => {
+    expect(humanize("net_debt_musd")).toBe("Net debt $M");
+    expect(humanize("revenue")).toBe("Revenue");
+  });
+});
+
+describe("adaptModule — empty live figures", () => {
+  it("never renders a dangling unit suffix on a missing leverage figure", () => {
+    const thin = {
+      module_id: "CP-1", module_name: "CanonicalDataFoundation",
+      owned_object: "canonical_financials", schema_family: "Nested",
+      confidence: "Low", qa_status: "Restricted", committee_status: "Restricted",
+      validation_status: "Passed", limitation_flags: [], downstream_consumers: [],
+      runtime_output: { financials: {} },
+    } as unknown as ModuleDetailDTO;
+    const out = adaptModule(thin);
+    const lev = out.kpis.find((k) => /leverage/i.test(k.l));
+    expect(lev?.v).toBe("—"); // not "—x"
+  });
+});
 
 // Mirrors the canonical CP-1 payload the backend FixtureSynthesizer emits
 // (caos/server/engine/fixtures.py) — the adapter must turn it into the

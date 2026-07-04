@@ -39,7 +39,13 @@ if settings.database_url.startswith("sqlite"):
 # engine on different event loops; a pooled connection cleaned up after its
 # creating loop closed raises "Event loop is closed" (notably with asyncpg).
 # NullPool in test mode avoids cross-loop connection reuse. Production keeps the
-# default pool.
+# default pool (5 + 10 overflow).
+# ponytail: pool size and caos_run_concurrency are COUPLED (BE8-1) — each active
+# run holds one connection for its whole transaction, so raising the run
+# concurrency toward ~13+ without an explicit pool_size here exhausts the pool
+# and stalls requests for pool_timeout. Inert at the shipped default (2 runs vs
+# 15 slots); size pool_size ≈ caos_run_concurrency + request headroom if you
+# ever raise it.
 _engine_kwargs: dict = {"pool_pre_ping": True}
 if os.environ.get("CAOS_TEST") == "1":
     _engine_kwargs["poolclass"] = NullPool
@@ -411,6 +417,26 @@ class QueryOverlay(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AnalystQaFlag(Base):
+    """An analyst-raised QA flag on a module/step output (Deep-Dive register).
+
+    Deliberately NOT a QAFinding: engine findings gate runs (CP-5 abort, 409 on
+    committee export), while an analyst flag is an audit-trail escalation that
+    must never trip those gates. issuer_id/run_id are plain strings (no FK) so
+    the flag survives its subject — it is an audit record, not run state.
+    """
+
+    __tablename__ = "qa_flags"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    module_id: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    step_ref: Mapped[Optional[str]] = mapped_column(String(120))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
 
 def _alembic_config():
     from alembic.config import Config
@@ -506,7 +532,8 @@ async def erase_analyst_data(
     scrubbed. ``analyst_id``/``uploaded_by`` are loose string stamps, not FKs, so
     nothing cascades; this is pure DML. Runs stamp ``analyst_id`` and research jobs
     key on the analyst id, while documents stamp the email — so scrub both keys.
-    Returns the row counts touched. Caller commits via the session/dependency.
+    Returns the row counts touched. Commits itself (see below) so both callers —
+    the self-service route and the operator CLI — get an atomic erase.
     """
     keys = [k for k in (analyst_id, email) if k]
 

@@ -187,6 +187,12 @@ def _validate_registry() -> None:
     graph's own declared invariant (every dependency declared before its dependent,
     see the _SPECS note) — which also guarantees acyclicity, since a cycle cannot be
     forward-declared only. (review run-2 #B9/#B10)"""
+    # A duplicated module_id would silently last-win in REGISTRY/DECLARATION_INDEX
+    # and skew the planner's indegree bookkeeping (BE3-5) — fail loud instead.
+    if len(REGISTRY) != len(_SPECS):
+        dupes = sorted({s.module_id for s in _SPECS
+                        if sum(x.module_id == s.module_id for x in _SPECS) > 1})
+        raise ValueError(f"registry: duplicate module_id(s) {dupes}")
     for spec in _SPECS:
         for dep in spec.depends_on:
             if dep not in REGISTRY:

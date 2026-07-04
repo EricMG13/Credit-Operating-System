@@ -211,6 +211,35 @@ export const getModule = (runId: string, moduleId: string): Promise<ModuleDetail
 export const getQA = (runId: string): Promise<QAReportDTO> =>
   api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
 
+// ─── Analyst QA flags (Deep-Dive register "FLAG TO QA · CP-5") ───────────────
+// Audit-trail escalations, recorded server-side; deliberately separate from
+// engine qa_findings so a flag can never gate a run.
+export interface QaFlagDTO {
+  id: string;
+  issuer_id: string | null;
+  run_id: string | null;
+  module_id: string;
+  step_ref: string | null;
+  note: string | null;
+  analyst_id: string | null;
+  created_at: string | null;
+}
+
+export const createQaFlag = (data: {
+  module_id: string;
+  step_ref?: string;
+  note?: string;
+  issuer_id?: string;
+  run_id?: string;
+}): Promise<QaFlagDTO> => api.post("/api/qa/flags", data).then((r) => r.data);
+
+export const listQaFlags = (params: {
+  module_id?: string;
+  step_ref?: string;
+  issuer_id?: string;
+  run_id?: string;
+}): Promise<QaFlagDTO[]> => api.get("/api/qa/flags", { params }).then((r) => r.data);
+
 // Committee export — rejects (409) unless the run is Committee Ready.
 // Surface ahead of its UI consumer (Report Studio).
 // fallow-ignore-next-line unused-export

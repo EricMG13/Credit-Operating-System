@@ -45,7 +45,6 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
   ],
   monitor: [
-    { id: "run-diff", text: "Show what changed since the last run", sub: "run diff" },
     { id: "open-findings", text: "Surface live QA exceptions", sub: "governance" },
     { id: "coverage-completeness", text: "Find coverage gaps", sub: "coverage health" },
     { id: "impact-analysis", text: "Map affected downstream conclusions", sub: "impact analysis" },
@@ -63,7 +62,6 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "gate-lane", text: "Show items blocked at gates", sub: "workflow lane" },
     { id: "impact-analysis", text: "Map downstream impact of a blocker", sub: "impact analysis" },
     { id: "open-findings", text: "List QA findings by issuer", sub: "governance" },
-    { id: "run-diff", text: "Compare pipeline output changes", sub: "run diff" },
   ],
   deepdive: [
     { id: "trace-source", text: "Trace this issuer's verdict to sources", sub: "provenance walk" },

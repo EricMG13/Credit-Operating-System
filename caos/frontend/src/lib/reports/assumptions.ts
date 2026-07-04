@@ -11,6 +11,8 @@
 //  - divDelta is an absolute $/yr dividend (the agent forecasts none, so a
 //    multiplier would be inert — negative = a sponsor distribution, CP-2D).
 
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+
 export interface CaseAssumptions {
   gDrive: number;  // Δ Drivetrain growth
   gFluid: number;  // Δ Fluid Systems growth
@@ -90,24 +92,40 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
   downYears: {},
 };
 
-const KEY = "caos-d-assumptions";
+// Legacy global (pre-namespacing) key. Persisted state is now per-issuer under
+// `caos-d-assumptions:${issuerId}`, so one issuer's nudges never contaminate
+// another's. The reference (Atlas Forge demo) issuer inherits the old global
+// value once, so the seeded demo keeps its saved state; live issuers start clean.
+const LEGACY_KEY = "caos-d-assumptions";
+const keyFor = (issuerId: string) => `${LEGACY_KEY}:${issuerId}`;
 
-export function loadAssumptions(): Assumptions {
-  if (typeof window === "undefined") return DEFAULT_ASSUMPTIONS;
+function parseAssumptions(raw: string | null): Assumptions | null {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) || "null");
+    const s = JSON.parse(raw || "null");
     if (s && s.base && s.down) {
       return {
         base: { ...DEFAULT_CASE, ...s.base }, down: { ...DEFAULT_CASE, ...s.down },
         baseYears: sanitizeYears(s.baseYears), downYears: sanitizeYears(s.downYears),
       };
     }
-  } catch { /* first visit */ }
+  } catch { /* first visit / private mode */ }
+  return null;
+}
+
+export function loadAssumptions(issuerId: string): Assumptions {
+  if (typeof window === "undefined") return DEFAULT_ASSUMPTIONS;
+  const namespaced = parseAssumptions(localStorage.getItem(keyFor(issuerId)));
+  if (namespaced) return namespaced;
+  // One-time migration: only the reference issuer adopts the legacy global value.
+  if (issuerId === ATLF_REFERENCE_ISSUER_ID) {
+    const legacy = parseAssumptions(localStorage.getItem(LEGACY_KEY));
+    if (legacy) return legacy;
+  }
   return DEFAULT_ASSUMPTIONS;
 }
 
-export function saveAssumptions(a: Assumptions): void {
-  try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* private mode / quota */ }
+export function saveAssumptions(issuerId: string, a: Assumptions): void {
+  try { localStorage.setItem(keyFor(issuerId), JSON.stringify(a)); } catch { /* private mode / quota */ }
 }
 
 /** Count of fields in a case that differ from the agent baseline (panel chip). */

@@ -1,4 +1,5 @@
 import type { GraphResult } from "@/lib/query/graph";
+import { synthesize } from "@/lib/query/synthesis";
 
 function csvCell(v: unknown): string {
   if (v == null) return "";
@@ -9,6 +10,7 @@ function csvCell(v: unknown): string {
 export function graphToCsv(graph: GraphResult): string {
   const lines: string[] = [];
   lines.push(["CAOS Query", graph.title, graph.mode].map(csvCell).join(","));
+  lines.push(["Synthesis", synthesize(graph)].map(csvCell).join(","));
   lines.push(["Meta", ...graph.meta].map(csvCell).join(","));
   lines.push("");
   lines.push(["Nodes"].map(csvCell).join(","));
@@ -16,8 +18,8 @@ export function graphToCsv(graph: GraphResult): string {
   graph.nodes.forEach((n) => lines.push([n.id, n.label, n.kind, n.group, n.sub].map(csvCell).join(",")));
   lines.push("");
   lines.push(["Edges"].map(csvCell).join(","));
-  lines.push(["source", "target", "label"].map(csvCell).join(","));
-  graph.edges.forEach((e) => lines.push([e.source, e.target, e.label].map(csvCell).join(",")));
+  lines.push(["source", "target", "label", "weight"].map(csvCell).join(","));
+  graph.edges.forEach((e) => lines.push([e.source, e.target, e.label, e.weight].map(csvCell).join(",")));
   if (graph.caveats.length) {
     lines.push("");
     lines.push(["Caveats"].map(csvCell).join(","));

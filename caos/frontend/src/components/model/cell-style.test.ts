@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressColor } from "./cell-style";
+import { KPI_DISTRESS_GLYPH, cellBackground, cellBoxShadow, cellTextColor, kpiDistressColor, kpiDistressLevel } from "./cell-style";
 
 describe("kpiDistressColor", () => {
   it("is null for a missing value", () => {
@@ -21,6 +21,24 @@ describe("kpiDistressColor", () => {
   });
   it("ignores rows outside the KPI set", () => {
     expect(kpiDistressColor("revenue", 100)).toBeNull();
+  });
+});
+
+describe("kpiDistressLevel — glyph pairing mirrors the color thresholds", () => {
+  it("is null wherever the color is null", () => {
+    expect(kpiDistressLevel("totlev", null)).toBeNull();
+    expect(kpiDistressLevel("totlev", 5)).toBeNull(); // below the band
+    expect(kpiDistressLevel("revenue", 100)).toBeNull(); // not a KPI row
+    expect(kpiDistressLevel("intcov", 3)).toBeNull();
+  });
+  it("is warn in-band and crit at the clamped severe end", () => {
+    expect(kpiDistressLevel("totlev", 6)).toBe("warn");
+    expect(kpiDistressLevel("totlev", 9)).toBe("crit"); // t clamps to 1
+    expect(kpiDistressLevel("intcov", 0.5)).toBe("crit");
+  });
+  it("pairs a drawn glyph with each level (never color alone)", () => {
+    expect(KPI_DISTRESS_GLYPH.warn).toBeTruthy();
+    expect(KPI_DISTRESS_GLYPH.crit).toBeTruthy();
   });
 });
 
@@ -53,7 +71,7 @@ describe("cellTextColor — priority order", () => {
 describe("cellBackground — priority order", () => {
   const off = { isSel: false, cellHl: false, colHl: false, isHl: false, shade: false };
   it("selection wins", () => {
-    expect(cellBackground({ ...off, isSel: true, cellHl: true })).toBe("rgba(79,140,255,0.22)");
+    expect(cellBackground({ ...off, isSel: true, cellHl: true })).toBe("color-mix(in srgb, var(--caos-accent) 22%, transparent)");
   });
   it("flashed cell next", () => {
     expect(cellBackground({ ...off, cellHl: true, colHl: true })).toBe("rgba(79,140,255,0.28)");

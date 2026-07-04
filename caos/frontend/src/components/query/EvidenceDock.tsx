@@ -84,6 +84,11 @@ function ModelCommentary({
   const issuerIds = new Set(
     (graph?.nodes ?? []).filter((n) => n.kind === "issuer" || n.kind === "center").map((n) => n.id)
   );
+  // The analyst ratifies by name, not by raw UUID — resolve endpoint ids to
+  // their node labels. A node id can drop out (run-scoped nodes vary across
+  // runs), so fall back to a short slug rather than leak the full UUID.
+  const labelOf = new Map((graph?.nodes ?? []).map((n) => [n.id, n.label]));
+  const resolveId = (id: string) => labelOf.get(id) ?? id.slice(0, 8);
   return (
     <div className="p-4 pt-0 flex flex-col gap-3 print:hidden" data-testid="model-commentary">
       <div className="border-t border-caos-border pt-3">
@@ -118,7 +123,7 @@ function ModelCommentary({
               return (
                 <li key={i} className="text-caos-2xs font-mono leading-normal border border-caos-border rounded p-2 bg-caos-bg/50">
                   <div className="text-caos-text">
-                    {e.source} ⇢ {e.target}
+                    <span title={e.source}>{resolveId(e.source)}</span> ⇢ <span title={e.target}>{resolveId(e.target)}</span>
                     <span className="text-caos-muted"> · {e.confidence}</span>
                   </div>
                   {e.rationale && <div className="text-caos-muted mt-0.5 font-sans text-caos-xs">{e.rationale}</div>}
@@ -257,7 +262,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         <CloseButton onClick={onClear} title="Clear selection" />
       </div>
 
-      <div className="flex-1 flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-3 p-4">
         {node.sub && (
           <div>
             <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description</div>
@@ -284,7 +289,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
-          {node.group && (
+          {node.group && node.group !== node.sub && (
             <span className="tabular text-caos-2xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5">
               {node.group}
             </span>
@@ -294,8 +299,8 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
               className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
               style={{
                 color: node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                borderColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                backgroundColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
+                borderColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
+                backgroundColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
               }}
             >
               {node.confidence} confidence

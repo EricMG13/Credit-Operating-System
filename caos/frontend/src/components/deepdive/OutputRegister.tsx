@@ -5,7 +5,9 @@
 // the Modular OS REF templates (port of design bundle concept-c-views.jsx).
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CloseButton } from "@/components/shared/CloseButton";
+import { FlagToQa } from "@/components/shared/FlagToQa";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -114,7 +116,7 @@ export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: str
   return (
     <div className="flex flex-col gap-2">
       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-0.5">
-        {id} workflow step outputs · {cards.length} of {steps.length} produced detail
+        {id} workflow step outputs · detailed output for {cards.length} of {steps.length} steps
       </div>
       <div style={containerStyle}>
         {cards.map(({ s, data, narr }, i) => {
@@ -140,6 +142,17 @@ export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: str
     </div>
   );
 }
+
+// Report Studio exhibit that carries each module's output; snapshot is the
+// catch-all committee tear-sheet.
+const EXPORT_REPORT: Record<string, string> = {
+  "CP-1B": "earnings",
+  "CP-4": "covenant",
+  "CP-4C": "covenant",
+  "CP-MON": "monitor",
+  "CP-6A": "memo",
+  "CP-6E": "memo",
+};
 
 /* ---------- step output viewer (full analytical output per REF template) ---------- */
 export function StepOutputModal({
@@ -185,7 +198,7 @@ export function StepOutputModal({
           <Tag sev={sevKey}>{STEP_STATUS_TEXT[status] || status}</Tag>
           <span className="text-caos-md text-caos-muted truncate">{meta?.name}</span>
           <div className="flex-1"></div>
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">RUN #2641 · ATLF</span>
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap" title="Seeded ATLF reference register — not a database run">ATLF · SEEDED RUN #2641</span>
           <CloseButton onClick={onClose} size="md" className="ml-2" />
         </div>
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_272px]">
@@ -224,7 +237,7 @@ export function StepOutputModal({
                 <div className="flex justify-between gap-2"><span className="text-caos-muted">Module</span><span className="tabular whitespace-nowrap text-caos-accent">{id}</span></div>
                 <div className="flex justify-between gap-2"><span className="text-caos-muted">Status</span><span className="tabular whitespace-nowrap" style={{ color: SEV_COLOR[sevKey] }}>{(STEP_STATUS_TEXT[status] || status).toUpperCase()}</span></div>
                 {stepNote ? <div className="flex justify-between gap-2"><span className="text-caos-muted shrink-0">Note</span><span className="tabular text-right">{stepNote}</span></div> : null}
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Run</span><span className="tabular whitespace-nowrap">#2641 · Jun 10</span></div>
+                <div className="flex justify-between gap-2"><span className="text-caos-muted">Run</span><span className="tabular whitespace-nowrap">#2641 · Jun 10 · seeded</span></div>
               </div>
             </div>
             <div className="px-3 py-2.5 border-b border-caos-border">
@@ -236,8 +249,14 @@ export function StepOutputModal({
               )}
             </div>
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">OPEN IN MODULE EXPORT</button>
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">FLAG TO QA · CP-5</button>
+              <Link
+                href={`/reports?report=${EXPORT_REPORT[id] || "snapshot"}`}
+                className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring text-center"
+                title={`Open the ${id} output in its Report Studio exhibit`}
+              >
+                OPEN IN MODULE EXPORT
+              </Link>
+              <FlagToQa moduleId={id} stepRef={(code !== "—" ? code + " " : "") + name} />
             </div>
           </div>
         </div>

@@ -25,6 +25,7 @@ colors:
   paper: "#f7f5ee"
   paper-ink: "#16161e"
   paper-meta: "#5c5c66"
+  paper-critical: "#b91c1c"
 typography:
   display:
     fontFamily: "var(--font-sans), system-ui, sans-serif"
@@ -49,7 +50,7 @@ typography:
     lineHeight: 1.5
   label:
     fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
-    fontSize: "8.5px"
+    fontSize: "9px"
     fontWeight: 500
     lineHeight: 1.5
     letterSpacing: "0.08em"
@@ -154,7 +155,7 @@ The palette is a restrained dark desk: black workspace, cool panels, hairline bo
 - **Headline** (600, 22px, 1.1): Page-level or report title where the interface has room.
 - **Title** (600, 16px, 1.15): Major row, modal, or paper-section titles.
 - **Body** (400, 10.5px, 1.5): Dense workspace copy, cells, rail text, and tool bodies.
-- **Label** (500, 8.5px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
+- **Label** (500, 9px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
 
 ### Named Rules
 

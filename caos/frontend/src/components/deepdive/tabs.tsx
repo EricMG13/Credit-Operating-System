@@ -202,8 +202,11 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
   const ebitdas = [421, 360, 295], mults = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
   return (
     <div className="p-3 flex flex-col gap-3">
-      <div className="grid grid-cols-[440px_1fr] gap-3">
-        <div className="rounded border border-caos-border bg-caos-bg">
+      {/* Stack on a narrow centre pane; side-by-side above xl. Both tracks are
+          minmax(0,…) so the G2 canvas's min-content can't lock the pane wide
+          and force an inner horizontal scrollbar. (critique P2) */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-3">
+        <div className="rounded border border-caos-border bg-caos-bg min-w-0">
           <SectionHeader title="CP-3B-02 · Capital structure ($M)" />
           {CAPSTACK.map((c) => (
             <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-1.5 border-b border-caos-border/50">
@@ -225,7 +228,7 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
           </div>
         </div>
 
-        <div className="rounded border border-caos-border bg-caos-bg">
+        <div className="rounded border border-caos-border bg-caos-bg min-w-0">
           <SectionHeader title="CP-3B-06 · Recovery waterfall by scenario" right="claims: 1L $1,970 · 2L $900 · Sub $400" />
           {RECOVERY.map((s) => (
             <div key={s.scen} className="flex items-center gap-3 px-3 py-1.5 border-b border-caos-border/50">
@@ -390,11 +393,14 @@ export function ModuleView({
               : "This module id is not part of the CP-X route graph."}
         </div>
         {meta ? (
+          // Route the CTA where the copy points: a missing issuer output is
+          // fixed by running the issuer (Pipeline), not by opening the
+          // reference committee pack (Report Studio).
           <Link
-            href="/reports"
+            href={!allowSeededFallback ? "/pipeline" : "/reports"}
             className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
           >
-            OPEN REPORT STUDIO →
+            {!allowSeededFallback ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
           </Link>
         ) : null}
       </div>
@@ -414,24 +420,38 @@ export function ModuleView({
 
   return (
     <div className="p-3 flex flex-col gap-3">
+      {/* Live modules must not wear the ATLF sim's costume: the Dot/Tag state and
+          the plan "event" line are replay fixtures, so a live render shows only
+          the module's identity — provenance is the ● LIVE badge in the panel
+          header, produced-ness is the output itself. (critique: two state
+          machines disagreeing under ● LIVE) */}
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Dot sev={st} />
+            {!isLive ? <Dot sev={st} /> : null}
             <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
             <span className="text-caos-2xl font-semibold text-caos-text">{meta.name}</span>
-            <Tag sev={st}>{st}</Tag>
+            {!isLive ? <Tag sev={st}>{st}</Tag> : null}
           </div>
           <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
-          {plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
+          {!isLive && plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
         </div>
       </div>
 
-      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-        {out.kpis.map((k) => (
-          <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
-        ))}
-      </div>
+      {/* A live module whose KPIs are all empty must say so, not render a grid
+          of "—" under a ● LIVE badge (reads as broken, is actually thin data). */}
+      {isLive && out.kpis.length > 0 && out.kpis.every((k) => !k.v || k.v === "—") ? (
+        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">
+          Engine ran and produced this module, but no populated headline figures are
+          available — thin source data for this issuer. Any produced sections appear below.
+        </div>
+      ) : (
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+          {out.kpis.map((k) => (
+            <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
+          ))}
+        </div>
+      )}
 
       {layout === "core" ? (
         <>

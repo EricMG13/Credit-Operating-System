@@ -200,6 +200,10 @@ def monitoring_finding(cp1b: Optional[ModulePayload]) -> Optional[Finding]:
     signals = (cp1b.runtime_output or {}).get("monitoring_signals") or []
     if isinstance(signals, str):  # a bare string would join char-by-char ("d e c…")
         signals = [signals]
+    elif not isinstance(signals, (list, tuple)):
+        # A truthy scalar (int/dict) would raise on iteration in the QA phase
+        # and abort the whole run (BE3-6) — wrap it like the bare-str case.
+        signals = [signals]
     if not signals:
         return None
     return Finding(

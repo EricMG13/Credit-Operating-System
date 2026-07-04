@@ -49,10 +49,10 @@ _LOGIN_GLOBAL_PER_MINUTE = 30
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Verify a login against this when no account matches, so a missing email and a
-# wrong password cost the same scrypt work — no user enumeration via timing.
+# wrong password cost the same PBKDF2 work — no user enumeration via timing.
 _DUMMY_HASH = hash_password("caos-no-such-account")
 # Three dummies for the recovery lane — verifying against these when no account
-# matches costs the same scrypt work as three real words, so /recover can't leak
+# matches costs the same PBKDF2 work as three real words, so /recover can't leak
 # account existence by returning fast.
 _DUMMY_RECOVERY_HASHES = [_DUMMY_HASH, _DUMMY_HASH, _DUMMY_HASH]
 
@@ -88,7 +88,9 @@ class RegisterRequest(BaseModel):
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     coverage_area: Optional[str] = Field(default=None, max_length=64)
     location: Optional[str] = Field(default=None, max_length=16)
-    recovery_words: list[str] = Field(default_factory=list, max_length=3)
+    # Exactly 3 words, declared at the schema (not just the handler's 422) so the
+    # required-in-practice contract is visible in OpenAPI (BE7-2).
+    recovery_words: list[str] = Field(min_length=3, max_length=3)
     recovery_hints: list[str] = Field(default_factory=list, max_length=3)
 
 
@@ -238,7 +240,7 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ):
     """Email + password self-registration, gated by the shared invite code. Creates
-    an Analyst with a scrypt password hash and mints the profile cookie. Independent
+    an Analyst with a PBKDF2 password hash and mints the profile cookie. Independent
     of edge SSO — this is the lane for callers who don't sign in through the proxy."""
     settings = get_settings()
     _throttle(request)

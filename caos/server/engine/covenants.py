@@ -520,6 +520,10 @@ def addback_cap_finding(cp4c: Optional[ModulePayload]) -> Optional[Finding]:
     if cp4c is None:
         return None
     audit = (cp4c.runtime_output or {}).get("addback_audit") or {}
+    # Container-level twin of the finite gates below: a truthy non-dict here
+    # (replay/LLM producer) would raise in the QA phase and abort the run (BE3-6).
+    if not isinstance(audit, dict):
+        return None
     if audit.get("breach") is not True:
         return None
     disclosed, cap = audit.get("disclosed_addback_pct"), audit.get("cap_pct")

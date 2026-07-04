@@ -59,8 +59,15 @@ def sort_key(period: str) -> tuple:
 
 
 def latest(series: dict) -> Optional[float]:
-    """Numeric value at the most-recent period (by total recency order), or None."""
-    vals = [(p, v) for p, v in (series or {}).items() if isinstance(v, (int, float))]
+    """Numeric value at the most-recent period (by total recency order), or None.
+
+    Tolerates a truthy non-dict series: live runtime_output interiors are
+    unvalidated below the top level, so a list/str where a period map belongs
+    must degrade to None here, not AttributeError inside the QA/projection
+    phase (where any raise aborts and rolls back the whole run — BE3-2)."""
+    if not isinstance(series, dict):
+        return None
+    vals = [(p, v) for p, v in series.items() if isinstance(v, (int, float))]
     return max(vals, key=lambda kv: sort_key(kv[0]))[1] if vals else None
 
 

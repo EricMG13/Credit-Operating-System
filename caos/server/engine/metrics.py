@@ -20,6 +20,15 @@ from engine.periods import is_finite_number, latest, sort_key
 from engine.schemas import ModulePayload
 
 
+def _as_dict(x: object) -> dict:
+    """Interior containers of live runtime_output are unvalidated below the top
+    level, and ``or {}`` keeps a truthy non-dict (a list-of-objects revenue, a
+    narrative string) whose ``.keys()/.items()/.get()`` would raise inside the
+    fatal projection phase and abort + roll back the whole run (BE3-3). The
+    container-level twin of the leaf-level ``is_finite_number`` gate in add()."""
+    return x if isinstance(x, dict) else {}
+
+
 @dataclass(frozen=True)
 class MetricDef:
     key: str
@@ -120,9 +129,9 @@ def extract_facts(  # noqa: C901
     keeps, so a UI/peer read never mistakes fabricated demo figures for a real run.
     """
     ro = payload.runtime_output or {}
-    fin = ro.get("normalized_financials") or {}
-    rev = fin.get("revenue") or {}
-    eb = fin.get("adj_ebitda") or {}
+    fin = _as_dict(ro.get("normalized_financials"))
+    rev = _as_dict(fin.get("revenue"))
+    eb = _as_dict(fin.get("adj_ebitda"))
     # EDGAR = reported GAAP; issuer-disclosed = reported_disclosure (distinct from
     # fully-modeled/fixture); fixture/LLM carry covenant-adjusted figures. (#27)
     raw_basis = ro.get("basis")
@@ -167,7 +176,7 @@ def extract_facts(  # noqa: C901
 
     # Free cash flow + cash conversion (FCF / revenue), per period. Conversion is
     # derived here from the FCF and revenue series, not trusted as an input.
-    fcf = fin.get("free_cash_flow") or {}
+    fcf = _as_dict(fin.get("free_cash_flow"))
     fcf_headline = _headline_period(list(fcf.keys()))
     for period, v in fcf.items():
         add("fcf", period, v, "$M", period == fcf_headline)
@@ -177,7 +186,7 @@ def extract_facts(  # noqa: C901
 
     # Net leverage: a per-period series (drives the leverage trend) when CP-1
     # provides one; else the single LTM scalar. Interest coverage stays LTM.
-    lev = fin.get("net_leverage") or {}
+    lev = _as_dict(fin.get("net_leverage"))
     if lev:
         lev_headline = _headline_period(list(lev.keys()))
         for period, v in lev.items():
@@ -186,7 +195,7 @@ def extract_facts(  # noqa: C901
         add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
     # Altman Z'' distress score (EDGAR-derived; lives outside normalized_financials).
-    dz = (payload.runtime_output or {}).get("distress") or {}
+    dz = _as_dict((payload.runtime_output or {}).get("distress"))
     add("altman_z", "LTM", dz.get("altman_z"), "", True)
     return facts
 
@@ -198,7 +207,10 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
     claim/evidence/chunk that asserts it. Empty if the module derived no value.
     """
     val = (payload.runtime_output or {}).get("energy_cost_pct")
-    if val is None:
+    # is_finite_number, not an is-None check: this was the one fact-projection
+    # path with a bare float() cast — a non-numeric or NaN/inf value would raise
+    # (or persist NaN) inside the fatal projection phase (BE5-3). Mirrors add().
+    if not is_finite_number(val):
         return []
     claim_id = evidence_id = chunk = None
     for c in payload.claims:
@@ -224,7 +236,11 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     never trip it."""
     if cp1 is None:
         return None
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    # _as_dict: a truthy non-dict normalized_financials (live-LLM narrative
+    # string) must degrade to "inputs absent", not AttributeError in the QA
+    # phase where a raise aborts the whole run (BE3-2). latest() tolerates a
+    # malformed adj_ebitda series itself.
+    nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
     eb = latest(nf.get("adj_ebitda") or {})
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd

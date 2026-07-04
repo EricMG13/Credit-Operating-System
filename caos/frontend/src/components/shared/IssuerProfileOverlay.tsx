@@ -144,15 +144,30 @@ export function IssuerProfileOverlay() {
     };
   }, [isOpen, issuerId]);
 
-  const panelRef = useModalA11y<HTMLDivElement>(closeProfile);
-
+  // The modal body — and its useModalA11y — live in a child that mounts only
+  // while open. Calling the hook on this always-mounted component would engage
+  // the body scroll-lock the entire time the overlay sits closed.
   if (!isOpen) return null;
+
+  return (
+    <IssuerProfileModal issuerId={issuerId} data={data} loading={loading} error={error} onClose={closeProfile} />
+  );
+}
+
+function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
+  issuerId: string | null;
+  data: IssuerProfile | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
     <div
       className="fixed inset-0 z-modal flex items-center justify-center p-6"
       style={{ background: "rgba(5, 5, 7, 0.72)" }}
-      onClick={closeProfile}
+      onClick={onClose}
     >
       <div
         ref={panelRef}
@@ -173,7 +188,7 @@ export function IssuerProfileOverlay() {
             <p className="text-caos-2xl text-caos-text font-medium">{error || "No data."}</p>
             <div className="flex gap-2">
               <button
-                onClick={closeProfile}
+                onClick={onClose}
                 className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
               >
                 CLOSE
@@ -184,7 +199,7 @@ export function IssuerProfileOverlay() {
               {issuerId ? (
                 <Link
                   href={"/deepdive?issuer=" + encodeURIComponent(issuerId)}
-                  onClick={closeProfile}
+                  onClick={onClose}
                   className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
                 >
                   OPEN DEEP-DIVE
@@ -193,7 +208,7 @@ export function IssuerProfileOverlay() {
             </div>
           </div>
         ) : (
-          <Profile id={issuerId!} data={data} isOverlay={true} onClose={closeProfile} />
+          <Profile id={issuerId!} data={data} isOverlay={true} onClose={onClose} />
         )}
       </div>
     </div>

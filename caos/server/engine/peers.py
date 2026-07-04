@@ -122,11 +122,17 @@ async def synthesize_peer_benchmark(
     comparisons: List[dict] = []
     outliers: List[str] = []
     for mk in keys:
-        peer_vals = [v for _iid, v in peers.get(mk, [])]
+        # Per-value finite gate on the store read (BE2-2): the write paths are
+        # is_finite_number-gated, but this consumer feeds median()/_percentile —
+        # defense-in-depth so a smuggled NaN can't poison peer stats for OTHER
+        # issuers. Same posture as the leaf gates in metrics.add().
+        peer_vals = [v for _iid, v in peers.get(mk, []) if is_finite_number(v)]
         if not peer_vals:
             continue
         md = CATALOG_BY_KEY[mk]
         iv = own[mk]
+        if not is_finite_number(iv):
+            continue
         percentile = _percentile(iv, peer_vals, md.higher_is_better)
         flag = percentile <= _WORST_QUARTILE
         comparisons.append({
@@ -174,6 +180,10 @@ def peer_outlier_finding(cp1c: Optional[ModulePayload]) -> Optional[Finding]:
     if cp1c is None:
         return None
     outliers = (cp1c.runtime_output or {}).get("outlier_metrics") or []
+    if not isinstance(outliers, (list, tuple)):
+        # A bare str would join char-by-char; a truthy scalar would raise on
+        # iteration in the QA phase and abort the whole run (BE3-6) — wrap it.
+        outliers = [outliers]
     if not outliers:
         return None
     scope = (cp1c.runtime_output or {}).get("peer_scope", "peers")
