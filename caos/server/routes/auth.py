@@ -173,7 +173,7 @@ def _recovery_ok(words: list[str], hashes: list[str]) -> bool:
 
 
 @router.post("/profile", response_model=MeResponse, status_code=201)
-async def create_profile(
+async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO bind/adopt + credential revoke + cookie); extracting would fragment the auth path
     body: ProfileCreate, request: Request, response: Response,
     db: AsyncSession = Depends(get_db),
 ):
