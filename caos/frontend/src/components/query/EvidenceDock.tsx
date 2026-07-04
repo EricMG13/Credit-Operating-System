@@ -13,6 +13,7 @@ import { CloseButton } from "@/components/shared/CloseButton";
 import { QUESTIONS } from "@/lib/query/questions";
 import { displayMeta } from "@/lib/query/format";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { sevSurface } from "@/lib/pipeline/sev";
 
 type OpenChunk = (chunkId: string, label?: string | null) => void;
 
@@ -298,11 +299,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
           {node.confidence && (
             <span
               className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
-              style={{
-                color: node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                borderColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
-                backgroundColor: `color-mix(in srgb, ${node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
-              }}
+              style={sevSurface(node.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
             >
               {node.confidence} confidence
             </span>

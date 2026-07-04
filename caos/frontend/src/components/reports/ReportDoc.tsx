@@ -237,10 +237,10 @@ function RDSources({ srcs, onOpenEvidence }: { srcs: Report["srcs"]; onOpenEvide
                   title={"Open source " + id}
                   aria-label={"Open source " + id}
                 >
-                  {id}
+                  <span className="rd-cite-chip">{id}</span>
                 </button>
               ) : (
-                <sup key={id} className="rd-cite rd-cite-print">
+                <sup key={id} className="rd-cite-chip rd-cite-print">
                   {id}
                 </sup>
               )
