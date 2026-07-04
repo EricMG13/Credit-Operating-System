@@ -129,7 +129,11 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
     eb = latest(nf.get("adj_ebitda") or {})
-    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb else None
+    # Require a POSITIVE EBITDA: a loss-making issuer has no positive going-concern
+    # EV to distribute, and `eb` alone (truthy) would pass a negative through to a
+    # nonsensical "-$500M distressed EV" figure in the payload. Degrade to
+    # seniority-only (None), exactly as the eb == 0 case already does.
+    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
 
 
 async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:
