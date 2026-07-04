@@ -190,8 +190,13 @@ async def create_profile(
         )
 
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic
-    # (401-by-source) sees it. Constant-time compare.
-    if not hmac.compare_digest(body.code, settings.analyst_signup_code):
+    # (401-by-source) sees it. Constant-time compare in bytes: a non-ASCII code in
+    # the JSON body makes compare_digest(str, str) raise TypeError → 500, which
+    # both hides the probe from the 401 heuristic and spams the logs (mirrors the
+    # bytes-mode compare in identity.get_identity). SEAM4-2.
+    if not hmac.compare_digest(
+        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid access code.")
 
     # Strip interior control chars before persistence — body.name and the
@@ -251,7 +256,11 @@ async def register(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-up disabled — invite code not configured."
         )
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic sees it.
-    if not hmac.compare_digest(body.code, settings.analyst_signup_code):
+    # Bytes-mode compare: a non-ASCII code would make compare_digest(str,str) raise
+    # TypeError → 500 (hides the probe, spams logs). SEAM4-2, as in create_profile.
+    if not hmac.compare_digest(
+        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid invite code.")
 
     name = sanitize_field(body.name).strip()
