@@ -24,7 +24,7 @@ listed on agent authority alone.
 
 **Totals: 19 new verified findings — 1 HIGH, 6 MED, 12 LOW.**
 
-**Fix status (2026-07-04) — every HIGH + MED closed or actively owned; 8 fixed:**
+**Fix status (2026-07-04) — every HIGH + MED closed or actively owned; 10 fixed:**
 
 | Finding | Sev | Status |
 |---|---|---|
@@ -34,15 +34,19 @@ listed on agent authority alone.
 | SEAM3-1 | MED | **owned by chip `task_762cc182`** (422 list-detail guard + research maxLength) |
 | SEAM3-2 | MED | **owned by chip `task_762cc182`** (422 guard + New-Issuer maxLength) |
 | SEAM4-1 | MED | **blocked** on chip 2's `api.ts` edits — axios 401/identity-drift interceptor; wire once chip 2 lands |
+| SEAM3-6 | LOW | **FIXED** — issuer search failure shows a distinct error, not a silent empty (`63a14d36`) |
 | SEAM4-2 | LOW | **FIXED** — bytes-mode code compare (`2197a600`) |
+| SEAM4-4 | LOW | **FIXED (issuer half)** — `issuers.created_by` (mig `0023`) stamped from caller (`d4c69057`) |
 | SEAM4-5 | LOW | **FIXED** — sign-out button retryable on failed logout (`cea4a2b1`) |
 | SEAM1-2 | MED | **open (report-only)** — 6 endpoints untracked in FEATURE_TRACKER.csv; tracker-sweep owns the 16-col + scenario-set authoring (CRLF, binary-mode) |
-| SEAM3-3…3-10 | LOW×8 | **open (report-only)** — silent-catch error surfaces; several live in files chip 2 / the adversarial-review session are actively editing (deferred to avoid merge churn) |
+| SEAM3-3, 3-5, 3-7 | LOW×3 | **open (report-only)** — silent-catch surfaces in files chip 2 / the adversarial-review session are actively editing (deferred to avoid merge churn) |
+| SEAM3-4, 3-10 | LOW×2 | **deferred to chip 2** — both `api.ts` (poll status-code + `exportReport` dict-detail); fold into chip 2's `toErrorMessage` work |
+| SEAM3-8, 3-9 | LOW×2 | **open (report-only)** — swallowed graph-refresh redraw (link is persisted; reload shows it) + a *deliberate* 429→keyword degrade; messaging is a query-lane UX call |
 | SEAM4-3 | LOW | **open** — SSO-bind pre-squat residue in edge-secret-only deploys; needs a design decision (refuse password-reg with no proxy identity) |
-| SEAM4-4 | LOW | **FIXED (issuer half, `~commit`)** — `issuers.created_by` (mig `0023`) stamped from the verified caller; export lanes left as-is, already attributed by access_log |
 
 Commits by this review (fast-lane): `7254fdc8`, `dd684b60`, `2197a600`,
-`cea4a2b1`. SEAM1-1 = `122c8fb5` (parallel adversarial-review pass).
+`cea4a2b1`, `d4c69057`, `63a14d36` (+ matrix docs). SEAM1-1 = `122c8fb5`
+(parallel adversarial-review pass).
 
 Adjudicated-accepted register honored (never re-flagged): single-team IDOR ·
 XFF rate-key spoof · global login-bucket self-DoS · edge-secret-trust ·
