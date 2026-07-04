@@ -23,11 +23,26 @@ listed on agent authority alone.
 | SEAM-4 auth seam | edge proxy → signed cookie → analyst_id stamping; frontend session | **audited** | 5 (1 MED, 4 LOW) | yes (inline re-verify) | Server chain battle-hardened (BE-7 confirmed again). The seam defect is client-side: mid-session identity loss is invisible to the frontend. Register SSO-bind question CLOSED for the reference deploy. Roles-lite: not implemented (matches DECIDED-not-built plan). |
 
 **Totals: 19 new verified findings — 1 HIGH, 6 MED, 12 LOW.**
-(HIGH SEAM1-1 FIXED 2026-07-04 — commit `06bc6439`, branch `claude/vigilant-panini-735ad4`; see SEAM-1 fix-pass log.)
-(SEAM2-2 FIXED + SEAM2-1 backend half FIXED 2026-07-04 in-tree — see SEAM-2
-fix-pass log; the frontend badge half of SEAM2-1 is deferred until
-`claude/vigilant-panini-735ad4` merges, to avoid conflicting edits in
-`lib/query/types.ts` / `viz.ts`.)
+
+**Fix status (2026-07-04) — every HIGH + MED closed or actively owned; 8 fixed:**
+
+| Finding | Sev | Status |
+|---|---|---|
+| SEAM1-1 | HIGH | **FIXED** — synthesis-mode crash; hand-ported in-tree at `122c8fb5` (also on `claude/vigilant-panini-735ad4` @ `06bc6439`) |
+| SEAM2-1 | MED | **FIXED** — backend caveat `7254fdc8` + frontend FABRICATED badge/colour `dd684b60` |
+| SEAM2-2 | MED | **FIXED** — `_peer_facts` excludes `demo_fixture` (`7254fdc8`) |
+| SEAM3-1 | MED | **owned by chip `task_762cc182`** (422 list-detail guard + research maxLength) |
+| SEAM3-2 | MED | **owned by chip `task_762cc182`** (422 guard + New-Issuer maxLength) |
+| SEAM4-1 | MED | **blocked** on chip 2's `api.ts` edits — axios 401/identity-drift interceptor; wire once chip 2 lands |
+| SEAM4-2 | LOW | **FIXED** — bytes-mode code compare (`2197a600`) |
+| SEAM4-5 | LOW | **FIXED** — sign-out button retryable on failed logout (`cea4a2b1`) |
+| SEAM1-2 | MED | **open (report-only)** — 6 endpoints untracked in FEATURE_TRACKER.csv; tracker-sweep owns the 16-col + scenario-set authoring (CRLF, binary-mode) |
+| SEAM3-3…3-10 | LOW×8 | **open (report-only)** — silent-catch error surfaces; several live in files chip 2 / the adversarial-review session are actively editing (deferred to avoid merge churn) |
+| SEAM4-3 | LOW | **open** — SSO-bind pre-squat residue in edge-secret-only deploys; needs a design decision (refuse password-reg with no proxy identity) |
+| SEAM4-4 | LOW | **open** — `created_by`/`exported_by` attribution columns; needs a DB migration (own task) |
+
+Commits by this review (fast-lane): `7254fdc8`, `dd684b60`, `2197a600`,
+`cea4a2b1`. SEAM1-1 = `122c8fb5` (parallel adversarial-review pass).
 
 Adjudicated-accepted register honored (never re-flagged): single-team IDOR ·
 XFF rate-key spoof · global login-bucket self-DoS · edge-secret-trust ·
