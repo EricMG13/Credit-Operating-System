@@ -203,7 +203,20 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   c.ebitda = c.adj - c.ab;
   c.ndebt = a.netDebt;
   c.cash = c.tdebt - c.ndebt;
-  deriveCreditKpis(c);
+  // FE 4.3 / E2E-5d honesty fix: the seeded interest line is ATLF's, not this
+  // live issuer's, so intcov = live adj. EBITDA ÷ seeded interest is a cross-
+  // sourced "mongrel" (and the cap-structure PF coverage reads the same interest).
+  // Re-base interest from the anchor's own reported coverage so intcov ties to the
+  // live figure; if the run reported no coverage, suppress intcov rather than
+  // print a fabricated one.
+  const cov = a.intCov;
+  if (cov != null && isFinite(cov) && cov > 0) {
+    c.int = c.adj / cov;
+    deriveCreditKpis(c);
+  } else {
+    deriveCreditKpis(c);
+    c.intcov = null;
+  }
 }
 
 function qCtx(i: number, prevCash: number, A: Record<string, number[]>, capexOv: Record<number, number>): ModelCol {

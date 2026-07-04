@@ -134,4 +134,23 @@ describe("buildModel — live CP-1 anchor", () => {
       expect(anchored.cols[k].adj).toBe(seeded.cols[k].adj);
     }
   });
+
+  // FE 4.3 / E2E-5d: intcov must not be a cross-sourced "mongrel" (live adj.
+  // EBITDA ÷ the seeded ATLF interest line). Under a live anchor it either ties
+  // to the run's own reported coverage or is suppressed.
+  it("ties intcov to the anchor's reported coverage, not the seeded interest line", () => {
+    const anchored = buildModel(1, {}, ANCHOR); // ANCHOR.intCov = 2.0x
+    for (const k of ["l1", "pf"] as const) {
+      const c = anchored.cols[k];
+      expect(c.intcov!).toBeCloseTo(ANCHOR.intCov!, 6); // ties to the live figure
+      expect(c.adj / c.int).toBeCloseTo(ANCHOR.intCov!, 6); // interest re-based to match
+    }
+  });
+
+  it("suppresses intcov when the anchor reports no coverage (never a mongrel)", () => {
+    const anchored = buildModel(1, {}, { ...ANCHOR, intCov: null });
+    for (const k of ["l1", "pf"] as const) {
+      expect(anchored.cols[k].intcov).toBeNull();
+    }
+  });
 });
