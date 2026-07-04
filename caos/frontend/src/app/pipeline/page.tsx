@@ -286,7 +286,10 @@ function PipelineHeader({
   setDimCompleted,
 }: PipelineHeaderProps) {
   return (
-    <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
+    // overflow-x-auto: below ~1580px the strip's fixed-min content exceeds the
+    // viewport; scrolling keeps the view toggles reachable instead of clipping
+    // them to a sliver (axe target-size).
+    <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4 overflow-x-auto">
       <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
         ← Directory
       </Link>
@@ -334,7 +337,11 @@ function PipelineHeader({
       <Tag sev={clearance.tag}>{clearance.text}</Tag>
       {!useLive ? <SimControls run={run} /> : null}
       {!useLive ? <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span> : null}
+      {/* shrink-0: the group's overflow-hidden zeroes its min-width, so without
+          it the flex squeeze crushes the DAG/SWIMLANES buttons to a sliver
+          (axe target-size); the truncating run title absorbs the squeeze instead. */}
       <ToggleGroup
+        className="shrink-0"
         value={view}
         onChange={setView}
         options={[
@@ -346,7 +353,7 @@ function PipelineHeader({
         onClick={() => setDimCompleted(!dimCompleted)}
         title="Dim completed nodes"
         className={
-          "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+          "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap shrink-0 " +
           (dimCompleted ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
         }
       >

@@ -14,6 +14,7 @@ import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
+import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
@@ -592,11 +593,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence</div>
                         <span
                           className="tabular text-caos-3xs font-semibold px-2 py-0.5 rounded border"
-                          style={{
-                            color: selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                            borderColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                            backgroundColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
-                          }}
+                          style={sevSurface(selectedNode.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
                         >
                           {selectedNode.confidence}
                         </span>

@@ -9,6 +9,7 @@
 import { useMemo, useState } from "react";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
 import { hueFor } from "./node-style";
+import { sevSurface } from "@/lib/pipeline/sev";
 
 interface RelativeValueTableProps {
   graph: GraphResult;
@@ -300,11 +301,7 @@ export function RelativeValueTable({
                         {n.confidence ? (
                           <span
                             className="inline-block text-caos-3xs font-semibold px-1.5 py-0.5 rounded border leading-none"
-                            style={{
-                              color: n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                              borderColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 33%, transparent)`,
-                              backgroundColor: `color-mix(in srgb, ${n.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)"} 7%, transparent)`,
-                            }}
+                            style={sevSurface(n.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
                           >
                             {n.confidence}
                           </span>

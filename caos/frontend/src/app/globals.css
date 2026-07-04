@@ -275,11 +275,16 @@ main table:not(.rd-table):not(.rv-table) :is(th, td) {
 .rd-sources li::before { content: counter(rdsrc, decimal-leading-zero); font-weight: 700; color: #16161e; }
 .rd-src-chip { font-weight: 700; color: #16161e; white-space: nowrap; }
 .rd-src-name { color: #6c6c76; flex: 1; }
-.rd-cite { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; color: #1f4fa0; border: 1px solid rgba(31,79,160,0.35); border-radius: 2px; padding: 0 3px; margin-left: 4px; background: rgba(31,79,160,0.06); cursor: pointer; text-decoration: none; }
-button.rd-cite:hover { background: rgba(31,79,160,0.14); border-color: rgba(31,79,160,0.6); }
+/* Interactive citation: the button is an invisible 24×24 hit target (WCAG 2.5.8);
+   the visible ink-on-cream chip is the inner .rd-cite-chip, so the paper stays dense. */
+/* min target counter-scales against the preview zoom (--rd-zoom) so the
+   EFFECTIVE hit area stays ≥24px CSS px even when the paper renders at 0.85. */
+.rd-cite { display: inline-flex; align-items: center; justify-content: center; min-width: calc(24px / var(--rd-zoom, 1)); min-height: calc(24px / var(--rd-zoom, 1)); margin-left: 4px; padding: 0; border: none; background: none; cursor: pointer; text-decoration: none; }
+.rd-cite-chip { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; color: #1f4fa0; border: 1px solid rgba(31,79,160,0.35); border-radius: 2px; padding: 0 3px; background: rgba(31,79,160,0.06); }
+button.rd-cite:hover .rd-cite-chip { background: rgba(31,79,160,0.14); border-color: rgba(31,79,160,0.6); }
 button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; }
 .rd-cite-print { vertical-align: super; border: none; background: none; padding: 0; }
-.rd-cite-none { font-style: italic; color: #8a8a93; margin-left: 4px; }
+.rd-cite-none { font-style: italic; color: #6a6a72; margin-left: 4px; } /* ≥4.5:1 on the #f7f5ee paper */
 
 .rd-foot { display: flex; justify-content: space-between; border-top: 1px solid #16161e; margin-top: 8px; padding-top: 6px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; letter-spacing: 0.06em; }
 .rd-colophon { margin-top: 10px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; letter-spacing: 0.05em; color: #a24310; text-transform: uppercase; }
