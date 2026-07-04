@@ -14,6 +14,7 @@ import {
   type EmailRow,
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
+import { STANCE_COLOR } from "@/lib/command/srdata";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { SectorReview } from "@/components/command/SectorReview";
@@ -31,10 +32,16 @@ export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
   UNDERWEIGHT: "var(--caos-warning)", REDUCE: "var(--caos-critical)",
 };
-const STANCE_COLOR: Record<string, string> = {
-  CONSTRUCTIVE: "var(--caos-success)", NEUTRAL: "var(--caos-muted)",
-  CAUTIOUS: "var(--caos-warning)", NEGATIVE: "var(--caos-critical)",
-};
+
+// Leverage / coverage in the seeded sample sleeve are engine-derived and NOT
+// carried by the market-data seed — every row is 0 (placeholder), snrLev/totalLev
+// absent. Render those as "—" rather than a fabricated 0.0x; the real figures live
+// in Live Coverage. The `> 0` guard is specific to THIS seed, where 0 means
+// "absent": it deliberately differs from LiveCoverage's fmtX (finite-only), which
+// must still show a genuine 0.0x / negative net-cash leverage from live engine
+// output. Do not reuse fmtLevX on live metrics — use fmtX there.
+const fmtLevX = (v?: number): string =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 ? v.toFixed(1) + "x" : "—";
 
 /* ---------- CIO/PM view: posture lead band ---------- */
 // The command-center "verdict" — portfolio posture at a glance before any table.
@@ -122,11 +129,10 @@ const COL_TITLES: Record<string, string> = {
 };
 
 export function PortfolioTable({
-  selected, onSelect, tick: _tick,
+  selected, onSelect,
 }: {
   selected: string | null;
   onSelect: (code: string | null) => void;
-  tick: number;
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -223,7 +229,7 @@ export function PortfolioTable({
           <button
             key="expand"
             type="button"
-            onClick={() => onSelect(sel ? null : key)}
+            onClick={() => onSelect(sel ? null : (p.id || p.figi || p.code))}
             aria-label={sel ? `Collapse details for ${p.borrower || p.name}` : `Expand details for ${p.borrower || p.name}`}
             className={`sticky left-0 z-20 flex h-5 w-5 items-center justify-center rounded hover:bg-caos-elevated text-caos-muted hover:text-caos-text transition-caos focus-ring cursor-pointer ${stickyBg} ${hoverBg}`}
           >
@@ -257,7 +263,7 @@ export function PortfolioTable({
       case "subSector":
         return <span key="subSector" className="text-caos-muted text-caos-md truncate">{p.subSector || "—"}</span>;
       case "figi":
-        return <span key="figi" className="tabular text-caos-muted text-caos-sm truncate">{p.figi || "—"}</span>;
+        return <span key="figi" className="tabular text-caos-muted text-caos-xs truncate">{p.figi || "—"}</span>;
       case "rank":
         return <span key="rank" className="tabular text-caos-md text-caos-muted">{p.rank || "—"}</span>;
       case "rating":
@@ -269,9 +275,9 @@ export function PortfolioTable({
       case "maturity":
         return <span key="maturity" className="tabular text-right text-caos-muted">{p.maturity || p.inst.match(/'\d+/)?.[0] || "—"}</span>;
       case "bid":
-        return <span key="bid" className="tabular text-right">{(p.bid ?? p.px - 0.2).toFixed(1)}</span>;
+        return <span key="bid" className="tabular text-right">{p.bid == null ? "—" : p.bid.toFixed(1)}</span>;
       case "ask":
-        return <span key="ask" className="tabular text-right">{(p.ask ?? p.px + 0.2).toFixed(1)}</span>;
+        return <span key="ask" className="tabular text-right">{p.ask == null ? "—" : p.ask.toFixed(1)}</span>;
       case "dd":
         return (
           <span
@@ -288,15 +294,19 @@ export function PortfolioTable({
       case "spark":
         return <Spark key="spark" data={p.spark} color={sparkColor} w={76} h={16} />;
       case "ytdSpark":
-        return <Spark key="ytdSpark" data={p.ytdSpark || p.spark} color={sparkColor} w={76} h={16} />;
+        // Only render a YTD spark when we actually have YTD data; falling back to
+        // the 30-day `spark` here would mislabel it under the "YTD Chart" header.
+        return p.ytdSpark
+          ? <Spark key="ytdSpark" data={p.ytdSpark} color={sparkColor} w={76} h={16} />
+          : <span key="ytdSpark" className="tabular text-caos-muted">—</span>;
       case "lev":
-        return <span key="lev" className="tabular text-right">{p.lev.toFixed(1)}x</span>;
+        return <span key="lev" className="tabular text-right">{fmtLevX(p.lev)}</span>;
       case "snrLev":
-        return <span key="snrLev" className="tabular text-right">{(p.snrLev ?? Math.max(0, p.lev - 1.1)).toFixed(1)}x</span>;
+        return <span key="snrLev" className="tabular text-right">{fmtLevX(p.snrLev)}</span>;
       case "totalLev":
-        return <span key="totalLev" className="tabular text-right">{(p.totalLev ?? p.lev).toFixed(1)}x</span>;
+        return <span key="totalLev" className="tabular text-right">{fmtLevX(p.totalLev)}</span>;
       case "cov":
-        return <span key="cov" className="tabular text-right">{p.cov.toFixed(1)}x</span>;
+        return <span key="cov" className="tabular text-right">{fmtLevX(p.cov)}</span>;
       case "posture":
         return <span key="posture" className="tabular text-caos-md truncate" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>;
       case "conv":
@@ -501,7 +511,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
 
         {/* body */}
         <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
-          <p className="text-caos-lg text-caos-text/90 leading-relaxed whitespace-pre-line">{email.body}</p>
+          <p className="text-caos-md text-caos-text/90 leading-relaxed whitespace-pre-line">{email.body}</p>
         </div>
 
         {/* CP-MON classification footer */}
@@ -527,14 +537,18 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
 export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
   const [filter, setFilter] = useState<string | null>(null);
   const [openEmail, setOpenEmail] = useState<EmailRow | null>(null);
-  const grow = live ? Math.floor(tick / 8) : 0;
+  // demo-sim accrual, not real: LOW gains one tile item per this many ticks, and
+  // MEDIUM gains half that rate (the divisor below).
+  const SIM_EMAIL_ACCRUAL_EVERY = 8;
+  const SIM_EMAIL_MEDIUM_RATE_DIVISOR = 2;
+  const grow = live ? Math.floor(tick / SIM_EMAIL_ACCRUAL_EVERY) : 0;
   // Tiles weighted by SEVERITY, not count — CRITICAL leads (largest), LOW and the
   // meta tiles recede, so the eye lands on what must be acted on rather than on
   // the biggest number (the 67 auto-filed).
   const tiles = [
     { k: "critical", label: "Critical", n: EMAIL_TILES.critical, sub: "≥ 90 mat.", on: true, fs: "text-caos-hero", color: SEV_COLOR.critical },
     { k: "high", label: "High", n: EMAIL_TILES.high, sub: "70–89", on: true, fs: "text-[18px]", color: SEV_COLOR.high },
-    { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / 2), sub: "40–69", on: true, fs: "text-caos-metric", color: SEV_COLOR.medium },
+    { k: "medium", label: "Medium", n: EMAIL_TILES.medium + Math.floor(grow / SIM_EMAIL_MEDIUM_RATE_DIVISOR), sub: "40–69", on: true, fs: "text-caos-metric", color: SEV_COLOR.medium },
     { k: "low", label: "Low", n: EMAIL_TILES.low + grow, sub: "< 40 · filed", on: true, fs: "text-caos-xl", color: "var(--caos-muted)" },
     { k: "dedup", label: "Deduped", n: EMAIL_TILES.dedup, sub: "CP-MON-F", on: false, fs: "text-caos-xl", color: "var(--caos-muted)" },
     { k: "unresolved", label: "Unresolved", n: EMAIL_TILES.unresolved, sub: "issuer match", on: false, fs: "text-caos-xl", color: "var(--caos-text)" },
@@ -556,7 +570,7 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
               <div className={"tabular leading-none " + t.fs} style={{ color: t.color }}>
                 <FlashOnChange value={t.n}>{t.n}</FlashOnChange>
               </div>
-              <div className="text-caos-sm uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
+              <div className="text-caos-xs uppercase tracking-wider text-caos-muted mt-1">{t.label}</div>
               <div className="tabular text-caos-2xs text-caos-muted truncate">{t.sub}</div>
             </>
           );
@@ -577,7 +591,7 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
             onKeyDown={onActivate(() => setOpenEmail(e))}
             title="Open email"
             aria-label={`Open email: ${e.subj}`}
-            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[3px] border-b border-caos-border/50 text-caos-lg hover:bg-caos-elevated/60 transition-caos cursor-pointer focus-ring"
+            className="grid grid-cols-[40px_46px_1fr_120px_40px_130px] items-center gap-x-2 px-3 py-[3px] border-b border-caos-border/50 text-caos-md hover:bg-caos-elevated/60 transition-caos cursor-pointer focus-ring"
           >
             <span className="tabular text-caos-md text-caos-muted">{e.t}</span>
             <span className="tabular text-caos-accent">{e.issuer}</span>
@@ -585,7 +599,7 @@ export function EmailIntel({ tick, live }: { tick: number; live: boolean }) {
               <span className="text-caos-text truncate block">{e.subj}{e.dedup ? <span className="text-caos-muted text-caos-xs"> · dup</span> : null}</span>
               <span className="text-caos-muted text-caos-xs truncate block">{e.src}</span>
             </span>
-            <span className="text-caos-sm text-caos-muted truncate">{e.signal}</span>
+            <span className="text-caos-xs text-caos-muted truncate">{e.signal}</span>
             <span className="tabular text-right" style={{ color: SEV_COLOR[e.sev] }}>{e.mat}</span>
             <span className="tabular text-caos-xs text-caos-muted truncate text-right">→ {e.route}</span>
           </div>
@@ -614,7 +628,7 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
               <span className="tabular text-caos-xs text-caos-muted">{a.code}</span>
               <span className="tabular text-caos-xs text-caos-muted ml-auto">{simClock(Math.max(0, tick - i * 5))}</span>
             </div>
-            <div className="text-caos-lg text-caos-text leading-snug mt-0.5">{a.text}</div>
+            <div className="text-caos-md text-caos-text leading-snug mt-0.5">{a.text}</div>
             <div className="mt-1"><Tag sev="info">route → {a.route}</Tag></div>
           </div>
         </div>
@@ -624,7 +638,10 @@ export function AlertFeed({ tick, live }: { tick: number; live: boolean }) {
 }
 
 /* ---------- CP-SR sector board ---------- */
-export function SectorBoard() {
+export function SectorBoard({ clock, onSummary }: {
+  clock: string; // desk sim clock "HH:MM:SS" — stamps refreshes on the desk time, not wall-clock
+  onSummary?: (s: { shown: number; due: number }) => void; // report counts up for the panel header
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const coverageSectors = Array.from(new Set(PORTFOLIO.map((p) => p.sector))).filter(Boolean).sort();
@@ -657,6 +674,12 @@ export function SectorBoard() {
   }, [visible]);
   const shown = rows.filter((s) => visible.has(s.sector));
   const hidden = sectorChoices.filter((s) => !visible.has(s));
+  // A refresh this session clears the due flag, so the header count decrements
+  // as sectors are reviewed instead of staying a hardcoded "2 refreshes due".
+  const dueCount = shown.filter((s) => s.due && !refreshed[s.sector]).length;
+  useEffect(() => {
+    onSummary?.({ shown: shown.length, due: dueCount });
+  }, [shown.length, dueCount, onSummary]);
 
   return (
     <div className="p-2 flex flex-col gap-2">
@@ -686,17 +709,17 @@ export function SectorBoard() {
                 <button
                   onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); }}
                   aria-label={`Remove ${s.sector}`}
-                  className="pointer-events-auto relative z-10 inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-lg font-bold leading-none text-caos-critical hover:text-caos-critical-bright focus-ring"
+                  className="pointer-events-auto relative z-10 inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
                 >
                   ×
                 </button>
               </div>
               <div className="relative pointer-events-none tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-              <div className="relative pointer-events-none text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
+              <div className="relative pointer-events-none text-caos-xs text-caos-muted mt-1 leading-snug">{s.trend}</div>
               <div className="relative pointer-events-none tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
                 <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
                 {fresh ? (
-                  <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
+                  <span className="inline-flex items-center gap-1" style={{ color: "var(--caos-success)" }}><StatusGlyph kind="success" size={9} /> UPDATED</span>
                 ) : s.due ? (
                   <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
                 ) : null}
@@ -715,17 +738,17 @@ export function SectorBoard() {
                 <button
                   onClick={() => setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; })}
                   aria-label={`Remove ${s.sector}`}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-lg font-bold leading-none text-caos-critical hover:text-caos-critical-bright focus-ring"
+                  className="inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
                 >
                   ×
                 </button>
               </div>
               <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-              <div className="text-caos-sm text-caos-muted mt-1 leading-snug">{s.trend}</div>
+              <div className="text-caos-xs text-caos-muted mt-1 leading-snug">{s.trend}</div>
               <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
                 <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
                 {fresh ? (
-                  <span style={{ color: "var(--caos-success)" }}>✓ UPDATED</span>
+                  <span className="inline-flex items-center gap-1" style={{ color: "var(--caos-success)" }}><StatusGlyph kind="success" size={9} /> UPDATED</span>
                 ) : s.due ? (
                   <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
                 ) : null}
@@ -769,7 +792,7 @@ export function SectorBoard() {
           onRefreshed={(sector) =>
             setRefreshed((prev) => ({
               ...prev,
-              [sector]: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" }),
+              [sector]: clock.slice(0, 5), // desk time HH:MM, matches the sim clock shown across the Command Center
             }))
           }
           onClose={() => setOpen(null)}
@@ -790,6 +813,14 @@ const LAYER_TITLES: Record<string, string> = {
   L6: "L6 — Debate & Decision (IC debate, portfolio debate)",
 };
 
+// Glance-able layer key — the full LAYER_TITLES live only in the column-head
+// hover/focus title, invisible to a scanning eye. This persistent legend gives
+// the L1–L6 taxonomy a name on-screen for the Research lens (recognition > recall).
+const LAYER_SHORT: Record<string, string> = {
+  L1: "Data Foundation", L2: "Credit Synthesis", L3: "Valuation & RV",
+  L4: "Legal & Covenant", L5: "QA", L6: "Decision",
+};
+
 // Sequential freshness ramp — solid tinted fills only. Process states
 // (running / blocked) are NOT fills; they render as an outlined glyph cell so
 // `blocked` reads as categorical, never as "a slightly redder stale".
@@ -800,18 +831,23 @@ const FRESH_FILL: Record<string, string> = {
 };
 const CELL_SHORT: Record<string, string> = { fresh: "FRESH", aging: "AGING", stale: "STALE" };
 
-function CoverageCell({ status, title }: { status: string; title: string }) {
+// `label` is a concise SR announcement ("ACOM L1 stale") — the visible glyph
+// text alone (STALE/BLKD) doesn't tell a non-sighted reader which issuer/layer
+// the state belongs to; `title` stays the verbose mouse-hover string.
+function CoverageCell({ status, title, label }: { status: string; title: string; label?: string }) {
   if (status === "blocked") {
     // Categorical: outlined critical ring + ✕-glyph, no red fill — visually
     // distinct from a solid-red `stale` even for a low-vision / colorblind read.
     return (
       <div
         title={title}
+        role={label ? "img" : undefined}
+        aria-label={label}
         className="h-5 rounded-sm flex items-center justify-center gap-0.5 border transition-caos hover:opacity-80"
         style={{ borderColor: "var(--caos-critical)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)", color: "var(--caos-critical-bright)" }}
       >
         <StatusGlyph kind="blocked" size={9} />
-        <span className="tabular text-caos-3xs uppercase font-medium">BLKD</span>
+        <span className="tabular text-caos-2xs uppercase font-medium">BLKD</span>
       </div>
     );
   }
@@ -821,21 +857,25 @@ function CoverageCell({ status, title }: { status: string; title: string }) {
     return (
       <div
         title={title}
+        role={label ? "img" : undefined}
+        aria-label={label}
         className="h-5 rounded-sm flex items-center justify-center gap-0.5 border caos-running transition-caos"
         style={{ borderColor: "color-mix(in srgb, var(--caos-accent) 55%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 14%, transparent)", color: "var(--caos-accent)" }}
       >
         <StatusGlyph kind="running" size={9} />
-        <span className="tabular text-caos-3xs uppercase font-medium">RUN</span>
+        <span className="tabular text-caos-2xs uppercase font-medium">RUNNING</span>
       </div>
     );
   }
   return (
     <div
       title={title}
+      role={label ? "img" : undefined}
+      aria-label={label}
       className="h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80"
       style={{ background: FRESH_FILL[status] || "transparent" }}
     >
-      <span className="tabular text-caos-3xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
+      <span className="tabular text-caos-2xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
     </div>
   );
 }
@@ -864,12 +904,18 @@ const errMsg = (e: unknown): string => {
 const shortId = (id?: string) => (id ? id.slice(0, 8) : "—");
 const nowStamp = () => new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
 
+// CoverageMatrix run poll: cadence between getRun checks, and the ceiling after
+// which we stop and mark the row timed out.
+const _RUN_POLL_INTERVAL_MS = 2500;
+const _RUN_POLL_TIMEOUT_MS = 180_000;
+
 function ReRunButton({ runnable, phase, error, code, onClick }: { runnable: boolean; phase?: RowRun["phase"]; error?: string; code: string; onClick: () => void }) {
   if (!runnable) {
     return (
       <span
         title={`Seeded sample — no live engine run for ${code} (Phase-1 runs ATLF only)`}
-        className="tabular text-caos-3xs uppercase text-caos-muted border border-caos-border/50 rounded px-1 py-0.5 text-center cursor-not-allowed select-none"
+        aria-label={`Seeded sample — no live engine run for ${code}`}
+        className="tabular text-caos-2xs uppercase text-caos-muted border border-caos-border/50 rounded px-1 py-0.5 text-center cursor-not-allowed select-none"
       >
         Seeded
       </span>
@@ -921,11 +967,16 @@ export function CoverageMatrix() {
   const rows = useMemo(() => {
     const withWorst = coverageData.map((c) => ({ ...c, worst: worstStatus(c.cells) }));
     const filtered = filter === "all" ? withWorst : withWorst.filter((r) => r.worst === filter);
-    return filtered.sort((a, b) =>
-      sortBy === "staleness"
+    // Engine-backed rows first under BOTH sorts — the one runnable issuer (ATLF,
+    // where RE-RUN is real) leads the seeded sample instead of sinking ~40 rows
+    // down alphabetically. Salience marks the exception, not the 382 illustrative rows.
+    return filtered.sort((a, b) => {
+      const runRank = (runnableIssuerId(a.code) ? 0 : 1) - (runnableIssuerId(b.code) ? 0 : 1);
+      if (runRank !== 0) return runRank;
+      return sortBy === "staleness"
         ? ((STATUS_RANK[a.worst] ?? 9) - (STATUS_RANK[b.worst] ?? 9)) || a.code.localeCompare(b.code)
-        : a.code.localeCompare(b.code),
-    );
+        : a.code.localeCompare(b.code);
+    });
   }, [coverageData, filter, sortBy]);
 
   const applyRollup = (rowId: string, run: RunSummaryDTO) => {
@@ -947,9 +998,9 @@ export function CoverageMatrix() {
         if (!mounted.current) return;
         if (cur.status === "complete") return applyRollup(rowId, cur);
         if (cur.status === "failed") return fail(rowId, cur.error || "run failed", runId);
-        if (Date.now() - started > 180_000) return fail(rowId, "timed out waiting for the run", runId);
+        if (Date.now() - started > _RUN_POLL_TIMEOUT_MS) return fail(rowId, "timed out waiting for the run", runId);
         setRuns((r) => ({ ...r, [rowId]: { phase: "running", runId } }));
-        window.setTimeout(() => poll(rowId, runId, started), 2500);
+        window.setTimeout(() => poll(rowId, runId, started), _RUN_POLL_INTERVAL_MS);
       })
       .catch((e) => {
         if (!mounted.current) return;
@@ -1011,12 +1062,22 @@ export function CoverageMatrix() {
           title={bulkStale.length ? `Trigger real engine runs for ${bulkStale.length} engine-backed issuer(s) needing a refresh` : "No engine-backed issuers need a refresh in view"}
           className="tabular text-caos-2xs uppercase px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Re-run stale ({bulkStale.length})
+          Re-run engine-backed ({bulkStale.length})
         </button>
       </div>
       {/* honesty banner — the matrix is a seeded sample; RE-RUN is real only where engine-backed */}
-      <div role="note" className="tabular text-caos-3xs text-caos-muted px-1 mb-1.5 leading-snug">
+      <div role="note" className="tabular text-caos-md text-caos-muted px-1 mb-1.5 leading-snug">
         Seeded coverage sample · <span style={{ color: "var(--caos-accent)" }}>RE-RUN</span> triggers a real engine run where the issuer is engine-backed (Phase-1: ATLF); other rows are illustrative.
+      </div>
+      {/* Persistent L1–L6 taxonomy key — the layer meaning no longer lives only in
+          a hover title. Full descriptions stay on the column-head focus/hover. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 mb-1.5">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Layers</span>
+        {COVERAGE_LAYERS.map((l) => (
+          <span key={l} className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">
+            <span className="text-caos-accent">{l}</span> {LAYER_SHORT[l]}
+          </span>
+        ))}
       </div>
 
       <div className={grid + " mb-1"}>
@@ -1025,6 +1086,7 @@ export function CoverageMatrix() {
           <span
             key={l}
             title={LAYER_TITLES[l]}
+            aria-label={LAYER_TITLES[l]}
             tabIndex={0}
             className="tabular text-caos-xs uppercase text-caos-muted text-center cursor-help border-b border-dashed border-caos-border/50 pb-0.5 focus:outline-none focus:border-caos-accent focus:text-caos-text rounded px-0.5 transition-caos"
           >
@@ -1041,25 +1103,31 @@ export function CoverageMatrix() {
           const rr = runs[c.id];
           const busy = rr?.phase === "queuing" || rr?.phase === "running";
           const runnable = !!runnableIssuerId(c.code);
+          // Only the meaningful rows carry a sub-label now: a real run's id/time,
+          // a failure, or the accent "engine-backed" tag on the runnable issuer.
+          // The 382 illustrative rows show nothing — the banner + "Seeded" chip
+          // already state the boundary once, so repeating it 382× was pure noise.
           const sub = rr?.phase === "done" && rr.at
             ? `run ${shortId(rr.runId)} · ${rr.at}`
-            : rr?.phase === "failed" ? "run failed" : runnable ? "engine-backed" : "seeded sample";
+            : rr?.phase === "failed" ? "run failed" : runnable ? "engine-backed" : null;
           return (
             <div key={c.id} className={grid + " mb-1"}>
               <span className="min-w-0 flex flex-col leading-tight">
-                <IssuerLink query={c.code} title={`Open ${c.code} profile`} className="tabular text-caos-lg text-caos-accent hover:text-caos-text transition-caos truncate">
+                <IssuerLink query={c.code} title={`Open ${c.code} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos truncate">
                   {c.code}
                 </IssuerLink>
-                <span
-                  className="tabular text-caos-3xs truncate"
-                  style={{ color: rr?.phase === "failed" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}
-                >
-                  {sub}
-                </span>
+                {sub ? (
+                  <span
+                    className="tabular text-caos-2xs truncate"
+                    style={{ color: rr?.phase === "failed" ? "var(--caos-critical-bright)" : runnable ? "var(--caos-accent)" : "var(--caos-muted)" }}
+                  >
+                    {sub}
+                  </span>
+                ) : null}
               </span>
               {COVERAGE_LAYERS.map((l) => {
                 const st = busy ? "running" : c.cells[l];
-                return <CoverageCell key={l} status={st} title={`${c.code} ${LAYER_TITLES[l]} — ${st}`} />;
+                return <CoverageCell key={l} status={st} title={`${c.code} ${LAYER_TITLES[l]} — ${st}`} label={`${c.code} ${l} ${st}`} />;
               })}
               <div className="flex justify-center">
                 <ReRunButton runnable={runnable} phase={rr?.phase} error={rr?.error} code={c.code} onClick={() => reRun(c.id, c.code)} />
@@ -1072,13 +1140,13 @@ export function CoverageMatrix() {
       {/* legend — two labelled groups so the sequential freshness ramp reads
           apart from the categorical process states */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 px-1">
-        <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Freshness</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Freshness</span>
         {["fresh", "aging", "stale"].map((k) => (
           <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
             <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
           </span>
         ))}
-        <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted ml-2">State</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted ml-2">State</span>
         {["running", "blocked"].map((k) => (
           <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
             <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
@@ -1115,7 +1183,7 @@ export function QaQueue() {
             </Link>
             <span className="tabular text-caos-xs text-caos-muted ml-auto">{q.age}</span>
           </div>
-          <div className="text-caos-lg text-caos-text leading-snug mt-1">{q.text}</div>
+          <div className="text-caos-md text-caos-text leading-snug mt-1">{q.text}</div>
         </div>
       ))}
     </div>
@@ -1140,14 +1208,17 @@ export function GapsList() {
       {gaps.map((g, i) => (
         <div key={i} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
+            {/* Severity never rides on the colour dot alone (WCAG 1.4.1) — the
+                word travels too, matching the QA-queue Tag one panel over. */}
             <Dot sev={g.sev} />
+            <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: SEV_COLOR[g.sev] ?? "var(--caos-muted)" }}>{g.sev}</span>
             <IssuerLink query={g.issuer} title={`Open ${g.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos">
               {g.issuer}
             </IssuerLink>
-            <span className="text-caos-lg text-caos-text truncate">{g.doc}</span>
+            <span className="text-caos-md text-caos-text truncate">{g.doc}</span>
             <span className="tabular text-caos-xs text-caos-muted ml-auto">req. {g.requested}</span>
           </div>
-          <div className="text-caos-sm text-caos-muted leading-snug mt-0.5 pl-3.5">{g.impact}</div>
+          <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 pl-3.5">{g.impact}</div>
         </div>
       ))}
     </div>
@@ -1159,9 +1230,12 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
   const p = PORTFOLIO.find((x) => (x.id || x.figi || x.code) === code);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      // Don't steal Escape from a field the user is typing in (e.g. the NL Query
+      // input) — only close the strip when focus isn't in an editable control.
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -1171,20 +1245,20 @@ export function IssuerStrip({ code, onClose }: { code: string; onClose: () => vo
   const stat = (l: string, v: string, c?: string) => (
     <span key={l} className="flex flex-col items-start">
       <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className="tabular text-caos-2xl" style={{ color: c }}>{v}</span>
+      <span className="tabular text-caos-xl" style={{ color: c }}>{v}</span>
     </span>
   );
   return (
     <div className="h-12 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-6 px-4 caos-enter">
       <span className="flex items-center gap-2">
-        <span className="tabular text-caos-2xl text-caos-accent">{p.code}</span>
-        <span className="text-caos-2xl text-caos-text font-medium">{p.name}</span>
+        <span className="tabular text-caos-xl text-caos-accent">{p.code}</span>
+        <span className="text-caos-xl text-caos-text font-medium">{p.name}</span>
         <Tag sev={p.qa}>{p.qa}</Tag>
       </span>
       {stat("3Y DM", p.dm + "bps")}
       {stat("Margin", "S+" + p.margin)}
-      {stat("Net Lev", p.lev.toFixed(1) + "x")}
-      {stat("Int Cov", p.cov.toFixed(1) + "x")}
+      {stat("Net Lev", fmtLevX(p.lev))}
+      {stat("Int Cov", fmtLevX(p.cov))}
       {stat("M2E", p.m2e.toFixed(1) + "mo", p.m2e < 12 ? "var(--caos-warning)" : undefined)}
       {stat("Posture", p.posture, POSTURE_COLOR[p.posture])}
       <div className="flex-1"></div>

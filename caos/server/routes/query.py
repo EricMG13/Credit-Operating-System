@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -256,7 +257,20 @@ async def accept_link(
         model=body.model, analyst_id=caller.id,
     )
     db.add(row)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Concurrent double-accept of the same pair (double-click / racing request)
+        # both passed the existence SELECT above; uq_accepted_link_pair then fires.
+        # Honour the idempotency contract — return the row the winner wrote — rather
+        # than a 500. (Saboteur W6)
+        await db.rollback()
+        existing = (await db.execute(
+            select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
+        )).scalars().first()
+        if existing is not None:
+            return {**_link_dict(existing), "created": False}
+        raise
     await db.refresh(row)
     return {**_link_dict(row), "created": True}
 

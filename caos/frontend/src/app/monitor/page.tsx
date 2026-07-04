@@ -10,7 +10,7 @@ import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { ALERTS } from "@/lib/command/data";
+import { simAlertsToday } from "@/lib/command/data";
 import { SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
@@ -29,7 +29,7 @@ function Monitor() {
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
   const tick = run.sim.tick;
-  const alertsToday = live || run.sim.done ? Math.min(ALERTS.length, Math.floor(tick / 5) + 2) : ALERTS.length;
+  const alertsToday = simAlertsToday(tick, live || run.sim.done);
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -43,6 +43,11 @@ function Monitor() {
         <div className="h-4 w-px bg-caos-border" />
         <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-MON</span>
         <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Monitor — email intelligence &amp; alert routing</span>
+        {/* Honesty marker: this whole surface is a seeded simulation, not a live
+            feed — same convention as Command's "Sample portfolio — not live". */}
+        <span className="tabular text-caos-2xs uppercase tracking-wide text-caos-muted whitespace-nowrap border border-caos-border rounded px-1.5 py-0.5">
+          Illustrative sample — not live
+        </span>
         <div className="flex-1" />
         {headStat("Msgs today", "105")}
         {headStat("Unresolved", "4", "var(--caos-warning)")}
@@ -61,7 +66,8 @@ function Monitor() {
           right={
             <span className="flex items-center gap-1.5">
               <Dot sev="running" pulse={live} />
-              <span className="tabular text-caos-xs text-caos-muted">{live ? "LIVE" : "PAUSED"} · 105 msgs today</span>
+              {/* "SIM" not "LIVE": the tick is a demo simulation, not a real feed. */}
+              <span className="tabular text-caos-xs text-caos-muted">{live ? "SIM" : "PAUSED"} · 105 msgs today</span>
             </span>
           }
         >

@@ -22,10 +22,15 @@ BM25/evidence stack untouched. See caos/docs/OBSIDIAN_DATABANK.md.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
+
+# The issuer hub lists a run history; bound the load so a long-lived issuer's
+# ever-growing run set doesn't get re-read whole on every export (N2).
+_HUB_RUN_HISTORY_CAP = 200
 
 # Strip only what breaks a filesystem name or an Obsidian wikilink; keep spaces
 # so the human title doubles as both the filename and the [[link]] target.
@@ -269,8 +274,12 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
         }
         for m in modules
     ]
+    # Runs accumulate one-per-analysis forever; the hub only lists a history, so
+    # bound the load to the most recent N rather than re-reading the whole run
+    # history on every Committee-Ready export (N2).
     issuer_runs = (await session.execute(
         select(Run).where(Run.issuer_id == run.issuer_id)
+        .order_by(Run.as_of_date.desc()).limit(_HUB_RUN_HISTORY_CAP)
     )).scalars().all()
     findings = (await session.execute(
         select(QAFinding).where(QAFinding.run_id == run_id)
@@ -280,7 +289,10 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
     cp1c = next((m for m in modules if m.module_id == "CP-1C"), None)
     related = [p["name"] for p in ((cp1c.runtime_output or {}).get("peers") or [])] if cp1c else []
 
-    return write_run_to_vault(
+    # Off-thread the two sync note writes so a slow vault disk doesn't block the
+    # event loop (export runs on the executor's loop). (N2)
+    return await asyncio.to_thread(
+        write_run_to_vault,
         vault_dir,
         {"name": issuer.name, "ticker": issuer.ticker,
          "industry": issuer.industry, "country": issuer.country},

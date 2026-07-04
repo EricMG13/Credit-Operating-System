@@ -14,6 +14,7 @@ signed cookie; /logout clears it.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import re
 import time
@@ -278,13 +279,19 @@ async def register(
             status.HTTP_409_CONFLICT, "An account with that email already exists — sign in instead."
         )
 
+    # Four PBKDF2 hashes (password + 3 recovery words) — off-thread so registration
+    # doesn't block the event loop for ~2M iterations. _recovery_hashes validates
+    # word count and raises HTTPException(422), which propagates cleanly through
+    # to_thread.
+    password_hash = await asyncio.to_thread(hash_password, _passcode(body))
+    recovery_word_hashes = await asyncio.to_thread(_recovery_hashes, body.recovery_words)
     analyst = Analyst(
         name=name,
         email=email,
-        password_hash=hash_password(_passcode(body)),
+        password_hash=password_hash,
         coverage_area=sanitize_field(body.coverage_area or "").strip() or None,
         location=sanitize_field(body.location or "").strip() or None,
-        recovery_word_hashes=_recovery_hashes(body.recovery_words),
+        recovery_word_hashes=recovery_word_hashes,
         recovery_hints=[sanitize_field(h).strip()[:160] for h in body.recovery_hints[:3]],
     )
     db.add(analyst)
@@ -317,7 +324,10 @@ async def login(
     # password) so a missing email and a wrong password take the same time — no
     # user enumeration via timing. Compute `ok` unconditionally before branching.
     stored = analyst.password_hash if analyst else None
-    ok = verify_password(_passcode(body), stored or _DUMMY_HASH)
+    # PBKDF2 (600k iters) is CPU-bound; off-thread it so a login can't stall the
+    # single event loop for every other request (and so a burst of login attempts
+    # can't be used to peg it). Same posture as the upload-parse off-threading.
+    ok = await asyncio.to_thread(verify_password, _passcode(body), stored or _DUMMY_HASH)
     if not ok or analyst is None:
         # 401 (not 403) feeds the access-log brute-force heuristic. Generic message.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password.")
@@ -340,7 +350,8 @@ async def recover_login(
     # present, dummies otherwise — so a missing email costs the same scrypt work as
     # wrong words. No user enumeration via timing; mirrors the /login lane above.
     stored = (analyst.recovery_word_hashes if analyst else None) or _DUMMY_RECOVERY_HASHES
-    ok = _recovery_ok(body.recovery_words, stored)
+    # Three PBKDF2 verifies — off-thread (see /login) so recovery can't peg the loop.
+    ok = await asyncio.to_thread(_recovery_ok, body.recovery_words, stored)
     if not ok or analyst is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Recovery failed — contact admin.")
     _set_cookie(response, analyst)

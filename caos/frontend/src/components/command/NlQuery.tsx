@@ -14,7 +14,7 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
-import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult } from "@/lib/query/types";
+import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
@@ -37,7 +37,7 @@ function Pill({ text, color, title }: { text: string; color: string; title?: str
     <span
       title={title}
       className="tabular text-caos-3xs uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
-      style={{ color, borderColor: color + "66", background: color + "14" }}
+      style={{ color, borderColor: `color-mix(in srgb, ${color} 40%, transparent)`, background: `color-mix(in srgb, ${color} 8%, transparent)` }}
     >
       {text}
     </span>
@@ -198,11 +198,17 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
   );
 }
 
-// Semantic (evidence-retrieval) results — issuers grouped by document match, each
-// with cited source excerpts (the qualitative counterpart to the metric table).
-function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: OpenCite }) {
+// Semantic (evidence-retrieval) and synthesis (agent-wiki retrieval) results —
+// issuers grouped by match, each with cited source excerpts (the qualitative
+// counterpart to the metric table). Same row shape; the pill names the corpus.
+function SemanticView({ res, onOpenCite }: { res: SemanticResult | SynthesisResult; onOpenCite: OpenCite }) {
+  const synth = res.mode === "synthesis";
   if (!res.rows.length) {
-    return <div className="tabular text-caos-md text-caos-muted py-1">No issuer documents matched.</div>;
+    return (
+      <div className="tabular text-caos-md text-caos-muted py-1">
+        {synth ? "No matching agent syntheses, claims, or QA findings." : "No issuer documents matched."}
+      </div>
+    );
   }
   return (
     <div className="flex flex-col gap-2 overflow-auto" style={{ maxHeight: 300 }}>
@@ -214,7 +220,9 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
             {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
             {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
-            <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />
+            {synth
+              ? <Pill text="SYNTHESIS" color="var(--caos-accent)" title="Matched in agent syntheses, claims, and QA findings" />
+              : <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />}
           </div>
           <div className="flex flex-col gap-1.5 px-2 py-1.5">
             {row.excerpts.map((ex) => (
@@ -340,7 +348,7 @@ export function NlQueryBody() {
               );
             })()}
 
-            {res.mode === "semantic"
+            {res.mode === "semantic" || res.mode === "synthesis"
               ? <SemanticView res={res} onOpenCite={openCite} />
               : <StructuredView res={res} onOpenCite={openCite} />}
 
@@ -358,30 +366,14 @@ export function NlQueryBody() {
   );
 }
 
-export function NlQuery({ compact: _compact = false }: { compact?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+export function NlQuery() {
   return (
     <PanelShell
       title="Ask across issuers · cross-issuer query"
       className="shrink-0"
       right={<span className="tabular text-caos-xs text-caos-muted">grounded in the metric store · cited where run-derived</span>}
     >
-      {expanded ? (
-        <div className="p-2.5"><NlQueryBody /></div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="m-2.5 flex items-center gap-2 rounded border border-caos-border bg-caos-bg px-2.5 py-2 text-left text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
-        >
-          <span className="text-caos-accent text-caos-2xl" aria-hidden="true">✦</span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-caos-lg text-caos-text">Ask across issuers</span>
-            <span className="block tabular text-caos-xs text-caos-muted truncate">Open the cited metric-store query lane</span>
-          </span>
-          <span className="tabular text-caos-xs text-caos-accent">OPEN</span>
-        </button>
-      )}
+      <div className="p-2.5"><NlQueryBody /></div>
     </PanelShell>
   );
 }

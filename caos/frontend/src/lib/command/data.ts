@@ -18315,6 +18315,14 @@ export const ALERTS: AlertRow[] = [
   { sev: "medium", issuer: "ATLF", code: "MON-H-2223", text: "Sponsor (Kestrel) closes Fund VI at $4.2B — support capacity flag updated in CP-2D", route: "CP-2D" },
 ];
 
+// Demo-sim only: a synthetic "accrued today" count animated off the sim tick —
+// NOT real data. Single-sourced so Command + Monitor never diverge.
+const SIM_ALERT_ACCRUAL_EVERY = 5;
+const SIM_ALERT_BASELINE = 2;
+export function simAlertsToday(tick: number, active: boolean): number {
+  return active ? Math.min(ALERTS.length, Math.floor(tick / SIM_ALERT_ACCRUAL_EVERY) + SIM_ALERT_BASELINE) : ALERTS.length;
+}
+
 export interface SectorRow {
   sector: string;
   stance: "CONSTRUCTIVE" | "NEUTRAL" | "CAUTIOUS" | "NEGATIVE";

@@ -14,6 +14,7 @@ import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
+import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
@@ -180,8 +181,11 @@ export function AskLauncher() {
   if (!open) return trigger;
 
   // Model and other issuer-scoped concepts → the ATLF issuer Q&A slide-over.
+  // No specific module is in view from this generic launcher, so pass an empty
+  // tab: IssuerChat then omits the "currently viewing <module>" line instead of
+  // asserting a fabricated one (was hardcoded "M-118" on every route — N4).
   if (scope === "issuer") {
-    return <>{trigger}<IssuerChat tab="M-118" onClose={() => setOpen(false)} /></>;
+    return <>{trigger}<IssuerChat tab="" onClose={() => setOpen(false)} /></>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.
@@ -592,11 +596,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence</div>
                         <span
                           className="tabular text-caos-3xs font-semibold px-2 py-0.5 rounded border"
-                          style={{
-                            color: selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                            borderColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                            backgroundColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
-                          }}
+                          style={sevSurface(selectedNode.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
                         >
                           {selectedNode.confidence}
                         </span>
