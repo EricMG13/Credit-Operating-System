@@ -20,8 +20,11 @@ export interface MetricCell {
   value: number;
   unit: string;
   // run = QA-gated engine run; derived = extracted from a cited document chunk;
-  // fixture = ATLF demo numbers (not a real run, #04); seed = illustrative, no source.
-  provenance: "run" | "derived" | "fixture" | "seed";
+  // fixture = ATLF demo numbers for the genuine reference issuer (not a real run, #04);
+  // demo_fixture = the ATLF fixture served for a NON-demo issuer on a keyless run —
+  // fabricated, must be flagged loud, never read as seed (#10 / SEAM2-1);
+  // seed = illustrative, no source.
+  provenance: "run" | "derived" | "fixture" | "demo_fixture" | "seed";
   qa_status: string;
   period: string;
   citation: Citation | null;

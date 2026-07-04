@@ -117,7 +117,7 @@ Issuer Profile consumes it loudly: `ProfileContent.tsx:125-138` maps
 
 | id | sev | frontend | backend | defect + failing scenario |
 |---|---|---|---|---|
-| SEAM2-1 | MED → **backend half FIXED 2026-07-04** | `lib/query/types.ts:24` (provenance union omits `demo_fixture`); `NlQuery.tsx:62-80` (cell badge matches only `fixture`/`seed`), `:143-150` (row badge falls through to `SEEDED · "Illustrative seed values (no source yet)"`); `lib/query/viz.ts:36,44` (bar color domain `["run","derived","seed"]` — `demo_fixture` off-domain: unexplained color, absent from legend; the `:36` type predicate asserts the union that hides it) | `nlquery.py:407,418` (collapse window has no provenance filter — a `demo_fixture` fact wins when it is the issuer's only fact), `:454` (passed through), `:493-501` (caveat lane checks `seed`/`derived` only — **silent** for `demo_fixture`) | Keyless run on a live (non-ATLF) issuer projects `demo_fixture` facts; a cross-issuer NL Query ranking then shows that issuer at ATLF's 5.68x / $2.8bn with a **SEEDED** pill ("no source yet") and an unexplained chart color, and the result-level caveat never fires — fabricated data labeled as benign seed. Why MED not HIGH: facts carry `qa_status=Restricted` and `NlQuery.tsx:162` renders the Restricted gate badge; prod runs keyed, so exposure is keyless/QA envs. |
+| SEAM2-1 | MED → **FULLY FIXED 2026-07-04** | `lib/query/types.ts:24` (provenance union omits `demo_fixture`); `NlQuery.tsx:62-80` (cell badge matches only `fixture`/`seed`), `:143-150` (row badge falls through to `SEEDED · "Illustrative seed values (no source yet)"`); `lib/query/viz.ts:36,44` (bar color domain `["run","derived","seed"]` — `demo_fixture` off-domain: unexplained color, absent from legend; the `:36` type predicate asserts the union that hides it) | `nlquery.py:407,418` (collapse window has no provenance filter — a `demo_fixture` fact wins when it is the issuer's only fact), `:454` (passed through), `:493-501` (caveat lane checks `seed`/`derived` only — **silent** for `demo_fixture`) | Keyless run on a live (non-ATLF) issuer projects `demo_fixture` facts; a cross-issuer NL Query ranking then shows that issuer at ATLF's 5.68x / $2.8bn with a **SEEDED** pill ("no source yet") and an unexplained chart color, and the result-level caveat never fires — fabricated data labeled as benign seed. Why MED not HIGH: facts carry `qa_status=Restricted` and `NlQuery.tsx:162` renders the Restricted gate badge; prod runs keyed, so exposure is keyless/QA envs. |
 | SEAM2-2 | MED → **FIXED 2026-07-04** | (no frontend label possible — CP-1C output carries only percentiles) | `engine/peers.py:67-90` (`_peer_facts`: `:81-84` prefers `run` over non-run but never excludes `demo_fixture`; no provenance filter in the query `:67-72`) | Peer benchmark (CP-1C) ingests `demo_fixture` facts as peer values: an issuer whose only facts came from a keyless run contributes ATLF's fabricated 5.68x / $2.8bn to ANOTHER issuer's peer distribution — medians, percentiles, outlier flags silently include fabricated peers, unlabeled downstream. Several keyless issuers collapse the peer median toward ATLF's numbers. Same keyless-env scoping keeps it MED. Note: the accepted "demo/mock seams by design" register covers the *seed universe*; `demo_fixture` exists precisely to mark fabrication, so its unfiltered entry into peer stats is in-scope, not adjudicated. |
 
 ### Fix pass — 2026-07-04 (in-tree, backend only)
@@ -137,13 +137,31 @@ Atlas Forge demo-fixture data … NOT sourced from those issuers' filings; treat
 as illustrative only." Renders today through the existing `res.caveats` lane
 (`NlQuery.tsx:348-352`) — no frontend change required. Unit test
 `test_nlquery.py::test_provenance_caveats_flag_fabricated_demo_fixture`.
-**Deferred**: the frontend badge/union half (types.ts `demo_fixture` member,
-cell/row badge, viz color domain) — those exact regions were rewritten by the
-SEAM1-1 fix on `claude/vigilant-panini-735ad4`; wire after that branch lands.
+**SEAM2-1 frontend half FIXED** (2026-07-04, after the SEAM1-1 synthesis fix
+landed in-tree at `122c8fb5`, freeing the query files). Four consumer sites now
+treat `demo_fixture` as fabricated, matching Issuer Profile's established
+precedent (critical / "fabricated"):
+- `lib/query/types.ts:24` — `MetricCell.provenance` union gains `demo_fixture`
+  (typed + documented; no longer hidden from the compiler).
+- `NlQuery.tsx` cell badge — a `demo_fixture` cell renders a loud critical "fab"
+  chip (checked before `fixture`/citation/seed), not nothing.
+- `NlQuery.tsx` row badge — `anyFab` takes **priority** over run/derived →
+  `FABRICATED` critical pill; one synthetic cell can no longer hide behind a
+  `CP-1 LIVE`/`SEEDED` label (mirrors Profile's "fabricated is always marked").
+- `lib/query/viz.ts` — bar-chart colour domain extended to the full provenance
+  set (`demo_fixture`→critical, `fixture`→warning): a fabricated bar gets its
+  own colour + legend entry instead of an off-domain fill that read as an
+  ordinary category. (Adjacent latent `fixture` off-domain bug fixed in the same
+  line.)
+Regression tests: `NlQuery.test.tsx` renders a `demo_fixture` result and asserts
+`FABRICATED` + `fab` present, `SEEDED`/`seed` absent; `viz.test.ts` asserts the
+full domain + `demo_fixture` passing through un-coerced.
 
-Gates: 882 passed / 3 skipped full py3.9 suite (offline) · py3.11 targeted 34/34
-· ruff clean · GitNexus impact pre-checked LOW on `_peer_facts` +
+Gates (SEAM2-1 backend + SEAM2-2, commit `7254fdc8`): 882/3 py3.9 · py3.11
+targeted 34/34 · ruff clean · GitNexus impact LOW on `_peer_facts` +
 `nlquery.execute`.
+Gates (SEAM2-1 frontend half): 353/353 vitest · `tsc --noEmit` clean · eslint
+clean on the five changed files.
 
 ### Known-open honesty HIGHs re-confirmed live on this tree (cross-refs, not re-counted)
 
