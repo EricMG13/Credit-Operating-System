@@ -4,6 +4,6 @@
 export const headStat = (l: string, v: string, c?: string, big?: boolean) => (
   <span key={l} className="flex items-baseline gap-1.5 whitespace-nowrap">
     <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
-    <span className={"tabular " + (big ? "text-[14px] font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
+    <span className={"tabular " + (big ? "text-caos-metric font-medium" : "text-caos-2xl")} style={{ color: c }}>{v}</span>
   </span>
 );
