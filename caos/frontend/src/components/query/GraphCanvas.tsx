@@ -331,8 +331,12 @@ function NodeMark({
 
   const s = nodeStyle(n);
 
-  // Two-line issuer/center names; single line for the rest (see wrapLabel).
-  const labelLines = s.isCircle ? wrapLabel(n.label, 18) : [n.label];
+  // Wrap long labels onto two lines rather than hard-clipping — the label often
+  // IS the answer (a provenance class, a driver, a percentile). Modules stay
+  // tight (dense DAGs); issuers/center and other kinds wrap over two lines.
+  const labelLines = n.kind === "module"
+    ? [short(n.label, 8)]
+    : wrapLabel(n.label, s.isCircle ? 18 : 20);
 
   const wikiLink = n.obsidian_url ? (
     <a
@@ -407,13 +411,15 @@ function NodeMark({
             fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={12.5}
             fontWeight={n.kind === "center" ? 600 : 400}
             fontFamily={s.isMono ? "var(--font-mono)" : undefined} {...HALO}>
-            {short(n.label, n.kind === "module" ? 8 : 18)}
+            {labelLines.map((ln, i) => (
+              <tspan key={i} x={cx} dy={i === 0 ? 0 : 14}>{ln}</tspan>
+            ))}
           </text>
         )
       ) : null}
       {n.sub && n.kind !== "module" ? (
         // Push below a second label line when the name wrapped, so they don't collide.
-        <text x={cx} y={cy + (s.isCircle ? s.r + 31 + (labelLines.length > 1 ? 15 : 0) : 19)} textAnchor="middle"
+        <text x={cx} y={cy + (s.isCircle ? s.r + 31 + (labelLines.length > 1 ? 15 : 0) : 19 + (labelLines.length > 1 ? 14 : 0))} textAnchor="middle"
           fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>
           {short(n.sub, 24)}
         </text>
@@ -427,7 +433,7 @@ function NodePill({ cx, cy, label, color }: { cx: number; cy: number; label: str
   const w = Math.max(64, text.length * 8.2 + 22);
   return (
     <g>
-      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={color + "22"} stroke={color} strokeWidth={1.2} />
+      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={`color-mix(in srgb, ${color} 13%, transparent)`} stroke={color} strokeWidth={1.2} />
       <text x={cx} y={cy + 4.5} textAnchor="middle" fill={color} fontSize={12.5} fontWeight={500} fontFamily="var(--font-mono)" {...HALO}>{text}</text>
     </g>
   );
