@@ -83,8 +83,12 @@ test.describe("Deep Research", () => {
     await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible({
       timeout: 15000,
     });
-    // Cited sources render in the footer.
-    await expect(page.getByText("Sources (1)")).toBeVisible({ timeout: 15000 });
+    // Cited sources render in the footer. Scope to the on-screen sheet: EXPORT
+    // PDF mounts a duplicate .print-root portal copy (display:none off-print), so
+    // an unscoped getByText("Sources (1)") matches 2 elements (strict-mode fail).
+    await expect(
+      page.locator(".research-paper-shell").getByText("Sources (1)"),
+    ).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("link", { name: "Example credit filing" })).toBeVisible({
       timeout: 15000,
     });
