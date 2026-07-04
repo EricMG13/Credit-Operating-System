@@ -142,8 +142,9 @@ function finishFlows(c: any) {
 }
 
 // The annual credit KPIs, derived from the column's debt stack + adj. EBITDA.
-// Shared by finishBalances (build) and applyAnchor (live re-base) so the two
-// stay in lockstep.
+// Used by finishBalances (build) and the quarterly rolling-LTM pass — NOT by
+// applyAnchor: on an anchored column these ratios would mix live figures with
+// the seeded stack (finding 4.3), so applyAnchor sets its KPIs explicitly.
 function deriveCreditKpis(c: any) {
   // Guard each denominator so a degenerate column (adj ≤ 0 under deep margin
   // stress, no debt, zero interest) degrades to null rather than leaking
@@ -187,11 +188,19 @@ function finishBalances(c: any) {
 }
 
 // Ground an annual anchor column (LTM / PF) in a live CP-1 run: re-base its
-// revenue, adj. EBITDA and net debt onto the engine's reported figures, then
-// re-derive the credit KPIs the same way finishBalances does. Applied as a
-// post-step *after* the forecast is built, so BASE/DOWN (which read the seeded
-// l1.cash) and the historicals are untouched. Debt stack (tdebt) stays seeded;
-// cash is back-solved from net debt to keep the column self-consistent.
+// revenue, adj. EBITDA and net debt onto the engine's reported figures. Applied
+// as a post-step *after* the forecast is built, so BASE/DOWN (which read the
+// seeded l1.cash) and the historicals are untouched. Debt stack (tdebt) stays
+// seeded; cash is back-solved from net debt to keep the column self-consistent —
+// unless the back-solve goes negative (live net debt above the seeded stack):
+// no honest cash figure exists then, so it degrades to NaN, which every
+// formatter (fmt/fm/round3) renders blank.
+//
+// KPIs (finding 4.3): only net leverage is honestly live/live here. The other
+// ratios would mix bases — totlev/srsec/fcfdebt divide the SEEDED debt stack by
+// live adj. EBITDA, and a derived intcov would put live adj over seeded ATLF
+// interest — fabricated figures a committee would read as reported. Null them,
+// and take interest coverage from CP-1's own reported figure (null → "—").
 function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   c.rev = a.ltmRevenue;
   c.adj = a.ltmAdjEbitda;
@@ -202,8 +211,13 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
   // committee EBITDA-adjustments panel would print a bridge that doesn't tie.
   c.ebitda = c.adj - c.ab;
   c.ndebt = a.netDebt;
-  c.cash = c.tdebt - c.ndebt;
-  deriveCreditKpis(c);
+  const cash = c.tdebt - c.ndebt;
+  c.cash = cash >= 0 ? cash : NaN;
+  c.netlev = c.adj ? c.ndebt / c.adj : null;
+  c.intcov = a.intCov;
+  c.totlev = null;
+  c.srsec = null;
+  c.fcfdebt = null;
 }
 
 function qCtx(i: number, prevCash: number, A: Record<string, number[]>, capexOv: Record<number, number>): ModelCol {
