@@ -39,7 +39,7 @@ listed on agent authority alone.
 | SEAM1-2 | MED | **open (report-only)** — 6 endpoints untracked in FEATURE_TRACKER.csv; tracker-sweep owns the 16-col + scenario-set authoring (CRLF, binary-mode) |
 | SEAM3-3…3-10 | LOW×8 | **open (report-only)** — silent-catch error surfaces; several live in files chip 2 / the adversarial-review session are actively editing (deferred to avoid merge churn) |
 | SEAM4-3 | LOW | **open** — SSO-bind pre-squat residue in edge-secret-only deploys; needs a design decision (refuse password-reg with no proxy identity) |
-| SEAM4-4 | LOW | **open** — `created_by`/`exported_by` attribution columns; needs a DB migration (own task) |
+| SEAM4-4 | LOW | **FIXED (issuer half, `~commit`)** — `issuers.created_by` (mig `0023`) stamped from the verified caller; export lanes left as-is, already attributed by access_log |
 
 Commits by this review (fast-lane): `7254fdc8`, `dd684b60`, `2197a600`,
 `cea4a2b1`. SEAM1-1 = `122c8fb5` (parallel adversarial-review pass).
@@ -290,7 +290,7 @@ research `research.py:62`, uploads `ingestion.py:98`, settings
 | SEAM4-1 | MED | `identity.py:169,180,188-206` + `auth.py:365` + `AuthProvider.tsx:50-72` (one-shot `/me` at mount) + `api.ts:20-27` (no response interceptor) | **Mid-session identity loss is invisible to the frontend.** SSO deploy: a cookie invalidated mid-session (logout on another device bumps `token_version`; 30-day exp; secret rotation) does not 401 — `get_identity` falls through to the proxy identity **by design**, whose `id` is the forwarded email, not the profile UUID. Device A keeps showing the profile initials while new runs stamp the email-id, saved-model/settings lookups key-miss and silently fork under the email key (`models.py:37,61`, `settings.py:94`), and own research jobs turn invisible (`research.py:80`). Non-SSO deploy: every call hard-401s but nothing maps 401 → `needsLogin`; each page shows its own generic error over stale data until manual reload. One fix serves both: an axios response interceptor that re-resolves `/me` on 401/`source:"proxy"` drift (server already reports `source`). Absorbs the SEAM-3 agent's duplicate (S3-4-class) finding. |
 | SEAM4-2 | LOW → **FIXED 2026-07-04** | `auth.py:194,254` (contrast `identity.py:145-148`, `main.py:207-208` — same class already fixed there in bytes mode) | **str `compare_digest` on the invite code.** A non-ASCII `code` in the JSON body raises `TypeError` → 500 (not 401) on `/profile` and `/register` — log noise, and the 401-based brute-force heuristic goes blind to those probes. **Fix:** both sites now compare `body.code.encode("utf-8","ignore")` vs `settings.analyst_signup_code.encode("utf-8")` (mirrors identity.py). Regression `test_auth_profile.py::test_non_ascii_code_is_401_not_500` (non-ASCII code → 401 on both lanes, was 500). NB the reachable surface is narrower than first stated: RegisterRequest's other required fields (`recovery_words`, `email`) 422 a malformed body first, but a well-formed register/profile body with a non-ASCII code still reached the raise. |
 | SEAM4-3 | LOW | `auth.py:260-269` (bind), `:206-217` (adopt-by-email on first SSO login) | **Register SSO-bind: CLOSED for the reference deploy** (mismatched body email 403s when `X-Forwarded-Email` present; Caddy strips spoofing). Residue: an edge-secret-only deploy (no email-forwarding SSO) leaves email shape-checked only — any invite-code holder can pre-squat `colleague@firm.com`; if SSO is enabled later the colleague silently adopts the squatted row whose password the attacker still holds. Fix direction: refuse password-registration (or flag the row) when no proxy identity is present in a deployed context. |
-| SEAM4-4 | LOW | `issuers.py:131-142` (no `created_by` — grep: zero occurrences server-wide), `runs.py:361-362` (report export: `caller` injected, unused), `vault_export.py:222` (takes no caller) | **Unattributed governance writes.** Issuer creation incl. manual agency ratings + sponsor (WARF/digest inputs) and both export lanes record no author. A wrong or tampered manual rating is unattributable except via the transport access log. |
+| SEAM4-4 | LOW → **FIXED (issuer half) 2026-07-04** | `issuers.py:131-142` (no `created_by` — grep: zero occurrences server-wide), `runs.py:361-362` (report export: `caller` injected, unused), `vault_export.py:222` (takes no caller) | **Unattributed governance writes.** Issuer creation incl. manual agency ratings + sponsor (WARF/digest inputs) and both export lanes record no author. A wrong or tampered manual rating is unattributable except via the transport access log. **Fix:** new `issuers.created_by` column (migration `0023`, additive/nullable, `String(255)` mirroring `Run.analyst_id`), stamped from the verified `caller.id` at create (never the body — `IssuerCreate` has no such field), surfaced in `IssuerResponse`. Regression `test_issuer_profile.py::test_issuer_created_by_stamped_from_identity_not_body` (stamps the logged-in analyst; a spoofed body `created_by` is ignored). **Export lanes deliberately not re-stamped:** the finding's own text notes exports are attributable via the transport **access_log** (`access_log.py:34-41` records the same forwarded-identity precedence), so a second stamp on the artifact is redundant. |
 | SEAM4-5 | LOW → **FIXED 2026-07-04** | `AnalystBadge.tsx:18-27,32` (`setBusy(true)`, `try/finally` with no catch and no `setBusy(false)`) | **Sign-out button bricks on one failure.** If `POST /logout` fails/times out (8s), `finally`'s `refresh()` re-resolves the still-valid profile → button remains `disabled={busy}` for the rest of the session, no error surfaced, no retry without a full reload. **Fix:** `logout()`+`refresh()` moved into `try`; a `catch` resets `busy` and `window.alert`s the failure (reuses the component's existing `window.confirm` dialog idiom — no new toast wiring), leaving the button retryable. Regression `AnalystBadge.test.tsx` (failed logout → button re-enabled + alert fired + no pointless refresh). |
 
 Checked clean: edge secret fail-closed on this tree (boot `RuntimeError`;
@@ -307,6 +307,90 @@ nowhere; `role` is the constant `"analyst"` never branched; no admin routes
 exist, so no hidden-UI/server-open theater either (matches DECIDED-not-built) ·
 `RequireAuth` wraps all 12 route pages; gate is UX-only, server enforces
 independently on every call.
+
+---
+
+## E2E — analyst-journey sweep (in progress, opened 2026-07-04)
+
+One analyst journey per iteration. Existing Playwright specs
+(`caos/tests/frontend/e2e/`) are **run** against an isolated single-process QA
+server; journeys with no spec are **gap findings** (judged with the
+playwright-pro-review + senior-qa rubric). Report-only.
+
+**Stack.** The Playwright config (`caos/frontend/playwright.config.ts`) assumes a
+*single-process* origin (FastAPI serving `/api` + the Next static export on one
+port) so `global-setup` can log in once and `storageState` reuse the cookie
+same-origin. The launch.json QA stack is *two-process* (:3010 Next dev + :8010
+API) — cross-origin, which the single-`baseURL`/single-`storageState` model can't
+carry. So this sweep runs one isolated single-process server:
+`.venv311/bin/python run.py` on **:8010**, `caos_qa.db`,
+`SESSION_SECRET=qa-fixed-secret-do-not-change`, `ANTHROPIC_API_KEY=` (demo
+fallback → deterministic), serving `caos/server/static` (build stamped
+2026-07-02 23:16 — ~2 days behind the WIP source; provenance noted). Invocation:
+`PLAYWRIGHT_BASE_URL=http://localhost:8010 E2E_ACCESS_CODE=131113
+NODE_PATH=node_modules npx playwright test <spec>` from `caos/frontend`. User's
+:8000 left untouched.
+
+### Journey inventory
+
+| # | Journey | Spec | Coverage | Status |
+|---|---|---|---|---|
+| 1 | bootstrap: upload → pipeline → run | `upload_flow.spec.ts` | **partial** — stops at pre-upload wizard step | **DONE** (iter-1) |
+| 2 | deep-dive evidence-sync walk | — (unit only) | **none (E2E)** — jsdom unit test of the sync mechanism exists | **DONE** (iter-2) |
+| 3 | model scenario walk | — | **none** | PENDING |
+| 4 | query walk → committee exhibit | — | **none** | PENDING |
+| 5 | report generation | — | **none** | PENDING |
+| 6 | research flow | `research_flow.spec.ts` | good (form + scope toggle + stubbed run→report/sources) | PENDING |
+| 7 | settings / login | `settings_flow.spec.ts` + `global-setup.ts` | good (workspace mirror + localStorage defaults + login) | PENDING |
+
+### Journey 1 — bootstrap: upload → pipeline → run (iter-1, 2026-07-04)
+
+**Ran** `upload_flow.spec.ts` @ :8010 → **4 passed, 1 failed** (4.2s). Passing:
+identity-resolves-without-login, upload-wizard-advances-to-run-mode-step (found
+the created issuer in the wizard picker by name — proves create+list+wizard
+render), concept-switcher, chat-endpoint. `POST /api/issuers/` → 201 confirmed
+independently. App is healthy; the one failure is a **spec** defect, not an app
+defect.
+
+| id | sev | file:line | defect + evidence |
+|---|---|---|---|
+| E2E-1a | LOW (flaky spec) | `caos/tests/frontend/e2e/upload_flow.spec.ts:42` | `getByText("ISSUER REGISTER", {exact:false})` resolves to **2** runtime elements on `/issuers/` (the `<span>Issuer Register</span>` label **and** the `<h2>Issuer Register · coverage universe</h2>` panel header) → **strict-mode violation**, fails on both the initial run and retry #1. The page renders fine (the h2 is present); the selector is just too loose after a UI addition. Fix: `page.getByRole("heading", { name: /Issuer Register/ })`. The rest of that test (search-by-name → row visible) never executes, so the directory search leg is currently **unverified** even though a spec nominally exists for it. |
+| E2E-1b | **HIGH (coverage)** | `upload_flow.spec.ts:49-60` (journey ends here) | The bootstrap journey's core legs are **entirely untested E2E**. The spec creates the issuer via API, then in the wizard only asserts the run-mode options are visible (`Full IC Committee` / `Earnings Update` / `Relative Value` / `Legal Review`) — and stops. **Never exercised:** (a) attaching/dropping a document, (b) submitting the upload (ingestion), (c) triggering a pipeline run, (d) polling the run to completion, (e) verifying run output — modules rendered, CP-1 facts, the CP-5 QA gate, committee status — and (f) the Pipeline concept `CoverageMatrix` reflecting the new run. This is the single most central journey in the product and has ~0% coverage past the pre-upload screen. It is a **test-coverage** finding (not a live production bug); flagged HIGH because the untested surface is the app's primary workflow and includes the governance gate. Note the offline/demo stack (`ANTHROPIC_API_KEY=`) still runs the deterministic engine, so a real run *is* exercisable E2E without a key — the gap is missing tests, not an untestable path. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the one existing spec for
+this journey is shallow (arranges via API, asserts static wizard text, no
+act-on-the-core-flow) and currently red on a brittle text selector. Journey 1
+needs a real upload→run→output spec; recommend a keyless run against the
+deterministic engine with a poll-to-completion + CP-5 gate assertion.
+
+### Journey 2 — deep-dive evidence-sync walk (iter-2, 2026-07-04)
+
+**No E2E spec.** Confirmed by grep: the only e2e reference to `/deepdive` is
+`upload_flow.spec.ts`'s concept-switcher test, which merely clicks the Deep-Dive
+nav title and asserts the URL — a navigation smoke, not an evidence walk. `/deepdive`
+is reachable (HTTP 200 @ :8010). A **jsdom unit test** does exist —
+`lib/evidence-sync.test.tsx` — covering the sync mechanism (provider shares/updates
+the active id; EvChip hover highlights every same-id chip and not others; click →
+`onOpen`; inert outside a provider). Good unit coverage of the primitive; **zero**
+browser/cross-pane coverage of the actual walk.
+
+Architecture (verified): `EvidenceSyncProvider` wraps the whole page
+(`app/deepdive/page.tsx:276-551`); `EvChip` (`components/reports/EvidenceModal.tsx:26-46`)
+publishes its id on `onMouseEnter`/`onFocus` and clears on `onMouseLeave`/`onBlur`,
+so any chip citing an E-xx lights the accent ring (`boxShadow: … var(--caos-accent)`)
+on every other chip with that id; subscribers are the CP-5B `SourceRail`
+(`rails.tsx:111`), `IssuerChat` (`:151`), and `EvidenceModal` (`:30`).
+
+| id | sev | file:line | defect + evidence |
+|---|---|---|---|
+| E2E-2a | **HIGH (coverage)** | `app/deepdive/page.tsx` (whole route) | The Deep-Dive evidence-sync walk — a headline, differentiated capability (Blueprint §4, and the CLAUDE.md a11y section calls it out by name) — has **no browser E2E**. The unit test renders `EvChip` in isolation, so the genuinely *cross-pane* behavior (a module-output register chip lighting the matching CP-5B source-rail driver **and** a chat citation simultaneously, across the three real panes mounted under one provider) is never exercised end-to-end. The `/deepdive` route also has no smoke coverage: no test loads it and asserts the three panes render (source rail · module launcher/output register · decision rail). Test-coverage finding, not a live defect — the page renders (200) and the mechanism is sound at unit level. |
+| E2E-2b | MED (a11y coverage) | `lib/evidence-sync.test.tsx:57-65` (hover-only) vs `EvidenceModal.tsx:37-38` (`onFocus`/`onBlur`) | EvChip publishes the active id on **keyboard focus** (`onFocus`/`onBlur`) exactly as it does on hover — this is what makes the sync keyboard-operable, an explicit CLAUDE.md WCAG mandate ("the cross-pane Evidence Sync selection are keyboard-operable with a visible focus ring"). But **no test at any level exercises the focus path**: `evidence-sync.test.tsx` fires only `mouseEnter`/`mouseLeave`. So keyboard-driven cross-pane sync **and** the visible focus ring are implemented-but-unverified — a Tab-to-chip → cross-pane-highlight + visible-ring assertion (unit or E2E) is the missing guard. Narrower than 2a because the sync primitive itself is unit-covered via hover; only the keyboard variant is unguarded. |
+
+**Verdict (playwright-pro-review + senior-qa rubric):** the unit test is a good
+primitive check but stops at one chip in a bare provider. The journey needs (1) a
+`/deepdive` smoke asserting the three panes render, (2) a real cross-pane sync
+assertion (chip in one pane → ring on the matching chip/driver in another), and (3)
+a keyboard leg (`Tab`/focus → same sync + visible ring) to cover the a11y mandate.
 
 ---
 
