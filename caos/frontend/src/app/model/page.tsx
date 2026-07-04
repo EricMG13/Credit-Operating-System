@@ -508,7 +508,9 @@ function ModelBuilder() {
         )}
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+      {/* isLiveRun: a live issuer's E-xx id must hit the explicit unresolved
+          panel, never shadow-resolve to the seeded ATLF excerpt as "VERIFIED". */}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} isLiveRun={!isReference} onClose={() => setEvModal(null)} /> : null}
     </div>
   );
 }
