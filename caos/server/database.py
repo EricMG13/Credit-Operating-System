@@ -421,6 +421,45 @@ class QueryOverlay(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class QueryInsight(Base):
+    """A persisted Desk Brief — the proactive AI-research artifact for Query (Q1).
+
+    The insights lane builds a deterministic evidence pack from what changed in
+    the book, has the model write cited cards over it, drops any card that cites
+    nothing real or states an ungrounded number, and persists the survivors here.
+    ``data_fingerprint`` keys freshness: an unchanged book (same fingerprint) is
+    never regenerated, so the desk pays at most one LLM call per 24h. Book-level
+    in Phase-1 (``analyst_id`` records who triggered the build, not a scope)."""
+
+    __tablename__ = "query_insights"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    data_fingerprint: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)  # None = deterministic
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class QueryAnswer(Base):
+    """A persisted grounded AI answer for one typed Query question (Q2 / D2).
+
+    Retrieval-grounded prose written beside the deterministic walk: every kept
+    sentence cites a real chunk/node/fact and states only grounded figures.
+    Cached by ``(question_hash, data_fingerprint)`` so a repeat question over an
+    unchanged corpus is free."""
+
+    __tablename__ = "query_answers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    question_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    data_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AnalystQaFlag(Base):
     """An analyst-raised QA flag on a module/step output (Deep-Dive register).
 

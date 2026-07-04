@@ -60,7 +60,7 @@ const capLabel = (capabilityId: string): string =>
 // chrome — a fit-to-content exhibit fixed on the paper. Nodes carry their FULL
 // label in ink (wrapped, never 18-char clipped like the live canvas). Returns
 // null when there is nothing to draw, so the caller can fall back to the table.
-function PrintChart({ graph }: { graph: GraphResult }): React.ReactElement | null {
+export function PrintChart({ graph }: { graph: GraphResult }): React.ReactElement | null {
   if (graph.nodes.length === 0) return null;
 
   const px = (x: number) => CPAD + x * (CW - 2 * CPAD);
