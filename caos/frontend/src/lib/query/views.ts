@@ -25,6 +25,11 @@ const BY_CAP: Record<string, QueryView[]> = {
   // Memos are a note list with no lineage edges — Lineage renders empty columns,
   // so this override lands before BY_MODE provenance's trace-native default.
   "analyst-memos": ["rv", "graph"],
+  // A covenant register is a table of names × covenant terms first; hub-graph second.
+  "covenant-register": ["rv", "graph"],
+  // Sponsor is a hub topology, not a lineage trace — pin it to graph, never the
+  // "trace" renderer its provenance mode would otherwise default to.
+  "sponsor-graph": ["graph", "rv"],
 };
 
 const BY_MODE: Record<string, QueryView[]> = {

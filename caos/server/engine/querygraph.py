@@ -21,7 +21,7 @@ Five builders cover the whole capability surface via params:
 
 ``availability`` reads the DB once and decides which capabilities are runnable now,
 so the rail greys a query exactly when its edge can't be walked from what's stored
-(no run → no provenance; one run → no diff; CP-2D stores no sponsor names → ever).
+(no run → no provenance; one run → no diff; no CP-4C run → no covenant register).
 
 Positions are normalized 0..1 (computed here, not in the client) so the renderer
 stays a dumb projector. Pure helpers (``_rank_peers``, ``_norm``, layout) are
@@ -89,6 +89,7 @@ GROUPS: List[dict] = [
         _cap("concentration-map", "Concentration map", "concentration", {"by": "industry"}, "issuers"),
         _cap("contagion", "Contagion query", "contagion", {"theme": "energy"}, "facts"),
         _cap("sponsor-graph", "Sponsor / counterparty graph", "provenance", {"focus": "sponsor"}, "sponsor_names"),
+        _cap("covenant-register", "Covenant register", "concentration", {"by": "covenant"}, "covenant"),
     ]},
     {"id": "metric", "label": "Metric x time", "icon": "timeline", "caps": [
         _cap("distribution", "Distribution / percentile", "concentration", {"by": "percentile"}, "facts"),
@@ -121,7 +122,8 @@ _REASONS: Dict[str, str] = {
     "periods2": "needs ≥2 reporting periods",
     "findings": "no QA findings yet",
     "debate": "no IC debate run yet",
-    "sponsor_names": "CP-2D stores no sponsor names",
+    "sponsor_names": "no sponsor-owned issuers in coverage",
+    "covenant": "no covenant analysis yet",
 }
 
 
@@ -137,6 +139,14 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
     runs = await count(select(func.count(func.distinct(ModuleOutput.run_id))))
     findings = await count(select(func.count()).select_from(QAFinding))
     debate = await count(select(func.count()).select_from(ModuleOutput).where(ModuleOutput.module_id == "CP-6A"))
+    # Analyst-entered PE sponsor (Issuer.sponsor, mig 0018) — the sponsor/counterparty
+    # graph draws issuer↔sponsor edges off it, so it's runnable the moment one issuer
+    # is tagged (no CP-2D name extraction needed).
+    sponsors = await count(select(func.count()).select_from(Issuer).where(
+        Issuer.sponsor.isnot(None), Issuer.sponsor != ""))
+    # Any persisted CP-4C covenant analysis → the cross-issuer register is walkable.
+    covenant = await count(select(func.count()).select_from(ModuleOutput).where(
+        ModuleOutput.module_id == "CP-4C"))
 
     # ≥2 distinct periods for some (issuer, metric): the trend axis.
     # HAVING…LIMIT 1 existence check — don't materialize every group to test any().
@@ -155,9 +165,8 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
         "periods2": periods2,
         "findings": findings > 0,
         "debate": debate > 0,
-        # CP-2D persists a governance score, never a sponsor *name* — the edge has
-        # no endpoints to draw, so this stays off until that extraction exists.
-        "sponsor_names": False,
+        "sponsor_names": sponsors > 0,
+        "covenant": covenant > 0,
     }
 
 
@@ -463,6 +472,8 @@ async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str
         return await _committee(session, cap)
     if by == "gate_lane":
         return await _gate_lane(session, cap)
+    if by == "covenant":
+        return await _covenant_register(session, cap)
     return _empty(cap, "Concentration", f"unknown view {by!r}")
 
 
@@ -780,6 +791,115 @@ async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
     return _result(cap, "Gate findings by lane", nodes, edges, meta, [])
 
 
+# ── Builder: cross-issuer registers (sponsor field, covenant CP-4C output) ───
+async def _sponsor_graph(session: AsyncSession, cap: dict) -> dict:
+    """Sponsor / counterparty graph over the analyst-entered ``Issuer.sponsor``
+    field (mig 0018): each sponsor is a hub, the issuers it owns hang off it, so
+    shared-sponsor concentration and a sponsor's track record read off one view.
+    Only sponsor-owned names appear (NULL/blank sponsor = not sponsor-owned); a hub
+    with >2 names flags a concentration edge. No ownership feed, so this is exactly
+    as good as the analyst's tagging — stated in the caveat."""
+    issuers = (await session.execute(
+        select(Issuer).where(Issuer.sponsor.isnot(None), Issuer.sponsor != "")
+    )).scalars().all()
+    if not issuers:
+        return _empty(cap, "Sponsor graph", "No sponsor-owned issuers in coverage.")
+    groups: Dict[str, List[Issuer]] = {}
+    for iss in issuers:
+        groups.setdefault((iss.sponsor or "").strip(), []).append(iss)
+    ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    centers = _grid_centers(len(ordered))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (sponsor, members), (cx, cy) in zip(ordered, centers):
+        gid = f"sp:{sponsor}"
+        nodes.append(_node(gid, f"{sponsor} · {len(members)}", "sector", cx, cy,
+                           group=sponsor, sub="sponsor", flag=len(members) > 2 or None))
+        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=sponsor, compact=True))
+            edges.append(_edge(gid, iss.id, kind="member"))
+    multi = sum(1 for _s, m in ordered if len(m) > 1)
+    meta = [f"{len(issuers)} sponsor-owned issuers", f"{len(ordered)} sponsors",
+            f"{multi} sponsor(s) with >1 name"]
+    cav = ["Analyst-entered sponsor field (no ownership feed); >2 names flags concentration."]
+    return _result(cap, "Sponsor / counterparty graph", nodes, edges, meta, cav)
+
+
+# Latest-CP-4C-per-issuer read; bound the (append-only) module_output history scan.
+_COVENANT_SCAN_CAP = 2000
+
+
+async def _covenant_register(session: AsyncSession, cap: dict) -> dict:
+    """Covenant register over the latest CP-4C output per issuer: clusters names by
+    structure (maintenance leverage covenant vs cov-lite) and annotates each
+    maintenance name with its threshold and turns of headroom, flagging thin
+    cushions. Cov-lite is the leveraged-loan norm, not itself a flag — the risk
+    signal is a maintenance name running thin headroom. Extraction-based, so the
+    caveat states the basis."""
+    rows = (await session.execute(
+        select(ModuleOutput, Issuer.id, Issuer.name)
+        .join(Run, Run.id == ModuleOutput.run_id)
+        .join(Issuer, Issuer.id == Run.issuer_id)
+        .where(ModuleOutput.module_id == "CP-4C")
+        .order_by(ModuleOutput.created_at.desc())
+        .limit(_COVENANT_SCAN_CAP)
+    )).all()
+    if not rows:
+        return _empty(cap, "Covenant register", "No covenant analysis yet.")
+    # Rows are newest-first → first sighting of an issuer is its latest CP-4C.
+    latest: Dict[str, Tuple[ModuleOutput, str]] = {}
+    for mo, iid, name in rows:
+        latest.setdefault(iid, (mo, name))
+
+    maint: List[Tuple] = []
+    covlite: List[Tuple] = []
+    thin = 0
+    for iid, (mo, name) in latest.items():
+        out = mo.runtime_output or {}
+        lev_cov = out.get("leverage_covenant_x")
+        cur = out.get("current_net_leverage")
+        # Guard both CP-1-derived figures before subtracting: a NaN/inf leverage
+        # would poison the headroom read and slip a false flag past `< 1.0`.
+        if is_finite_number(lev_cov):
+            head = round(lev_cov - cur, 2) if is_finite_number(cur) else None
+            is_thin = head is not None and head < 1.0
+            thin += 1 if is_thin else 0
+            maint.append((iid, name, lev_cov, out.get("covenant_basis"), head, is_thin))
+        else:
+            covlite.append((iid, name))
+
+    clusters: List[Tuple[str, List[Tuple]]] = []
+    if maint:
+        clusters.append(("Maintenance covenant", maint))
+    if covlite:
+        clusters.append(("Cov-lite", covlite))
+    centers = _grid_centers(len(clusters))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (label, members), (cx, cy) in zip(clusters, centers):
+        gid = f"cov:{label}"
+        nodes.append(_node(gid, f"{label} · {len(members)}", "sector", cx, cy, group=label))
+        for member, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            iid, name = member[0], member[1]
+            if label == "Maintenance covenant":
+                _iid, _name, lev_cov, basis, head, is_thin = member
+                sub = f"{lev_cov:g}x cov" + (f" · {head:g}x headroom" if head is not None else "")
+                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
+                                   sub=sub, basis=basis, flag=is_thin or None,
+                                   title=f"{name}: {lev_cov:g}x maintenance covenant"
+                                         + (f", {head:g}x headroom" if head is not None else "")))
+            else:
+                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
+                                   sub="cov-lite"))
+            edges.append(_edge(gid, iid, kind="member"))
+    meta = [f"{len(latest)} covenant-analyzed issuers",
+            f"{len(maint)} maintenance · {len(covlite)} cov-lite",
+            f"{thin} thin headroom (<1.0x)"]
+    cav = ["Latest CP-4C per issuer; extraction-based (keyword scan of governing docs). "
+           "Cov-lite is the loan-market norm — the flag is thin maintenance headroom."]
+    return _result(cap, "Covenant register", nodes, edges, meta, cav)
+
+
 # ── Builder: provenance (layered DAGs over a run) ────────────────────────────
 async def _latest_run(session: AsyncSession, issuer_id: Optional[str],
                       prefer_claims: bool = False) -> Optional[Run]:
@@ -823,8 +943,8 @@ async def _modules(session: AsyncSession, run_id: str) -> List[ModuleOutput]:
 
 
 async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str], cap: dict) -> dict:
-    if focus == "sponsor":  # never enabled, but guard the dispatch
-        return _empty(cap, "Sponsor graph", "CP-2D persists no sponsor names to link.")
+    if focus == "sponsor":
+        return await _sponsor_graph(session, cap)
     if focus == "memos":
         return await _analyst_memos(session, issuer_id, cap)
     run = await _latest_run(session, issuer_id, prefer_claims=focus in ("trace", "lineage", "orphan"))

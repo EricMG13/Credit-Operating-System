@@ -166,4 +166,41 @@ describe("synthesize", () => {
     });
     expect(synthesize(g)).toBe("3 issuers positioned by net leverage × interest coverage.");
   });
+
+  it("covenant-register splits by structure and surfaces thin headroom, not a 'largest cluster'", () => {
+    const g = base({
+      capability_id: "covenant-register", mode: "concentration",
+      title: "Covenant register",
+      nodes: [
+        node("cov:Maintenance covenant", "sector", { label: "Maintenance covenant · 2" }),
+        node("cov:Cov-lite", "sector", { label: "Cov-lite · 1" }),
+        node("a", "issuer", { group: "Maintenance covenant", flag: true }),
+        node("b", "issuer", { group: "Maintenance covenant" }),
+        node("c", "issuer", { group: "Cov-lite" }),
+      ],
+    });
+    expect(synthesize(g)).toBe(
+      "3 issuers by covenant structure — 2 maintenance, 1 cov-lite; 1 running thin headroom (<1.0x)."
+    );
+  });
+
+  it("sponsor-graph counts sponsor-owned issuers and names the top backer only on a strict max", () => {
+    const g = base({
+      capability_id: "sponsor-graph", mode: "provenance",
+      title: "Sponsor / counterparty graph",
+      nodes: [
+        node("sp:ZZ Capital", "sector", { label: "ZZ Capital · 2" }),
+        node("sp:Solo Equity", "sector", { label: "Solo Equity · 1" }),
+        node("a", "issuer"), node("b", "issuer"), node("c", "issuer"),
+      ],
+      edges: [
+        { source: "sp:ZZ Capital", target: "a", kind: "member" },
+        { source: "sp:ZZ Capital", target: "b", kind: "member" },
+        { source: "sp:Solo Equity", target: "c", kind: "member" },
+      ],
+    });
+    expect(synthesize(g)).toBe(
+      "3 sponsor-owned issuers across 2 sponsors; ZZ Capital backs the most (2)."
+    );
+  });
 });

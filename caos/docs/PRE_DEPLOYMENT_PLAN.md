@@ -712,6 +712,55 @@ phase exit.
   — noisy entity matching would erode Monitor trust exactly when C3 is trying
   to establish it.
 
+### Query concept-data collection (gap audit 2026-07-04)
+
+Audit of *which concept outputs the Query vault/corpus actually collects.* Query
+walks the run-derived store (runs · modules · claims · evidence · findings ·
+`metric_facts` · `document_chunks` · analyst memos). These concept artifacts were
+**not** collected. Two cheap shape-gaps shipped now (data already persisted →
+`querygraph` builder only, **no migration**); the rest queue with a named unblock.
+
+**Shipped 2026-07-04 (Phase-C Query walks, no migration):**
+
+- [x] **Covenant register** — cross-issuer walk over the latest CP-4C output per
+  issuer: clusters cov-lite vs maintenance, annotates threshold + turns of
+  headroom, flags thin (<1.0x) maintenance cushions. `covenant-register` cap in
+  `querygraph.py` (availability on any CP-4C output) + registered in
+  `questions.ts`/`views.ts`/`synthesis.ts` per the Query design mandates. Tests:
+  `test_querygraph_registers.py`, `synthesis.test.ts`, `views.test.ts`. Red-team
+  RT-2026-07-04-12/13.
+- [x] **Sponsor / counterparty graph** — un-stubbed the pre-registered
+  `sponsor-graph` cap to read the analyst-entered `Issuer.sponsor` (mig 0018)
+  instead of the never-populated CP-2D name extraction; availability now reflects
+  sponsor-owned coverage. (Builds toward X1/X2 covenant-node work.)
+
+**Backlog — concept artifacts Query still should collect:**
+
+- [ ] **X8 (M) Deep-research reports → Query** — `research_jobs` (web-grounded,
+  per-analyst, off-surface) never reach Query. Persist a vault research-note per
+  completed job + expose it as a Query answer/walk source. **Unblock:** **D2**
+  (RAG answer lane — same grounding gate); fold in as a research-note source.
+  Overlaps vision gap #1.
+- [ ] **X9 (M) Saved models / forecasts → Query** — `saved_models` (CP-2B
+  scenarios, the analyst's forward view) are read only by `/api/models`, invisible
+  cross-issuer. Add a "saved forecasts" walk + feed projections into scatter/peer
+  views. **Unblock:** none technical (data persisted) — queue behind **C7**
+  head-to-head so the model-vs-model view lands once. NB **X6** already writes
+  `SavedModel` deltas.
+- [ ] **X10 (S–M) Archived deliverables → vault** — the rendered committee report
+  / tear-sheet is generated on demand from `module_outputs` and never persisted;
+  only the underlying module data lands in the run spoke. Archive the deliverable
+  as a vault note on export (reuse `vault_export`, no new store). **Unblock:**
+  none — small; ride a Report Studio export change.
+- [ ] **X11 (M) Digest history snapshots** — `/api/digest/daily` recomputes
+  WARF / CCC-watch / QA counts every call and stores nothing, so Query can't trend
+  "what changed over time." Snapshot the digest payload per day (small table) → a
+  time-series source. **Unblock:** **C3** digest-as-sink work (natural home for the
+  snapshot write).
+- [ ] **Market-spread RV / `market_quotes`** — already tracked: **C5** seam
+  (market store) + **X5** (sector dashboards); Bloomberg = outstanding #2,
+  post-transfer. Not a new item.
+
 ### PM value-add ladder → program mapping (review 2026-07-03)
 
 | PM stage | Reality today | Lands via |
