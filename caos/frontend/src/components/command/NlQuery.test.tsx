@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import type { StructuredResult } from "@/lib/query/types";
+import type { StructuredResult, SynthesisResult } from "@/lib/query/types";
 
 // Mock the one API fn the component calls (POST /api/query/nl). Set a
 // resolved/rejected value per test.
@@ -69,7 +69,40 @@ const structuredResult: StructuredResult = {
   ],
 };
 
+// A synthesis (agent-wiki retrieval) result: no `columns`/`rank_by` metric —
+// the third backend mode (SEAM1-1); rendering it must not crash the panel.
+const synthesisResult: SynthesisResult = {
+  mode: "synthesis",
+  interpretation: "Searching agent syntheses, claims, and QA findings.",
+  rank_by: null,
+  caveats: ["Ranked by wiki and agent-synthesis match (BM25) — qualitative relevance, not a quantitative score."],
+  rows: [
+    {
+      issuer: { id: "iss-1", name: "Atlas Forge", ticker: "ATF", industry: "Industrials", country: "US" },
+      score: 4.213,
+      excerpts: [{ chunk_id: "syn-chunk-1", doc: "CP-5 QA Debrief", text: "Two findings raised on covenant headroom." }],
+    },
+  ],
+};
+
 describe("NlQuery", () => {
+  it("synthesis mode: renders issuer + excerpts without throwing (no columns key — SEAM1-1)", async () => {
+    mockNlQuery.mockResolvedValue(synthesisResult);
+    render(<NlQuery />);
+
+    const input = screen.getByLabelText("Ask a question across issuers");
+    fireEvent.change(input, { target: { value: "show the QA findings for Atlas Forge" } });
+    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+
+    // The panel must survive the columns-less payload and show the result.
+    expect(await screen.findByText("Searching agent syntheses, claims, and QA findings.")).toBeTruthy();
+    expect(screen.getByText("Atlas Forge")).toBeTruthy();
+    expect(screen.getByText("“Two findings raised on covenant headroom.”")).toBeTruthy();
+    // No ranked metric table, no bar chart for a qualitative result.
+    expect(screen.queryByRole("table", { name: "Ranked query results" })).toBeNull();
+    expect(screen.queryByTestId("g2-chart")).toBeNull();
+  });
+
   it("renders the query input and starter chips", () => {
     render(<NlQuery />);
     expect(screen.getByLabelText("Ask a question across issuers")).toBeTruthy();

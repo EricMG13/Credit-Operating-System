@@ -14,7 +14,7 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
-import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult } from "@/lib/query/types";
+import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
@@ -198,11 +198,17 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
   );
 }
 
-// Semantic (evidence-retrieval) results — issuers grouped by document match, each
-// with cited source excerpts (the qualitative counterpart to the metric table).
-function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: OpenCite }) {
+// Semantic (evidence-retrieval) and synthesis (agent-wiki retrieval) results —
+// issuers grouped by match, each with cited source excerpts (the qualitative
+// counterpart to the metric table). Same row shape; the pill names the corpus.
+function SemanticView({ res, onOpenCite }: { res: SemanticResult | SynthesisResult; onOpenCite: OpenCite }) {
+  const synth = res.mode === "synthesis";
   if (!res.rows.length) {
-    return <div className="tabular text-caos-md text-caos-muted py-1">No issuer documents matched.</div>;
+    return (
+      <div className="tabular text-caos-md text-caos-muted py-1">
+        {synth ? "No matching agent syntheses, claims, or QA findings." : "No issuer documents matched."}
+      </div>
+    );
   }
   return (
     <div className="flex flex-col gap-2 overflow-auto" style={{ maxHeight: 300 }}>
@@ -214,7 +220,9 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
             {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
             {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
-            <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />
+            {synth
+              ? <Pill text="SYNTHESIS" color="var(--caos-accent)" title="Matched in agent syntheses, claims, and QA findings" />
+              : <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />}
           </div>
           <div className="flex flex-col gap-1.5 px-2 py-1.5">
             {row.excerpts.map((ex) => (
@@ -340,7 +348,7 @@ export function NlQueryBody() {
               );
             })()}
 
-            {res.mode === "semantic"
+            {res.mode === "semantic" || res.mode === "synthesis"
               ? <SemanticView res={res} onOpenCite={openCite} />
               : <StructuredView res={res} onOpenCite={openCite} />}
 
