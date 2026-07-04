@@ -10,6 +10,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { EvidenceModal } from "./EvidenceModal";
+import { getChunk } from "@/lib/api";
 import type { LiveEvidence } from "@/lib/engine/useLiveRun";
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -41,5 +42,12 @@ describe("EvidenceModal live resolution", () => {
   it("falls back to the seeded map for a seeded id with no live entry", () => {
     render(<EvidenceModal id="E-09" reports={[]} onClose={() => {}} />);
     expect(screen.getByText(/76\.6 million/)).toBeTruthy();
+  });
+
+  it("shows an explicit unavailable state when the live chunk fetch fails, not an eternal loader (SEAM3-3)", async () => {
+    vi.mocked(getChunk).mockRejectedValueOnce(new Error("404 chunk not found"));
+    render(<EvidenceModal id="E-09" reports={[]} live={{ "E-09": liveEv() }} onClose={() => {}} />);
+    expect(await screen.findByText(/Source unavailable/i)).toBeTruthy();
+    expect(screen.queryByText("Loading source…")).toBeNull();
   });
 });
