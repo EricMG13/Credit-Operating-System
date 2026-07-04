@@ -26,6 +26,28 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// SEAM4-1: surface a lost/rotated session. Any /api 401 (an expired or revoked
+// profile cookie behind SSO, a lost cookie off-proxy) fires an app-level event
+// that AuthProvider handles by re-resolving /api/auth/me — so the UI routes to the
+// login landing instead of silently 401-ing every call over stale, still-rendered
+// data. The /me probe is excluded (AuthProvider owns its own result) to avoid a
+// self-trigger. The error is re-thrown untouched so every per-call handler still
+// runs exactly as before.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (
+      typeof window !== "undefined" &&
+      axios.isAxiosError(error) &&
+      error.response?.status === 401 &&
+      !error.config?.url?.includes("/api/auth/me")
+    ) {
+      window.dispatchEvent(new Event("caos:auth-lost"));
+    }
+    return Promise.reject(error);
+  },
+);
+
 // ─── Identity ─────────────────────────────────────────────────────────────
 // Authentication is platform-managed (Databricks workspace OAuth at the
 // edge). /api/auth/me reflects the forwarded identity.

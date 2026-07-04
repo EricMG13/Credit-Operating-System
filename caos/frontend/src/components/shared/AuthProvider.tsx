@@ -7,7 +7,7 @@
 // local dev, or a 401) means the login landing should show. A network/API error
 // is kept distinct so RequireAuth shows "can't reach API", not the login form.
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import axios from "axios";
 import { getMe } from "@/lib/api";
 
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [needsLogin, setNeedsLogin] = useState(false);
 
   // fallow-ignore-next-line complexity
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const me: AuthUser = await getMe();
       setUser(me);
@@ -65,11 +65,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
+
+  // SEAM4-1: identity is resolved once at mount, so a session lost mid-session is
+  // otherwise invisible. Re-resolve when (a) any request reports a 401 — the
+  // api.ts interceptor fires `caos:auth-lost`, covering the off-proxy cookie-loss
+  // 401 storm that had no re-login route; and (b) the tab regains focus — which
+  // catches the silent SSO principal swap where get_identity falls through from a
+  // revoked profile cookie to the proxy identity (200s keep flowing under a
+  // different id, so only a re-check of /me surfaces it).
+  useEffect(() => {
+    const onLost = () => { refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("caos:auth-lost", onLost);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("caos:auth-lost", onLost);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refresh]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, needsLogin, refresh }}>
