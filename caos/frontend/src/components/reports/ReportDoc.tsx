@@ -63,14 +63,17 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
       <span className="rd-edit-wrapper relative inline-flex items-center">
         {el}
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onEdit(p, undefined as unknown as string);
           }}
           title={`Revert override (original: "${base}")`}
-          className="rd-revert-dot w-1.5 h-1.5 rounded-full bg-caos-warning ml-1.5 shrink-0 cursor-pointer hover:scale-125 transition-transform"
+          className="rd-revert-dot shrink-0"
           aria-label="Revert override"
-        />
+        >
+          <span className="rd-revert-mark" aria-hidden="true" />
+        </button>
       </span>
     );
   }

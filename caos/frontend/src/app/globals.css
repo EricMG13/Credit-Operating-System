@@ -325,6 +325,16 @@ button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; 
 .rdoc-meta { font-family: var(--font-mono), monospace; font-size: 8.5px; font-weight: 500;
   letter-spacing: 0.12em; color: #5c5c66; text-transform: uppercase; white-space: nowrap; }
 
+/* Integrity notice — an amputated narrative announces itself on the sheet (H1).
+   Amber-on-cream, same family as the model's QC blockquote so it reads as a filed
+   caveat rather than app chrome, and survives the PDF export. The leading rule and
+   uppercase "INCOMPLETE" carry the meaning without relying on hue alone. */
+.rdoc-truncated { margin: 0 0 16px; padding: 8px 12px; border: 1px solid rgba(245,165,36,0.42);
+  background: rgba(245,165,36,0.10); color: #16161e; border-radius: 2px;
+  font-size: 11px; line-height: 1.45; text-wrap: pretty; }
+.rdoc-truncated strong { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: #16161e; }
+
 /* report body — semantic markdown elements */
 .research-doc > :first-child { margin-top: 0; }
 .research-doc h1 { font-size: 22px; font-weight: 650; letter-spacing: -0.012em; line-height: 1.2; margin: 0 0 6px; text-wrap: balance; }
@@ -399,18 +409,38 @@ button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; 
   display: inline-flex;
   align-items: center;
 }
+/* Per-field revert is a precision committee action (WCAG 2.5.8): the button is
+   an invisible ≥24px hit target, the visible ink is the inner .rd-revert-mark
+   so the tear-sheet stays dense. The min target counter-scales against the
+   preview zoom (--rd-zoom) so the EFFECTIVE hit area holds ≥24px CSS px even
+   when the paper renders at 0.7/0.85 — mirrors .rd-cite. */
 .rd-revert-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(24px / var(--rd-zoom, 1));
+  min-height: calc(24px / var(--rd-zoom, 1));
+  margin-left: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.rd-revert-mark {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background-color: var(--caos-warning);
-  margin-left: 4px;
-  cursor: pointer;
   transition: transform 120ms ease-out;
-  border: none;
-  padding: 0;
 }
-.rd-revert-dot:hover {
+@media (prefers-reduced-motion: reduce) {
+  .rd-revert-mark { transition: none; }
+}
+button.rd-revert-dot:hover .rd-revert-mark {
   transform: scale(1.4);
+}
+button.rd-revert-dot:focus-visible {
+  outline: 2px solid var(--caos-warning);
+  outline-offset: 1px;
 }
