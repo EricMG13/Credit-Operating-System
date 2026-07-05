@@ -85,10 +85,10 @@ export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
             <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
             <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
             <span className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
-            <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-idle)" }}>
+            <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
               {rv ?? "—"}{typeof r.rv_percentile === "number" ? ` · p${Math.round(r.rv_percentile)}` : ""}
             </span>
-            <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-idle)" }}>
+            <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
               {frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—"}
             </span>
             <span

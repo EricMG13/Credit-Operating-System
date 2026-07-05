@@ -117,7 +117,7 @@ describe("NlQuery", () => {
 
     const input = screen.getByLabelText("Ask a question across issuers");
     fireEvent.change(input, { target: { value: "which issuer is most levered" } });
-    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask across issuers" }));
 
     expect(await screen.findByText("Northwind Coil")).toBeTruthy();
     // Row badge is the loud fabricated marker, not the benign seed label.
@@ -134,7 +134,7 @@ describe("NlQuery", () => {
 
     const input = screen.getByLabelText("Ask a question across issuers");
     fireEvent.change(input, { target: { value: "show the QA findings for Atlas Forge" } });
-    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask across issuers" }));
 
     // The panel must survive the columns-less payload and show the result.
     expect(await screen.findByText("Searching agent syntheses, claims, and QA findings.")).toBeTruthy();
@@ -158,11 +158,11 @@ describe("NlQuery", () => {
 
     const input = screen.getByLabelText("Ask a question across issuers") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "which issuer is most levered" } });
-    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask across issuers" }));
 
     // API called with the typed question.
     expect(mockNlQuery).toHaveBeenCalledTimes(1);
-    expect(mockNlQuery).toHaveBeenCalledWith("which issuer is most levered");
+    expect(mockNlQuery).toHaveBeenCalledWith("which issuer is most levered", expect.anything());
 
     // Interpretation surfaces once the promise resolves.
     expect(await screen.findByText("Ranking issuers by net leverage, highest first.")).toBeTruthy();
@@ -188,7 +188,7 @@ describe("NlQuery", () => {
 
     const input = screen.getByLabelText("Ask a question across issuers");
     fireEvent.change(input, { target: { value: "which issuer is most levered" } });
-    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask across issuers" }));
 
     const chip = await screen.findByRole("button", { name: "E-CS1" });
     expect(screen.queryByTestId("citation-viewer")).toBeNull();
@@ -202,7 +202,7 @@ describe("NlQuery", () => {
 
     const input = screen.getByLabelText("Ask a question across issuers");
     fireEvent.change(input, { target: { value: "which issuer is most levered" } });
-    fireEvent.click(screen.getByRole("button", { name: "ASK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask across issuers" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("metric store unavailable");

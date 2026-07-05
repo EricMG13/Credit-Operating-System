@@ -27,6 +27,19 @@ import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngi
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
 
+type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
+
+// Pull the typed, guarded pieces out of a saved-model payload (shared by the
+// hydrate effect and the retry handler). Returns null when there's no payload.
+function parseSavedPayload(saved: SavedModel) {
+  const p = saved?.payload;
+  if (!p) return null;
+  const o = p.overrides && typeof p.overrides === "object" ? (p.overrides as Overrides) : undefined;
+  const a = p.assumptions && typeof p.assumptions === "object" ? (p.assumptions as Assumptions) : undefined;
+  const c = Array.isArray(p.collapsedRows) ? new Set(p.collapsedRows as string[]) : undefined;
+  return { o, a, c, updatedAt: saved?.updated_at ?? null };
+}
+
 export default function ModelPage() {
   return (
     <RequireAuth>
@@ -89,6 +102,9 @@ function ModelBuilder() {
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // True when a DB-saved model exists but the restore fetch failed (network/500):
+  // the analyst is looking at the local draft and must be told, with a retry.
+  const [restoreError, setRestoreError] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -131,21 +147,36 @@ function ModelBuilder() {
     } catch { /* first visit */ }
     // baseline dirty at local-storage state; refined below if a DB model restores
     savedSnapshot.current = serializeSavable(la, lo, lc);
+    setRestoreError(false);
     getSavedModel(issuerId).then((saved) => {
-      if (!saved?.payload) return;
-      const o = saved.payload.overrides && typeof saved.payload.overrides === "object" ? saved.payload.overrides as Overrides : undefined;
-      const a = saved.payload.assumptions && typeof saved.payload.assumptions === "object" ? saved.payload.assumptions as Assumptions : undefined;
-      const c = Array.isArray(saved.payload.collapsedRows) ? new Set(saved.payload.collapsedRows as string[]) : undefined;
+      const parsed = parseSavedPayload(saved);
+      if (!parsed) return;
+      const { o, a, c, updatedAt } = parsed;
       if (o) setOverrides(o);
       if (a) setAssumptions(a);
       if (c) setCollapsedRows(c);
-      setSavedAt(saved.updated_at);
+      setSavedAt(updatedAt);
       // re-baseline the dirty flag at the just-restored DB state
       savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-    }).catch(() => {});
+    }).catch(() => setRestoreError(true));
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuerId, ovKey, isReference]);
+  // Retry a failed DB-model restore. Runs post-hydration, so current state is the
+  // local draft — use it as the re-baseline fallback for any field the payload omits.
+  const retryRestore = () => {
+    setRestoreError(false);
+    getSavedModel(issuerId).then((saved) => {
+      const parsed = parseSavedPayload(saved);
+      if (!parsed) return;
+      const { o, a, c, updatedAt } = parsed;
+      if (o) setOverrides(o);
+      if (a) setAssumptions(a);
+      if (c) setCollapsedRows(c);
+      setSavedAt(updatedAt);
+      savedSnapshot.current = serializeSavable(a ?? assumptions, o ?? overrides, c ?? collapsedRows);
+    }).catch(() => setRestoreError(true));
+  };
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);
@@ -189,6 +220,12 @@ function ModelBuilder() {
     [severity, overrides, eng.anchor, assumptions],
   );
   const hasIssuerModel = isReference || !!eng.anchor;
+  // While a live issuer's engine anchor is still loading, hasIssuerModel is
+  // false but the empty state ("Run the issuer first") is a wrong, alarming
+  // conclusion — the run may be perfectly good. Gate on eng.loading so the
+  // workspace shows a neutral "linking engine…" panel until the fetch settles,
+  // and only assert the empty state once loading is false and no anchor exists.
+  const engineLoading = !isReference && eng.loading;
   const ovCount = Object.keys(overrides).length;
   const prevModel = useRef<Model | null>(null);
 
@@ -392,7 +429,18 @@ function ModelBuilder() {
         >
           {saving ? "SAVING..." : "SAVE MODEL"}
         </button>
-        {saveError ? (
+        {restoreError ? (
+          <button
+            type="button"
+            onClick={retryRestore}
+            role="alert"
+            title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
+            className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+          >
+            ⚠ SAVED MODEL UNAVAILABLE — local draft · RETRY
+          </button>
+        ) : saveError ? (
           <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
             ✗ SAVE FAILED — model not stored; Report Studio reads the last saved version
           </span>
@@ -491,6 +539,23 @@ function ModelBuilder() {
               )}
             </div>
           </>
+        ) : engineLoading ? (
+          <div
+            className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-2 text-center px-6"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-center gap-2 tabular text-caos-md text-caos-muted">
+              <span
+                className="w-1.5 h-1.5 rounded-sm animate-pulse motion-reduce:animate-none"
+                style={{ background: "var(--caos-accent)" }}
+              />
+              Linking engine…
+            </div>
+            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+              Loading {issuerName} CP-1 anchor
+            </div>
+          </div>
         ) : (
           <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-3 text-center px-6">
             <div className="tabular text-caos-xl text-caos-text">No issuer-specific model output</div>

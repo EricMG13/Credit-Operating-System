@@ -18308,19 +18308,30 @@ export interface AlertRow {
   code: string;
   text: string;
   route: string;
+  // Index into EMAILS of the intake message that triggered this alert, when one
+  // exists. Lets the alert row open the SAME EmailWindow the intake tape uses,
+  // so a critical re-score is one click from the message that fired it (design
+  // principle #3). Undefined = a derived/synthetic alert (e.g. a price move with
+  // no dedicated email) — the source chip renders disabled with a reason.
+  sourceEmail?: number;
 }
 
 export const ALERTS: AlertRow[] = [
-  { sev: "critical", issuer: "NWCF", code: "MON-H-2214", text: "Lender call Thursday — co-op agreement chatter; CP-3D LME vulnerability re-scored 8/10 → 9/10", route: "CP-3D" },
-  { sev: "high", issuer: "ATLF", code: "MON-H-2215", text: "Compliance cert posted: net leverage 5.68x vs 5.70x model — within tolerance, evidence E-103 attached", route: "CP-1" },
-  { sev: "critical", issuer: "QLMH", code: "MON-H-2216", text: "Strategic review of broadcast assets — unrestricted-sub transfer risk; CP-4 leakage register re-opened", route: "CP-4" },
-  { sev: "high", issuer: "SXAA", code: "MON-H-2217", text: "EU recall expansion — CP-2B pathway P2 (warranty cascade) probability raised to 35%", route: "CP-2B" },
-  { sev: "medium", issuer: "BLHP", code: "MON-H-2218", text: "Earnings call rescheduled +9 days — disclosure-timing flag added to CP-2D governance register", route: "CP-2D" },
+  { sev: "critical", issuer: "NWCF", code: "MON-H-2214", text: "Lender call Thursday — co-op agreement chatter; CP-3D LME vulnerability re-scored 8/10 → 9/10", route: "CP-3D", sourceEmail: 0 },
+  { sev: "high", issuer: "ATLF", code: "MON-H-2215", text: "Compliance cert posted: net leverage 5.68x vs 5.70x model — within tolerance, evidence E-103 attached", route: "CP-1", sourceEmail: 7 },
+  { sev: "critical", issuer: "QLMH", code: "MON-H-2216", text: "Strategic review of broadcast assets — unrestricted-sub transfer risk; CP-4 leakage register re-opened", route: "CP-4", sourceEmail: 1 },
+  { sev: "high", issuer: "SXAA", code: "MON-H-2217", text: "EU recall expansion — CP-2B pathway P2 (warranty cascade) probability raised to 35%", route: "CP-2B", sourceEmail: 5 },
+  { sev: "medium", issuer: "BLHP", code: "MON-H-2218", text: "Earnings call rescheduled +9 days — disclosure-timing flag added to CP-2D governance register", route: "CP-2D", sourceEmail: 2 },
+  // No dedicated intake email — this RV dislocation is derived from the CP-3 fair
+  // value band moving against the post-headline quote, not a single message.
   { sev: "high", issuer: "QLMH", code: "MON-H-2219", text: "TLB '28 quoted down 2.1pts post-headline — RV dislocation vs CP-3 fair value band", route: "CP-3" },
-  { sev: "medium", issuer: "HELX", code: "MON-H-2220", text: "TiO2 spot −3.8% w/w — CP-SR Chemicals early-warning threshold 2 of 3 tripped", route: "CP-SR" },
-  { sev: "low", issuer: "MERF", code: "MON-H-2221", text: "Bolt-on closed ($85M, 6.1x) — funded from RCF; CP-4C basket usage updated", route: "CP-4C" },
-  { sev: "high", issuer: "NWCF", code: "MON-H-2222", text: "Crossholder group retains counsel (2 sources, deduped) — temporal layer T0 confirmed", route: "CP-MON" },
-  { sev: "medium", issuer: "ATLF", code: "MON-H-2223", text: "Sponsor (Kestrel) closes Fund VI at $4.2B — support capacity flag updated in CP-2D", route: "CP-2D" },
+  { sev: "medium", issuer: "HELX", code: "MON-H-2220", text: "TiO2 spot −3.8% w/w — CP-SR Chemicals early-warning threshold 2 of 3 tripped", route: "CP-SR", sourceEmail: 4 },
+  { sev: "low", issuer: "MERF", code: "MON-H-2221", text: "Bolt-on closed ($85M, 6.1x) — funded from RCF; CP-4C basket usage updated", route: "CP-4C", sourceEmail: 6 },
+  // Deduped multi-source event — the NWCF lender-call email carries the ad hoc
+  // group / crossholder counsel detail this alert confirms.
+  { sev: "high", issuer: "NWCF", code: "MON-H-2222", text: "Crossholder group retains counsel (2 sources, deduped) — temporal layer T0 confirmed", route: "CP-MON", sourceEmail: 0 },
+  // The ATLF HY-desk chat is the message that carries the Kestrel/sponsor line.
+  { sev: "medium", issuer: "ATLF", code: "MON-H-2223", text: "Sponsor (Kestrel) closes Fund VI at $4.2B — support capacity flag updated in CP-2D", route: "CP-2D", sourceEmail: 3 },
 ];
 
 // Critical items in the ROUTED alert stream — distinct from EMAIL_TILES.critical

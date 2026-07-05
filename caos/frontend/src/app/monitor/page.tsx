@@ -101,11 +101,26 @@ function Monitor() {
           title="Email Intelligence · CP-MON intake"
           className="min-h-0"
           right={
-            <span className="flex items-center gap-1.5">
-              <Dot sev={done ? "ok" : "running"} pulse={running} glyph={done} />
-              {/* "SIM"/"COMPLETE"/"PAUSED": the tick is a demo replay, not a real
-                  feed. (Msgs-today lives in the sub-header — not duplicated here.) */}
-              <span className="tabular text-caos-xs text-caos-muted">{simState}</span>
+            <span className="flex items-center gap-2">
+              {/* The intake tape is the day's FIXED end-of-day classification —
+                  it shows the whole day from tick 0, unlike the Alert Routing
+                  rail which replays against the sim clock. Declaring "EOD tape"
+                  here means the differing cadence is stated, not discovered by a
+                  PM comparing the two panels mid-replay (visibility of system
+                  status). */}
+              <span
+                className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted"
+                title="End-of-day classification — the full reconciled tape, shown in whole from the start (the Alert Routing rail replays live against the sim clock)"
+              >
+                EOD tape
+              </span>
+              <span className="h-3 w-px bg-caos-border" />
+              <span className="flex items-center gap-1.5">
+                <Dot sev={done ? "ok" : "running"} pulse={running} glyph={done} />
+                {/* "SIM"/"COMPLETE"/"PAUSED": the tick is a demo replay, not a real
+                    feed. (Msgs-today lives in the sub-header — not duplicated here.) */}
+                <span className="tabular text-caos-xs text-caos-muted">{simState}</span>
+              </span>
             </span>
           }
         >
