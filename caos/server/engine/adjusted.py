@@ -59,23 +59,24 @@ _PCT_OF_EBITDA = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(?:its\s+|the\s+|consolidated\s+)*(?:adjusted\s+)?ebitda",
     re.IGNORECASE,
 )
-_ADDBACK_KW = ("add-back", "add back", "addback")
-_CATEGORY_KW = {
-    "synergies": ("synerg",),
-    "cost savings": ("cost saving", "cost-saving"),
-    "run-rate": ("run-rate", "run rate"),
-    "restructuring": ("restructuring",),
-    "transaction / non-recurring": ("transaction", "non-recurring", "nonrecurring", "one-time", "one time"),
-    "stock-based comp": ("stock-based", "stock based", "share-based"),
-    "pro forma": ("pro forma", "pro-forma"),
+_ADDBACK_RE = re.compile(r"add-back|add\s+back|addback", re.IGNORECASE)
+
+_CATEGORY_RE = {
+    "synergies": re.compile(r"synerg", re.I),
+    "cost savings": re.compile(r"cost\s+saving|cost-saving", re.I),
+    "run-rate": re.compile(r"run-rate|run\s+rate", re.I),
+    "restructuring": re.compile(r"restructuring", re.I),
+    "transaction / non-recurring": re.compile(r"transaction|non-recurring|nonrecurring|one-time|one\s+time", re.I),
+    "stock-based comp": re.compile(r"stock-based|stock\s+based|share-based", re.I),
+    "pro forma": re.compile(r"pro\s+forma|pro-forma", re.I),
 }
 
 _RETRIEVE_QUERY = "adjusted EBITDA add-backs add back synergies cost savings run-rate pro forma"
 
 
 def _categories(text: str) -> List[str]:
-    low = text.lower()
-    return [label for label, kws in _CATEGORY_KW.items() if any(k in low for k in kws)]
+    # Avoid text.lower() allocations; search original text with case-insensitive precompiled regexes
+    return [label for label, pat in _CATEGORY_RE.items() if pat.search(text)]
 
 
 def derive_addbacks(
@@ -87,14 +88,12 @@ def derive_addbacks(
     an "N% of EBITDA" load, else None. Deterministic path: the figure is regex-matched
     in that exact chunk, so ``exact`` is always True."""
     for chunk_id, text in chunks:
-        low = text.lower()
-        if not any(kw in low for kw in _ADDBACK_KW):
-            continue
-        m = _PCT_OF_EBITDA.search(text)
-        if m:
-            pct = float(m.group(1)) / 100.0
-            if 0 < pct < 1:
-                return pct, _categories(text), chunk_id, True
+        if _ADDBACK_RE.search(text):
+            m = _PCT_OF_EBITDA.search(text)
+            if m:
+                pct = float(m.group(1)) / 100.0
+                if 0 < pct < 1:
+                    return pct, _categories(text), chunk_id, True
     return None
 
 

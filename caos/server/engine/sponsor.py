@@ -26,13 +26,18 @@ _FLAGS: Tuple[Tuple[str, int, str], ...] = (
      r"permitted holders|majority of the board|controls? the board|sponsor[- ]control"),
 )
 
+_FLAGS_COMPILED = {
+    label: re.compile(pattern, re.IGNORECASE)
+    for label, _, pattern in _FLAGS
+}
+
 _MAX_SCORE = 10
 
 
 def scan_governance(chunks: List[Tuple[str, str]]) -> List[dict]:
     """Flag each governance red flag (once), with its quantum ($M) when stated."""
     return [{"flag": label, "weight": weight,
-             "amount_musd": amount_musd(text, re.compile(pattern, re.IGNORECASE)), "chunk_id": cid}
+             "amount_musd": amount_musd(text, _FLAGS_COMPILED[label]), "chunk_id": cid}
             for (label, weight, pattern), cid, text in scan(chunks, _FLAGS)]
 
 

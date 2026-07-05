@@ -16,7 +16,7 @@ import math
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
-from engine.periods import sort_key
+from engine.periods import is_finite_number, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
@@ -72,24 +72,16 @@ def compute_deltas(normalized_financials: dict) -> dict:
         revenue = revenue_by_period.get(period)
         adj_ebitda = adj_ebitda_by_period.get(period)
 
-        # Drop a non-finite NUMBER (NaN/inf) to None so it cannot leak into the
-        # margin or the YoY/margin-change summary — a NaN passes isinstance and
-        # bool(NaN) is True, so it would otherwise poison the CP-1B read and the
-        # CP-2B feed with NaN. A non-numeric placeholder (e.g. "n/a") is a string,
-        # not a float, so it is left untouched and skipped downstream as before.
-        if isinstance(revenue, (int, float)) and not math.isfinite(revenue):
+        # Drop a non-finite float/int to None, keeping other types (like "n/a" strings) untouched.
+        if isinstance(revenue, (int, float)) and not isinstance(revenue, bool) and not math.isfinite(revenue):
             revenue = None
-        if isinstance(adj_ebitda, (int, float)) and not math.isfinite(adj_ebitda):
+        if isinstance(adj_ebitda, (int, float)) and not isinstance(adj_ebitda, bool) and not math.isfinite(adj_ebitda):
             adj_ebitda = None
 
-        # EBITDA margin = adj EBITDA as a % of revenue. Computable only when
-        # revenue is numeric AND non-zero (the ÷0 guard — a zero/None top line
-        # has no margin) and EBITDA is numeric. Non-numeric values are skipped,
-        # not coerced; a negative revenue legitimately yields a negative margin.
         if (
-            isinstance(revenue, (int, float))
+            is_finite_number(revenue)
             and revenue
-            and isinstance(adj_ebitda, (int, float))
+            and is_finite_number(adj_ebitda)
         ):
             ebitda_margin = round(100 * adj_ebitda / revenue, 1)
         else:

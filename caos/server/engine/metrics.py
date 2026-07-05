@@ -266,7 +266,7 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
 # Energy cost exposure stated as a percent of the cost base, alongside an
 # energy keyword — the specific "N percent of cost of goods sold" pattern avoids
 # grabbing unrelated percentages (e.g. a gross-margin figure in the same chunk).
-_ENERGY_KW = ("energy", "power", "natural gas", "electricity", "fuel")
+_ENERGY_CHECK = re.compile(r"energy|power|natural\s+gas|electricity|fuel", re.IGNORECASE)
 _COST_PCT_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(?:the\s+)?(?:cost of goods sold|cogs|cost base)",
     re.IGNORECASE,
@@ -284,8 +284,7 @@ def derive_energy_cost_pct(
     hardcoded seed value for energy_cost_pct.
     """
     for chunk_id, doc, text in chunks:
-        low = text.lower()
-        if not any(kw in low for kw in _ENERGY_KW):
+        if not _ENERGY_CHECK.search(text):
             continue
         m = _COST_PCT_RE.search(text)
         if m:

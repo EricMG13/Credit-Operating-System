@@ -107,7 +107,7 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
     layer so execution stays deterministic. Deps outside the set (CP-0, Not
     Implemented, Excluded) don't gate layering — the runner's input gate does."""
     in_set = set(module_ids)
-    placed: Dict[str, int] = {}
+    placed = set()
     layers: List[List[str]] = []
     remaining = list(module_ids)
     while remaining:
@@ -121,8 +121,7 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
             # running them in arbitrary order (which degraded to silent
             # input-gate "Blocked" cascades — a non-DAG should surface, not hide). C3.
             raise RuntimeError(f"CP-X registry dependency cycle among: {sorted(remaining)}")
-        for m in layer:
-            placed[m] = len(layers)
+        placed.update(layer)
         layers.append(layer)
         remaining = [m for m in remaining if m not in placed]
     return layers
@@ -138,12 +137,14 @@ def _blocked_ancestors(
     if module_id in memo:
         return memo[module_id]
     memo[module_id] = frozenset()  # cycle guard: in-progress nodes contribute nothing
-    acc: set = set()
     spec = REGISTRY.get(module_id)
-    for dep in spec.depends_on if spec is not None else ():
+    if not spec:
+        return frozenset()
+    acc = set()
+    for dep in spec.depends_on:
         if dep in blocked:
             acc.add(dep)
-        acc |= _blocked_ancestors(dep, blocked, memo)
+        acc.update(_blocked_ancestors(dep, blocked, memo))
     result = frozenset(acc)
     memo[module_id] = result
     return result
