@@ -73,7 +73,10 @@ async def _peer_facts(
                # #10: never benchmark against fabricated figures — the ATLF fixture
                # persisted for another keyless-run issuer (provenance demo_fixture)
                # must not enter a real issuer's peer medians/percentiles (SEAM2-2).
-               MetricFact.provenance != "demo_fixture")
+               MetricFact.provenance != "demo_fixture",
+               # A gate-Blocked (QA-failed) fact must never enter a real peer's
+               # medians/percentiles — defense-in-depth behind the runner write-skip.
+               MetricFact.qa_status != "Blocked")
     )
     if same_industry and issuer.industry:
         stmt = stmt.where(Issuer.industry == issuer.industry)

@@ -471,8 +471,16 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         await _persist_cp5(session, run.id, findings, module_status)
 
         # ── Project structured metric facts (run-derived, for cross-issuer NL query) ──
+        # A gate-Blocked CP-1/CP-2 (CP-5 emitted an unresolved CRITICAL — e.g. an
+        # evidence-unsupported headline claim) must NOT project metric facts: they
+        # would enter another issuer's cross-issuer peer medians as if QA-passed.
+        # Fail closed — skip the write. The retention delete below is likewise
+        # gated on a real write, so a Blocked re-run keeps the last QA-passed facts
+        # rather than wiping them. Defense-in-depth read-filter: peers._peer_facts.
         cp1 = upstream.get("CP-1")
-        if cp1 is not None:
+        cp1_ok = False
+        if cp1 is not None and output_rows["CP-1"].qa_status != "Blocked":
+            cp1_ok = True
             # is_reference_issuer gates fixture provenance: the genuine ATLF demo keeps
             # "fixture"; the same fixture served for any other issuer is tagged the
             # non-authoritative "demo_fixture" (#10).
@@ -482,14 +490,16 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             ):
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
         cp2 = upstream.get("CP-2")
-        if cp2 is not None:
+        cp2_ok = False
+        if cp2 is not None and output_rows["CP-2"].qa_status != "Blocked":
+            cp2_ok = True
             for fact in extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status):
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
 
         # Retention (DATA-1): the cross-issuer query only uses the latest run's
         # facts per issuer, so supersede older run-derived rows for this issuer
         # rather than letting them accumulate unbounded. Seed facts are untouched.
-        if cp1 is not None or cp2 is not None:
+        if cp1_ok or cp2_ok:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
