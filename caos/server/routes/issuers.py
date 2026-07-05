@@ -298,7 +298,7 @@ def _strengths_weaknesses(  # noqa: C901
     weaknesses: List[str] = []
 
     def num(x: Any) -> Optional[float]:
-        return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+        return float(x) if is_finite_number(x) else None
 
     pct = num(signals.get("composite_percentile"))
     if pct is not None:
