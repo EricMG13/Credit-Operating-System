@@ -40,6 +40,16 @@
   --tranche-sub: #a855f7;
   --tranche-eq: #64748b;
 
+  --paper-bg: #f7f5ee;
+  --paper-ink: #16161e;
+  --paper-meta: #5c5c66;
+  --paper-query-bg: #faf8f2;
+  --paper-query-ink: #1a1a1a;
+  --paper-query-meta: #5a5a5a;
+  --paper-query-rule: #c9c4b5;
+  --paper-chart-fill: #efece2;
+  --paper-ai: #5b4bb0;
+
   /* ===== Design tokens — Phase 0 foundation ===== */
   /* Type scale lives in tailwind.config.js (`text-caos-*`); it is the single
      source. Charts/paper code use the px literals directly. */

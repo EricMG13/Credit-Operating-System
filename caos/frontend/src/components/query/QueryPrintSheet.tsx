@@ -31,17 +31,17 @@ interface Rel {
 }
 
 // ink-on-cream palette — a self-contained document, independent of app tokens.
-const INK = "#1a1a1a";
-const MUTED = "#5a5a5a";
-const RULE = "#c9c4b5";
-const PAPER = "#faf8f2";
+const INK = "var(--paper-query-ink)";
+const MUTED = "var(--paper-query-meta)";
+const RULE = "var(--paper-query-rule)";
+const PAPER = "var(--paper-query-bg)";
 
 // Ink-on-cream chart palette for the static print exhibit — deliberately NOT the
 // dark-app tokens. Dark ink for node strokes/labels, muted grey for edges, a very
 // light fill so the paper shows through. A filed document, not a lit terminal.
-const CHART_INK = "#16161e";
-const CHART_EDGE = "#5c5c66";
-const CHART_FILL = "#efece2";
+const CHART_INK = "var(--paper-ink)";
+const CHART_EDGE = "var(--paper-meta)";
+const CHART_FILL = "var(--paper-chart-fill)";
 
 // Print-exhibit geometry — same normalized layout the interactive canvases use
 // (W×H, PAD), so node positions read identically; PAD is a touch tighter (70) to
@@ -168,7 +168,7 @@ export function PrintChart({ graph }: { graph: GraphResult }): React.ReactElemen
                   fill={CHART_INK}
                   fontSize="11px"
                   fontWeight={isCenter ? 700 : 400}
-                  fontFamily='Inter, "Helvetica Neue", Arial, sans-serif'
+                  fontFamily='var(--font-sans), "Helvetica Neue", Arial, sans-serif'
                 >
                   {ln}
                 </text>
@@ -236,7 +236,7 @@ export function QueryPrintSheet({ graph, question, engineNote, synthesis }: Quer
         background: PAPER,
         color: INK,
         padding: "32px 40px",
-        fontFamily: 'Inter, "Helvetica Neue", Arial, sans-serif',
+        fontFamily: 'var(--font-sans), "Helvetica Neue", Arial, sans-serif',
         lineHeight: 1.45,
       }}
     >

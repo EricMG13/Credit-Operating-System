@@ -126,7 +126,7 @@ export function G2Chart({
       f.textContent = "CHART UNAVAILABLE";
       f.style.cssText =
         "display:flex;align-items:center;justify-content:center;height:100%;" +
-        "font-size:10px;letter-spacing:.08em;color:#8a8a9a;border:1px dashed #8a8a9a55;border-radius:4px;";
+        "font-size:10px;letter-spacing:.08em;color:var(--caos-muted);border:1px dashed color-mix(in srgb, var(--caos-muted) 35%, transparent);border-radius:2px;";
       el.appendChild(f);
     };
 

@@ -46,7 +46,7 @@ const TREND_FMT: Record<string, { title: string; color: string; unit: (v: number
 };
 
 function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }[]; color: string; fmt: (v: number) => string }) {
-  const [hi, setHi] = useState<number | null>(null);
+  const [active, setActive] = useState<number | null>(null);
   const W = 240, H = 46, pl = 3, pr = 7, pt = 7, pb = 7;
   const vals = pts.map((p) => p.value);
   const lo = Math.min(...vals), top = Math.max(...vals);
@@ -55,18 +55,28 @@ function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }
   const py = (v: number) => pt + (H - pt - pb) * (1 - (v - lo) / span);
   const poly = pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" ");
   const area = `M${px(0).toFixed(1)},${py(pts[0].value).toFixed(1)} L${pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" L")} L${px(pts.length - 1).toFixed(1)},${(H - pb).toFixed(1)} L${pl},${(H - pb).toFixed(1)} Z`;
-  const cur = hi != null ? pts[hi] : null;
+  const activeIdx = active ?? -1;
+  const cur = activeIdx >= 0 ? pts[activeIdx] : null;
+  const trendLabel = pts.map((p) => `${p.period} ${fmt(p.value)}`).join("; ");
+  const setActiveFromX = (clientX: number, rect: DOMRect) => {
+    const x = ((clientX - rect.left) / rect.width) * W;
+    const raw = Math.round(((x - pl) / (W - pl - pr)) * (pts.length - 1));
+    setActive(Math.max(0, Math.min(pts.length - 1, raw)));
+  };
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto cursor-crosshair" role="img" aria-label="metric trend sparkline"
-        onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          const x = ((e.clientX - r.left) / r.width) * W;
-          let idx = Math.round(((x - pl) / (W - pl - pr)) * (pts.length - 1));
-          idx = Math.max(0, Math.min(pts.length - 1, idx));
-          setHi(Number.isFinite(idx) ? idx : null);
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto cursor-crosshair focus-ring rounded-sm" role="img" tabIndex={0}
+        aria-label={`Metric trend sparkline. Use arrow keys to review points. Values: ${trendLabel}`}
+        onPointerMove={(e) => setActiveFromX(e.clientX, e.currentTarget.getBoundingClientRect())}
+        onPointerLeave={() => setActive(null)}
+        onFocus={() => setActive((i) => i ?? pts.length - 1)}
+        onBlur={() => setActive(null)}
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          const d = e.key === "ArrowLeft" ? -1 : 1;
+          setActive((i) => Math.max(0, Math.min(pts.length - 1, (i ?? pts.length - 1) + d)));
         }}
-        onMouseLeave={() => setHi(null)}
       >
         <path d={area} fill={color} fillOpacity={0.12} />
         <line x1={pl} y1={py(pts[0].value)} x2={W - pr} y2={py(pts[0].value)} stroke={color} strokeOpacity={0.24} strokeDasharray="2 2" />
@@ -74,13 +84,13 @@ function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }
         <circle cx={px(pts.length - 1)} cy={py(pts[pts.length - 1].value)} r={2.8} fill={color} />
         {cur ? (
           <g>
-            <line x1={px(hi as number)} y1={pt} x2={px(hi as number)} y2={H - pb} stroke="#a1a1b5" strokeOpacity={0.5} />
-            <circle cx={px(hi as number)} cy={py(cur.value)} r={3.2} fill={color} stroke="#11131d" strokeWidth={1.4} />
+            <line x1={px(activeIdx)} y1={pt} x2={px(activeIdx)} y2={H - pb} stroke="#a1a1b5" strokeOpacity={0.5} />
+            <circle cx={px(activeIdx)} cy={py(cur.value)} r={3.2} fill={color} stroke="#11131d" strokeWidth={1.4} />
           </g>
         ) : null}
       </svg>
       {cur ? (
-        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(hi as number) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
+        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(activeIdx) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
           {cur.period} · {fmt(cur.value)}
         </div>
       ) : null}
@@ -493,7 +503,7 @@ export function Profile({
   const watchSignals = (earnings.monitoring_signals || []).filter((s): s is string => typeof s === "string" && !!s.trim());
 
   const body = (
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-3">
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
@@ -504,7 +514,7 @@ export function Profile({
             </div>
           </Panel>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5 pb-0.5">
             <div className="flex items-baseline gap-2 px-0.5">
               {/* h2 to match every sibling Panel header (Panel defaults to h2) and
                   the empty-state branch's <Panel> — heading level must not flip
@@ -520,7 +530,7 @@ export function Profile({
                 what-changed read (deskReadLine), sitting above the 6 KPIs it
                 summarizes. Same derived string; never a fabricated stance. */}
             <p className="text-caos-sm text-caos-text/90 leading-relaxed m-0 px-0.5">{deskRead}</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5">
               {headline.map((m) => (
                 <KpiTile
                   key={m.metric_key}
@@ -535,10 +545,8 @@ export function Profile({
           </div>
         )}
 
-        {/* Row 2 — 1.7fr / 1fr : the Trend sparkline-card panel (kept verbatim) |
-            Business profile (the swap: it takes the prototype's upper-right slot) +
-            a Watch callout built from the real monitoring signals. */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-2.5 items-start">
+        {/* Row 2 — primary read: trend context | thesis, drivers, and watch. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_minmax(300px,1fr)] gap-3 items-start">
           <Panel
             title="Financial & credit trend"
             right={fyCharts.length && qCharts.length
@@ -567,17 +575,23 @@ export function Profile({
             )}
           </Panel>
 
-          <div className="flex flex-col gap-2.5">
-            <Panel title="Business profile">
-              {business.length === 0 && sponsorLedger.length === 0 ? (
-                <div className="px-3 py-2.5"><Empty>No business disclosure ingested.</Empty></div>
-              ) : (
-                <div className="flex flex-col divide-y divide-caos-border/40">
-                  <BizCol title="Description" facts={factsByCode(["transaction", "history", "geography"]).slice(0, 2)} deepHref={deepHref} />
-                  <BizCol title="Operating model" facts={factsByCode(["operating_model"]).slice(0, 1)} deepHref={deepHref} />
-                  <OwnershipCol facts={factsByCode(["ownership"]).slice(0, 1)} ledger={sponsorLedger} score={(sponsor as { governance_risk_score?: number }).governance_risk_score} deepHref={deepHref} />
-                </div>
-              )}
+          <div className="flex flex-col gap-3">
+            <Panel title="Thesis & key drivers" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-6A</span>}>
+              <div className="px-3 py-2 flex flex-col gap-2">
+                <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
+                <SigBand label="Downside fragility" v={signals.fragility}
+                  extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
+                <SigBand label="Refi / LME risk" v={signals.lme_band}
+                  extra={signals.lme_score != null ? `score ${signals.lme_score}` : undefined} />
+                {/* Covenant headroom lives once, in "Structure & coverage" — not repeated here. */}
+                <EmptyIfBlank ok={[signals.recommendation, signals.fragility, signals.lme_band]} latest={!!latest_run} />
+                {strengths.length || weaknesses.length ? (
+                  <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col divide-y divide-caos-border/40">
+                    <SWCol kind="success" title="Strengths" items={strengths.slice(0, 3)} />
+                    <SWCol kind="warning" title="Weaknesses" items={weaknesses.slice(0, 3)} />
+                  </div>
+                ) : null}
+              </div>
             </Panel>
 
             {watchSignals.length ? (
@@ -595,10 +609,20 @@ export function Profile({
           </div>
         </div>
 
-        {/* Row 3 — 2 equal cols : Structure & coverage (folded from the real
-            Structure & protection + Coverage & trust) | Analyst notes. Desk
-            read now folded up into the snapshot band as its anchor caption. */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start">
+        {/* Row 3 — operating context | source/coverage gate. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3 items-start">
+          <Panel title="Business profile">
+            {business.length === 0 && sponsorLedger.length === 0 ? (
+              <div className="px-3 py-2.5"><Empty>No business disclosure ingested.</Empty></div>
+            ) : (
+              <div className="flex flex-col divide-y divide-caos-border/40">
+                <BizCol title="Description" facts={factsByCode(["transaction", "history", "geography"]).slice(0, 2)} deepHref={deepHref} />
+                <BizCol title="Operating model" facts={factsByCode(["operating_model"]).slice(0, 1)} deepHref={deepHref} />
+                <OwnershipCol facts={factsByCode(["ownership"]).slice(0, 1)} ledger={sponsorLedger} score={(sponsor as { governance_risk_score?: number }).governance_risk_score} deepHref={deepHref} />
+              </div>
+            )}
+          </Panel>
+
           <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
             <div className="px-3 py-2 flex flex-col gap-2">
               <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
@@ -614,14 +638,10 @@ export function Profile({
               </div>
             </div>
           </Panel>
-
-          <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
 
-        {/* Row 4 — 1.7fr / 1fr : Market · price & DM (honest feed-pending; no server-side
-            market series) | Thesis & key drivers (real thesis signals — recommendation
-            gated — + the real strengths / weaknesses). */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-2.5 items-start">
+        {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 items-start">
           <Panel
             title="Market · price & DM"
             right={<span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>}
@@ -634,28 +654,12 @@ export function Profile({
             </div>
           </Panel>
 
-          <Panel title="Thesis & key drivers" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-6A</span>}>
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
-              <SigBand label="Downside fragility" v={signals.fragility}
-                extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
-              <SigBand label="Refi / LME risk" v={signals.lme_band}
-                extra={signals.lme_score != null ? `score ${signals.lme_score}` : undefined} />
-              {/* Covenant headroom lives once, in "Structure & coverage" — not repeated here. */}
-              <EmptyIfBlank ok={[signals.recommendation, signals.fragility, signals.lme_band]} latest={!!latest_run} />
-              {strengths.length || weaknesses.length ? (
-                <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col divide-y divide-caos-border/40">
-                  <SWCol kind="success" title="Strengths" items={strengths.slice(0, 3)} />
-                  <SWCol kind="warning" title="Weaknesses" items={weaknesses.slice(0, 3)} />
-                </div>
-              ) : null}
-            </div>
-          </Panel>
+          <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
 
         {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
             earnings (deltas + prior→latest) | Run history. */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
           <Panel title={"Latest earnings" + (earnings.latest_period ? " · " + earnings.latest_period : "")}>
             {(() => {
               const ms = earnings.monitoring_signals || [];
@@ -780,7 +784,7 @@ export function Profile({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-2 flex flex-col gap-2">
+      <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
         {body}
       </div>
 

@@ -153,7 +153,7 @@ function IssuersDirectory() {
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     };
     return [...filteredIssuers].sort(cmp);
-  }, [filteredIssuers, sort, SORTABLE, filterVals]);
+  }, [filteredIssuers, sort, filterVals]);
   const cycleSort = (col: string) =>
     setSort((s) =>
       s?.col !== col ? { col, dir: "asc" } : s.dir === "asc" ? { col, dir: "desc" } : null

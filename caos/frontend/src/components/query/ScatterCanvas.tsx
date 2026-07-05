@@ -226,6 +226,7 @@ export function ScatterCanvas({
                 role="button"
                 style={{ opacity, transition: "opacity 160ms ease-out" }}
                 className="cursor-pointer focus-ring outline-none"
+                aria-label={`Select ${n.label}${n.kind ? ` (${n.kind})` : ""}`}
                 onFocus={() => setHoveredNodeId(n.id)}
                 onBlur={() => setHoveredNodeId(null)}
                 onMouseEnter={() => setHoveredNodeId(n.id)}

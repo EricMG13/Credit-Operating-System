@@ -262,7 +262,7 @@ export function LineageFlow({
                           ? "var(--caos-warning)" 
                           : "var(--caos-border)",
                       }}
-                      className={`w-full max-w-[170px] bg-caos-panel/90 border rounded p-2 cursor-pointer transition-all duration-150 motion-reduce:transition-none flex flex-col gap-1 text-left relative focus-ring ${
+                      className={`w-full max-w-[170px] bg-caos-panel/90 border rounded p-2 cursor-pointer transition-colors duration-150 motion-reduce:transition-none flex flex-col gap-1 text-left relative focus-ring ${
                         isFocused || isSelected ? "shadow-pop bg-caos-elevated" : "hover:border-caos-accent/50"
                       }`}
                     >

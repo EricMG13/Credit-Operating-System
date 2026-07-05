@@ -35,6 +35,9 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
       className={className}
       contentEditable
       suppressContentEditableWarning
+      role="textbox"
+      aria-label={`Edit report field ${p}`}
+      aria-multiline="true"
       spellCheck={false}
       onPaste={(e) => {
         // Insert plain text only (strip the source's rich HTML/styles) and cap

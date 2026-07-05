@@ -18,10 +18,10 @@ import type { ReportSection } from "@/lib/query/report";
 import { kindLabel } from "@/lib/query/report";
 import { PrintChart } from "@/components/query/QueryPrintSheet";
 
-const INK = "#1a1a1a";
-const MUTED = "#5a5a5a";
-const RULE = "#c9c4b5";
-const PAPER = "#faf8f2";
+const INK = "var(--paper-query-ink)";
+const MUTED = "var(--paper-query-meta)";
+const RULE = "var(--paper-query-rule)";
+const PAPER = "var(--paper-query-bg)";
 
 const label: React.CSSProperties = {
   fontFamily: '"JetBrains Mono", monospace',
@@ -49,7 +49,7 @@ export function QueryReportSheet({ sections, graph }: Props) {
         background: PAPER,
         color: INK,
         padding: "32px 40px",
-        fontFamily: 'Inter, "Helvetica Neue", Arial, sans-serif',
+        fontFamily: 'var(--font-sans), "Helvetica Neue", Arial, sans-serif',
         lineHeight: 1.45,
       }}
     >
@@ -62,7 +62,7 @@ export function QueryReportSheet({ sections, graph }: Props) {
         <div key={s.id} style={{ marginBottom: "16px", paddingBottom: "12px", borderBottom: i < sections.length - 1 ? `1px solid ${RULE}` : "none" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: "8px", marginBottom: "3px" }}>
             <span style={label}>{kindLabel(s.kind)}</span>
-            {s.ai && <span style={{ ...label, color: "#5b4bb0" }}>AI-generated</span>}
+            {s.ai && <span style={{ ...label, color: "var(--paper-ai)" }}>AI-generated</span>}
           </div>
           <div style={{ fontSize: "13px", fontWeight: 600, marginBottom: s.body ? "4px" : 0 }}>{s.title}</div>
           {s.body && <div style={{ fontSize: "11px", lineHeight: 1.5 }}>{s.body}</div>}
