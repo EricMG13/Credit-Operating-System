@@ -5,7 +5,7 @@
 // price deltas), with US Leveraged Loan index statistics and per-rating
 // averages. Sector dropdown switches between sector tables.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import {
@@ -162,30 +162,44 @@ function SortTh<T>({
   );
 }
 
-function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" | "market" | "rv" }) {
+// Column-filter getters — shared by the table (its funnel headers) AND the
+// chart (so the RV distribution respects the same filters). Exported as a stable
+// memo-free constant object so both the lifted useColumnFilters call and the
+// per-header FilterHeader read identical semantics.
+const PEER_FILTER_VAL: Record<string, (r: RVRow) => SortVal> = {
+  company: (r) => r.company, subSector: (r) => r.subSector, subGroup: (r) => r.subGroup,
+  loanType: (r) => r.loanType, figi: (r) => r.figi, rank: (r) => r.rank,
+  rating: (r) => r.rating, size: (r) => r.size, margin: (r) => r.margin,
+  maturity: (r) => r.maturity, bid: (r) => r.bid, ask: (r) => r.ask,
+  liq: (r) => r.liq, rv: (r) => r.rv, ytm: (r) => r.ytm, dm: (r) => r.dm,
+  ...Object.fromEntries(DELTA_COLS.map((_, i) => [`d${i}`, (r: RVRow) => r.d[i]])),
+};
+
+function PeerTable({
+  rows, filtered, preset = "full", filters, onFilter, selected, hovered, onSelect, onHover,
+}: {
+  rows: RVRow[];
+  filtered: RVRow[];
+  preset?: "full" | "market" | "rv";
+  filters: FilterState;
+  onFilter: (col: string, values: string[] | undefined) => void;
+  selected: string | null;
+  hovered: string | null;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
   // Default: lead with the actionable tail — cheapest (widest rvBp) on top.
   const [sort, setSort] = useState<SortConfig>({ col: "rv", asc: false });
-  const [filters, setFilters] = useState<FilterState>({});
-  const filterVal = useMemo<Record<string, (r: RVRow) => SortVal>>(() => ({
-    company: (r: RVRow) => r.company, subSector: (r: RVRow) => r.subSector, subGroup: (r: RVRow) => r.subGroup,
-    loanType: (r: RVRow) => r.loanType, figi: (r: RVRow) => r.figi, rank: (r: RVRow) => r.rank,
-    rating: (r: RVRow) => r.rating, size: (r: RVRow) => r.size, margin: (r: RVRow) => r.margin,
-    maturity: (r: RVRow) => r.maturity, bid: (r: RVRow) => r.bid, ask: (r: RVRow) => r.ask,
-    liq: (r: RVRow) => r.liq, rv: (r: RVRow) => r.rv, ytm: (r: RVRow) => r.ytm, dm: (r: RVRow) => r.dm,
-    ...Object.fromEntries(DELTA_COLS.map((_, i) => [`d${i}`, (r: RVRow) => r.d[i]])),
-  }), []);
-  const filtered = useColumnFilters(rows, filters, filterVal);
+  // Scroll the selected row into view when selection is driven from the chart or
+  // Top-of-book (not when the user clicked the row itself, but scrollIntoView with
+  // block:"nearest" is a no-op if it's already visible, so it's harmless either way).
+  const selRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    selRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+  const filterVal = PEER_FILTER_VAL;
+  const setFilter = onFilter;
   const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
-  const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
   const sorted = useSort(filtered, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
     if (c === "rv") return r.rvBp;
@@ -231,9 +245,34 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
         </tr>
       </thead>
       <tbody>
-        {sorted.map((r, i) => (
-          <tr key={r.figi + i} className="border-b border-caos-border/40 hover:bg-caos-elevated/50 transition-caos group">
-            {showCol("company") && <td className={td + " sticky left-0 z-10 bg-caos-panel text-caos-text group-hover:bg-caos-elevated/50 transition-colors"}>{r.company}</td>}
+        {sorted.map((r, i) => {
+          const isSel = selected === r.figi;
+          const isHov = hovered === r.figi;
+          // Selected row: accent tint + inset accent bar (position + tint, so the
+          // highlight isn't colour-alone). Hover mirror stays subtle. The sticky
+          // company cell has its own background, so it gets the matching tint too.
+          const rowBg = isSel
+            ? "bg-caos-accent/[0.12]"
+            : isHov
+            ? "bg-caos-elevated/60"
+            : "hover:bg-caos-elevated/50";
+          const stickyBg = isSel
+            ? "bg-caos-elevated"
+            : isHov
+            ? "bg-caos-elevated"
+            : "bg-caos-panel group-hover:bg-caos-elevated/50";
+          return (
+          <tr
+            key={r.figi + i}
+            ref={isSel ? selRef : undefined}
+            aria-selected={isSel}
+            onClick={() => onSelect(r.figi)}
+            onMouseEnter={() => onHover(r.figi)}
+            onMouseLeave={() => onHover(null)}
+            className={`border-b border-caos-border/40 transition-caos group cursor-pointer ${rowBg}`}
+            style={isSel ? { boxShadow: "inset 2px 0 0 var(--caos-accent)" } : undefined}
+          >
+            {showCol("company") && <td className={td + ` sticky left-0 z-10 text-caos-text transition-colors ${stickyBg}`}>{r.company}</td>}
             {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
             {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
             {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
@@ -253,7 +292,8 @@ function PeerTable({ rows, preset = "full" }: { rows: RVRow[]; preset?: "full" |
             {showCol("ytm") && <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>}
             {showCol("dm") && <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>}
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   );
@@ -268,35 +308,281 @@ const bucketMedian = (xs: number[]): number | null => {
   return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 };
 
-// Sector RV made spatial: 3Y DM by rating bucket, one dot per loan, a tick at
-// each bucket's benchmark median. Dots ABOVE the tick are wide (cheap), below
-// are tight (rich) — vertical position carries the signal for colorblind users;
-// hue doubles it. This is the "relative" the tables only implied.
-function RVScatter({ rows, color }: { rows: RVRow[]; color: string }) {
-  const W = 820, H = 200, padL = 46, padR = 14, padT = 12, padB = 24;
+// Same sum/length mean as rvdata's helper (no new number math): the Bar view's
+// per-category height. null on an empty group so a category with no members
+// simply draws nothing.
+const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+// Linear-interpolated percentile over an ALREADY-sorted ascending array — the
+// exact q(p) the scatter already used for its 5–95 domain clamp, lifted so the
+// Box view's whisker/IQR quartiles reuse it verbatim instead of a new formula.
+const percentileSorted = (sorted: number[], p: number): number => {
+  const idx = (sorted.length - 1) * p;
+  const l = Math.floor(idx), h = Math.ceil(idx);
+  return sorted[l] + (sorted[h] - sorted[l]) * (idx - l);
+};
+
+// ── Sector read + Top of book: deterministic reads over the SAME filtered rows ──
+// Nothing here is opinion or fabricated prose — every phrase is templated from a
+// count, a min/max, or a group tally on real RVRow fields (rvBp, bucket,
+// subSector). A row with no benchmark (rvBp === null → "N/A") is excluded from the
+// actionable tails exactly as the peer table's cheap→rich sort excludes it.
+
+// The cheapest (widest positive rvBp) and richest (tightest negative rvBp) loans.
+// A "pick" is a real row plus its one-line, machine-computed context — no prose.
+export interface Pick {
+  figi: string;
+  company: string;
+  rating: string;
+  subSector: string;
+  rvBp: number;
+  rv: RVSignal;
+}
+
+interface TopOfBook {
+  cheap: Pick[]; // widest rvBp first (the "add" tail)
+  rich: Pick[]; // tightest rvBp first (the "fade" tail)
+}
+
+const toPick = (r: RVRow): Pick => ({
+  figi: r.figi,
+  company: r.company,
+  rating: r.rating,
+  subSector: r.subSector,
+  rvBp: r.rvBp as number, // callers pre-filter rvBp !== null
+  rv: r.rv,
+});
+
+// Cheapest 3 (widest) to add, richest 2 (tightest) to fade — mirrors the task's
+// spec and the peer table's default cheap→rich ordering. Benchmark-less rows drop
+// out. Ties broken by |rvBp| then company for a stable, deterministic list.
+function topOfBook(rows: RVRow[]): TopOfBook {
+  const ranked = rows
+    .filter((r) => r.rvBp !== null)
+    .sort((a, b) => (b.rvBp as number) - (a.rvBp as number) || a.company.localeCompare(b.company));
+  const cheap = ranked.filter((r) => (r.rvBp as number) > 0).slice(0, 3).map(toPick);
+  const rich = ranked
+    .filter((r) => (r.rvBp as number) < 0)
+    .slice(-2)
+    .reverse() // tightest (most negative) first
+    .map(toPick);
+  return { cheap, rich };
+}
+
+// A short, fully deterministic sector summary computed from the filtered rows:
+// how many carry a benchmark, the dispersion range of rvBp, and which rating
+// bucket / sub-sector concentrates the cheap tail. Returned as structured lines so
+// the numeric spans can be styled without embedding markup in a string.
+export interface SectorReadLine {
+  text: string;
+  metric?: string;
+}
+
+// Which key (bucket label or sub-sector) holds the most positive-rvBp members,
+// and how many. null when there is no cheap tail at all.
+function topCheapGroup(rows: RVRow[], key: (r: RVRow) => string): { name: string; count: number } | null {
+  const tally = new Map<string, number>();
+  for (const r of rows) {
+    if (r.rvBp !== null && r.rvBp > 0) tally.set(key(r), (tally.get(key(r)) ?? 0) + 1);
+  }
+  let best: { name: string; count: number } | null = null;
+  for (const [name, count] of tally) {
+    if (!best || count > best.count) best = { name, count };
+  }
+  return best;
+}
+
+function sectorRead(rows: RVRow[], sectorName: string): SectorReadLine[] {
+  const benched = rows.filter((r) => r.rvBp !== null);
+  const lines: SectorReadLine[] = [];
+
+  if (!rows.length) {
+    return [{ text: "No loans in the current selection." }];
+  }
+  if (benched.length < 2) {
+    lines.push({
+      text: `${benched.length} of ${rows.length} loans carry a sector×rating benchmark (n ≥ 2 required) — too thin to read dispersion.`,
+    });
+    return lines;
+  }
+
+  const bps = benched.map((r) => r.rvBp as number).sort((a, b) => a - b);
+  const widest = bps[bps.length - 1];
+  const tightest = bps[0];
+  const cheapCount = bps.filter((b) => b > 0).length;
+  const richCount = bps.filter((b) => b < 0).length;
+
+  lines.push({
+    text: `RV dispersion spans`,
+    metric: `${tightest > 0 ? "+" : ""}${Math.round(tightest)} → ${widest > 0 ? "+" : ""}${Math.round(widest)}bp vs sector×rating median`,
+  });
+  lines.push({
+    text: `${cheapCount} loan${cheapCount === 1 ? "" : "s"} screen cheap (wide of median), ${richCount} rich (tight) across ${benched.length} benchmarked in ${sectorName}.`,
+  });
+
+  const byBucket = topCheapGroup(benched, (r) => r.bucket);
+  const bySub = topCheapGroup(benched, (r) => r.subSector);
+  if (byBucket && bySub) {
+    lines.push({
+      text: `Cheap tail concentrates in the ${byBucket.name} bucket (${byBucket.count}) and ${bySub.name} (${bySub.count}).`,
+    });
+  } else if (!cheapCount) {
+    lines.push({ text: `No loan screens wide of its bucket median in the current selection.` });
+  }
+
+  return lines;
+}
+
+export type XMeasure = "rating" | "subSector" | "size" | "price";
+export type ChartType = "scatter" | "bar" | "box";
+
+const X_LABEL: Record<XMeasure, string> = {
+  rating: "Rating",
+  subSector: "Sub-sector",
+  size: "Size ($Mn)",
+  price: "Price",
+};
+const isCategorical = (x: XMeasure) => x === "rating" || x === "subSector";
+// Continuous X reads a plain number off the row; Price is the bid/ask mid, the
+// same mid the Market-Data Summary already averages.
+const continuousValue = (r: RVRow, x: XMeasure): number => (x === "size" ? r.size : (r.bid + r.ask) / 2);
+// Category a row belongs to, for the active categorical X.
+const categoryOf = (r: RVRow, x: XMeasure): string => (x === "subSector" ? r.subSector : r.bucket);
+
+// A single interactive scatter point. A real keyboard-operable control (SVG
+// <circle> with role="button", tabIndex, Enter/Space → select) so chart↔table
+// linking is reachable without a mouse. Selected → enlarged + accent ring;
+// hovered → a softer ring. Position + hue already carry the RV signal; the ring
+// is pure selection affordance, never the only signal.
+function Point({
+  cx, cy, fill, isSel, isHov, label, title, onSelect, onHover,
+}: {
+  cx: number;
+  cy: number;
+  fill: string;
+  isSel: boolean;
+  isHov: boolean;
+  label: string;
+  title: string;
+  onSelect: () => void;
+  onHover: (on: boolean) => void;
+}) {
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      aria-pressed={isSel}
+      className="focus-ring cursor-pointer"
+      style={{ outlineOffset: 2 }}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      onMouseEnter={() => onHover(true)}
+      onMouseLeave={() => onHover(false)}
+      onFocus={() => onHover(true)}
+      onBlur={() => onHover(false)}
+    >
+      {/* Selection/hover ring — drawn under the dot so the fill stays true. */}
+      {(isSel || isHov) && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={isSel ? 7.5 : 6}
+          fill="none"
+          stroke="var(--caos-accent)"
+          strokeWidth={isSel ? 2 : 1.25}
+          strokeOpacity={isSel ? 0.95 : 0.6}
+        />
+      )}
+      <circle cx={cx} cy={cy} r={isSel ? 4.6 : 3.4} fill={fill} fillOpacity={isSel ? 1 : 0.85}>
+        <title>{title}</title>
+      </circle>
+    </g>
+  );
+}
+
+// Sector RV made spatial: 3Y DM (Y, always) plotted against the chosen X measure.
+// Categorical X (Rating / Sub-sector) → banded columns with per-band median tick
+// and coloured points; dots ABOVE the tick are wide (cheap), below are tight
+// (rich) — vertical position carries the signal for colorblind users; hue doubles
+// it. Continuous X (Size / Price) → a linear axis of plain coloured points. Bar
+// = average DM per category; Box = min→max whisker + IQR + median per category.
+// This is the "relative" the tables only implied. Every mode renders from the
+// SAME (column-filtered) row set.
+//
+// Selection/hover is lifted to SectorRV(): a clicked point selects that loan
+// (enlarged + accent ring here, tinted + scrolled-into-view in the PeerTable);
+// hover mirrors softly. In the categorical/continuous scatter modes each point is
+// a real keyboard-operable control (Enter/Space selects). Bar/Box are aggregate
+// views with no per-loan point, so selection simply doesn't apply there.
+function RVScatter({
+  rows, color, xMeasure, chartType, selected, hovered, onSelect, onHover,
+}: {
+  rows: RVRow[];
+  color: string;
+  xMeasure: XMeasure;
+  chartType: ChartType;
+  selected: string | null;
+  hovered: string | null;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
+  const W = 820, H = 340, padL = 46, padR = 14, padT = 14, padB = 30;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
-  const present = BUCKETS.filter((b) => rows.some((r) => r.bucket === b));
-  if (!present.length) return null;
 
-  // Robust domain: clamp to the 5th–95th percentile so a single junk DM value
+  // Aggregate chart types (Bar / Box) need a categorical X to group on; on a
+  // continuous X fall back to Scatter and flag it with a caption (mirrors the
+  // prototype's contFallback). Rendered type is what actually drives geometry.
+  const fellBack = chartType !== "scatter" && !isCategorical(xMeasure);
+  const renderType: ChartType = fellBack ? "scatter" : chartType;
+
+  const cat = isCategorical(xMeasure);
+  // Ordered category list — keep BUCKETS order for Rating; A→Z for Sub-sector.
+  const cats = cat
+    ? (xMeasure === "rating"
+        ? BUCKETS.filter((b) => rows.some((r) => r.bucket === b))
+        : [...new Set(rows.map((r) => r.subSector))].sort())
+    : [];
+  if (!rows.length) return null;
+  if (cat && !cats.length) return null;
+
+  // Robust Y domain: clamp to the 5th–95th percentile so a single junk DM value
   // (the feed carries a few, e.g. 579,028bp) can't flatten the distribution.
   // Out-of-range dots pin to the plot edge; the real value stays in the tooltip.
-  const dms = rows.map((r) => r.dm);
-  const sortedDm = [...dms].sort((a, b) => a - b);
-  const q = (p: number) => {
-    const idx = (sortedDm.length - 1) * p;
-    const l = Math.floor(idx), h = Math.ceil(idx);
-    return sortedDm[l] + (sortedDm[h] - sortedDm[l]) * (idx - l);
-  };
-  const yMin = q(0.05), yMax = q(0.95);
-  const pad = (yMax - yMin || 1) * 0.08;
-  const lo = yMin - pad, hi = yMax + pad;
+  const sortedDm = rows.map((r) => r.dm).sort((a, b) => a - b);
+  const yMin = percentileSorted(sortedDm, 0.05), yMax = percentileSorted(sortedDm, 0.95);
+  const yPad = (yMax - yMin || 1) * 0.08;
+  const lo = yMin - yPad, hi = yMax + yPad;
   const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
   const scaleY = (v: number) => clamp(padT + ((hi - v) / (hi - lo)) * plotH, padT, padT + plotH);
-  const bandW = plotW / present.length;
-  const bandX = (i: number) => padL + (i + 0.5) * bandW;
   const gridVals = [hi, (hi + lo) / 2, lo];
+
+  // Categorical band geometry.
+  const bandW = cat && cats.length ? plotW / cats.length : plotW;
+  const bandX = (i: number) => padL + (i + 0.5) * bandW;
+
+  // Continuous X domain (Size / Price) with an 8% pad, mirroring the Y clamp pad.
+  const xs = cat ? [] : rows.map((r) => continuousValue(r, xMeasure));
+  const xMinRaw = xs.length ? Math.min(...xs) : 0;
+  const xMaxRaw = xs.length ? Math.max(...xs) : 1;
+  const xPad = (xMaxRaw - xMinRaw || 1) * 0.08;
+  const xLo = xMinRaw - xPad, xHi = xMaxRaw + xPad;
+  const scaleX = (v: number) => padL + ((v - xLo) / (xHi - xLo || 1)) * plotW;
+
+  const ariaLabel =
+    renderType === "bar"
+      ? `Average three-year discount margin per ${X_LABEL[xMeasure].toLowerCase()}`
+      : renderType === "box"
+      ? `Three-year discount margin distribution per ${X_LABEL[xMeasure].toLowerCase()}, each with min-to-max whisker, interquartile box and median tick`
+      : cat
+      ? `Three-year discount margin by ${X_LABEL[xMeasure].toLowerCase()}, with each ${xMeasure === "rating" ? "bucket" : "category"}'s median marked`
+      : `Three-year discount margin against ${X_LABEL[xMeasure].toLowerCase()}`;
 
   return (
     <svg
@@ -304,7 +590,7 @@ function RVScatter({ rows, color }: { rows: RVRow[]; color: string }) {
       className="w-full h-full"
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="Three-year discount margin by rating bucket, with each bucket's benchmark median marked"
+      aria-label={ariaLabel}
     >
       {gridVals.map((v, i) => (
         <g key={i}>
@@ -315,31 +601,290 @@ function RVScatter({ rows, color }: { rows: RVRow[]; color: string }) {
       <text x={13} y={padT + plotH / 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" transform={`rotate(-90 13 ${padT + plotH / 2})`} className="uppercase tracking-wider">3Y DM (bp)</text>
       {/* baseline carries the active-sector color — the one place the sector hue does real work */}
       <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke={color} strokeWidth={1.5} strokeOpacity={0.6} />
-      {present.map((bucket, i) => {
-        const members = rows.filter((r) => r.bucket === bucket);
-        const med = bucketMedian(members.map((r) => r.dm));
+
+      {/* Continuous scatter (Size / Price): linear x-axis + vertical gridlines, labels, title, plain coloured points */}
+      {!cat && [0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+        const xv = xLo + (xHi - xLo) * f;
+        const gx = scaleX(xv);
+        return (
+          <g key={`gx${i}`}>
+            <line x1={gx} y1={padT} x2={gx} y2={padT + plotH} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.25} />
+            <text x={gx} y={H - 14} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{xMeasure === "price" ? xv.toFixed(1) : Math.round(xv)}</text>
+          </g>
+        );
+      })}
+      {!cat && (
+        <text x={padL + plotW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="uppercase tracking-wider">{X_LABEL[xMeasure]}</text>
+      )}
+      {!cat && rows.map((r, j) => {
+        const isSel = selected === r.figi, isHov = hovered === r.figi;
+        return (
+          <Point
+            key={r.figi + j}
+            cx={scaleX(continuousValue(r, xMeasure))}
+            cy={scaleY(r.dm)}
+            fill={RV_STYLE[r.rv].fg}
+            isSel={isSel}
+            isHov={isHov}
+            label={`${r.company}, rating ${r.rating}, discount margin ${r.dm} basis points, ${r.rv}`}
+            title={`${r.company} · DM ${r.dm} · ${X_LABEL[xMeasure]} ${xMeasure === "price" ? continuousValue(r, xMeasure).toFixed(2) : Math.round(continuousValue(r, xMeasure))} · ${r.rv}`}
+            onSelect={() => onSelect(r.figi)}
+            onHover={(on) => onHover(on ? r.figi : null)}
+          />
+        );
+      })}
+
+      {/* Categorical modes: Scatter (banded points + median tick) / Bar (avg DM) / Box (whisker + IQR + median) */}
+      {cat && cats.map((c, i) => {
+        const members = rows.filter((r) => categoryOf(r, xMeasure) === c);
         const cx = bandX(i);
+        const label = c.length > 9 ? c.slice(0, 8) + "…" : c;
+
+        if (renderType === "bar") {
+          const avg = mean(members.map((r) => r.dm));
+          return (
+            <g key={c}>
+              {avg !== null && (() => {
+                const bw = Math.min(bandW * 0.5, 44);
+                const y0 = scaleY(avg), y1 = padT + plotH;
+                return (
+                  <>
+                    <rect x={cx - bw / 2} y={y0} width={bw} height={Math.max(0, y1 - y0)} fill="var(--caos-accent)" fillOpacity={0.55} rx={1.5}>
+                      <title>{`${c} · avg 3Y DM ${Math.round(avg)}bp · n=${members.length}`}</title>
+                    </rect>
+                    <text x={cx} y={y0 - 3} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(avg)}</text>
+                  </>
+                );
+              })()}
+              <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
+            </g>
+          );
+        }
+
+        if (renderType === "box") {
+          const v = members.map((r) => r.dm).sort((a, b) => a - b);
+          const bw = Math.min(bandW * 0.42, 40);
+          return (
+            <g key={c}>
+              {v.length > 0 && (() => {
+                const mn = v[0], mx = v[v.length - 1];
+                const q1 = percentileSorted(v, 0.25), q3 = percentileSorted(v, 0.75), md = percentileSorted(v, 0.5);
+                const yMn = scaleY(mn), yMx = scaleY(mx), yQ1 = scaleY(q1), yQ3 = scaleY(q3), yMd = scaleY(md);
+                return (
+                  <>
+                    <title>{`${c} · DM min ${Math.round(mn)} / med ${Math.round(md)} / max ${Math.round(mx)}bp · n=${members.length}`}</title>
+                    {/* min→max whisker */}
+                    <line x1={cx} y1={yMx} x2={cx} y2={yMn} stroke="var(--caos-muted)" strokeWidth={1.2} strokeOpacity={0.7} />
+                    <line x1={cx - bw * 0.3} y1={yMx} x2={cx + bw * 0.3} y2={yMx} stroke="var(--caos-muted)" strokeWidth={1.2} />
+                    <line x1={cx - bw * 0.3} y1={yMn} x2={cx + bw * 0.3} y2={yMn} stroke="var(--caos-muted)" strokeWidth={1.2} />
+                    {/* IQR box */}
+                    <rect x={cx - bw / 2} y={yQ3} width={bw} height={Math.max(1, yQ1 - yQ3)} fill="var(--caos-accent)" fillOpacity={0.16} stroke="var(--caos-accent)" strokeWidth={1.2} rx={1.5} />
+                    {/* median tick */}
+                    <line x1={cx - bw / 2} y1={yMd} x2={cx + bw / 2} y2={yMd} stroke="var(--caos-text)" strokeWidth={2} strokeOpacity={0.85} />
+                  </>
+                );
+              })()}
+              <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
+            </g>
+          );
+        }
+
+        // Categorical scatter (default). For Rating this is byte-for-byte the
+        // original behavior; Sub-sector reuses the same banded geometry.
+        const med = bucketMedian(members.map((r) => r.dm));
         const m = members.length;
         return (
-          <g key={bucket}>
+          <g key={c}>
             {med !== null && (
-              <line x1={cx - bandW * 0.32} y1={scaleY(med)} x2={cx + bandW * 0.32} y2={scaleY(med)} stroke="var(--caos-text)" strokeWidth={1.5} strokeOpacity={0.7}>
-                <title>{`${bucket} benchmark · median 3Y DM ${Math.round(med)}bp`}</title>
+              <line x1={cx - bandW * 0.36} y1={scaleY(med)} x2={cx + bandW * 0.36} y2={scaleY(med)} stroke="var(--caos-muted)" strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.75}>
+                <title>{`${c} · median 3Y DM ${Math.round(med)}bp`}</title>
               </line>
             )}
             {members.map((r, j) => {
               const off = m > 1 ? (j / (m - 1) - 0.5) * bandW * 0.62 : 0;
+              const px = cx + off;
+              const isSel = selected === r.figi, isHov = hovered === r.figi;
+              // Prototype design: a coloured stem from the bucket median to each
+              // point makes the cheap/rich magnitude read at a glance — green
+              // above the median (wide/cheap), red below (tight/rich). Vertical
+              // length encodes rvBp; hue doubles the signal for colourblind users.
+              const cheap = med === null ? true : r.dm >= med;
               return (
-                <circle key={r.figi + j} cx={cx + off} cy={scaleY(r.dm)} r={3.4} fill={RV_STYLE[r.rv].fg} fillOpacity={0.85}>
-                  <title>{`${r.company} · DM ${r.dm} · ${r.rv}${r.rvBp === null ? "" : ` ${r.rvBp > 0 ? "+" : ""}${Math.round(r.rvBp)}bp`}`}</title>
-                </circle>
+                <g key={r.figi + j}>
+                  {med !== null && (
+                    <line
+                      x1={px} y1={scaleY(med)} x2={px} y2={scaleY(r.dm)}
+                      stroke={cheap ? "#4ade80" : "#f87171"}
+                      strokeWidth={isSel || isHov ? 2.4 : 1.8}
+                      strokeOpacity={isSel || isHov ? 0.9 : 0.5}
+                    />
+                  )}
+                  <Point
+                    cx={px}
+                    cy={scaleY(r.dm)}
+                    fill={RV_STYLE[r.rv].fg}
+                    isSel={isSel}
+                    isHov={isHov}
+                    label={`${r.company}, rating ${r.rating}, discount margin ${r.dm} basis points, ${r.rv}`}
+                    title={`${r.company} · DM ${r.dm} · ${r.rv}${r.rvBp === null ? "" : ` ${r.rvBp > 0 ? "+" : ""}${Math.round(r.rvBp)}bp`}`}
+                    onSelect={() => onSelect(r.figi)}
+                    onHover={(on) => onHover(on ? r.figi : null)}
+                  />
+                </g>
               );
             })}
-            <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{bucket}</text>
+            <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
           </g>
         );
       })}
     </svg>
+  );
+}
+
+// ── Sector read panel — deterministic summary lines (see sectorRead). ──
+function SectorReadPanel({ lines }: { lines: SectorReadLine[] }) {
+  return (
+    <div className="px-3 py-2.5 text-caos-xs leading-relaxed text-caos-text space-y-1.5">
+      {lines.map((l, i) => (
+        <p key={i} className="m-0">
+          {l.text}
+          {l.metric && (
+            <>
+              {" "}
+              <span className="tabular text-caos-accent">{l.metric}</span>
+            </>
+          )}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// One "pick" row in Top of book — cheap (add) or rich (fade). rvBp sign is
+// explicit and the tone label is spelled out so direction never rides on colour
+// alone. Clicking a pick selects the loan (same lift as the chart/table).
+function PickRow({
+  pick, tone, selected, hovered, onSelect, onHover,
+}: {
+  pick: Pick;
+  tone: "add" | "fade";
+  selected: string | null;
+  hovered: string | null;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
+  const isSel = selected === pick.figi;
+  const isHov = hovered === pick.figi;
+  const color = tone === "add" ? RV_STYLE.Cheap.fg : RV_STYLE.Rich.fg;
+  const sign = pick.rvBp > 0 ? "+" : "";
+  return (
+    <button
+      type="button"
+      aria-pressed={isSel}
+      onClick={() => onSelect(pick.figi)}
+      onMouseEnter={() => onHover(pick.figi)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(pick.figi)}
+      onBlur={() => onHover(null)}
+      className={
+        "w-full flex items-baseline gap-2 rounded px-1.5 py-1 text-left transition-caos focus-ring " +
+        (isSel
+          ? "bg-caos-elevated ring-1 ring-caos-accent/60"
+          : isHov
+          ? "bg-caos-elevated/60"
+          : "hover:bg-caos-elevated/50")
+      }
+    >
+      <span className="tabular text-caos-2xs whitespace-nowrap" style={{ color }}>
+        {sign}{Math.round(pick.rvBp)}
+      </span>
+      <span className="text-caos-xs text-caos-text truncate min-w-0 flex-1">{pick.company}</span>
+      <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">
+        {pick.rating} · {pick.subSector}
+      </span>
+    </button>
+  );
+}
+
+// Top of book — cheapest (add) / richest (fade) computed from the filtered rows.
+function TopOfBookPanel({
+  book, selected, hovered, onSelect, onHover,
+}: {
+  book: TopOfBook;
+  selected: string | null;
+  hovered: string | null;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
+  const empty = !book.cheap.length && !book.rich.length;
+  return (
+    <div className="px-2 py-2 space-y-2">
+      {empty && (
+        <p className="m-0 px-1.5 text-caos-xs text-caos-muted">
+          No benchmarked loans in scope — no actionable tail. <span aria-hidden="true">—</span>
+        </p>
+      )}
+      {book.cheap.length > 0 && (
+        <div>
+          <div className="px-1.5 pb-1 tabular text-caos-2xs uppercase tracking-widest" style={{ color: RV_STYLE.Cheap.fg }}>
+            Cheap · add
+          </div>
+          <div className="space-y-0.5">
+            {book.cheap.map((p) => (
+              <PickRow key={p.figi} pick={p} tone="add" selected={selected} hovered={hovered} onSelect={onSelect} onHover={onHover} />
+            ))}
+          </div>
+        </div>
+      )}
+      {book.rich.length > 0 && (
+        <div>
+          <div className="px-1.5 pb-1 tabular text-caos-2xs uppercase tracking-widest" style={{ color: RV_STYLE.Rich.fg }}>
+            Rich · fade
+          </div>
+          <div className="space-y-0.5">
+            {book.rich.map((p) => (
+              <PickRow key={p.figi} pick={p} tone="fade" selected={selected} hovered={hovered} onSelect={onSelect} onHover={onHover} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Focus readout under the chart — the selected loan's company/rating/DM/rvBp,
+// pulled straight off the real row. A hint line when nothing is selected.
+function FocusReadout({ row, onClear }: { row: RVRow | null; onClear: () => void }) {
+  if (!row) {
+    return (
+      <div className="flex items-center h-8 px-3 border-t border-caos-border text-caos-2xs text-caos-muted">
+        Click a point or a peer-table row — selection links both ways.
+      </div>
+    );
+  }
+  const sign = row.rvBp !== null && row.rvBp > 0 ? "+" : "";
+  const K = ({ children }: { children: React.ReactNode }) => (
+    <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{children}</span>
+  );
+  return (
+    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap h-auto min-h-8 px-3 py-1.5 border-t border-caos-border">
+      <span className="text-caos-xs text-caos-text font-medium">{row.company}</span>
+      <span className="flex items-baseline gap-1"><K>Rating</K><span className="tabular text-caos-xs text-caos-text">{row.rating}</span></span>
+      <span className="flex items-baseline gap-1"><K>3Y DM</K><span className="tabular text-caos-xs text-caos-text">{row.dm.toLocaleString()}bp</span></span>
+      <span className="flex items-baseline gap-1">
+        <K>RV vs bucket</K>
+        <span className="tabular text-caos-xs" style={{ color: RV_STYLE[row.rv].fg }}>
+          {row.rvBp === null ? "—" : `${sign}${Math.round(row.rvBp)}bp`} · {row.rv}
+        </span>
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-auto tabular text-caos-2xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-2 py-0.5 transition-caos focus-ring"
+      >
+        Clear
+      </button>
+    </div>
   );
 }
 
@@ -350,6 +895,52 @@ export function SectorRV() {
   const subSectorAvgs = useMemo(() => subSectorAverages(sector.rows), [sector]);
 
   const [colPreset, setColPreset] = useState<"full" | "market" | "rv">("rv");
+
+  // Chart controls: Y is always 3Y DM; X and chart-type are analyst-chosen.
+  const [xMeasure, setXMeasure] = useState<XMeasure>("rating");
+  const [chartType, setChartType] = useState<ChartType>("scatter");
+
+  // Column filters live HERE (lifted out of PeerTable) so the RV distribution
+  // chart renders from the SAME filtered set as the table. Sector selection is
+  // already applied upstream (sector.rows); column filters compose on top.
+  const [filters, setFilters] = useState<FilterState>({});
+  const filtered = useColumnFilters(sector.rows, filters, PEER_FILTER_VAL);
+  const setFilter = (col: string, values: string[] | undefined) =>
+    setFilters((f) => {
+      const next = { ...f };
+      if (values === undefined) {
+        delete next[col];
+      } else {
+        next[col] = values;
+      }
+      return next;
+    });
+
+  // Bar/Box need a categorical X; on a continuous X they downgrade to Scatter.
+  // Surface that with a caption so the toggle state stays honest.
+  const chartFellBack = chartType !== "scatter" && !(xMeasure === "rating" || xMeasure === "subSector");
+
+  // Cross-pane selection lifted here: a clicked scatter point, Top-of-book pick,
+  // or peer-table row selects one loan (by figi); hover mirrors softly. Toggling
+  // the same figi deselects. RVScatter enlarges + rings the selected point;
+  // PeerTable tints + scrolls its row into view.
+  const [selected, setSelected] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const handleSelect = (figi: string) => setSelected((cur) => (cur === figi ? null : figi));
+
+  // A selection is only meaningful within the active sector's rows; switching
+  // sector (or column-filtering the selected loan out) clears it so no stale
+  // highlight or focus readout survives. Read the row from the sector universe so
+  // a filtered-out-but-selected loan still resolves for the readout until cleared.
+  useEffect(() => {
+    if (selected && !sector.rows.some((r) => r.figi === selected)) setSelected(null);
+  }, [sector, selected]);
+  const selectedRow = selected ? sector.rows.find((r) => r.figi === selected) ?? null : null;
+
+  // Deterministic top-half reads, computed from the SAME filtered set the chart
+  // and peer table render (sector rows + column filters). No LLM, no fabrication.
+  const book = useMemo(() => topOfBook(filtered), [filtered]);
+  const readLines = useMemo(() => sectorRead(filtered, sector.name), [filtered, sector.name]);
 
   const [sortIdx, setSortIdx] = useState<SortConfig>({ col: null, asc: true });
   const handleSortIdx = (col: string) => setSortIdx((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
@@ -391,7 +982,56 @@ export function SectorRV() {
           ))}
         </select>
         <span className="flex-1" />
-        <div className="flex items-center gap-1">
+        {/* X measure — what the RV distribution plots along the horizontal axis */}
+        <div className="flex items-center gap-1" role="group" aria-label="Chart X measure">
+          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">X</span>
+          {([
+            ["Rating", "rating"],
+            ["Sub-sector", "subSector"],
+            ["Size", "size"],
+            ["Price", "price"],
+          ] as const).map(([label, x]) => (
+            <button
+              key={x}
+              type="button"
+              aria-pressed={xMeasure === x}
+              onClick={() => setXMeasure(x)}
+              className={
+                "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                (xMeasure === x
+                  ? "border-caos-accent text-caos-text bg-caos-elevated"
+                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {/* Chart type — scatter / bar (avg) / box (distribution) */}
+        <div className="flex items-center gap-1" role="group" aria-label="Chart type">
+          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Chart</span>
+          {([
+            ["Scatter", "scatter"],
+            ["Bar", "bar"],
+            ["Box", "box"],
+          ] as const).map(([label, ct]) => (
+            <button
+              key={ct}
+              type="button"
+              aria-pressed={chartType === ct}
+              onClick={() => setChartType(ct)}
+              className={
+                "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                (chartType === ct
+                  ? "border-caos-accent text-caos-text bg-caos-elevated"
+                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1" role="group" aria-label="Loans table lens">
           <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
           {([
             ["Full", "full"],
@@ -401,6 +1041,7 @@ export function SectorRV() {
             <button
               key={preset}
               type="button"
+              aria-pressed={colPreset === preset}
               onClick={() => setColPreset(preset)}
               className={
                 "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
@@ -418,20 +1059,79 @@ export function SectorRV() {
         </span>
       </div>
 
-      {/* RV distribution — the spatial view of the "relative" the tables imply */}
-      <PanelShell
-        title={sector.name + " — RV Distribution"}
-        className="h-[200px] shrink-0"
-        right={
-          <span className="tabular text-caos-xs text-caos-muted">
-            3Y DM by rating · tick = bucket median · above = wide / cheap
-          </span>
-        }
-      >
-        <div className="h-full w-full px-2 py-1">
-          <RVScatter rows={sector.rows} color={sector.color} />
+      {/* TOP HALF — the spatial "relative" the tables only imply, given the
+          dominant width, flanked by two deterministic reads over the SAME
+          filtered universe. Big scatter (left) · Sector read + Top of book
+          stacked (right). All three render from `filtered` (sector rows + the
+          peer table's column filters) so the whole surface stays one universe. */}
+      <div className="shrink-0 grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-2 items-stretch">
+        <PanelShell
+          title={sector.name + " — RV Distribution"}
+          className="min-h-[360px]"
+          right={
+            <span className="tabular text-caos-xs text-caos-muted">
+              {chartType === "bar"
+                ? `avg 3Y DM by ${X_LABEL[xMeasure].toLowerCase()}`
+                : chartType === "box"
+                ? `3Y DM spread by ${X_LABEL[xMeasure].toLowerCase()} · box = IQR`
+                : xMeasure === "rating" || xMeasure === "subSector"
+                ? `3Y DM by ${X_LABEL[xMeasure].toLowerCase()} · tick = median · above = wide / cheap`
+                : `3Y DM vs ${X_LABEL[xMeasure].toLowerCase()}`}
+              {chartFellBack ? " · bar/box needs a categorical X — showing scatter" : ""}
+            </span>
+          }
+        >
+          {/* Chart body grows; the focus readout is a fixed strip at the bottom. */}
+          <div className="flex flex-col h-full min-h-0">
+            <div className="flex-1 min-h-0 w-full px-2 py-1">
+              <RVScatter
+                rows={filtered}
+                color={sector.color}
+                xMeasure={xMeasure}
+                chartType={chartType}
+                selected={selected}
+                hovered={hovered}
+                onSelect={handleSelect}
+                onHover={setHovered}
+              />
+            </div>
+            {/* Focus readout — selected loan's real fields, or a linking hint. In
+                the aggregate (bar/box) views there is no per-loan point, so note
+                that selection lives in the scatter/table. */}
+            {chartType !== "scatter" && !selectedRow ? (
+              <div className="flex items-center h-8 px-3 border-t border-caos-border text-caos-2xs text-caos-muted">
+                Point selection is available in the Scatter view and the peer table.
+              </div>
+            ) : (
+              <FocusReadout row={selectedRow} onClear={() => setSelected(null)} />
+            )}
+          </div>
+        </PanelShell>
+
+        {/* right column — Sector read over Top of book, both stacked and stretched */}
+        <div className="grid grid-rows-2 gap-2 min-h-0">
+          <PanelShell
+            title="Sector read"
+            className="min-h-0"
+            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">computed · {filtered.length} loans</span>}
+          >
+            <SectorReadPanel lines={readLines} />
+          </PanelShell>
+          <PanelShell
+            title="Top of book"
+            className="min-h-0"
+            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">by RV vs bucket</span>}
+          >
+            <TopOfBookPanel
+              book={book}
+              selected={selected}
+              hovered={hovered}
+              onSelect={handleSelect}
+              onHover={setHovered}
+            />
+          </PanelShell>
         </div>
-      </PanelShell>
+      </div>
 
       {/* peer table */}
       <PanelShell
@@ -444,7 +1144,17 @@ export function SectorRV() {
         }
       >
         <div className="overflow-auto h-full">
-          <PeerTable rows={sector.rows} preset={colPreset} />
+          <PeerTable
+            rows={sector.rows}
+            filtered={filtered}
+            preset={colPreset}
+            filters={filters}
+            onFilter={setFilter}
+            selected={selected}
+            hovered={hovered}
+            onSelect={handleSelect}
+            onHover={setHovered}
+          />
         </div>
       </PanelShell>
 

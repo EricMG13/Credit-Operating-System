@@ -79,8 +79,10 @@ describe("Profile (distilled)", () => {
     }
     expect(screen.queryByText("Credit Ratings")).toBeNull();
 
-    // Snapshot metric tile still renders with its formatted value.
-    expect(screen.getByText("Net leverage")).toBeTruthy();
-    expect(screen.getByText("5.2×")).toBeTruthy();
+    // Snapshot metric tile still renders with its formatted value. The metric
+    // also appears as a trend small-multiple card (snapshot value + trend), so
+    // allow the deliberate duplicate.
+    expect(screen.getAllByText("Net leverage").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("5.2×").length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileRun } from "@/lib/api";
+import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -24,13 +24,92 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
-import { G2Chart } from "@/components/charts/G2Chart";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
 const GRAN_OPTS = [{ k: "FY" as const, l: "Full year" }, { k: "Q" as const, l: "Quarters" }];
+
+// Trend small-multiples (prototype design): label + big latest value + delta +
+// a compact hand-SVG sparkline with a start-baseline and a hover crosshair that
+// reveals the historical value at each period. Wired to the REAL metric series;
+// LTM-only metrics show their value without a trend; 3Y DM has no server-side
+// series so it renders an honest feed-pending card.
+const TREND_ORDER = ["revenue", "adj_ebitda", "ebitda_margin", "net_leverage", "interest_coverage"] as const;
+const TREND_FMT: Record<string, { title: string; color: string; unit: (v: number) => string }> = {
+  revenue:           { title: "Revenue",       color: "#63a1ff", unit: (v) => (v >= 1000 ? "$" + (v / 1000).toFixed(1) + "bn" : "$" + Math.round(v) + "m") },
+  adj_ebitda:        { title: "Adj. EBITDA",   color: "#2dd4bf", unit: (v) => "$" + Math.round(v) + "m" },
+  ebitda_margin:     { title: "EBITDA margin", color: "#22c55e", unit: (v) => v.toFixed(1) + "%" },
+  net_leverage:      { title: "Net leverage",  color: "#f5a524", unit: (v) => v.toFixed(1) + "×" },
+  interest_coverage: { title: "Interest cov.", color: "#a855f7", unit: (v) => v.toFixed(1) + "×" },
+};
+
+function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }[]; color: string; fmt: (v: number) => string }) {
+  const [hi, setHi] = useState<number | null>(null);
+  const W = 240, H = 46, pl = 3, pr = 7, pt = 7, pb = 7;
+  const vals = pts.map((p) => p.value);
+  const lo = Math.min(...vals), top = Math.max(...vals);
+  const span = top - lo || Math.abs(top) || 1;
+  const px = (i: number) => pl + (W - pl - pr) * (pts.length < 2 ? 0.5 : i / (pts.length - 1));
+  const py = (v: number) => pt + (H - pt - pb) * (1 - (v - lo) / span);
+  const poly = pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" ");
+  const area = `M${px(0).toFixed(1)},${py(pts[0].value).toFixed(1)} L${pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" L")} L${px(pts.length - 1).toFixed(1)},${(H - pb).toFixed(1)} L${pl},${(H - pb).toFixed(1)} Z`;
+  const cur = hi != null ? pts[hi] : null;
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto cursor-crosshair" role="img" aria-label="metric trend sparkline"
+        onMouseMove={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - r.left) / r.width) * W;
+          let idx = Math.round(((x - pl) / (W - pl - pr)) * (pts.length - 1));
+          idx = Math.max(0, Math.min(pts.length - 1, idx));
+          setHi(Number.isFinite(idx) ? idx : null);
+        }}
+        onMouseLeave={() => setHi(null)}
+      >
+        <path d={area} fill={color} fillOpacity={0.12} />
+        <line x1={pl} y1={py(pts[0].value)} x2={W - pr} y2={py(pts[0].value)} stroke={color} strokeOpacity={0.24} strokeDasharray="2 2" />
+        <polyline points={poly} fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+        <circle cx={px(pts.length - 1)} cy={py(pts[pts.length - 1].value)} r={2.8} fill={color} />
+        {cur ? (
+          <g>
+            <line x1={px(hi as number)} y1={pt} x2={px(hi as number)} y2={H - pb} stroke="#a1a1b5" strokeOpacity={0.5} />
+            <circle cx={px(hi as number)} cy={py(cur.value)} r={3.2} fill={color} stroke="#11131d" strokeWidth={1.4} />
+          </g>
+        ) : null}
+      </svg>
+      {cur ? (
+        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(hi as number) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
+          {cur.period} · {fmt(cur.value)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: string; value: number }[]; color: string; unit: (v: number) => string }) {
+  const latest = pts.length ? pts[pts.length - 1].value : null;
+  const delta = pts.length >= 2 ? pts[pts.length - 1].value - pts[0].value : null;
+  return (
+    <div className="rounded border border-caos-border bg-caos-bg px-3 py-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{title}</span>
+        <span className="tabular text-caos-metric font-semibold">{latest != null ? unit(latest) : "—"}</span>
+      </div>
+      {pts.length >= 2 ? (
+        <Sparkline pts={pts} color={color} fmt={unit} />
+      ) : (
+        <div className="tabular text-caos-2xs text-caos-muted py-2.5">LTM only · needs ≥2 periods for a trend</div>
+      )}
+      {delta != null ? (
+        <div className={"tabular text-caos-2xs " + (delta > 0 ? "text-caos-success" : delta < 0 ? "text-caos-critical" : "text-caos-muted")}>
+          {delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "■ "}{Math.abs(delta) >= 10 ? Math.round(delta) : delta.toFixed(1)} over {pts.length}p
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // Issuer-scoped jumps into the other concepts, rendered in the bottom bar.
 const ISSUER_ACTIONS = [
@@ -165,24 +244,111 @@ function worstProvenance(ms: { provenance: string }[]): string | null {
   return null;
 }
 
-// Trim the trailing grid hairlines so the last row/column doesn't hang borders
-// into empty cells (e.g. 7 tiles in a 3-col grid leave a 2-cell hole).
-function tileEdge(i: number, n: number): string {
-  return [
-    (i + 1) % 2 === 0 ? "max-md:border-r-0" : "",
-    (i + 1) % 3 === 0 ? "md:border-r-0" : "",
-    i === n - 1 ? "border-r-0" : "", // orphan tile: no hairline into the empty cell
-    i >= n - (n % 2 || 2) ? "max-md:border-b-0" : "",
-    i >= n - (n % 3 || 3) ? "md:border-b-0" : "",
-  ].filter(Boolean).join(" ");
-}
-
 function Splash({ msg }: { msg: string }) {
   return (
     <div className="h-screen flex items-center justify-center bg-caos-bg">
       <span className="tabular text-caos-lg text-caos-muted">{msg}</span>
     </div>
   );
+}
+
+// Period-over-period delta for a headline tile: the CP-1B signal field when the
+// metric carries one, else the series' latest-point delta. Same derivation the
+// old Credit-snapshot panel used — moved out so the KPI strip can reuse it.
+function headlineDelta(
+  m: ProfileMetric,
+  signals: Record<string, unknown>,
+  series: Record<string, ProfileMetric[]>,
+): number | null {
+  const d = TILE_DELTA[m.metric_key];
+  const signalDelta = d?.key ? signals[d.key] : null;
+  const seriesDelta = d && !d.key ? latestPointDelta(series[m.metric_key]) : null;
+  const dv = typeof signalDelta === "number" ? signalDelta : seriesDelta;
+  return typeof dv === "number" ? dv : null;
+}
+
+// One KPI-strip tile — the exact tile the "Credit snapshot" panel rendered
+// (breach tint gated to live runs, provenance shorthand, ▸ src link), lifted into
+// a standalone tile so Row 1 is a 6-across strip rather than a boxed grid.
+// fallow-ignore-next-line complexity
+function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
+  m: ProfileMetric; delta: number | null; deepHref: string; provMixed: boolean; anyPriorDelta: boolean;
+}) {
+  const isLive = m.provenance === "run";
+  // Breach tint fires only for a live run — a seed/derived value must not paint the
+  // page's loudest colour on a number the system won't stand behind.
+  const sev = isLive ? metricSev(m.metric_key, m.value) : null;
+  const d = TILE_DELTA[m.metric_key];
+  const deltaSev = d && delta != null
+    ? (delta >= 0) === d.higherIsBetter ? "pass" : "high"
+    : null;
+  return (
+    <div className="rounded border border-caos-border bg-caos-panel px-3 py-2" title={METRIC_TOOLTIP[m.metric_key] || ""}>
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
+      <div className="flex items-baseline gap-2 mt-1">
+        <span
+          className="tabular font-semibold leading-none inline-flex items-center gap-1"
+          style={{ fontSize: 18, color: sev ? sevSurface(sev).color : isLive ? "var(--caos-text)" : "var(--caos-muted)" }}
+        >
+          {sev ? (
+            // role="img" so the threshold note is an accessible name AT announces —
+            // the breach severity must not be color-alone for SR users.
+            <span role="img" style={{ color: sevSurface(sev).color }} title={BREACH_NOTE[m.metric_key] || "breaches a credit threshold"} aria-label={`${sev === "critical" ? "Critical" : "Warning"} — ${BREACH_NOTE[m.metric_key] || "breaches a credit threshold"}`}>
+              <StatusGlyph kind="warning" size={11} />
+            </span>
+          ) : null}
+          {fmt(m.value, m.unit)}
+        </span>
+        {d && delta != null && deltaSev ? <span className="tabular text-caos-xs font-medium" style={{ color: sevSurface(deltaSev).color }}>{signed(delta, d.suffix, d.digits)}</span> : null}
+        {d?.showMissing && delta == null && anyPriorDelta ? <span className="tabular text-caos-2xs text-caos-muted">no prior</span> : null}
+      </div>
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}</span>
+        {m.provenance !== "run" && (provMixed || m.provenance === "demo_fixture") ? (
+          <span
+            className="tabular text-caos-2xs uppercase"
+            style={{ color: sevSurface(PROV[m.provenance]?.sev || "low").color }}
+            title={PROV[m.provenance]?.label}
+          >
+            {PROV_SHORT[m.provenance] || "n/l"}
+          </span>
+        ) : null}
+        <div className="flex-1" />
+        {m.document_chunk_id ? (
+          <Link href={deepHref + "&mod=CP-1"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label={`See ${METRIC_LABEL[m.metric_key] || m.metric_key} source in Deep-Dive`}>▸ src</Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// An HONEST one-line desk read composed only from the real earnings deltas —
+// direction stated factually (revenue/EBITDA up or down, margin +/−pp), never an
+// opinion or a rating. No delta on the latest run → a neutral pointer to the trend
+// cards; never ran → say so. This does NOT fabricate a stance.
+// fallow-ignore-next-line complexity
+function deskReadLine(earnings: EarningsSummary, hasRun: boolean): string {
+  const rev = earnings.revenue_growth_pct;
+  const eb = earnings.ebitda_growth_pct;
+  const mg = earnings.margin_change_pp;
+  const dir = (v: number) => (v > 0 ? "up" : v < 0 ? "down" : "flat");
+  const parts: string[] = [];
+  if (typeof rev === "number") parts.push(`revenue ${dir(rev)} ${signed(rev, "%")}`);
+  if (typeof eb === "number") parts.push(`adj. EBITDA ${dir(eb)} ${signed(eb, "%")}`);
+  if (typeof mg === "number") parts.push(`margin ${signed(mg, "pp")}`);
+  const period = earnings.prior_period && earnings.latest_period
+    ? `${earnings.prior_period} → ${earnings.latest_period}: `
+    : earnings.latest_period ? `${earnings.latest_period}: ` : "";
+  if (parts.length) {
+    const body = parts.length === 1 ? parts[0]
+      : parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+    const sig = (earnings.monitoring_signals || []).filter((s) => typeof s === "string" && s.trim()).length;
+    const tail = sig ? ` ${sig} monitoring signal${sig === 1 ? "" : "s"} flagged — see Watch.` : "";
+    return `${period}${body.charAt(0).toUpperCase() + body.slice(1)}.${tail}`;
+  }
+  return hasRun
+    ? "Latest run surfaced no period-over-period earnings delta — read trajectory off the trend cards above."
+    : "No completed run yet — run an analysis to populate the desk read.";
 }
 
 // fallow-ignore-next-line complexity
@@ -276,7 +442,13 @@ export function Profile({
   const qCharts = useMemo(() => buildCharts(filterSeriesByGranularity(series, "Q")), [series]);
   // Fall through to whichever granularity has data — the toggle only renders
   // when both do, so a one-sided dataset can't strand the user on an empty tab.
-  const charts = fyCharts.length === 0 ? qCharts : qCharts.length === 0 ? fyCharts : gran === "FY" ? fyCharts : qCharts;
+  const trendGran = fyCharts.length === 0 ? "Q" : qCharts.length === 0 ? "FY" : gran;
+  const trendSeries = useMemo(() => filterSeriesByGranularity(series, trendGran), [series, trendGran]);
+  const cardPts = (k: string) => {
+    const g = (trendSeries[k] ?? []).filter((p) => Number.isFinite(p.value));
+    const full = (series[k] ?? []).filter((p) => Number.isFinite(p.value));
+    return (g.length >= 2 ? g : full).map((p) => ({ period: p.period, value: p.value }));
+  };
   const snapshotProv = useMemo(() => worstProvenance(headline), [headline]);
   const provMixed = useMemo(
     () => headline.some((m) => m.provenance === "run") && headline.some((m) => m.provenance !== "run"),
@@ -307,81 +479,171 @@ export function Profile({
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
+  // Honest one-line desk read, composed from the REAL earnings deltas — direction
+  // stated factually (up/down, margin +/−), never an opinion. No earnings delta →
+  // a neutral placeholder that points at the trend cards, not a fabricated stance.
+  const deskRead = deskReadLine(earnings, !!latest_run);
+  // Watch callout is surfaced only when the latest run actually raised deterioration
+  // signals — a callout with warning chrome must never fire on a clean read.
+  const watchSignals = (earnings.monitoring_signals || []).filter((s): s is string => typeof s === "string" && !!s.trim());
+
   const body = (
-      // Multi-window desk: 3 tracks only at full width (≥1280); an intermediate
-      // 2-track tier (≥1024) keeps a half-monitor from collapsing to one 1100px
-      // column (col 3 wraps under col 1). Single column only when truly narrow.
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2 items-start">
-        {/* Column 1: Financials & Trends */}
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2.5">
+        {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
+            panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
+        {headline.length === 0 ? (
+          <Panel title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")}>
+            <div className="px-3 py-2.5"><Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty></div>
+          </Panel>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2 px-0.5">
+              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+                Credit snapshot{latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : ""}
+              </span>
+              {snapshotProv ? <Tag sev={PROV[snapshotProv].sev}>{PROV[snapshotProv].label}</Tag> : null}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+              {headline.map((m) => (
+                <KpiTile
+                  key={m.metric_key}
+                  m={m}
+                  delta={headlineDelta(m, signals, series)}
+                  deepHref={deepHref}
+                  provMixed={provMixed}
+                  anyPriorDelta={anyPriorDelta}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Row 2 — 1.7fr / 1fr : the Trend sparkline-card panel (kept verbatim) |
+            Business profile (the swap: it takes the prototype's upper-right slot) +
+            a Watch callout built from the real monitoring signals. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-2.5 items-start">
           <Panel
-            title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")}
-            right={snapshotProv ? <Tag sev={PROV[snapshotProv].sev}>{PROV[snapshotProv].label}</Tag> : null}
+            title="Financial & credit trend"
+            right={fyCharts.length && qCharts.length
+              ? <ToggleGroup options={GRAN_OPTS} value={gran} onChange={setGran} size="sm" />
+              : <span className="tabular text-caos-2xs text-caos-muted">{TREND_ORDER.filter((k) => cardPts(k).length >= 2).length} of {TREND_ORDER.length} series</span>}
           >
-            {headline.length === 0 ? (
-              <div className="px-3 py-2.5"><Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty></div>
+            {TREND_ORDER.every((k) => cardPts(k).length === 0) ? (
+              <div className="px-3 py-2.5">
+                <Empty>Time series needs ≥2 periods to populate trends.</Empty>
+              </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3">
-                {headline.map((m, ti) => {
-                  const isLive = m.provenance === "run";
-                  // Breach tint fires only for a live run — a seed/derived value must
-                  // not paint the page's loudest colour on a number the system won't
-                  // stand behind. Non-live values also render muted (below).
-                  const sev = isLive ? metricSev(m.metric_key, m.value) : null;
-                  const d = TILE_DELTA[m.metric_key];
-                  const signalDelta = d?.key ? signals[d.key] : null;
-                  const seriesDelta = d && !d.key ? latestPointDelta(series[m.metric_key]) : null;
-                  const dv = typeof signalDelta === "number" ? signalDelta : seriesDelta;
-                  const delta = typeof dv === "number" ? dv : null;
-                  const deltaSev = d && delta != null
-                    ? (delta >= 0) === d.higherIsBetter ? "pass" : "high"
-                    : null;
-                  return (
-                    <div key={m.metric_key} className={"px-3 py-2 border-b border-r border-caos-border/40 " + tileEdge(ti, headline.length)} title={METRIC_TOOLTIP[m.metric_key] || ""}>
-                      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span
-                          className="tabular font-medium leading-none inline-flex items-center gap-1"
-                          style={{ fontSize: 16, color: sev ? sevSurface(sev).color : isLive ? "var(--caos-text)" : "var(--caos-muted)" }}
-                        >
-                          {sev ? (
-                            // role="img" so the threshold note is an accessible name AT
-                            // announces (aria-label on a bare generic span is dropped) —
-                            // the breach severity must not be color-alone for SR users.
-                            <span role="img" style={{ color: sevSurface(sev).color }} title={BREACH_NOTE[m.metric_key] || "breaches a credit threshold"} aria-label={`${sev === "critical" ? "Critical" : "Warning"} — ${BREACH_NOTE[m.metric_key] || "breaches a credit threshold"}`}>
-                              <StatusGlyph kind="warning" size={11} />
-                            </span>
-                          ) : null}
-                          {fmt(m.value, m.unit)}
-                        </span>
-                        {d && delta != null && deltaSev ? <span className="tabular text-caos-xs font-medium" style={{ color: sevSurface(deltaSev).color }}>{signed(delta, d.suffix, d.digits)}</span> : null}
-                        {d?.showMissing && delta == null && anyPriorDelta ? <span className="tabular text-caos-2xs text-caos-muted">no prior</span> : null}
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}</span>
-                        {m.provenance !== "run" && (provMixed || m.provenance === "demo_fixture") ? (
-                          <span
-                            className="tabular text-caos-2xs uppercase"
-                            style={{ color: sevSurface(PROV[m.provenance]?.sev || "low").color }}
-                            title={PROV[m.provenance]?.label}
-                          >
-                            {PROV_SHORT[m.provenance] || "n/l"}
-                          </span>
-                        ) : null}
-                        <div className="flex-1" />
-                        {m.document_chunk_id ? (
-                          <Link href={deepHref + "&mod=CP-1"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label={`See ${METRIC_LABEL[m.metric_key] || m.metric_key} source in Deep-Dive`}>▸ src</Link>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 p-2">
+                {TREND_ORDER.map((k) => {
+                  const f = TREND_FMT[k];
+                  return <TrendCard key={k} title={f.title} pts={cardPts(k)} color={f.color} unit={f.unit} />;
                 })}
+                <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 flex flex-col">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">3Y DM (bp)</span>
+                    <span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>
+                  </div>
+                  <div className="tabular text-caos-2xs text-caos-muted py-2.5">Market spread lands Phase-2 (market_quotes).</div>
+                </div>
               </div>
             )}
           </Panel>
 
-          {/* What changed leads the column (PM scan order: delta → trajectory),
-              so the earnings movement sits directly under the snapshot. */}
+          <div className="flex flex-col gap-2.5">
+            <Panel title="Business profile">
+              {business.length === 0 && sponsorLedger.length === 0 ? (
+                <div className="px-3 py-2.5"><Empty>No business disclosure ingested.</Empty></div>
+              ) : (
+                <div className="flex flex-col divide-y divide-caos-border/40">
+                  <BizCol title="Description" facts={factsByCode(["transaction", "history", "geography"]).slice(0, 2)} deepHref={deepHref} />
+                  <BizCol title="Operating model" facts={factsByCode(["operating_model"]).slice(0, 1)} deepHref={deepHref} />
+                  <OwnershipCol facts={factsByCode(["ownership"]).slice(0, 1)} ledger={sponsorLedger} score={(sponsor as { governance_risk_score?: number }).governance_risk_score} deepHref={deepHref} />
+                </div>
+              )}
+            </Panel>
+
+            {watchSignals.length ? (
+              <div className="rounded border p-3" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 42%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)" }}>
+                <div className="tabular text-caos-2xs uppercase tracking-wider font-semibold mb-1.5" style={{ color: "var(--caos-warning)" }}>Watch</div>
+                <div className="flex flex-col gap-1.5">
+                  {watchSignals.slice(0, 3).map((s, i) => (
+                    <span key={i} className="flex items-start gap-1.5 tabular text-caos-xs leading-snug text-caos-text/90">
+                      <span className="mt-0.5 shrink-0" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" size={9} /></span>{s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Row 3 — 3 equal cols : Desk read (the swap: drops into Business profile's
+            old slot, an honest one-liner) | Structure & coverage (folded from the real
+            Structure & protection + Coverage & trust) | Analyst notes. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 items-start">
+          <Panel title="Desk read" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Derived</span>}>
+            <div className="px-3 py-2.5">
+              <p className="text-caos-md text-caos-text/90 leading-relaxed m-0">{deskRead}</p>
+            </div>
+          </Panel>
+
+          <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
+            <div className="px-3 py-2 flex flex-col gap-2">
+              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
+              <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
+              <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
+              <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months]} latest={!!latest_run} />
+              <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col gap-2">
+                <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
+                {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
+                  <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
+                ) : null}
+                <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
+              </div>
+            </div>
+          </Panel>
+
+          <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
+        </div>
+
+        {/* Row 4 — 1.7fr / 1fr : Market · price & DM (honest feed-pending; no server-side
+            market series) | Thesis & key drivers (real thesis signals — recommendation
+            gated — + the real strengths / weaknesses). */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.7fr_1fr] gap-2.5 items-start">
+          <Panel
+            title="Market · price & DM"
+            right={<span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>}
+          >
+            <div className="px-3 py-4 flex flex-col items-center justify-center gap-2 text-center min-h-[120px]">
+              <span style={{ color: "var(--caos-muted)" }}><StatusGlyph kind="idle" size={16} /></span>
+              <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[360px] leading-relaxed">
+                No loan mark or discount-margin series server-side. Structured market data lands Phase-2 (<span className="tabular text-caos-text/70">market_quotes</span>).
+              </p>
+            </div>
+          </Panel>
+
+          <Panel title="Thesis & key drivers" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-6A</span>}>
+            <div className="px-3 py-2 flex flex-col gap-2">
+              <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
+              <SigBand label="Downside fragility" v={signals.fragility}
+                extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
+              <SigBand label="Refi / LME risk" v={signals.lme_band}
+                extra={signals.lme_score != null ? `score ${signals.lme_score}` : undefined} />
+              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
+              <EmptyIfBlank ok={[signals.recommendation, signals.fragility, signals.lme_band]} latest={!!latest_run} />
+              {strengths.length || weaknesses.length ? (
+                <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col divide-y divide-caos-border/40">
+                  <SWCol kind="success" title="Strengths" items={strengths.slice(0, 3)} />
+                  <SWCol kind="warning" title="Weaknesses" items={weaknesses.slice(0, 3)} />
+                </div>
+              ) : null}
+            </div>
+          </Panel>
+        </div>
+
+        {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
+            earnings (deltas + prior→latest) | Run history. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 items-start">
           <Panel title={"Latest earnings" + (earnings.latest_period ? " · " + earnings.latest_period : "")}>
             {(() => {
               const ms = earnings.monitoring_signals || [];
@@ -396,104 +658,12 @@ export function Profile({
                   <DeltaRow label="Revenue" v={earnings.revenue_growth_pct} suffix="%" />
                   <DeltaRow label="Adj. EBITDA" v={earnings.ebitda_growth_pct} suffix="%" />
                   <DeltaRow label="EBITDA margin" v={earnings.margin_change_pp} suffix="pp" />
-                  {ms.length ? (
-                    <div className="flex flex-col gap-1 pt-1 border-t border-caos-border/40">
-                      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Watch</span>
-                      {ms.slice(0, 2).map((s, i) => (
-                        <span key={i} className="flex items-start gap-1.5 tabular text-caos-2xs" style={{ color: sevSurface("warning").color }}>
-                          <span className="mt-0.5 shrink-0"><StatusGlyph kind="warning" size={9} /></span>{s}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
+                  {ms.length ? null : (
                     <span className="tabular text-caos-2xs pt-1" style={{ color: sevSurface("pass").color }}>No deterioration signals.</span>
                   )}
                 </div>
               );
             })()}
-          </Panel>
-
-          <Panel
-            title="Financial & credit trend"
-            right={fyCharts.length && qCharts.length
-              ? <ToggleGroup options={GRAN_OPTS} value={gran} onChange={setGran} size="sm" />
-              : null}
-          >
-            {charts.length === 0 ? (
-              <div className="px-3 py-2.5">
-                <Empty>Time series needs ≥2 periods to populate trends.</Empty>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2 p-1">
-                {charts.slice(0, 2).map((c) => (
-                  <div key={c.title} className="rounded border border-caos-border bg-caos-bg">
-                    <div className="px-3 py-1 border-b border-caos-border">
-                      <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{c.title}</span>
-                    </div>
-                    <div className="px-2 pt-1 pb-1"><G2Chart spec={c.spec} height={130} /></div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        {/* Column 2: Business & Narrative */}
-        <div className="flex flex-col gap-2">
-          <Panel title="Business profile">
-            {business.length === 0 && sponsorLedger.length === 0 ? (
-              <div className="px-3 py-2.5"><Empty>No business disclosure ingested.</Empty></div>
-            ) : (
-              <div className="flex flex-col divide-y divide-caos-border/40">
-                <BizCol title="Description" facts={factsByCode(["transaction", "history", "geography"]).slice(0, 2)} deepHref={deepHref} />
-                <BizCol title="Operating model" facts={factsByCode(["operating_model"]).slice(0, 1)} deepHref={deepHref} />
-                <OwnershipCol facts={factsByCode(["ownership"]).slice(0, 1)} ledger={sponsorLedger} score={(sponsor as { governance_risk_score?: number }).governance_risk_score} deepHref={deepHref} />
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Thesis & risk">
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
-              <SigBand label="Downside fragility" v={signals.fragility}
-                extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
-              <SigBand label="Refi / LME risk" v={signals.lme_band}
-                extra={signals.lme_score != null ? `score ${signals.lme_score}` : undefined} />
-              <EmptyIfBlank ok={[signals.recommendation, signals.fragility, signals.lme_band]} latest={!!latest_run} />
-            </div>
-          </Panel>
-
-          <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
-        </div>
-
-        {/* Column 3: Audit, Protection & History */}
-        <div className="flex flex-col gap-2">
-          {strengths.length || weaknesses.length ? (
-            <Panel title="Key strengths & weaknesses" right={<span className="tabular text-caos-2xs text-caos-muted">derived</span>}>
-              <div className="flex flex-col divide-y divide-caos-border/40">
-                <SWCol kind="success" title="Strengths" items={strengths.slice(0, 3)} />
-                <SWCol kind="warning" title="Weaknesses" items={weaknesses.slice(0, 3)} />
-              </div>
-            </Panel>
-          ) : null}
-
-          <Panel title="Structure & protection">
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
-              <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
-              <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
-              <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months]} latest={!!latest_run} />
-            </div>
-          </Panel>
-
-          <Panel title="Coverage & trust">
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
-              {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
-                <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
-              ) : null}
-              <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
-            </div>
           </Panel>
 
           <Panel title={`Run history · ${runs.length}`}>
