@@ -1,0 +1,284 @@
+"""Parse uploaded portfolio files → position / constraint / mandate dicts.
+
+Deterministic, stdlib + openpyxl only (no LLM). Three parsers:
+
+  * ``parse_holdings_xlsx`` — the Holdings sheet → CLO positions (rows where the
+    ``Holdings`` par column > 0; ``Size ($Mn)`` is the loan facility size, kept as
+    reference). Ratings via ``ratings.parse_rating_cell``.
+  * ``parse_constraints_csv`` — a constraints / compliance-monitor CSV → constraint
+    *definitions* (limit_value/op parsed off the limit text; current/status are
+    computed later in engine/portfolio.py).
+  * ``parse_mandate_csv`` — a Section/Field/Value mandate file → a nested dict.
+
+Column detection is header-keyword based so it survives the exact attachment shapes
+without hard-coding column order.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+import ratings
+
+# ── Holdings ─────────────────────────────────────────────────────────────────
+_HOLD_COLS = {
+    "borrower_name": ("borrower name", "borrower", "company", "issuer name", "name"),
+    "ticker": ("ticker",),
+    "figi": ("figi",),
+    "loan_name": ("loan name",),
+    "sector": ("index sector", "sector"),
+    "sub_sector": ("sub sector", "sub-sector", "subsector"),
+    "ranking": ("ranking",),
+    "ratings": ("ratings", "rating"),
+    "par": ("holdings",),          # the CLO's par position ($) — the source of truth
+    "facility": ("size ($mn)", "size"),
+    "margin": ("margin",),
+    "maturity": ("maturity",),
+    "bid": ("bid",),
+    "ask": ("ask",),
+    "ytm": ("mid ytm", "ytm"),
+    "dm": ("mid 3y dm", "dm"),
+}
+
+
+def _hdr_map(header: Tuple, spec: Dict[str, Tuple[str, ...]]) -> Dict[str, int]:
+    """First column whose lowered header matches a key's alias list."""
+    lower = [(i, str(h).strip().lower()) for i, h in enumerate(header) if h is not None]
+    out: Dict[str, int] = {}
+    for key, aliases in spec.items():
+        for i, h in lower:
+            if key in out:
+                break
+            # exact alias, or "sector" keyword — but 'sub sector' must not steal 'sector'
+            if h in aliases or (key == "sector" and h == "index sector"):
+                out[key] = i
+                break
+    return out
+
+
+def _num(v: Any) -> Optional[float]:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and abs(f) != float("inf") else None  # reject NaN/inf
+
+
+def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str, Any]]:
+    """Holdings sheet → position dicts for rows the CLO actually holds (par > 0)."""
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        return []
+    # Prefer a sheet literally named Holdings; else the first sheet.
+    ws = next((s for s in wb.worksheets if s.title.strip().lower() == "holdings"), wb.worksheets[0])
+    rows = ws.iter_rows(values_only=True)
+    header = next(rows, None)
+    if not header:
+        return []
+    cols = _hdr_map(header, _HOLD_COLS)
+    if "par" not in cols:
+        return []  # no CLO-holdings column → nothing to ingest as positions
+
+    def cell(row, key):
+        i = cols.get(key)
+        return row[i] if i is not None and i < len(row) else None
+
+    out: List[Dict[str, Any]] = []
+    for n, row in enumerate(rows):
+        if n >= max_rows:
+            break
+        par = _num(cell(row, "par"))
+        if not par or par <= 0:
+            continue  # not a CLO position (market-universe reference row)
+        moody, sp = ratings.parse_rating_cell(cell(row, "ratings"))
+        bid, ask = _num(cell(row, "bid")), _num(cell(row, "ask"))
+        price = (bid + ask) / 2 if bid is not None and ask is not None else (bid or ask)
+        name = cell(row, "borrower_name")
+        out.append({
+            "borrower_name": str(name).strip() if name else "—",
+            "ticker": _s(cell(row, "ticker")),
+            "figi": _s(cell(row, "figi")),
+            "loan_name": _s(cell(row, "loan_name")),
+            "sector": _s(cell(row, "sector")),
+            "sub_sector": _s(cell(row, "sub_sector")),
+            "ranking": _s(cell(row, "ranking")),
+            "rating_moody": moody,
+            "rating_sp": sp,
+            "par_usd": par,
+            "facility_musd": _num(cell(row, "facility")),
+            "margin_bps": _num(cell(row, "margin")),
+            "maturity": _s(cell(row, "maturity")),
+            "price": price,
+            "ytm": _num(cell(row, "ytm")),
+            "dm": _num(cell(row, "dm")),
+        })
+    return out
+
+
+def _s(v: Any) -> Optional[str]:
+    return str(v).strip() if v not in (None, "") else None
+
+
+# ── Constraints ──────────────────────────────────────────────────────────────
+_OP = {"≤": "<=", "<=": "<=", "<": "<", "≥": ">=", ">=": ">=", ">": ">"}
+_LIMIT_RE = re.compile(r"(≤|>=|<=|≥|<|>)?\s*([0-9]+(?:\.[0-9]+)?)\s*(%|x|yrs|years|notches)?", re.I)
+
+_CONS_COLS = {
+    "code": ("id",),
+    "category": ("constraint category", "category"),
+    "parameter": ("parameter",),
+    "limit_text": ("limit", "limit / guideline", "limit/guideline", "guideline"),
+    "breach_type": ("breach type",),
+    "source_document": ("source document", "source"),
+}
+
+
+def _parse_limit(text: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
+    """'≤ 2.5% NAV' → (2.5, '%', '<='). 'Info only' / '—' → (None, None, None).
+    Bare '0% NAV' → (0.0, '%', '<=') (a max). Rating-floor style text with a name
+    before the number (e.g. '≥ Caa1 (numeric ≤ 17)') yields the first numeric it
+    finds, but such rows aren't category-mapped so they stay 'Info'."""
+    t = (text or "").strip()
+    if not t or t.lower() in ("info only", "—", "-", "n/a"):
+        return (None, None, None)
+    m = _LIMIT_RE.search(t)
+    if not m:
+        return (None, None, None)
+    op = _OP.get(m.group(1)) if m.group(1) else "<="  # bare number → treat as a max
+    value = float(m.group(2))
+    unit = m.group(3)
+    unit = {"yrs": "years", "years": "years"}.get((unit or "").lower(), unit) if unit else (
+        "%" if "%" in t else None)
+    return (value, unit, op)
+
+
+def parse_constraints_csv(content: bytes) -> List[Dict[str, Any]]:
+    """A constraints / compliance-monitor CSV → constraint definition dicts."""
+    rows = _read_csv(content)
+    if not rows:
+        return []
+    cols = _csv_hdr_map(rows[0], _CONS_COLS)
+    if "category" not in cols or "limit_text" not in cols:
+        return []
+    out: List[Dict[str, Any]] = []
+    for r in rows[1:]:
+        cat = _csv_cell(r, cols, "category")
+        if not cat:
+            continue
+        limit_text = _csv_cell(r, cols, "limit_text")
+        value, unit, op = _parse_limit(limit_text or "")
+        out.append({
+            "code": _csv_cell(r, cols, "code"),
+            "category": cat,
+            "parameter": _csv_cell(r, cols, "parameter"),
+            "limit_text": limit_text,
+            "limit_value": value,
+            "limit_unit": unit,
+            "limit_op": op,
+            "breach_type": _csv_cell(r, cols, "breach_type"),
+            "source_document": _csv_cell(r, cols, "source_document"),
+        })
+    return out
+
+
+# ── Mandate ──────────────────────────────────────────────────────────────────
+def parse_mandate_csv(content: bytes) -> Dict[str, Any]:
+    """A Section/Field/Value(/Notes) mandate file → {section: [{field, value, notes}]}."""
+    rows = _read_csv(content)
+    if not rows:
+        return {}
+    cols = _csv_hdr_map(rows[0], {
+        "section": ("section",), "field": ("field",), "value": ("value",), "notes": ("notes",)})
+    if "field" not in cols or "value" not in cols:
+        return {}
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows[1:]:
+        field = _csv_cell(r, cols, "field")
+        if not field:
+            continue
+        section = _csv_cell(r, cols, "section") or "General"
+        out.setdefault(section, []).append({
+            "field": field,
+            "value": _csv_cell(r, cols, "value"),
+            "notes": _csv_cell(r, cols, "notes"),
+        })
+    return out
+
+
+# ── CSV helpers ──────────────────────────────────────────────────────────────
+def _read_csv(content: bytes) -> List[List[str]]:
+    try:
+        text = content.decode("utf-8-sig", "replace")
+    except Exception:
+        return []
+    return [row for row in csv.reader(io.StringIO(text))]
+
+
+def _csv_hdr_map(header: List[str], spec: Dict[str, Tuple[str, ...]]) -> Dict[str, int]:
+    lower = [(i, str(h).strip().lower()) for i, h in enumerate(header)]
+    out: Dict[str, int] = {}
+    for key, aliases in spec.items():
+        for i, h in lower:
+            if key not in out and h in aliases:
+                out[key] = i
+                break
+    return out
+
+
+def _csv_cell(row: List[str], cols: Dict[str, int], key: str) -> Optional[str]:
+    i = cols.get(key)
+    if i is None or i >= len(row):
+        return None
+    v = str(row[i]).strip()
+    return v or None
+
+
+if __name__ == "__main__":
+    # ponytail: one runnable self-check — parse each shape end to end.
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Holdings"
+    ws.append(["Ticker", "Borrower Name", "Index Sector", "FIGI", "Ranking", "Ratings",
+               "Size ($Mn)", "Margin", "Bid", "Ask", "Mid 3Y DM", "Holdings"])
+    ws.append(["ACRISU", "Acrisure LLC", "Insurance", "BBG01", "1L Gtd Sr. Secd", "B2 / B",
+               1500, 325, 90.5, 91.5, 517, 1_000_000])
+    ws.append(["NOISE", "Market Ref Co", "Software", "BBG02", "1L Sr. Secd", "B1 / B+",
+               800, 400, 99, 100, 300, None])  # no Holdings → market row, skipped
+    buf = io.BytesIO()
+    wb.save(buf)
+    pos = parse_holdings_xlsx(buf.getvalue())
+    assert len(pos) == 1, pos
+    p = pos[0]
+    assert p["par_usd"] == 1_000_000 and p["facility_musd"] == 1500
+    assert (p["rating_moody"], p["rating_sp"]) == ("B2", "B")
+    assert p["price"] == 91.0 and p["sector"] == "Insurance" and p["ranking"].startswith("1L")
+
+    cons_csv = (
+        "ID,Constraint Category,Parameter,Limit,Breach Type,Source Document,Current Value,Status\r\n"
+        "C-01,Single Name,Max single issuer,≤ 2.5% NAV,Hard,Indenture §7.11,2.37%,Watch\r\n"
+        "C-09,Instrument,Min 1st Lien,≥ 90.0% NAV,Hard,Indenture §7.11,99.39%,Pass\r\n"
+        "C-16,Covenant,Cov-Lite %,Info only,Info,,~100%,Pass\r\n"
+    ).encode()
+    cons = {c["code"]: c for c in parse_constraints_csv(cons_csv)}
+    assert cons["C-01"]["limit_value"] == 2.5 and cons["C-01"]["limit_op"] == "<="
+    assert cons["C-09"]["limit_value"] == 90.0 and cons["C-09"]["limit_op"] == ">="
+    assert cons["C-16"]["limit_value"] is None  # "Info only" → not a numeric limit
+    assert cons["C-01"]["source_document"] == "Indenture §7.11"
+
+    mand_csv = (
+        "Section,Field,Value,Notes\r\n"
+        "Strategy,Legal Final Maturity,15-Mar-2038,\r\n"
+        "Key Parties,Trustee,Bank of New York Mellon,\r\n"
+    ).encode()
+    m = parse_mandate_csv(mand_csv)
+    assert m["Strategy"][0]["field"] == "Legal Final Maturity"
+    assert m["Key Parties"][0]["value"] == "Bank of New York Mellon"
+    print("portfolio_ingest.py self-check OK")

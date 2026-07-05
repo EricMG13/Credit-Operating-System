@@ -25,43 +25,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import Issuer, Run, get_db
 from identity import CallerIdentity, get_identity
+# Rating scale lives in ratings.py (one source of truth, shared with the
+# rating-distribution query walk + the ingest extractor).
+from ratings import B3_IDX, FACTORS, MOODY, rating_index
 
 router = APIRouter()
 
 _READ_MAX_PER_MINUTE = 60
 _MAX_LIST = 100  # bounded watch-lists; totals are always full counts
 
-# Moody's scale, senior to junior, with idealized rating factors; the S&P/Fitch
-# scale is index-aligned so a missing Moody's rating translates positionally.
-_MOODY = ("aaa", "aa1", "aa2", "aa3", "a1", "a2", "a3", "baa1", "baa2", "baa3",
-          "ba1", "ba2", "ba3", "b1", "b2", "b3", "caa1", "caa2", "caa3", "ca", "c")
-_SP = ("aaa", "aa+", "aa", "aa-", "a+", "a", "a-", "bbb+", "bbb", "bbb-",
-       "bb+", "bb", "bb-", "b+", "b", "b-", "ccc+", "ccc", "ccc-", "cc", "c")
-_FACTORS = (1, 10, 20, 40, 70, 120, 180, 260, 360, 610,
-            940, 1350, 1766, 2220, 2720, 3490, 4770, 6500, 8070, 10000, 10000)
-_MOODY_IDX = {r: i for i, r in enumerate(_MOODY)}
-_SP_IDX = {r: i for i, r in enumerate(_SP)}
-_B3_IDX = _MOODY.index("b3")  # CCC-cliff watch: B3/B- and below
-
 
 def _rating_index(issuer: Issuer) -> Optional[int]:
     """Scale index for an issuer's best available rating (Moody's preferred).
-    First token only, case-insensitive — '(negative)' outlook suffixes and
-    watch annotations are dropped rather than failing the parse."""
-    for raw, idx in ((issuer.rating_moody, _MOODY_IDX),
-                     (issuer.rating_sp, _SP_IDX),
-                     (issuer.rating_fitch, _SP_IDX)):
-        if raw and raw.strip():
-            tok = raw.strip().split()[0].lower()
-            if tok in idx:
-                return idx[tok]
-    return None
+    Thin wrapper over ratings.rating_index — kept so callers/tests that pass an
+    issuer object keep working while the scale itself has a single home."""
+    return rating_index(issuer.rating_moody, issuer.rating_sp, issuer.rating_fitch)
 
 
 def _warf_band(warf: float) -> str:
     """Nearest rating label for a WARF value (Moody's labels, title-cased)."""
-    nearest = min(range(len(_FACTORS)), key=lambda i: abs(_FACTORS[i] - warf))
-    return _MOODY[nearest].capitalize()
+    nearest = min(range(len(FACTORS)), key=lambda i: abs(FACTORS[i] - warf))
+    return MOODY[nearest].capitalize()
 
 
 def _aware(dt: Optional[datetime]) -> Optional[datetime]:
@@ -139,13 +123,13 @@ async def daily_digest(
     stale = stale[:_MAX_LIST]
 
     indices = {i.id: _rating_index(i) for i in issuers}
-    factors = [_FACTORS[ix] for ix in indices.values() if ix is not None]
+    factors = [FACTORS[ix] for ix in indices.values() if ix is not None]
     warf = round(sum(factors) / len(factors), 0) if factors else None
     ccc_watch = [
         WatchRow(issuer_id=i.id, name=i.name,
                  detail=i.rating_moody or i.rating_sp or i.rating_fitch)
         for i in issuers
-        if indices[i.id] is not None and indices[i.id] >= _B3_IDX
+        if indices[i.id] is not None and indices[i.id] >= B3_IDX
     ][:_MAX_LIST]
 
     qa: Dict[str, int] = {}

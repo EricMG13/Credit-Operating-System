@@ -27,10 +27,10 @@ class IssuerCreate(BaseModel):
     sub_sector: Optional[str] = None
     country: Optional[str] = None
     figi: Optional[str] = Field(default=None, max_length=32)
-    rating_sp: Optional[str] = Field(default=None, max_length=16)
-    rating_moody: Optional[str] = Field(default=None, max_length=16)
-    rating_fitch: Optional[str] = Field(default=None, max_length=16)
     sponsor: Optional[str] = Field(default=None, max_length=255)
+    # Agency ratings are no longer a create-time input — they're collected from
+    # ingested structured sheets (see ratings.py / ingestion._collect_ratings) and
+    # written onto the issuer's rating_* columns, which IssuerResponse still returns.
 
 
 class IssuerResponse(BaseModel):

@@ -3,7 +3,7 @@
 // Issuer Register — the workspace hub, in the CAOS design language shared by
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,7 +17,7 @@ import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 
 export default function IssuersPage() {
   return (
@@ -28,7 +28,10 @@ export default function IssuersPage() {
 }
 
 
-const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
+// Ratings are no longer typed here — collected from ingested structured sheets
+// (see server ratings.py / ingestion._collect_ratings) and still shown read-only
+// in the directory + profile from the issuer record.
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "" };
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
@@ -43,8 +46,23 @@ function IssuersDirectory() {
   // but a banner makes the degraded state explicit rather than passing fabricated
   // issuers off as real coverage (trust-through-transparency). See QA BUG-002.
   const [degraded, setDegraded] = useState(false);
+  // True when the registry is reachable but *empty*, so the rows on screen are
+  // the DEMO_UNIVERSE sample rather than real coverage. Distinct from `degraded`
+  // (fetch failure): a neutral, non-alarming signal that invites starting real
+  // coverage rather than warning of a broken fetch. See QA BUG-002.
+  const [demo, setDemo] = useState(false);
+  // Latches once a real (non-demo, non-empty) registry response lands this
+  // session. Used by the fetch-failure path to decide whether it may fall back
+  // to the demo universe (only when no real coverage was ever loaded) rather
+  // than swapping the analyst's actual book for fabricated rows. A ref, not
+  // state, so the effect's catch reads the live value without re-subscribing.
+  const hadRealCoverage = useRef(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [filters, setFilters] = useState<FilterState>({});
+  // Column sort. Default: issuer name ascending, so a 60+ name register lands
+  // in a scannable order (H7). Clicking a sortable header cycles asc→desc→none;
+  // `null` (cleared) reverts to the raw server/demo order.
+  const [sort, setSort] = useState<SortState>({ col: "name", dir: "asc" });
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -65,11 +83,25 @@ function IssuersDirectory() {
         .then((rows) => {
           if (stale) return;
           setDegraded(false);
-          setIssuers(rows.length > 0 ? rows : demoFiltered());
+          const empty = rows.length === 0;
+          setDemo(empty);
+          if (!empty) hadRealCoverage.current = true;
+          setIssuers(empty ? demoFiltered() : rows);
         })
-        // Network/500 → degrade to the demo directory (so it's not a blank table
-        // or an unhandled rejection) AND flag it, so the banner can say so.
-        .catch(() => { if (!stale) { setDegraded(true); setIssuers(demoFiltered()); } })
+        // Network/500 → degrade, but NEVER swap real coverage for fabricated
+        // sample rows: if we already have real issuers loaded this session, keep
+        // them on screen (the banner explains it's a stale/last-loaded view).
+        // Only fall back to the demo universe when no real coverage was ever
+        // fetched — otherwise the register would show demo names where the
+        // analyst's actual book just was (worst failure shape; QA BUG-002).
+        .catch(() => {
+          if (stale) return;
+          setDegraded(true);
+          setDemo(false);
+          // Retain the last real rows if we ever had them; only fabricate demo
+          // coverage when nothing real was ever loaded this session.
+          setIssuers((prev) => (hadRealCoverage.current && prev.length > 0 ? prev : demoFiltered()));
+        })
         .finally(() => { if (!stale) setLoading(false); });
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
@@ -91,7 +123,40 @@ function IssuersDirectory() {
     country: (i) => i.country || "—",
     action: () => "UPLOAD",
   }), []);
-  const shownIssuers = useColumnFilters(issuers, filters, filterVals);
+  const filteredIssuers = useColumnFilters(issuers, filters, filterVals);
+  // Sortable columns only (the trailing action column is not orderable).
+  const SORTABLE = useMemo(() => new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]), []);
+  // Apply the active column sort after filtering. Comparison reuses the same
+  // per-column accessors as filtering (filterVals), so what you sort by is
+  // exactly what the row shows. Placeholder "—" cells sink to the bottom on
+  // asc and rise last on desc rather than colliding with real values. A stable
+  // tie-break on issuer name keeps equal keys in a deterministic order.
+  const shownIssuers = useMemo(() => {
+    if (!sort || !SORTABLE.has(sort.col)) return filteredIssuers;
+    const get = filterVals[sort.col as keyof typeof filterVals];
+    const factor = sort.dir === "asc" ? 1 : -1;
+    const norm = (v: string | number | null | undefined) => {
+      if (v == null) return "";
+      const s = String(v).trim();
+      return s === "—" ? "" : s;
+    };
+    const cmp = (a: Issuer, b: Issuer) => {
+      const av = norm(get(a));
+      const bv = norm(get(b));
+      // Empty/placeholder always sorts last, regardless of direction.
+      if (av === "" && bv === "") return 0;
+      if (av === "") return 1;
+      if (bv === "") return -1;
+      const primary = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" }) * factor;
+      if (primary !== 0) return primary;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    };
+    return [...filteredIssuers].sort(cmp);
+  }, [filteredIssuers, sort, SORTABLE, filterVals]);
+  const cycleSort = (col: string) =>
+    setSort((s) =>
+      s?.col !== col ? { col, dir: "asc" } : s.dir === "asc" ? { col, dir: "desc" } : null
+    );
   const ratedCount = useMemo(() => issuers.filter((i) => issuerRating(i)).length, [issuers]);
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((f) => {
@@ -120,8 +185,19 @@ function IssuersDirectory() {
             ? "loading…"
             : query
             ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
+            : demo
+            ? DEMO_UNIVERSE.length + " sample issuers"
             : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve"}
         </span>
+        {!loading && demo ? (
+          <span
+            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
+            style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
+            title="No live coverage yet — these are sample issuers, not real coverage"
+          >
+            Demo coverage
+          </span>
+        ) : null}
         <div className="flex-1" />
         <ConceptNav />
         <div className="h-4 w-px bg-caos-border" />
@@ -147,12 +223,36 @@ function IssuersDirectory() {
           style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 12%, transparent)", color: "var(--caos-text)" }}
         >
           <StatusGlyph kind="warning" />
-          <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+          {hadRealCoverage.current ? (
+            <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>the last loaded results</span>, which may be out of date.</span>
+          ) : (
+            <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+          )}
           <button
             onClick={() => setReloadKey((k) => k + 1)}
             className="ml-1 tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
           >
             RETRY
+          </button>
+        </div>
+      ) : null}
+
+      {/* demo banner — registry is reachable but empty; the rows below are a
+          sample sleeve, not real coverage. Neutral (not warning): an invitation
+          to start coverage, styled apart from the amber fetch-failure banner. */}
+      {!loading && demo && !degraded ? (
+        <div
+          className="shrink-0 mx-2 mt-2 flex items-center gap-2 px-3 py-1.5 rounded border border-caos-border bg-caos-elevated/40 tabular text-caos-sm text-caos-muted"
+        >
+          <StatusGlyph kind="idle" className="text-caos-muted" />
+          <span>
+            No live coverage yet — showing a <span className="text-caos-text">sample sleeve</span> so you can explore the workspace.
+          </span>
+          <button
+            onClick={() => setShowForm(true)}
+            className="ml-1 tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring whitespace-nowrap"
+          >
+            + NEW ISSUER
           </button>
         </div>
       ) : null}
@@ -229,6 +329,19 @@ function IssuersDirectory() {
                 + NEW ISSUER
               </button>
             </div>
+          ) : shownIssuers.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No rows match the active column filters</p>
+              <p className="text-caos-muted text-caos-lg max-w-xs">
+                {issuers.length} issuer{issuers.length === 1 ? "" : "s"} in the register are hidden by the filters set on one or more columns.
+              </p>
+              <button
+                onClick={() => setFilters({})}
+                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+              >
+                CLEAR FILTERS
+              </button>
+            </div>
           ) : (
             <div className="text-caos-xl">
               <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
@@ -241,6 +354,9 @@ function IssuersDirectory() {
                     getValue={filterVals[filterKeys[i]]}
                     selected={filters[filterKeys[i]]}
                     onChange={setFilter}
+                    sortable={SORTABLE.has(filterKeys[i])}
+                    sortState={sort}
+                    onSort={cycleSort}
                     className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
                   >
                     {h}
@@ -375,9 +491,6 @@ function NewIssuerModal({
             { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
             { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
-            { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+", max: 16 },
-            { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1", max: 16 },
-            { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-", max: 16 },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>

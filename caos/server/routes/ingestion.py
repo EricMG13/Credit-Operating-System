@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import avscan
 import ingest
 import rate_limit
+import ratings
 import vault_export
 from database import Document, DocumentChunk, Issuer, get_db
 from identity import CallerIdentity, get_identity
@@ -30,7 +31,10 @@ logger = logging.getLogger("caos.ingestion")
 router = APIRouter()
 
 # CP-X route templates — keep in sync with the frontend wizard / Concept B.
-RUN_MODES = {"full", "earnings", "rv", "legal"}
+# "primary" runs the same full route as "full"; the wizard warns to include the
+# new-loan price, OID and cap table in the source materials (run_mode is metadata
+# today, so behaviour matches "full" by construction).
+RUN_MODES = {"full", "primary", "earnings", "rv", "legal"}
 
 # Analyst memo intake (→ the Obsidian vault, not document_chunks).
 MEMO_TYPES = {"market-commentary", "research", "memo"}
@@ -60,6 +64,9 @@ class IngestionResponse(BaseModel):
     # Set when chunks_created == 0 (scanned/encrypted/empty doc): the upload still
     # succeeds but is not searchable, so surface the signal rather than a silent 0.
     warning: Optional[str] = None
+    # Count of issuers whose agency rating was updated from a Ratings column in a
+    # structured (xlsx) upload; None/absent for PDFs or a sheet without ratings.
+    ratings_updated: Optional[int] = None
 
 
 def _validate_run_mode(run_mode: str) -> str:
@@ -133,6 +140,53 @@ async def upload_document(
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
 
 
+async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:
+    """Pull agency ratings off a structured (xlsx) upload and write them onto
+    matching *existing* issuers — matched by FIGI, then ticker, then exact name.
+
+    Cross-issuer by design: a holdings / market-data sheet is authoritative rating
+    data for every name it lists, not just the upload's own issuer (this is how
+    ratings get "collected from ingest documents" instead of typed). Only updates
+    existing issuers — never creates — so a sheet can't inject entities. Best-effort:
+    the document is already vaulted, so any failure here is logged and swallowed.
+    """
+    try:
+        # openpyxl parse is sync/CPU-bound — off-thread it like the extract_* calls.
+        records = await asyncio.to_thread(ratings.extract_ratings_from_workbook, content)
+        if not records:
+            return
+        issuers = (await db.execute(select(Issuer).limit(2000))).scalars().all()
+        by_figi = {i.figi.strip().lower(): i for i in issuers if i.figi}
+        by_ticker = {i.ticker.strip().lower(): i for i in issuers if i.ticker}
+        by_name = {i.name.strip().lower(): i for i in issuers if i.name}
+        updated = 0
+        for rec in records:
+            iss = None
+            for key, table in ((rec.get("figi"), by_figi),
+                               (rec.get("ticker"), by_ticker),
+                               (rec.get("name"), by_name)):
+                if key and key.strip().lower() in table:
+                    iss = table[key.strip().lower()]
+                    break
+            if iss is None:
+                continue
+            changed = False
+            if rec.get("moody") and iss.rating_moody != rec["moody"]:
+                iss.rating_moody = rec["moody"]
+                changed = True
+            if rec.get("sp") and iss.rating_sp != rec["sp"]:
+                iss.rating_sp = rec["sp"]
+                changed = True
+            if changed:
+                updated += 1
+        if updated:
+            await db.flush()
+            resp.ratings_updated = updated
+            resp.message += f" · ratings updated on {updated} issuer{'s' if updated != 1 else ''}"
+    except Exception as e:  # never let rating extraction fail a vaulted upload
+        logger.warning("rating extraction failed after xlsx upload: %s", e)
+
+
 @router.post("/upload/pricing-sheet", response_model=IngestionResponse)
 async def upload_pricing_sheet(
     issuer_id: str = Form(...),
@@ -152,7 +206,10 @@ async def upload_pricing_sheet(
     # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
-    return await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)
+    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)
+    # Structured sheets carry a Ratings column — collect ratings onto issuers.
+    await _collect_ratings(db, content, resp)
+    return resp
 
 
 class MemoUploadResponse(BaseModel):

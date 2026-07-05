@@ -64,6 +64,24 @@ async def seeded_db():
     await db_engine.dispose()
 
 
+def ratings_xlsx(rows: "list[tuple[str, str]]") -> bytes:
+    """A minimal in-memory .xlsx with Borrower Name + Ratings columns — the
+    structured shape ratings extraction reads on pricing-sheet upload.
+    ``rows`` = [(borrower_name, ratings_cell)], e.g. [("Rated Co", "B1 / B+")]."""
+    import io
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Borrower Name", "Ratings"])
+    for name, rating in rows:
+        ws.append([name, rating])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def wait_for_run(client, run_id: str, timeout_s: float = 10.0) -> dict:
     """Poll GET /runs/{id} until the run reaches a terminal state."""
     import time

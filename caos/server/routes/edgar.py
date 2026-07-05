@@ -29,7 +29,7 @@ from identity import CallerIdentity, get_identity
 
 router = APIRouter()
 
-LEGAL_RUN_MODES = {"full", "earnings", "rv", "legal"}
+LEGAL_RUN_MODES = {"full", "primary", "earnings", "rv", "legal"}
 
 
 class FilingHitOut(BaseModel):

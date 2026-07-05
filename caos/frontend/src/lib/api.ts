@@ -215,14 +215,19 @@ export const askIssuer = (messages: ChatMessage[]): Promise<string> =>
   api.post("/api/chat/issuer", { messages }).then((r) => r.data.reply);
 
 // ─── Ingestion ────────────────────────────────────────────────────────────
+// The server parses, virus-scans, and chunks the file inside the request, so a
+// real filing can run well past the 20s default. Give ingestion a generous
+// 5-min ceiling (still bounded, so a truly hung API can't strand the wizard).
 export const uploadDocument = (formData: FormData) =>
   api.post("/api/ingestion/upload/document", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300_000,
   }).then((r) => r.data);
 
 export const uploadPricingSheet = (formData: FormData) =>
   api.post("/api/ingestion/upload/pricing-sheet", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300_000,
   }).then((r) => r.data);
 
 export interface VaultMemoResult {
@@ -239,6 +244,51 @@ export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
     headers: { "Content-Type": "multipart/form-data" },
   }).then((r) => r.data);
 
+// ─── Portfolios (managed CLO books; exposure + compliance computed server-side) ─
+export interface PortfolioSummary {
+  id: string;
+  name: string;
+  kind: string;
+  as_of_date?: string | null;
+  n_positions: number;
+  total_nav: number;
+  total_par: number;
+  breaches: number;
+  watches: number;
+  created_at?: string | null;
+}
+
+export interface PortfolioDetail {
+  id: string;
+  name: string;
+  kind: string;
+  as_of_date?: string | null;
+  // Free-form (like a module runtime_output) — typed loosely on purpose.
+  mandate: Record<string, unknown>;
+  exposure: Record<string, unknown>;
+  compliance: Array<Record<string, unknown>>;
+}
+
+export const getPortfolios = (): Promise<PortfolioSummary[]> =>
+  api.get("/api/portfolios/").then((r) => r.data);
+
+export const getPortfolioDetail = (id: string): Promise<PortfolioDetail> =>
+  api.get(`/api/portfolios/${id}`).then((r) => r.data);
+
+// Create a portfolio from a holdings xlsx (+ optional constraints / mandate CSV).
+export const createPortfolio = (formData: FormData): Promise<PortfolioSummary> =>
+  api.post("/api/portfolios/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300_000,
+  }).then((r) => r.data);
+
+// Drag-drop a new holdings file → replace a portfolio's positions.
+export const uploadPortfolioHoldings = (id: string, formData: FormData): Promise<PortfolioSummary> =>
+  api.post(`/api/portfolios/${id}/holdings`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300_000,
+  }).then((r) => r.data);
+
 // ─── Analytical engine (runs) ───────────────────────────────────────────────
 import type {
   ModuleDetailDTO,
@@ -248,9 +298,11 @@ import type {
 } from "@/lib/engine/types";
 
 // API-client surface for POST /api/runs — kept ahead of its UI consumer.
+// portfolioId is optional: omit to let the server auto-bind the book that holds
+// the issuer (CP-3C concentration); pass one to evaluate against a specific book.
 // fallow-ignore-next-line unused-export
-export const createRun = (issuerId: string, asOfDate?: string): Promise<RunSummaryDTO> =>
-  api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate }).then((r) => r.data);
+export const createRun = (issuerId: string, asOfDate?: string, portfolioId?: string): Promise<RunSummaryDTO> =>
+  api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId }).then((r) => r.data);
 
 export const listRuns = (issuerId?: string): Promise<RunListItemDTO[]> =>
   api.get("/api/runs", { params: issuerId ? { issuer_id: issuerId } : {} }).then((r) => r.data);
@@ -308,8 +360,8 @@ export const exportToVault = (runId: string): Promise<{ written: string[]; vault
 // ─── Cross-issuer natural-language query ─────────────────────────────────────
 import type { ChunkDTO, MetricDef, NlQueryResult } from "@/lib/query/types";
 
-export const nlQuery = (question: string): Promise<NlQueryResult> =>
-  api.post("/api/query/nl", { question }).then((r) => r.data);
+export const nlQuery = (question: string, signal?: AbortSignal): Promise<NlQueryResult> =>
+  api.post("/api/query/nl", { question }, { signal }).then((r) => r.data);
 
 // Catalog for the NL-query lane — surface ahead of its UI consumer.
 // fallow-ignore-next-line unused-export
@@ -488,24 +540,50 @@ const _RESEARCH_DEADLINE_MS = 15 * 60 * 1000; // generous backstop; deep researc
 const _RESEARCH_MAX_POLL_ERRORS = 10; // ~20s of consecutive transport failures → give up
 const _detail = (detail: string) => ({ response: { data: { detail } } });
 
-export const deepResearch = async (
-  brief: ResearchBrief,
+// Sentinel thrown when a poll loop is aborted (unmount / analyst detach). The
+// durable server-side job is untouched — the caller just stops watching it — so
+// the page must NOT surface this as a run failure.
+export const RESEARCH_ABORTED = Symbol("research-aborted");
+const _aborted = () => ({ [RESEARCH_ABORTED]: true });
+export const isResearchAborted = (e: unknown): boolean =>
+  typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_ABORTED] === true;
+
+// Thrown when the polled job is gone (404 — server restart lost the in-memory
+// job, or a foreign id under a shared machine). Distinct from a transient blip:
+// retrying a 404 is pointless, so resume drops the stale id quietly rather than
+// spinning ~20s into a "Lost contact" error.
+export const RESEARCH_GONE = Symbol("research-gone");
+const _gone = () => ({ [RESEARCH_GONE]: true });
+export const isResearchGone = (e: unknown): boolean =>
+  typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_GONE] === true;
+
+// Poll an already-created durable job to terminal. Shared by a fresh run and by
+// resume-on-reload, so both paths tolerate transport blips identically. Honors an
+// AbortSignal so an unmount / detach stops the loop without touching the job.
+const _pollResearch = async (
+  id: string,
   onProgress?: (p: ResearchProgress | null) => void,
+  signal?: AbortSignal,
 ): Promise<ResearchResult> => {
-  const { id } = (await api.post("/api/research", brief)).data as { id: string };
   const deadline = Date.now() + _RESEARCH_DEADLINE_MS;
   let pollErrors = 0;
   let first = true;
   while (Date.now() < deadline) {
+    if (signal?.aborted) throw _aborted();
     if (!first) await new Promise((r) => setTimeout(r, _RESEARCH_POLL_MS));
     first = false; // poll immediately first so a fast/demo completion isn't delayed
+    if (signal?.aborted) throw _aborted();
     let job: ResearchJob;
     try {
       job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
       pollErrors = 0;
-    } catch {
-      // Transport error — the durable job is unaffected; keep polling. Bail only
-      // after many consecutive failures (the backend is likely actually down).
+    } catch (e) {
+      // 404 = the job genuinely doesn't exist (or isn't ours) — retrying can't
+      // recover it, so signal "gone" immediately instead of burning the retry
+      // budget. The reattach path treats this as a quiet reset.
+      if (axios.isAxiosError(e) && e.response?.status === 404) throw _gone();
+      // Any other transport error — the durable job is unaffected; keep polling.
+      // Bail only after many consecutive failures (the backend is likely down).
       if (++pollErrors >= _RESEARCH_MAX_POLL_ERRORS)
         throw _detail("Lost contact with the research backend — the run may still be completing; retry shortly.");
       continue;
@@ -516,6 +594,56 @@ export const deepResearch = async (
     onProgress?.(job.progress ?? null); // still running — surface live counts
   }
   throw _detail("Research timed out on the client — it may still be completing; retry shortly.");
+};
+
+export const deepResearch = async (
+  brief: ResearchBrief,
+  onProgress?: (p: ResearchProgress | null) => void,
+  onJobId?: (id: string) => void, // fires the durable id so the page can persist it for reattach
+  signal?: AbortSignal,
+): Promise<ResearchResult> => {
+  const { id } = (await api.post("/api/research", brief)).data as { id: string };
+  onJobId?.(id); // persist before the (multi-minute) poll, so a reload can reattach
+  return _pollResearch(id, onProgress, signal);
+};
+
+// Reattach to a job created in a prior page life (durable id restored from
+// sessionStorage). A 404 means the job is gone/foreign — surfaced as a thrown
+// axios-shaped error so the page can quietly drop the stale id.
+export const resumeResearch = (
+  id: string,
+  onProgress?: (p: ResearchProgress | null) => void,
+  signal?: AbortSignal,
+): Promise<ResearchResult> => _pollResearch(id, onProgress, signal);
+
+// The terminal state of a durable job resolved by a durable id: whether it is
+// still running (reattach and keep watching), already complete (hydrate the
+// finished report straight into the result view — a report survives a reload /
+// cross-check trip in Deep-Dive instead of being forfeited, H3), or gone/failed
+// (drop the stale pointer). A single GET, no polling — the mount decides how to
+// route from there.
+export type ResearchStatus =
+  | { state: "running" }
+  | { state: "complete"; result: ResearchResult }
+  | { state: "gone" }
+  | { state: "failed"; error: string };
+
+export const getResearchStatus = async (id: string): Promise<ResearchStatus> => {
+  let job: ResearchJob;
+  try {
+    job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
+  } catch {
+    // 404 (gone/foreign) or any transport blip on a one-shot probe — treat as
+    // "not available"; the caller quietly drops the stale id rather than erroring.
+    return { state: "gone" };
+  }
+  if (job.status === "complete")
+    return {
+      state: "complete",
+      result: { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated },
+    };
+  if (job.status === "failed") return { state: "failed", error: job.error || "Research failed — try again." };
+  return { state: "running" };
 };
 
 // ─── Workspace settings (read-only snapshot of server config) ─────────────────

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import wait_for_run
+from conftest import ratings_xlsx, wait_for_run
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
@@ -83,23 +83,38 @@ def test_profile_after_run_populates(client):
     assert isinstance(body["strengths"], list) and isinstance(body["weaknesses"], list)
 
 
-def test_issuer_ratings_round_trip(client):
-    """Agency ratings persist on the issuer and surface in the profile header."""
-    iid = client.post("/api/issuers/", json={
-        "name": "Rated Co", "rating_sp": "B+", "rating_moody": "B1", "rating_fitch": "BB-",
-    }).json()["id"]
+def test_issuer_ratings_collected_from_ingest(client):
+    """Ratings are no longer typed on the issuer — they're collected from an
+    ingested structured sheet (Ratings column) and surface in the profile header.
+    Ratings sent on create are ignored (not an IssuerCreate field)."""
+    iid = client.post(
+        "/api/issuers/", json={"name": "Rated Co", "rating_moody": "typed-should-ignore"}
+    ).json()["id"]
+    # Create-time rating is dropped; the issuer starts unrated.
+    assert client.get(f"/api/issuers/{iid}/profile").json()["issuer"]["rating_moody"] is None
+
+    up = client.post(
+        "/api/ingestion/upload/pricing-sheet",
+        data={"issuer_id": iid, "run_mode": "full"},
+        files={"file": ("holdings.xlsx", ratings_xlsx([("Rated Co", "B1 / B+")]),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert up.status_code == 200, up.text
+    assert up.json().get("ratings_updated") == 1
+
     iss = client.get(f"/api/issuers/{iid}/profile").json()["issuer"]
-    assert (iss["rating_sp"], iss["rating_moody"], iss["rating_fitch"]) == ("B+", "B1", "BB-")
+    assert (iss["rating_moody"], iss["rating_sp"]) == ("B1", "B+")
+    assert iss["rating_fitch"] is None  # sheets carry Moody's / S&P only
 
 
 def test_issuer_created_by_stamped_from_identity_not_body(client):
-    # SEAM4-4: a created issuer records who created it (governance attribution for
-    # the analyst-entered agency ratings) — taken from the verified identity, and
-    # a spoofed created_by in the request body is ignored (not an IssuerCreate field).
+    # SEAM4-4: a created issuer records who created it (governance attribution) —
+    # taken from the verified identity, and a spoofed created_by in the request
+    # body is ignored (not an IssuerCreate field).
     me = client.post("/api/auth/profile", json={"code": "131113", "name": "Rater Ray"}).json()
     try:
         created = client.post("/api/issuers/", json={
-            "name": "Attributed Co", "rating_sp": "B+", "created_by": "spoofed-id",
+            "name": "Attributed Co", "created_by": "spoofed-id",
         }).json()
         assert created["created_by"] == me["id"] != "spoofed-id"
     finally:
