@@ -32,7 +32,9 @@ import rate_limit
 import vault_export
 from config import get_settings
 from engine import presets
-from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
+from database import (
+    Claim, EvidenceItem, Issuer, ModuleOutput, PortfolioPosition, QAFinding, Run, get_db,
+)
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
 
@@ -60,10 +62,24 @@ def _create_run_lock() -> asyncio.Lock:
 _RUNS_MAX_PER_MINUTE = 12
 
 
+async def _auto_portfolio(db: AsyncSession, issuer_id: str) -> Optional[str]:
+    """The single portfolio holding this issuer, if exactly one does — so a run
+    auto-binds its book for CP-3C. None when unheld or held in several (ambiguous
+    → don't guess; the caller can pass an explicit portfolio_id)."""
+    pids = (await db.execute(
+        select(PortfolioPosition.portfolio_id)
+        .where(PortfolioPosition.issuer_id == issuer_id).distinct()
+    )).scalars().all()
+    return pids[0] if len(pids) == 1 else None
+
+
 # ── Request / response models ───────────────────────────────────────────────
 class RunCreate(BaseModel):
     issuer_id: str = Field(min_length=1, max_length=36)
     as_of_date: Optional[str] = Field(default=None, max_length=32)
+    # Portfolio to evaluate the issuer against (CP-3C concentration goes live).
+    # Omit to auto-bind the portfolio that holds this issuer, if exactly one does.
+    portfolio_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class ModuleStatus(BaseModel):
@@ -205,8 +221,13 @@ async def create_run(
         if active:
             raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
 
+        # Bind a portfolio: the explicit choice, else auto-bind the one book that
+        # holds this issuer (so CP-3C's concentration goes live with no extra step;
+        # ambiguous when held in several → left unbound rather than guessing).
+        portfolio_id = body.portfolio_id or await _auto_portfolio(db, body.issuer_id)
         run = Run(
             issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
+            portfolio_id=portfolio_id,
             # Pin the mode the X-Model-Mode dependency resolved for this request, so
             # the background runner (and any re-claim) uses the same tier.
             model_mode=presets.current_mode(),

@@ -22,6 +22,10 @@ const BY_CAP: Record<string, QueryView[]> = {
   scatter: ["scatter", "rv"],
   "peer-set": ["rv", "graph"],
   "concentration-map": ["rv", "graph"],
+  // Rating distribution is a bucket table first (IG/BB/B/CCC), hub-graph second.
+  "rating-distribution": ["rv", "graph"],
+  // Portfolio exposure is a sector-concentration cluster graph first, table second.
+  "portfolio-exposure": ["graph", "rv"],
   // Memos are a note list with no lineage edges — Lineage renders empty columns,
   // so this override lands before BY_MODE provenance's trace-native default.
   "analyst-memos": ["rv", "graph"],

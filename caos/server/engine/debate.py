@@ -191,6 +191,21 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
         elif band == "LOW":
             bull.append(Point("Low refinancing/LME vulnerability.", "CP-3D", 1))
 
+    # CP-3C portfolio concentration (only present when the run is portfolio-bound).
+    cp3c = up.get("CP-3C")
+    if cp3c is not None:
+        conc = (cp3c.runtime_output or {}).get("concentration") or {}
+        risk = conc.get("concentration_risk")
+        held = conc.get("held_pct_nav")
+        if risk == "HIGH":
+            bear.append(Point(
+                f"Portfolio concentration HIGH — name is {held}% of NAV, near/over a book limit.", "CP-3C", 2))
+        elif risk == "MODERATE":
+            bear.append(Point(
+                f"Portfolio concentration MODERATE — {held}% of NAV, limited room to add.", "CP-3C", 1))
+        elif risk == "LOW" and conc.get("in_portfolio"):
+            bull.append(Point("Comfortable portfolio headroom to add or hold the name.", "CP-3C", 1))
+
     return bull, bear
 
 

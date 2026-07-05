@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import wait_for_run
+from conftest import ratings_xlsx, wait_for_run
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
@@ -135,10 +135,16 @@ def test_cross_default_docless_run_degrades_with_note(client):
 
 # ── Daily digest ─────────────────────────────────────────────────────────────
 def test_daily_digest_watchlists_and_warf(client):
-    ccc = client.post(
-        "/api/issuers/", json={"name": "Digest CCC Co", "rating_moody": "Caa1"}
-    ).json()["id"]
+    ccc = client.post("/api/issuers/", json={"name": "Digest CCC Co"}).json()["id"]
     client.post("/api/issuers/", json={"name": "Digest Unrated Co"})
+    # Ratings are collected from an ingested sheet, not typed on create.
+    up = client.post(
+        "/api/ingestion/upload/pricing-sheet",
+        data={"issuer_id": ccc, "run_mode": "full"},
+        files={"file": ("hold.xlsx", ratings_xlsx([("Digest CCC Co", "Caa1 / CCC")]),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert up.status_code == 200 and up.json().get("ratings_updated") == 1, up.text
 
     d = client.get("/api/digest/daily").json()
     assert d["coverage"]["issuers"] >= 2

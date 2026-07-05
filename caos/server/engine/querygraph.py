@@ -34,7 +34,7 @@ import logging
 from statistics import median
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from engine.periods import is_finite_number
@@ -47,6 +47,7 @@ from database import (
     Issuer,
     MetricFact,
     ModuleOutput,
+    PortfolioPosition,
     QAFinding,
     Run,
 )
@@ -87,6 +88,8 @@ GROUPS: List[dict] = [
         _cap("peer-profile", "Peer-by-profile", "peers", {}, "facts"),
         _cap("shared-theme", "Shared-theme links", "contagion", {"theme": "energy input-cost pressure"}, "docs"),
         _cap("concentration-map", "Concentration map", "concentration", {"by": "industry"}, "issuers"),
+        _cap("rating-distribution", "Rating distribution", "concentration", {"by": "rating"}, "rated"),
+        _cap("portfolio-exposure", "Portfolio exposure", "concentration", {"by": "portfolio"}, "portfolio"),
         _cap("contagion", "Contagion query", "contagion", {"theme": "energy"}, "facts"),
         _cap("sponsor-graph", "Sponsor / counterparty graph", "provenance", {"focus": "sponsor"}, "sponsor_names"),
         _cap("covenant-register", "Covenant register", "concentration", {"by": "covenant"}, "covenant"),
@@ -124,6 +127,8 @@ _REASONS: Dict[str, str] = {
     "debate": "no IC debate run yet",
     "sponsor_names": "no sponsor-owned issuers in coverage",
     "covenant": "no covenant analysis yet",
+    "rated": "no agency ratings on file",
+    "portfolio": "no portfolio holdings ingested",
 }
 
 
@@ -147,6 +152,13 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
     # Any persisted CP-4C covenant analysis → the cross-issuer register is walkable.
     covenant = await count(select(func.count()).select_from(ModuleOutput).where(
         ModuleOutput.module_id == "CP-4C"))
+    # ≥1 issuer carrying an agency rating (collected from ingested holdings/market
+    # sheets, ratings.py) → the rating-distribution walk is runnable, no run needed.
+    rated = await count(select(func.count()).select_from(Issuer).where(or_(
+        Issuer.rating_moody.isnot(None), Issuer.rating_sp.isnot(None),
+        Issuer.rating_fitch.isnot(None))))
+    # ≥1 ingested CLO position → the portfolio-exposure walk is runnable.
+    portfolio = await count(select(func.count()).select_from(PortfolioPosition))
 
     # ≥2 distinct periods for some (issuer, metric): the trend axis.
     # HAVING…LIMIT 1 existence check — don't materialize every group to test any().
@@ -167,6 +179,8 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
         "debate": debate > 0,
         "sponsor_names": sponsors > 0,
         "covenant": covenant > 0,
+        "rated": rated > 0,
+        "portfolio": portfolio > 0,
     }
 
 
@@ -456,6 +470,10 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
+    if by == "rating":
+        return await _rating_distribution(session, cap)
+    if by == "portfolio":
+        return await _portfolio_exposure(session, cap)
     if by == "wiki":
         return await _cluster_by_wiki(session, cap)
     if by == "provenance":
@@ -523,6 +541,98 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
     meta = [f"{total} analyzed issuers", f"{len(ordered)} {field} groups", conc]
     cav = [f"Covered issuers only (≥1 fact or run). Grouped by {field}; >30% flags concentration."]
     return _result(cap, f"Concentration by {field}", nodes, edges, meta, cav)
+
+
+async def _rating_distribution(session: AsyncSession, cap: dict) -> dict:
+    """Cross-issuer rating distribution — issuers bucketed by agency rating
+    (Moody's-preferred), mirroring the CP-6A exposure report's rating table.
+    Ratings are collected off ingested holdings/market sheets (ratings.py), so
+    this lights up the moment one rated sheet is uploaded — no run required. Emits
+    the same sector-cluster / member-edge shape as _cluster_by_field so the client
+    concentration synthesis reads it unchanged."""
+    from ratings import rating_bucket, rating_index  # local: ratings.py has no engine deps
+
+    issuers = (await session.execute(
+        select(Issuer).where(or_(
+            Issuer.rating_moody.isnot(None), Issuer.rating_sp.isnot(None),
+            Issuer.rating_fitch.isnot(None))).limit(2000)
+    )).scalars().all()
+    if not issuers:
+        return _empty(cap, "Rating distribution", "No agency ratings on file yet.")
+    # Fixed senior→junior order so the register reads like a rating table.
+    order = ["IG", "BB", "B", "CCC", "Unrated"]
+    groups: Dict[str, List[Issuer]] = {}
+    for iss in issuers:
+        b = rating_bucket(rating_index(iss.rating_moody, iss.rating_sp, iss.rating_fitch))
+        groups.setdefault(b, []).append(iss)
+    ordered = [(b, groups[b]) for b in order if b in groups]
+    centers = _grid_centers(len(ordered))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    total = len(issuers)
+    for (name, members), (cx, cy) in zip(ordered, centers):
+        gid = f"grp:{name}"
+        pct = round(100 * len(members) / total)
+        nodes.append(_node(gid, f"{name} · {len(members)}", "sector", cx, cy,
+                           group=name, sub=f"{pct}% of rated book",
+                           flag=(name == "CCC") or None))
+        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name,
+                               sub=iss.rating_moody or iss.rating_sp or iss.rating_fitch,
+                               compact=True))
+            edges.append(_edge(gid, iss.id, kind="member"))
+    ccc = len(groups.get("CCC", []))
+    meta = [f"{total} rated issuers", f"{len(ordered)} rating buckets",
+            f"{ccc} in CCC/below" if ccc else "none in CCC/below"]
+    cav = ["Bucketed by best available agency rating (Moody's-preferred); collected "
+           "from ingested holdings/market sheets."]
+    return _result(cap, "Rating distribution", nodes, edges, meta, cav)
+
+
+async def _portfolio_exposure(session: AsyncSession, cap: dict) -> dict:
+    """The CLO's sector concentration, computed from ingested holdings
+    (engine/portfolio.py). Sector clusters (kind 'sector') with their obligors as
+    members — the same shape as _cluster_by_field, so the client concentration
+    synthesis reads it unchanged. >10% sectors flag (the typical single-sector cap)."""
+    from engine.portfolio import compute_exposure
+
+    rows = (await session.execute(select(PortfolioPosition).limit(5000))).scalars().all()
+    if not rows:
+        return _empty(cap, "Portfolio exposure", "No portfolio holdings ingested yet.")
+    positions = [{"borrower_name": r.borrower_name, "issuer_id": r.issuer_id, "sector": r.sector,
+                  "ranking": r.ranking, "rating_moody": r.rating_moody, "rating_sp": r.rating_sp,
+                  "par_usd": r.par_usd, "price": r.price} for r in rows]
+    ex = compute_exposure(positions)
+    sectors = ex["sectors"][:20]  # top 20 by MV
+    # obligor names per sector (distinct), for member dots under each cluster.
+    per_sector: Dict[str, List[str]] = {}
+    for r in rows:
+        s = str(r.sector or "Unclassified")
+        name = (r.borrower_name or "—")
+        bucket = per_sector.setdefault(s, [])
+        if name not in bucket:
+            bucket.append(name)
+
+    centers = _grid_centers(len(sectors))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for sec, (cx, cy) in zip(sectors, centers):
+        name = sec["sector"]
+        pct = sec["pct_nav"]
+        gid = f"grp:{name}"
+        nodes.append(_node(gid, f"{name} · {pct}%", "sector", cx, cy, group=name,
+                           sub=f"{sec['n_obligors']} obligors", flag=(pct is not None and pct > 10) or None))
+        members = per_sector.get(name, [])[:24]
+        for oname, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            oid = f"pos:{name}:{oname}"
+            nodes.append(_node(oid, oname, "issuer", mx, my, group=name, compact=True))
+            edges.append(_edge(gid, oid, kind="member"))
+    top = sectors[0]
+    meta = [f"${ex['total_nav']:,.0f} NAV · {ex['n_positions']} positions · {ex['n_obligors']} obligors",
+            f"{len(sectors)} sectors shown",
+            f"top: {top['sector']} {top['pct_nav']}%"]
+    cav = ["Computed from ingested CLO holdings (%NAV by sector); >10% flags a single-sector-cap breach."]
+    return _result(cap, "Portfolio exposure", nodes, edges, meta, cav)
 
 
 def _grid_centers(n: int) -> List[Tuple[float, float]]:

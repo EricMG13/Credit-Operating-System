@@ -187,6 +187,11 @@ class Run(Base):
     # background runner applies the same TEST/LITE/BALANCED/MAX tier the creating
     # request chose, including across a re-claim. NULL = the default mode.
     model_mode: Mapped[Optional[str]] = mapped_column(String(16))
+    # Portfolio this run is evaluated against (CP-3C reads it for the live
+    # concentration register); NULL = a standalone run with no portfolio context.
+    # Soft ref (plain string, no FK) — avoids a SQLite ALTER-ADD-FK on the existing,
+    # self-referential runs table; the app resolves it explicitly.
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
     # Run-level gate roll-up (worst module status wins).
     qa_status: Mapped[str] = mapped_column(String(16), default="Not Reviewed")
     committee_status: Mapped[str] = mapped_column(String(32), default="Draft Only")
@@ -478,6 +483,81 @@ class AnalystQaFlag(Base):
     step_ref: Mapped[Optional[str]] = mapped_column(String(120))
     note: Mapped[Optional[str]] = mapped_column(Text)
     analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# ─── Portfolio posture (managed CLO: holdings + constraints) ─────────────────
+# A portfolio is a managed book (e.g. a CLO) built from an uploaded holdings file.
+# Exposure and constraint compliance are COMPUTED deterministically from positions
+# (engine/portfolio.py) — nothing here caches a derived %; the holdings are the
+# source of truth. Feeds CP-3C's live concentration register (via Run.portfolio_id).
+
+
+class Portfolio(Base):
+    """A managed book (CLO) — the envelope its positions + constraints hang off."""
+
+    __tablename__ = "portfolios"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), default="CLO")
+    as_of_date: Mapped[Optional[str]] = mapped_column(String(32))
+    # Free-form mandate facts (cap structure / parties / fees / non-call), parsed
+    # from the mandate file — a roll-up for display, like ModuleOutput.runtime_output.
+    mandate: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PortfolioPosition(Base):
+    """One CLO position (a held loan). ``par_usd`` is the CLO's par holding ($);
+    ``facility_musd`` is the loan's total facility size ($M, reference only).
+    ``issuer_id`` soft-links to a registered issuer when one matches (else NULL —
+    positions don't require an issuer to exist)."""
+
+    __tablename__ = "portfolio_positions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    portfolio_id: Mapped[str] = mapped_column(String(36), ForeignKey("portfolios.id"), index=True)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    borrower_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ticker: Mapped[Optional[str]] = mapped_column(String(32))
+    figi: Mapped[Optional[str]] = mapped_column(String(32))
+    loan_name: Mapped[Optional[str]] = mapped_column(String(255))
+    sector: Mapped[Optional[str]] = mapped_column(String(128))
+    sub_sector: Mapped[Optional[str]] = mapped_column(String(128))
+    ranking: Mapped[Optional[str]] = mapped_column(String(64))
+    rating_moody: Mapped[Optional[str]] = mapped_column(String(16))
+    rating_sp: Mapped[Optional[str]] = mapped_column(String(16))
+    par_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    facility_musd: Mapped[Optional[float]] = mapped_column(Float)
+    margin_bps: Mapped[Optional[float]] = mapped_column(Float)
+    maturity: Mapped[Optional[str]] = mapped_column(String(32))
+    price: Mapped[Optional[float]] = mapped_column(Float)
+    ytm: Mapped[Optional[float]] = mapped_column(Float)
+    dm: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PortfolioConstraint(Base):
+    """A constraint *definition* (limit) for a portfolio. Current / headroom /
+    status are COMPUTED against live exposure (engine.portfolio.check_constraints),
+    never stored — the definition is the durable part."""
+
+    __tablename__ = "portfolio_constraints"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    portfolio_id: Mapped[str] = mapped_column(String(36), ForeignKey("portfolios.id"), index=True)
+    code: Mapped[Optional[str]] = mapped_column(String(16))
+    category: Mapped[Optional[str]] = mapped_column(String(64))
+    parameter: Mapped[Optional[str]] = mapped_column(String(255))
+    limit_text: Mapped[Optional[str]] = mapped_column(String(128))
+    limit_value: Mapped[Optional[float]] = mapped_column(Float)
+    limit_unit: Mapped[Optional[str]] = mapped_column(String(32))
+    limit_op: Mapped[Optional[str]] = mapped_column(String(8))
+    breach_type: Mapped[Optional[str]] = mapped_column(String(16))
+    source_document: Mapped[Optional[str]] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

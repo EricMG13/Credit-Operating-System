@@ -90,8 +90,8 @@ def _stamp_prompt_version(synthesizer_name: str) -> str:
 # synthesis. An AsyncSession is not safe for concurrent use, so these run
 # serially within their layer while the pure (retrieve-only) modules fan out.
 # CP-0 reads the issuer's vaulted docs; CP-1 may vault EDGAR XBRL; CP-1C reads
-# the metric store for peers.
-_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C"}
+# the metric store for peers; CP-3C reads the bound portfolio's positions.
+_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C", "CP-3C"}
 
 
 def _now() -> datetime:
@@ -130,6 +130,7 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
 async def synthesize_module(  # noqa: C901  # pre-existing multi-branch dispatcher; decompose the dispatch table when reworked
     module_id: str, session: AsyncSession, issuer: Optional[Issuer],
     issuer_name: str, synthesizer, upstream: Dict[str, ModulePayload], retrieve,
+    portfolio_id: Optional[str] = None,
 ) -> ModulePayload:
     """Dispatch one module to its wired synthesizer (the engine's slice). Reads run
     state (issuer / upstream / retrieve) but writes none, so a layer's pure-synth
@@ -208,9 +209,11 @@ async def synthesize_module(  # noqa: C901  # pre-existing multi-branch dispatch
     # CP-1's distressed EV over them for expected recovery / instrument preference.
     if module_id == "CP-3B":
         return await synthesize_recovery_preference(retrieve, upstream.get("CP-1"))
-    # CP-3C maps CP-3's RV recommendation to a portfolio sleeve/sizing.
+    # CP-3C maps CP-3's RV recommendation to a portfolio sleeve/sizing; when the
+    # run is bound to a portfolio, its concentration register goes live.
     if module_id == "CP-3C":
-        return await synthesize_portfolio_fit(upstream["CP-3"], upstream.get("CP-1"))
+        return await synthesize_portfolio_fit(
+            upstream["CP-3"], upstream.get("CP-1"), session, issuer, portfolio_id)
     # CP-3D scores refinancing/LME vulnerability from leverage + fragility.
     if module_id == "CP-3D":
         return await synthesize_refinancing(upstream["CP-1"], upstream.get("CP-2B"))
@@ -295,7 +298,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             try:
                 return await synthesize_module(
                     module_id, session, issuer, issuer_name,
-                    synthesizer, upstream, retrieve,
+                    synthesizer, upstream, retrieve, run.portfolio_id,
                 )
             except SynthesisError as e:
                 return e
