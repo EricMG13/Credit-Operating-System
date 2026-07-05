@@ -418,11 +418,14 @@ def write_memo(vault_dir: str | Path, title: str, md: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{title}.md"
     n = 2
-    while path.exists():
-        path = d / f"{title} - {n}.md"
-        n += 1
-    path.write_text(md, encoding="utf-8")
-    return path
+    while True:
+        try:
+            with path.open("x", encoding="utf-8") as f:
+                f.write(md)
+            return path
+        except FileExistsError:
+            path = d / f"{title} - {n}.md"
+            n += 1
 
 
 _last_vault_mtime = 0.0
@@ -499,60 +502,59 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
         if not vault_path.exists() or not vault_path.is_dir():
             return 0
 
-    md_files, max_mtime, file_count = await asyncio.to_thread(_scan_memo_files, vault_path)
+        md_files, max_mtime, file_count = await asyncio.to_thread(_scan_memo_files, vault_path)
 
-    if not md_files:
-        if _last_vault_file_count > 0:
-            await session.execute(delete(AnalystLink))
-            _last_vault_file_count = 0
-            _last_vault_mtime = 0.0
-            return 1
-        return 0
+        if not md_files:
+            if _last_vault_file_count > 0:
+                await session.execute(delete(AnalystLink))
+                _last_vault_file_count = 0
+                _last_vault_mtime = 0.0
+                return 1
+            return 0
 
-    if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
-        return 0
+        if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
+            return 0
 
-    issuers = (await session.execute(select(Issuer))).scalars().all()
-    issuer_map = {iss.name.lower().strip(): iss.id for iss in issuers}
-    for iss in issuers:
-        if iss.ticker:
-            issuer_map[iss.ticker.lower().strip()] = iss.id
+        issuers = (await session.execute(select(Issuer))).scalars().all()
+        issuer_map = {iss.name.lower().strip(): iss.id for iss in issuers}
+        for iss in issuers:
+            if iss.ticker:
+                issuer_map[iss.ticker.lower().strip()] = iss.id
 
-    parsed_links = []
-    link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+        link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
-    def process_memos_in_thread(files, mappings):
-        links = []
-        for p in files:
-            try:
-                with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                    note_name = p.stem
-                    for line in f:
-                        for match in link_re.finditer(line):
-                            target_name = match.group(1).strip().lower()
-                            target_id = mappings.get(target_name)
-                            if target_id:
-                                excerpt = line.strip()
-                                excerpt = link_re.sub(r"\1", excerpt)
-                                links.append({
-                                    "source_note": note_name,
-                                    "target_issuer_id": target_id,
-                                    "excerpt": excerpt[:200] or f"Note: {note_name}"
-                                })
-            except Exception:
-                continue
-        return links
+        def process_memos_in_thread(files, mappings):
+            links = []
+            for p in files:
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        note_name = p.stem
+                        for line in f:
+                            for match in link_re.finditer(line):
+                                target_name = match.group(1).strip().lower()
+                                target_id = mappings.get(target_name)
+                                if target_id:
+                                    excerpt = line.strip()
+                                    excerpt = link_re.sub(r"\1", excerpt)
+                                    links.append({
+                                        "source_note": note_name,
+                                        "target_issuer_id": target_id,
+                                        "excerpt": excerpt[:200] or f"Note: {note_name}"
+                                    })
+                except Exception:
+                    continue
+            return links
 
-    parsed_links = await asyncio.to_thread(process_memos_in_thread, md_files, issuer_map)
+        parsed_links = await asyncio.to_thread(process_memos_in_thread, md_files, issuer_map)
 
-    await session.execute(delete(AnalystLink))
+        await session.execute(delete(AnalystLink))
 
-    if parsed_links:
-        await session.execute(insert(AnalystLink).values(parsed_links))
+        if parsed_links:
+            await session.execute(insert(AnalystLink).values(parsed_links))
 
-    _last_vault_mtime = max_mtime
-    _last_vault_file_count = file_count
-    return len(parsed_links)
+        _last_vault_mtime = max_mtime
+        _last_vault_file_count = file_count
+        return len(parsed_links)
 
 
 if __name__ == "__main__":  # ponytail: one runnable self-check for the render/link logic

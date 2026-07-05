@@ -3,6 +3,7 @@
 Query graph read-back."""
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -106,6 +107,14 @@ def test_write_memo_dedupes_instead_of_overwriting(tmp_path):
     assert p1.name == "Note.md" and p2.name == "Note - 2.md"
     assert p1.read_text() == "one" and p2.read_text() == "two"
     assert p1.parent.name == vault_export.MEMOS_DIR
+
+
+def test_write_memo_same_title_concurrently_does_not_overwrite(tmp_path):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        paths = list(pool.map(lambda body: write_memo(tmp_path, "Race", body), ["one", "two"]))
+
+    assert len({p.name for p in paths}) == 2
+    assert sorted(p.read_text() for p in paths) == ["one", "two"]
 
 
 def test_memo_title_sanitizes_traversal_and_illegal_chars():

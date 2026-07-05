@@ -25,11 +25,11 @@ The mode picks a model *tier* + a reasoning *effort* per lane class:
 The four tiers wire the **OpenRouter hybrid**: cheap/fast/strong on DeepSeek-v4
 (flash on cheap/fast, pro on strong), the top tier on Claude Opus — so MAX heavy =
 Opus and the cheap/light lanes run on DeepSeek Flash. The hybrid only takes effect
-when ``OPENROUTER_API_KEY`` is set; without it an OpenRouter tier degrades to its
-Anthropic equivalent (below), so the engine runs unchanged — and offline tests stay
-Anthropic. A tier can also point at a ``gemini-*`` id (needs ``GEMINI_API_KEY``);
-effort then drives Gemini's thinking config — it is inert on Anthropic and
-OpenRouter lanes (the seam drops it).
+when ``OPENROUTER_API_KEY`` is set; without it a tier degrades to a configured
+provider, preserving the Anthropic fallback for keyless/offline tests. A tier can
+also point at a ``gemini-*`` id (needs ``GEMINI_API_KEY``); effort then drives
+Gemini's thinking config — it is inert on Anthropic and OpenRouter lanes (the seam
+drops it).
 
 Carried in a ContextVar (like engine/budget's run id / budget) so it threads a
 whole run — including the background runner task — without touching every
@@ -153,16 +153,33 @@ def _tier_model(s, tier: str) -> str:
     }[tier]
 
 
+def _has_provider_key(s, model: str) -> bool:
+    if model.startswith("gemini"):
+        return bool(s.gemini_api_key)
+    if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
+        return bool(s.openrouter_api_key)
+    return bool(s.anthropic_api_key)
+
+
+def _configured_fallback(s, tier: str) -> str:
+    if s.anthropic_api_key:
+        return _ANTHROPIC_FALLBACK[tier]
+    if s.gemini_api_key:
+        return s.council_reviewer_model_gemini
+    for t in (tier, "strong", "fast", "cheap", "top"):
+        model = _tier_model(s, t)
+        if _has_provider_key(s, model):
+            return model
+    return _ANTHROPIC_FALLBACK[tier]
+
+
 def model_for(lane_class: str) -> str:
-    """The model ID for ``lane_class`` under the active mode. A Gemini tier
-    degrades to its Anthropic equivalent when no GEMINI_API_KEY is set."""
+    """The model ID for ``lane_class`` under the active mode."""
     s = get_settings()
     tier = _TABLE[current_mode()][lane_class]
     model = _tier_model(s, tier)
-    if model.startswith("gemini") and not s.gemini_api_key:
-        return _ANTHROPIC_FALLBACK[tier]
-    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
-        return _ANTHROPIC_FALLBACK[tier]
+    if not _has_provider_key(s, model):
+        return _configured_fallback(s, tier)
     return model
 
 
@@ -205,4 +222,4 @@ def reviewer_model() -> str:
     # cross critic is Anthropic (Claude critiques the DeepSeek draft).
     if heavy.startswith("claude") or heavy.startswith("anthropic"):
         return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
-    return s.council_reviewer_model_anthropic
+    return s.council_reviewer_model_anthropic if s.anthropic_api_key else heavy

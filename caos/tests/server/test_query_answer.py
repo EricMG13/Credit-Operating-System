@@ -1,6 +1,6 @@
 """Grounded answer lane (engine/queryanswer.py): the sentence gate (a sentence
 survives only when it cites a real retrieved chunk AND states only grounded
-figures), the no-chunks degrade, and the (question, corpus-fingerprint) cache."""
+figures), the no-chunks degrade, and the scoped cache."""
 
 from __future__ import annotations
 
@@ -78,6 +78,30 @@ def test_sentence_gate_and_cache(monkeypatch):
     # Same question + unchanged corpus fingerprint → cached, no second LLM call.
     assert second["cached"] is True
     assert len(calls) == 1
+
+
+@pytest.mark.usefixtures("seeded_db")
+def test_cache_is_scoped_by_capability_and_issuer(monkeypatch):
+    from database import AsyncSessionLocal
+
+    calls: list = []
+    _wire(monkeypatch)
+    _fake_anthropic(monkeypatch, REPLY, calls)
+
+    async def _run():
+        async with AsyncSessionLocal() as db:
+            first = await queryanswer.answer(
+                db, "Where is leverage?", capability_id="peer-set", issuer_id="i1", analyst_id="a1"
+            )
+        async with AsyncSessionLocal() as db:
+            second = await queryanswer.answer(
+                db, "Where is leverage?", capability_id="issuer-risk", issuer_id="i2", analyst_id="a1"
+            )
+        return first, second
+
+    first, second = asyncio.run(_run())
+    assert first["cached"] is False and second["cached"] is False
+    assert len(calls) == 2
 
 
 @pytest.mark.usefixtures("seeded_db")

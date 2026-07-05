@@ -7,7 +7,7 @@ cited AI paragraph that sits beside it. Retrieval-grounded, sentence-gated:
       → one LLM call (chunks wrapped as untrusted content)
       → sentence gate: keep only sentences that cite a real retrieved chunk AND
         state only numbers grounded in those chunks; the rest are dropped
-      → persisted + cached by (question_hash, corpus fingerprint)
+      → persisted + cached by (question_hash incl. scope, corpus fingerprint)
 
 The deterministic synthesis line still leads the answer — this prose is additive
 and marked AI-generated on the client. Fault isolation: any LLM/parse failure
@@ -70,9 +70,11 @@ def _text_of(resp) -> str:
     return next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "")
 
 
-def _question_hash(question: str) -> str:
+def _question_hash(question: str, capability_id: Optional[str] = None,
+                   issuer_id: Optional[str] = None) -> str:
     norm = re.sub(r"\s+", " ", question.strip().lower())
-    return hashlib.sha256(norm.encode()).hexdigest()
+    scoped = "\0".join((capability_id or "", issuer_id or "", norm))
+    return hashlib.sha256(scoped.encode()).hexdigest()
 
 
 class _Sentence(BaseModel):
@@ -175,8 +177,8 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
 async def answer(db: AsyncSession, question: str, *, capability_id: Optional[str] = None,
                  issuer_id: Optional[str] = None, analyst_id: Optional[str] = None,
                  force: bool = False) -> dict:
-    """Grounded AI answer for one question, cached by (question, corpus fingerprint)."""
-    qhash = _question_hash(question)
+    """Grounded AI answer for one scoped question, cached by corpus fingerprint."""
+    qhash = _question_hash(question, capability_id, issuer_id)
     fp = await fingerprint(db)
 
     if not force:
