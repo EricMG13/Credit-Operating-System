@@ -14,6 +14,7 @@ from engine.fixtures import REFERENCE_ISSUER_ID, atlf_payload
 from engine.report import assemble_report, committee_export_allowed
 from engine.gate import (
     Finding,
+    cap_committee_status_for_blocked_upstream,
     committee_status_from,
     qa_status_from,
     roll_up_qa_status,
@@ -140,6 +141,58 @@ def test_run_rollup_and_worst_confidence():
     assert roll_up_qa_status(["Passed", "Pending"]) == "Pending"
     assert worst_confidence(["High", "Medium", "Low"]) == "Low"
     assert worst_confidence([]) == "Insufficient Information"
+
+
+# ── CP-5D post-gate committee-status cascade ─────────────────────────────────
+def test_cap_committee_status_downgrades_only_committee_ready():
+    # A dependent of a post-gate-Blocked module cannot be committee-ready; cap at
+    # Restricted. Every already-non-ready status is left untouched (downgrade only).
+    assert cap_committee_status_for_blocked_upstream("Committee Ready") == "Restricted"
+    for keep in ("Restricted", "Draft Only", "Insufficient Information", "Blocked"):
+        assert cap_committee_status_for_blocked_upstream(keep) == keep
+
+
+def test_blocked_ancestors_walks_registry_dag_transitively():
+    # Real registry edges: CP-2B depends on CP-1 directly; CP-6E depends on CP-6A
+    # which depends on CP-1, so a Blocked CP-1 must taint both. CP-0 is upstream of
+    # CP-1 (not downstream) and must stay clean — the cascade only flows downstream.
+    from engine.runner import _blocked_ancestors
+
+    blocked = frozenset({"CP-1"})
+    assert "CP-1" in _blocked_ancestors("CP-2B", blocked, {})
+    assert "CP-1" in _blocked_ancestors("CP-6E", blocked, {})  # transitive via CP-6A
+    assert _blocked_ancestors("CP-0", blocked, {}) == frozenset()
+
+
+def test_blocked_upstream_cascade_caps_dependents_and_leaves_clean_modules():
+    from engine.runner import _apply_blocked_upstream_cascade
+
+    def _row(committee):
+        return SimpleNamespace(committee_status=committee, limitation_flags=[])
+
+    # CP-1 post-gate Blocked; CP-2B (direct dep) was Committee Ready; CP-6E (dep of
+    # CP-6A, dep of CP-1) was already Restricted for its own reasons; CP-0 is upstream
+    # of CP-1 and clean.
+    analytical_ids = ["CP-0", "CP-1", "CP-2B", "CP-6E"]
+    module_status = {"CP-0": "Passed", "CP-1": "Blocked", "CP-2B": "Passed", "CP-6E": "Restricted"}
+    rows = {
+        "CP-0": _row("Committee Ready"),
+        "CP-1": _row("Blocked"),
+        "CP-2B": _row("Committee Ready"),
+        "CP-6E": _row("Restricted"),
+    }
+    _apply_blocked_upstream_cascade(analytical_ids, module_status, rows)
+
+    # Committee-Ready dependent is capped; the flag names the Blocked upstream.
+    assert rows["CP-2B"].committee_status == "Restricted"
+    assert any("CP-1" in f for f in rows["CP-2B"].limitation_flags)
+    # Already-Restricted dependent keeps its status but still gets the lineage flag.
+    assert rows["CP-6E"].committee_status == "Restricted"
+    assert any("CP-1" in f for f in rows["CP-6E"].limitation_flags)
+    # The Blocked module itself and a clean upstream are untouched (no cap, no flag).
+    assert rows["CP-1"].committee_status == "Blocked"
+    assert rows["CP-0"].committee_status == "Committee Ready"
+    assert rows["CP-0"].limitation_flags == []
 
 
 # ── CP-5B lineage validation ─────────────────────────────────────────────────
