@@ -166,10 +166,13 @@ async def retrieve_corpus(
     rows = (await db.execute(stmt)).all()
     meta = {r[0]: (r[2], r[3]) for r in rows}  # chunk_id -> (issuer_id, file_name)
     corpus = [(r[0], r[1]) for r in rows]
+    # bm25_rank tokenizes the whole cross-issuer corpus (CPU-bound) — off-thread so
+    # a large corpus can't stall the single-worker event loop (mirror retrieve()).
+    hits = await asyncio.to_thread(bm25_rank, query, corpus, k)
     return [
         CorpusHit(chunk_id=h.chunk_id, text=h.text, score=h.score,
                   issuer_id=meta[h.chunk_id][0], doc=meta[h.chunk_id][1])
-        for h in bm25_rank(query, corpus, k=k)
+        for h in hits
     ]
 
 
@@ -189,8 +192,10 @@ async def retrieve_corpus_by_issuer(
     )).all()
     meta = {r[0]: (r[2], r[3]) for r in rows}
     corpus = [(r[0], r[1]) for r in rows]
+    # off-thread the CPU-bound rank (mirror retrieve()); scores every chunk
+    hits = await asyncio.to_thread(bm25_rank, query, corpus, len(corpus))
     best: dict[str, CorpusHit] = {}
-    for h in bm25_rank(query, corpus, k=len(corpus)):  # hits are best-first
+    for h in hits:  # hits are best-first
         iid = meta[h.chunk_id][0]
         if iid not in best:  # first hit seen per issuer is its top chunk
             best[iid] = CorpusHit(chunk_id=h.chunk_id, text=h.text, score=h.score,

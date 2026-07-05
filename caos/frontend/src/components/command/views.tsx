@@ -118,10 +118,11 @@ export function Spark({ data, color = "var(--caos-accent)", w = 72, h = 18 }: { 
 // meaning shouldn't depend on prior knowledge or a bare glyph.
 const COL_TITLES: Record<string, string> = {
   "3Y DM": "3-year discount margin (bps)",
-  "Δ d/d": "Day-over-day change (bps)",
+  "Δ 1D": "Day-over-day change in discount margin (bps)",
   NetLev: "Net leverage (×)",
+  SnrLev: "Senior leverage (×)",
+  TotLev: "Total leverage (×)",
   IntCov: "Interest coverage (×)",
-  M2E: "Market-to-estimate gap",
   "Conv.": "Conviction — analyst scale 1–5",
   QA: "QA clearance status",
   "⚑": "Open alerts",
@@ -283,8 +284,10 @@ export function PortfolioTable({
             key="dd"
             className="tabular text-right rounded px-0.5"
             style={{
-              color: p.dd > 0 ? "var(--caos-success-bright)" : p.dd < 0 ? "var(--caos-critical-bright)" : "var(--caos-muted)",
-              background: p.dd > 0 ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : p.dd < 0 ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : undefined,
+              // Δ 1D is a DM-spread delta in bps: positive = widening = deterioration (critical),
+              // negative = tightening = improvement (success). Matches the sparkline rule (:223) and moveColor.
+              color: p.dd > 0 ? "var(--caos-critical-bright)" : p.dd < 0 ? "var(--caos-success-bright)" : "var(--caos-muted)",
+              background: p.dd > 0 ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : p.dd < 0 ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : undefined,
             }}
           >
             {p.dd > 0 ? "+" : ""}{p.dd.toFixed(2)}
@@ -678,6 +681,12 @@ function alertArrival(i: number): string {
 export function AlertFeed({ tick, running, done, sevFilter = null }: {
   tick: number; running: boolean; done: boolean; sevFilter?: string | null;
 }) {
+  // The alert row cites evidence and routes to a module; the "source" chip closes
+  // the loop by opening the SAME EmailWindow the intake tape uses, so a critical
+  // re-score is one interaction from the message that fired it (design principle
+  // #3). Alerts with no triggering email render the chip disabled with a reason —
+  // the no-dead-ends pattern mirroring FEED_LINKABLE_ISSUERS.
+  const [openEmail, setOpenEmail] = useState<EmailRow | null>(null);
   // Progressive reveal while the replay steps (the "arriving" feel); all rows once
   // it completes (a finished day shows the full routing log, even if it finished
   // before tick 40). Gating on `done` — not on "is running" — is what keeps the
@@ -701,6 +710,8 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
         // Only the true newest row pulses, and only while the sim is actively
         // running — a completed replay is static, not perpetually "live".
         const isNewest = r === 0 && !sevFilter;
+        // The intake message that fired this alert (undefined for derived alerts).
+        const srcEmail = typeof a.sourceEmail === "number" ? EMAILS[a.sourceEmail] : undefined;
         return (
           <div key={a.code} className={"flex items-start gap-2 px-3 py-[6px] border-b border-caos-border/50 " + (isNewest && running ? "caos-enter" : "")}>
             <Dot sev={a.sev} pulse={isNewest && running} />
@@ -725,11 +736,40 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
                 <span className="tabular text-caos-xs text-caos-muted ml-auto">{at}</span>
               </div>
               <div className="text-caos-md text-caos-text leading-snug mt-0.5">{a.text}</div>
-              <div className="mt-1"><Tag sev="info">route → {a.route}</Tag></div>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Tag sev="info">route → {a.route}</Tag>
+                {/* Source chip: opens the intake email that fired this alert —
+                    same EmailWindow the tape uses, so evidence is one click away.
+                    Disabled (with a reason) when the alert is derived and has no
+                    single triggering message, mirroring the no-dead-ends pattern
+                    used for the issuer chip above. */}
+                {srcEmail ? (
+                  <button
+                    type="button"
+                    onClick={() => setOpenEmail(srcEmail)}
+                    title={`Open source message: ${srcEmail.subj}`}
+                    aria-label={`Open source email for ${a.issuer} alert ${a.code}`}
+                    className="inline-flex items-center gap-1 tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-accent hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer"
+                  >
+                    <span aria-hidden="true">✉</span>
+                    <span>Source</span>
+                  </button>
+                ) : (
+                  <span
+                    title="Derived alert — no single intake email; see CP-3 fair-value band"
+                    aria-label="No source email — derived alert"
+                    className="inline-flex items-center gap-1 tabular text-caos-2xs px-1.5 py-px rounded border border-dashed border-caos-border/60 text-caos-muted cursor-default"
+                  >
+                    <span aria-hidden="true">✉</span>
+                    <span>No source</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         );
       })}
+      {openEmail ? <EmailWindow email={openEmail} onClose={() => setOpenEmail(null)} /> : null}
     </div>
   );
 }

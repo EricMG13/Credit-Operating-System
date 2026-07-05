@@ -108,6 +108,12 @@ function PipelineVisualizer() {
     !isReference && liveMode && phase !== "complete" && phase !== "loading"
       ? phase
       : null;
+  // While a *real* issuer's run is still loading, blockingState is null and
+  // useLive is false — falling through would autoplay the ATLF green-PASS demo
+  // stamped with another deal's name under this issuer's URL (the same fabricated
+  // -green leak the fail-open guard exists to prevent, on the loading phase it
+  // forgot). Show a neutral loading shell until the real state resolves instead.
+  const loadingState = !isReference && liveMode && phase === "loading";
 
   const sim = useLive ? live!.sim : run.sim;
   const scope = useLive ? live!.scope : simScope;
@@ -140,6 +146,11 @@ function PipelineVisualizer() {
   // state, never the fabricated green-PASS demo monitor under their name.
   if (blockingState) {
     return <PipelineRunState state={blockingState} issuerId={issuerId} runStatus={latest?.status ?? null} />;
+  }
+  // Real issuer, fetch still in flight — show a neutral loading shell rather than
+  // the autoplaying demo sim (which would flash another deal's green PASS run).
+  if (loadingState) {
+    return <PipelineLoadingState issuerId={issuerId} />;
   }
 
   return (
@@ -246,6 +257,34 @@ function PipelineRunState({
   );
 }
 
+// Neutral loading shell for a real issuer whose run is still being fetched.
+// Renders the issuer identity + a quiet "Loading run…" state instead of letting
+// the page fall through to the autoplaying ATLF green-PASS demo sim, which would
+// briefly stamp another deal's passing run under this issuer's URL.
+function PipelineLoadingState({ issuerId }: { issuerId: string }) {
+  return (
+    <div className="h-screen flex flex-col bg-caos-bg">
+      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
+        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+          ← Directory
+        </Link>
+        <div className="h-4 w-px bg-caos-border" />
+        <ConceptNav compact />
+        <div className="h-4 w-px bg-caos-border" />
+        <span className="tabular text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{issuerId}</span>
+        <div className="flex-1" />
+        <Tag sev="idle">LOADING</Tag>
+      </div>
+      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+        <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-caos-muted">
+          <Dot sev="running" pulse />
+          <span className="tabular text-caos-lg">Loading run…</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface PipelineHeaderProps {
   live: LivePipeline | null;
   liveMode: boolean;
@@ -326,8 +365,13 @@ function PipelineHeader({
       >
         ↑ L0 INTAKE
       </Link>
-      <span className="tabular text-caos-md text-caos-accent whitespace-nowrap hidden 2xl:inline">{useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId}</span>
-      <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{useLive ? (issuerId === ATLF_REFERENCE_ISSUER_ID ? "Atlas Forge — live CP-X run" : "Live CP-X run") : "Atlas Forge — " + mode.title}</span>
+      {/* RUN id is identity, not chrome — keep it visible at every breakpoint so
+          an analyst with two pipeline tabs open can always tell the runs apart.
+          The one-line summary (below) is the first thing to drop under squeeze. */}
+      <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId}</span>
+      {/* Always name the issuer on a live run — a generic "Live CP-X run" title
+          gives the analyst no way to know whose clearance verdict this is. */}
+      <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{useLive ? (issuerId === ATLF_REFERENCE_ISSUER_ID ? "Atlas Forge — live CP-X run" : `${issuerId} — live CP-X run`) : "Atlas Forge — " + mode.title}</span>
       <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{useLive ? live!.summary : mode.sub}</span>
       <div className="w-44 flex items-center gap-2 shrink-0">
         <Bar pct={total ? (completed / total) * 100 : 0} color="var(--caos-accent)" />
@@ -436,7 +480,7 @@ function PipelineWorkspace({
       </div>
       <div className="flex flex-col gap-2 min-h-0">
         <PanelShell title="Module Inspector" className="flex-[3]">
-          <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} />
+          <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} onOpen={openModule} />
         </PanelShell>
         <PanelShell
           title={mode.drivers ? `Data Lineage · CP-5B drivers in scope (${mode.drivers.length}/5)` : "Data Lineage · CP-5B top-5 material drivers"}

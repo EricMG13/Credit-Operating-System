@@ -5,7 +5,7 @@
 // QuerySpec over the curated metric store and returns a ranked, evidence-cited,
 // gate-aware answer. Surfaced on the Command Center as the "scan coverage" tool.
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -161,7 +161,7 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
               ? { text: "CP-1 LIVE", color: "var(--caos-success)", title: "Financials are run-derived and cited (CP-1)." }
               : anyDerived
               ? { text: "DERIVED", color: "var(--caos-accent)", title: "Includes a value derived from this issuer's filings (cited)." }
-              : { text: "SEEDED", color: "var(--caos-idle)", title: "Illustrative seed values (no source yet)." };
+              : { text: "SEEDED", color: "var(--caos-muted)", title: "Illustrative seed values (no source yet)." };
             const worstQa = Object.values(cells).map((m) => m.qa_status);
             const qa = worstQa.includes("Blocked") ? "Blocked" : worstQa.includes("Restricted") ? "Restricted" : "ok";
             return (
@@ -266,22 +266,42 @@ export function NlQueryBody() {
   const [res, setRes] = useState<NlQueryResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
+  // Polite live-region text so screen-reader users follow the otherwise
+  // visual-only query run (busy start → result count / cancelled / failed).
+  const [liveMsg, setLiveMsg] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
   const openCite: OpenCite = (id, label) => setCite({ id, label });
+
+  // A second click while in-flight aborts the request (button reads CANCEL).
+  const cancel = () => abortRef.current?.abort();
 
   const run = async (text?: string) => {
     const question = (text ?? q).trim();
     if (!question || busy) return;
     if (text) setQ(text);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setBusy(true);
     setErr(null);
+    setLiveMsg("Querying the metric store…");
     try {
-      setRes(await nlQuery(question));
+      const result = await nlQuery(question, ctrl.signal);
+      setRes(result);
+      const n = result.rows.length;
+      setLiveMsg(`${n} ${n === 1 ? "issuer" : "issuers"} returned.`);
     } catch (e) {
+      if (ctrl.signal.aborted) {
+        setRes(null);
+        setLiveMsg("Query cancelled.");
+        return;
+      }
       const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
         || (e as Error)?.message || "query failed";
       setErr(String(detail));
       setRes(null);
+      setLiveMsg("Query failed.");
     } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
       setBusy(false);
     }
   };
@@ -301,14 +321,30 @@ export function NlQueryBody() {
             className="flex-1 px-2.5 py-1.5 text-caos-xl"
           />
           <button
-            onClick={() => run()}
-            disabled={busy || !q.trim()}
+            onClick={() => (busy ? cancel() : run())}
+            disabled={!busy && !q.trim()}
+            aria-label={busy ? "Cancel query" : "Ask across issuers"}
             className="shrink-0 tabular text-caos-md px-3 py-1.5 rounded transition-caos disabled:opacity-40"
-            style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
+            style={
+              busy
+                ? { background: "transparent", color: "var(--caos-muted)", boxShadow: "inset 0 0 0 1px var(--caos-border)" }
+                : { background: "var(--caos-accent)", color: "var(--caos-bg)" }
+            }
           >
-            {busy ? "…" : "ASK"}
+            {busy ? "CANCEL" : "ASK"}
           </button>
         </div>
+
+        {/* polite live region — announces run start, result count, cancel, or failure */}
+        <div className="sr-only" role="status" aria-live="polite">{liveMsg}</div>
+
+        {/* in-flight affordance — a visible, labelled busy row (not a bare "…") */}
+        {busy ? (
+          <div className="flex items-center gap-1.5 tabular text-caos-xs text-caos-muted">
+            <StatusGlyph kind="running" className="caos-running" />
+            querying the metric store…
+          </div>
+        ) : null}
 
         {/* starters (only before a result) */}
         {!res && !busy ? (

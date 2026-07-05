@@ -70,17 +70,31 @@ function ReportStudio() {
   // Report Studio reads only the DB-saved Model Builder state. Unsaved browser
   // edits in /model do not affect committee output.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
+  // When the saved Model Builder state fails to load, the deliverable silently
+  // falls back to base fixture figures — a committee-ready PDF whose numbers
+  // differ from the analyst's saved model. Track the failure so the sub-header
+  // can state it (and offer a retry) rather than exporting a wrong read.
+  const [modelLoadError, setModelLoadError] = useState(false);
+  const [modelReloadKey, setModelReloadKey] = useState(0);
   // fallow-ignore-next-line complexity
   useEffect(() => {
+    let cancelled = false;
+    setModelLoadError(false);
     getSavedModel(issuerId).then((saved) => {
+      if (cancelled) return;
       const p = saved?.payload || {};
       setModelInputs({
         overrides: p.overrides && typeof p.overrides === "object" ? p.overrides : {},
         assumptions: p.assumptions && typeof p.assumptions === "object" ? p.assumptions : undefined,
         severity: 1,
       } as ModelInputs);
-    }).catch(() => setModelInputs({}));
-  }, [issuerId]);
+    }).catch(() => {
+      if (cancelled) return;
+      setModelInputs({});
+      setModelLoadError(true);
+    });
+    return () => { cancelled = true; };
+  }, [issuerId, modelReloadKey]);
   // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
   // uses). Only the ATLF reference page may build seeded report templates; real
   // issuers show no-output until CP-RENDER is wired to live module payloads.
@@ -249,6 +263,25 @@ function ReportStudio() {
             no run for this issuer · report unavailable
           </span>
         )}
+        {modelLoadError ? (
+          <span
+            role="alert"
+            className="tabular text-caos-xs flex items-center gap-1.5 shrink-0 px-1.5 h-6 rounded border whitespace-nowrap"
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+            title="Could not load this analyst's saved Model Builder overrides. The deliverable is showing base fixture figures, which may differ from the saved model."
+          >
+            <span aria-hidden="true">⚠</span>
+            saved model unavailable — base figures shown
+            <button
+              type="button"
+              onClick={() => setModelReloadKey((k) => k + 1)}
+              className="focus-ring underline underline-offset-2 hover:no-underline"
+              style={{ color: "var(--caos-warning)" }}
+            >
+              retry
+            </button>
+          </span>
+        ) : null}
         <span className="flex-1" />
         {/* paper tone — decorative, drops first on narrow screens */}
         <span className="hidden 2xl:flex items-center gap-1 shrink-0">
@@ -256,6 +289,8 @@ function ReportStudio() {
             <button
               key={p.v}
               onClick={() => setPaper(p.v)}
+              aria-pressed={paper === p.v}
+              aria-label={"Paper tone " + p.label}
               title={"Paper tone — " + p.label + " · preview only (export prints white)"}
               className={"focus-ring w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
               style={{ background: p.v }}
@@ -264,6 +299,7 @@ function ReportStudio() {
         </span>
         <button
           onClick={() => setShowSources(!showSources)}
+          aria-pressed={showSources}
           className={
             "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
@@ -273,13 +309,14 @@ function ReportStudio() {
         </button>
         <button
           onClick={() => setEditMode(!editMode)}
+          aria-pressed={editMode}
           title="Edit the deliverable inline — every figure, label and paragraph is editable; edits persist locally and carry into the PDF export"
           className={
             "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
             (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          ✎ EDIT
+          {editMode ? "✎ EDITING" : "✎ EDIT"}
         </button>
         {editCount > 0 ? (
           <button
@@ -297,6 +334,8 @@ function ReportStudio() {
             <button
               key={z}
               onClick={() => setZoom(z)}
+              aria-pressed={zoom === z}
+              aria-label={"Zoom " + Math.round(z * 100) + " percent"}
               className={
                 "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
                 (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
@@ -320,16 +359,21 @@ function ReportStudio() {
         >
           ⎙ EXPORT PDF
         </button>
-        <button
-          type="button"
-          onClick={() => setEvModal("E-44")}
-          title="Open QA-117 finding (evidence E-44)"
-          aria-label="Open QA-117 finding (evidence E-44)"
-          className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
-          style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-        >
-          CP-5 CONDITIONAL — QA-117
-        </button>
+        {/* QA-117 / evidence E-44 is a finding on the ATLF reference deal only.
+            Gate on isReference so it never renders — nor opens seeded evidence —
+            against a live issuer, whose header may correctly show "no run". */}
+        {isReference ? (
+          <button
+            type="button"
+            onClick={() => setEvModal("E-44")}
+            title="Open QA-117 finding (evidence E-44)"
+            aria-label="Open QA-117 finding (evidence E-44)"
+            className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+          >
+            CP-5 CONDITIONAL — QA-117
+          </button>
+        ) : null}
       </PageSubHeader>
 
       {/* workspace */}
@@ -367,6 +411,7 @@ function ReportStudio() {
           {rep.id === "model" ? (
             <button
               onClick={() => setHideAddbacks((v) => !v)}
+              aria-pressed={hideAddbacks}
               className={
                 "tabular text-caos-xs px-2 py-1.5 rounded border transition-caos focus-ring " +
                 (hideAddbacks ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")

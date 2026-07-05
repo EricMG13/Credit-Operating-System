@@ -125,7 +125,16 @@ export function GraphView({
             type="button"
             onClick={() => onSelect(sel ? null : m.id)}
             onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
-            title={inScope ? m.name + " — double-click to open module outputs" : "Out of scope for this route plan"}
+            onKeyDown={(e) => {
+              // Keyboard parity for the mouse's double-click-to-open: once a node
+              // is selected, a second Enter opens its outputs (WCAG 2.1.1). Space
+              // still toggles selection. First Enter on an unselected node selects.
+              if (e.key === "Enter" && sel && onDoubleClick) {
+                e.preventDefault();
+                onDoubleClick(m.id);
+              }
+            }}
+            title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : "Out of scope for this route plan"}
             aria-pressed={sel}
             className={"absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected z-10" : "")}
             style={{
@@ -188,7 +197,15 @@ export function SwimlaneView({
                     type="button"
                     onClick={() => onSelect(sel ? null : m.id)}
                     onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
-                    title={inScope ? m.name + " — double-click to open module outputs" : "Out of scope for this route plan"}
+                    onKeyDown={(e) => {
+                      // Keyboard parity with double-click-to-open: a second Enter on
+                      // an already-selected node opens its outputs (WCAG 2.1.1).
+                      if (e.key === "Enter" && sel && onDoubleClick) {
+                        e.preventDefault();
+                        onDoubleClick(m.id);
+                      }
+                    }}
+                    title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : "Out of scope for this route plan"}
                     aria-pressed={sel}
                     className={"text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected" : "")}
                     style={{
@@ -229,7 +246,7 @@ const REQ_TAG_COLOR: Record<string, string> = {
 };
 
 export function Inspector({
-  sim, selected, plan, scope, modeLabel, isLive = false,
+  sim, selected, plan, scope, modeLabel, isLive = false, onOpen,
 }: {
   sim: Sim;
   selected: string | null;
@@ -241,6 +258,11 @@ export function Inspector({
   // equivalent yet, so they are suppressed under a live run rather than shown as
   // if they belonged to it. The live payload line + lineage still render.
   isLive?: boolean;
+  // Open the selected module's outputs (deep-dive / report / intake). A visible,
+  // keyboard-reachable action for the single most valuable navigation on this
+  // surface — "show me this module's evidence" — which was previously double-
+  // click-only on the graph nodes (mouse-only, undiscoverable). (a11y H3)
+  onOpen?: (id: string) => void;
 }) {
   const m = selected ? MODULES.find((x) => x.id === selected) : undefined;
   const planEntry = selected ? plan.find((x) => x.id === selected) : undefined;
@@ -274,6 +296,16 @@ export function Inspector({
           <Dot sev={st} pulse={st === "running"} />
           <span className="tabular text-caos-xl text-caos-text">{m.id}</span>
           <Tag sev={st}>{st === "idle" ? "queued" : st}</Tag>
+          {onOpen ? (
+            <button
+              type="button"
+              onClick={() => onOpen(selected)}
+              title={`Open ${m.id} outputs${m.id === "CP-0" ? " · Document Intake" : m.layer === "INFRA" ? " · Report Studio" : " · Deep-Dive"}`}
+              className="ml-auto tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-accent hover:bg-caos-accent hover:text-caos-bg hover:border-caos-accent transition-caos whitespace-nowrap shrink-0 focus-ring"
+            >
+              OPEN →
+            </button>
+          ) : null}
         </div>
         <h2 className="text-caos-2xl text-caos-text mt-1 font-medium text-balance">{m.name}</h2>
         <div className="text-caos-md text-caos-muted mt-1 leading-snug max-w-[55ch]">{m.desc}</div>

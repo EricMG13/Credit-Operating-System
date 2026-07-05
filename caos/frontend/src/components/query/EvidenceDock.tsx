@@ -181,7 +181,7 @@ function ModelCommentary({
 
       {overlay.suggested_walks.length > 0 && onPickWalk && (
         <div>
-          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Suggested next walks</div>
+          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Suggested next questions</div>
           <div className="flex gap-1.5 flex-wrap">
             {overlay.suggested_walks.map((w) => (
               <button

@@ -38,6 +38,11 @@ interface ColDef {
 
 /* ---------- cell editor ---------- */
 function CellInput({ initial, label, onCommit }: { initial: string; label: string; onCommit: (v: string | null) => void }) {
+  // A no-op edit (open the editor, click away, no keystrokes) must NOT stamp a
+  // spurious MANUAL OVERRIDE. `initial` is the rounded display seed, so any value
+  // string-identical to it is an unchanged blur — commit null (cancel) instead of
+  // re-stamping the cell with a rounded copy of its own sourced actual.
+  const commit = (v: string | null) => onCommit(v != null && v === initial ? null : v);
   return (
     <input
       autoFocus
@@ -47,10 +52,10 @@ function CellInput({ initial, label, onCommit }: { initial: string; label: strin
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         const t = e.target as HTMLInputElement;
-        if (e.key === "Enter") { t.dataset.done = "1"; onCommit(t.value); }
+        if (e.key === "Enter") { t.dataset.done = "1"; commit(t.value); }
         else if (e.key === "Escape") { t.dataset.done = "1"; onCommit(null); }
       }}
-      onBlur={(e) => { if (!e.target.dataset.done) onCommit(e.target.value); }}
+      onBlur={(e) => { if (!e.target.dataset.done) commit(e.target.value); }}
       className="w-full tabular text-caos-xs text-right bg-caos-elevated outline-none px-0.5 rounded-sm"
       style={{ height: 15, border: "1px solid var(--caos-accent)", color: "var(--caos-text)" }}
     />
@@ -223,7 +228,16 @@ export function Sheet({
         role="gridcell"
         aria-selected={isSel}
         onClick={() => onSel({ row: rowId, col: c.key })}
-        onDoubleClick={() => { if (editable) onEdit({ row: rowId, col: c.key }); }}
+        onDoubleClick={(e) => {
+          if (editable) {
+            // Stop the row-level onDoubleClick (which toggles a collapsible
+            // parent's children) from firing on the SAME gesture that opens the
+            // editor — otherwise overriding a rev / Adj. EBITDA quarterly yanks
+            // the segment / add-back rows shut mid-edit.
+            e.stopPropagation();
+            onEdit({ row: rowId, col: c.key });
+          }
+        }}
         title={editable ? "double-click to override" : undefined}
         className="shrink-0 text-right pr-1.5 cursor-cell"
         style={{

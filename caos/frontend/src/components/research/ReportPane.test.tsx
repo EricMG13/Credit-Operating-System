@@ -63,4 +63,24 @@ describe("ReportPane result footer + print path", () => {
     render(<ReportPane {...base} result={null} />);
     expect(document.body.querySelector(".print-root")).toBeNull();
   });
+
+  // H1: a report the server cut off at the output limit must NOT file as a clean
+  // committee tear-sheet — the truncation notice has to be on the sheet itself so
+  // it survives PDF export, and the foot provenance must record it.
+  it("surfaces the truncation notice on the sheet and in the print copy", () => {
+    render(<ReportPane {...base} result={{ ...live, truncated: true }} />);
+    // On-screen chip beside LIVE + the on-sheet integrity notice.
+    expect(screen.getAllByText(/Truncated/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Incomplete/i).length).toBeGreaterThan(0);
+    // Print sheet carries the notice + the TRUNCATED provenance tag.
+    const root = document.body.querySelector(":scope > .print-root")!;
+    expect(root.querySelector(".rdoc-truncated")).toBeTruthy();
+    expect(root.textContent).toMatch(/TRUNCATED/);
+  });
+
+  it("shows no truncation notice on a complete report", () => {
+    render(<ReportPane {...base} result={live} />);
+    expect(screen.queryByText(/Incomplete/i)).toBeNull();
+    expect(document.querySelector(".rdoc-truncated")).toBeNull();
+  });
 });

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+    JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, delete, event, inspect, update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -114,10 +114,14 @@ class Analyst(Base):
     where the profile is keyed on name alone."""
 
     __tablename__ = "analysts"
+    # Named to match migration 0008's unique index so `alembic check` reconciles;
+    # a bare `unique=True` reflects as an unnamed constraint and drifts. Same
+    # uniqueness either way.
+    __table_args__ = (Index("uq_analyst_email", "email", unique=True),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
-    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255))
     # PBKDF2 hash for the email+password lane (passwords.py); null for SSO /
     # shared-code profiles, which authenticate without one. Account key is `email`.
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))

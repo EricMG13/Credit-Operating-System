@@ -89,11 +89,14 @@ def compute_exposure(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
         s = str(p.get("sector") or "Unclassified")
         sector_mv[s] = sector_mv.get(s, 0.0) + mv[id(p)]
         sector_obl.setdefault(s, set()).add(_obligor_key(p))
-    sectors = sorted(
-        ({"sector": s, "mv": round(v, 2), "pct_nav": _pct(v, total_nav),
-          "n_obligors": len(sector_obl[s])} for s, v in sector_mv.items()),
-        key=lambda r: r["mv"], reverse=True,
-    )
+    # Sort by raw sector MV (typed float) before shaping the rows — sorting the
+    # built dicts trips the type checker (heterogeneous values widen to a
+    # non-sortable union) and round() preserves the ordering anyway.
+    sectors = [
+        {"sector": s, "mv": round(v, 2), "pct_nav": _pct(v, total_nav),
+         "n_obligors": len(sector_obl[s])}
+        for s, v in sorted(sector_mv.items(), key=lambda kv: kv[1], reverse=True)
+    ]
 
     # Rating distribution by bucket (IG/BB/B/CCC/Unrated).
     bucket_mv: Dict[str, float] = {}
@@ -312,7 +315,7 @@ def assess_issuer_fit(positions: List[Dict[str, Any]], constraints: List[Dict[st
 if __name__ == "__main__":
     # ponytail: one runnable self-check — exposure math + compliance status on a
     # tiny hand-built book with a known answer.
-    pos = [
+    pos: List[Dict[str, Any]] = [
         # obligor A: two 1L positions, B-rated, Software; par 6M @ 100 → MV 6M
         {"par_usd": 4_000_000, "price": 100, "sector": "Software", "ranking": "1L Sr. Secd",
          "rating_moody": "B2", "rating_sp": "B", "margin_bps": 400, "borrower_name": "Alpha"},
@@ -341,7 +344,7 @@ if __name__ == "__main__":
     # Two loans of "Alpha" aggregate into ONE obligor (single-name is obligor-level).
     assert ex["top10"][0]["obligor"] == "Alpha" and ex["top10"][0]["pct_nav"] == 60.0
 
-    cons = [
+    cons: List[Dict[str, Any]] = [
         {"code": "C-01", "category": "Single Name", "parameter": "max issuer",
          "limit_text": "≤ 2.5%", "limit_value": 2.5, "limit_op": "<=", "breach_type": "Hard"},
         {"code": "C-09", "category": "Instrument", "parameter": "Min 1st Lien / Senior Secured",
@@ -360,11 +363,13 @@ if __name__ == "__main__":
 
     # Issuer fit: Alpha is 60% of NAV vs a 2.5% single-name cap → over → HIGH risk.
     fit = assess_issuer_fit(pos, cons, issuer_name="Alpha")
+    assert fit is not None
     assert fit["in_portfolio"] and fit["held_pct_nav"] == 60.0
     assert fit["single_name_cap"] == 2.5 and fit["single_name_headroom"] == round(2.5 - 60.0, 2)
     assert fit["concentration_risk"] == "HIGH"
     # A name not in the book → held 0%, comfortable single-name headroom.
     absent = assess_issuer_fit(pos, cons, issuer_name="Nobody")
+    assert absent is not None
     assert absent["in_portfolio"] is False and absent["held_pct_nav"] == 0.0
     assert absent["concentration_risk"] == "LOW"
     print("engine/portfolio.py self-check OK")
