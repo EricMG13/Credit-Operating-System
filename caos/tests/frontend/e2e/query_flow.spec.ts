@@ -44,7 +44,7 @@ test.describe("Query — walk to committee exhibit", () => {
     await page.goto("/query/");
 
     // The command bar is the stable structural anchor for the surface.
-    await expect(page.getByRole("textbox", { name: "Query coverage" })).toBeVisible({
+    await expect(page.getByRole("combobox", { name: "Query coverage" })).toBeVisible({
       timeout: 15000,
     });
 
@@ -73,7 +73,7 @@ test.describe("Query — walk to committee exhibit", () => {
     await page.goto("/query/");
     await waitForFirstAnswer(page);
 
-    const bar = page.getByRole("textbox", { name: "Query coverage" });
+    const bar = page.getByRole("combobox", { name: "Query coverage" });
     await bar.click();
     await bar.fill("which issuer is most levered");
     // Run routes the question (model lane if present, else keyword) and draws a

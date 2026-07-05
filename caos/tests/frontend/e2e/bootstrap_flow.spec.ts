@@ -150,7 +150,10 @@ test.describe("Bootstrap journey — create → run → output", () => {
     // A completed live run flips the page to LIVE mode: the header names the
     // live CP-X run and stamps the run-id prefix (both are live-run-specific —
     // the offline demo shows "Atlas Forge — …" and a fixed demo run id).
-    await expect(page.getByText("Live CP-X run", { exact: true })).toBeVisible({ timeout: 15000 });
+    // The live header names the issuer then "— live CP-X run" (issuer-prefixed for
+    // any non-reference issuer); the offline demo ends "… for the reference issuer".
+    // Anchor on the live suffix so it matches the live header for any issuer.
+    await expect(page.getByText(/live CP-X run$/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(`RUN ${runId.slice(0, 8)}`, { exact: false })).toBeVisible({
       timeout: 15000,
     });
