@@ -70,11 +70,8 @@ _SEV_RANK = {"CRITICAL": 0, "MATERIAL": 1, "MINOR": 2}
 
 
 def available() -> bool:
-    """True when some provider key exists — mirrors queryoverlay.available()."""
-    from config import get_settings
-
-    s = get_settings()
-    return bool(s.anthropic_api_key or s.openrouter_api_key or s.gemini_api_key)
+    """True when the resolved brief model has its provider key."""
+    return presets.can_run_model(presets.model_for(presets.HEAVY))
 
 
 def _client():

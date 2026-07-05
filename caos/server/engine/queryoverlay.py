@@ -50,9 +50,11 @@ _CONFIDENCE = {"High", "Medium", "Low"}
 
 
 def available() -> bool:
-    """True when some provider key exists — the presets seam resolves the rest."""
-    s = get_settings()
-    return bool(s.anthropic_api_key or s.openrouter_api_key or s.gemini_api_key)
+    """True when a resolved Query model has its provider key."""
+    return (
+        presets.can_run_model(presets.route_model())
+        or presets.can_run_model(presets.model_for(presets.HEAVY))
+    )
 
 
 def _client():

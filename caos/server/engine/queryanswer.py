@@ -41,10 +41,7 @@ _MAX_SENTENCES = 5
 
 
 def available() -> bool:
-    from config import get_settings
-
-    s = get_settings()
-    return bool(s.anthropic_api_key or s.openrouter_api_key or s.gemini_api_key)
+    return presets.can_run_model(presets.model_for(presets.HEAVY))
 
 
 def _client():

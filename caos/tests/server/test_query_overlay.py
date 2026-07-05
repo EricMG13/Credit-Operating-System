@@ -179,6 +179,20 @@ def test_available_false_when_keyless():
     assert queryoverlay.available() is False
 
 
+def test_available_false_when_only_gemini_key_has_no_gemini_tier(monkeypatch):
+    from config import get_settings
+    from engine import queryanswer, queryinsights
+
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "")
+    monkeypatch.setattr(s, "gemini_api_key", "x")
+
+    assert queryoverlay.available() is False
+    assert queryanswer.available() is False
+    assert queryinsights.available() is False
+
+
 def test_route_model_prefers_haiku_with_anthropic_key(monkeypatch):
     """The route lane is a bounded classify — pin fast cheap Haiku when an Anthropic
     key exists, so routing doesn't inherit the DeepSeek reasoning-model latency.

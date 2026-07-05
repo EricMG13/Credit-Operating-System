@@ -137,9 +137,7 @@ def resolved_query_model() -> str:
     # outside the configured universe degrades to the standard Light lane.
     if model not in _allowed_query_models(s):
         return model_for(LIGHT)
-    if model.startswith("gemini") and not s.gemini_api_key:
-        return model_for(LIGHT)
-    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
+    if not _has_provider_key(s, model):
         return model_for(LIGHT)
     return model
 
@@ -164,13 +162,15 @@ def _has_provider_key(s, model: str) -> bool:
 def _configured_fallback(s, tier: str) -> str:
     if s.anthropic_api_key:
         return _ANTHROPIC_FALLBACK[tier]
-    if s.gemini_api_key:
-        return s.council_reviewer_model_gemini
     for t in (tier, "strong", "fast", "cheap", "top"):
         model = _tier_model(s, t)
         if _has_provider_key(s, model):
             return model
     return _ANTHROPIC_FALLBACK[tier]
+
+
+def can_run_model(model: str) -> bool:
+    return _has_provider_key(get_settings(), model)
 
 
 def model_for(lane_class: str) -> str:
