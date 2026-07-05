@@ -17,6 +17,7 @@ import { listRuns } from "@/lib/api";
 import { MODULES, RUN_MODES, type Driver, type RunMode, type PlanStep } from "@/lib/pipeline/data";
 import { useSimRun, type SimRun } from "@/lib/pipeline/sim";
 import { useLivePipelineStatus, type LivePipeline } from "@/lib/pipeline/useLivePipeline";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
@@ -52,6 +53,8 @@ function useViewPreference(initial: "graph" | "lanes") {
   return [view, setView] as const;
 }
 
+const VIEWS = ["graph", "lanes"] as const;
+
 function PipelineVisualizer() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,11 +66,10 @@ function PipelineVisualizer() {
     const onCycle = (e: Event) => {
       const customEvent = e as CustomEvent<{ direction: number }>;
       const dir = customEvent.detail?.direction || 1;
-      const views = ["graph", "lanes"] as const;
       setView((curr) => {
-        const idx = views.indexOf(curr);
-        const nextIdx = (idx + dir + views.length) % views.length;
-        return views[nextIdx];
+        const idx = VIEWS.indexOf(curr);
+        const nextIdx = (idx + dir + 2) % 2;
+        return VIEWS[nextIdx];
       });
     };
     window.addEventListener("caos:subview-cycle", onCycle);
@@ -98,6 +100,7 @@ function PipelineVisualizer() {
   const issuerId = issuerParam || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const { value: live, phase, latest } = useLivePipelineStatus(issuerId);
+  const liveRun = useLiveRun(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
   // Fail-open guard: for a *real* issuer the analyst opened expecting their run,
@@ -121,8 +124,6 @@ function PipelineVisualizer() {
   const completed = useLive ? live!.completed : run.completed;
   const total = useLive ? live!.total : run.total;
   const modeLabel = useLive ? "LIVE" : mode.label;
-
-
 
   const cp5 = sim.mods["CP-5"]?.state || "idle";
   const clearance = deriveClearance({ useLive, live, cp5, modeDone: mode.done });
@@ -192,7 +193,7 @@ function PipelineVisualizer() {
         setEvModal={setEvModal}
       />
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={liveRun.liveEvidence} isLiveRun={!isReference && !!liveRun.runId} onClose={() => setEvModal(null)} /> : null}
     </div>
   );
 }

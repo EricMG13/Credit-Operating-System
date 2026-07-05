@@ -444,11 +444,16 @@ export function Profile({
   // when both do, so a one-sided dataset can't strand the user on an empty tab.
   const trendGran = fyCharts.length === 0 ? "Q" : qCharts.length === 0 ? "FY" : gran;
   const trendSeries = useMemo(() => filterSeriesByGranularity(series, trendGran), [series, trendGran]);
-  const cardPts = (k: string) => {
-    const g = (trendSeries[k] ?? []).filter((p) => Number.isFinite(p.value));
-    const full = (series[k] ?? []).filter((p) => Number.isFinite(p.value));
-    return (g.length >= 2 ? g : full).map((p) => ({ period: p.period, value: p.value }));
-  };
+  const trendPoints = useMemo(() => {
+    const out: Record<string, { period: string; value: number }[]> = {};
+    for (const k of TREND_ORDER) {
+      const g = (trendSeries[k] ?? []).filter((p) => Number.isFinite(p.value));
+      const full = (series[k] ?? []).filter((p) => Number.isFinite(p.value));
+      out[k] = (g.length >= 2 ? g : full).map((p) => ({ period: p.period, value: p.value }));
+    }
+    return out;
+  }, [series, trendSeries]);
+
   const snapshotProv = useMemo(() => worstProvenance(headline), [headline]);
   const provMixed = useMemo(
     () => headline.some((m) => m.provenance === "run") && headline.some((m) => m.provenance !== "run"),
@@ -538,9 +543,9 @@ export function Profile({
             title="Financial & credit trend"
             right={fyCharts.length && qCharts.length
               ? <ToggleGroup options={GRAN_OPTS} value={gran} onChange={setGran} size="sm" />
-              : <span className="tabular text-caos-2xs text-caos-muted">{TREND_ORDER.filter((k) => cardPts(k).length >= 2).length} of {TREND_ORDER.length} series</span>}
+              : <span className="tabular text-caos-2xs text-caos-muted">{TREND_ORDER.filter((k) => trendPoints[k].length >= 2).length} of {TREND_ORDER.length} series</span>}
           >
-            {TREND_ORDER.every((k) => cardPts(k).length === 0) ? (
+            {TREND_ORDER.every((k) => trendPoints[k].length === 0) ? (
               <div className="px-3 py-2.5">
                 <Empty>Time series needs ≥2 periods to populate trends.</Empty>
               </div>
@@ -548,7 +553,7 @@ export function Profile({
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 p-2">
                 {TREND_ORDER.map((k) => {
                   const f = TREND_FMT[k];
-                  return <TrendCard key={k} title={f.title} pts={cardPts(k)} color={f.color} unit={f.unit} />;
+                  return <TrendCard key={k} title={f.title} pts={trendPoints[k]} color={f.color} unit={f.unit} />;
                 })}
                 <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 flex flex-col">
                   <div className="flex items-baseline justify-between gap-2">

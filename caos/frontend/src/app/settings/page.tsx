@@ -277,22 +277,6 @@ function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const prefField = (
-    label: string,
-    value: string,
-    k: keyof ResearchPrefs,
-    placeholder: string,
-  ) => (
-    <label className="flex flex-col gap-1">
-      <span className={labelCls}>{label}</span>
-      <TextInput
-        value={value}
-        onChange={(e) => set(k, e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-2 py-1.5 text-caos-md"
-      />
-    </label>
-  );
 
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
@@ -487,9 +471,9 @@ function Settings() {
                 label="Default scope"
                 ariaLabel="Default research scope"
               />
-              {prefField("Audience", prefs.audience, "audience", "the credit investment committee")}
-              {prefField("Decision to inform", prefs.decision, "decision", "position sizing and credit selection")}
-              {prefField("Timeframe", prefs.timeframe, "timeframe", "the last 12 months to present")}
+              <PrefField label="Audience" value={prefs.audience} onChange={(val) => set("audience", val)} placeholder="the credit investment committee" />
+              <PrefField label="Decision to inform" value={prefs.decision} onChange={(val) => set("decision", val)} placeholder="position sizing and credit selection" />
+              <PrefField label="Timeframe" value={prefs.timeframe} onChange={(val) => set("timeframe", val)} placeholder="the last 12 months to present" />
               <label className="flex flex-col gap-1">
                 <span className={labelCls}>Investigation criteria — one per line</span>
                 <textarea
@@ -596,5 +580,29 @@ function Settings() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PrefField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className={labelCls}>{label}</span>
+      <TextInput
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2 py-1.5 text-caos-md"
+      />
+    </label>
   );
 }

@@ -89,7 +89,11 @@ def test_cookie_secure_off_in_dev_on_when_deployed(client, monkeypatch):
     assert "secure" not in (dev.headers.get("set-cookie") or "").lower()
 
     monkeypatch.setattr(s, "environment", "staging")
-    stg = client.post("/api/auth/profile", json={"code": "131113", "name": "Stg User"})
+    stg = client.post(
+        "/api/auth/profile",
+        json={"code": "131113", "name": "Stg User"},
+        headers={"X-Forwarded-Email": "stg@example.com"}
+    )
     assert "secure" in (stg.headers.get("set-cookie") or "").lower()
 
 

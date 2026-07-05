@@ -95,17 +95,66 @@ async def list_portfolios(
     caller: CallerIdentity = Depends(get_identity),
 ):
     rows = (await db.execute(select(Portfolio).order_by(Portfolio.name).limit(200))).scalars().all()
+    if not rows:
+        return []
+
+    pids = [prt.id for prt in rows]
+
+    pos_rows = (await db.execute(
+        select(
+            PortfolioPosition.portfolio_id, PortfolioPosition.issuer_id, PortfolioPosition.borrower_name,
+            PortfolioPosition.ticker, PortfolioPosition.figi, PortfolioPosition.sector, PortfolioPosition.sub_sector,
+            PortfolioPosition.ranking, PortfolioPosition.rating_moody, PortfolioPosition.rating_sp,
+            PortfolioPosition.par_usd, PortfolioPosition.price, PortfolioPosition.margin_bps
+        ).where(PortfolioPosition.portfolio_id.in_(pids))
+    )).all()
+
+    con_rows = (await db.execute(
+        select(
+            PortfolioConstraint.portfolio_id, PortfolioConstraint.code, PortfolioConstraint.category,
+            PortfolioConstraint.parameter, PortfolioConstraint.limit_text, PortfolioConstraint.limit_value,
+            PortfolioConstraint.limit_unit, PortfolioConstraint.limit_op, PortfolioConstraint.breach_type,
+            PortfolioConstraint.source_document
+        ).where(PortfolioConstraint.portfolio_id.in_(pids))
+    )).all()
+
+    from collections import defaultdict
+    pos_by_pid = defaultdict(list)
+    for p in pos_rows:
+        pos_by_pid[p.portfolio_id].append({
+            "issuer_id": p.issuer_id, "borrower_name": p.borrower_name, "ticker": p.ticker,
+            "figi": p.figi, "sector": p.sector, "sub_sector": p.sub_sector, "ranking": p.ranking,
+            "rating_moody": p.rating_moody, "rating_sp": p.rating_sp, "par_usd": p.par_usd,
+            "price": p.price, "margin_bps": p.margin_bps,
+        })
+
+    con_by_pid = defaultdict(list)
+    for c in con_rows:
+        con_by_pid[c.portfolio_id].append({
+            "code": c.code, "category": c.category, "parameter": c.parameter,
+            "limit_text": c.limit_text, "limit_value": c.limit_value, "limit_unit": c.limit_unit,
+            "limit_op": c.limit_op, "breach_type": c.breach_type, "source_document": c.source_document,
+        })
+
     out: List[PortfolioSummary] = []
     for prt in rows:
-        pos = await _positions(db, prt.id)
+        pos = pos_by_pid[prt.id]
         ex = pf.compute_exposure(pos)
-        comp = pf.check_constraints(await _constraints(db, prt.id), ex)
+        comp = pf.check_constraints(con_by_pid[prt.id], ex)
+        
+        breaches = 0
+        watches = 0
+        for c in comp:
+            status = c["status"]
+            if status == "Breach":
+                breaches += 1
+            elif status == "Watch":
+                watches += 1
+
         out.append(PortfolioSummary(
             id=prt.id, name=prt.name, kind=prt.kind, as_of_date=prt.as_of_date,
             n_positions=ex["n_positions"], total_nav=ex["total_nav"], total_par=ex["total_par"],
-            breaches=sum(1 for c in comp if c["status"] == "Breach"),
-            watches=sum(1 for c in comp if c["status"] == "Watch"),
-            created_at=prt.created_at,
+            breaches=breaches, watches=watches, created_at=prt.created_at,
         ))
     return out
 

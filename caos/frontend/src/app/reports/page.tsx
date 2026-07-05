@@ -14,6 +14,7 @@ import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
 import { buildReports, type ModelInputs } from "@/lib/reports/builders";
 import { useModelEngine } from "@/lib/engine/useModelEngine";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { getSavedModel } from "@/lib/api";
@@ -99,6 +100,7 @@ function ReportStudio() {
   // uses). Only the ATLF reference page may build seeded report templates; real
   // issuers show no-output until CP-RENDER is wired to live module payloads.
   const eng = useModelEngine(issuerId);
+  const live = useLiveRun(issuerId);
   const reports = useMemo(
     () => isReference ? buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }) : [],
     [isReference, modelInputs, eng.anchor],
@@ -137,12 +139,17 @@ function ReportStudio() {
     if (reportParam && reports.some((r) => r.id === reportParam)) setActiveId(reportParam);
     setHydrated(true);
   }, [reports, reportParam]);
-  // persist only after restore has run — writing earlier clobbers stored
-  // state with the initial defaults
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-active", activeId); } catch {} }, [hydrated, activeId]);
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-zoom", String(zoom)); } catch {} }, [hydrated, zoom]);
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-omit", JSON.stringify(omit)); } catch {} }, [hydrated, omit]);
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-e-edits", JSON.stringify(edits)); } catch {} }, [hydrated, edits]);
+
+  // Consolidate persisted settings into a single effect block
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem("caos-e-active", activeId);
+      localStorage.setItem("caos-e-zoom", String(zoom));
+      localStorage.setItem("caos-e-omit", JSON.stringify(omit));
+      localStorage.setItem("caos-e-edits", JSON.stringify(edits));
+    } catch {}
+  }, [hydrated, activeId, zoom, omit, edits]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
 
@@ -425,7 +432,7 @@ function ReportStudio() {
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} /> : null}
     </div>
   );

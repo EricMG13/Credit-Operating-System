@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -174,6 +174,16 @@ class QAReport(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+async def _summary_modules(db: AsyncSession, run_id: str) -> List[Any]:
+    rows = await db.execute(
+        select(
+            ModuleOutput.module_id, ModuleOutput.module_name, ModuleOutput.qa_status,
+            ModuleOutput.committee_status, ModuleOutput.confidence, ModuleOutput.validation_status
+        ).where(ModuleOutput.run_id == run_id).order_by(ModuleOutput.created_at)
+    )
+    return list(rows.all())
+
+
 async def _modules_for(db: AsyncSession, run_id: str) -> List[ModuleOutput]:
     rows = await db.execute(
         select(ModuleOutput).where(ModuleOutput.run_id == run_id).order_by(ModuleOutput.created_at)
@@ -182,7 +192,7 @@ async def _modules_for(db: AsyncSession, run_id: str) -> List[ModuleOutput]:
 
 
 async def _summary(db: AsyncSession, run: Run) -> RunSummary:
-    modules = await _modules_for(db, run.id)
+    modules = await _summary_modules(db, run.id)
     return RunSummary(
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
@@ -250,11 +260,14 @@ async def list_runs(
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Runs newest-first, optionally filtered to one issuer (read-only)."""
-    stmt = select(Run).order_by(Run.created_at.desc())
+    stmt = select(
+        Run.id, Run.issuer_id, Run.status, Run.qa_status, Run.committee_status,
+        Run.as_of_date, Run.analyst_id, Run.created_at
+    ).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
     stmt = stmt.limit(limit).offset(offset)
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
     return [RunListItem.model_validate(r) for r in rows]
 
 

@@ -108,6 +108,14 @@ visible focus ring.
 5. **Committee-ready by default** — when in doubt, choose what would survive
    investment-committee scrutiny. Polish means *intentional*, not *ornamented*.
 
+## Working Conventions
+
+- **Parallel WIP Git Staging**: Stage explicit paths only (never use wildcard `git add -A` or `git add .` unless you are sure no user changes are present). Only stage and commit files modified by the agent, preserving the user's parallel work-in-progress.
+- **Git Branch Comparisons**: For `detect_changes()` and general diffs, compare against `origin/main` as the default branch/base reference, as local `main` might be stale or shallow.
+- **Turbopack Dev Cache**: Ensure `turbopackFileSystemCacheForDev: false` remains in `next.config.js` to prevent persistent development server cache crashes and high disk write overhead.
+- **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
+- **FastAPI Server Environment**: Execute the server suite and check scripts using the designated virtual environment path: `/Users/ericguei/Claude/Projects/Credit Operating System/caos/server/.venv/bin/python` or `.venv311`. Do not downgrade the FastAPI `0.138` package pin.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

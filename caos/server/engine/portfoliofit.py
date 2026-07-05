@@ -74,8 +74,12 @@ async def _live_concentration(session: AsyncSession, portfolio_id: str, issuer) 
     from engine.portfolio import assess_issuer_fit
 
     prows = (await session.execute(
-        select(PortfolioPosition).where(PortfolioPosition.portfolio_id == portfolio_id)
-    )).scalars().all()
+        select(
+            PortfolioPosition.issuer_id, PortfolioPosition.borrower_name, PortfolioPosition.sector,
+            PortfolioPosition.ranking, PortfolioPosition.rating_moody, PortfolioPosition.rating_sp,
+            PortfolioPosition.par_usd, PortfolioPosition.price
+        ).where(PortfolioPosition.portfolio_id == portfolio_id)
+    )).all()
     if not prows:
         return None
     positions: List[Dict[str, Any]] = [{
@@ -84,8 +88,10 @@ async def _live_concentration(session: AsyncSession, portfolio_id: str, issuer) 
         "par_usd": p.par_usd, "price": p.price,
     } for p in prows]
     crows = (await session.execute(
-        select(PortfolioConstraint).where(PortfolioConstraint.portfolio_id == portfolio_id)
-    )).scalars().all()
+        select(PortfolioConstraint.category, PortfolioConstraint.limit_value).where(
+            PortfolioConstraint.portfolio_id == portfolio_id
+        )
+    )).all()
     constraints = [{"category": c.category, "limit_value": c.limit_value} for c in crows]
     return assess_issuer_fit(positions, constraints, issuer_id=issuer.id, issuer_name=issuer.name)
 
