@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as PanelShell } from "@/components/shared/Panel";
+import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import {
   BUCKETS,
@@ -1007,6 +1008,7 @@ export function SectorRV() {
             </button>
           ))}
         </div>
+        <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
         {/* Chart type — scatter / bar (avg) / box (distribution) */}
         <div className="flex items-center gap-1" role="group" aria-label="Chart type">
           <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Chart</span>
@@ -1031,8 +1033,9 @@ export function SectorRV() {
             </button>
           ))}
         </div>
+        <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
         <div className="flex items-center gap-1" role="group" aria-label="Loans table lens">
-          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Lens</span>
+          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Table</span>
           {([
             ["Full", "full"],
             ["Market", "market"],
@@ -1054,8 +1057,21 @@ export function SectorRV() {
             </button>
           ))}
         </div>
+        {Object.keys(filters).length > 0 && (
+          <>
+            <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => setFilters({})}
+              aria-label={`Clear ${Object.keys(filters).length} column filter(s)`}
+              className="shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+            >
+              Clear filters ({Object.keys(filters).length})
+            </button>
+          </>
+        )}
         <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">
-          {sector.rows.length} loans · market-data file
+          {sector.rows.length} in file
         </span>
       </div>
 
@@ -1084,16 +1100,29 @@ export function SectorRV() {
           {/* Chart body grows; the focus readout is a fixed strip at the bottom. */}
           <div className="flex flex-col h-full min-h-0">
             <div className="flex-1 min-h-0 w-full px-2 py-1">
-              <RVScatter
-                rows={filtered}
-                color={sector.color}
-                xMeasure={xMeasure}
-                chartType={chartType}
-                selected={selected}
-                hovered={hovered}
-                onSelect={handleSelect}
-                onHover={setHovered}
-              />
+              {filtered.length === 0 ? (
+                // All rows filtered out — the SVG would render blank, so say so
+                // and point at the exit (matches Sector read / Top-of-book copy).
+                <div className="h-full min-h-[240px] flex flex-col items-center justify-center gap-2 text-center">
+                  <span style={{ color: "var(--caos-muted)" }} aria-hidden="true">
+                    <StatusGlyph kind="idle" size={16} />
+                  </span>
+                  <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[320px] leading-relaxed">
+                    No loans match the current column filters — clear a filter to plot the sector distribution.
+                  </p>
+                </div>
+              ) : (
+                <RVScatter
+                  rows={filtered}
+                  color={sector.color}
+                  xMeasure={xMeasure}
+                  chartType={chartType}
+                  selected={selected}
+                  hovered={hovered}
+                  onSelect={handleSelect}
+                  onHover={setHovered}
+                />
+              )}
             </div>
             {/* Focus readout — selected loan's real fields, or a linking hint. In
                 the aggregate (bar/box) views there is no per-loan point, so note
@@ -1113,7 +1142,7 @@ export function SectorRV() {
           <PanelShell
             title="Sector read"
             className="min-h-0"
-            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">computed · {filtered.length} loans</span>}
+            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">{filtered.length !== sector.rows.length ? `computed · ${filtered.length} of ${sector.rows.length} shown` : `computed · ${filtered.length} loans`}</span>}
           >
             <SectorReadPanel lines={readLines} />
           </PanelShell>

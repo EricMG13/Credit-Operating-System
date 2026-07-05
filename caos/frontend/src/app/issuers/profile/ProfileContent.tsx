@@ -492,17 +492,29 @@ export function Profile({
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
-          <Panel title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")}>
-            <div className="px-3 py-2.5"><Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty></div>
+          <Panel title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")} right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Derived</span>}>
+            <div className="px-3 py-2.5 flex flex-col gap-2">
+              <p className="text-caos-sm text-caos-text/90 leading-relaxed m-0">{deskRead}</p>
+              <Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty>
+            </div>
           </Panel>
         ) : (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2 px-0.5">
-              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-baseline gap-2 px-0.5">
+              {/* h2 to match every sibling Panel header (Panel defaults to h2) and
+                  the empty-state branch's <Panel> — heading level must not flip
+                  with data state, and must not break the page's flat h2 rhythm. */}
+              <h2 className="text-caos-md font-semibold tracking-[0.12em] uppercase text-caos-muted m-0">
                 Credit snapshot{latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : ""}
-              </span>
+              </h2>
               {snapshotProv ? <Tag sev={PROV[snapshotProv].sev}>{PROV[snapshotProv].label}</Tag> : null}
+              <div className="flex-1" />
+              <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider shrink-0">Derived</span>
             </div>
+            {/* Desk read folded in as the anchor caption — the honest one-line
+                what-changed read (deskReadLine), sitting above the 6 KPIs it
+                summarizes. Same derived string; never a fabricated stance. */}
+            <p className="text-caos-sm text-caos-text/90 leading-relaxed m-0 px-0.5">{deskRead}</p>
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
               {headline.map((m) => (
                 <KpiTile
@@ -543,7 +555,8 @@ export function Profile({
                     <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">3Y DM (bp)</span>
                     <span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>
                   </div>
-                  <div className="tabular text-caos-2xs text-caos-muted py-2.5">Market spread lands Phase-2 (market_quotes).</div>
+                  {/* Don't repeat the market_quotes sentence — the Market panel below owns it. */}
+                  <div className="tabular text-caos-2xs text-caos-muted py-2.5">See Market · price &amp; DM below.</div>
                 </div>
               </div>
             )}
@@ -577,16 +590,10 @@ export function Profile({
           </div>
         </div>
 
-        {/* Row 3 — 3 equal cols : Desk read (the swap: drops into Business profile's
-            old slot, an honest one-liner) | Structure & coverage (folded from the real
-            Structure & protection + Coverage & trust) | Analyst notes. */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 items-start">
-          <Panel title="Desk read" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Derived</span>}>
-            <div className="px-3 py-2.5">
-              <p className="text-caos-md text-caos-text/90 leading-relaxed m-0">{deskRead}</p>
-            </div>
-          </Panel>
-
+        {/* Row 3 — 2 equal cols : Structure & coverage (folded from the real
+            Structure & protection + Coverage & trust) | Analyst notes. Desk
+            read now folded up into the snapshot band as its anchor caption. */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 items-start">
           <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
             <div className="px-3 py-2 flex flex-col gap-2">
               <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
@@ -629,7 +636,7 @@ export function Profile({
                 extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
               <SigBand label="Refi / LME risk" v={signals.lme_band}
                 extra={signals.lme_score != null ? `score ${signals.lme_score}` : undefined} />
-              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
+              {/* Covenant headroom lives once, in "Structure & coverage" — not repeated here. */}
               <EmptyIfBlank ok={[signals.recommendation, signals.fragility, signals.lme_band]} latest={!!latest_run} />
               {strengths.length || weaknesses.length ? (
                 <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col divide-y divide-caos-border/40">
