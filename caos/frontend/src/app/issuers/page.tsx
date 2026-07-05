@@ -32,6 +32,10 @@ export default function IssuersPage() {
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "" };
+const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
+const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
+
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
@@ -112,9 +116,7 @@ function IssuersDirectory() {
     if (q) setQuery(q);
   }, []);
 
-  const cols = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
-  const filterKeys = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
-  const filterVals = useMemo<Record<(typeof filterKeys)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
+  const filterVals = useMemo<Record<(typeof FILTER_KEYS)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
     ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
     name: (i) => i.name,
     rating: (i) => issuerRating(i) || "—",
@@ -124,8 +126,7 @@ function IssuersDirectory() {
     action: () => "UPLOAD",
   }), []);
   const filteredIssuers = useColumnFilters(issuers, filters, filterVals);
-  // Sortable columns only (the trailing action column is not orderable).
-  const SORTABLE = useMemo(() => new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]), []);
+
   // Apply the active column sort after filtering. Comparison reuses the same
   // per-column accessors as filtering (filterVals), so what you sort by is
   // exactly what the row shows. Placeholder "—" cells sink to the bottom on
@@ -292,7 +293,7 @@ function IssuersDirectory() {
           {loading ? (
             <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
               {Array.from({ length: 9 }).map((_, i) => (
-                <div key={i} className={cols + " px-3 py-[7px] border-b border-caos-border/50"}>
+                <div key={i} className={COLS + " px-3 py-[7px] border-b border-caos-border/50"}>
                   <span className="h-2.5 w-9 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-44 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-8 rounded-sm bg-caos-elevated/70" />
@@ -344,20 +345,20 @@ function IssuersDirectory() {
             </div>
           ) : (
             <div className="text-caos-xl">
-              <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+              <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
-                    key={i}
-                    label={h || "Action"}
-                    col={filterKeys[i]}
-                    rows={issuers}
-                    getValue={filterVals[filterKeys[i]]}
-                    selected={filters[filterKeys[i]]}
-                    onChange={setFilter}
-                    sortable={SORTABLE.has(filterKeys[i])}
-                    sortState={sort}
-                    onSort={cycleSort}
-                    className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
+                     key={i}
+                     label={h || "Action"}
+                     col={FILTER_KEYS[i]}
+                     rows={issuers}
+                     getValue={filterVals[FILTER_KEYS[i]]}
+                     selected={filters[FILTER_KEYS[i]]}
+                     onChange={setFilter}
+                     sortable={SORTABLE.has(FILTER_KEYS[i])}
+                     sortState={sort}
+                     onSort={cycleSort}
+                     className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
                   >
                     {h}
                   </FilterHeader>
@@ -370,7 +371,7 @@ function IssuersDirectory() {
               {shownIssuers.map((issuer) => (
                 <div
                   key={issuer.id}
-                  className={cols + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
+                  className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
                   {/* Stretched primary link: whole row is the click target for mouse,
                       and a single keyboard/SR-focusable control per row. Replaces the

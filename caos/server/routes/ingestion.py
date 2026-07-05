@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import avscan
@@ -106,8 +106,11 @@ async def _vault_document(
     )
     db.add(doc)
     await db.flush()
-    for i, chunk in enumerate(chunks):
-        db.add(DocumentChunk(document_id=doc.id, seq=i, text=chunk))
+    if chunks:
+        await db.execute(
+            insert(DocumentChunk),
+            [{"document_id": doc.id, "seq": i, "text": chunk} for i, chunk in enumerate(chunks)]
+        )
     await db.refresh(doc)
 
     return IngestionResponse(

@@ -284,8 +284,26 @@ async def list_accepted_links(
 ):
     """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
     _read_rate_guard(caller)
-    rows = (await db.execute(select(QueryAcceptedLink))).scalars().all()
-    return {"links": [_link_dict(r) for r in rows]}
+    rows = (await db.execute(
+        select(
+            QueryAcceptedLink.id, QueryAcceptedLink.issuer_a, QueryAcceptedLink.issuer_b,
+            QueryAcceptedLink.capability_id, QueryAcceptedLink.rationale, QueryAcceptedLink.chunk_ids,
+            QueryAcceptedLink.confidence, QueryAcceptedLink.model, QueryAcceptedLink.analyst_id,
+            QueryAcceptedLink.created_at
+        ).limit(1000)
+    )).all()
+    return {
+        "links": [
+            {
+                "id": r.id, "issuer_a": r.issuer_a, "issuer_b": r.issuer_b,
+                "capability_id": r.capability_id, "rationale": r.rationale or "",
+                "chunk_ids": r.chunk_ids or [], "confidence": r.confidence or "Low",
+                "model": r.model or "", "analyst_id": r.analyst_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.post("/links")

@@ -26,10 +26,28 @@ export type G2Spec = Record<string, any>;
 // must stay verbatim — uppercasing encode.x once detached it from the data key
 // and collapsed every period onto a single "FY" category.
 function normalizeFyValues(v: unknown): unknown {
-  if (typeof v === "string") return v.replace(/\bfy/g, "FY");
-  if (Array.isArray(v)) return v.map(normalizeFyValues);
+  if (typeof v === "string") {
+    const res = v.replace(/\bfy/g, "FY");
+    return res === v ? v : res;
+  }
+  if (Array.isArray(v)) {
+    let changed = false;
+    const next = v.map((x) => {
+      const r = normalizeFyValues(x);
+      if (r !== x) changed = true;
+      return r;
+    });
+    return changed ? next : v;
+  }
   if (v && typeof v === "object") {
-    return Object.fromEntries(Object.entries(v).map(([k, val]) => [k, normalizeFyValues(val)]));
+    let changed = false;
+    const entries = Object.entries(v);
+    const nextEntries = entries.map(([k, val]) => {
+      const r = normalizeFyValues(val);
+      if (r !== val) changed = true;
+      return [k, r] as const;
+    });
+    return changed ? Object.fromEntries(nextEntries) : v;
   }
   return v;
 }
@@ -37,11 +55,30 @@ function normalizeFyValues(v: unknown): unknown {
 // Exported for unit tests.
 export function normalizeFy(spec: G2Spec): G2Spec {
   const walk = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(walk);
+    if (Array.isArray(v)) {
+      let changed = false;
+      const next = v.map((x) => {
+        const r = walk(x);
+        if (r !== x) changed = true;
+        return r;
+      });
+      return changed ? next : v;
+    }
     if (v && typeof v === "object") {
-      return Object.fromEntries(
-        Object.entries(v).map(([k, val]) => [k, k === "data" ? normalizeFyValues(val) : walk(val)]),
-      );
+      let changed = false;
+      const entries = Object.entries(v);
+      const nextEntries = entries.map(([k, val]) => {
+        if (k === "data") {
+          const r = normalizeFyValues(val);
+          if (r !== val) changed = true;
+          return [k, r] as const;
+        } else {
+          const r = walk(val);
+          if (r !== val) changed = true;
+          return [k, r] as const;
+        }
+      });
+      return changed ? Object.fromEntries(nextEntries) : v;
     }
     return v;
   };

@@ -70,58 +70,76 @@ def compute_exposure(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "wa_rating": None, "warf": None, "wa_margin": None, "wa_price": None,
                 "first_lien_pct": None, "single_name_max": None}
 
-    mv = {id(p): (_mv(p) or 0.0) for p in valid}
-    total_par = sum(p["par_usd"] for p in valid)
-    total_nav = sum(mv[id(p)] for p in valid)
+    total_par = 0.0
+    total_nav = 0.0
+    first_lien_mv = 0.0
+    warf_num = 0.0
+    warf_den = 0.0
+    margin_weighted_sum = 0.0
+    margin_weight_sum = 0.0
+    price_weighted_sum = 0.0
+    price_weight_sum = 0.0
 
-    # Per-obligor MV (single-name + top-10 are obligor-level, not position-level).
     obligor_mv: Dict[str, float] = {}
     obligor_name: Dict[str, str] = {}
-    for p in valid:
-        k = _obligor_key(p)
-        obligor_mv[k] = obligor_mv.get(k, 0.0) + mv[id(p)]
-        obligor_name.setdefault(k, str(p.get("borrower_name") or p.get("ticker") or k))
-
-    # Sector exposure (%NAV), largest first.
+    
     sector_mv: Dict[str, float] = {}
     sector_obl: Dict[str, set] = {}
+
+    bucket_mv: Dict[str, float] = {}
+    bucket_obl: Dict[str, set] = {}
+
     for p in valid:
+        par = p["par_usd"]
+        total_par += par
+        
+        price = p.get("price")
+        p_mv = par * price / 100.0 if is_finite_number(price) and price > 0 else float(par)
+        total_nav += p_mv
+
+        k = _obligor_key(p)
+        obligor_mv[k] = obligor_mv.get(k, 0.0) + p_mv
+        obligor_name.setdefault(k, str(p.get("borrower_name") or p.get("ticker") or k))
+
         s = str(p.get("sector") or "Unclassified")
-        sector_mv[s] = sector_mv.get(s, 0.0) + mv[id(p)]
-        sector_obl.setdefault(s, set()).add(_obligor_key(p))
-    # Sort by raw sector MV (typed float) before shaping the rows — sorting the
-    # built dicts trips the type checker (heterogeneous values widen to a
-    # non-sortable union) and round() preserves the ordering anyway.
+        sector_mv[s] = sector_mv.get(s, 0.0) + p_mv
+        sector_obl.setdefault(s, set()).add(k)
+
+        idx = rating_index(p.get("rating_moody"), p.get("rating_sp"), p.get("rating_fitch"))
+        b = rating_bucket(idx)
+        bucket_mv[b] = bucket_mv.get(b, 0.0) + p_mv
+        bucket_obl.setdefault(b, set()).add(k)
+        if idx is not None:
+            warf_num += FACTORS[idx] * p_mv
+            warf_den += p_mv
+
+        margin = p.get("margin_bps")
+        if is_finite_number(margin):
+            margin_weighted_sum += margin * p_mv
+            margin_weight_sum += p_mv
+
+        if is_finite_number(price):
+            price_weighted_sum += price * p_mv
+            price_weight_sum += p_mv
+
+        if _is_first_lien(p.get("ranking")):
+            first_lien_mv += p_mv
+
     sectors = [
         {"sector": s, "mv": round(v, 2), "pct_nav": _pct(v, total_nav),
          "n_obligors": len(sector_obl[s])}
         for s, v in sorted(sector_mv.items(), key=lambda kv: kv[1], reverse=True)
     ]
 
-    # Rating distribution by bucket (IG/BB/B/CCC/Unrated).
-    bucket_mv: Dict[str, float] = {}
-    bucket_obl: Dict[str, set] = {}
-    warf_num = 0.0
-    warf_den = 0.0
-    for p in valid:
-        idx = rating_index(p.get("rating_moody"), p.get("rating_sp"), p.get("rating_fitch"))
-        b = rating_bucket(idx)
-        bucket_mv[b] = bucket_mv.get(b, 0.0) + mv[id(p)]
-        bucket_obl.setdefault(b, set()).add(_obligor_key(p))
-        if idx is not None:
-            warf_num += FACTORS[idx] * mv[id(p)]
-            warf_den += mv[id(p)]
     rating_dist = [
         {"bucket": b, "mv": round(bucket_mv[b], 2), "pct_nav": _pct(bucket_mv[b], total_nav),
          "n_obligors": len(bucket_obl[b])}
         for b in _BUCKET_ORDER if b in bucket_mv
     ]
-    warf = round(warf_num / warf_den, 0) if warf_den > 0 else None
 
-    # MV-weighted averages (guarded).
-    wa_margin = _wavg([(p.get("margin_bps"), mv[id(p)]) for p in valid])
-    wa_price = _wavg([(p.get("price"), mv[id(p)]) for p in valid])
-    first_lien_mv = sum(mv[id(p)] for p in valid if _is_first_lien(p.get("ranking")))
+    warf = round(warf_num / warf_den, 0) if warf_den > 0 else None
+    wa_margin = round(margin_weighted_sum / margin_weight_sum, 3) if margin_weight_sum > 0 else None
+    wa_price = round(price_weighted_sum / price_weight_sum, 3) if price_weight_sum > 0 else None
 
     top_obl = sorted(obligor_mv.items(), key=lambda kv: kv[1], reverse=True)
     top10 = [{"obligor": obligor_name[k], "mv": round(v, 2), "pct_nav": _pct(v, total_nav)}
@@ -144,7 +162,7 @@ def compute_exposure(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
         "wa_price": wa_price,
         "first_lien_pct": _pct(first_lien_mv, total_nav),
         "single_name_max": ({"obligor": obligor_name[single[0]], "pct_nav": _pct(single[1], total_nav)}
-                            if single else None),
+                             if single else None),
     }
 
 

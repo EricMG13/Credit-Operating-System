@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from access_log import client_source, sanitize_field
-from config import get_settings
+from config import get_settings, is_deployed
 from database import Analyst, erase_analyst_data, get_db
 from identity import (
     COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
@@ -178,72 +178,50 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
     db: AsyncSession = Depends(get_db),
 ):
     settings = get_settings()
+    sso_email = request.headers.get("x-forwarded-email")
+    sso_user = request.headers.get("x-forwarded-user")
+
+    if is_deployed(settings) and not (sso_email or sso_user):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "No forwarded identity — request did not pass the auth proxy / edge."
+        )
 
     _throttle(request)
 
-    # Fail closed if the access code is unset: an empty setting would make
-    # compare_digest admit any caller the moment the body min_length guard is
-    # ever relaxed. Refuse login outright rather than degrade silently. S2.
-    if not settings.analyst_signup_code:
+    code = settings.analyst_signup_code
+    if not code:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Login disabled — access code not configured."
         )
 
-    # 401 (not 403) on a wrong code so the access-log brute-force heuristic
-    # (401-by-source) sees it. Constant-time compare in bytes: a non-ASCII code in
-    # the JSON body makes compare_digest(str, str) raise TypeError → 500, which
-    # both hides the probe from the 401 heuristic and spams the logs (mirrors the
-    # bytes-mode compare in identity.get_identity). SEAM4-2.
-    if not hmac.compare_digest(
-        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
-    ):
+    if not hmac.compare_digest(body.code.encode("utf-8", "ignore"), code.encode("utf-8")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid access code.")
 
-    # Strip interior control chars before persistence — body.name and the
-    # forwarded email become Analyst rows and round-trip through identity/logging.
-    # Matches the sanitize done in identity.get_identity. S7.
     name = sanitize_field(body.name).strip()
     if not name:
         raise HTTPException(422, "Name is required.")
 
-    # The edge proxy sets X-Forwarded-Email from the verified session (trustworthy
-    # because the proxy is the sole ingress). When present, key the profile on it:
-    # one profile per SSO identity, so a caller can't adopt someone else's name.
-    sso_email = request.headers.get("x-forwarded-email")
     if sso_email:
         sso_email = sanitize_field(sso_email)
-    if sso_email:
-        analyst = (await db.execute(
-            select(Analyst).where(Analyst.email == sso_email)
-        )).scalar_one_or_none()
+        analyst = (await db.execute(select(Analyst).where(Analyst.email == sso_email))).scalar_one_or_none()
         if analyst is None:
             analyst = Analyst(name=name, email=sso_email)
             db.add(analyst)
         else:
             if analyst.name != name:
-                analyst.name = name  # rename own profile
-            # The edge proxy has now verified this SSO identity, so it is
-            # authoritative for the email. Any password/recovery credential on the
-            # row was self-registered before SSO — possibly pre-squatted by an
-            # invite-code holder under an attacker-chosen password (register keys on
-            # a shape-checked email when no proxy identity is present). Leaving it in
-            # place would be a parallel login that could impersonate the SSO owner,
-            # so revoke it on adoption and bump token_version to drop any sessions
-            # the squatter minted. Idempotent — a pure-SSO row carries neither. SEAM4-3.
+                analyst.name = name
             if analyst.password_hash or analyst.recovery_word_hashes:
                 analyst.password_hash = None
                 analyst.recovery_word_hashes = []
                 analyst.token_version += 1
         try:
             await db.commit()
-        except IntegrityError:  # display name already taken by another email
+        except IntegrityError:
             await db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, "That display name is taken — pick another.")
     else:
-        # Proxy-less / local: re-attach by (case-insensitive) name, else create.
-        analyst = (await db.execute(
-            select(Analyst).where(func.lower(Analyst.name) == name.lower())
-        )).scalar_one_or_none()
+        analyst = (await db.execute(select(Analyst).where(func.lower(Analyst.name) == name.lower()))).scalar_one_or_none()
         if analyst is None:
             analyst = Analyst(name=name)
             db.add(analyst)

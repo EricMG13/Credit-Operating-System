@@ -73,7 +73,7 @@ async def get_portfolio(
     """Latest-complete-run posture across the coverage universe."""
     _read_rate_guard(identity)
 
-    issuers = (await db.execute(select(Issuer))).scalars().all()
+    issuers = (await db.execute(select(Issuer).limit(2000))).scalars().all()
 
     # Latest complete run per issuer, DB-side. Run is append-only (never pruned),
     # so the old "scan every complete run newest-first, keep first-seen" fold
@@ -99,7 +99,7 @@ async def get_portfolio(
         )
     ).scalars().all()
     latest: Dict[str, Run] = {r.issuer_id: r for r in runs}
-    run_ids = list({r.id for r in latest.values()})
+    run_ids = [r.id for r in runs]
     if not run_ids:
         return PortfolioResponse(rows=[], issuer_count=len(issuers), covered_count=0)
 
@@ -110,30 +110,33 @@ async def get_portfolio(
     # store (peer ranking), not for an issuer's own latest-run posture row.
     facts = (
         await db.execute(
-            select(MetricFact).where(
+            select(MetricFact.run_id, MetricFact.metric_key, MetricFact.value).where(
                 MetricFact.run_id.in_(run_ids),
                 MetricFact.headline.is_(True),
                 MetricFact.metric_key.in_(_HEADLINE_METRICS),
             )
         )
-    ).scalars().all()
+    ).all()
     by_run_metric: Dict[str, Dict[str, float]] = {}
-    for f in facts:
-        by_run_metric.setdefault(f.run_id, {})[f.metric_key] = f.value
+    for rid, mkey, val in facts:
+        by_run_metric.setdefault(rid, {})[mkey] = val
 
     # CP-3 RV recommendation + CP-2B fragility for those runs.
     mods = (
         await db.execute(
-            select(ModuleOutput).where(
+            select(ModuleOutput.run_id, ModuleOutput.module_id, ModuleOutput.runtime_output).where(
                 ModuleOutput.run_id.in_(run_ids),
                 ModuleOutput.module_id.in_(("CP-3", "CP-2B")),
             )
         )
-    ).scalars().all()
+    ).all()
     cp3: Dict[str, dict] = {}
     cp2b: Dict[str, dict] = {}
-    for m in mods:
-        (cp3 if m.module_id == "CP-3" else cp2b)[m.run_id] = m.runtime_output or {}
+    for rid, mid, output in mods:
+        if mid == "CP-3":
+            cp3[rid] = output or {}
+        else:
+            cp2b[rid] = output or {}
 
     rows: List[PortfolioRow] = []
     for iss in issuers:
@@ -147,11 +150,13 @@ async def get_portfolio(
                 issuer_id=iss.id, name=iss.name, ticker=iss.ticker, sector=iss.industry,
                 run_id=run.id, qa_status=run.qa_status, committee_status=run.committee_status,
                 as_of=run.created_at.isoformat() if run.created_at else None,
-                metrics=dict(by_run_metric.get(run.id, {})),
+                metrics=by_run_metric.get(run.id, {}),
                 rv_recommendation=ro3.get("recommendation"),
                 rv_percentile=ro3.get("composite_percentile"),
                 downside_fragility=ro2b.get("fragility"),
             )
         )
     rows.sort(key=lambda r: r.name.lower())  # stable, name-ordered
-    return PortfolioResponse(rows=rows, issuer_count=len(issuers), covered_count=len(rows))
+    return PortfolioResponse(
+        rows=rows, issuer_count=len(issuers), covered_count=len(rows)
+    )

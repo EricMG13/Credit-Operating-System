@@ -45,6 +45,8 @@ export default function CommandPage() {
 }
 
 
+const COMMAND_VIEWS = ["cio", "res", "rv"] as const;
+
 function CommandCenter() {
   const [view, setView] = useState<"cio" | "res" | "rv">("cio");
   const [selected, setSelected] = useState<string | null>(null);
@@ -53,11 +55,10 @@ function CommandCenter() {
     const onCycle = (e: Event) => {
       const customEvent = e as CustomEvent<{ direction: number }>;
       const dir = customEvent.detail?.direction || 1;
-      const views = ["cio", "res", "rv"] as const;
       setView((curr) => {
-        const idx = views.indexOf(curr);
-        const nextIdx = (idx + dir + views.length) % views.length;
-        return views[nextIdx];
+        const idx = COMMAND_VIEWS.indexOf(curr);
+        const nextIdx = (idx + dir + COMMAND_VIEWS.length) % COMMAND_VIEWS.length;
+        return COMMAND_VIEWS[nextIdx];
       });
     };
     window.addEventListener("caos:subview-cycle", onCycle);
