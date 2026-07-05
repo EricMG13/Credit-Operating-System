@@ -55,6 +55,7 @@ from engine.readiness import synthesize_source_readiness
 from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
 from engine.gate import (
     Finding,
+    cap_committee_status_for_blocked_upstream,
     committee_status_from,
     qa_status_from,
     roll_up_qa_status,
@@ -125,6 +126,62 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
         layers.append(layer)
         remaining = [m for m in remaining if m not in placed]
     return layers
+
+
+def _blocked_ancestors(
+    module_id: str, blocked: frozenset, memo: Dict[str, frozenset]
+) -> frozenset:
+    """The set of ``blocked`` modules ``module_id`` transitively depends on, walked
+    over the registry DAG. Empty when nothing upstream is Blocked. Memoized across
+    the run's modules; the ``memo`` guard also tolerates a stray cycle (the registry
+    is a validated DAG, so this is defense-in-depth, not a live case)."""
+    if module_id in memo:
+        return memo[module_id]
+    memo[module_id] = frozenset()  # cycle guard: in-progress nodes contribute nothing
+    acc: set = set()
+    spec = REGISTRY.get(module_id)
+    for dep in spec.depends_on if spec is not None else ():
+        if dep in blocked:
+            acc.add(dep)
+        acc |= _blocked_ancestors(dep, blocked, memo)
+    result = frozenset(acc)
+    memo[module_id] = result
+    return result
+
+
+def _apply_blocked_upstream_cascade(
+    analytical_ids: Sequence[str],
+    module_status: Dict[str, str],
+    output_rows: Dict[str, ModuleOutput],
+) -> None:
+    """CP-5D cascade: cap every module that transitively depends on a post-gate
+    ``Blocked`` module at ``Restricted`` (committee usability only — ``qa_status``
+    stays honest) and append a limitation flag naming the compromised upstream. Only
+    ``Blocked`` cascades (a merely-Restricted upstream is a softer signal not worth
+    the noise); a Blocked module and modules with no Blocked ancestor are untouched.
+    In-place mutation of the persisted ``ModuleOutput`` rows (already added to the
+    session) — the JSON ``limitation_flags`` is *reassigned*, not appended in place,
+    so SQLAlchemy tracks the change."""
+    blocked = frozenset(m for m in analytical_ids if module_status.get(m) == "Blocked")
+    if not blocked:
+        return
+    memo: Dict[str, frozenset] = {}
+    for mid in analytical_ids:
+        if mid in blocked:
+            continue
+        ancestors = _blocked_ancestors(mid, blocked, memo)
+        if not ancestors:
+            continue
+        row = output_rows.get(mid)
+        if row is None:
+            continue
+        row.committee_status = cap_committee_status_for_blocked_upstream(row.committee_status)
+        flag = (
+            f"Rests on QA-Blocked upstream: {', '.join(sorted(ancestors))}. "
+            "Not committee-ready until the upstream clears."
+        )
+        if flag not in (row.limitation_flags or []):
+            row.limitation_flags = list(row.limitation_flags or []) + [flag]
 
 
 async def synthesize_module(  # noqa: C901  # pre-existing multi-branch dispatcher; decompose the dispatch table when reworked
@@ -467,6 +524,15 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             row.qa_status = status
             row.committee_status = committee_status_from(status, row.confidence)
             module_status[mid] = status
+
+        # ── CP-5D: post-gate committee-status cascade ─────────────────────
+        # CP-5B/CP-5C run AFTER synthesis, so a lineage/council CRITICAL can turn a
+        # module Blocked *after* its dependents already consumed its output. Those
+        # dependents' own evidence may pass, leaving them "Committee Ready" while
+        # resting on a Blocked foundation — a wrong-read on the money path. A
+        # structurally input-gated module already Blocked its dependents, so this only
+        # bites the post-gate case.
+        _apply_blocked_upstream_cascade(analytical_ids, module_status, output_rows)
 
         await _persist_cp5(session, run.id, findings, module_status)
 

@@ -61,6 +61,18 @@ def committee_status_from(qa_status: str, confidence: str) -> str:
     return "Committee Ready"
 
 
+def cap_committee_status_for_blocked_upstream(committee_status: str) -> str:
+    """CP-5D cascade: a module whose (transitive) upstream is post-gate ``Blocked``
+    cannot be committee-ready — its conclusion rests on a Blocked foundation, even
+    though its own evidence lineage passed. Cap its committee usability at
+    ``Restricted``. Only ``Committee Ready`` ranks above that line; every other
+    status (Restricted / Draft Only / Insufficient Information / Blocked) already
+    signals "not committee-ready" and is left untouched, so this is a downgrade
+    only. The module's own ``qa_status`` is *not* changed — its QA record stays
+    honest; only the committee verdict reflects the compromised input."""
+    return "Restricted" if committee_status == "Committee Ready" else committee_status
+
+
 def roll_up_qa_status(statuses: Iterable[str]) -> str:
     """Run-level status = the worst module status (Blocked > Restricted > Passed)."""
     statuses = list(statuses)
