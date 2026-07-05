@@ -93,11 +93,13 @@ function RunningView({
   subj,
   progress,
   criteria,
+  onDetach,
 }: {
   elapsed: number;
   subj: string;
   progress: ResearchProgress | null;
   criteria: string[];
+  onDetach?: () => void;
 }) {
   const phase = RESEARCH_PHASES[Math.min(Math.floor(elapsed / RESEARCH_PHASE_SECS), RESEARCH_PHASES.length - 1)];
   const sources = progress?.sources ?? 0;
@@ -109,8 +111,8 @@ function RunningView({
           <span className={labelCls}>Researching</span>
           <span className="tabular text-caos-2xs text-caos-muted">{mmss(elapsed)}</span>
         </div>
-        <div className="tabular text-caos-xl text-caos-text mb-1 truncate" title={subj}>
-          “{subj}”
+        <div className="tabular text-caos-xl text-caos-text mb-1 truncate" title={subj || undefined}>
+          {subj ? `“${subj}”` : "Reattached run"}
         </div>
         <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · live web research</p>
 
@@ -136,13 +138,28 @@ function RunningView({
         ) : (
           <p className="text-caos-sm text-caos-muted leading-snug">Working through the standard credit criteria.</p>
         )}
-        <p className="text-caos-2xs text-caos-muted leading-snug mt-6">Typically 2–4 minutes.</p>
+        <div className="mt-6 pt-4 border-t border-caos-border flex items-baseline justify-between gap-3">
+          <p className="text-caos-2xs text-caos-muted leading-snug">
+            Typically 2–4 minutes. The run continues even if you leave —
+            reload to reattach.
+          </p>
+          {onDetach && (
+            <button
+              type="button"
+              onClick={onDetach}
+              className="tabular text-caos-2xs uppercase tracking-wider px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-muted transition-caos focus-ring shrink-0"
+              title="Stop watching in this tab — the run keeps going server-side"
+            >
+              Detach
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function ErrorView({ error }: { error: string }) {
+function ErrorView({ error, hasPrev, onRestorePrev }: { error: string; hasPrev: boolean; onRestorePrev?: () => void }) {
   return (
     <div role="alert" className="caos-enter h-full overflow-auto px-6 py-8">
       <div className="w-full max-w-sm mx-auto">
@@ -151,6 +168,17 @@ function ErrorView({ error }: { error: string }) {
         </div>
         <p className="text-caos-sm text-caos-text leading-snug">{error}</p>
         <p className="text-caos-2xs text-caos-muted leading-snug mt-3">Adjust the brief and run again.</p>
+        {/* A failed rerun must not leave the analyst with nothing — the prior
+            report is retained in state and one click from here (H5). */}
+        {hasPrev && onRestorePrev && (
+          <button
+            type="button"
+            onClick={onRestorePrev}
+            className="tabular text-caos-xs mt-4 px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+          >
+            View previous report
+          </button>
+        )}
       </div>
     </div>
   );
@@ -166,6 +194,15 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         <span className="rdoc-brand"><span className="rdoc-mark">C</span>Deep Credit Research</span>
         <span className="rdoc-meta">{mode === "sector" ? "Sector" : "Issuer"} · {fileDate()}</span>
       </header>
+      {/* On-sheet integrity notice — an amputated narrative must announce itself on
+          the paper, not just in the app chrome, so it survives PDF export and a
+          reader can't mistake it for a finished committee document (H1). */}
+      {result.truncated && (
+        <p className="rdoc-truncated" role="alert">
+          <strong>Incomplete</strong> — narrative truncated by the output limit;
+          later sections may be missing. Re-run or raise the AI mode before relying on this.
+        </p>
+      )}
       <ReportBody report={result.report} />
       {result.sources.length > 0 && (
         <section className="rdoc-sources">
@@ -186,7 +223,7 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         {/* Demo reports carry no structured citations; say "illustrative"
             rather than the misleading "0 sources". Live narrative is LLM-
             synthesized — say so, and tell the reader to verify. */}
-        <span>{result.demo ? "Illustrative · demo" : `AI-synthesized · ${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"} — verify against cited sources`}</span>
+        <span>{result.demo ? "Illustrative · demo" : `AI-synthesized · ${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"} — verify against cited sources`}{result.truncated ? " · TRUNCATED" : ""}</span>
       </footer>
     </article>
   );
@@ -252,20 +289,26 @@ export function ReportPane({
   running,
   error,
   result,
+  prevResult,
   progress,
   criteria,
   elapsed,
   subj,
   mode,
+  onDetach,
+  onRestorePrev,
 }: {
   running: boolean;
   error: string | null;
   result: ResearchResult | null;
+  prevResult?: ResearchResult | null;
   progress: ResearchProgress | null;
   criteria: string[];
   elapsed: number;
   subj: string;
   mode: "sector" | "issuer";
+  onDetach?: () => void;
+  onRestorePrev?: () => void;
 }) {
   const badge = (
     <span className="flex items-center gap-2">
@@ -285,6 +328,18 @@ export function ReportPane({
           </span>
         </>
       ) : null}
+      {/* Truncation is an integrity signal, not decoration — a report cut off at
+          the output limit must never file as complete (H1). Glyph + word carry it,
+          not hue alone (a11y: status never by color only). */}
+      {result?.truncated ? (
+        <span
+          className="tabular text-caos-3xs uppercase tracking-wider px-1.5 py-px rounded border"
+          style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 55%, transparent)", backgroundColor: "color-mix(in srgb, var(--caos-warning) 12%, transparent)" }}
+          title="Narrative truncated by the output limit — re-run or raise AI mode"
+        >
+          ⚠ Truncated
+        </span>
+      ) : null}
       {result ? (
         <button
           onClick={() => window.print()}
@@ -300,9 +355,9 @@ export function ReportPane({
     <Panel title="Report" right={badge}>
       <div className="h-full overflow-auto">
         {running ? (
-          <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} />
+          <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} onDetach={onDetach} />
         ) : error ? (
-          <ErrorView error={error} />
+          <ErrorView error={error} hasPrev={!!prevResult} onRestorePrev={onRestorePrev} />
         ) : result ? (
           <>
             <ResultView result={result} mode={mode} />
