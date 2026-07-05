@@ -9,7 +9,7 @@
 // run; a permanent evidence dock keeps every conclusion one click from its
 // grounding (slide-over below lg so selection is never a silent no-op).
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { GroupLauncher } from "@/components/query/GroupLauncher";
@@ -29,7 +29,7 @@ import { useNotify } from "@/components/shared/Notifications";
 import { acceptQueryLink, listQueryLinks, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
 import type { AnswerResult, Capability, CapabilitiesResult, GraphResult, GraphNode, InsightBrief, InsightCard, OverlayEdge, OverlayResult } from "@/lib/query/graph";
 import { pairKey } from "@/lib/query/graph";
-import { addSection, removeSection, sectionId, type ReportSection } from "@/lib/query/report";
+import { addSection, parseStoredReport, removeSection, REPORT_STORAGE_KEY, sectionId, type ReportSection } from "@/lib/query/report";
 import { downloadQueryCsv } from "@/lib/query/export";
 import { rankQueryCapabilities } from "@/lib/query/routing";
 import { engineNote, QUESTIONS, questionFor, questionGroups } from "@/lib/query/questions";
@@ -99,6 +99,9 @@ function QueryWorkspace() {
   const [acceptedPairs, setAcceptedPairs] = useState<Map<string, string>>(new Map());
   const [view, setView] = useState<QueryView>("graph");
   const [searchOpen, setSearchOpen] = useState(false);
+  // Active-descendant index into the flattened command-bar dropdown (Recent +
+  // Runnable-now), -1 = no active item. Keyboard arrows move it; Enter runs it.
+  const [activeSuggest, setActiveSuggest] = useState(-1);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   // Q1 Desk Brief — proactive AI research, loaded on open (no prompting).
   const [brief, setBrief] = useState<InsightBrief | null>(null);
@@ -119,6 +122,7 @@ function QueryWorkspace() {
   const userInitiated = useRef(false); // an explicit pick/submit happened (not the auto-run)
   const briefPolls = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null); // wraps input + dropdown; blur only closes when focus leaves it
   const tablistRef = useRef<HTMLDivElement>(null);
   const notify = useNotify();
 
@@ -130,6 +134,32 @@ function QueryWorkspace() {
       console.warn("Could not load history", e);
     }
   }, []);
+
+  // Rehydrate the running report from localStorage, then persist every change.
+  // The report is a whole session of work; a refresh, crash, or stray
+  // navigation must not silently destroy it. `reportHydrated` gates the write
+  // effect so the first render (empty state) can't overwrite a stored report
+  // before rehydration lands.
+  const reportHydrated = useRef(false);
+  useEffect(() => {
+    try {
+      const restored = parseStoredReport(localStorage.getItem(REPORT_STORAGE_KEY));
+      if (restored.length > 0) setReport(restored);
+    } catch (e) {
+      console.warn("Could not load report", e);
+    }
+    reportHydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!reportHydrated.current) return;
+    try {
+      if (report.length > 0) localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify(report));
+      else localStorage.removeItem(REPORT_STORAGE_KEY);
+    } catch (e) {
+      console.warn("Could not save report", e);
+    }
+  }, [report]);
 
   const addToHistory = useCallback((searchText: string, capId: string, capLabel: string) => {
     setHistory((prev) => {
@@ -416,6 +446,30 @@ function QueryWorkspace() {
     return [...preferred, ...rest].slice(0, 5);
   }, [caps]);
 
+  // Which history rows the dropdown shows — must match the render slice so the
+  // active-descendant index lines up with the rendered options.
+  const historyRows = useMemo(() => history.slice(0, 3), [history]);
+  // Flatten Recent + Runnable-now into one ordered option list so the
+  // ArrowUp/Down/Enter keyboard path and the rendered listbox share one index
+  // space. Each option knows how to run itself (mirrors the button handlers).
+  const suggestOptions = useMemo(
+    () => [
+      ...historyRows.map((h, i) => ({
+        key: `hist-${i}`,
+        run: () => { setText(h.text); setSearchOpen(false); pick(h.capId); },
+      })),
+      ...prompts.map((p) => ({
+        key: `prompt-${p.id}`,
+        run: () => { setSearchOpen(false); addToHistory(questionFor(p), p.id, p.label); pick(p.id); },
+      })),
+    ],
+    [historyRows, prompts, pick, addToHistory],
+  );
+  const suggestOpen = searchOpen && suggestOptions.length > 0;
+  // Reset the active row whenever the option set changes or the menu closes, so
+  // a stale index never points past the list.
+  useEffect(() => { setActiveSuggest(-1); }, [suggestOptions, searchOpen]);
+
   // Keyword-route the free text to the best enabled walk; a miss or a greyed
   // best match surfaces the closest runnable walks as did-you-mean chips.
   // `lead` prefixes the note when the deterministic path is a fallback (e.g. the
@@ -429,7 +483,7 @@ function QueryWorkspace() {
     const runnable = scored.filter((x) => x.c.enabled).map((x) => x.c);
     if (scored.length === 0) {
       setNoteKind("warn");
-      setNote(`${prefix}No walk matched. Try one of these:`);
+      setNote(`${prefix}No question matched. Try one of these:`);
       setSuggest(allCaps.filter((c) => c.enabled).slice(0, 4));
       return;
     }
@@ -538,6 +592,39 @@ function QueryWorkspace() {
       });
   }, [text, caps, capById, keywordSubmit, run, addToHistory, fetchAnswer]);
 
+  // Close the dropdown only when focus actually leaves the whole composer — a
+  // Tab into a suggestion button must NOT dismiss the menu (the old input-only
+  // onBlur trapped keyboard users out of Recent entirely).
+  const onComposerBlur = useCallback((e: FocusEvent<HTMLDivElement>) => {
+    if (!composerRef.current?.contains(e.relatedTarget as Node | null)) {
+      setSearchOpen(false);
+    }
+  }, []);
+
+  // Input keyboard nav: ArrowDown/Up move the active descendant across the
+  // flattened options, Enter runs the active one (or submits the typed query
+  // when none is active), Escape closes.
+  const onInputKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") { setSearchOpen(false); setActiveSuggest(-1); return; }
+    if (suggestOpen && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      setActiveSuggest((cur) => {
+        const n = suggestOptions.length;
+        if (e.key === "ArrowDown") return cur < 0 ? 0 : (cur + 1) % n;
+        return cur <= 0 ? n - 1 : cur - 1;
+      });
+      return;
+    }
+    if (e.key === "Enter") {
+      if (suggestOpen && activeSuggest >= 0 && activeSuggest < suggestOptions.length) {
+        e.preventDefault();
+        suggestOptions[activeSuggest].run();
+        return;
+      }
+      submit();
+    }
+  }, [suggestOpen, suggestOptions, activeSuggest, submit]);
+
   const views = useMemo(() => (graph ? viewsFor(graph.capability_id, graph.mode) : []), [graph]);
   const activeView = graph ? coerceView(view, graph.capability_id, graph.mode) : view;
 
@@ -586,7 +673,7 @@ function QueryWorkspace() {
           <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
           {/* The active question already leads the answer header below — no need
               to triplicate it here. */}
-          {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">walking graph</span>}
+          {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">building answer</span>}
         </div>
       </PageSubHeader>
 
@@ -607,80 +694,111 @@ function QueryWorkspace() {
                 onOpenChunk={(id, label) => setCite({ id, label })}
               />
             </div>
-            <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-1.5 focus-within:border-caos-accent/70 transition-caos">
-              <QueryMark small />
-              <input
-                ref={inputRef}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onFocus={() => setSearchOpen(true)}
-                onBlur={() => setSearchOpen(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                  if (e.key === "Escape") setSearchOpen(false);
-                }}
-                placeholder={`Route a question across coverage — ${totalReady || "…"} walks ready`}
-                aria-label="Query coverage"
-                className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
-              />
-              <span className="tabular text-caos-3xs text-caos-muted font-mono border border-caos-border rounded px-1 py-0.5 hidden sm:inline" aria-hidden>
-                ⌘K
-              </span>
-              <button
-                type="button"
-                onClick={submit}
-                className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
-              >
-                Run
-              </button>
-            </div>
-
-            {searchOpen && (history.length > 0 || prompts.length > 0) && (
-              <div className="absolute left-4 right-4 bottom-full mb-1 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden" style={{ boxShadow: "var(--shadow-pop)" }}>
-                {history.length > 0 && (
-                  <div className="py-1 border-b border-caos-border/60">
-                    <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1">Recent</div>
-                    {history.slice(0, 3).map((h, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setText(h.text);
-                          setSearchOpen(false);
-                          pick(h.capId);
-                        }}
-                        className="w-full text-left px-3 py-1.5 flex items-baseline gap-2 hover:bg-caos-elevated/60 transition-caos focus-ring"
-                      >
-                        <span className="tabular text-caos-sm text-caos-text truncate">&quot;{h.text}&quot;</span>
-                        <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0">→ {h.capLabel}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {prompts.length > 0 && (
-                  <div className="py-1">
-                    <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1">Runnable now</div>
-                    {prompts.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setSearchOpen(false);
-                          addToHistory(questionFor(p), p.id, p.label);
-                          pick(p.id);
-                        }}
-                        className="w-full text-left px-3 py-1.5 flex items-baseline gap-2 hover:bg-caos-elevated/60 transition-caos focus-ring"
-                      >
-                        <span className="tabular text-caos-sm text-caos-text truncate">{questionFor(p)}</span>
-                        <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0 truncate max-w-[45%]">{engineNote(p.id)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+            <div ref={composerRef} onBlur={onComposerBlur} className="relative">
+              <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-1.5 focus-within:border-caos-accent/70 transition-caos">
+                <QueryMark small />
+                <input
+                  ref={inputRef}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onFocus={() => setSearchOpen(true)}
+                  onKeyDown={onInputKeyDown}
+                  placeholder={`Route a question across coverage — ${totalReady || "…"} questions ready`}
+                  aria-label="Query coverage"
+                  role="combobox"
+                  aria-expanded={suggestOpen}
+                  aria-controls="query-suggest-listbox"
+                  aria-activedescendant={suggestOpen && activeSuggest >= 0 ? suggestOptions[activeSuggest]?.key : undefined}
+                  aria-autocomplete="list"
+                  className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
+                />
+                <span className="tabular text-caos-3xs text-caos-muted font-mono border border-caos-border rounded px-1 py-0.5 hidden sm:inline" aria-hidden>
+                  ⌘K
+                </span>
+                <button
+                  type="button"
+                  onClick={submit}
+                  className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
+                >
+                  Run
+                </button>
               </div>
-            )}
+
+              {suggestOpen && (
+                <ul
+                  id="query-suggest-listbox"
+                  role="listbox"
+                  aria-label="Question suggestions"
+                  className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden"
+                  style={{ boxShadow: "var(--shadow-pop)" }}
+                >
+                  {historyRows.length > 0 && (
+                    <li role="presentation" className="border-b border-caos-border/60 py-1">
+                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1" role="presentation">Recent</div>
+                      <ul role="presentation">
+                        {historyRows.map((h, i) => {
+                          const idx = i;
+                          const key = suggestOptions[idx]?.key;
+                          return (
+                            <li key={key} role="presentation">
+                              <button
+                                id={key}
+                                type="button"
+                                role="option"
+                                aria-selected={activeSuggest === idx}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setText(h.text);
+                                  setSearchOpen(false);
+                                  pick(h.capId);
+                                }}
+                                onMouseEnter={() => setActiveSuggest(idx)}
+                                className={`w-full text-left px-3 py-1.5 flex items-baseline gap-2 transition-caos focus-ring ${activeSuggest === idx ? "bg-caos-elevated/60" : "hover:bg-caos-elevated/60"}`}
+                              >
+                                <span className="tabular text-caos-sm text-caos-text truncate">&quot;{h.text}&quot;</span>
+                                <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0">→ {h.capLabel}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </li>
+                  )}
+                  {prompts.length > 0 && (
+                    <li role="presentation" className="py-1">
+                      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted px-3 py-1" role="presentation">Runnable now</div>
+                      <ul role="presentation">
+                        {prompts.map((p, i) => {
+                          const idx = historyRows.length + i;
+                          const key = suggestOptions[idx]?.key;
+                          return (
+                            <li key={key} role="presentation">
+                              <button
+                                id={key}
+                                type="button"
+                                role="option"
+                                aria-selected={activeSuggest === idx}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setSearchOpen(false);
+                                  addToHistory(questionFor(p), p.id, p.label);
+                                  pick(p.id);
+                                }}
+                                onMouseEnter={() => setActiveSuggest(idx)}
+                                className={`w-full text-left px-3 py-1.5 flex items-baseline gap-2 transition-caos focus-ring ${activeSuggest === idx ? "bg-caos-elevated/60" : "hover:bg-caos-elevated/60"}`}
+                              >
+                                <span className="tabular text-caos-sm text-caos-text truncate">{questionFor(p)}</span>
+                                <span className="tabular text-caos-3xs text-caos-muted font-mono shrink-0 truncate max-w-[45%]">{engineNote(p.id)}</span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
 
             {/* aria-live so screen readers announce Routing…/Routed/misses as
                 they arrive; a routed/routing note reads neutral (accent/muted),
@@ -877,7 +995,7 @@ function QueryWorkspace() {
             ) : graphErr ? (
               <Center text={`Query failed — ${graphErr}`} warn />
             ) : !graph ? (
-              <Center text={running ? "Walking the graph…" : "Open a card from the desk brief above, or ask a question to render its answer."} />
+              <Center text={running ? "Building the answer…" : "Open a card from the desk brief above, or ask a question to render its answer."} />
             ) : activeView === "rv" ? (
               <RelativeValueTable
                 graph={graph}

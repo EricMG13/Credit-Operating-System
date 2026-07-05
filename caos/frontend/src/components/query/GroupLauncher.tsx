@@ -26,7 +26,7 @@ export function GroupLauncher({ groups, cardsByGroup, openId, onToggle, onPick, 
 
   return (
     <div className="relative">
-      <div className="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="Walk groups">
+      <div className="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="Question groups">
         {groups.map((g) => {
           const active = g.id === openId;
           return (

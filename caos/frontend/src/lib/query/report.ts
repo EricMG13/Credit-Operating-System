@@ -42,6 +42,41 @@ export function removeSection(list: ReportSection[], id: string): ReportSection[
   return list.filter((s) => s.id !== id);
 }
 
+// localStorage key for the running report. The report is the single most
+// valuable artifact the surface produces — a whole session of assembled
+// answers, pinned insights, and ratified links — so it survives a refresh,
+// crash, or accidental navigation, mirroring the history-persistence pattern.
+export const REPORT_STORAGE_KEY = "caos:query-report";
+
+// Structural guard for a rehydrated section — a hand-edited or version-skewed
+// localStorage blob must never crash the mount. Drops anything that doesn't
+// carry the fields the rail and print sheet read.
+function isReportSection(x: unknown): x is ReportSection {
+  if (typeof x !== "object" || x === null) return false;
+  const s = x as Record<string, unknown>;
+  return (
+    typeof s.id === "string" &&
+    (s.kind === "answer" || s.kind === "insight" || s.kind === "link" || s.kind === "exhibit") &&
+    typeof s.title === "string" &&
+    typeof s.body === "string" &&
+    Array.isArray(s.sources) &&
+    typeof s.ai === "boolean" &&
+    typeof s.addedAt === "number"
+  );
+}
+
+// Parse a persisted report, keeping only well-formed sections. Returns [] on
+// any corruption so a bad blob degrades to an empty rail, never a thrown mount.
+export function parseStoredReport(raw: string | null): ReportSection[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isReportSection) : [];
+  } catch {
+    return [];
+  }
+}
+
 const KIND_LABEL: Record<ReportSectionKind, string> = {
   answer: "Answer",
   insight: "Insight",

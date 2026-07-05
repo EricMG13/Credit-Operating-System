@@ -7,6 +7,7 @@
 // surface. print:hidden — the rail is the workbench, the exported sheet is the
 // deliverable.
 
+import { useEffect, useRef, useState } from "react";
 import type { ReportSection, ReportSectionKind } from "@/lib/query/report";
 import { kindLabel } from "@/lib/query/report";
 import { MODEL_HUE } from "@/components/query/node-style";
@@ -27,6 +28,23 @@ interface Props {
 }
 
 export function ReportRail({ sections, onRemove, onExport, onClear, onOpenChunk }: Props) {
+  // Guard the destructive Clear behind a two-step confirm — clearing wipes a
+  // whole session of assembled work, so a single stray click must never do it.
+  // The confirm auto-dismisses so it can't strand the footer in a scary state.
+  const [confirming, setConfirming] = useState(false);
+  const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!confirming) return;
+    confirmBtnRef.current?.focus();
+    const t = window.setTimeout(() => setConfirming(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [confirming]);
+  // If the report empties (last section removed, or cleared), drop the pending
+  // confirm so it can't linger over an already-empty footer.
+  useEffect(() => {
+    if (sections.length === 0) setConfirming(false);
+  }, [sections.length]);
+
   return (
     <div className="flex flex-col h-full min-h-0 print:hidden">
       <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-caos-border">
@@ -102,14 +120,36 @@ export function ReportRail({ sections, onRemove, onExport, onClear, onOpenChunk 
         >
           Export report
         </button>
-        <button
-          type="button"
-          onClick={onClear}
-          disabled={sections.length === 0}
-          className="tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text disabled:opacity-40 disabled:cursor-not-allowed transition-caos focus-ring"
-        >
-          Clear
-        </button>
+        {confirming ? (
+          <span className="flex items-center gap-1.5">
+            <button
+              ref={confirmBtnRef}
+              type="button"
+              onClick={() => { onClear(); setConfirming(false); }}
+              aria-label={`Confirm clearing all ${sections.length} report sections`}
+              className="tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded border border-caos-critical text-caos-critical hover:bg-caos-critical hover:text-caos-bg transition-caos focus-ring"
+            >
+              Clear all
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              aria-label="Keep report"
+              className="tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring"
+            >
+              Keep
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={sections.length === 0}
+            className="tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text disabled:opacity-40 disabled:cursor-not-allowed transition-caos focus-ring"
+          >
+            Clear
+          </button>
+        )}
       </div>
     </div>
   );
