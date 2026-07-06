@@ -360,8 +360,17 @@ def _passes(value: Optional[float], op: str, target) -> bool:
         t = float(target)
     except (TypeError, ValueError):
         return False  # fail closed: an unparseable filter excludes, never admits all (#4)
-    return {"=": value == t, ">": value > t, ">=": value >= t,
-            "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
+    if op == "=":
+        return value == t
+    if op == ">":
+        return value > t
+    if op == ">=":
+        return value >= t
+    if op == "<":
+        return value < t
+    if op == "<=":
+        return value <= t
+    return False
 
 
 # ── Latest-per (issuer, metric) collapse ─────────────────────────────────────

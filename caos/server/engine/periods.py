@@ -29,10 +29,7 @@ def year(period: str) -> int:
     if not nums:
         return -1
     y = int(nums[-1])
-    return 2000 + y if y < 100 else y
-
-
-_QUARTER_RE = re.compile(r"Q\s*([1-4])", re.IGNORECASE)
+    return y + (2000 if y < 100 else 0)
 
 
 def _intra_year_rank(period: str) -> float:
@@ -44,10 +41,9 @@ def _intra_year_rank(period: str) -> float:
     ``FY2025``, and ``LTM_Q3`` just above ``Q3``. (Domain call: LTM is the headline
     current figure in leveraged credit; flip the +0.5 if a desk prefers closed FY.)"""
     p = period or ""
-    is_ltm = p.upper().startswith("LTM")
-    m = _QUARTER_RE.search(p)
+    m = re.search(r"Q\s*([1-4])", p, re.I)
     base = float(m.group(1)) if m else 4.0
-    return base + (0.5 if is_ltm else 0.0)
+    return base + (0.5 if p.upper().startswith("LTM") else 0.0)
 
 
 def sort_key(period: str) -> tuple:
@@ -55,7 +51,7 @@ def sort_key(period: str) -> tuple:
     ``key=`` for max()/sorted() so two same-year labels order by quarter (and an LTM
     stub above the full year it trails) instead of tying on year and keeping whichever
     happened to come first."""
-    return (year(period), _intra_year_rank(period))
+    return year(period), _intra_year_rank(period)
 
 
 def latest(series: dict) -> Optional[float]:
@@ -67,15 +63,8 @@ def latest(series: dict) -> Optional[float]:
     phase (where any raise aborts and rolls back the whole run — BE3-2)."""
     if not isinstance(series, dict):
         return None
-    max_val = None
-    max_sort = None
-    for p, v in series.items():
-        if isinstance(v, (int, float)):
-            k_sort = sort_key(p)
-            if max_sort is None or k_sort > max_sort:
-                max_sort = k_sort
-                max_val = v
-    return max_val
+    valid = {p: v for p, v in series.items() if isinstance(v, (int, float))}
+    return valid[max(valid, key=sort_key)] if valid else None
 
 
 def is_finite_number(x: object) -> TypeGuard[float]:

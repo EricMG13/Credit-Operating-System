@@ -77,13 +77,19 @@ def scan(chunks: Iterable[Tuple[str, str]], patterns: Sequence[tuple], key: int 
     """Yield ``(pattern, chunk_id, text)`` for the first chunk each pattern hits.
 
     ``pattern[key]`` is the dedup id; ``pattern[-1]`` is the regex (matched against
-    the lower-cased chunk text). ``text`` is yielded raw so callers that need the
+    the chunk text case-insensitively). ``text`` is yielded raw so callers that need the
     original (e.g. to read a dollar amount near the hit) can post-process.
     """
     seen: set = set()
+    compiled = [
+        pat[-1] if isinstance(pat[-1], re.Pattern) else re.compile(pat[-1], re.IGNORECASE)
+        for pat in patterns
+    ]
+
     for chunk_id, text in chunks:
-        low = (text or "").lower()
-        for pat in patterns:
-            if pat[key] not in seen and re.search(pat[-1], low):
-                seen.add(pat[key])
+        raw_text = text or ""
+        for i, pat in enumerate(patterns):
+            pid = pat[key]
+            if pid not in seen and compiled[i].search(raw_text):
+                seen.add(pid)
                 yield pat, chunk_id, text

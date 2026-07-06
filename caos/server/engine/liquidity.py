@@ -30,11 +30,18 @@ _SOURCES: Tuple[Tuple[str, str], ...] = (
     (_MATURITY_WALL, r"matur(?:es|ity|ities)|debt maturit"),
 )
 
+# Precompiled regexes to avoid compiling inside the scan loop
+_SOURCES_COMPILED = {
+    "Undrawn revolving credit facility": re.compile(r"undrawn|available (?:under|capacity)|revolv", re.IGNORECASE),
+    "Cash and cash equivalents": re.compile(r"cash and cash equivalents|cash on hand|cash balance", re.IGNORECASE),
+    _MATURITY_WALL: re.compile(r"matur(?:es|ity|ities)|debt maturit", re.IGNORECASE),
+}
+
 
 def scan_liquidity(chunks: List[Tuple[str, str]]) -> List[dict]:
     """Flag each liquidity source (once), capturing a nearby amount when present."""
     return [{"source": label,
-             "amount_musd": amount_musd(text, re.compile(pattern, re.IGNORECASE)),
+             "amount_musd": amount_musd(text, _SOURCES_COMPILED[label]),
              "chunk_id": cid}
             for (label, pattern), cid, text in scan(chunks, _SOURCES)]
 
@@ -60,42 +67,24 @@ def _interest_runway_months(
       monthly interest = annual / 12
       runway (months)  = liquidity / monthly = liquidity * 12 / annual cash interest
 
-    Worked check: EBITDA 421, coverage 2.1x  =>  interest = 421/2.1 ~ 200.5;
-      liquidity 500  =>  500 * 12 / 200.5 ~ 29.9 months (~2.5 yrs of interest cover).
-
     Rounding note (load-bearing): annual cash interest is rounded to one decimal
     FIRST, then runway is computed from that rounded figure — we report the same
     interest number we divide by, so the two outputs reconcile. (round() is
     banker's/half-even, matching CP-1 presentation.)
-
-    Degrade-don't-invent: each guard below returns (None, None) so the module
-    falls back to "Insufficient" rather than fabricating a runway. Returns
-    (annual_cash_interest_musd, runway_months) on success.
     """
-    # Guard (a): liquidity was never quantified (or is NaN/inf), or CP-1 is absent.
     if not is_finite_number(disclosed_liquidity) or cp1 is None:
         return None, None
 
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    ebitda = latest(nf.get("adj_ebitda") or {})  # latest LTM adj. EBITDA ($mm)
-    coverage = nf.get("interest_coverage_ltm")   # EBITDA / cash interest (x)
+    ebitda, coverage = latest(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
 
-    # Guard (b): missing/NaN/inf EBITDA or coverage, or coverage == 0 (would divide
-    # by zero backing out interest — and a 0x coverage carries no interest burden).
     if not (is_finite_number(ebitda) and is_finite_number(coverage) and coverage):
         return None, None
 
-    # Back out implied annual cash interest from coverage, rounded for reporting.
     annual_cash_interest = round(ebitda / coverage, 1)
-
-    # Guard (c): implied interest rounds to 0.0 — no interest line to amortise
-    # liquidity against (and it would be the denominator of the runway divide).
     if not annual_cash_interest:
         return None, None
 
-    # Runway = liquidity / monthly interest = liquidity * 12 / annual interest.
-    # No output guard by design: zero liquidity -> 0.0 months; negative liquidity
-    # or negative coverage flow straight through as signed months/interest.
     return annual_cash_interest, round(disclosed_liquidity * 12 / annual_cash_interest, 1)
 
 
@@ -116,9 +105,6 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
 
     # Sum only true liquidity SOURCES — the maturity wall is a use, not a source, so it
     # must not inflate disclosed liquidity or the interest runway. (review run-2 #B1)
-    # is_finite_number, not isinstance: bool(NaN) is True, so a NaN amount would
-    # pass isinstance, sum to NaN, and ship a raw NaN + "~$nanM" summary (BE2-1).
-    # Matches the sibling sized-sum gates (capstructure/relval).
     quantified = [f for f in found
                   if f["source"] != _MATURITY_WALL and is_finite_number(f["amount_musd"])]
     total = round(sum(f["amount_musd"] for f in quantified), 1) if quantified else None
@@ -128,12 +114,12 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
                if quantified else f"{len(found)} liquidity source(s) disclosed (amounts not parsed)")
     if runway is not None:
         summary += f" — covers ~{runway:g} months of cash interest"
+        
     return ModulePayload(
         module_id="CP-2E", module_name="LiquidityCashFlowBridge",
         owned_object="liquidity_maturity_analysis",
         runtime_output={
-            "sources": [{"source": f["source"], "amount_musd": f["amount_musd"], "chunk_id": f["chunk_id"]}
-                        for f in found],
+            "sources": found,  # reuse found list directly to save dict copies
             "disclosed_liquidity_musd": total,
             "annual_cash_interest_musd": cash_interest,
             "months_liquidity_covers_interest": runway,
@@ -144,8 +130,8 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
             claim_id="C-LIQ1",
             claim_text=f"Liquidity sources: {summary}.",
             evidence=[EvidenceSpec(
-                f"E-LIQ-{i}", "quoted_text", "Directly Sourced",
-                "Liquidity disclosure (ingested chunk)", "High",
+                evidence_id=f"E-LIQ-{i}", extraction_type="quoted_text", lineage_class="Directly Sourced",
+                source_locator="Liquidity disclosure (ingested chunk)", confidence="High",
                 resolved_chunk_id=f["chunk_id"]) for i, f in enumerate(found)],
         )],
     )

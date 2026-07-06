@@ -194,10 +194,13 @@ async def _persist_positions(db: AsyncSession, portfolio_id: str, positions: Lis
     by_name = {i.name.strip().lower(): i for i in issuers if i.name}
 
     def match(rec) -> Optional[Issuer]:
-        for key, table in ((rec.get("figi"), by_figi), (rec.get("ticker"), by_ticker),
-                           (rec.get("borrower_name"), by_name)):
-            if key and key.strip().lower() in table:
-                return table[key.strip().lower()]
+        for k in ("figi", "ticker", "borrower_name"):
+            val = rec.get(k)
+            if val:
+                val_clean = val.strip().lower()
+                table = by_figi if k == "figi" else by_ticker if k == "ticker" else by_name
+                if val_clean in table:
+                    return table[val_clean]
         return None
 
     for rec in positions:
