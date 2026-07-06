@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { AxiosError } from "axios";
-import { api } from "./api";
+import { api, getIssuers } from "./api";
 
 // SEAM4-1: the response interceptor must fire caos:auth-lost on a 401 from a real
 // endpoint (so AuthProvider re-resolves → login landing), but NOT for the /me
@@ -31,5 +31,19 @@ describe("api 401 interceptor (SEAM4-1)", () => {
     await expect(api.get("/api/auth/me")).rejects.toBeTruthy();
     expect(spy).not.toHaveBeenCalled();
     window.removeEventListener("caos:auth-lost", spy);
+  });
+});
+
+describe("api shape guards", () => {
+  it("rejects non-array issuer responses", async () => {
+    api.defaults.adapter = ((config: unknown) => Promise.resolve({
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: config as never,
+      data: { detail: "not an issuer list" },
+    })) as never;
+
+    await expect(getIssuers()).rejects.toThrow("Invalid issuer response");
   });
 });

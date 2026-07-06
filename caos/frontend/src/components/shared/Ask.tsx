@@ -293,7 +293,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
 
   return (
     <div
-      className="fixed inset-0 z-modal flex items-start justify-center p-6 bg-[#050507]/72 transition-opacity duration-200"
+      className="fixed inset-0 z-modal flex justify-end bg-black/60 transition-opacity duration-200"
       onClick={onClose}
     >
       <div
@@ -302,10 +302,10 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
         aria-modal="true"
         aria-label="Ask with Query"
         onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full transition-caos flex flex-col overflow-hidden ${
+        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full transition-all duration-300 flex flex-col overflow-hidden shadow-2xl ${
           hasQueried
-            ? "max-w-6xl h-[82vh] max-h-[900px] mt-[6vh]"
-            : "max-w-2xl mt-[18vh] p-4 gap-3.5"
+            ? "max-w-4xl"
+            : "max-w-md p-4 gap-3.5"
         }`}
         style={{ boxShadow: "var(--shadow-modal)" }}
       >

@@ -36,6 +36,21 @@ const AuthContext = createContext<AuthContextType>({
   refresh: async () => {},
 });
 
+const LOGIN_BYPASS_USER: AuthUser = {
+  id: "local-dev",
+  email: "analyst@local.dev",
+  full_name: "Local Analyst",
+  role: "analyst",
+  is_active: true,
+  source: "local",
+};
+
+function loginBypassEnabled() {
+  // ponytail: temporary local-preview bypass; remove when login testing resumes.
+  return process.env.NODE_ENV === "development"
+    || (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN === "1");
+}
+
 export function useAuth() {
   return useContext(AuthContext);
 }
@@ -48,6 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // fallow-ignore-next-line complexity
   const refresh = useCallback(async () => {
+    if (loginBypassEnabled()) {
+      setUser(LOGIN_BYPASS_USER);
+      setError(false);
+      setNeedsLogin(false);
+      setLoading(false);
+      return;
+    }
+
     try {
       const me: AuthUser = await getMe();
       setUser(me);

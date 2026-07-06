@@ -30,7 +30,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -47,10 +46,11 @@ from database import (
     QueryAcceptedLink,
     QueryInsight,
     Run,
+    aware_utc,
 )
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
-from engine.llm_safety import UNTRUSTED_RULE, loads_finite, wrap_untrusted
+from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 
 logger = logging.getLogger("caos")
 
@@ -74,25 +74,6 @@ def available() -> bool:
     return presets.can_run_model(presets.model_for(presets.HEAVY))
 
 
-def _client():
-    import anthropic
-
-    from config import get_settings
-
-    s = get_settings()
-    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
-
-
-def _first_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise ValueError("model reply contained no JSON object")
-    parsed = loads_finite(m.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("model reply was not a JSON object")
-    return parsed
-
-
 def _text_of(resp) -> str:
     return next((b.text for b in resp.content if getattr(b, "type", "") == "text"), "")
 
@@ -113,12 +94,6 @@ class PackEntry:
     issuer_id: Optional[str] = None
     walk: Optional[str] = None
     chunk_id: Optional[str] = None
-
-
-def _aware(dt: Optional[datetime]) -> Optional[datetime]:
-    if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 async def _delta_entries(db: AsyncSession) -> List[PackEntry]:
@@ -354,7 +329,7 @@ async def _generate(db: AsyncSession, pack: List[PackEntry]) -> tuple[List[dict]
         f"{_SYSTEM}\n\nWALKS:\n{json.dumps(walks_for_prompt, ensure_ascii=False)}"
     )
     resp = await llm_client.create(
-        _client(),
+        llm_client.anthropic_client(),
         lane="query-insights",
         model=presets.model_for(presets.HEAVY),
         effort=presets.effort_for(presets.HEAVY),
@@ -362,7 +337,7 @@ async def _generate(db: AsyncSession, pack: List[PackEntry]) -> tuple[List[dict]
         system=system,
         messages=[{"role": "user", "content": f"PACK:\n{wrap_untrusted(json.dumps(slim, ensure_ascii=False))}"}],
     )
-    reply = _first_json(_text_of(resp))
+    reply = first_json_object(_text_of(resp))
     cards = _validate(reply, pack, enabled_walks)
     if cards:
         model = str(getattr(resp, "model", None) or presets.model_for(presets.HEAVY))
@@ -405,7 +380,7 @@ def _served(row: QueryInsight, refreshing: bool) -> dict:
 
 
 def _stale(row: QueryInsight) -> bool:
-    gen = _aware(row.generated_at)
+    gen = aware_utc(row.generated_at)
     if gen is None:
         return True
     return (datetime.now(timezone.utc) - gen) > _STALE_AFTER

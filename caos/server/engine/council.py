@@ -41,6 +41,7 @@ from typing import Dict, List, Sequence
 from config import get_settings
 from engine import budget, llm_client, presets
 from engine.gate import SEVERITY_RANK, Finding
+from engine.llm_safety import first_json_value
 from engine.schemas import ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -93,12 +94,7 @@ class LiveReviewer:
 
     def _get_client(self):
         if self._client is None:
-            import anthropic
-
-            self._client = anthropic.AsyncAnthropic(
-                api_key=self._settings.anthropic_api_key,
-                timeout=self._settings.caos_llm_timeout_s,
-            )
+            self._client = llm_client.anthropic_client(self._settings)
         return self._client
 
     async def review(self, produced: Sequence[ModulePayload]) -> List[Finding]:
@@ -210,27 +206,12 @@ class LiveReviewer:
         return _parse_ballot(text)
 
 
-def _first_json(text: str, open_ch: str):
-    """Decode the first complete JSON value that starts at ``open_ch`` ('[' or '{'),
-    ignoring prose/markdown fences around it. Replaces a greedy ``[.*]``/``{.*}``
-    regex that broke when a reviewer appended a bracketed note after the array
-    (first-'[' to last-']' then failed to parse → the seat's findings were silently
-    dropped, defeating a QA net). ``raw_decode`` stops at the value's true end and
-    ignores trailing text; scanning each opening char also tolerates a stray bracket
-    in leading prose. Returns the parsed value, or None if none parses."""
-    dec = json.JSONDecoder()
-    i = text.find(open_ch)
-    while i != -1:
-        try:
-            return dec.raw_decode(text, i)[0]
-        except json.JSONDecodeError:
-            i = text.find(open_ch, i + 1)
-    return None
-
-
 def _parse_ballot(text: str) -> Dict[str, dict]:
     """Parse a peer-vote response into {label: {keep, severity}} (defensive)."""
-    data = _first_json(text, "{")
+    try:
+        data = first_json_value(text, "{")
+    except ValueError:
+        return {}
     if not isinstance(data, dict):
         return {}
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
@@ -267,7 +248,10 @@ def _tally_votes(findings: List[Finding], ballots: Sequence[Dict[str, dict]]) ->
 
 def _parse(seat: Seat, text: str) -> List[Finding]:
     """Parse a seat's JSON array into Findings (defensive; bad output -> none)."""
-    items = _first_json(text, "[")
+    try:
+        items = first_json_value(text, "[")
+    except ValueError:
+        return []
     if not isinstance(items, list):
         if items is None and "[" in text:
             logger.warning("council seat %s returned unparseable JSON", seat.name)

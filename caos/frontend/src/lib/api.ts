@@ -138,8 +138,11 @@ export const recoverLogin = (email: string, recovery_words: string[]) =>
 
 // ─── Issuers ──────────────────────────────────────────────────────────────
 // `q` searches name, ticker, sector/industry, sub-sector, country, and FIGI.
-export const getIssuers = (q?: string) =>
-  api.get("/api/issuers/", { params: q && q.trim() ? { q: q.trim() } : {} }).then((r) => r.data);
+export const getIssuers = (q?: string): Promise<Issuer[]> =>
+  api.get("/api/issuers/", { params: q && q.trim() ? { q: q.trim() } : {} }).then((r) => {
+    if (Array.isArray(r.data)) return r.data;
+    throw new Error("Invalid issuer response");
+  });
 export const createIssuer = (data: Record<string, unknown>) =>
   api.post("/api/issuers/", data).then((r) => r.data);
 // Single issuer by id — used by Deep-Dive to label the chrome for the issuer

@@ -7,6 +7,26 @@ export type RVSignal = "Cheap" | "Wide" | "Inline" | "Tight" | "Rich" | "N/A";
 
 export const DELTA_COLS = ["Δ 1M", "Δ YTD"];
 
+export interface BenchmarkProvenance {
+  asOf: string;
+  peerSet: string;
+  n: number;
+  source: string;
+  credible: boolean;
+}
+
+export interface InstrumentRV {
+  status: "insufficient";
+  reason: string;
+  liq: Liquidity;
+  maturity: string | null;
+}
+
+export interface PortfolioRV {
+  held: boolean;
+  headroomPct?: number;
+}
+
 export interface RVRow {
   company: string;
   sector: string;
@@ -19,12 +39,16 @@ export interface RVRow {
   bucket: string;
   size: number;
   margin: number;
-  maturity: string;
+  maturity: string | null;
   bid: number;
   ask: number;
   liq: Liquidity;
   rv: RVSignal;
   rvBp: number | null;
+  rvProvenance: BenchmarkProvenance | null;
+  instrumentRv: InstrumentRV;
+  portfolioRv: PortfolioRV;
+  carryRv: number | null;
   d: (number | null)[];
   ytm: number;
   dm: number;
@@ -126,14 +150,6 @@ const rvSignal = (rvBp: number | null): RVSignal => {
   return "Inline";
 };
 
-// ponytail: fixed junk ceiling. No performing/distressed leveraged loan carries a
-// 3Y DM above ~5000bp; the feed carries a few junk marks (the stats.ts comment
-// names ±20000bp ticks; the scatter names a 579,028bp one). Left unguarded, such a
-// mark yields a huge positive rvBp that leads the peer table's cheap→rich default
-// sort as a bogus "Cheap" tail — the RVScatter already clamps these out of its
-// domain, so mirror that here: a non-credible DM produces a null rvBp ("N/A"),
-// excluded from the actionable tails and from the benchmark median. Raise the
-// ceiling only if a real mark ever legitimately exceeds it.
 const MAX_CREDIBLE_DM_BP = 5000;
 const credibleDm = (dm: number | null | undefined): dm is number =>
   isNum(dm) && dm > 0 && dm < MAX_CREDIBLE_DM_BP;
@@ -142,45 +158,128 @@ const validRows = RAW_ROWS.filter((r) =>
   r.company && r.sector && isNum(r.size) && isNum(r.margin) && isNum(r.bid) && isNum(r.ask) && isNum(r.midYtm) && isNum(r.mid3yDm)
 );
 
-const dmBenchmarks = new Map<string, number | null>();
+const parseMaturityYears = (maturityStr: string | null | undefined): number | null => {
+  if (!maturityStr) return null;
+  const d = new Date(maturityStr);
+  if (Number.isNaN(d.getTime())) {
+    const m = maturityStr.match(/'?(\d{2})/);
+    if (m) {
+      const year = 2000 + parseInt(m[1]);
+      const currentYear = new Date().getFullYear();
+      return Math.max(0.1, year - currentYear);
+    }
+    return null;
+  }
+  const diffMs = d.getTime() - new Date("2026-07-06").getTime();
+  const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
+  return Math.max(0.1, years);
+};
 
-for (const r of validRows) {
-  const key = `${r.sector}|${ratingBucket(r.ratings)}`;
-  if (dmBenchmarks.has(key)) continue;
-  const comps = validRows.filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key).map((x) => x.mid3yDm).filter(credibleDm);
-  dmBenchmarks.set(
-    key,
-    comps.length < 2 ? null : median(comps)
-  );
+export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?: number }>): RVRow[] {
+  const holdingsMap = holdings || new Map<string, { held: boolean; headroomPct?: number }>();
+  const dmBenchmarks = new Map<string, { median: number | null; n: number }>();
+
+  for (const r of validRows) {
+    const key = `${r.sector}|${ratingBucket(r.ratings)}`;
+    if (dmBenchmarks.has(key)) continue;
+    const comps = validRows.filter((x) => `${x.sector}|${ratingBucket(x.ratings)}` === key).map((x) => x.mid3yDm).filter(credibleDm);
+    dmBenchmarks.set(key, {
+      median: comps.length < 2 ? null : median(comps),
+      n: comps.length,
+    });
+  }
+
+  return validRows.map((r) => {
+    const bucket = ratingBucket(r.ratings);
+    const benchInfo = dmBenchmarks.get(`${r.sector}|${bucket}`);
+    const benchmark = benchInfo?.median ?? null;
+    const isCredible = credibleDm(r.mid3yDm);
+    const rvBp = benchmark === null || !isCredible ? null : r.mid3yDm! - benchmark;
+    const figi = r.bloombergId.toUpperCase();
+
+    const rvProvenance: BenchmarkProvenance | null = rvBp !== null ? {
+      asOf: "2026-07-06",
+      peerSet: "sector×bucket",
+      n: benchInfo?.n ?? 0,
+      source: "market-data.json",
+      credible: isCredible,
+    } : null;
+
+    const instrumentRv: InstrumentRV = {
+      status: "insufficient",
+      reason: "No recovery/LGD data in feed",
+      liq: liquidity(r.bid!, r.ask!, r.midYtm!, r.mid3yDm!),
+      maturity: r.maturity || null,
+    };
+
+    const holding = holdingsMap.get(figi) || holdingsMap.get(r.company) || { held: false };
+    const portfolioRv: PortfolioRV = {
+      held: holding.held,
+      headroomPct: holding.headroomPct,
+    };
+
+    const years = parseMaturityYears(r.maturity);
+    const carryRv = rvBp !== null && years !== null ? rvBp / years : null;
+
+    return {
+      company: r.company,
+      sector: r.sector,
+      subSector: r.subSector,
+      subGroup: r.subGroup,
+      loanType: r.loanType,
+      figi,
+      rank: r.ranking,
+      rating: r.ratings,
+      bucket,
+      size: r.size!,
+      margin: r.margin!,
+      maturity: r.maturity || null,
+      bid: r.bid!,
+      ask: r.ask!,
+      liq: liquidity(r.bid!, r.ask!, r.midYtm!, r.mid3yDm!),
+      rv: rvSignal(rvBp),
+      rvBp,
+      rvProvenance,
+      instrumentRv,
+      portfolioRv,
+      carryRv,
+      d: [r.d1m, r.ytd],
+      ytm: r.midYtm!,
+      dm: r.mid3yDm!,
+    };
+  });
 }
 
-const rows: RVRow[] = validRows.map((r) => {
-  const bucket = ratingBucket(r.ratings);
-  const benchmark = dmBenchmarks.get(`${r.sector}|${bucket}`) ?? null;
-  const rvBp = benchmark === null || !credibleDm(r.mid3yDm) ? null : r.mid3yDm - benchmark;
-  return {
-    company: r.company,
-    sector: r.sector,
-    subSector: r.subSector,
-    subGroup: r.subGroup,
-    loanType: r.loanType,
-    figi: r.bloombergId.toUpperCase(),
-    rank: r.ranking,
-    rating: r.ratings,
-    bucket,
-    size: r.size!,
-    margin: r.margin!,
-    maturity: r.maturity,
-    bid: r.bid!,
-    ask: r.ask!,
-    liq: liquidity(r.bid!, r.ask!, r.midYtm!, r.mid3yDm!),
-    rv: rvSignal(rvBp),
-    rvBp,
-    d: [r.d1m, r.ytd],
-    ytm: r.midYtm!,
-    dm: r.mid3yDm!,
-  };
-});
+export function invalidationTrigger(rvBp: number | null, n: number): string {
+  if (rvBp === null) return "—";
+  if (rvBp >= 150) return "rvBp compresses to < +50bp or peer-set n < 4";
+  if (rvBp >= 50) return "rvBp compresses to < +10bp";
+  return "baseline change";
+}
+
+export interface CrossSectorCell {
+  median: number | null;
+  n: number;
+}
+
+export function crossSectorMatrix(rowsList: RVRow[]): Record<string, Record<string, CrossSectorCell>> {
+  const sectors = [...new Set(rowsList.map((r) => r.sector))];
+  const matrix: Record<string, Record<string, CrossSectorCell>> = {};
+  for (const sector of sectors) {
+    matrix[sector] = {};
+    for (const bucket of BUCKETS) {
+      const cohort = rowsList.filter((r) => r.sector === sector && r.bucket === bucket && r.rvBp !== null);
+      const medianVal = cohort.length > 0 ? median(cohort.map((r) => r.rvBp as number)) : null;
+      matrix[sector][bucket] = {
+        median: medianVal,
+        n: cohort.length,
+      };
+    }
+  }
+  return matrix;
+}
+
+export const rows = buildRVRows();
 
 export interface Sector {
   name: string;

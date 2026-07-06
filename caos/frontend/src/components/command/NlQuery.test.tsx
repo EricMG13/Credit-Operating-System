@@ -145,11 +145,11 @@ describe("NlQuery", () => {
     expect(screen.queryByTestId("g2-chart")).toBeNull();
   });
 
-  it("renders the query input and starter chips", () => {
+  it("renders the query input without starter chips", () => {
     render(<NlQuery />);
     expect(screen.getByLabelText("Ask a question across issuers")).toBeTruthy();
-    // Starters are visible before any result.
-    expect(screen.getByText("which issuer is most levered")).toBeTruthy();
+    // Starters are no longer visible.
+    expect(screen.queryByText("which issuer is most levered")).toBeNull();
   });
 
   it("happy path: submitting a query calls the API and renders the interpretation + ranked rows", async () => {

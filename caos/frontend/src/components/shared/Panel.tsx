@@ -10,6 +10,7 @@ export function Panel({
   as: Heading = "h2",
   collapsible = false,
   defaultCollapsed = false,
+  onCollapse,
 }: {
   title: string;
   right?: React.ReactNode;
@@ -18,6 +19,7 @@ export function Panel({
   as?: "h2" | "h3";
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  onCollapse?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -48,7 +50,13 @@ export function Panel({
         {collapsible && (
           <button
             type="button"
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => {
+              if (onCollapse) {
+                onCollapse();
+              } else {
+                setCollapsed(!collapsed);
+              }
+            }}
             className="w-5 h-5 -ml-1 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring cursor-pointer"
             aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
           >

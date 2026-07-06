@@ -370,12 +370,7 @@ class LiveSynthesizer:
 
     def _get_client(self):
         if self._client is None:
-            import anthropic
-
-            self._client = anthropic.AsyncAnthropic(
-                api_key=self._settings.anthropic_api_key,
-                timeout=self._settings.caos_llm_timeout_s,
-            )
+            self._client = llm_client.anthropic_client(self._settings)
         return self._client
 
     def _active_prompt(self, module_id: str) -> str:

@@ -9,6 +9,7 @@ import { getMe } from "@/lib/api";
 
 const mockGetMe = vi.mocked(getMe);
 const PROFILE = { id: "a1", email: "e@x.co", full_name: "Eric Gub", role: "analyst", is_active: true, source: "profile" };
+const ORIGINAL_DISABLE_LOGIN = process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN;
 
 function Consumer() {
   const { user, needsLogin, loading } = useAuth();
@@ -17,9 +18,23 @@ function Consumer() {
   return <div>{user?.full_name ?? "none"}</div>;
 }
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  if (ORIGINAL_DISABLE_LOGIN === undefined) delete process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN;
+  else process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN = ORIGINAL_DISABLE_LOGIN;
+});
 
 describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
+  it("can bypass login for local preview without calling /me", async () => {
+    process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN = "1";
+
+    render(<AuthProvider><Consumer /></AuthProvider>);
+
+    expect(await screen.findByText("Local Analyst")).toBeTruthy();
+    expect(mockGetMe).not.toHaveBeenCalled();
+  });
+
   it("re-resolves identity and routes to login when caos:auth-lost fires", async () => {
     mockGetMe.mockResolvedValueOnce(PROFILE);
     render(<AuthProvider><Consumer /></AuthProvider>);

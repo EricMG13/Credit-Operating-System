@@ -7,6 +7,7 @@
 // hiding the section ("prefer live, static fallback").
 
 import type { ModuleDetailDTO } from "./types";
+import { finiteNumber } from "./numbers";
 
 export type Fragility = "HIGH" | "MODERATE" | "LOW";
 
@@ -24,10 +25,6 @@ export interface DownsidePathway {
   fragility: Fragility;
 }
 
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
 /** Pull the downside-fragility read from a live CP-2B payload, or null if the
  *  shape is absent/degraded (caller then hides the section). Mirrors the lenient
  *  guards in modelAnchor.ts `cp1ToAnchor`. */
@@ -36,8 +33,8 @@ export function cp2bToDownside(detail: ModuleDetailDTO): DownsidePathway | null 
   const ro = detail.runtime_output as Record<string, unknown> | undefined;
   if (!ro) return null;
 
-  const currentNetLeverage = num(ro.current_net_leverage);
-  const breachThresholdX = num(ro.breach_threshold_x);
+  const currentNetLeverage = finiteNumber(ro.current_net_leverage);
+  const breachThresholdX = finiteNumber(ro.breach_threshold_x);
   const fragility =
     ro.fragility === "HIGH" || ro.fragility === "MODERATE" || ro.fragility === "LOW"
       ? (ro.fragility as Fragility)
@@ -47,10 +44,10 @@ export function cp2bToDownside(detail: ModuleDetailDTO): DownsidePathway | null 
   for (const s of Array.isArray(ro.scenarios) ? ro.scenarios : []) {
     if (!s || typeof s !== "object") continue;
     const o = s as Record<string, unknown>;
-    const shockPct = num(o.ebitda_shock_pct);
-    const stressedNetLeverage = num(o.stressed_net_leverage);
+    const shockPct = finiteNumber(o.ebitda_shock_pct);
+    const stressedNetLeverage = finiteNumber(o.stressed_net_leverage);
     if (shockPct == null || stressedNetLeverage == null) continue;
-    shocks.push({ shockPct, stressedNetLeverage, stressedCoverage: num(o.stressed_interest_coverage) });
+    shocks.push({ shockPct, stressedNetLeverage, stressedCoverage: finiteNumber(o.stressed_interest_coverage) });
   }
 
   // Need the core figures + at least one usable shock; the degraded
@@ -62,7 +59,7 @@ export function cp2bToDownside(detail: ModuleDetailDTO): DownsidePathway | null 
     currentNetLeverage,
     breachThresholdX,
     shocks,
-    shockToBreachPct: num(ro.shock_to_breach_pct), // null is valid: survives a -30% decline
+    shockToBreachPct: finiteNumber(ro.shock_to_breach_pct), // null is valid: survives a -30% decline
     fragility,
   };
 }

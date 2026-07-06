@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import QueryAnswer
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
-from engine.llm_safety import UNTRUSTED_RULE, loads_finite, wrap_untrusted
+from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from engine.queryinsights import fingerprint
 from retrieval import retrieve_corpus
 
@@ -42,25 +42,6 @@ _MAX_SENTENCES = 5
 
 def available() -> bool:
     return presets.can_run_model(presets.model_for(presets.HEAVY))
-
-
-def _client():
-    import anthropic
-
-    from config import get_settings
-
-    s = get_settings()
-    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
-
-
-def _first_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise ValueError("model reply contained no JSON object")
-    parsed = loads_finite(m.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("model reply was not a JSON object")
-    return parsed
 
 
 def _text_of(resp) -> str:
@@ -150,7 +131,7 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
 
     grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
     resp = await llm_client.create(
-        _client(),
+        llm_client.anthropic_client(),
         lane="query-answer",
         model=presets.model_for(presets.HEAVY),
         effort=presets.effort_for(presets.HEAVY),
@@ -163,7 +144,7 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
         }],
     )
     try:
-        reply = _AnswerReply.model_validate(_first_json(_text_of(resp)))
+        reply = _AnswerReply.model_validate(first_json_object(_text_of(resp)))
     except (ValidationError, ValueError) as e:
         raise ValueError(f"model answer reply failed validation — {e}") from e
     payload = _validate(reply, hits)

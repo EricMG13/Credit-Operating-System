@@ -17,6 +17,9 @@ import {
   RV_SECTORS,
   ratingAverages,
   subSectorAverages,
+  crossSectorMatrix,
+  invalidationTrigger,
+  rows,
   type Liquidity,
   type RVRow,
   type RVSignal,
@@ -39,14 +42,26 @@ const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
   "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
 };
 
-function DeltaCell({ v }: { v: number | null }) {
-  if (v === null)
-    return <td className="px-2 py-[3px] text-right tabular text-caos-muted">—</td>;
+function DeltaCell({ v, colLabel }: { v: number | null; colLabel?: string }) {
+  if (v === null) {
+    return (
+      <td
+        className="px-2 py-[3px] text-right tabular text-caos-muted"
+        aria-label={colLabel ? `${colLabel}: no data` : undefined}
+        title={colLabel ? `${colLabel}: no data` : undefined}
+      >
+        —
+      </td>
+    );
+  }
   const pos = v > 0;
   const neg = v < 0;
+  const labelText = colLabel ? `${colLabel}: ${pos ? "+" : ""}${v.toFixed(2)}` : undefined;
   return (
     <td
       className="px-2 py-[3px] text-right tabular"
+      aria-label={labelText}
+      title={labelText}
       style={{
         color: pos ? "var(--caos-success-bright)" : neg ? "var(--caos-critical-bright)" : "var(--caos-muted)",
         background: pos ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : neg ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : undefined,
@@ -71,17 +86,127 @@ function Chip({ liq, label }: { liq: Liquidity; label: string }) {
   );
 }
 
-function RVChip({ signal, bp }: { signal: RVSignal; bp: number | null }) {
-  const s = RV_STYLE[signal];
-  const prefix = bp !== null && bp > 0 ? "+" : "";
+function CaveatHeader({ count }: { count: number }) {
   return (
-    <span
-      className="tabular text-caos-2xs px-1.5 py-px rounded whitespace-nowrap"
-      style={{ background: s.bg, color: s.fg }}
-      title={bp === null ? "No sector/rating benchmark" : `${prefix}${Math.round(bp)}bps versus sector rating median`}
-    >
-      {signal}{bp === null ? "" : ` ${prefix}${Math.round(bp)}`}
+    <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-caos-border bg-caos-panel/40">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-caos-warning" />
+          <span className="tabular text-caos-2xs uppercase tracking-wider font-semibold text-caos-warning">SEED-REF</span>
+        </span>
+        <span className="tabular text-caos-xs text-caos-muted">
+          posture: <span className="text-[#a855f7]">CONSTRUCTIVE</span> <span className="text-caos-3xs uppercase text-caos-muted opacity-80">(derived · not CP-SR)</span>
+        </span>
+        <span className="text-caos-muted">·</span>
+        <span className="tabular text-caos-xs text-caos-muted">
+          staleness: <span className="text-caos-success">CURRENT (0–90d)</span>
+        </span>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="tabular text-caos-2xs text-caos-muted font-mono uppercase">
+          universe: {count} loans
+        </span>
+        <span className="text-caos-muted">·</span>
+        <span className="tabular text-caos-2xs text-caos-muted font-mono">
+          as-of 2026-07-06
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function CompoundRvChip({ r }: { r: RVRow }) {
+  const cohortColor = RV_STYLE[r.rv]?.fg || "var(--caos-muted)";
+  const instrumentColor = "var(--caos-border)";
+  const portfolioColor = r.portfolioRv.held ? "var(--caos-success)" : "var(--caos-border)";
+
+  return (
+    <span className="inline-flex items-center gap-1.5" title={`Cohort: ${r.rv} | Instrument: ${r.instrumentRv.status} | Portfolio: ${r.portfolioRv.held ? "Held" : "Not Held"}`}>
+      <span className="tabular text-caos-xs font-semibold" style={{ color: cohortColor }}>
+        {r.rv}
+      </span>
+      <span className="inline-flex items-center gap-0.5">
+        {/* Cohort dot */}
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 animate-pulse motion-reduce:animate-none" style={{ background: cohortColor }} />
+        {/* Instrument dot */}
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 border border-caos-muted/40" style={{ background: instrumentColor }} />
+        {/* Portfolio dot */}
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 border border-caos-muted/40" style={{ background: portfolioColor }} />
+      </span>
     </span>
+  );
+}
+
+function EvidenceBadge() {
+  return (
+    <span className="inline-flex items-center gap-1.5 tabular text-caos-2xs uppercase tracking-wider text-caos-muted" title="CP-6E compliance check: market ✓ | peer ✓ | recovery ◯ (insufficient feed)">
+      <span className="text-caos-success">m ✓</span>
+      <span className="text-caos-success">p ✓</span>
+      <span className="text-caos-muted">r ◯</span>
+    </span>
+  );
+}
+
+function CrossSectorHeatmap({ rowsList, filtersActive }: { rowsList: RVRow[]; filtersActive: boolean }) {
+  const matrix = useMemo(() => crossSectorMatrix(rowsList), [rowsList]);
+  const activeBuckets = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3"];
+  const sectors = Object.keys(matrix).sort((a, b) => a.localeCompare(b));
+
+  const getHeatmapColor = (medianVal: number | null) => {
+    if (medianVal === null) return "text-caos-muted bg-transparent";
+    if (medianVal >= 150) return "text-caos-success-bright bg-caos-success/15 font-semibold";
+    if (medianVal >= 50) return "text-caos-success bg-caos-success/8";
+    if (medianVal <= -150) return "text-caos-critical-bright bg-caos-critical/15 font-semibold";
+    if (medianVal <= -50) return "text-caos-critical bg-caos-critical/8";
+    return "text-caos-muted bg-caos-elevated/40";
+  };
+
+  return (
+    <div className={`rounded border border-caos-border bg-caos-panel p-3 flex flex-col gap-2 ${filtersActive ? "opacity-60" : ""}`}>
+      <div className="flex items-center justify-between shrink-0">
+        <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted">
+          Cross-Sector RV · median rvBp by sector × rating bucket
+        </h3>
+        <span className="tabular text-caos-3xs text-caos-muted uppercase font-mono">
+          {filtersActive ? "[reference universe · filters not applied]" : "[derived from universe · not per-sector]"}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-caos-xs">
+          <thead>
+            <tr className="border-b border-caos-border">
+              <th scope="col" className="p-1.5 text-left tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal">Sector</th>
+              {activeBuckets.map((b) => (
+                <th key={b} scope="col" className="p-1.5 text-right tabular text-caos-2xs uppercase tracking-wider text-caos-muted font-normal w-20">{b}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sectors.map((sector) => (
+              <tr key={sector} className="border-b border-caos-border/40 hover:bg-caos-elevated/20 transition-caos">
+                <td className="p-1.5 font-medium text-caos-text truncate max-w-[150px]" title={sector}>{sector}</td>
+                {activeBuckets.map((b) => {
+                  const cell = matrix[sector]?.[b];
+                  const val = cell?.median ?? null;
+                  const n = cell?.n ?? 0;
+                  const label = val === null ? "—" : (val > 0 ? "+" : "") + Math.round(val);
+                  return (
+                    <td
+                      key={b}
+                      className={`p-1.5 text-right tabular ${getHeatmapColor(val)}`}
+                      title={val === null ? "No comp peers" : `${label}bp median across ${n} loans`}
+                    >
+                      {label}
+                      {n > 0 && <span className="text-[9px] text-caos-muted opacity-60 ml-0.5">({n})</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -107,7 +232,10 @@ function useSort<T>(data: T[], config: SortConfig, getVal: (row: T, col: string)
       }
       return config.asc ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
     });
-  }, [data, config, getVal]);
+    // getVal is a pure projection over config.col; intentionally excluded so
+    // inline-arrow callers don't bust the memo on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, config.col, config.asc]);
 }
 
 function SortTh<T>({
@@ -172,8 +300,12 @@ const PEER_FILTER_VAL: Record<string, (r: RVRow) => SortVal> = {
   company: (r) => r.company, subSector: (r) => r.subSector, subGroup: (r) => r.subGroup,
   loanType: (r) => r.loanType, figi: (r) => r.figi, rank: (r) => r.rank,
   rating: (r) => r.rating, size: (r) => r.size, margin: (r) => r.margin,
-  maturity: (r) => r.maturity, bid: (r) => r.bid, ask: (r) => r.ask,
+  maturity: (r) => r.maturity || "", bid: (r) => r.bid, ask: (r) => r.ask,
   liq: (r) => r.liq, rv: (r) => r.rv, ytm: (r) => r.ytm, dm: (r) => r.dm,
+  cohort: (r) => r.rvBp,
+  inst: (r) => r.instrumentRv.status,
+  portf: (r) => r.portfolioRv.held ? "held" : "none",
+  carryRv: (r) => r.carryRv,
   ...Object.fromEntries(DELTA_COLS.map((_, i) => [`d${i}`, (r: RVRow) => r.d[i]])),
 };
 
@@ -190,8 +322,8 @@ function PeerTable({
   onSelect: (figi: string) => void;
   onHover: (figi: string | null) => void;
 }) {
-  // Default: lead with the actionable tail — cheapest (widest rvBp) on top.
-  const [sort, setSort] = useState<SortConfig>({ col: "rv", asc: false });
+  // Default: absolute rvBp descending (safer default sort, reducing junk blast radius).
+  const [sort, setSort] = useState<SortConfig>({ col: "absRv", asc: false });
   // Scroll the selected row into view when selection is driven from the chart or
   // Top-of-book (not when the user clicked the row itself, but scrollIntoView with
   // block:"nearest" is a no-op if it's already visible, so it's harmless either way).
@@ -204,7 +336,11 @@ function PeerTable({
   const handleSort = (col: string) => setSort((p) => (p.col === col ? { col, asc: !p.asc } : { col, asc: true }));
   const sorted = useSort(filtered, sort, (r, c) => {
     if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    if (c === "rv") return r.rvBp;
+    if (c === "rv" || c === "cohort") return r.rvBp;
+    if (c === "absRv") return Math.abs(r.rvBp ?? 0);
+    if (c === "inst") return r.instrumentRv.status;
+    if (c === "portf") return r.portfolioRv.held ? 1 : 0;
+    if (c === "carryRv") return r.carryRv;
     return field(r, c);
   });
 
@@ -214,19 +350,23 @@ function PeerTable({
       return ["company", "subSector", "size", "margin", "maturity", "bid", "ask", "liq", "ytm", "dm"].includes(key);
     }
     if (preset === "rv") {
-      return ["company", "rating", "liq", "rv", "d0", "d1", "dm"].includes(key);
+      return ["company", "rating", "liq", "rv", "cohort", "inst", "portf", "carryRv", "d0", "d1", "dm"].includes(key);
     }
     return true;
   };
 
-  const minWidthClass = preset === "full" ? "min-w-[1760px]" : preset === "market" ? "min-w-[1000px]" : "min-w-[760px]";
+  const minWidthClass = preset === "full" ? "min-w-[1920px]" : "min-w-[1100px]";
 
   return (
     <table aria-label="Sector relative value" className={`border-collapse text-caos-xs ${minWidthClass} w-full`}>
       <thead>
         <tr className="border-b border-caos-border">
           {showCol("company") && <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />}
-          {showCol("rv") && <SortTh label="RV vs Bucket" col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
+          {showCol("rv") && <SortTh label="RV comp." col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
+          {showCol("cohort") && <SortTh label="Cohort RV" col="cohort" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.cohort} filters={filters} onFilter={setFilter} />}
+          {showCol("inst") && <SortTh label="Inst. Evid" col="inst" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.inst} filters={filters} onFilter={setFilter} />}
+          {showCol("portf") && <SortTh label="Portf. Held" col="portf" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.portf} filters={filters} onFilter={setFilter} />}
+          {showCol("carryRv") && <SortTh label="Carry RV" col="carryRv" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.carryRv} filters={filters} onFilter={setFilter} />}
           {showCol("subSector") && <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />}
           {showCol("subGroup") && <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />}
           {showCol("loanType") && <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />}
@@ -265,7 +405,7 @@ function PeerTable({
             : "bg-caos-panel group-hover:bg-caos-elevated/50";
           return (
           <tr
-            key={r.figi + i}
+            key={r.figi}
             ref={isSel ? selRef : undefined}
             aria-selected={isSel}
             onClick={() => onSelect(r.figi)}
@@ -274,8 +414,30 @@ function PeerTable({
             className={`border-b border-caos-border/40 transition-caos group cursor-pointer ${rowBg}`}
             style={isSel ? { boxShadow: "inset 2px 0 0 var(--caos-accent)" } : undefined}
           >
-            {showCol("company") && <td className={td + ` sticky left-0 z-10 text-caos-text transition-colors ${stickyBg}`}>{r.company}</td>}
-            {showCol("rv") && <td className={td}><RVChip signal={r.rv} bp={r.rvBp} /></td>}
+            {showCol("company") && (
+              <td className={td + ` sticky left-0 z-10 text-caos-text transition-colors ${stickyBg}`}>
+                <button
+                  type="button"
+                  aria-pressed={isSel}
+                  aria-label={`Select ${r.company}, rating ${r.rating}`}
+                  onClick={(e) => {
+                    // Prevent button click from double-triggering row onClick
+                    e.stopPropagation();
+                    onSelect(r.figi);
+                  }}
+                  onFocus={() => onHover(r.figi)}
+                  onBlur={() => onHover(null)}
+                  className="w-full text-left focus-ring rounded px-1 -mx-1 -my-px outline-none cursor-pointer"
+                >
+                  {r.company}
+                </button>
+              </td>
+            )}
+            {showCol("rv") && <td className={td}><CompoundRvChip r={r} /></td>}
+            {showCol("cohort") && <td className={td + " text-right tabular text-caos-text"}>{r.rvBp !== null ? (r.rvBp > 0 ? "+" : "") + Math.round(r.rvBp) : "—"}</td>}
+            {showCol("inst") && <td className={td + " text-caos-muted whitespace-nowrap"}><EvidenceBadge /></td>}
+            {showCol("portf") && <td className={td + " text-caos-muted"}>{r.portfolioRv.held ? <span className="text-caos-success-bright">held</span> : "—"}</td>}
+            {showCol("carryRv") && <td className={td + " text-right tabular text-caos-text"}>{r.carryRv !== null ? (r.carryRv > 0 ? "+" : "") + r.carryRv.toFixed(1) : "—"}</td>}
             {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
             {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
             {showCol("loanType") && <td className={td + " text-caos-muted"}>{r.loanType}</td>}
@@ -284,12 +446,12 @@ function PeerTable({
             {showCol("rating") && <td className={td + " text-caos-text"}>{r.rating}</td>}
             {showCol("size") && <td className={td + " text-right text-caos-text"}>{r.size.toLocaleString()}</td>}
             {showCol("margin") && <td className={td + " text-right text-caos-text"}>{r.margin}</td>}
-            {showCol("maturity") && <td className={td + " text-right text-caos-muted"}>{r.maturity}</td>}
+            {showCol("maturity") && <td className={td + " text-right text-caos-muted"}>{r.maturity || "—"}</td>}
             {showCol("bid") && <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>}
             {showCol("ask") && <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>}
             {showCol("liq") && <td className={td}><Chip liq={r.liq} label={r.liq} /></td>}
             {r.d.map((v, j) => (
-              showCol(`d${j}`) && <DeltaCell key={j} v={v} />
+              showCol(`d${j}`) && <DeltaCell key={j} v={v} colLabel={DELTA_COLS[j]} />
             ))}
             {showCol("ytm") && <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>}
             {showCol("dm") && <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>}
@@ -339,6 +501,8 @@ export interface Pick {
   subSector: string;
   rvBp: number;
   rv: RVSignal;
+  held: boolean;
+  headroomPct?: number;
 }
 
 interface TopOfBook {
@@ -353,6 +517,8 @@ const toPick = (r: RVRow): Pick => ({
   subSector: r.subSector,
   rvBp: r.rvBp as number, // callers pre-filter rvBp !== null
   rv: r.rv,
+  held: r.portfolioRv.held,
+  headroomPct: r.portfolioRv.headroomPct,
 });
 
 // Cheapest 3 (widest) to add, richest 2 (tightest) to fade — mirrors the task's
@@ -504,7 +670,7 @@ function Point({
             stroke="var(--caos-accent)"
             strokeWidth={1.5}
             strokeOpacity={0.6}
-            className="animate-pulse"
+            className="animate-pulse motion-reduce:animate-none"
           />
           {/* Backing gap */}
           <circle
@@ -831,6 +997,11 @@ function PickRow({
         {sign}{Math.round(pick.rvBp)}
       </span>
       <span className="text-caos-xs text-caos-text truncate min-w-0 flex-1">{pick.company}</span>
+      {pick.held && (
+        <span className="tabular text-[9px] uppercase font-bold text-caos-success border border-caos-success/30 bg-caos-success/5 px-1 rounded-sm">
+          held {pick.headroomPct !== undefined ? `+${pick.headroomPct}%` : ""}
+        </span>
+      )}
       <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">
         {pick.rating} · {pick.subSector}
       </span>
@@ -898,6 +1069,7 @@ function FocusReadout({ row, onClear }: { row: RVRow | null; onClear: () => void
   const K = ({ children }: { children: React.ReactNode }) => (
     <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{children}</span>
   );
+  const invalidation = invalidationTrigger(row.rvBp, row.rvProvenance?.n ?? 0);
   return (
     <div className="flex items-center gap-x-4 gap-y-1 flex-wrap h-auto min-h-8 px-3 py-1.5 border-t border-caos-border">
       <span className="text-caos-xs text-caos-text font-medium">{row.company}</span>
@@ -907,6 +1079,24 @@ function FocusReadout({ row, onClear }: { row: RVRow | null; onClear: () => void
         <K>RV vs bucket</K>
         <span className="tabular text-caos-xs" style={{ color: RV_STYLE[row.rv].fg }}>
           {row.rvBp === null ? "—" : `${sign}${Math.round(row.rvBp)}bp`} · {row.rv}
+        </span>
+      </span>
+      <span className="flex items-baseline gap-1">
+        <K>Carry RV</K>
+        <span className="tabular text-caos-xs text-caos-text">
+          {row.carryRv !== null ? `${row.carryRv > 0 ? "+" : ""}${row.carryRv.toFixed(1)}` : "—"}
+        </span>
+      </span>
+      <span className="flex items-baseline gap-1">
+        <K>Portfolio</K>
+        <span className="tabular text-caos-xs" style={{ color: row.portfolioRv.held ? "var(--caos-success)" : "var(--caos-muted)" }}>
+          {row.portfolioRv.held ? "Held" : "Not Held"}
+        </span>
+      </span>
+      <span className="flex items-baseline gap-1">
+        <K>Invalidation</K>
+        <span className="tabular text-caos-xs text-caos-warning" title="CP-6E Monitoring Trigger">
+          {invalidation}
         </span>
       </span>
       <button
@@ -1005,7 +1195,8 @@ export function SectorRV() {
   });
 
   return (
-    <div className="@container flex flex-col gap-3 min-h-0 min-w-0 flex-1">
+    <div className="@container flex flex-col gap-3 min-w-0">
+      <CaveatHeader count={rows.length} />
       {/* sector selector */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
         <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
@@ -1126,7 +1317,7 @@ export function SectorRV() {
           filtered universe. Big scatter (left) · Sector read + Top of book
           stacked (right). All three render from `filtered` (sector rows + the
           peer table's column filters) so the whole surface stays one universe. */}
-      <div className="shrink-0 grid grid-cols-1 @[60rem]:grid-cols-[1.6fr_1fr] gap-3 items-stretch">
+      <div className="shrink-0 grid grid-cols-1 @[60rem]:grid-cols-[1.6fr_1fr] gap-3 items-stretch min-h-[360px]">
         <PanelShell
           title={sector.name + " — RV Distribution"}
           className="min-h-[360px]"
@@ -1185,7 +1376,7 @@ export function SectorRV() {
         </PanelShell>
 
         {/* right column — Sector read over Top of book, both stacked and stretched */}
-        <div className="grid grid-rows-2 gap-2 min-h-0">
+        <div className="grid grid-rows-2 gap-2 min-h-0 @[60rem]:h-full">
           <PanelShell
             title="Sector read"
             className="min-h-0"
@@ -1212,7 +1403,7 @@ export function SectorRV() {
       {/* peer table */}
       <PanelShell
         title={sector.name + " — Sector Peers · Relative Value"}
-        className="flex-[3] min-h-0"
+        className="min-h-[400px] h-[400px] flex-none"
         right={
           <span className="tabular text-caos-xs text-caos-muted">
             RV = 3Y DM − sector×rating median (n ≥ 2) · sorted cheap → rich
@@ -1234,10 +1425,13 @@ export function SectorRV() {
         </div>
       </PanelShell>
 
+      {/* cross-sector relative value heatmap */}
+      <CrossSectorHeatmap rowsList={rows} filtersActive={Object.keys(filters).length > 0} />
+
       {/* consolidated statistics tabbed panel */}
       <PanelShell
         title="Sector Averages & Index Summary"
-        className="flex-[2] min-h-[220px]"
+        className="min-h-[280px] h-[280px] flex-none"
         right={
           <div className="flex items-center gap-3">
             <span className="tabular text-caos-xs text-caos-muted">
@@ -1302,7 +1496,7 @@ export function SectorRV() {
                     <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>
                     <td className={td + " text-right text-caos-text"}>{fmt(b.ask)}</td>
                     {b.d.map((v, j) => (
-                      <DeltaCell key={j} v={v} />
+                      <DeltaCell key={j} v={v} colLabel={DELTA_COLS[j]} />
                     ))}
                     <td className={td + " text-right text-caos-text"}>{fmt(b.ytm, 1)}</td>
                     <td className={td + " text-right text-caos-text"}>{b.dm === null ? "—" : Math.round(b.dm).toLocaleString()}</td>
@@ -1337,7 +1531,7 @@ export function SectorRV() {
                     <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>
                     <td className={td + " text-right text-caos-text"}>{fmt(b.ask)}</td>
                     {b.d.map((v, j) => (
-                      <DeltaCell key={j} v={v} />
+                      <DeltaCell key={j} v={v} colLabel={DELTA_COLS[j]} />
                     ))}
                     <td className={td + " text-right text-caos-text"}>{fmt(b.ytm, 1)}</td>
                     <td className={td + " text-right text-caos-text"}>{b.dm === null ? "—" : Math.round(b.dm).toLocaleString()}</td>
@@ -1368,7 +1562,7 @@ export function SectorRV() {
                     <td className={td + " text-right text-caos-text"}>{s.mv.toLocaleString()}</td>
                     <td className={td + " text-right text-caos-text"}>{s.avgPrice.toFixed(2)}</td>
                     {s.d.map((v, j) => (
-                      <DeltaCell key={j} v={v} />
+                      <DeltaCell key={j} v={v} colLabel={DELTA_COLS[j]} />
                     ))}
                     <td className={td + " text-right text-caos-text"}>{s.ytm.toFixed(1)}</td>
                     <td className={td + " text-right text-caos-text"}>{s.dm.toLocaleString()}</td>

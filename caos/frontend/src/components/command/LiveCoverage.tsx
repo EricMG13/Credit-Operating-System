@@ -8,8 +8,9 @@
 // docs/PHASE2_SCOPE.md) and are simply absent here, not faked.
 
 import type { PortfolioRowDTO } from "@/lib/api";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { useVirtualScroll } from "@/lib/useVirtualScroll";
 
 const fmtX = (v: number | undefined) =>
   typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
@@ -37,6 +38,7 @@ export function LiveCoverage({
   selected?: string | null;
   onSelect?: (ticker: string) => void;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted focus-ring rounded outline-none";
   const [filters, setFilters] = useState<FilterState>({});
   const setFilter = (col: string, values: string[] | undefined) =>
@@ -59,13 +61,22 @@ export function LiveCoverage({
     qa: (r) => r.qa_status,
   }), []);
   const shown = useColumnFilters(rows, filters, vals);
+  const { startIndex, endIndex, paddingTop, paddingBottom } = useVirtualScroll({
+    itemCount: shown.length,
+    estimateHeight: 28,
+    overscan: 10,
+    containerRef: scrollerRef,
+  });
+  const visibleRows = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
+
   const heads = [
     ["Issuer", "issuer"], ["Sector", "sector"], ["NetLev", "netlev"], ["IntCov", "intcov"],
     ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
   ] as const;
+
   return (
-    <div className="text-caos-md" style={{ minWidth: 760 }}>
-      <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+    <div className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
+      <div className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
         {heads.map(([h, key], i) => (
           <FilterHeader
             key={key}
@@ -81,64 +92,68 @@ export function LiveCoverage({
           </FilterHeader>
         ))}
       </div>
-      {shown.map((r) => {
-        const rv = r.rv_recommendation;
-        const frag = r.downside_fragility;
-        const isSelected = selected === r.ticker;
+      <div ref={scrollerRef} className="flex-1 overflow-y-auto min-h-0">
+        <div style={{ paddingTop, paddingBottom }}>
+          {visibleRows.map((r) => {
+            const rv = r.rv_recommendation;
+            const frag = r.downside_fragility;
+            const isSelected = selected === r.ticker;
 
-        const handleClick = () => {
-          if (r.ticker && onSelect) {
-            onSelect(r.ticker);
-          }
-        };
+            const handleClick = () => {
+              if (r.ticker && onSelect) {
+                onSelect(r.ticker);
+              }
+            };
 
-        const handleKeyDown = (e: React.KeyboardEvent) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            handleClick();
-          }
-        };
+            const handleKeyDown = (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleClick();
+              }
+            };
 
-        return (
-          <div
-            key={r.issuer_id}
-            role="button"
-            tabIndex={0}
-            onClick={handleClick}
-            onKeyDown={handleKeyDown}
-            aria-pressed={isSelected}
-            aria-label={`${r.ticker || ""} ${r.name || ""} details`}
-            className={
-              COLS +
-              " px-3 py-[3px] border-b border-caos-border/50 transition-caos cursor-pointer focus-ring outline-none " +
-              (isSelected
-                ? "bg-caos-accent/10 border-caos-accent/30 text-caos-text"
-                : "hover:bg-caos-panel/30 text-caos-text")
-            }
-          >
-            <span className="flex items-center gap-1.5 min-w-0">
-              <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
-              <span className="text-caos-text truncate text-caos-md">{r.name}</span>
-            </span>
-            <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
-            <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
-            <span className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
-            <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
-              {rv ?? "—"}{typeof r.rv_percentile === "number" ? ` · p${Math.round(r.rv_percentile)}` : ""}
-            </span>
-            <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
-              {frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—"}
-            </span>
-            <span
-              className="tabular text-caos-2xs px-1 py-px rounded border whitespace-nowrap justify-self-start"
-              style={{ color: QA_COLOR[r.qa_status] ?? "var(--caos-muted)", borderColor: QA_COLOR[r.qa_status] ?? "var(--caos-border)" }}
-              title={`Committee: ${r.committee_status}`}
-            >
-              {r.qa_status}
-            </span>
-          </div>
-        );
-      })}
+            return (
+              <div
+                key={r.issuer_id}
+                role="button"
+                tabIndex={0}
+                onClick={handleClick}
+                onKeyDown={handleKeyDown}
+                aria-pressed={isSelected}
+                aria-label={`${r.ticker || ""} ${r.name || ""} details`}
+                className={
+                  COLS +
+                  " px-3 py-[3px] border-b border-caos-border/50 transition-caos cursor-pointer focus-ring outline-none " +
+                  (isSelected
+                    ? "bg-caos-accent/10 border-caos-accent/30 text-caos-text"
+                    : "hover:bg-caos-panel/30 text-caos-text")
+                }
+              >
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
+                  <span className="text-caos-text truncate text-caos-md">{r.name}</span>
+                </span>
+                <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
+                <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
+                <span className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
+                <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
+                  {rv ?? "—"}{typeof r.rv_percentile === "number" ? ` · p${Math.round(r.rv_percentile)}` : ""}
+                </span>
+                <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
+                  {frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—"}
+                </span>
+                <span
+                  className="tabular text-caos-2xs px-1 py-px rounded border whitespace-nowrap justify-self-start"
+                  style={{ color: QA_COLOR[r.qa_status] ?? "var(--caos-muted)", borderColor: QA_COLOR[r.qa_status] ?? "var(--caos-border)" }}
+                  title={`Committee: ${r.committee_status}`}
+                >
+                  {r.qa_status}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

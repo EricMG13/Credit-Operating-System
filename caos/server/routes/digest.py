@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Issuer, Run, get_db
+from database import Issuer, Run, aware_utc, get_db
 from identity import CallerIdentity, get_identity
 # Rating scale lives in ratings.py (one source of truth, shared with the
 # rating-distribution query walk + the ingest extractor).
@@ -46,13 +46,6 @@ def _warf_band(warf: float) -> str:
     """Nearest rating label for a WARF value (Moody's labels, title-cased)."""
     nearest = min(range(len(FACTORS)), key=lambda i: abs(FACTORS[i] - warf))
     return MOODY[nearest].capitalize()
-
-
-def _aware(dt: Optional[datetime]) -> Optional[datetime]:
-    # SQLite hands back naive datetimes; everything is stored as UTC.
-    if dt is not None and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 class WatchRow(BaseModel):
@@ -115,7 +108,7 @@ async def daily_digest(
         if run is None:
             stale.append(WatchRow(issuer_id=issuer.id, name=issuer.name, detail="never run"))
             continue
-        ts = _aware(run.completed_at) or _aware(run.created_at)
+        ts = aware_utc(run.completed_at) or aware_utc(run.created_at)
         age = (now - ts).days if ts else None
         if age is not None and age > days:
             stale.append(WatchRow(issuer_id=issuer.id, name=issuer.name,
@@ -143,7 +136,7 @@ async def daily_digest(
         select(Run).order_by(Run.created_at.desc()).limit(1000)
     )).scalars().all()
     def within_24h(ts: Optional[datetime]) -> bool:
-        aware = _aware(ts)
+        aware = aware_utc(ts)
         return aware is not None and aware >= cutoff
 
     completed_24h = sum(

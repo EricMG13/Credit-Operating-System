@@ -72,6 +72,12 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _uuid() -> str:
     return str(uuid.uuid4())
 

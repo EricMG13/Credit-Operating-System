@@ -21,6 +21,7 @@ import { SectorReview } from "@/components/command/SectorReview";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { useVirtualScroll } from "@/lib/useVirtualScroll";
 import { createRun, getRun } from "@/lib/api";
 import type { RunSummaryDTO } from "@/lib/engine/types";
 import {
@@ -181,6 +182,15 @@ export function PortfolioTable({
   }, [sectorFilter]);
 
   const shown = useColumnFilters(portfolioRows, filters, vals);
+
+  const { startIndex, endIndex, paddingTop, paddingBottom } = useVirtualScroll({
+    itemCount: shown.length,
+    estimateHeight: 33,
+    overscan: 10,
+    containerRef: scrollerRef,
+  });
+
+  const visibleItems = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
 
   const [colPreset, setColPreset] = useState<"full" | "credit" | "market" | "custom">("credit");
 
@@ -487,21 +497,23 @@ export function PortfolioTable({
             })}
           </div>
           {/* fallow-ignore-next-line complexity */}
-          {shown.map((p) => {
-            const key = p.id || p.figi || p.code;
-            const sel = selected === key;
-            const rowBg = sel ? "bg-caos-elevated/30" : "bg-caos-bg";
-            const rowHoverBg = sel ? "hover:bg-caos-elevated/55" : "hover:bg-caos-elevated/35";
-            return (
-              <div
-                key={key}
-                className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center ${rowBg} ${rowHoverBg} z-0`}
-                style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
-              >
-                {activeCols.map((col) => renderCell(col.key, p, sel))}
-              </div>
-            );
-          })}
+          <div style={{ paddingTop, paddingBottom }}>
+            {visibleItems.map((p) => {
+              const key = p.id || p.figi || p.code;
+              const sel = selected === key;
+              const rowBg = sel ? "bg-caos-elevated/30" : "bg-caos-bg";
+              const rowHoverBg = sel ? "hover:bg-caos-elevated/55" : "hover:bg-caos-elevated/35";
+              return (
+                <div
+                  key={key}
+                  className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center ${rowBg} ${rowHoverBg} z-0`}
+                  style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
+                >
+                  {activeCols.map((col) => renderCell(col.key, p, sel))}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

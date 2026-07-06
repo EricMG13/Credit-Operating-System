@@ -31,6 +31,11 @@ from engine import budget
 logger = logging.getLogger("caos.llm")
 
 
+def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic:
+    s = settings or get_settings()
+    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+
+
 def is_overloaded(exc: Exception) -> bool:
     """True for the retry-on-a-cheaper-model cases: 429 rate limit or 529 overload."""
     if isinstance(exc, anthropic.RateLimitError):
