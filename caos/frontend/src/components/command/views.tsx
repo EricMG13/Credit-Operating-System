@@ -59,39 +59,54 @@ export function PostureSummary() {
     if (p.alerts) alerting += 1;
   }
   return (
-    <div className="shrink-0 flex items-center gap-4 px-3 py-2 rounded-md border border-caos-border bg-caos-panel">
+    <div className="shrink-0 flex items-center gap-5 px-4 py-2.5 rounded-md border border-caos-border bg-caos-panel">
       <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0">
         Posture · {total} positions
       </span>
       <div
-        className="flex h-2.5 flex-1 min-w-0 overflow-hidden rounded-sm border border-caos-border/60"
+        className="flex h-2.5 flex-1 min-w-0 overflow-hidden rounded bg-caos-bg border border-caos-border/40"
         role="img"
         aria-label={"Posture distribution — " + POSTURE_ORDER.map((k) => POSTURE_SHORT[k] + " " + by[k]).join(", ")}
       >
-        {POSTURE_ORDER.map((k) => (by[k] ? <div key={k} title={k + " · " + by[k]} style={{ width: (by[k] / total) * 100 + "%", background: POSTURE_COLOR[k] }} /> : null))}
-      </div>
-      <div className="flex items-center gap-3 shrink-0">
         {POSTURE_ORDER.map((k) => (
-          <span key={k} className="flex items-baseline gap-1 whitespace-nowrap">
+          by[k] ? (
+            <div
+              key={k}
+              title={k + " · " + by[k]}
+              className="transition-all duration-300"
+              style={{ width: (by[k] / total) * 100 + "%", background: POSTURE_COLOR[k] }}
+            />
+          ) : null
+        ))}
+      </div>
+      <div className="flex items-center gap-4 shrink-0">
+        {POSTURE_ORDER.map((k) => (
+          <span key={k} className="flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ background: POSTURE_COLOR[k] }}
+            />
             <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{POSTURE_SHORT[k]}</span>
-            <span className="tabular text-caos-md" style={{ color: POSTURE_COLOR[k] }}>{by[k]}</span>
+            <span className="tabular text-caos-md font-medium" style={{ color: POSTURE_COLOR[k] }}>{by[k]}</span>
           </span>
         ))}
       </div>
-      <div className="h-5 w-px bg-caos-border shrink-0 hidden md:block" />
-      <Link
-        href="/monitor"
-        title="Positions with open CP-MON alerts — open Monitor"
-        className="no-underline hidden md:flex items-baseline gap-1.5 shrink-0 group"
-      >
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">On watch</span>
-        <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>{alerting}</span>
-        <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
-      </Link>
-      <span className="hidden md:flex items-baseline gap-1.5 shrink-0">
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">QA open</span>
-        <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>{QA_QUEUE.length}</span>
-      </span>
+      <div className="h-4 w-px bg-caos-border shrink-0 hidden md:block" />
+      <div className="flex items-center gap-4 shrink-0">
+        <Link
+          href="/monitor"
+          title="Positions with open CP-MON alerts — open Monitor"
+          className="no-underline hidden md:flex items-center gap-1.5 shrink-0 group transition-caos"
+        >
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">On watch</span>
+          <span className="tabular text-caos-md font-medium text-caos-warning">{alerting}</span>
+          <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
+        </Link>
+        <span className="hidden md:flex items-center gap-1.5 shrink-0">
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">QA open</span>
+          <span className="tabular text-caos-md font-medium text-caos-warning">{QA_QUEUE.length}</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -129,10 +144,11 @@ const COL_TITLES: Record<string, string> = {
 };
 
 export function PortfolioTable({
-  selected, onSelect,
+  selected, onSelect, sectorFilter,
 }: {
   selected: string | null;
   onSelect: (code: string | null) => void;
+  sectorFilter?: string | null;
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -159,7 +175,12 @@ export function PortfolioTable({
     lev: (p) => p.lev, snrLev: (p) => p.snrLev, totalLev: (p) => p.totalLev, cov: (p) => p.cov,
     posture: (p) => p.posture, conv: (p) => p.conv, qa: (p) => p.qa, alerts: (p) => p.alerts,
   }), []);
-  const shown = useColumnFilters(PORTFOLIO, filters, vals);
+  const portfolioRows = useMemo(() => {
+    if (!sectorFilter) return PORTFOLIO;
+    return PORTFOLIO.filter((p) => p.sector === sectorFilter);
+  }, [sectorFilter]);
+
+  const shown = useColumnFilters(portfolioRows, filters, vals);
 
   const [colPreset, setColPreset] = useState<"full" | "credit" | "market" | "custom">("credit");
 
@@ -180,13 +201,13 @@ export function PortfolioTable({
     { key: "sector", head: "Sector", width: "220px" },
     { key: "rating", head: "Ratings", width: "74px" },
     { key: "posture", head: "Posture", width: "92px" },
-    { key: "conv", head: "Conv.", width: "44px" },
+    { key: "conv", head: "Conv.", width: "48px" },
     { key: "qa", head: "QA", width: "74px" },
     { key: "alerts", head: "⚑", width: "36px" },
-    { key: "lev", head: "NetLev", width: "48px" },
-    { key: "snrLev", head: "SnrLev", width: "48px" },
-    { key: "totalLev", head: "TotLev", width: "48px" },
-    { key: "cov", head: "IntCov", width: "48px" },
+    { key: "lev", head: "NetLev", width: "54px" },
+    { key: "snrLev", head: "SnrLev", width: "54px" },
+    { key: "totalLev", head: "TotLev", width: "54px" },
+    { key: "cov", head: "IntCov", width: "54px" },
     { key: "subSector", head: "Sub-sector", width: "240px" },
     { key: "figi", head: "FIGI", width: "90px" },
     { key: "rank", head: "Rank", width: "110px" },
@@ -210,8 +231,18 @@ export function PortfolioTable({
       if (buttonRef.current?.contains(e.target as Node)) return;
       setCustomizerOpen(false);
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setCustomizerOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
     window.addEventListener("pointerdown", onPointer);
-    return () => window.removeEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [customizerOpen]);
 
   const activeCols = ALL_COLS.filter((c) => visibleCols.includes(c.key));
@@ -328,38 +359,44 @@ export function PortfolioTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-caos-md">
-      <div className="flex shrink-0 items-center gap-1 overflow-visible whitespace-nowrap border-b border-caos-border px-3 py-1">
-        <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">View</span>
-        {([
-          ["Desk", "full"],
-          ["Credit", "credit"],
-          ["Market", "market"],
-        ] as const).map(([label, preset]) => (
-          <button
-            key={preset}
-            type="button"
-            onClick={() => {
-              setColPreset(preset);
-              setVisibleCols([...presetKeys[preset]]);
-            }}
-            className={
-              "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-              (colPreset === preset
-                ? "border-caos-accent text-caos-text bg-caos-elevated"
-                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-            }
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex shrink-0 items-center overflow-visible whitespace-nowrap border-b border-caos-border px-3 h-9">
+        <div className="flex items-center gap-1">
+          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted mr-2">View</span>
+          <div className="flex items-center bg-caos-bg border border-caos-border/80 rounded p-[2px] gap-0.5">
+            {([
+              ["Desk", "full"],
+              ["Credit", "credit"],
+              ["Market", "market"],
+            ] as const).map(([label, preset]) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => {
+                  setColPreset(preset);
+                  setVisibleCols([...presetKeys[preset]]);
+                }}
+                className={
+                  "shrink-0 tabular text-caos-2xs px-2.5 py-0.5 rounded-sm transition-caos focus-ring cursor-pointer " +
+                  (colPreset === preset
+                    ? "bg-caos-elevated text-caos-text font-medium"
+                    : "text-caos-muted hover:text-caos-text")
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         
-        <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-2">{shown.length} / {PORTFOLIO.length} shown</span>
+        <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-3">
+          {shown.length} / {PORTFOLIO.length} shown{sectorFilter ? ` (${sectorFilter})` : ""}
+        </span>
         <div className="relative shrink-0 flex items-center">
           <button
             ref={buttonRef}
             type="button"
             onClick={() => setCustomizerOpen(!customizerOpen)}
-            className="shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring flex items-center gap-1 cursor-pointer"
+            className="shrink-0 tabular text-caos-2xs px-2 py-1 rounded border border-caos-border/80 text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40 hover:border-caos-accent/40 transition-caos focus-ring flex items-center gap-1 cursor-pointer"
             aria-haspopup="dialog"
             aria-expanded={customizerOpen}
           >
@@ -373,7 +410,7 @@ export function PortfolioTable({
               role="dialog"
               aria-label="Customize columns"
               ref={customizerRef}
-              className="absolute right-0 top-7 z-overlay w-48 rounded border border-caos-border bg-caos-panel p-2 shadow-lg max-h-80 overflow-auto"
+              className="absolute right-0 top-[calc(100%+4px)] z-overlay w-48 rounded border border-caos-border bg-caos-panel p-2 shadow-lg max-h-80 overflow-auto"
               style={{ boxShadow: "var(--shadow-pop)" }}
             >
               <div className="text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5 px-1 font-semibold">Toggle Columns</div>
@@ -396,7 +433,7 @@ export function PortfolioTable({
                             setVisibleCols(prev => prev.filter(k => k !== c.key));
                           }
                         }}
-                        className="accent-[var(--caos-accent)] cursor-pointer"
+                        className="accent-[var(--caos-accent)] cursor-pointer focus-ring"
                       />
                       <span className="tabular text-caos-xs text-caos-text">{c.head || c.key}</span>
                     </label>
@@ -409,7 +446,7 @@ export function PortfolioTable({
       </div>
       <div ref={scrollerRef} className="flex-1 min-h-0 overflow-auto">
         <div style={{ minWidth }}>
-          <div className="px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+          <div className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
             {activeCols.map((col) => {
               const alignsRight = ["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"].includes(col.key);
               if (col.key === "expand") {
@@ -438,7 +475,7 @@ export function PortfolioTable({
                   key={col.key}
                   label={COL_TITLES[col.head] || col.head}
                   col={col.key}
-                  rows={PORTFOLIO}
+                  rows={portfolioRows}
                   getValue={getter}
                   selected={filters[col.key]}
                   onChange={setFilter}
@@ -453,10 +490,12 @@ export function PortfolioTable({
           {shown.map((p) => {
             const key = p.id || p.figi || p.code;
             const sel = selected === key;
+            const rowBg = sel ? "bg-caos-elevated/30" : "bg-caos-bg";
+            const rowHoverBg = sel ? "hover:bg-caos-elevated/55" : "hover:bg-caos-elevated/35";
             return (
               <div
                 key={key}
-                className="group relative bg-caos-bg px-3 py-[2px] border-b border-caos-border/50 transition-caos hover:bg-caos-elevated/60 z-0 items-center"
+                className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center ${rowBg} ${rowHoverBg} z-0`}
                 style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
               >
                 {activeCols.map((col) => renderCell(col.key, p, sel))}
@@ -775,9 +814,13 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
 }
 
 /* ---------- CP-SR sector board ---------- */
-export function SectorBoard({ clock, onSummary }: {
+export function SectorBoard({
+  clock, onSummary, selectedSector, onSelectSector,
+}: {
   clock: string; // desk sim clock "HH:MM:SS" — stamps refreshes on the desk time, not wall-clock
   onSummary?: (s: { shown: number; due: number }) => void; // report counts up for the panel header
+  selectedSector?: string | null;
+  onSelectSector?: (sector: string | null) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -820,107 +863,127 @@ export function SectorBoard({ clock, onSummary }: {
 
   return (
     <div className="p-2 flex flex-col gap-2">
-      <div className="grid grid-cols-4 gap-1.5">
-      {/* fallow-ignore-next-line complexity */}
-      {shown.map((s) => {
-        const fresh = refreshed[s.sector];
-        const hasReview = SECTORS.some((x) => x.sector === s.sector);
-        return (
-          hasReview ? (
-            <div
-              key={s.sector}
-              title="Open sector review analysis"
-              className="relative text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 transition-caos hover:border-caos-accent/50"
-            >
-              <button
-                type="button"
-                onClick={() => setOpen(s.sector)}
-                onKeyDown={onActivate(() => setOpen(s.sector))}
-                aria-label={`Open ${s.sector} sector review analysis`}
-                className="absolute inset-0 rounded focus-ring cursor-pointer"
-              />
-              <div className="relative pointer-events-none flex items-center gap-1.5">
-                <span className="text-caos-xl font-medium text-caos-text truncate">{s.sector}</span>
-                {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
-                <span className="flex-1" />
-                <button
-                  onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); }}
-                  aria-label={`Remove ${s.sector}`}
-                  className="pointer-events-auto relative z-10 inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="relative pointer-events-none tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-              <div className="relative pointer-events-none text-caos-xs text-caos-muted mt-1 leading-snug">{s.trend}</div>
-              <div className="relative pointer-events-none tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
-                <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
-                {fresh ? (
-                  <span className="inline-flex items-center gap-1" style={{ color: "var(--caos-success)" }}><StatusGlyph kind="success" size={9} /> UPDATED</span>
-                ) : s.due ? (
-                  <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <div
-              key={s.sector}
-              title="Sector in coverage; CP-SR review pending"
-              className="text-left rounded border border-caos-border bg-caos-bg px-2.5 py-2 cursor-default"
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-caos-xl font-medium text-caos-muted truncate">{s.sector}</span>
-                {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
-                <span className="flex-1" />
-                <button
-                  onClick={() => setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; })}
-                  aria-label={`Remove ${s.sector}`}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="tabular text-caos-xs tracking-wide mt-1" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-              <div className="text-caos-xs text-caos-muted mt-1 leading-snug">{s.trend}</div>
-              <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between">
-                <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
-                {fresh ? (
-                  <span className="inline-flex items-center gap-1" style={{ color: "var(--caos-success)" }}><StatusGlyph kind="success" size={9} /> UPDATED</span>
-                ) : s.due ? (
-                  <span style={{ color: "var(--caos-warning)" }}>REFRESH DUE</span>
-                ) : null}
-              </div>
-            </div>
-          )
-        );
-      })}
-      <div className="relative min-h-[118px] text-left rounded border border-dashed border-caos-border bg-caos-bg px-2.5 py-2 transition-caos hover:border-caos-accent/60">
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          onKeyDown={onActivate(() => setAdding((v) => !v))}
-          aria-haspopup="menu"
-          aria-expanded={adding}
-          className="block w-full text-left focus-ring"
-        >
-          <div className="text-caos-xl font-medium text-caos-muted">Add sector</div>
-          <div className="tabular text-caos-2xs text-caos-muted mt-1">coverage universe</div>
-        </button>
-        {adding ? (
-          <div role="menu" className="absolute left-2 right-2 top-14 z-overlay max-h-44 overflow-auto rounded border border-caos-border bg-caos-panel">
-            {hidden.length ? hidden.map((s) => (
-              <button
-                key={s}
-                type="button"
-                role="menuitem"
-                onClick={() => { setVisible((v) => new Set(v).add(s)); setAdding(false); }}
-                className="block w-full text-left px-2 py-1.5 tabular text-caos-xs text-caos-text hover:bg-caos-elevated focus-ring"
+      <div className="grid grid-cols-2 gap-2">
+        {shown.map((s) => {
+          const fresh = refreshed[s.sector];
+          const hasReview = SECTORS.some((x) => x.sector === s.sector);
+          const isSelected = selectedSector === s.sector;
+          return (
+            hasReview ? (
+              <div
+                key={s.sector}
+                title="Filter portfolio by sector / Click Review to open analysis"
+                onClick={() => onSelectSector?.(isSelected ? null : s.sector)}
+                className={`relative text-left rounded border p-2.5 flex flex-col justify-between min-h-[110px] cursor-pointer transition-caos ${
+                  isSelected
+                    ? "border-caos-accent bg-caos-elevated/40"
+                    : "border-caos-border bg-caos-bg hover:border-caos-accent/50"
+                }`}
               >
-                {s}
-              </button>
-            )) : <span className="block px-2 py-1.5 tabular text-caos-xs text-caos-muted">All sectors shown</span>}
-          </div>
-        ) : null}
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-caos-xl font-medium text-caos-text truncate">{s.sector}</span>
+                    {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+                    <span className="flex-1" />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); if (isSelected) onSelectSector?.(null); }}
+                      aria-label={`Remove ${s.sector}`}
+                      className="pointer-events-auto relative z-10 inline-flex h-5 w-5 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="tabular text-caos-xs tracking-wide mt-0.5" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+                  <div className="text-caos-xs text-caos-muted mt-1 leading-snug line-clamp-2">{s.trend}</div>
+                </div>
+                <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between items-center">
+                  <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
+                  <div className="flex items-center gap-2">
+                    {fresh ? (
+                      <span className="inline-flex items-center gap-1 text-caos-success"><StatusGlyph kind="success" size={9} /> UPDATED</span>
+                    ) : s.due ? (
+                      <span className="text-caos-warning">REFRESH DUE</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpen(s.sector);
+                      }}
+                      className="pointer-events-auto relative z-10 text-[10px] uppercase tracking-wider text-caos-accent hover:text-caos-text px-1.5 py-0.5 rounded border border-caos-border/50 bg-caos-bg hover:border-caos-accent transition-caos cursor-pointer"
+                    >
+                      Review
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                key={s.sector}
+                title="Filter portfolio by sector"
+                onClick={() => onSelectSector?.(isSelected ? null : s.sector)}
+                className={`text-left rounded border p-2.5 flex flex-col justify-between min-h-[110px] cursor-pointer transition-caos ${
+                  isSelected
+                    ? "border-caos-accent bg-caos-elevated/40"
+                    : "border-caos-border bg-caos-bg hover:border-caos-accent/50"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-caos-xl font-medium text-caos-muted truncate">{s.sector}</span>
+                    {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
+                    <span className="flex-1" />
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); if (isSelected) onSelectSector?.(null); }}
+                      aria-label={`Remove ${s.sector}`}
+                      className="pointer-events-auto relative z-10 inline-flex h-5 w-5 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div className="tabular text-caos-xs tracking-wide mt-0.5" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
+                  <div className="text-caos-xs text-caos-muted mt-1 leading-snug line-clamp-2">{s.trend}</div>
+                </div>
+                <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between items-center">
+                  <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
+                  {fresh ? (
+                    <span className="inline-flex items-center gap-1 text-caos-success"><StatusGlyph kind="success" size={9} /> UPDATED</span>
+                  ) : s.due ? (
+                    <span className="text-caos-warning">REFRESH DUE</span>
+                  ) : null}
+                </div>
+              </div>
+            )
+          );
+        })}
+        <div className="relative min-h-[110px] text-left rounded border border-dashed border-caos-border bg-caos-bg px-2.5 py-2 transition-caos hover:border-caos-accent/60">
+          <button
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            onKeyDown={onActivate(() => setAdding((v) => !v))}
+            aria-haspopup="menu"
+            aria-expanded={adding}
+            className="block w-full text-left focus-ring h-full flex flex-col justify-center cursor-pointer"
+          >
+            <div className="text-caos-xl font-medium text-caos-muted">Add sector</div>
+            <div className="tabular text-caos-2xs text-caos-muted mt-1">coverage universe</div>
+          </button>
+          {adding ? (
+            <div role="menu" className="absolute left-2 right-2 top-14 z-overlay max-h-44 overflow-auto rounded border border-caos-border bg-caos-panel">
+              {hidden.length ? hidden.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => { setVisible((v) => new Set(v).add(s)); setAdding(false); }}
+                  className="block w-full text-left px-2 py-1.5 tabular text-caos-xs text-caos-text hover:bg-caos-elevated focus-ring cursor-pointer"
+                >
+                  {s}
+                </button>
+              )) : <span className="block px-2 py-1.5 tabular text-caos-xs text-caos-muted">All sectors shown</span>}
+            </div>
+          ) : null}
+        </div>
       </div>
       {openRow ? (
         <SectorReview
@@ -935,7 +998,6 @@ export function SectorBoard({ clock, onSummary }: {
           onClose={() => setOpen(null)}
         />
       ) : null}
-      </div>
     </div>
   );
 }
@@ -962,11 +1024,11 @@ const LAYER_SHORT: Record<string, string> = {
 // (running / blocked) are NOT fills; they render as an outlined glyph cell so
 // `blocked` reads as categorical, never as "a slightly redder stale".
 const FRESH_FILL: Record<string, string> = {
-  fresh: "color-mix(in srgb, var(--caos-success) 32%, transparent)",
+  fresh: "transparent",
   aging: "color-mix(in srgb, var(--caos-warning) 34%, transparent)",
   stale: "color-mix(in srgb, var(--caos-critical) 40%, transparent)",
 };
-const CELL_SHORT: Record<string, string> = { fresh: "FRESH", aging: "AGING", stale: "STALE" };
+const CELL_SHORT: Record<string, string> = { fresh: "", aging: "AGING", stale: "STALE" };
 
 // `label` is a concise SR announcement ("ACOM L1 stale") — the visible glyph
 // text alone (STALE/BLKD) doesn't tell a non-sighted reader which issuer/layer
@@ -1009,10 +1071,14 @@ function CoverageCell({ status, title, label }: { status: string; title: string;
       title={title}
       role={label ? "img" : undefined}
       aria-label={label}
-      className="h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80"
+      className="h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 border border-caos-border/10"
       style={{ background: FRESH_FILL[status] || "transparent" }}
     >
-      <span className="tabular text-caos-2xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
+      {status === "fresh" ? (
+        <span className="text-[10px] text-caos-success/70" aria-hidden="true">●</span>
+      ) : (
+        <span className="tabular text-caos-2xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
+      )}
     </div>
   );
 }
