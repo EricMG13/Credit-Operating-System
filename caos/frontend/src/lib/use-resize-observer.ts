@@ -6,6 +6,7 @@ export function useResizeObserver<T extends HTMLElement>() {
 
   useLayoutEffect(() => {
     if (!ref.current) return;
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       if (!entries || entries.length === 0) return;
       const { width, height } = entries[0].contentRect;
