@@ -73,6 +73,9 @@ function CommandCenter() {
   // Sector board reports its own counts up so the panel header reflects the live
   // shown/due state instead of a hardcoded "8 sectors · 2 refreshes due".
   const [boardSummary, setBoardSummary] = useState({ shown: 0, due: 0 });
+  // Unified sector filter: clicking a sector on the review board filters the portfolio positions
+  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
+  const [boardCollapsed, setBoardCollapsed] = useState(false);
 
   const alertsToday = simAlertsToday(tick, live || run.sim.done);
   const rvLoanCount = RV_SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
@@ -185,49 +188,90 @@ function CommandCenter() {
         {view === "rv" ? (
           <SectorRV />
         ) : view === "cio" ? (
-          <div className="flex flex-col gap-2 min-h-0 min-w-0">
+          <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
+            {/* Posture bar above ask bar */}
             <PostureSummary />
             <NlQuery />
-            {portfolio.coveredCount > 0 ? (
-              <PanelShell
-                title="Live Coverage · latest runs"
-                className="flex-[2]"
-                right={<span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE · {portfolio.coveredCount} of {portfolio.issuerCount} covered</span>}
-              >
-                <div className="overflow-x-auto">
-                  <LiveCoverage rows={portfolio.rows} />
-                </div>
-              </PanelShell>
-            ) : null}
-            <PanelShell
-              title="Coverage"
-              className="flex-[3]"
-              right={<span className="tabular text-caos-xs text-caos-muted">{PORTFOLIO.length} positions · sample marks</span>}
-            >
-              <PortfolioTable selected={selected} onSelect={setSelected} />
-            </PanelShell>
-            <PanelShell
-              title="Sector Review Board · CP-SR"
-              className="flex-[2]"
-              collapsible
-              right={<span className="tabular text-caos-xs text-caos-muted">{boardSummary.shown} sectors · {boardSummary.due > 0 ? `${boardSummary.due} refresh${boardSummary.due === 1 ? "" : "es"} due` : "all current"}</span>}
-            >
-              <SectorBoard clock={run.clock} onSummary={setBoardSummary} />
-            </PanelShell>
+
+            {/* Main content columns below */}
+            <div className="flex-1 flex flex-col xl:flex-row gap-3.5 min-h-0 min-w-0">
+              {/* Left Column: Sector Review Board (collapsible) */}
+              <div className={`transition-all duration-200 flex flex-col min-h-0 ${boardCollapsed ? "w-10" : "flex-[1.2] xl:w-[420px]"} shrink-0`}>
+                {boardCollapsed ? (
+                  <div className="w-10 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center py-2 h-full gap-4 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setBoardCollapsed(false)}
+                      className="w-6 h-6 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos cursor-pointer focus-ring"
+                      aria-label="Expand Sector Review Board"
+                    >
+                      <svg viewBox="0 0 16 16" className="w-4 h-4 stroke-current" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m6 4 4 4-4 4" />
+                      </svg>
+                    </button>
+                    <span
+                      className="text-caos-2xs font-semibold tracking-[0.2em] uppercase text-caos-muted mt-2 select-none whitespace-nowrap"
+                      style={{ writingMode: "vertical-lr" }}
+                    >
+                      Sector Board · CP-SR
+                    </span>
+                  </div>
+                ) : (
+                  <PanelShell
+                    title="Sector Review Board · CP-SR"
+                    className="flex-1 min-h-0"
+                    collapsible
+                    onCollapse={() => setBoardCollapsed(true)}
+                    right={<span className="tabular text-caos-xs text-caos-muted">{boardSummary.shown} sectors · {boardSummary.due > 0 ? `${boardSummary.due} refresh${boardSummary.due === 1 ? "" : "es"} due` : "all current"}</span>}
+                  >
+                    <SectorBoard clock={run.clock} onSummary={setBoardSummary} selectedSector={sectorFilter} onSelectSector={setSectorFilter} />
+                  </PanelShell>
+                )}
+              </div>
+
+              {/* Right Column: Coverage Table (expands) */}
+              <div className="flex-[3] flex flex-col gap-2 min-h-0 min-w-0">
+                <PanelShell
+                  title="Coverage"
+                  className="flex-1 min-h-0"
+                  right={<span className="tabular text-caos-xs text-caos-muted">{PORTFOLIO.length} positions · sample marks</span>}
+                >
+                  <PortfolioTable selected={selected} onSelect={setSelected} sectorFilter={sectorFilter} />
+                </PanelShell>
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-2 min-h-0 min-w-0">
+          <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
+            {/* Live Coverage replacing Module Coverage Matrix */}
             <PanelShell
-              title="Module Coverage Matrix · L1–L6 freshness"
-              className="flex-[3]"
-              right={<span className="tabular text-caos-xs text-caos-muted">refresh SLA: L1 5d · L2 10d · L4 30d</span>}
+              title="Live Coverage · latest runs"
+              className="flex-[3] min-h-0"
+              right={<span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE · {portfolio.coveredCount} of {portfolio.issuerCount} covered</span>}
             >
-              <CoverageMatrix />
+              <div className="overflow-x-auto">
+                <LiveCoverage rows={portfolio.rows} />
+              </div>
             </PanelShell>
-            <div className="flex-[2] grid grid-cols-2 gap-2 min-h-0">
-              <PanelShell title="QA Queue · CP-5 open findings"><QaQueue /></PanelShell>
-              <PanelShell title="Source Gaps · CP-0 gap log"><GapsList /></PanelShell>
-            </div>
+
+            {/* Consolidated QA Findings & Source Gaps */}
+            <PanelShell
+              title="QA Findings & Source Gaps · CP-5 / CP-0"
+              className="flex-[2] min-h-0"
+              collapsible
+              defaultCollapsed={false}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
+                <div>
+                  <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">QA Queue · CP-5 open findings</h3>
+                  <QaQueue />
+                </div>
+                <div>
+                  <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">Source Gaps · CP-0 gap log</h3>
+                  <GapsList />
+                </div>
+              </div>
+            </PanelShell>
           </div>
         )}
       </div>

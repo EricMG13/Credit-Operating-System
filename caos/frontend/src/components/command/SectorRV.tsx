@@ -1005,7 +1005,7 @@ export function SectorRV() {
   });
 
   return (
-    <div className="flex flex-col gap-2 min-h-0 min-w-0 flex-1">
+    <div className="@container flex flex-col gap-3 min-h-0 min-w-0 flex-1">
       {/* sector selector */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
         <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
@@ -1016,7 +1016,7 @@ export function SectorRV() {
           id="sector-rv-select"
           value={active}
           onChange={(e) => setActive(Number(e.target.value))}
-          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2 tabular text-caos-xs text-caos-text outline-none transition-caos hover:border-caos-accent/60"
+          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2.5 tabular text-caos-xs text-caos-text outline-none transition-caos hover:border-caos-accent/60 cursor-pointer"
         >
           {RV_SECTORS.map((s, i) => (
             <option key={s.name} value={i}>{s.name}</option>
@@ -1038,7 +1038,7 @@ export function SectorRV() {
               aria-pressed={xMeasure === x}
               onClick={() => setXMeasure(x)}
               className={
-                "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring cursor-pointer flex items-center justify-center " +
                 (xMeasure === x
                   ? "border-caos-accent text-caos-text bg-caos-elevated"
                   : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
@@ -1066,12 +1066,12 @@ export function SectorRV() {
                 disabled={disabled}
                 onClick={() => { if (!disabled) setChartType(ct); }}
                 className={
-                  "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                  "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring flex items-center justify-center " +
                   (chartType === ct
                     ? "border-caos-accent text-caos-text bg-caos-elevated"
                     : disabled
                     ? "border-caos-border/30 text-caos-muted/40 cursor-not-allowed"
-                    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
+                    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 cursor-pointer")
                 }
               >
                 {label}
@@ -1093,7 +1093,7 @@ export function SectorRV() {
               aria-pressed={colPreset === preset}
               onClick={() => setColPreset(preset)}
               className={
-                "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring cursor-pointer flex items-center justify-center " +
                 (colPreset === preset
                   ? "border-caos-accent text-caos-text bg-caos-elevated"
                   : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
@@ -1110,7 +1110,7 @@ export function SectorRV() {
               type="button"
               onClick={() => setFilters({})}
               aria-label={`Clear ${Object.keys(filters).length} column filter(s)`}
-              className="shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+              className="shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer flex items-center justify-center"
             >
               Clear filters ({Object.keys(filters).length})
             </button>
@@ -1126,7 +1126,7 @@ export function SectorRV() {
           filtered universe. Big scatter (left) · Sector read + Top of book
           stacked (right). All three render from `filtered` (sector rows + the
           peer table's column filters) so the whole surface stays one universe. */}
-      <div className="shrink-0 grid grid-cols-1 xl:grid-cols-[1.6fr_1fr] gap-2 items-stretch">
+      <div className="shrink-0 grid grid-cols-1 @[60rem]:grid-cols-[1.6fr_1fr] gap-3 items-stretch">
         <PanelShell
           title={sector.name + " — RV Distribution"}
           className="min-h-[360px]"

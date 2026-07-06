@@ -43,4 +43,13 @@ describe("SectorRV Scatter Interaction", () => {
     fireEvent.keyDown(firstPoint, { key: " ", code: "Space" });
     expect(firstPoint.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("applies responsive container query classes to layouts", () => {
+    const { container } = render(<SectorRV />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.classList.contains("@container")).toBe(true);
+    
+    const topHalfGrid = container.querySelector(".grid") as HTMLElement;
+    expect(topHalfGrid.classList.contains("@[60rem]:grid-cols-[1.6fr_1fr]")).toBe(true);
+  });
 });
