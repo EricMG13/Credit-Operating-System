@@ -25,7 +25,7 @@ from config import get_settings, is_deployed
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, settings as settings_routes, sponsors
+from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors
 from research_executor import ResearchExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
@@ -275,6 +275,7 @@ app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
 
 

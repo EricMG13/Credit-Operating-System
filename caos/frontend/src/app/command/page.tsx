@@ -5,7 +5,7 @@
 // Sector RV has been promoted to a standalone route under /sector-rv.
 // Click a row for the issuer detail strip; ATLF links into the Analytical Deep-Dive.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
@@ -21,7 +21,7 @@ import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import {
   GapsList, IssuerStrip,
-  PortfolioTable, PostureSummary, QaQueue, SectorBoard,
+  PortfolioTable, PostureSummary, QaQueue,
 } from "@/components/command/views";
 import { NlQuery } from "@/components/command/NlQuery";
 
@@ -40,9 +40,6 @@ export default function CommandPage() {
 function CommandCenter() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
-  const [boardCollapsed, setBoardCollapsed] = useState(false);
-  const [sectorFilter, setSectorFilter] = useState<string | null>(null);
-  const [boardSummary, setBoardSummary] = useState({ shown: 0, due: 0 });
 
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
@@ -108,44 +105,9 @@ function CommandCenter() {
           <PostureSummary />
           <NlQuery />
 
-          {/* Content area columns */}
-          <div className="flex-1 flex flex-col xl:flex-row gap-3.5 min-h-0 min-w-0">
-            {/* Left Column: Sector Review Board */}
-            <div className={`transition-all duration-200 flex flex-col min-h-0 ${boardCollapsed ? "w-10" : "flex-[1.2] xl:w-[420px]"} shrink-0`}>
-              {boardCollapsed ? (
-                <div className="w-10 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center py-2 h-full gap-4 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setBoardCollapsed(false)}
-                    className="w-6 h-6 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos cursor-pointer focus-ring"
-                    aria-label="Expand Sector Review Board"
-                  >
-                    <svg viewBox="0 0 16 16" className="w-4 h-4 stroke-current" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m6 4 4 4-4 4" />
-                    </svg>
-                  </button>
-                  <span
-                    className="text-caos-2xs font-semibold tracking-[0.2em] uppercase text-caos-muted mt-2 select-none whitespace-nowrap"
-                    style={{ writingMode: "vertical-lr" }}
-                  >
-                    Sector Board · CP-SR
-                  </span>
-                </div>
-              ) : (
-                <PanelShell
-                  title="Sector Review Board · CP-SR"
-                  className="flex-1 min-h-0"
-                  collapsible
-                  onCollapse={() => setBoardCollapsed(true)}
-                  right={<span className="tabular text-caos-xs text-caos-muted">{boardSummary.shown} sectors · {boardSummary.due > 0 ? `${boardSummary.due} refresh${boardSummary.due === 1 ? "" : "es"} due` : "all current"}</span>}
-                >
-                  <SectorBoard clock={run.clock} onSummary={setBoardSummary} selectedSector={sectorFilter} onSelectSector={setSectorFilter} />
-                </PanelShell>
-              )}
-            </div>
-
-            {/* Right Column: Positions vs. Coverage */}
-            <div className="flex-[3] flex flex-col gap-2 min-h-0 min-w-0">
+          {/* Coverage area */}
+          <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
+            <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
               <PanelShell
                 title="Coverage"
                 className="flex-1 min-h-0"
@@ -178,7 +140,7 @@ function CommandCenter() {
                 }
               >
                 {activeTab === "positions" ? (
-                  <PortfolioTable selected={selected} onSelect={setSelected} sectorFilter={sectorFilter} />
+                  <PortfolioTable selected={selected} onSelect={setSelected} />
                 ) : (
                   <div className="overflow-x-auto h-full flex flex-col">
                     <LiveCoverage rows={portfolio.rows} selected={selected} onSelect={setSelected} />

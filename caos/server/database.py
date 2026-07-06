@@ -360,6 +360,78 @@ class MetricFact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class SectorSignal(Base):
+    """CP-MON-shaped sector signal substrate consumed by Sector Review."""
+
+    __tablename__ = "sector_signals"
+    __table_args__ = (
+        UniqueConstraint("dedup_hash", name="uq_sector_signals_dedup_hash"),
+        Index("ix_sector_signals_sector_date", "sector", "signal_date"),
+        Index("ix_sector_signals_category_severity", "category", "severity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(String(255))
+    headline: Mapped[str] = mapped_column(String(255), nullable=False)
+    body_excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    materiality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    source_tier: Mapped[str] = mapped_column(String(32), nullable=False, default="seed")
+    dedup_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_date: Mapped[Optional[str]] = mapped_column(String(32))
+    provenance: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SectorReviewRun(Base):
+    """Persisted CP-SR review payload envelope once live synthesis is enabled."""
+
+    __tablename__ = "sector_review_runs"
+    __table_args__ = (
+        Index("ix_sector_review_runs_sector_as_of", "sector", "as_of"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(32), nullable=False)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    posture: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    input_signal_ids: Mapped[list] = mapped_column(JSON, default=list)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    refresh_trigger: Mapped[str] = mapped_column(String(32), nullable=False, default="scheduled")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    provenance: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalystSectorFeed(Base):
+    """Per-analyst Sector Review feed toggles."""
+
+    __tablename__ = "analyst_sector_feeds"
+    __table_args__ = (
+        UniqueConstraint("analyst_id", "sector", name="uq_analyst_sector_feed"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notify_pref: Mapped[str] = mapped_column(String(32), nullable=False, default="in_app")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class SavedModel(Base):
     """Latest analyst-saved Model Builder state for an issuer."""
 

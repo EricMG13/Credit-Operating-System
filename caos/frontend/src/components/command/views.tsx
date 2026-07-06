@@ -1,7 +1,7 @@
 "use client";
 
 // Command Center views: portfolio posture table, CP-MON email intelligence,
-// live alert feed, CP-SR sector board, coverage matrix, QA queue, source gaps
+// live alert feed, coverage matrix, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,14 +10,12 @@ import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
-  ALERTS, COVERAGE, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE, SECTORS,
+  ALERTS, COVERAGE, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
   type EmailRow,
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
-import { STANCE_COLOR } from "@/lib/command/srdata";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
-import { SectorReview } from "@/components/command/SectorReview";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
@@ -145,11 +143,10 @@ const COL_TITLES: Record<string, string> = {
 };
 
 export function PortfolioTable({
-  selected, onSelect, sectorFilter,
+  selected, onSelect,
 }: {
   selected: string | null;
   onSelect: (code: string | null) => void;
-  sectorFilter?: string | null;
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -176,12 +173,7 @@ export function PortfolioTable({
     lev: (p) => p.lev, snrLev: (p) => p.snrLev, totalLev: (p) => p.totalLev, cov: (p) => p.cov,
     posture: (p) => p.posture, conv: (p) => p.conv, qa: (p) => p.qa, alerts: (p) => p.alerts,
   }), []);
-  const portfolioRows = useMemo(() => {
-    if (!sectorFilter) return PORTFOLIO;
-    return PORTFOLIO.filter((p) => p.sector === sectorFilter);
-  }, [sectorFilter]);
-
-  const shown = useColumnFilters(portfolioRows, filters, vals);
+  const shown = useColumnFilters(PORTFOLIO, filters, vals);
 
   const { startIndex, endIndex, paddingTop, paddingBottom } = useVirtualScroll({
     itemCount: shown.length,
@@ -399,7 +391,7 @@ export function PortfolioTable({
         </div>
         
         <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-3">
-          {shown.length} / {PORTFOLIO.length} shown{sectorFilter ? ` (${sectorFilter})` : ""}
+          {shown.length} / {PORTFOLIO.length} shown
         </span>
         <div className="relative shrink-0 flex items-center">
           <button
@@ -485,7 +477,7 @@ export function PortfolioTable({
                   key={col.key}
                   label={COL_TITLES[col.head] || col.head}
                   col={col.key}
-                  rows={portfolioRows}
+                  rows={PORTFOLIO}
                   getValue={getter}
                   selected={filters[col.key]}
                   onChange={setFilter}
@@ -821,195 +813,6 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
         );
       })}
       {openEmail ? <EmailWindow email={openEmail} onClose={() => setOpenEmail(null)} /> : null}
-    </div>
-  );
-}
-
-/* ---------- CP-SR sector board ---------- */
-export function SectorBoard({
-  clock, onSummary, selectedSector, onSelectSector,
-}: {
-  clock: string; // desk sim clock "HH:MM:SS" — stamps refreshes on the desk time, not wall-clock
-  onSummary?: (s: { shown: number; due: number }) => void; // report counts up for the panel header
-  selectedSector?: string | null;
-  onSelectSector?: (sector: string | null) => void;
-}) {
-  const [open, setOpen] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
-  const coverageSectors = Array.from(new Set(PORTFOLIO.map((p) => p.sector))).filter(Boolean).sort();
-  const sectorChoices = coverageSectors;
-  const [visible, setVisible] = useState<Set<string>>(() => new Set());
-  // sector → "HH:MM ET" stamp once its knowledge was refreshed this session
-  const [refreshed, setRefreshed] = useState<Record<string, string>>({});
-  const rows = sectorChoices.map((sector) =>
-    SECTORS.find((s) => s.sector === sector) ?? {
-      sector,
-      stance: "NEUTRAL" as const,
-      ew: 0,
-      trend: "coverage sector · CP-SR review pending",
-      reviewed: "—",
-      due: true,
-    }
-  );
-  const openRow = rows.find((s) => s.sector === open);
-  useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("caos-command-sectors-v2") || "[]");
-      if (Array.isArray(saved) && saved.length) { setVisible(new Set(saved)); return; }
-    } catch {}
-    // First run (no saved set): seed the reviewed sectors so the board teaches
-    // its value instead of opening as a single empty "Add sector" tile.
-    setVisible(new Set(SECTORS.slice(0, 4).map((s) => s.sector)));
-  }, []);
-  useEffect(() => {
-    try { localStorage.setItem("caos-command-sectors-v2", JSON.stringify([...visible])); } catch {}
-  }, [visible]);
-  const shown = rows.filter((s) => visible.has(s.sector));
-  const hidden = sectorChoices.filter((s) => !visible.has(s));
-  // A refresh this session clears the due flag, so the header count decrements
-  // as sectors are reviewed instead of staying a hardcoded "2 refreshes due".
-  const dueCount = shown.filter((s) => s.due && !refreshed[s.sector]).length;
-  useEffect(() => {
-    onSummary?.({ shown: shown.length, due: dueCount });
-  }, [shown.length, dueCount, onSummary]);
-
-  return (
-    <div className="p-2 flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        {shown.map((s) => {
-          const fresh = refreshed[s.sector];
-          const hasReview = SECTORS.some((x) => x.sector === s.sector);
-          const isSelected = selectedSector === s.sector;
-          return (
-            hasReview ? (
-              <div
-                key={s.sector}
-                title="Filter portfolio by sector / Click Review to open analysis"
-                onClick={() => onSelectSector?.(isSelected ? null : s.sector)}
-                className={`relative text-left rounded border p-2.5 flex flex-col justify-between min-h-[110px] cursor-pointer transition-caos ${
-                  isSelected
-                    ? "border-caos-accent bg-caos-elevated/40"
-                    : "border-caos-border bg-caos-bg hover:border-caos-accent/50"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-caos-xl font-medium text-caos-text truncate">{s.sector}</span>
-                    {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
-                    <span className="flex-1" />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); if (isSelected) onSelectSector?.(null); }}
-                      aria-label={`Remove ${s.sector}`}
-                      className="pointer-events-auto relative z-10 inline-flex h-5 w-5 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div className="tabular text-caos-xs tracking-wide mt-0.5" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-                  <div className="text-caos-xs text-caos-muted mt-1 leading-snug line-clamp-2">{s.trend}</div>
-                </div>
-                <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between items-center">
-                  <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
-                  <div className="flex items-center gap-2">
-                    {fresh ? (
-                      <span className="inline-flex items-center gap-1 text-caos-success"><StatusGlyph kind="success" size={9} /> UPDATED</span>
-                    ) : s.due ? (
-                      <span className="text-caos-warning">REFRESH DUE</span>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpen(s.sector);
-                      }}
-                      className="pointer-events-auto relative z-10 text-[10px] uppercase tracking-wider text-caos-accent hover:text-caos-text px-1.5 py-0.5 rounded border border-caos-border/50 bg-caos-bg hover:border-caos-accent transition-caos cursor-pointer"
-                    >
-                      Review
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                key={s.sector}
-                title="Filter portfolio by sector"
-                onClick={() => onSelectSector?.(isSelected ? null : s.sector)}
-                className={`text-left rounded border p-2.5 flex flex-col justify-between min-h-[110px] cursor-pointer transition-caos ${
-                  isSelected
-                    ? "border-caos-accent bg-caos-elevated/40"
-                    : "border-caos-border bg-caos-bg hover:border-caos-accent/50"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-caos-xl font-medium text-caos-muted truncate">{s.sector}</span>
-                    {s.ew > 0 ? <span className="tabular text-caos-xs" style={{ color: s.ew >= 3 ? "var(--caos-critical)" : "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {s.ew}</span> : null}
-                    <span className="flex-1" />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setVisible((v) => { const n = new Set(v); n.delete(s.sector); return n; }); if (isSelected) onSelectSector?.(null); }}
-                      aria-label={`Remove ${s.sector}`}
-                      className="pointer-events-auto relative z-10 inline-flex h-5 w-5 items-center justify-center rounded tabular text-caos-md font-bold leading-none text-caos-muted hover:text-caos-critical-bright focus-ring transition-caos"
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div className="tabular text-caos-xs tracking-wide mt-0.5" style={{ color: STANCE_COLOR[s.stance] }}>{s.stance}</div>
-                  <div className="text-caos-xs text-caos-muted mt-1 leading-snug line-clamp-2">{s.trend}</div>
-                </div>
-                <div className="tabular text-caos-2xs text-caos-muted mt-1.5 flex justify-between items-center">
-                  <span>{fresh ? "rev. today " + fresh : "rev. " + s.reviewed}</span>
-                  {fresh ? (
-                    <span className="inline-flex items-center gap-1 text-caos-success"><StatusGlyph kind="success" size={9} /> UPDATED</span>
-                  ) : s.due ? (
-                    <span className="text-caos-warning">REFRESH DUE</span>
-                  ) : null}
-                </div>
-              </div>
-            )
-          );
-        })}
-        <div className="relative min-h-[110px] text-left rounded border border-dashed border-caos-border bg-caos-bg px-2.5 py-2 transition-caos hover:border-caos-accent/60">
-          <button
-            type="button"
-            onClick={() => setAdding((v) => !v)}
-            onKeyDown={onActivate(() => setAdding((v) => !v))}
-            aria-haspopup="menu"
-            aria-expanded={adding}
-            className="block w-full text-left focus-ring h-full flex flex-col justify-center cursor-pointer"
-          >
-            <div className="text-caos-xl font-medium text-caos-muted">Add sector</div>
-            <div className="tabular text-caos-2xs text-caos-muted mt-1">coverage universe</div>
-          </button>
-          {adding ? (
-            <div role="menu" className="absolute left-2 right-2 top-14 z-overlay max-h-44 overflow-auto rounded border border-caos-border bg-caos-panel">
-              {hidden.length ? hidden.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => { setVisible((v) => new Set(v).add(s)); setAdding(false); }}
-                  className="block w-full text-left px-2 py-1.5 tabular text-caos-xs text-caos-text hover:bg-caos-elevated focus-ring cursor-pointer"
-                >
-                  {s}
-                </button>
-              )) : <span className="block px-2 py-1.5 tabular text-caos-xs text-caos-muted">All sectors shown</span>}
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {openRow ? (
-        <SectorReview
-          row={openRow}
-          refreshedAt={refreshed[openRow.sector] || null}
-          onRefreshed={(sector) =>
-            setRefreshed((prev) => ({
-              ...prev,
-              [sector]: clock.slice(0, 5), // desk time HH:MM, matches the sim clock shown across the Command Center
-            }))
-          }
-          onClose={() => setOpen(null)}
-        />
-      ) : null}
     </div>
   );
 }

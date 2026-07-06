@@ -93,6 +93,13 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "trace-source", text: "Trace the IC verdict to its sources", sub: "provenance walk" },
     ANALYST_MEMO_PROMPT,
   ],
+  "sector-rv": [
+    { id: "peer-set", text: "Map RV tails to closest credit peers", sub: "issuer graph · CP-1C" },
+    { id: "scatter", text: "Plot RV names against leverage and coverage", sub: "cross-issuer scatter" },
+    { id: "distribution", text: "Rank downside pressure in this sector", sub: "distribution" },
+    { id: "trace-source", text: "Trace RV conclusions to evidence", sub: "provenance walk" },
+    { id: "debate-digest", text: "Digest the relative-value debate", sub: "research synthesis" },
+  ],
 };
 
 export function AskProvider({ children }: { children: ReactNode }) {
