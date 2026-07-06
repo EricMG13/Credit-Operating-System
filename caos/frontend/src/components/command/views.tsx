@@ -1374,13 +1374,13 @@ export function QaQueue() {
             {/* Drill-through: issuer → profile overlay; module → its Deep-Dive
                 view (where the cited evidence lives) — the P1 "one click from
                 evidence" fix. */}
-            <IssuerLink query={q.issuer} title={`Open ${q.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos">
+            <IssuerLink query={q.issuer} title={`Open ${q.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none">
               {q.issuer}
             </IssuerLink>
             <Link
               href={`/deepdive?issuer=${encodeURIComponent(q.issuer)}&mod=${encodeURIComponent(q.module)}`}
               title={`Open ${q.issuer} ${q.module} in Deep-Dive`}
-              className="no-underline tabular text-caos-xs text-caos-muted hover:text-caos-accent border border-caos-border/70 hover:border-caos-accent/60 rounded px-1 transition-caos"
+              className="no-underline tabular text-caos-xs text-caos-muted hover:text-caos-accent border border-caos-border/70 hover:border-caos-accent/60 rounded px-1 transition-caos focus-ring outline-none"
             >
               {q.module} →
             </Link>
@@ -1415,7 +1415,7 @@ export function GapsList() {
                 word travels too, matching the QA-queue Tag one panel over. */}
             <Dot sev={g.sev} />
             <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: SEV_COLOR[g.sev] ?? "var(--caos-muted)" }}>{g.sev}</span>
-            <IssuerLink query={g.issuer} title={`Open ${g.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos">
+            <IssuerLink query={g.issuer} title={`Open ${g.issuer} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none">
               {g.issuer}
             </IssuerLink>
             <span className="text-caos-md text-caos-text truncate">{g.doc}</span>

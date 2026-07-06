@@ -28,8 +28,16 @@ const QA_COLOR: Record<string, string> = {
 
 const COLS = "grid grid-cols-[1.6fr_1fr_0.7fr_0.7fr_1fr_0.9fr_1fr] gap-2 items-center";
 
-export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
-  const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
+export function LiveCoverage({
+  rows,
+  selected = null,
+  onSelect,
+}: {
+  rows: PortfolioRowDTO[];
+  selected?: string | null;
+  onSelect?: (ticker: string) => void;
+}) {
+  const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted focus-ring rounded outline-none";
   const [filters, setFilters] = useState<FilterState>({});
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((f) => {
@@ -76,8 +84,38 @@ export function LiveCoverage({ rows }: { rows: PortfolioRowDTO[] }) {
       {shown.map((r) => {
         const rv = r.rv_recommendation;
         const frag = r.downside_fragility;
+        const isSelected = selected === r.ticker;
+
+        const handleClick = () => {
+          if (r.ticker && onSelect) {
+            onSelect(r.ticker);
+          }
+        };
+
+        const handleKeyDown = (e: React.KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleClick();
+          }
+        };
+
         return (
-          <div key={r.issuer_id} className={COLS + " px-3 py-[2px] border-b border-caos-border/50"}>
+          <div
+            key={r.issuer_id}
+            role="button"
+            tabIndex={0}
+            onClick={handleClick}
+            onKeyDown={handleKeyDown}
+            aria-pressed={isSelected}
+            aria-label={`${r.ticker || ""} ${r.name || ""} details`}
+            className={
+              COLS +
+              " px-3 py-[3px] border-b border-caos-border/50 transition-caos cursor-pointer focus-ring outline-none " +
+              (isSelected
+                ? "bg-caos-accent/10 border-caos-accent/30 text-caos-text"
+                : "hover:bg-caos-panel/30 text-caos-text")
+            }
+          >
             <span className="flex items-center gap-1.5 min-w-0">
               <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
               <span className="text-caos-text truncate text-caos-md">{r.name}</span>

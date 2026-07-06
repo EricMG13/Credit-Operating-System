@@ -242,7 +242,7 @@ function CommandCenter() {
             </div>
           </div>
         ) : (
-          <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
+          <div className="@container flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
             {/* Live Coverage replacing Module Coverage Matrix */}
             <PanelShell
               title="Live Coverage · latest runs"
@@ -250,7 +250,7 @@ function CommandCenter() {
               right={<span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE · {portfolio.coveredCount} of {portfolio.issuerCount} covered</span>}
             >
               <div className="overflow-x-auto">
-                <LiveCoverage rows={portfolio.rows} />
+                <LiveCoverage rows={portfolio.rows} selected={selected} onSelect={setSelected} />
               </div>
             </PanelShell>
 
@@ -261,7 +261,7 @@ function CommandCenter() {
               collapsible
               defaultCollapsed={false}
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
+              <div className="grid grid-cols-1 @[40rem]:grid-cols-2 gap-4 p-2.5">
                 <div>
                   <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">QA Queue · CP-5 open findings</h3>
                   <QaQueue />
