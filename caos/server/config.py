@@ -105,23 +105,29 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-004"
     embedding_dim: int = 768
 
-    # Cross-encoder re-rank (engine/rerank.py) — the precision half of the
-    # dropped-claim-rate alarm fix. Re-ranks the top-2K retrieved chunks AFTER
-    # RRF fusion, BEFORE context packing, so irrelevant chunks stop outranking
-    # relevant ones in the pack. Off by default: it lazy-loads a local
-    # `mxbai-rerank-large-v1` model (~670MB) via `sentence-transformers` on the
-    # first call — keyless/CI deploys never load it (gate short-circuits to
-    # passthrough). Any load or inference failure also degrades to passthrough,
-    # so a missing/corrupt weight never crashes the query lane. Env:
-    # RERANK_ENABLED, RERANK_MODEL. The model stays resident at module scope
-    # (single load per process — mirrors embeddings warmup); the latency floor
-    # (~50ms/query CPU for top-20) is the accepted cost of self-hosted rerank.
+    # LLM re-rank (engine/rerank.py) — the precision half of the dropped-claim-rate
+    # alarm fix. Re-ranks the top-`rerank_window` retrieved chunks AFTER RRF fusion,
+    # BEFORE context packing, so irrelevant chunks stop outranking relevant ones in
+    # the pack. Policy: NO local model downloads — the re-rank runs as one batched
+    # LLM call through the same API seam as every other engine lane
+    # (engine/llm_client.create), on a model picked by the tier system below. Off
+    # by default: it costs tokens per query and needs a provider key. Any failure
+    # (setting off, no key, API error, malformed JSON, score-count mismatch)
+    # degrades to passthrough, so the query lane never crashes on a reranker
+    # hiccup. Env: RERANK_ENABLED, RERANK_MODEL_TIER, RERANK_WINDOW.
     rerank_enabled: bool = False
-    rerank_model: str = "mixedbread-ai/mxbai-rerank-large-v1"
-    # How many of the RRF-fused hits to feed the cross-encoder (latency bound).
-    # The cross-encoder re-scores these and we keep the top `k` passed by the
-    # caller. 2K = standard re-rank window; raising it lifts recall at linear
-    # latency cost.
+    # Which model tier the re-rank LLM runs on (cheap|fast|strong|top) — resolved
+    # to a concrete model id by engine/presets.rerank_model(), with the same
+    # provider-key fallback as the per-mode lanes. The re-rank is a retrieval
+    # step (relevance scoring), not a reasoning lane, so it does NOT ride the
+    # analyst's mode table — it pins a tier. Default "cheap" (DeepSeek-v4-flash /
+    # Haiku): relevance scoring is a light task and the window is small (~20).
+    # Raise to "strong"/"top" for harder judgments at linear token cost.
+    rerank_model_tier: str = "cheap"
+    # How many of the RRF-fused hits to feed the re-rank LLM (latency + token
+    # bound). The LLM re-scores these and we keep the top `k` passed by the
+    # caller. 20 = one batched call over a small pack; raising it lifts recall
+    # at linear token cost.
     rerank_window: int = 20
 
     # CP-5C semantic committee review (engine/council.py). An ensemble of

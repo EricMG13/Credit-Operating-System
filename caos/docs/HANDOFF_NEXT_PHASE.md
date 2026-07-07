@@ -26,7 +26,7 @@ decision (see "What's next (after one-box unification)").
 | --- | --- | --- |
 | Graph-expansion | `engine/graphexpansion.py` + `retrieval.py` (`expand_graph` param) | SHIPPED — 1-hop `QueryAcceptedLink` traversal, opt-in via `retrieve_corpus(expand_graph=True)`, wired in `queryanswer._generate` as `expand_graph=bool(issuer_ids)` |
 | Metric-fact SQL | `engine/metricfactlane.py` | SHIPPED — topic-relevant raw `MetricFact` rows → `MetricFactEntry`s with closed `numbers` sets (value + period year), deduped against Metric Engine derivatives, wired in `_generate` step 4b (fault-isolated) |
-| Cross-encoder re-rank | `engine/rerank.py` + `retrieval.py` (`rerank` param) + `config.py` (`RERANK_ENABLED`/`RERANK_MODEL`/`RERANK_WINDOW`) | SHIPPED 2026-07-07 — local `mxbai-rerank-large-v1` via `sentence-transformers`, lazy-loaded + module-cached, fault-isolated passthrough (any load/inference failure → RRF-only). Wired after RRF fusion in `retrieve_corpus` (re-ranks top-`rerank_window`, keeps top-`k`); sigmoid-normalized score so MMR is not scale-dominated. Opt-out via `rerank=False`. Gated by `RERANK_ENABLED` (off by default → keyless/CI never load the 670MB weight). Tests: `test_rerank.py` (14 — gate, fault isolation, truncation, normalization, opt-out, wiring), `bench/test_rerank_precision.py` (3 — non-regression vs RRF, lift on engineered cases, seed-structural guard). `sentence-transformers>=3.3,<5` added to `requirements.txt`. Red-team: RT-2026-07-07-08…12. |
+| LLM re-rank | `engine/rerank.py` + `retrieval.py` (`rerank` param) + `config.py` (`RERANK_ENABLED`/`RERANK_MODEL_TIER`/`RERANK_WINDOW`) + `engine/presets.py` (`rerank_model()`) | SHIPPED 2026-07-07, **re-architected same-day to API-based** — one batched LLM call through the shared `engine/llm_client.create` seam (no local model download, per the no-downloads policy), on a model picked by the tier system (`RERANK_MODEL_TIER`, default `cheap`). Fault-isolated passthrough on any failure (setting off, no provider key, API error, malformed JSON, score-count mismatch → RRF-only). Wired after RRF fusion in `retrieve_corpus` (re-ranks top-`rerank_window`, keeps top-`k`); score clamped to [0,1] so MMR is not scale-dominated. Opt-out via `rerank=False`. Gated by `RERANK_ENABLED` (off by default). Tests: `test_rerank.py` (12 — gate, no-key passthrough, fault isolation, truncation, clamp, parsing, tier-model selection, UNTRUSTED wrapping, opt-out, wiring), `bench/test_rerank_precision.py` (3 — non-regression vs RRF, lift on engineered cases, seed-structural guard); `test_llm_safety.py` registers the new call site. `sentence-transformers` dependency removed. Red-team: RT-2026-07-07-08…12 (local-model era) + RT-2026-07-07-29 (API-rerank pivot). |
 
 ### Phase 2 — Validation stack
 | Slice | File(s) | Status |
@@ -167,15 +167,16 @@ A cross-encoder re-rank on the top-K retrieved chunks before context packing is
 the standard fix.
 
 ### What to build
-1. **Reranker model decision** (blocked — needs user sign-off):
-   - **Local:** `mixedbread-ai/mxbai-rerank-large-v1` via `sentence-transformers`
-     (no API cost, no latency ceiling hit, runs in the same process as
-     embeddings). ~670MB model, ~50ms/query on CPU for top-20.
-   - **Hosted:** Cohere `rerank-english-v3.0` or Voyage `rerank-2` (API cost,
-     network latency, but no model weight to ship).
-   - **Recommendation:** local `mxbai-rerank` — consistent with the codebase's
-     "self-hosted, no external API for the core loop" posture (matches the
-     pgvector/embeddings decision).
+1. **Reranker model decision** (RESOLVED — superseded by the no-downloads policy):
+   - **Original options** were local `mxbai-rerank-large-v1` via `sentence-transformers`
+     (no API cost, ~670MB, ~50ms/query CPU) vs hosted Cohere/Voyage rerank APIs.
+   - **Shipped decision:** neither — the re-rank runs as one batched **LLM call
+     through the existing API seam** (`engine/llm_client.create`) on a model picked
+     by the tier system (`RERANK_MODEL_TIER`, default `cheap`). Policy: NO local
+     model downloads; all LLM work goes through the configured API models. The
+     query + top-`window` chunk texts go in one prompt; the LLM returns a JSON
+     `{"scores":[...]}` of 0-1 relevance scores; we re-sort and keep top-`k`. One
+     round-trip per query — the cheapest API rerank, no new dependency, no weight.
 
 2. **`engine/rerank.py`** — `rerank(db, query, hits, k=20) → List[CorpusHit]`
    with the reranker model, fault-isolated (any failure → return hits

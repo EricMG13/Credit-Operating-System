@@ -38,7 +38,7 @@ from graphexpansion_seed import (  # noqa: E402
 
 # BM25-only, no rerank, no embeddings — isolate the graph-expansion effect.
 retrieval.get_settings = lambda: SimpleNamespace(
-    rerank_enabled=False, rerank_model="x", rerank_window=20,
+    rerank_enabled=False, rerank_model_tier="cheap", rerank_window=20,
     gemini_api_key="", embedding_model="text-embedding-004", embedding_dim=768,
 )
 

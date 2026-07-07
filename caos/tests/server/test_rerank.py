@@ -1,131 +1,113 @@
-"""Tests for engine/rerank.py — the cross-encoder re-rank lane.
+"""Tests for engine/rerank.py — the LLM-as-reranker lane.
 
 The re-rank is the precision half of the dropped-claim-rate alarm fix: it
 re-orders the top-`W` RRF-fused chunks so irrelevant chunks stop outranking
-relevant ones before MMR packing. These tests pin the contract the handoff
-names — fault isolation (model load failure → passthrough, inference failure →
-passthrough), top-K truncation, the `rerank=False` opt-out, the keyless
-short-circuit (RERANK_ENABLED unset), score normalization to [0,1], and the
-`retrieve_corpus` wiring (re-rank runs only when enabled + model loads).
+relevant ones before MMR packing. Policy: NO local model downloads — the re-rank
+is one batched LLM call through the same API seam as every other engine lane
+(``engine/llm_client.create``), on a model picked by the tier system.
 
-A fake cross-encoder stands in for `mxbai-rerank-large-v1` so the tests are
-deterministic and never load the ~670MB weight. The fake scores (query, text)
-pairs by a tunable relevance signal, which lets the benchmark harness prove the
-*re-rank lifts precision vs RRF when the reranker is better than RRF* — the
-wiring claim, not the real model's quality (RT-2026-07-07-12).
+These tests pin the contract: fault isolation (disabled → passthrough, no
+provider key → passthrough, LLM call failure → passthrough, score-count mismatch
+→ passthrough), top-K truncation with tail preserved, score clamp to [0,1], the
+``rerank=False`` opt-out, the keyless short-circuit, and the ``retrieve_corpus``
+wiring. A fake ``_score_pairs_llm`` stands in for the API call so the orchestration
+tests are deterministic and network-free; one test exercises the real
+``_score_pairs_llm`` against a mocked ``llm_client.create`` to pin the JSON
+parsing, tier-model selection, and UNTRUSTED-chunk wrapping.
 """
 from __future__ import annotations
 
-from dataclasses import replace
+import json
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from retrieval import CorpusHit, retrieve_corpus
 import engine.rerank as rerank_mod
-import engine.rerank
-from engine.rerank import rerank, reset_model_cache, _sigmoid
+from engine.rerank import rerank, _score_pairs_llm, _clamp01
 
 
 def _hit(chunk_id: str, text: str, score: float = 1.0, issuer_id: str = "i1") -> CorpusHit:
     return CorpusHit(chunk_id=chunk_id, text=text, score=score, issuer_id=issuer_id, doc="d.pdf")
 
 
-class _FakeCrossEncoder:
-    """Stands in for `sentence_transformers.CrossEncoder`. `predict` scores
-    (query, text) pairs by a deterministic signal so tests are reproducible."""
-
-    def __init__(self, scorer):
-        self._scorer = scorer
-        self.calls = 0
-
-    def predict(self, pairs):
-        self.calls += 1
-        return [self._scorer(q, t) for q, t in pairs]
-
-
-def _substring_scorer(query: str, text: str) -> float:
-    """A logit-style score: high when the query terms appear in the text, low
-    otherwise. Mimics a cross-encoder's relevance logit well enough to test the
-    re-sort + sigmoid normalization."""
+def _substring_scorer(query: str, chunks) -> list[float]:
+    """0-1 relevance: fraction of query terms present in the chunk text. A
+    deterministic stand-in for the LLM's relevance judgment — enough to test the
+    re-sort + clamp + truncation wiring without a network call."""
     q_terms = set(query.lower().split())
-    t_terms = set(text.lower().split())
-    overlap = len(q_terms & t_terms)
-    # logit: +4 per overlapping term, -2 per missing term → sigmoid ∈ (0,1)
-    return 4.0 * overlap - 2.0 * (len(q_terms) - overlap)
+    out: list[float] = []
+    for c in chunks:
+        t_terms = set(c.text.lower().split())
+        overlap = len(q_terms & t_terms)
+        out.append(overlap / max(1, len(q_terms)))
+    return out
 
 
-@pytest.fixture(autouse=True)
-def _reset_cache():
-    """Each test starts with a clean module-level model cache so lazy-load
-    state from one test never bleeds into another."""
-    reset_model_cache()
-    yield
-    reset_model_cache()
-
-
-def _enable_rerank(monkeypatch, model=None, window=20):
-    """Flip RERANK_ENABLED on and (optionally) inject a fake model so the
-    lazy-load gate passes without `sentence-transformers` installed."""
+def _enable_rerank(monkeypatch, scores_fn=None, window=20, has_key: bool = True):
+    """Flip RERANK_ENABLED on, pretend a provider key is present, and (optionally)
+    inject a fake ``_score_pairs_llm`` so the lane runs without a network call."""
     base = SimpleNamespace(
         rerank_enabled=True,
-        rerank_model="fake/rerank",
+        rerank_model_tier="cheap",
         rerank_window=window,
     )
     monkeypatch.setattr(rerank_mod, "get_settings", lambda: base)
-    if model is not None:
-        # Bypass _load_model by pre-seeding the cache.
-        rerank_mod._model_cache = model
-        rerank_mod._model_load_attempted = True
+    monkeypatch.setattr("engine.presets.can_run_model", lambda _m: has_key)
+    monkeypatch.setattr("engine.presets.rerank_model", lambda: "fake/cheap")
+    if scores_fn is not None:
+        async def _fake(query, chunks):
+            return scores_fn(query, chunks)
+        monkeypatch.setattr(rerank_mod, "_score_pairs_llm", _fake)
 
 
-# ── gate: keyless / disabled short-circuit ────────────────────────────────────
+# ── gate: disabled / no-key short-circuit ─────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_rerank_passthrough_when_disabled(monkeypatch):
-    """RERANK_ENABLED unset (default) → return hits unchanged, no model touch."""
-    base = SimpleNamespace(rerank_enabled=False, rerank_model="x", rerank_window=20)
+    """RERANK_ENABLED unset (default) → return hits unchanged, no LLM call."""
+    base = SimpleNamespace(rerank_enabled=False, rerank_model_tier="cheap", rerank_window=20)
     monkeypatch.setattr(rerank_mod, "get_settings", lambda: base)
+    called = {"v": False}
+
+    async def _boom(query, chunks):
+        called["v"] = True
+        return [1.0]
+    monkeypatch.setattr(rerank_mod, "_score_pairs_llm", _boom)
     hits = [_hit("c1", "alpha", 0.9), _hit("c2", "beta", 0.5)]
     out = await rerank(db=None, query="alpha", hits=hits, k=2)
     assert out is hits  # identity — not even copied
-    assert rerank_mod._model_load_attempted is False  # gate fires before load
+    assert called["v"] is False  # gate fires before the LLM call
 
 
 @pytest.mark.asyncio
 async def test_rerank_passthrough_on_empty_hits(monkeypatch):
     """Empty hits short-circuit before the gate — no settings read needed."""
-    _enable_rerank(monkeypatch, model=_FakeCrossEncoder(_substring_scorer))
+    _enable_rerank(monkeypatch, scores_fn=_substring_scorer)
     assert await rerank(db=None, query="x", hits=[], k=5) == []
 
 
 @pytest.mark.asyncio
-async def test_rerank_passthrough_on_load_failure(monkeypatch):
-    """Model load failure (missing weight / no sentence-transformers) → return
-    hits unchanged. The query lane never crashes on a missing reranker."""
-    base = SimpleNamespace(rerank_enabled=True, rerank_model="missing/model", rerank_window=20)
-    monkeypatch.setattr(rerank_mod, "get_settings", lambda: base)
-    # Force the lazy-load to attempt a real import that fails.
-    monkeypatch.setattr(
-        "sys.modules", {**__import__("sys").modules, "sentence_transformers": None},
-        raising=False,
-    )
+async def test_rerank_passthrough_when_no_provider_key(monkeypatch):
+    """RERANK_ENABLED on but the tier model's provider key is missing → return
+    hits unchanged. The lane never raises at the API client on a partial-key
+    deploy (replaces the local-model load-failure path — no model to load now)."""
+    _enable_rerank(monkeypatch, scores_fn=_substring_scorer, has_key=False)
     hits = [_hit("c1", "alpha", 0.9), _hit("c2", "beta", 0.5)]
     out = await rerank(db=None, query="alpha", hits=hits, k=2)
     assert [h.chunk_id for h in out] == ["c1", "c2"]  # original order preserved
-    assert rerank_mod._model_load_error is not None  # failure recorded for ops
 
 
-# ── re-rank behavior: re-sort, truncate, normalize ────────────────────────────
+# ── re-rank behavior: re-sort, truncate, clamp ────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_rerank_resorts_by_cross_encoder_score(monkeypatch):
+async def test_rerank_resorts_by_llm_score(monkeypatch):
     """An irrelevant high-RRF chunk must drop below a relevant low-RRF chunk
-    after the cross-encoder re-scores. This is the precision fix in action."""
-    model = _FakeCrossEncoder(_substring_scorer)
-    _enable_rerank(monkeypatch, model=model)
+    after the LLM re-scores. This is the precision fix in action."""
+    _enable_rerank(monkeypatch, scores_fn=_substring_scorer)
     # c1 has a high RRF score but does NOT match the query; c2 matches.
     hits = [
         _hit("c1", "completely unrelated content", score=0.99),
@@ -139,8 +121,7 @@ async def test_rerank_resorts_by_cross_encoder_score(monkeypatch):
 async def test_rerank_truncates_to_k(monkeypatch):
     """Re-rank keeps the top-`k` from the re-ranked head; the tail (hits beyond
     the window) stays after as diversity fallback (MMR may still pick from it)."""
-    model = _FakeCrossEncoder(_substring_scorer)
-    _enable_rerank(monkeypatch, model=model, window=4)
+    _enable_rerank(monkeypatch, scores_fn=_substring_scorer, window=4)
     # 6 hits, window=4 → head=4 re-ranked, tail=2 untouched. keep=k=2.
     hits = [
         _hit("c1", "leverage", 0.9),
@@ -154,8 +135,8 @@ async def test_rerank_truncates_to_k(monkeypatch):
     assert len(out) == 4  # 2 re-ranked head + 2 tail
     head = {out[0].chunk_id, out[1].chunk_id}
     tail = {out[2].chunk_id, out[3].chunk_id}
-    # Head is the top-2 by cross-encoder score (matching chunks).
-    assert head <= {"c1", "c2", "c3", "c5"}
+    # Head is the top-2 by LLM score (matching chunks — c4 scores 0).
+    assert head <= {"c1", "c2", "c3"}
     # The irrelevant c4 must NOT be in the re-ranked top-2 head.
     assert "c4" not in head
     # Tail is the untouched hits beyond the window (c5, c6).
@@ -163,34 +144,34 @@ async def test_rerank_truncates_to_k(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rerank_normalizes_score_to_unit_interval(monkeypatch):
-    """The cross-encoder logit is sigmoid-normalized to [0,1] so MMR's
-    `lambda * relevance - (1-lambda) * redundancy` is not scale-dominated by the
-    logit. RT-2026-07-07-10."""
-    def big_logit_scorer(q, t):
-        return 100.0 if "leverage" in t.lower() else -100.0
+async def test_rerank_clamps_score_to_unit_interval(monkeypatch):
+    """The LLM score is clamped to [0,1] so MMR's
+    ``lambda * relevance - (1-lambda) * redundancy`` is not scale-dominated and
+    never goes negative on an out-of-range model emission (e.g. 1.0001)."""
 
-    model = _FakeCrossEncoder(big_logit_scorer)
-    _enable_rerank(monkeypatch, model=model)
+    def big_scorer(query, chunks):
+        return [1.5 if "leverage" in c.text.lower() else -0.3 for c in chunks]
+
+    _enable_rerank(monkeypatch, scores_fn=big_scorer)
     hits = [_hit("c1", "leverage data", 0.5), _hit("c2", "noisy", 0.9)]
     out = await rerank(db=None, query="leverage", hits=hits, k=2)
     for h in out:
         assert 0.0 <= h.score <= 1.0
-    # The matching chunk's normalized score is ~1.0 (sigmoid(100) ≈ 1).
+    # The matching chunk's clamped score is exactly 1.0; the non-match 0.0.
     assert out[0].chunk_id == "c1"
-    assert out[0].score > 0.999
+    assert out[0].score == 1.0
+    assert out[1].score == 0.0
 
 
 @pytest.mark.asyncio
-async def test_rerank_inference_failure_passthrough(monkeypatch):
-    """If the model's `predict` raises, the lane degrades to the input order —
-    never propagates the exception to the query lane."""
+async def test_rerank_llm_call_failure_passthrough(monkeypatch):
+    """If the LLM call raises (API error / overload / timeout), the lane degrades
+    to the input order — never propagates the exception to the query lane."""
 
-    class _BoomModel:
-        def predict(self, pairs):
-            raise RuntimeError("inference exploded")
-
-    _enable_rerank(monkeypatch, model=_BoomModel())
+    async def _boom(query, chunks):
+        raise RuntimeError("API exploded")
+    _enable_rerank(monkeypatch)
+    monkeypatch.setattr(rerank_mod, "_score_pairs_llm", _boom)
     hits = [_hit("c1", "alpha", 0.9), _hit("c2", "beta", 0.5)]
     out = await rerank(db=None, query="alpha", hits=hits, k=2)
     assert [h.chunk_id for h in out] == ["c1", "c2"]  # original order
@@ -198,26 +179,85 @@ async def test_rerank_inference_failure_passthrough(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_rerank_score_count_mismatch_passthrough(monkeypatch):
-    """If the model returns a score count != hit count, degrade to passthrough
+    """If the LLM returns a score count != hit count, degrade to passthrough
     rather than zip-truncating silently (a partial re-rank is worse than none)."""
 
-    class _ShortModel:
-        def predict(self, pairs):
-            return [1.0]  # one score for N pairs
-
-    _enable_rerank(monkeypatch, model=_ShortModel())
+    def _short(query, chunks):
+        return [1.0]  # one score for N chunks
+    _enable_rerank(monkeypatch, scores_fn=_short)
     hits = [_hit("c1", "alpha", 0.9), _hit("c2", "beta", 0.5)]
     out = await rerank(db=None, query="alpha", hits=hits, k=2)
     assert [h.chunk_id for h in out] == ["c1", "c2"]
 
 
-def test_sigmoid_bounds():
-    """Sanity: sigmoid maps the real line to [0,1], monotonic. At extreme logits
-    it saturates to exactly 0.0 / 1.0 (float precision), so use inclusive bounds."""
-    assert _sigmoid(0.0) == 0.5
-    assert 0.0 <= _sigmoid(-100.0) <= 0.001
-    assert 0.999 <= _sigmoid(100.0) <= 1.0
-    assert _sigmoid(2.0) > _sigmoid(1.0)
+# ── _score_pairs_llm: parsing + tier model + untrusted wrapping ───────────────
+
+
+class _FakeResp:
+    def __init__(self, text: str):
+        self.content = [SimpleNamespace(type="text", text=text)]
+
+
+@pytest.mark.asyncio
+async def test_score_pairs_llm_parses_json_uses_tier_model_and_wraps(monkeypatch):
+    """The real ``_score_pairs_llm`` (not the fake) must: call ``llm_client.create``
+    with ``lane='rerank'`` and ``model=presets.rerank_model()``, wrap the chunks as
+    UNTRUSTED content, and parse the JSON ``{'scores': [...]}`` reply into floats."""
+    _enable_rerank(monkeypatch)  # makes presets.rerank_model() -> "fake/cheap"
+
+    captured: dict = {}
+
+    async def _fake_create(client, *, lane, model, effort=None, max_tokens=None,
+                           system=None, messages=None, **kw):
+        captured["lane"] = lane
+        captured["model"] = model
+        captured["system"] = system
+        captured["messages"] = messages
+        return _FakeResp(json.dumps({"scores": [0.82, 0.11, 0.40]}))
+
+    def _fake_client():
+        return SimpleNamespace()  # opaque client; never used by the fake create
+
+    monkeypatch.setattr(rerank_mod.llm_client, "create", _fake_create)
+    monkeypatch.setattr(rerank_mod.llm_client, "anthropic_client", _fake_client)
+
+    chunks = [_hit("c1", "leverage rose"), _hit("c2", "weather report"), _hit("c3", "ebitda")]
+    scores = await _score_pairs_llm("leverage", chunks)
+
+    assert scores == [0.82, 0.11, 0.40]
+    assert captured["lane"] == "rerank"
+    assert captured["model"] == "fake/cheap"
+    # The chunks are wrapped as untrusted content (prompt-injection defense).
+    assert "UNTRUSTED DOCUMENT CONTENT" in captured["messages"][0]["content"]
+    # Each chunk is numbered in order.
+    assert "[0] leverage rose" in captured["messages"][0]["content"]
+    assert "[2] ebitda" in captured["messages"][0]["content"]
+    # The system prompt carries the untrusted-data rule.
+    assert "untrusted" in captured["system"].lower()
+
+
+@pytest.mark.asyncio
+async def test_score_pairs_llm_raises_on_missing_scores_key(monkeypatch):
+    """A malformed reply (no 'scores' list) raises so the caller fault-isolates."""
+    _enable_rerank(monkeypatch)
+    monkeypatch.setattr(rerank_mod.llm_client, "create",
+                        lambda *a, **k: _async_return(_FakeResp('{"unrelated": 1}')))
+    monkeypatch.setattr(rerank_mod.llm_client, "anthropic_client", lambda: SimpleNamespace())
+    with pytest.raises(ValueError):
+        await _score_pairs_llm("q", [_hit("c1", "text")])
+
+
+async def _async_return(value):
+    return value
+
+
+def test_clamp01_bounds():
+    """Sanity: clamp maps anything to [0,1], preserves in-range values."""
+    assert _clamp01(-0.3) == 0.0
+    assert _clamp01(1.5) == 1.0
+    assert _clamp01(0.0) == 0.0
+    assert _clamp01(1.0) == 1.0
+    assert _clamp01(0.42) == 0.42
 
 
 # ── retrieve_corpus wiring ────────────────────────────────────────────────────
@@ -231,11 +271,9 @@ async def test_retrieve_corpus_rerank_false_opt_out(monkeypatch, seeded_db):
     import uuid
     from database import AsyncSessionLocal, Document, DocumentChunk, Issuer
 
-    # Enable rerank at the setting level AND inject a fake model — but pass
-    # rerank=False to retrieve_corpus so neither is consulted.
-    _enable_rerank(monkeypatch, model=_FakeCrossEncoder(_substring_scorer))
+    _enable_rerank(monkeypatch, scores_fn=_substring_scorer)
     monkeypatch.setattr("retrieval.get_settings", lambda: SimpleNamespace(
-        rerank_enabled=True, rerank_model="fake/rerank", rerank_window=20,
+        rerank_enabled=True, rerank_model_tier="cheap", rerank_window=20,
         gemini_api_key="", embedding_model="text-embedding-004", embedding_dim=768,
     ))
 
@@ -254,7 +292,6 @@ async def test_retrieve_corpus_rerank_false_opt_out(monkeypatch, seeded_db):
                              chunk_hash=hashlib.sha256(text.encode()).hexdigest()))
         await db.commit()
 
-        from unittest.mock import patch
         with patch("engine.rerank.rerank", side_effect=AssertionError("rerank must not be called")) as _spy:
             out = await retrieve_corpus(db, "leverage", k=8, issuer_ids=[iid], rerank=False)
         assert len(out) >= 1
@@ -269,9 +306,8 @@ async def test_retrieve_corpus_rerank_disabled_by_default(monkeypatch, seeded_db
     import uuid
     from database import AsyncSessionLocal, Document, DocumentChunk, Issuer
 
-    # Settings with rerank DISABLED — the test env default.
     monkeypatch.setattr("retrieval.get_settings", lambda: SimpleNamespace(
-        rerank_enabled=False, rerank_model="fake/rerank", rerank_window=20,
+        rerank_enabled=False, rerank_model_tier="cheap", rerank_window=20,
         gemini_api_key="", embedding_model="text-embedding-004", embedding_dim=768,
     ))
 

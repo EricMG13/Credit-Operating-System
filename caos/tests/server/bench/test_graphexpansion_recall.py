@@ -38,7 +38,7 @@ def _keyless_retrieval(monkeypatch):
     conftest already blanks GEMINI_API_KEY; this also pins rerank off so a
     future RERANK_ENABLED=true CI run can't perturb the numbers."""
     monkeypatch.setattr("retrieval.get_settings", lambda: SimpleNamespace(
-        rerank_enabled=False, rerank_model="x", rerank_window=20,
+        rerank_enabled=False, rerank_model_tier="cheap", rerank_window=20,
         gemini_api_key="", embedding_model="text-embedding-004", embedding_dim=768,
     ))
 

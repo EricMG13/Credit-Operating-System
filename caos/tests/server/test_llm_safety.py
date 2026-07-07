@@ -158,6 +158,7 @@ _REVIEWED_LLM_CALL_SITES = {
     "engine/queryoverlay.py",  # Query route/overlay: chunks via wrap_untrusted (+ rule); output gated to registry ids + retrieved chunk ids
     "engine/queryinsights.py",  # Desk Brief: pack via wrap_untrusted (+ rule); cards gated to pack ids + numeric grounding gate
     "engine/queryanswer.py",   # Grounded answer: chunks via wrap_untrusted (+ rule); sentences gated to retrieved chunk ids + numeric grounding gate
+    "engine/rerank.py",        # LLM re-rank: chunks via wrap_untrusted (+ UNTRUSTED_RULE in system); output is a 0-1 score list, no free-text content surfaced
     "llm.py",                # issuer chat (system prompt carries untrusted rule)
     "nlquery.py",            # NL→spec; output allowlist-validated to the catalog
     "scenario.py",           # scenario prompt (user text)

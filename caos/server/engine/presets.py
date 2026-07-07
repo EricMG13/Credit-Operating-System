@@ -223,3 +223,22 @@ def reviewer_model() -> str:
     if heavy.startswith("claude") or heavy.startswith("anthropic"):
         return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
     return s.council_reviewer_model_anthropic if s.anthropic_api_key else heavy
+
+
+def rerank_model() -> str:
+    """Model for the LLM re-rank lane (engine/rerank.py). Pinned tier
+    (``RERANK_MODEL_TIER``, default ``cheap``) — the re-rank is a retrieval step
+    (relevance scoring over a ~20-item window), not a per-mode reasoning lane, so
+    it does NOT ride the analyst's mode table. Resolves the tier to a concrete
+    model id with the same provider-key fallback as ``model_for``: when the tier's
+    configured model has no key, degrade to a configured model that DOES, so a
+    partial-key deploy still reranks rather than silently no-op'ing. An invalid
+    tier coerces to ``cheap`` (the latency/price-sensitive default)."""
+    s = get_settings()
+    tier = (s.rerank_model_tier or "cheap").strip().lower()
+    if tier not in ("cheap", "fast", "strong", "top"):
+        tier = "cheap"
+    model = _tier_model(s, tier)
+    if not _has_provider_key(s, model):
+        return _configured_fallback(s, tier)
+    return model
