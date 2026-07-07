@@ -80,8 +80,11 @@ Red-team: RT-2026-07-07-06 (queryanswer reapply) + RT-2026-07-07-07 (PipelineRun
 ## Current test state
 
 ```
-1167 passed, 2 skipped, 1 failed (test_vault_memo — pre-existing cross-test
-contamination, passes 20/20 in isolation)
+1182 passed, 2 skipped, 3 failed — all 3 pre-existing/parallel-WIP, not this phase:
+  - test_api::test_search_by_name_case_insensitive — pre-existing flake (passes in isolation)
+  - test_memochunks::test_chunk_memo_idempotent_on_re_upload — parallel WIP (untracked engine/memochunks.py)
+  - test_vault_memo::test_upload_memo_vaults_autolinks_and_feeds_query_graph — parallel WIP (memo chunking)
+2-hop phase's own cluster: 18/18 green (test_graphexpansion.py 12 + bench/test_graphexpansion_recall.py 6).
 ```
 
 The uncommitted-but-modified files (do NOT blanket `git add` — user has parallel
@@ -93,6 +96,15 @@ Re-rank phase adds (agent-owned, safe to stage explicitly):
 `tests/server/bench/conftest.py`, `tests/server/bench/seed_labels.py`,
 `tests/server/bench/test_rerank_precision.py`,
 `.agent-reviews/redteam.md`, `caos/docs/HANDOFF_NEXT_PHASE.md`.
+2-hop measurement phase adds (agent-owned, safe to stage explicitly):
+`engine/graphexpansion.py`, `tests/server/test_graphexpansion.py`,
+`tests/server/bench/graphexpansion_seed.py`,
+`tests/server/bench/test_graphexpansion_recall.py`,
+`tests/server/bench/run_graphexpansion_measurement.py`,
+`caos/docs/GRAPH_EXPANSION_2HOP_MEASUREMENT.md`,
+`.agent-reviews/redteam.md`, `caos/docs/HANDOFF_NEXT_PHASE.md`.
+(NOTE: `engine/memochunks.py` + `test_memochunks.py` + `test_vault_memo.py`
+changes are PARALLEL WIP — do not stage.)
 
 ## What's next (after re-rank)
 
@@ -179,7 +191,18 @@ the standard fix.
 2. **2-hop graph expansion** — `graphexpansion.expand_issuer_set` caps at 1-hop
    (v1). 2-hop is a measured follow-on (risks diluting the pack with
    second-degree peers). Needs a recall-vs-precision measurement on real
-   cross-issuer questions before enabling.
+   cross-issuer questions before enabling. **MEASURED 2026-07-07** — the n-hop
+   traversal is implemented (`graph_neighbors` BFS, visited-set bounded) and
+   opt-in via `hops>1`, but the `retrieve_corpus` production default stays
+   `hops=1`. The synthetic contagion-chain measurement
+   (`caos/docs/GRAPH_EXPANSION_2HOP_MEASUREMENT.md`) shows 2-hop lifts recall
+   ONLY for genuinely-2-hop questions (0.00→1.00) while adding 0.50 dilution to
+   the common 1-hop case (zero recall gain, irrelevant peer chunks enter the
+   pack). **Decision: 2-hop stays opt-in, NOT the default** — the real-data
+   measurement on production cross-issuer queries (the actual enable gate) is
+   the open follow-on. Harness: `bench/test_graphexpansion_recall.py` +
+   `bench/run_graphexpansion_measurement.py`; extend `LABELS` for real pairs.
+   Red-team: RT-2026-07-07-17…21.
 3. **Analyst memos in retrieval** — memos are vault-only today (not chunked
    into `document_chunks`), so Q2 answers won't cite them. The recorded
    follow-up: chunk memos at upload. Small, independent.
