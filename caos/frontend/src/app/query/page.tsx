@@ -16,18 +16,21 @@ import { GroupLauncher } from "@/components/query/GroupLauncher";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { InsightFeed } from "@/components/query/InsightFeed";
+import { WatchlistEditor } from "@/components/query/WatchlistEditor";
 import { AiAnswer } from "@/components/query/AiAnswer";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
 import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { QueryResultsModal } from "@/components/command/NlQuery";
 import { QueryPrintSheet } from "@/components/query/QueryPrintSheet";
 import { QueryReportSheet } from "@/components/query/QueryReportSheet";
 import { ReportRail } from "@/components/query/ReportRail";
 import { useNotify } from "@/components/shared/Notifications";
-import { acceptQueryLink, listQueryLinks, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
+import { acceptQueryLink, listQueryLinks, nlQuery, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
 import type { AnswerResult, Capability, CapabilitiesResult, GraphResult, GraphNode, InsightBrief, InsightCard, OverlayEdge, OverlayResult } from "@/lib/query/graph";
+import type { NlQueryResult } from "@/lib/query/types";
 import { pairKey } from "@/lib/query/graph";
 import { addSection, parseStoredReport, removeSection, REPORT_STORAGE_KEY, sectionId, type ReportSection } from "@/lib/query/report";
 import { downloadQueryCsv } from "@/lib/query/export";
@@ -107,6 +110,9 @@ function QueryWorkspace() {
   const [brief, setBrief] = useState<InsightBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefCollapsed, setBriefCollapsed] = useState(false);
+  // Phase-2 personalization — the analyst's coverage watchlist editor (scopes
+  // the Desk Brief). Collapsible so it never crowds the graph by default.
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
   // Layout F — the running report the analyst assembles, the right-rail tab, and
   // which print-root is live (only one at a time so window.print never doubles).
   const [report, setReport] = useState<ReportSection[]>([]);
@@ -116,6 +122,19 @@ function QueryWorkspace() {
   const [answer, setAnswer] = useState<AnswerResult | null>(null);
   const [answerLoading, setAnswerLoading] = useState(false);
   const answerSeq = useRef(0);
+  // One-box unification (additive) — the "Scan metrics" lane: an explicit
+  // secondary action beside the walk-primary Run button. Calls the /nl metric
+  // planner and renders the ranked table / evidence list in the shared
+  // QueryResultsModal (reused from the Command Center /nl box). Walk stays the
+  // primary action (Enter); the analyst chooses the metric lane explicitly, so
+  // intent is never silently misrouted (RT-2026-07-07-26). Auto-detection is a
+  // documented follow-on, not this phase.
+  const [metricRes, setMetricRes] = useState<NlQueryResult | null>(null);
+  const [metricBusy, setMetricBusy] = useState(false);
+  const [metricErr, setMetricErr] = useState<string | null>(null);
+  const [metricOpen, setMetricOpen] = useState(false);
+  const [metricLive, setMetricLive] = useState("");
+  const metricAbort = useRef<AbortController | null>(null);
   // Q3 ambient overlay: fire the model overlay once per session on the analyst's
   // first explicit walk, so there is model commentary without per-click spend.
   const didAutoOverlay = useRef(false);
@@ -525,6 +544,51 @@ function QueryWorkspace() {
     setSuggest([]);
   }, []);
 
+  // One-box unification — the "Scan metrics" lane (additive secondary action).
+  // Calls the /nl metric planner and opens the shared QueryResultsModal with the
+  // ranked table / evidence list. Independent of the walk flow: it does NOT touch
+  // graph/answer/route state, so a metric scan never disturbs a live walk. A
+  // second click while in-flight aborts (button reads CANCEL). Fault-isolated: a
+  // 422 ("Couldn't map that to a known metric") surfaces as an in-modal hint, not
+  // a page-level error — the analyst can rephrase or fall back to Run (walk).
+  const cancelMetric = useCallback(() => {
+    metricAbort.current?.abort();
+  }, []);
+
+  const scanMetrics = useCallback(() => {
+    const question = text.trim();
+    if (!question || metricBusy) return;
+    const ctrl = new AbortController();
+    metricAbort.current = ctrl;
+    setMetricBusy(true);
+    setMetricErr(null);
+    setMetricRes(null);
+    setMetricOpen(true);
+    setMetricLive("Scanning the metric store…");
+    nlQuery(question, ctrl.signal)
+      .then((r) => {
+        setMetricRes(r);
+        const n = r.rows.length;
+        setMetricLive(`${n} ${n === 1 ? "issuer" : "issuers"} returned.`);
+      })
+      .catch((e) => {
+        if (ctrl.signal.aborted) {
+          setMetricRes(null);
+          setMetricLive("Scan cancelled.");
+          return;
+        }
+        const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+          || (e as Error)?.message || "scan failed";
+        setMetricErr(String(detail));
+        setMetricRes(null);
+        setMetricLive("Scan failed.");
+      })
+      .finally(() => {
+        if (metricAbort.current === ctrl) metricAbort.current = null;
+        setMetricBusy(false);
+      });
+  }, [text, metricBusy]);
+
   // Loud routing: prefer the LLM router (reasons shown, alternatives offered),
   // degrade to the keyword router on empty candidates or any failure — routing
   // never gets worse than the deterministic path.
@@ -721,6 +785,21 @@ function QueryWorkspace() {
                   className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
                 >
                   Run
+                </button>
+                {/* One-box unification (additive) — the metric-search lane as an
+                    explicit secondary action. Enter stays walk-primary; this
+                    button is the only way into the /nl metric lane, so intent is
+                    never silently misrouted (RT-2026-07-07-26). A second click
+                    while in-flight aborts (reads CANCEL). */}
+                <button
+                  type="button"
+                  onClick={() => (metricBusy ? cancelMetric() : scanMetrics())}
+                  disabled={!metricBusy && !text.trim()}
+                  aria-label={metricBusy ? "Cancel metric scan" : "Scan metrics across coverage"}
+                  title="Rank issuers across the metric store — e.g. 'which issuers are most levered'"
+                  className="tabular text-caos-sm px-3 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {metricBusy ? "CANCEL" : "SCAN METRICS"}
                 </button>
               </div>
 
@@ -1123,6 +1202,28 @@ function QueryWorkspace() {
       )}
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
+
+      {/* One-box unification — the "Scan metrics" result overlay. Reuses the
+          Command Center /nl modal verbatim (QueryResultsModal), so the ranked
+          table / evidence list / chart / caveats render identically on both
+          surfaces. The citation chips call back into the shared `cite` state
+          above, so the same CitationViewer backs both the walk and metric lanes.
+          Walk stays primary (Enter); this modal is opened only by the explicit
+          SCAN METRICS button (RT-2026-07-07-26 / 27). */}
+      {metricOpen && (
+        <QueryResultsModal
+          question={text}
+          res={metricRes}
+          busy={metricBusy}
+          err={metricErr}
+          onClose={() => {
+            setMetricOpen(false);
+            if (metricBusy) cancelMetric();
+          }}
+          openCite={(id, label) => setCite({ id, label })}
+        />
+      )}
+      <div className="sr-only" role="status" aria-live="polite">{metricLive}</div>
 
       {/* Committee print exhibits (display:none until window.print()). Only ONE
           print-root is live at a time — the per-graph exhibit by default, the

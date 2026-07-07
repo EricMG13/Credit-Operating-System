@@ -80,16 +80,24 @@ Red-team: RT-2026-07-07-06 (queryanswer reapply) + RT-2026-07-07-07 (PipelineRun
 ## Current test state
 
 ```
-1182 passed, 2 skipped, 3 failed — all 3 pre-existing/parallel-WIP, not this phase:
+Server: 1182 passed, 2 skipped, 3 failed — all 3 pre-existing/parallel-WIP, not this phase:
   - test_api::test_search_by_name_case_insensitive — pre-existing flake (passes in isolation)
   - test_memochunks::test_chunk_memo_idempotent_on_re_upload — parallel WIP (untracked engine/memochunks.py)
   - test_vault_memo::test_upload_memo_vaults_autolinks_and_feeds_query_graph — parallel WIP (memo chunking)
 2-hop phase's own cluster: 18/18 green (test_graphexpansion.py 12 + bench/test_graphexpansion_recall.py 6).
+One-box unification phase (this phase, frontend-only): 4 new tests green
+  (src/app/query/scan-metrics.test.tsx) + the 7 existing NlQuery tests still green.
+  1 frontend failure is PARALLEL WIP, not this phase:
+  - LiveCoverage.test.tsx > supports selection via click and keyboard (Enter/Space) —
+    parallel WIP changed LiveCoverage.tsx from role="button"/aria-pressed to
+    role="row"/aria-selected (grid semantics) but did NOT update the test's
+    button-role assertions. Fails in isolation. Not touched by this phase.
 ```
 
 The uncommitted-but-modified files (do NOT blanket `git add` — user has parallel
 WIP): `database.py`, `engine/queryanswer.py`, `main.py`, `retrieval.py`,
-`tests/server/test_llm_safety.py`, `tests/server/test_query_answer.py`.
+`tests/server/test_llm_safety.py`, `tests/server/test_query_answer.py`,
+`caos/frontend/src/components/command/LiveCoverage.tsx` (parallel-WIP grid refactor).
 Re-rank phase adds (agent-owned, safe to stage explicitly):
 `config.py`, `requirements.txt`, `engine/rerank.py`,
 `tests/server/test_rerank.py`, `tests/server/bench/__init__.py`,
@@ -106,8 +114,13 @@ Re-rank phase adds (agent-owned, safe to stage explicitly):
 Plan-doc reconciliation phase adds (agent-owned, safe to stage explicitly):
 `caos/docs/QUERY_INTELLIGENCE_PLAN.md` (§8 reconciled to shipped state + §7 item 5 memo note),
 `caos/docs/HANDOFF_NEXT_PHASE.md`.
+One-box unification phase adds (agent-owned, safe to stage explicitly):
+`caos/frontend/src/components/command/NlQuery.tsx` (export QueryResultsModal + OpenCite type),
+`caos/frontend/src/app/query/page.tsx` (Scan metrics button + modal + live region),
+`caos/frontend/src/app/query/scan-metrics.test.tsx` (new),
+`caos/docs/HANDOFF_NEXT_PHASE.md`.
 (NOTE: `engine/memochunks.py` + `test_memochunks.py` + `test_vault_memo.py`
-changes are PARALLEL WIP — do not stage.)
+changes are PARALLEL WIP — do not stage. `LiveCoverage.tsx` is PARALLEL WIP — do not stage.)
 
 ## What's next (after re-rank)
 
@@ -215,7 +228,28 @@ the standard fix.
 4. **Per-analyst briefs** — Phase-1 brief is book-level; per-analyst scoping
    (watchlists) is Phase-2 personalization.
 5. **One-box unification** — merging Command-Center `/nl` into the Query bar.
-   Separate IA decision.
+   **DONE 2026-07-07 (additive approach)** — the Query bar now hosts BOTH lanes:
+   walk-primary (Enter → `/route` + `/graph` + `/answer`, unchanged) AND a new
+   explicit "SCAN METRICS" secondary button that calls `/api/query/nl` and opens
+   the shared `QueryResultsModal` (exported from `NlQuery.tsx` and reused
+   verbatim — same ranked table / evidence list / chart / caveats / citation
+   chips as the Command Center `/nl` box). The citation chips call back into the
+   Query page's existing `CitationViewer`, so one source viewer backs both lanes.
+   The Command Center `/nl` box is KEPT (no regression for the PM persona —
+   whether to deprecate it is a separate IA decision deferred to a follow-on).
+   Intent is NEVER silently misrouted: the analyst picks the metric lane
+   explicitly (button-only); Enter is always a walk. Auto-detection is a
+   documented follow-on, not this phase. A `/nl` 422 (no metric match) surfaces
+   as an in-modal alert with a backend detail, not a page-level crash. The scan
+   is fault-isolated from the walk flow — it never touches graph/answer/route
+   state. Tests: `src/app/query/scan-metrics.test.tsx` (4) — button calls `/nl`
+   + opens modal with ranked table; Enter stays walk-primary (never `/nl`); `/nl`
+   422 → in-modal alert; button disabled until text entered. The 7 existing
+   `NlQuery.test.tsx` tests stay green (the export is purely additive). Red-team:
+   RT-2026-07-07-26 (dispatch ambiguity → explicit button, no silent dispatch),
+   RT-2026-07-07-27 (result-surface mismatch → reuse `QueryResultsModal`, no new
+   canvas), RT-2026-07-07-28 (Command Center box kept, not removed). Vision-gap
+   #2 closed.
 
 ## Quick-start commands for the next session
 
