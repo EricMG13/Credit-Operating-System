@@ -103,6 +103,9 @@ Re-rank phase adds (agent-owned, safe to stage explicitly):
 `tests/server/bench/run_graphexpansion_measurement.py`,
 `caos/docs/GRAPH_EXPANSION_2HOP_MEASUREMENT.md`,
 `.agent-reviews/redteam.md`, `caos/docs/HANDOFF_NEXT_PHASE.md`.
+Plan-doc reconciliation phase adds (agent-owned, safe to stage explicitly):
+`caos/docs/QUERY_INTELLIGENCE_PLAN.md` (§8 reconciled to shipped state + §7 item 5 memo note),
+`caos/docs/HANDOFF_NEXT_PHASE.md`.
 (NOTE: `engine/memochunks.py` + `test_memochunks.py` + `test_vault_memo.py`
 changes are PARALLEL WIP — do not stage.)
 
@@ -187,7 +190,10 @@ the standard fix.
 1. **Plan doc reconciliation** — `QUERY_INTELLIGENCE_PLAN.md` Part II (Phase
    1–4 tables) was reverted by parallel work. The shipped state lives in this
    handoff + the red-team log. Re-writing Part II is documentation debt, not
-   blocked.
+   blocked. **RECONCILED 2026-07-07** — §8 "Phase-1 retrieval remainders" now
+   reflects all three shipped lanes (graph-expansion, metric-fact, cross-encoder
+   re-rank) + the 2-hop measurement outcome, and §7 item 5 notes memo chunking
+   is in-flight parallel WIP. RT range updated to RT-2026-07-07-01..21.
 2. **2-hop graph expansion** — `graphexpansion.expand_issuer_set` caps at 1-hop
    (v1). 2-hop is a measured follow-on (risks diluting the pack with
    second-degree peers). Needs a recall-vs-precision measurement on real
