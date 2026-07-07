@@ -418,10 +418,10 @@ async def get_issuer_profile(
             "categories_missing": cp0.get("categories_missing"),
             "edgar_available": cp0.get("edgar_available"),
         })
-        for f in (await db.execute(
+        for qf in (await db.execute(
             select(QAFinding).where(QAFinding.run_id == latest_complete.id)
         )).scalars().all():
-            findings[f.severity] = findings.get(f.severity, 0) + 1
+            findings[qf.severity] = findings.get(qf.severity, 0) + 1
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
@@ -490,11 +490,11 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
         sized = is_finite_number(amt)
         trips: Optional[bool] = None
         if thr is not None and sized:
-            trips = float(amt) >= thr
+            trips = float(amt) >= thr  # type: ignore[arg-type]  # guarded by is_finite_number on line above
         rows.append(CrossDefaultDomino(
             code=str(t["code"]),
             tranche=str(t.get("tranche") or t["code"]),
-            amount_musd=float(amt) if sized else None,
+            amount_musd=float(amt) if sized else None,  # type: ignore[arg-type]  # guarded by is_finite_number
             trips_cross_default=trips,
             pulls_in=[str(o["code"]) for o in clean if o is not t] if trips else [],
         ))

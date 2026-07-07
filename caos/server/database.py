@@ -69,10 +69,10 @@ def compile_sqlite_tsvector(element, compiler, **kw):
 def compile_sqlite_computed(element, compiler, **kw):
     return "GENERATED ALWAYS AS (NULL) STORED"
 
-from sqlalchemy.pool import NullPool
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.pool import NullPool  # noqa: E402  # after @compiles decorators that must register first
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column  # noqa: E402
 
-from config import SERVER_DIR, get_settings
+from config import SERVER_DIR, get_settings  # noqa: E402
 
 settings = get_settings()
 
@@ -965,14 +965,14 @@ async def erase_analyst_data(
         docs = await session.execute(
             update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
         )
-        docs_anonymized = docs.rowcount or 0
+        docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
     return {
-        "research_jobs_deleted": research.rowcount or 0,
-        "runs_anonymized": runs.rowcount or 0,
+        "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
-        "profile_deleted": profile.rowcount or 0,
+        "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]
     }
 
 
