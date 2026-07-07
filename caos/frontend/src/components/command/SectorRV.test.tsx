@@ -8,6 +8,7 @@ afterEach(cleanup);
 import {
   buildRVRows,
   crossSectorMatrix,
+  derivePosture,
   invalidationTrigger,
   RV_AS_OF,
   RV_SOURCE,
@@ -42,6 +43,10 @@ describe("SectorRV Scatter Interaction", () => {
   it("renders scatter points as accessible buttons and handles keyboard press", () => {
     render(<SectorRV />);
     
+    const chart = screen.getByRole("group", { name: /Three-year discount margin by rating/i });
+    expect(chart.tagName.toLowerCase()).toBe("svg");
+    expect(screen.queryByRole("img", { name: /Three-year discount margin/i })).toBeNull();
+
     // Points will be rendered as elements with role="button" and a descriptive name prefix
     const points = screen.getAllByRole("button", { name: /Position/i });
     expect(points.length).toBeGreaterThan(0);
@@ -164,11 +169,12 @@ describe("Broader Sector RV Calculations & Presentation", () => {
 
   it("renders caveat honesty headers, posture mapping, and cross-sector heatmap in DOM", () => {
     render(<SectorRV />);
+    const expectedPosture = derivePosture(buildRVRows()).label;
 
     // Honesty caveat elements
     expect(screen.getByText("SEED-REF")).toBeDefined();
     expect(screen.getByText("posture:")).toBeDefined();
-    expect(screen.getByText("CONSTRUCTIVE")).toBeDefined();
+    expect(screen.getByText(expectedPosture)).toBeDefined();
     expect(screen.getByText("(derived · not CP-SR)")).toBeDefined();
     expect(screen.getByText("staleness:")).toBeDefined();
     expect(screen.getByText("CURRENT (0–90d)")).toBeDefined();
@@ -180,13 +186,38 @@ describe("Broader Sector RV Calculations & Presentation", () => {
     expect(screen.getByText(/sorted \|rvBp\| ↓/)).toBeDefined();
   });
 
+  it("renders on-surface RV, chip, and evidence legends", () => {
+    render(<SectorRV />);
+
+    expect(screen.getByText("Legend")).toBeDefined();
+    for (const label of ["Cheap", "Wide", "Inline", "Tight", "Rich"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByText(/cohort · .*instrument · .*portfolio/)).toBeDefined();
+    expect(screen.getByText(/m market · p peer · r recovery/)).toBeDefined();
+    expect(screen.getByText("Method")).toBeDefined();
+  });
+
   it("renders keyboard-selectable company cells, labeled deltas, and row-derived evidence ticks", () => {
     render(<SectorRV />);
 
     expect(screen.getAllByRole("button", { name: /Select .+, rating/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByTitle(/Δ 1M:/).length).toBeGreaterThan(0);
     expect(screen.getAllByTitle(/CP-6E compliance check: market/).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText(/CP-6E compliance check: market/).length).toBeGreaterThan(0);
     expect(screen.getByTestId("sector-rv-right-rail").classList.contains("max-h-[360px]")).toBe(true);
+  });
+
+  it("shows peer-table empty state and a warning heatmap caption when filters empty the table", () => {
+    render(<SectorRV />);
+
+    fireEvent.click(screen.getByLabelText("Filter Company"));
+    const dialog = screen.getByRole("dialog", { name: "Filter Company" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Clear" }));
+
+    expect(screen.getByText("No loans match the current column filters — clear a filter to repopulate the peer table.")).toBeDefined();
+    const warning = screen.getByText("[reference universe · 1 column filters NOT applied]");
+    expect(warning.className).toContain("text-caos-warning");
   });
 
   it("offers selected-loan exits to profile, Deep-Dive, and ASK", () => {
@@ -227,8 +258,8 @@ describe("Broader Sector RV Calculations & Presentation", () => {
     })();
 
     render(<SectorRV />);
-    const heatmap = screen.getByText("Cross-Sector RV · median rvBp by sector × rating bucket").parentElement?.parentElement as HTMLElement;
-    const firstSectorCell = within(heatmap).getAllByRole("cell")[0];
+    const heatmap = screen.getByText("Cross-Sector RV · median rvBp by sector × rating bucket").closest(".bg-caos-panel") as HTMLElement;
+    const firstSectorCell = within(within(heatmap).getByRole("table")).getAllByRole("cell")[0];
 
     expect(firstSectorCell.textContent).toContain(expected);
   });

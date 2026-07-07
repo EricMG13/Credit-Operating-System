@@ -64,13 +64,11 @@ const GATE: Record<string, string> = { "CP-4": "CP-4C" };
 // Modules with a bespoke ATLF showcase renderer (debate / recovery / covenants).
 // For a real issuer with live output they fall through to the generic ModuleView.
 const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
-const GROUPS = [
+const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
   { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
   { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  // CP-4C is covered inside the CP-4 "Legal & Covenants" view (code "CP-4 / 4C",
-  // which renders the CP-4C register) — so it isn't a separate launcher entry.
   { label: "L4 LEGAL", mods: ["CP-4"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
@@ -125,7 +123,7 @@ function DeepDive() {
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
   const [evModal, setEvModal] = useState<string | null>(null);
-  // Layout (core / base / dense) — toggled from the sub-header; browser-local.
+  // Layout (summary / report / dense) — toggled from the sub-header; browser-local.
   const [layout, setLayout] = useState<DeepDiveLayout>(DEFAULT_LAYOUT);
   useEffect(() => setLayout(loadLayout()), []);
   const pickLayout = (l: DeepDiveLayout) => { setLayout(l); saveLayout(l); };
@@ -326,9 +324,9 @@ function DeepDive() {
         <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
           {([
-            { v: "core" as const, label: "Source", t: "Source order: workflow register, then sections as the module produced them" },
-            { v: "base" as const, label: "Report", t: "Report order: conclusion first, steps in up to 4 stretched columns" },
-            { v: "dense" as const, label: "Dense", t: "Report order, packed: conclusion first, steps in tight newspaper columns" },
+            { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+            { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
+            { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
           ]).map((o) => (
             <button
               key={o.v}

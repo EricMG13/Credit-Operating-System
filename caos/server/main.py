@@ -6,9 +6,9 @@ terminates TLS and authenticates the caller; on top of that, analysts hold a
 code-gated in-app profile (routes/auth.py) that supplies the app-level identity.
 Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 """
-
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -97,6 +97,17 @@ async def lifespan(app: FastAPI):
     app.state.research_executor = ResearchExecutor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
+
+    async def run_warmup():
+        try:
+            from engine.embeddings import warmup_embeddings_task
+            async with AsyncSessionLocal() as session:
+                await warmup_embeddings_task(session)
+        except Exception:
+            logger.exception("Failed to run embeddings warmup task")
+
+    asyncio.create_task(run_warmup())
+
     yield
     await app.state.research_executor.stop()
     await app.state.executor.stop()

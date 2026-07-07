@@ -3,6 +3,7 @@ import {
   buildRVHoldingsMap,
   buildRVRows,
   DELTA_COLS,
+  derivePosture,
   INDEX_STATS,
   RV_AS_OF,
   RV_FILE_LABEL,
@@ -12,6 +13,7 @@ import {
   ratingAverages,
   rvStaleness,
   subSectorAverages,
+  type RVRow,
 } from "./rvdata";
 import { PORTFOLIO } from "./data";
 
@@ -79,6 +81,20 @@ describe("sector RV market data", () => {
       label: "POTENTIALLY STALE (91–180d)",
       tone: "warning",
     });
+  });
+
+  it("derives posture from benchmarked cheap/rich share", () => {
+    const row = (rvBp: number | null) => ({ rvBp }) as RVRow;
+
+    expect(derivePosture([row(100), row(50), row(-25), row(null)])).toMatchObject({
+      label: "CONSTRUCTIVE",
+      cheapCount: 2,
+      richCount: 1,
+      n: 3,
+    });
+    expect(derivePosture([row(25), row(-20), row(null)])).toMatchObject({ label: "NEUTRAL", n: 2 });
+    expect(derivePosture([row(-100), row(-25), row(10)])).toMatchObject({ label: "CAUTIOUS", n: 3 });
+    expect(derivePosture([])).toMatchObject({ label: "NEUTRAL", n: 0 });
   });
 
   it("builds exact-match portfolio overlays for Sector RV", () => {

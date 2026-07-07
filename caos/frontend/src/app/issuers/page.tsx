@@ -344,8 +344,8 @@ function IssuersDirectory() {
               </button>
             </div>
           ) : (
-            <div className="text-caos-xl">
-              <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+            <div role="grid" className="text-caos-xl">
+              <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
                      key={i}
@@ -371,29 +371,33 @@ function IssuersDirectory() {
               {shownIssuers.map((issuer) => (
                 <div
                   key={issuer.id}
+                  role="row"
                   className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
                   {/* Stretched primary link: whole row is the click target for mouse,
                       and a single keyboard/SR-focusable control per row. Replaces the
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
-                  <a
-                    href={issuerProfileHref(issuer)}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openProfile(issuer.id);
-                    }}
-                    aria-label={`Open profile for ${issuer.name}`}
-                    className="absolute inset-0 z-0 focus-ring cursor-pointer"
-                  />
-                  <span className="tabular text-caos-accent text-caos-lg">
+                  <span role="gridcell" className="absolute inset-0 z-0 pointer-events-none">
+                    <a
+                      href={issuerProfileHref(issuer)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openProfile(issuer.id);
+                      }}
+                      aria-label={`Open profile for ${issuer.name}`}
+                      className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
+                    />
+                  </span>
+                  <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+                  <span role="gridcell" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
                   {(() => {
                     const r = issuerRating(issuer);
                     return (
                       <span
+                        role="gridcell"
                         className="tabular text-caos-md truncate"
                         title={r ? "Agency rating — S&P / Moody’s / Fitch (first on file)" : "No agency rating on file"}
                         style={{ color: r ? (ratingDistressed(r) ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
@@ -402,16 +406,18 @@ function IssuersDirectory() {
                       </span>
                     );
                   })()}
-                  <span className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
-                  <button
-                    onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
-                    aria-label={`Upload documents for ${issuer.name}`}
-                    className="relative z-[1] inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
-                  >
-                    UPLOAD
-                  </button>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
+                  <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
+                    <button
+                      onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
+                      aria-label={`Upload documents for ${issuer.name}`}
+                      className="inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
+                    >
+                      UPLOAD
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>

@@ -385,3 +385,22 @@ def test_interest_coverage_suppressed_when_interest_stale():
     p = build_cp1_payload("Test Co", f)
     assert "interest_coverage_ltm" not in p.runtime_output["normalized_financials"]  # (#25)
     assert any("Interest coverage not derived" in fl for fl in p.limitation_flags)
+
+
+# ── #27: ebitda and leverage/coverage computed even when D&A is missing ────────
+def test_ebitda_and_leverage_computed_when_da_missing():
+    f = _facts()
+    # Remove D&A facts completely
+    f["facts"]["us-gaap"].pop("DepreciationDepletionAndAmortization", None)
+    f["facts"]["us-gaap"].pop("DepreciationAndAmortization", None)
+    f["facts"]["us-gaap"].pop("Depreciation", None)
+    f["facts"]["us-gaap"].pop("AmortizationOfIntangibleAssets", None)
+    
+    p = build_cp1_payload("No DA Co", f)
+    assert p is not None
+    nf = p.runtime_output["normalized_financials"]
+    # EBITDA should be derived as operating income + 0.0 D&A
+    assert nf["adj_ebitda"]["FY2025"] == 300.0  # 300 operating income
+    # Leverage and coverage should still be computed
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(2391.0 / 300.0, abs=0.01)
+    assert nf["interest_coverage_ltm"] == pytest.approx(300.0 / 200.0, abs=0.01)

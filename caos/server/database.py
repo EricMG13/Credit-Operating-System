@@ -20,9 +20,55 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, update,
+    UniqueConstraint, delete, event, inspect, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import json
+from sqlalchemy.types import TypeDecorator, UnicodeText
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.ext.compiler import compiles
+
+class SafeVector(TypeDecorator):
+    impl = Vector
+    cache_ok = True
+
+    def __init__(self, dim=None):
+        super().__init__()
+        self.dim = dim
+        self.impl = Vector(dim)
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "sqlite":
+            return dialect.type_descriptor(UnicodeText())
+        return dialect.type_descriptor(Vector(self.dim))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "sqlite":
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "sqlite":
+            return json.loads(value)
+        return value
+
+@compiles(Vector, "sqlite")
+def compile_sqlite_vector(element, compiler, **kw):
+    return "TEXT"
+
+@compiles(TSVECTOR, "sqlite")
+def compile_sqlite_tsvector(element, compiler, **kw):
+    return "TEXT"
+
+@compiles(Computed, "sqlite")
+def compile_sqlite_computed(element, compiler, **kw):
+    return "GENERATED ALWAYS AS (NULL) STORED"
+
 from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -158,15 +204,22 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
+    __table_args__ = (
+        Index("ix_document_chunks_tsv", "tsv", postgresql_using="gin"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    tsv: Mapped[Optional[TSVECTOR]] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', text)", persisted=True),
+        nullable=True,
+    )
 
 
 # ─── Analytical engine: runs, outputs, evidence, QA ─────────────────────────
@@ -547,6 +600,62 @@ class QueryAnswer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class LLMCallRecord(Base):
+    """Run ledger for LLM call accounting."""
+
+    __tablename__ = "llm_call_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    lane: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    cost: Mapped[Optional[float]] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(16), default="success")  # success|failed
+    kept_count: Mapped[Optional[int]] = mapped_column(Integer)
+    dropped_count: Mapped[Optional[int]] = mapped_column(Integer)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class LineageEdge(Base):
+    """Lineage DAG showing derivation edges between artifacts."""
+
+    __tablename__ = "lineage_edges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    artifact_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    parent_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    transform: Mapped[str] = mapped_column(String(64), nullable=False)
+    transform_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DocumentChunkEmbedding(Base):
+    """Semantic vector embedding for a document chunk."""
+
+    __tablename__ = "document_chunk_embeddings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    chunk_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    vector: Mapped[list[float]] = mapped_column(SafeVector(768), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        Index("ix_chunk_embeddings_lookup", "model", "chunk_hash", unique=True),
+        Index(
+            "ix_chunk_embeddings_vector",
+            "vector",
+            postgresql_using="hnsw",
+            postgresql_ops={"vector": "vector_cosine_ops"},
+        ),
+    )
+
+
 class AnalystQaFlag(Base):
     """An analyst-raised QA flag on a module/step output (Deep-Dive register).
 
@@ -555,7 +664,6 @@ class AnalystQaFlag(Base):
     must never trip those gates. issuer_id/run_id are plain strings (no FK) so
     the flag survives its subject — it is an audit record, not run state.
     """
-
     __tablename__ = "qa_flags"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -756,10 +864,23 @@ async def erase_analyst_data(
         docs_anonymized = docs.rowcount or 0
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
-
     return {
         "research_jobs_deleted": research.rowcount or 0,
         "runs_anonymized": runs.rowcount or 0,
         "documents_anonymized": docs_anonymized,
         "profile_deleted": profile.rowcount or 0,
     }
+
+
+@event.listens_for(DocumentChunk, "before_insert")
+def _set_chunk_hash_insert(mapper, connection, target):
+    if target.text:
+        import hashlib
+        target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()
+
+
+@event.listens_for(DocumentChunk, "before_update")
+def _set_chunk_hash_update(mapper, connection, target):
+    if target.text:
+        import hashlib
+        target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()

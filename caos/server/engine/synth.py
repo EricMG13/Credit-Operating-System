@@ -414,7 +414,7 @@ class LiveSynthesizer:
             # Already on the cheaper executor — no model fallback to make. Accrue
             # usage + emit the M-1 trace (the advisor sub-call bills inside
             # record_usage via usage.iterations).
-            budget.trace_llm(resp, lane=f"synth:{module_id}:advisor", model=s.synth_executor_model)
+            await budget.trace_llm(resp, lane=f"synth:{module_id}:advisor", model=s.synth_executor_model)
         else:
             # M-2 fallback + M-1 trace via the shared seam (forced-tool call).
             resp = await llm_client.create(

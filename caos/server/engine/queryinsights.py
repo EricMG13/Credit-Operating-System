@@ -47,7 +47,9 @@ from database import (
     QueryInsight,
     Run,
     aware_utc,
+    LineageEdge,
 )
+
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
@@ -235,6 +237,53 @@ async def fingerprint(db: AsyncSession) -> str:
     return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
 
 
+async def fingerprint_issuer(db: AsyncSession, issuer_id: str) -> str:
+    """Merkle fingerprint for a single issuer.
+    Calculates a hash based on the issuer's documents, runs, findings, and accepted links.
+    """
+    async def count(stmt) -> int:
+        return int((await db.execute(stmt)).scalar() or 0)
+
+    latest_run = (await db.execute(
+        select(Run.id)
+        .where(Run.issuer_id == issuer_id, Run.status == "complete")
+        .order_by(Run.created_at.desc())
+        .limit(1)
+    )).scalar()
+
+    doc_rows = (await db.execute(
+        select(Document.id, Document.storage_key)
+        .where(Document.issuer_id == issuer_id)
+        .order_by(Document.id)
+    )).all()
+    docs_info = [{"id": r[0], "key": r[1]} for r in doc_rows]
+
+    findings_count = await count(
+        select(func.count())
+        .select_from(QAFinding)
+        .join(Run, Run.id == QAFinding.run_id)
+        .where(Run.issuer_id == issuer_id)
+    )
+
+    links_count = await count(
+        select(func.count())
+        .select_from(QueryAcceptedLink)
+        .where((QueryAcceptedLink.issuer_a == issuer_id) | (QueryAcceptedLink.issuer_b == issuer_id))
+    )
+
+    basis = {
+        "issuer_id": issuer_id,
+        "latest_run": latest_run or "",
+        "docs": docs_info,
+        "findings_count": findings_count,
+        "links_count": links_count,
+    }
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+
+
+
+
+
 # ── Generation (LLM) + validator ─────────────────────────────────────────────
 
 _SYSTEM = (
@@ -363,6 +412,18 @@ async def _regenerate(db: AsyncSession, analyst_id: Optional[str]) -> dict:
         }
     row = QueryInsight(data_fingerprint=fp, model=model, payload=payload, analyst_id=analyst_id)
     db.add(row)
+    await db.flush()
+    evidence_ids = []
+    for card in payload.get("cards", []):
+        evidence_ids.extend(card.get("evidence_ids", []))
+    unique_ev_ids = sorted(list(set(evidence_ids)))
+    for eid in unique_ev_ids:
+        db.add(LineageEdge(
+            artifact_id=f"insight:{row.id}",
+            parent_id=f"evidence:{eid}",
+            transform="desk-brief",
+            transform_version="1.0"
+        ))
     await db.commit()
     await db.refresh(row)
     return _served(row, refreshing=False)

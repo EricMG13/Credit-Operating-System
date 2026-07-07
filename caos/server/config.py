@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     model_tier_strong: str = "deepseek/deepseek-v4-pro"   # BALANCED heavy
     model_tier_top: str = "claude-opus-4-8"               # MAX heavy
 
+    embedding_model: str = "text-embedding-004"
+    embedding_dim: int = 768
+
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic
     # gate then consumes — it never decides status itself. Off by default: it
@@ -166,6 +169,8 @@ class Settings(BaseSettings):
 
     # Async run executor.
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
+    caos_run_queue_limit: int = 20       # max runs in queued/running status before rejecting
+    caos_run_per_analyst_limit: int = 3   # max concurrent/queued runs allowed per analyst
     # Max durable Deep Research jobs running at once (research_executor.py). POST
     # returns immediately and fires a background task, so without a ceiling a
     # sustained submission rate would accumulate unbounded multi-minute web-search

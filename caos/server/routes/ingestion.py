@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +24,7 @@ import ingest
 import rate_limit
 import ratings
 import vault_export
-from database import Document, DocumentChunk, Issuer, get_db
+from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
 
 logger = logging.getLogger("caos.ingestion")
@@ -85,6 +85,7 @@ async def _vault_document(
     file: UploadFile,
     text: str,
     content: bytes,
+    background_tasks: BackgroundTasks,
 ) -> IngestionResponse:
     issuer = await db.get(Issuer, issuer_id)
     if not issuer:
@@ -107,11 +108,39 @@ async def _vault_document(
     db.add(doc)
     await db.flush()
     if chunks:
-        await db.execute(
-            insert(DocumentChunk),
-            [{"document_id": doc.id, "seq": i, "text": chunk} for i, chunk in enumerate(chunks)]
-        )
+        import hashlib
+        import uuid
+        from database import LineageEdge
+
+        chunk_dicts = []
+        lineage_dicts = []
+        for i, chunk in enumerate(chunks):
+            cid = str(uuid.uuid4())
+            chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+            chunk_dicts.append({
+                "id": cid,
+                "document_id": doc.id,
+                "seq": i,
+                "text": chunk,
+                "chunk_hash": chash,
+            })
+            lineage_dicts.append({
+                "id": str(uuid.uuid4()),
+                "artifact_id": f"chunk:{cid}",
+                "parent_id": f"doc:{doc.id}",
+                "transform": "chunking",
+                "transform_version": "1.0",
+            })
+        await db.execute(insert(DocumentChunk), chunk_dicts)
+        await db.execute(insert(LineageEdge), lineage_dicts)
     await db.refresh(doc)
+    if chunks:
+        from engine.embeddings import embed_chunks_for_document
+        async def run_embed_task():
+            async with AsyncSessionLocal() as session:
+                await embed_chunks_for_document(session, doc.id)
+                await session.commit()
+        background_tasks.add_task(run_embed_task)
 
     return IngestionResponse(
         document_id=doc.id,
@@ -126,6 +155,7 @@ async def _vault_document(
 
 @router.post("/upload/document", response_model=IngestionResponse)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
@@ -140,7 +170,7 @@ async def upload_document(
     # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
     # large upload doesn't block the event loop for every other request.
     text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
-    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
+    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
 
 
 async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:
@@ -192,6 +222,7 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
 
 @router.post("/upload/pricing-sheet", response_model=IngestionResponse)
 async def upload_pricing_sheet(
+    background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
@@ -209,7 +240,8 @@ async def upload_pricing_sheet(
     # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
-    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)
+    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
+
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
     await _collect_ratings(db, content, resp)
     return resp

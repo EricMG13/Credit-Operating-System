@@ -88,6 +88,15 @@ export interface RVRow {
   dm: number;
 }
 
+export type DerivedPosture = {
+  label: "CONSTRUCTIVE" | "NEUTRAL" | "CAUTIOUS";
+  cheapShare: number;
+  richShare: number;
+  cheapCount: number;
+  richCount: number;
+  n: number;
+};
+
 interface MarketDataInput {
   company: string;
   sector: string;
@@ -146,12 +155,30 @@ const SP_TO_MOODYS: Record<string, string> = {
 
 const isNum = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
 const mean = (xs: number[]): number | null => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-const median = (xs: number[]): number | null => {
+export const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const sorted = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+
+export function derivePosture(rowsList: RVRow[]): DerivedPosture {
+  const benchmarked = rowsList.filter((r) => isNum(r.rvBp));
+  const n = benchmarked.length;
+  if (!n) {
+    return { label: "NEUTRAL", cheapShare: 0, richShare: 0, cheapCount: 0, richCount: 0, n: 0 };
+  }
+
+  const cheapCount = benchmarked.filter((r) => (r.rvBp as number) > 0).length;
+  const richCount = benchmarked.filter((r) => (r.rvBp as number) < 0).length;
+  const cheapShare = cheapCount / n;
+  const richShare = richCount / n;
+  // Cheap-share minus rich-share is the desk posture rule; 10pts keeps one outlier
+  // from flipping the headline while making the "derived" label auditable.
+  const spreadPts = (cheapShare - richShare) * 100;
+  const label = spreadPts >= 10 ? "CONSTRUCTIVE" : spreadPts <= -10 ? "CAUTIOUS" : "NEUTRAL";
+  return { label, cheapShare, richShare, cheapCount, richCount, n };
+}
 
 const ratingBucket = (rating: string): string => {
   for (const side of rating.split(/\s+\/\s+/).map((s) => s.trim())) {

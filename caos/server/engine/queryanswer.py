@@ -27,11 +27,12 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import QueryAnswer
+from database import QueryAnswer, LineageEdge
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
-from engine.queryinsights import fingerprint
+from engine.queryinsights import fingerprint, fingerprint_issuer
+from config import get_settings
 from retrieval import retrieve_corpus
 
 logger = logging.getLogger("caos")
@@ -113,7 +114,35 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     """Retrieve → answer → gate. Returns the validated payload (no persistence).
     Raises on LLM/parse failure so the caller can surface an explicit error."""
     issuer_ids = [issuer_id] if issuer_id else None
-    hits = await retrieve_corpus(db, question, k=_RETRIEVE_K, issuer_ids=issuer_ids)
+    
+    # 1. Fetch query vector embedding if API key is present
+    settings = get_settings()
+    query_vector = None
+    if settings.gemini_api_key:
+        try:
+            from engine.embeddings import get_embeddings
+            query_vectors = await get_embeddings([question])
+            if query_vectors:
+                query_vector = query_vectors[0]
+        except Exception:
+            logger.exception("Failed to generate query embedding in queryanswer")
+
+    # 2. Retrieve candidates (twice the requested count to feed MMR)
+    hits = await retrieve_corpus(db, question, k=_RETRIEVE_K * 2, issuer_ids=issuer_ids)
+    if not hits:
+        return {"answer": "", "sentences": [], "citations": [], "unavailable": True,
+                "reason": "No source chunks matched — nothing to ground an answer on."}
+
+    # 3. Pack context using MMR and source diversity constraints
+    from engine.packer import pack_context
+    hits = await pack_context(
+        db,
+        hits,
+        query_vector,
+        token_budget=6000,
+        lambda_mmr=0.5,
+        max_chunks_per_doc=3
+    )
     if not hits:
         return {"answer": "", "sentences": [], "citations": [], "unavailable": True,
                 "reason": "No source chunks matched — nothing to ground an answer on."}
@@ -157,7 +186,10 @@ async def answer(db: AsyncSession, question: str, *, capability_id: Optional[str
                  force: bool = False) -> dict:
     """Grounded AI answer for one scoped question, cached by corpus fingerprint."""
     qhash = _question_hash(question, capability_id, issuer_id)
-    fp = await fingerprint(db)
+    if issuer_id:
+        fp = await fingerprint_issuer(db, issuer_id)
+    else:
+        fp = await fingerprint(db)
 
     if not force:
         row = (await db.execute(
@@ -174,6 +206,15 @@ async def answer(db: AsyncSession, question: str, *, capability_id: Optional[str
     row = QueryAnswer(question_hash=qhash, data_fingerprint=fp, model=model,
                       payload=payload, analyst_id=analyst_id)
     db.add(row)
+    await db.flush()
+    cited_chunk_ids = [c["chunk_id"] for c in payload.get("citations", [])]
+    for cid in cited_chunk_ids:
+        db.add(LineageEdge(
+            artifact_id=f"answer:{row.id}",
+            parent_id=f"chunk:{cid}",
+            transform="query-answer",
+            transform_version="1.0"
+        ))
     await db.commit()
     await db.refresh(row)
     return {**payload, "model": row.model,

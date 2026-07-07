@@ -25,7 +25,7 @@ from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -223,6 +223,30 @@ async def create_run(
     # runs' facts → last-writer-wins). Re-runs once the prior one is terminal are
     # allowed. The lock makes the check→insert atomic against a concurrent POST.
     async with _create_run_lock():
+        settings = get_settings()
+
+        # 1. Per-analyst active limit check
+        analyst_active_count = (await db.execute(
+            select(func.count(Run.id))
+            .where(Run.analyst_id == caller.id, Run.status.in_(("queued", "running")))
+        )).scalar() or 0
+        if analyst_active_count >= settings.caos_run_per_analyst_limit:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"You have reached the limit of concurrent/queued runs ({settings.caos_run_per_analyst_limit}). Please wait for them to finish."
+            )
+
+        # 2. Global queue limit check
+        global_active_count = (await db.execute(
+            select(func.count(Run.id))
+            .where(Run.status.in_(("queued", "running")))
+        )).scalar() or 0
+        if global_active_count >= settings.caos_run_queue_limit:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "The analysis run queue is currently full. Please try again later."
+            )
+
         active = (await db.execute(
             select(Run.id)
             .where(Run.issuer_id == body.issuer_id, Run.status.in_(("queued", "running")))
