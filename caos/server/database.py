@@ -299,6 +299,59 @@ class ResearchJob(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class IssuerResearchReport(Base):
+    """A synthesized bank-research-style credit summary for one issuer+run.
+
+    House artifact (not analyst-scoped): any analyst viewing the same issuer+run
+    sees the same report. Cached per ``(issuer_id, run_id)``; a new complete run
+    does NOT auto-regenerate (cost control) — the UI surfaces a stale banner and
+    the analyst clicks Regenerate.
+
+    Synthesis is a durable background job (mirrors ``ResearchJob`` +
+    ``research_executor.py``): POST persists this row and enqueues a background
+    task; the client polls GET. A dropped connection does not abort execution.
+    """
+
+    __tablename__ = "issuer_research_reports"
+    __table_args__ = (
+        UniqueConstraint("issuer_id", "run_id", name="uq_issuer_run_report"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id"), index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default="running"
+    )  # running|complete|failed
+    # The structured payload (forced tool-call output), JSON-validated.
+    payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # The rendered Markdown sections (denormalized for cheap GET + future export).
+    markdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Figure-validation result: {"checked": n, "verified": n, "dropped": [...], "unverified": [...]}.
+    validation: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # The module digest snapshot the report was synthesized from (reproducibility).
+    digest: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Reproducibility stamps (mirrors Run).
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32))
+    model_id: Mapped[Optional[str]] = mapped_column(String(64))
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Analyst who triggered the synthesis (for audit; the report itself is shared).
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255))
+    # Live running counts ({"sections": n, "tokens": m}) while synthesizing.
+    progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
 class ModuleOutput(Base):
     """A single module's payload within a run (CP_MODULE_PAYLOAD_BASE)."""
 
@@ -485,6 +538,26 @@ class AnalystSectorFeed(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AnalystWatchlist(Base):
+    """An analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
+
+    Phase-2 personalization key: when non-empty, the Desk Brief lane builds a
+    per-analyst evidence pack (deltas/findings scoped to these issuers) and keys
+    the cached brief by ``analyst_id``. Empty (or no rows) → the analyst falls
+    back to the book-level brief (``QueryInsight.analyst_id IS NULL``). Mirrors
+    ``AnalystSectorFeed`` (analyst_id + value, unique pair)."""
+
+    __tablename__ = "analyst_watchlists"
+    __table_args__ = (
+        UniqueConstraint("analyst_id", "issuer_id", name="uq_analyst_watchlist"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False, index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class SavedModel(Base):
     """Latest analyst-saved Model Builder state for an issuer."""
 
@@ -567,9 +640,11 @@ class QueryInsight(Base):
     The insights lane builds a deterministic evidence pack from what changed in
     the book, has the model write cited cards over it, drops any card that cites
     nothing real or states an ungrounded number, and persists the survivors here.
-    ``data_fingerprint`` keys freshness: an unchanged book (same fingerprint) is
-    never regenerated, so the desk pays at most one LLM call per 24h. Book-level
-    in Phase-1 (``analyst_id`` records who triggered the build, not a scope)."""
+    ``data_fingerprint`` keys freshness: an unchanged scope (same fingerprint) is
+    never regenerated, so the desk pays at most one LLM call per 24h per scope.
+    ``analyst_id`` records the SCOPE: ``NULL`` = the shared book-level brief
+    (served to every analyst with no watchlist); a set value = a per-analyst
+    brief scoped to that analyst's watchlist (Phase-2 personalization)."""
 
     __tablename__ = "query_insights"
 
@@ -749,6 +824,35 @@ class PortfolioConstraint(Base):
     breach_type: Mapped[Optional[str]] = mapped_column(String(16))
     source_document: Mapped[Optional[str]] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PipelineRun(Base):
+    """A durable autonomous-cycle run (Phase 3 remainder) — the committee-
+    defensibility audit trail + the multi-worker shared prior.
+
+    ``routes/autonomy`` enqueues one ``running`` row per cycle (via
+    ``pipeline.enqueue_cycle``); the ``PipelineExecutor`` claims it
+    (``SELECT FOR UPDATE SKIP LOCKED`` on Postgres) and runs
+    ``autonomy.run_cycle`` to ``complete`` (or ``failed``). The next cycle
+    reads the latest ``complete`` row's ``current_fingerprints`` as its prior
+    (cold-start / second-worker resume). Mirrors ``research_jobs`` (migration
+    0010): additive, no edits to existing tables."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(32), default="autonomy-cycle", index=True)
+    # running|complete|failed — running is the durable claim (SKIP LOCKED target),
+    # complete is the audit row + prior source, failed is the swept strand.
+    status: Mapped[str] = mapped_column(String(16), default="complete")
+    prior_fingerprints: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    current_fingerprints: Mapped[dict] = mapped_column(JSON, default=dict)
+    draft: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    worker_id: Mapped[Optional[str]] = mapped_column(String(64))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 def _alembic_config():

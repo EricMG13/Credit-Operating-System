@@ -25,8 +25,10 @@ from config import get_settings, is_deployed
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors
+from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
 from research_executor import ResearchExecutor
+from research_report_executor import ResearchReportExecutor
+from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -97,6 +99,17 @@ async def lifespan(app: FastAPI):
     app.state.research_executor = ResearchExecutor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
+    # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows
+    # the autonomy route enqueues, runs the Sentinel→Analyst→Reporter cycle off
+    # the request thread. Sweeps stranded 'running' rows to 'failed' on boot.
+    app.state.pipeline_executor = PipelineExecutor()
+    await app.state.pipeline_executor.start()
+    logger.info("CAOS pipeline executor started (%s)", app.state.pipeline_executor.name)
+    # Durable Issuer Research Report synthesis: background jobs the client polls,
+    # swept on boot. Mirrors ResearchExecutor.
+    app.state.research_report_executor = ResearchReportExecutor()
+    await app.state.research_report_executor.start()
+    logger.info("CAOS research report executor started (%s)", app.state.research_report_executor.name)
 
     async def run_warmup():
         try:
@@ -109,6 +122,8 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(run_warmup())
 
     yield
+    await app.state.pipeline_executor.stop()
+    await app.state.research_report_executor.stop()
     await app.state.research_executor.stop()
     await app.state.executor.stop()
     logger.info("CAOS shutting down")
@@ -288,6 +303,7 @@ app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 
 
 # Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that
