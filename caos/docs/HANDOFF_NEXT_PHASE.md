@@ -10,10 +10,14 @@
 Phases 1–4 of the Intelligent Data Vault evolution are **shipped and
 reconciled**. A parallel-work reversion wiped `queryanswer.py`, `retrieval.py`,
 `database.py` (`PipelineRun`), `main.py` (autonomy route + executor), and the
-test mocks; all were re-applied on 2026-07-07 and the full suite is green
-(1153 passed, 2 skipped, 1 pre-existing cross-test contamination that passes
-in isolation). **The next phase is the Cross-encoder re-rank** — the deferred
-Phase-1 remainder and the precision side of the dropped-claim-rate alarm.
+test mocks; all were re-applied on 2026-07-07. The Phase-1 retrieval remainders
+are all closed: cross-encoder re-rank (precision), 2-hop graph expansion
+(measured, opt-in), and one-box unification (additive — Query bar hosts both
+walk + metric-search lanes). The full server suite is green modulo pre-existing
+/parallel-WIP flakes (1182 passed, 2 skipped, 3 pre-existing/parallel-WIP — see
+"Current test state"). **No agent-owned Phase-1 retrieval remainder is open**;
+the remaining follow-ons are gated on real-world signal or a separate IA
+decision (see "What's next (after one-box unification)").
 
 ## What shipped (and is now reconciled)
 
@@ -122,12 +126,35 @@ One-box unification phase adds (agent-owned, safe to stage explicitly):
 (NOTE: `engine/memochunks.py` + `test_memochunks.py` + `test_vault_memo.py`
 changes are PARALLEL WIP — do not stage. `LiveCoverage.tsx` is PARALLEL WIP — do not stage.)
 
-## What's next (after re-rank)
+## What's next (after one-box unification)
 
-The Cross-encoder re-rank phase (the deferred Phase-1 remainder + the precision
-side of the dropped-claim-rate alarm) SHIPPED 2026-07-07. The remaining items
-are the "Other deferred items" list below — plan-doc reconciliation is the
-lowest-effort, 2-hop graph expansion is the next measured recall follow-on.
+All five "Other deferred items" below are now **done, measured, or in-flight as
+parallel WIP** — there is no remaining agent-owned Phase-1 retrieval remainder.
+The genuinely-open follow-ons (none are blocked on this agent; all are gated on
+real-world signal or a separate IA decision):
+
+1. **2-hop graph expansion → real-data enable gate** — the synthetic harness
+   (`GRAPH_EXPANSION_2HOP_MEASUREMENT.md`) showed narrow recall lift + 0.50
+   dilution on the common 1-hop case. The actual enable gate is real-data
+   measurement on production cross-issuer queries: extend
+   `bench/graphexpansion_seed.py` `LABELS` with real (query, relevant chunk_id)
+   pairs and re-run `run_graphexpansion_measurement.py`. Decision: flip
+   `retrieve_corpus` to `hops=2` only if recall@K lifts materially AND dilution
+   stays below threshold on real data.
+2. **One-box auto-classifier follow-on** — the additive approach (explicit SCAN
+   METRICS button) shipped; intent is never silently misrouted (RT-26). The
+   documented follow-on is a deterministic keyword `intent_classify` + a
+   `/api/query/dispatch` endpoint that auto-picks walk vs metric-search, gated
+   on the keyword classifier's real-world accuracy. An LLM-intent-refinement
+   upgrade is a further follow-on.
+3. **Command Center `/nl` box deprecation** — RT-28 deferred this IA decision:
+   now that the Query bar hosts the metric lane, whether to deprecate the
+   Command Center `/nl` box (a PM-persona regression risk) is a separate
+   product call, not an implementation task.
+
+Parallel WIP still in-flight (do NOT stage or collide): analyst memos in
+retrieval (#3) and per-analyst briefs / watchlists (#4) — see those entries for
+the file lists.
 
 ## The re-rank phase — Cross-encoder re-rank (SHIPPED 2026-07-07)
 
@@ -198,7 +225,7 @@ the standard fix.
 - Don't touch `queryanswer._generate` — the re-rank is invisible to it (it
   calls `retrieve_corpus`, which now re-ranks internally).
 
-## Other deferred items (lower priority, for after re-rank)
+## Phase-1 retrieval remainders (all done, measured, or in-flight as parallel WIP)
 
 1. **Plan doc reconciliation** — `QUERY_INTELLIGENCE_PLAN.md` Part II (Phase
    1–4 tables) was reverted by parallel work. The shipped state lives in this
@@ -224,9 +251,18 @@ the standard fix.
    Red-team: RT-2026-07-07-17…21.
 3. **Analyst memos in retrieval** — memos are vault-only today (not chunked
    into `document_chunks`), so Q2 answers won't cite them. The recorded
-   follow-up: chunk memos at upload. Small, independent.
+   follow-up: chunk memos at upload. Small, independent. **IN-FLIGHT as parallel
+   WIP** — `engine/memochunks.py` (untracked) + `routes/ingestion.py` memo
+   chunking wiring + `test_memochunks.py` / `test_vault_memo.py` are uncommitted
+   in the working tree (not this agent's work). Do not stage or collide.
 4. **Per-analyst briefs** — Phase-1 brief is book-level; per-analyst scoping
-   (watchlists) is Phase-2 personalization.
+   (watchlists) is Phase-2 personalization. **IN-FLIGHT as parallel WIP** —
+   `engine/analyst.py` + `engine/queryinsights.py` per-analyst keying +
+   `WatchlistEditor.tsx` + `api.ts` watchlist endpoints + migration
+   `0032_analyst_watchlist.py` + `test_query_watchlist.py` / `test_query_insights.py`
+   are uncommitted in the working tree (not this agent's work). Red-team
+   RT-2026-07-07-22…25 covers the scoping/empty-watchlist/cache-key decisions.
+   Do not stage or collide.
 5. **One-box unification** — merging Command-Center `/nl` into the Query bar.
    **DONE 2026-07-07 (additive approach)** — the Query bar now hosts BOTH lanes:
    walk-primary (Enter → `/route` + `/graph` + `/answer`, unchanged) AND a new
@@ -254,9 +290,15 @@ the standard fix.
 ## Quick-start commands for the next session
 
 ```bash
-# Run the reconciled suite (should be 1153 passed, 1 pre-existing flake)
+# Run the reconciled server suite (1182 passed, 2 skipped, 3 pre-existing/
+# parallel-WIP flakes — see "Current test state"). Ignore the intelligent-vault
+# suite (separate long-running harness).
 cd "caos/server" && .venv311/bin/python -m pytest ../tests/server/ -q \
   --ignore=../tests/server/test_intelligent_vault.py
+
+# Run the frontend suite (vitest) — 414 pass, 1 parallel-WIP failure
+# (LiveCoverage grid-semantics refactor, not this agent's work).
+cd "caos/frontend" && npx vitest run
 
 # Run just the query-answer cluster (102 tests, the fastest signal)
 cd "caos/server" && .venv311/bin/python -m pytest \
