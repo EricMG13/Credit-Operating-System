@@ -173,3 +173,38 @@ This project is indexed by GitNexus as **Credit-Operating-System** (10837 symbol
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Cursor Cloud specific instructions
+
+Two dev services run natively (no Docker needed for local dev). The startup
+update script already installs deps: `caos/frontend` via `npm ci` (Node 26 under
+nvm) and a Python venv at `caos/.venv` from `caos/server/requirements*.txt`.
+
+- **Node version (gotcha).** Use Node **26 via nvm**. `/exec-daemon/node` (v22)
+  shadows `node` on `PATH`, so `node` and `npm` can silently disagree (npm from
+  nvm, node from the daemon). Before any `npm`/`node`/`npx` command run:
+  `export NVM_DIR="$HOME/.nvm"; . "$NVM_DIR/nvm.sh"; nvm use 26`. Then `node -v`
+  should read `v26.x`.
+- **Backend (FastAPI, port 8000).** `cd caos/server && ../.venv/bin/python run.py`.
+  Binds `127.0.0.1:8000`; health at `/api/health`. Alembic migrations run on boot
+  and a fresh **SQLite** DB (`caos/server/data/caos.db`) + on-disk vault are
+  auto-created — **no external services or env vars needed** for dev. (The venv
+  path in the "FastAPI Server Environment" note above is a local macOS path; on
+  Cloud the venv is `caos/.venv`.)
+- **Frontend (Next.js dev, port 3000).** `cd caos/frontend && npm run dev`.
+  Proxies `/api` → `:8000`, so start the backend first for API calls to work.
+- **Demo/auth state.** No `ANTHROPIC_API_KEY` → chat uses `demo-fallback`. Demo
+  seeding is OFF by default, so the Issuer Register opens on a "Demo coverage"
+  sample sleeve until you create a real issuer. The single-process dev server
+  auto-resolves an unauthenticated request to a `local-dev` identity treated as
+  signed-in, so the app opens **without a login** (new records get
+  `created_by=local-dev`); the login form only appears if `/api/auth/me` returns 401.
+- **`npm ci` kills a running `next dev`.** It wipes `node_modules`; re-run
+  `npm run dev` after the update script or any `npm ci`.
+- **Checks (see `.github/workflows/ci.yml`, `caos/frontend/package.json`).**
+  Frontend: `npm run lint`, `npx tsc --noEmit`, `npm test` (vitest), `npm run build`
+  (webpack). Server: `caos/.venv/bin/ruff check server tests` and
+  `caos/.venv/bin/python -m pytest tests/server tests/cohort -q` (run from `caos/`;
+  a few tests need Postgres and are skipped on SQLite). Note: `npm run lint
+  --max-warnings=0` currently fails on a **pre-existing** violation in
+  `src/components/command/SectorRV.test.tsx` — not an environment issue.
