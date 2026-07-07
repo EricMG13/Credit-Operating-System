@@ -105,6 +105,25 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-004"
     embedding_dim: int = 768
 
+    # Cross-encoder re-rank (engine/rerank.py) — the precision half of the
+    # dropped-claim-rate alarm fix. Re-ranks the top-2K retrieved chunks AFTER
+    # RRF fusion, BEFORE context packing, so irrelevant chunks stop outranking
+    # relevant ones in the pack. Off by default: it lazy-loads a local
+    # `mxbai-rerank-large-v1` model (~670MB) via `sentence-transformers` on the
+    # first call — keyless/CI deploys never load it (gate short-circuits to
+    # passthrough). Any load or inference failure also degrades to passthrough,
+    # so a missing/corrupt weight never crashes the query lane. Env:
+    # RERANK_ENABLED, RERANK_MODEL. The model stays resident at module scope
+    # (single load per process — mirrors embeddings warmup); the latency floor
+    # (~50ms/query CPU for top-20) is the accepted cost of self-hosted rerank.
+    rerank_enabled: bool = False
+    rerank_model: str = "mixedbread-ai/mxbai-rerank-large-v1"
+    # How many of the RRF-fused hits to feed the cross-encoder (latency bound).
+    # The cross-encoder re-scores these and we keep the top `k` passed by the
+    # caller. 2K = standard re-rank window; raising it lifts recall at linear
+    # latency cost.
+    rerank_window: int = 20
+
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic
     # gate then consumes — it never decides status itself. Off by default: it

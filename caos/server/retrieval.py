@@ -281,8 +281,17 @@ async def retrieve_corpus(
     query: str,
     k: int = 8,
     issuer_ids: Optional[Sequence[str]] = None,
+    rerank: bool = True,
 ) -> List[CorpusHit]:
-    """Hybrid (BM25 + Semantic Vector) cross-issuer search with RRF fusion."""
+    """Hybrid (BM25 + Semantic Vector) cross-issuer search with RRF fusion.
+
+    ``rerank=True`` (default) applies a cross-encoder re-rank to the top
+    ``rerank_window`` RRF-fused hits before return — the precision fix for the
+    dropped-claim-rate alarm. Gated by the ``RERANK_ENABLED`` setting (off by
+    default) AND lazy-load success, so keyless/CI deploys and any model-load
+    failure degrade silently to today's RRF-only ranking. Pass ``rerank=False``
+    for BM25-only paths that should never re-rank regardless of the setting.
+    See engine/rerank.py."""
     # 1. BM25 Search
     if engine.dialect.name == "postgresql":
         stmt = (
@@ -379,8 +388,20 @@ async def retrieve_corpus(
             for r in python_hits
         ]
 
-    # 3. RRF Fusion
-    return rrf_fusion(bm25_hits, vector_hits, limit=k)
+    # 3. RRF Fusion + (optional) cross-encoder re-rank.
+    # When re-rank is on, widen the fusion limit to the rerank window so the
+    # cross-encoder has a candidate pool to re-order; the re-rank then keeps the
+    # top `k`. When off (default), fuse straight to `k` — today's behavior.
+    settings = get_settings()
+    do_rerank = rerank and settings.rerank_enabled
+    fused = rrf_fusion(
+        bm25_hits, vector_hits,
+        limit=(settings.rerank_window if do_rerank and settings.rerank_window > k else k),
+    )
+    if do_rerank and fused:
+        from engine.rerank import rerank as _rerank
+        fused = await _rerank(db, query, fused, k=k)
+    return fused
 
 
 async def retrieve_corpus_by_issuer(

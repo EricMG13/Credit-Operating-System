@@ -16,5 +16,11 @@ pydantic==2.*
 pydantic-settings==2.*
 anthropic>=0.115.1,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
 google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported only when a gemini-* model is selected
+# Cross-encoder re-rank (engine/rerank.py) — the precision half of the dropped-
+# claim-rate fix. Lazy-loaded on first enabled call; gated by RERANK_ENABLED
+# (off by default) so keyless/CI deploys never import it. Fault-isolated: any
+# load/inference failure degrades to RRF-only ranking. The ~670MB
+# mxbai-rerank-large-v1 weight bakes into the Docker image at build time.
+sentence-transformers>=3.3,<5
 pypdf==6.*
 openpyxl==3.1.*
