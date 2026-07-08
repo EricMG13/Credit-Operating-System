@@ -305,11 +305,13 @@ zero metrics/tracing, and near-total absence of egress retry/breaker logic.**
   SDK's default `max_retries=2`); the hand-rolled `_call_with_retry` (backoff+jitter,
   gated on `is_overloaded`) guards **only the cheaper fallback model**. A transient
   429/5xx on the primary is not app-retried.
-- **OpenRouter, Gemini, embeddings have no retry at all.** `engine/openrouter.py`
+- **OpenRouter, Gemini, embeddings have no retry loop.** `engine/openrouter.py`
   `call` (single `httpx` post + `raise_for_status`), `engine/gemini.py` `call`, and
   `engine/embeddings.py` `get_embeddings` have timeout only — no backoff, no breaker,
-  no rate-limit handling. (The `_provider(fb)` guard even makes the default-Anthropic
-  fallback dead for the OpenRouter path.)
+  no rate-limit handling. (There is a single same-provider cheaper-model swap on
+  overload — `fb = fallback_model or s.model_tier_cheap`, which resolves to an
+  OpenRouter/Gemini id and *does* fire — but it is one shot, not a
+  retry-with-backoff loop.)
 - **No circuit breaker anywhere** — all providers and the DB. A downed provider is
   hit on every call until each times out.
 - **EDGAR has no retry and a weak rate limit.** `edgar.py` `_http_get` turns any
@@ -324,8 +326,12 @@ zero metrics/tracing, and near-total absence of egress retry/breaker logic.**
   timeout, and is no-op on Postgres). No transient-disconnect retry beyond
   `pool_pre_ping`. A code comment already flags that `pool_size` and
   `caos_run_concurrency` are coupled but unsized.
-- **No retry/breaker library** (`tenacity`/`backoff`/`pybreaker`) is present; the
-  only retry logic is the one hand-rolled LLM fallback loop.
+- **No retry/breaker library is *used* by the app code.** `tenacity 9.1.4` is
+  already in `requirements.lock` (transitively, via `google-genai`) but is imported
+  nowhere in `caos/server/`; `backoff`/`pybreaker` are absent. The only retry logic
+  is the one hand-rolled LLM fallback loop — so adopting `tenacity` for egress means
+  promoting an already-present transitive dependency to a direct one, not adding a
+  new package.
 
 ### 3C. Environment Configuration & Secrets — what exists vs. gaps
 
@@ -354,7 +360,9 @@ zero metrics/tracing, and near-total absence of egress retry/breaker logic.**
 - **No secret manager.** Secrets live only in the host `.env` and are visible in each
   container's environment (`docker inspect`, `/proc/<pid>/environ`); no Vault / cloud
   secrets / SOPS / file-based `*_FILE` injection. `oauth2-proxy` and `caddy` also lack
-  healthchecks (only `db`, `app`, `clamav` have them).
+  healthchecks (only `db` and `clamav` have compose-level healthchecks; `app`'s is the
+  `HEALTHCHECK` instruction in `deploy/Dockerfile`, not a compose block — so don't add
+  a redundant one).
 - **No flag-prerequisite boot audit.** A flag turned on without its key silently runs
   the fixture/deterministic path (e.g. `council_enabled=true` with no key → a clean-
   looking run with no findings); the knowledge is spread across `engine/*.py`, with no
@@ -442,7 +450,9 @@ form:**
   lines over an existing seam would cover; when you do add one (e.g. `tenacity`,
   `prometheus-client`, `opentelemetry-sdk`), name it, justify it against the
   no-paid-services constraint, and note it belongs in `requirements.txt` +
-  `requirements.lock`.
+  `requirements.lock` (note: `tenacity` is already in `requirements.lock`
+  transitively via `google-genai`, so adopting it is a one-line promotion to a
+  direct `requirements.txt` dependency, not a new install).
 - **The latency guard is mandatory on every item.** An item without a credible
   latency guard does not belong in the spec. This is the boundary most likely to be
   violated.
