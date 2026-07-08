@@ -337,6 +337,17 @@ stale.
      existing tests (`test_analytics.py`, `test_nan_guards.py`, `test_overlays.py`,
      …); this seam owns the *wiring*. This is the composition test
      `test_runner_layers.py` cannot be.
+  8. **Migrate the tests that monkeypatch a *moved name on `runner`* (execution
+     finding — the import move breaks them, and `test_runner_layers.py` won't
+     catch it).** `grep -rn "setattr(runner" caos/tests/server`: `test_async_runs.py`
+     patches `runner.synthesize_fact_pack`/`runner.synthesize_covenants` — repoint
+     to `monkeypatch.setattr(bindings, …)` (those names now live in `bindings`);
+     `test_runner_fault_isolation.py` patches the now-deleted
+     `runner.synthesize_module` to raise (asserting a synth error degrades to a
+     per-module Blocked gate, not an aborted run) — repoint it to raise from
+     `bindings.resolve_binding`, preserving the assertion exactly. Grep for any
+     other reference to a moved adapter on `runner` and repoint it the same way;
+     only change the patch *target*, never an assertion.
 - **Blast radius:** `runner`-internal; `synthesize_module` has fan-in 0 outside
   `runner` (grep confirms no other importer). Two new modules, both *extractions*
   of existing runner-private logic (not speculative): `bindings.py` and

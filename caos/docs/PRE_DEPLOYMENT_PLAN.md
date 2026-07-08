@@ -22,12 +22,35 @@ the rest of the program. Supersedes the phase ordering in
 given per phase. (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens
 *after* transfer — it is outstanding item #2 by design.)
 
-**Last grounded against code:** 2026-07-03 (branch `feat/query-route-fast-lane`);
-reconciled same day after the E2 roles-lite decision, the §14 expansion
-backlog (feature ideation + PM review), and the A1 code fix (cfacf8a).
-Verified in that pass: branch unmerged (A2 open) · `feat/covenant-frontend`
-alive (A3 open) · PR #95 OPEN (A4 open) · 12 dependabot PRs open (A5 open) ·
-`fix/vmo2-followups` not deleted (A6 open).
+**Last grounded against code:** 2026-07-08 (branch
+`feat/command-center-layout-and-sector-rv-cleanup`, **12 ahead / 0 behind
+`origin/main`, a fast-forward candidate**). Prior grounding 2026-07-03
+(`feat/query-route-fast-lane`).
+
+> ⚠️ **2026-07-08 re-grounding — the working branch is NOT deployable as
+> committed. `origin/main` is the clean, deployable last-known-good** (migrations
+> →0027, no pgvector, no autonomy wiring). This branch carries four P0 blockers
+> where **committed code depends on missing/undeclared things** — see the new
+> **§3 Phase A0**. Do not merge or deploy this branch until A0 clears. The A0
+> root cause is one pattern: several features were **committed ahead of their
+> still-uncommitted implementation files** (41 uncommitted `.py`; two features —
+> the C3 autonomy DAG and the D2 RAG lane — sit intertwined with committed refs).
+>
+> **Reconciled 2026-07-08 (flips since 07-03):** A2 fast-lane **MERGED** ·
+> A4 Sector-RV DM guard **MERGED/superseded** (main has `credibleDm`) ·
+> dependabot down to **2 open** (#88 fastapi 0.138→0.139, #85 alembic 1.13→1.18)
+> + #118 Cursor-cloud env · **shipped to main since 07-03 but not in this plan:**
+> model modes + OpenRouter/DeepSeek, Issuer Profile / fold-profile-rv (#117),
+> CP-5D post-gate cascade, Sector-RV refinements, ResponsiveShell/SubHeader
+> migration (all 10 surfaces), perf pass, adversarial-tournament merge ·
+> **built but uncommitted:** C3 Monitor engine (Sentinel→Anomaly→Analyst→Reporter
+> DAG, `/api/autonomy/draft`) — frontend still mock; D2 RAG answer lane
+> (`queryanswer.py`) · **committed on this branch:** vector embeddings (mig 0030,
+> pgvector), issuer research report (mig 0033), ratings-from-ingest core.
+> Server suite on `.venv311`: **1254 pass / 3 fail / 2 skip** (the 3 fails are
+> WIP case-normalization, not pre-existing). A3 `feat/covenant-frontend` still
+> unmerged; A6 branch cleanup not done (**43 local branches, ~18 already merged
+> into `origin/main`, 10 worktrees**).
 
 ---
 
@@ -75,7 +98,8 @@ when in doubt, trust the greps below.
 
 | Area | Evidence |
 |------|----------|
-| Engine: 19 modules emit real output via governed CP-X DAG | `caos/server/engine/`, registry/planner/runner; 795+ server tests |
+| Engine: 19 modules emit real output via governed CP-X DAG | `caos/server/engine/`, registry/planner/runner; **~1257 server tests** (`.venv311`, was 795) |
+| Model tiers (TEST/LITE/BALANCED/MAX) + OpenRouter/DeepSeek provider *(shipped since 07-03, on `main`)* | default hybrid DeepSeek-v4, degrades to Anthropic w/o key |
 | EDGAR CP-1 (US XBRL) + reported-disclosure lane (non-US/IFRS) | `edgar_cp1.py`, `reported_cp1.py`; VSAT/FUN/VMO2 goldens |
 | Golden-master drift alarm in CI | `caos/tests/server/golden/test_golden_cp1.py` — fails on any numeric drift |
 | CP-5 QA gate + 5 finding gates (abort-on-raise) | commits 45054ba, 5fcecd8 |
@@ -92,15 +116,15 @@ when in doubt, trust the greps below.
 
 | Gap | Evidence | Phase |
 |-----|----------|-------|
-| **Monitor concept is mock**: static `ALERTS`, simulated pipeline (`SIM_PLAN`/`useSimRun`), mock `EmailIntel` | `src/app/monitor/page.tsx` imports `@/lib/command/data` ALERTS | C |
+| **Monitor concept is mock** (frontend): static `ALERTS`, `SIM_PLAN`/`useSimRun`, mock `EmailIntel` — **but the engine now EXISTS uncommitted** (Sentinel→Anomaly→Analyst→Reporter DAG, `GET /api/autonomy/draft`); no `AlertSink`/`EmailSink` seam yet | `monitor/page.tsx:14-16` (mock); untracked `engine/autonomy.py`,`sentinel.py`,`reporter.py`,`routes/autonomy.py` | C |
 | Command Center sample board overlay ("Sample US HY sleeve — not live") | `src/app/command/page.tsx:62-76` (posture from runs IS live) | C |
 | Residual seeded panels in Deep-Dive / Report Studio (A-1 tail) | AUDIT A-1; needs fresh inventory | C |
 | No market-data layer — no quote store, no provider seam, Sector RV marks ad hoc; Bloomberg connector + refresh + Settings section to build | Sector RV panel (see PR #95 guard) | C |
 | No OCR — scanned PDFs → 0 chunks | markitdown[pdf] only | D |
-| No RAG answer lane in Query | query vision gap #1 | D |
+| ~~No RAG answer lane in Query~~ **BUILT, uncommitted** (retrieval-grounded, BM25+pgvector RRF, entailment demote, chunk citations) | modified `engine/queryanswer.py`; untracked `entailment.py`/`provenance.py`/`memochunks.py` | D |
 | `querygraph.py` uncapped run-history scans (perf finding 2026-07-03) | **code fix landed cfacf8a** (existence check / DISTINCT / `_GATE_NODE_CAP`); regression test still missing | A |
-| Unmerged work: this branch, `feat/covenant-frontend` (CP-4C adapter, dominoes, /sponsors, digest), PR #95 | `git branch -a` | A |
-| 12 open dependabot PRs + held majors | PRs #62, #82–#92 | A |
+| Unmerged work: **`feat/covenant-frontend`** (CP-4C adapter, dominoes, /sponsors, digest) still open; this working branch un-deployable (A0) | `git branch -a` | A / A0 |
+| **2** open dependabot PRs (#88 fastapi, #85 alembic) + held majors *(was 12)* | PRs #85, #88 | A |
 | Single-team authorization (any analyst sees/edits every issuer) | SECURITY §2, accepted for pilot only | E |
 | Audit trail partial (runs stamped `analyst_id`; other mutations not logged) | migration 0014+ | E |
 | Stress CRIT/HIGH list not fully closed (single worker, queue backpressure, per-user caps) | DEVELOPMENT_PHASES Phase 2 unchecked boxes | E |
@@ -138,32 +162,96 @@ roles-lite build (L) is inside the E estimate.
 **Objective:** one trunk, zero known open findings, trackers telling the truth.
 You cannot certify a moving target spread across four branches.
 
+### A0 — Branch-deployability blockers (P0, do FIRST) *(added 2026-07-08)*
+
+The current branch's **committed** code references things that are missing or
+undeclared, so a clean checkout of it (and `main` after its FF-merge) cannot
+boot / migrate / install. Root cause: commits landed ahead of ~41 uncommitted
+`.py` files. Each item below is verified by `git show`/`ls-tree`/`git status`.
+
+- [ ] **A0-1 (S) — server won't boot.** Committed `caos/server/main.py:28,31,306`
+  imports `routes.autonomy` + `engine.pipeline_executor.PipelineExecutor`, starts
+  the executor at boot, and includes the router — but `routes/autonomy.py` and
+  `engine/pipeline_executor.py` are **untracked**. Clean checkout → `ImportError`
+  at `import main` (server dead, suite can't collect). Fix: commit the C3 autonomy
+  WIP coherently (or back out the main.py refs).
+- [ ] **A0-2 (S) — alembic chain hole.** Committed `0033_issuer_research_report`
+  has `down_revision="0032"`, but `0031_pipeline_runs` + `0032_analyst_watchlist`
+  are **untracked**. `alembic upgrade head` on a clean tree → revision 0032 not
+  found. (`test_migrations.py` enforces single-head/`alembic check`/round-trip and
+  **would** catch this on push — it passes locally only because the untracked
+  files sit on disk.) Fix: commit 0031/0032 with A0-1.
+- [ ] **A0-3 (S) — pgvector imported, not declared.** Committed
+  `database.py:28` `from pgvector.sqlalchemy import Vector`, but `pgvector` is in
+  **neither `requirements.txt` nor `requirements.lock`**. `pip install -r
+  requirements.lock` → prod import crash. Same class as the google-genai lock bug;
+  `check_lock_sync.py` (CI, ci.yml:125) checks txt↔lock consistency, not
+  import↔lock, so it misses an entirely-absent dep. Fix: add pgvector to both;
+  extend the guard to catch undeclared imports.
+- [ ] **A0-4 (S) — prod DB can't run the vector migration.** Mig `0030` builds an
+  HNSW `vector_cosine_ops` index (needs the pgvector extension), but the deploy
+  DB is stock `postgres:18-alpine` (no pgvector) and no migration runs
+  `CREATE EXTENSION IF NOT EXISTS vector`. Fresh prod DB → migration fails. Fix:
+  pgvector-enabled Postgres image (e.g. `pgvector/pgvector:pg18`) + a
+  `CREATE EXTENSION` migration step.
+- [ ] **A0-5 (P1) — working tree red.** `.venv311` suite: **3 fails** — committed
+  `test_api::test_search_by_name_case_insensitive`, committed
+  `test_vault_memo` (`'Acme' in ['acme']`), new `test_memochunks` — all from the
+  uncommitted RAG/memo case-normalization WIP. Land or revert the WIP to green.
+- [ ] **A0-6 (P1) — dev/QA venv drift.** `caos/server/.venv` (py3.9) lacks
+  pgvector → 45 collection errors; only `.venv311` (py3.11) collects. Parallel
+  agents/CI on the py3.9 venv see false failures. Fix: `pip install pgvector` into
+  `.venv` (once A0-3 lands, it's in the lock) or retire the py3.9 venv.
+
+**A0 exit:** a *fresh* `git clone`/checkout of the target ref boots the server,
+`alembic upgrade head` succeeds on an empty pgvector-enabled Postgres,
+`pip install -r requirements.lock` resolves, and the full suite is green on
+`.venv311`. Prove it by running the guards against a clean tree, not the working
+tree that masks the gaps.
+
+### A1–A7 — original consolidation items
+
 - [ ] **A1 (S)** ~~Fix `querygraph.py` uncapped run-history scans~~ **code fix
   landed** (cfacf8a, this branch): `availability()` → HAVING…LIMIT 1 existence
   check, `_committee` → DB DISTINCT (states×issuers), `_gate_lane` →
   `_GATE_NODE_CAP` 300 severity-ordered, `_latest_run` probe bounded to 200.
   **Remaining:** the regression test — build the graph against a seeded
   100-run history and assert node count stays bounded (`test_querygraph.py`
-  has no cap assertion yet). *(Known finding, confidence review 2026-07-03.)*
-- [ ] **A2 (S)** Merge `feat/query-route-fast-lane` → `main` (after A1; CI green).
+  has no cap assertion yet). *(Known finding, confidence review 2026-07-03;
+  **still missing 2026-07-08** — cap lives at `querygraph.py:862`
+  `_GATE_NODE_CAP=300`, 5 tests check node kinds only, none asserts the bound.)*
+- [x] **A2 (S)** ~~Merge `feat/query-route-fast-lane` → `main`~~ **DONE** (merged
+  via PR #99, 2026-07-03; on `origin/main`).
 - [ ] **A3 (M)** Rebase + merge `feat/covenant-frontend` (CP-4C adapter, profile
   dominoes + register rows, `/sponsors`, digest panel — wiring done at 3605c99).
   Re-run frontend gate + E2E before merge.
-- [ ] **A4 (S)** Land PR #95 (Sector RV DM/YTM plausibility guard).
-- [ ] **A5 (M)** Dependabot triage per policy: auto-merge safe patch/minor
-  (#82–#92 candidates — e.g. next 16.2.9→16.2.10 is a patch, take it);
-  re-affirm held majors (react / postgres18 / python3.14 / tailwind4 stay
-  held). Record decisions on each PR.
-- [ ] **A6 (S)** Delete stale branches (`fix/vmo2-followups` — merged via #93,
-  grafted history; `feat/scenario-mapper-a11y-polish` if merged).
-- [ ] **A7 (M)** Tracker reconciliation sweep: walk `FEATURE_TRACKER.csv` (354
-  rows) + `AUDIT.md` against code; flip rows already shipped; every remaining
-  "open" gets a phase letter from this plan. *(CRLF gotcha: edit the CSV in
-  binary mode.)*
+- [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
+  **DONE/superseded** — `origin/main` carries the `credibleDm` guard;
+  `fix/rv-dm-guard-isolated` merged.
+- [ ] **A5 (M)** Dependabot triage per policy: **down to 2 open 2026-07-08** —
+  **#88** fastapi `0.138.*`→`0.139.*` (⚠️ do **not** downgrade the 0.138 pin; a
+  0.139 *upgrade* needs py3.11/starlette re-verify on `.venv311`) and **#85**
+  alembic `1.13.*`→`1.18.*`; plus remote docker/clamav/actions dependabot
+  branches. Re-affirm held majors (react / postgres18 / python3.14 / tailwind4).
+  **#118** (Cursor cloud dev env) is not dependabot — decide adopt/close
+  separately. Record decisions on each PR.
+- [ ] **A6 (S)** Branch/worktree cleanup — **now large: 43 local branches, ~18
+  already merged into `origin/main`, 10 worktrees** (2026-07-08). Safe to delete:
+  `fix/vmo2-followups`, `feat/scenario-mapper-a11y-polish`,
+  `feat/query-route-fast-lane`, `feat/fold-profile-rv`, `fix/rv-dm-guard-isolated`,
+  `adversarial-tournament-optimizations`, `codex-commit-all-wip-20260705`, the
+  merged `claude/*` set, and the `worktree-wf_*` scratch branches. `git worktree
+  prune` the stale worktrees. Keep `feat/covenant-frontend` (A3, unmerged).
+- [ ] **A7 (M)** Tracker reconciliation sweep: walk `FEATURE_TRACKER.csv` + `AUDIT.md`
+  against code; flip rows already shipped; every remaining "open" gets a phase
+  letter. *(CRLF gotcha: edit the CSV in binary mode.)* **`AUDIT.md` header is
+  badly stale (2026-06-16: "171 pytest", "19 modules") — refresh to the current
+  ~1257-test suite in this sweep.**
 
-**Exit gate:** `main` is the only active branch · 0 open non-dependabot PRs ·
-CI green · server suite ≥ baseline (795 pass) · tracker rows all carry a phase
-letter or "done".
+**Exit gate:** **A0 cleared (fresh checkout boots + migrates + installs)** ·
+`main` is the only active branch · 0 open non-dependabot PRs · CI green · server
+suite green on `.venv311` (**baseline now ~1257 pass / 2 skip**, up from 795) ·
+tracker rows all carry a phase letter or "done".
 
 **Loops started (§10):** per-PR CI + code review + `detect_changes` · weekly
 dependabot triage · per-phase-exit tracker sweep + confidence review.
