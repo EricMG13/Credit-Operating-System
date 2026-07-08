@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from sqlalchemy import ColumnElement
+
+from database import MetricFact
 from engine.gate import Finding
 from engine.periods import is_finite_number, latest, safe_div, sort_key
 from engine.schemas import ModulePayload
@@ -65,6 +68,24 @@ METRIC_CATALOG: List[MetricDef] = [
 ]
 
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
+
+
+def headline_fact_predicates(keys: Iterable[str]) -> List[ColumnElement[bool]]:
+    """The three predicates that define "a valid, non-Blocked headline fact" in the
+    ``MetricFact`` store: headline, in the requested ``keys`` set, and not QA-Blocked.
+    ``keys`` need only be iterable — callers pass tuples, lists, or (as in
+    ``queryinsights._delta_entries``) a dict keyed by metric key.
+
+    The store's structurally-different readers (``peers._peer_facts``,
+    ``metricengine._headline_facts_by_issuer``, ``metricfactlane._raw_facts``,
+    ``queryinsights._delta_entries``) each spread ``*headline_fact_predicates(keys)``
+    into their own ``select(...).where(...)`` and keep every other predicate (columns,
+    joins, provenance policy, complete-run join, cap, order) their own — so this guard
+    has one tested home instead of four restatements. It is defense-in-depth behind the
+    runner's Blocked-CP-1 write-skip: a QA-Blocked or wrong-key figure can never enter a
+    peer median or a cross-issuer answer."""
+    return [MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)),
+            MetricFact.qa_status != "Blocked"]
 
 
 def catalog_dicts() -> List[dict]:

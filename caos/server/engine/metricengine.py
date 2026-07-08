@@ -39,16 +39,15 @@ accepting ``bool``/``0``.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from statistics import median
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact, Run
-from engine.metrics import CATALOG_BY_KEY
+from engine.metrics import CATALOG_BY_KEY, headline_fact_predicates
 from engine.periods import is_finite_number, safe_div
 
 logger = logging.getLogger("caos.metricengine")
@@ -106,14 +105,9 @@ async def _headline_facts_by_issuer(
         .join(Run, Run.id == MetricFact.run_id)
         .join(Issuer, Issuer.id == MetricFact.issuer_id)
         .where(
-            MetricFact.headline.is_(True),
-            MetricFact.metric_key.in_(list(_KPI_KEYS)),
+            *headline_fact_predicates(_KPI_KEYS),
             MetricFact.provenance == "run",
             Run.status == "complete",
-            # A gate-Blocked fact must never feed a deterministic derivative —
-            # defense-in-depth behind the runner write-skip (same posture as
-            # peers._peer_facts).
-            MetricFact.qa_status != "Blocked",
         )
         .order_by(MetricFact.issuer_id, MetricFact.metric_key, Run.created_at.desc())
         .limit(_SCAN_CAP)
@@ -183,11 +177,9 @@ async def _peer_values(
             select(MetricFact, Issuer)
             .join(Issuer, MetricFact.issuer_id == Issuer.id)
             .where(
-                MetricFact.headline.is_(True),
-                MetricFact.metric_key == key,
+                *headline_fact_predicates([key]),
                 MetricFact.issuer_id != issuer_id,
                 MetricFact.provenance != "demo_fixture",
-                MetricFact.qa_status != "Blocked",
             )
         )
         if same_industry and issuer.industry:
@@ -215,9 +207,7 @@ async def _peer_values(
         select(MetricFact)
         .where(
             MetricFact.issuer_id == issuer_id,
-            MetricFact.metric_key == key,
-            MetricFact.headline.is_(True),
-            MetricFact.qa_status != "Blocked",
+            *headline_fact_predicates([key]),
         )
         .order_by(MetricFact.created_at.desc())
         .limit(1)
