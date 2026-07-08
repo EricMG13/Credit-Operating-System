@@ -553,3 +553,41 @@ visible. Reconcile every REVISE before §8.
 - The spec is executable by Opus **top-to-bottom without further clarification** —
   real file paths and named functional blocks, dependency-correct layer order,
   behavior-preserving throughout.
+
+---
+
+## Appendix — Invocation (operator note, not part of the spec instructions)
+
+Hand this brief to a **Claude Fable 5** session at **`xhigh` effort** by pasting the
+prompt below. It is deliberately thin: this file is the context pack, so the prompt
+only points Fable 5 at it and states the deliverable, the boundaries, and the
+autonomy. Opus 4.8 then executes the resulting spec in a separate session.
+
+```
+I'm hardening CAOS — an institutional leveraged-finance credit-analysis platform
+(Next.js frontend, FastAPI server, Postgres, self-hosted Docker stack) — so it can
+run autonomous credit-research pipelines reliably in a production enterprise
+environment. You are acting as the Principal DevOps & Systems Architect.
+
+Read `caos/docs/PATH_TO_PRODUCTION_BRIEF.md` in full and own the mission it defines.
+Your deliverable is the layer-by-layer "Path to Production" implementation
+specification — write it to `caos/docs/PATH_TO_PRODUCTION_SPEC.md` — that a separate
+Opus 4.8 run will execute. The deliverable is the spec; do not write or apply the
+hardening code, and do not change application behavior.
+
+Work autonomously through the seven system layers in the brief's §4 order. For each
+layer, produce spec items in the §5 shape (gap · files · missing safeguard ·
+enterprise pattern · Opus instruction · latency guard · verification), grounded in
+the measured baseline (§3) — do not re-spec the strong existing posture, and hold
+the five fixed boundaries in §0, especially the no-added-latency constraint on the
+interactive request path. After each layer, run the §6 self-check with a
+fresh-context verifier subagent, and reconcile every REVISE before the §7 definition
+of done. Ground every gap in a file you actually inspected; before reporting
+progress, audit each claim against a tool result from this session. Proceed through
+the layers without pausing for confirmation; pause only for a genuine scope change
+or a decision only I can make.
+```
+
+**Recommended effort:** `xhigh` — the per-layer verification and the latency-budget
+reasoning are the capability-sensitive part; the payoff is an implementation-ready
+spec rather than a plausible-sounding one.
