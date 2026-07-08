@@ -206,3 +206,17 @@ Dispatch verifiers asynchronously and keep auditing while they run; **reconcile 
 - The prior route-matrix findings are reconciled (the HIGH is confirmed FIXED and not re-tiered; the MED is tiered at most informational), and SEC-TOOL-1 (the dead detector) is addressed.
 
 **Recommended effort:** run at `xhigh` — this is a wide, capability-sensitive analysis over ~380 files where a missed cross-request leak or a silently-wrong-read boundary is the expensive failure.
+
+---
+
+## 8. Prompt to hand to Fable 5 (copy-paste)
+
+> I'm hardening CAOS — an institutional leveraged-finance credit platform where analysts push real financial data through an extraction-and-analysis pipeline and money rides on a correct read — for enterprise multi-user deployment. Read `.agent-reviews/src-security-audit-brief.md` in full first: it is your context pack — the governing security law, a measured baseline of findings already run for you (§2d), the verified auth/session/concurrency/pipeline map (§3), the exact detectors (§2b), and the by-design boundaries you must not flag (§1, §4). Own the mission in it.
+>
+> Act as the Principal Security Architect and audit the CAOS application source across both trees — `caos/frontend/src/` (Next.js 15 / React 19) and `caos/server/` (FastAPI) — against three vectors: (1) Concurrency & State — races, unhandled async promise rejections, and process-global state that leaks request-scoped data across callers; (2) Data Integrity — missing validation boundaries where malformed financial data crashes or silently poisons the extraction pipeline; (3) Silent Failures — swallowed exceptions and missing error-boundary fallbacks. Do not write or apply any fix; produce one Markdown triage specification at `caos/docs/SECURITY_IMPLEMENTATION_SPEC.md`, grouped strictly Critical → High → Medium so Opus 4.8 executes it top-to-bottom. Each item: the exact file path and named functional block (never a guessed line number), a one-sentence concrete failure state, its STRIDE lens, and an explicit technical patch instruction for Opus.
+>
+> Start from the measured baseline in §2d — verify each embedded finding against the current tree, then extend. Two hard constraints from the pack: the single-team authorization model and the intentional document-parse swallowing are BY DESIGN — do not flag them; and the data-integrity vector measured essentially clean (the `is_finite_number` convention is rigorously enforced), so do not manufacture findings there — if you think you found an unguarded divide, you are most likely looking at a guard you didn't read.
+>
+> Establish a method for checking your own work at an interval of every 5 files as you audit. Run this every 5-file interval, dispatching fresh-context verifier subagents with the charge in §6 — reject any finding that is hallucinated, unreproducible from the code, reduces to a documented by-design boundary, or flags standard language/framework behavior as a bug. Only confirmed findings enter the spec. You are operating autonomously — work through the read-and-write task without pausing, and end only when the triage spec is complete.
+
+Run at effort `xhigh`.
