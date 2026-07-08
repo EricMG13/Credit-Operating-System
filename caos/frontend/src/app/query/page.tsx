@@ -11,11 +11,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { GroupLauncher } from "@/components/query/GroupLauncher";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { InsightFeed } from "@/components/query/InsightFeed";
+import { WatchlistEditor } from "@/components/query/WatchlistEditor";
 import { AiAnswer } from "@/components/query/AiAnswer";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
@@ -38,6 +38,7 @@ import { engineNote, QUESTIONS, questionFor, questionGroups } from "@/lib/query/
 import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { synthesize } from "@/lib/query/synthesis";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 export default function QueryPage() {
   return (
@@ -109,6 +110,9 @@ function QueryWorkspace() {
   const [brief, setBrief] = useState<InsightBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefCollapsed, setBriefCollapsed] = useState(false);
+  // Phase-2 personalization — the analyst's coverage watchlist editor (scopes
+  // the Desk Brief). Collapsible so it never crowds the graph by default.
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
   // Layout F — the running report the analyst assembles, the right-rail tab, and
   // which print-root is live (only one at a time so window.print never doubles).
   const [report, setReport] = useState<ReportSection[]>([]);
@@ -712,31 +716,47 @@ function QueryWorkspace() {
     return overlay.edges.filter((e) => !drawn.has(pairKey(e.source, e.target)));
   }, [overlay, graph]);
 
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <VaultMemoUpload
+          onUploaded={() => {
+            queryCapabilities().then(setCaps).catch(() => {});
+            if (activeId === "analyst-memos") pick("analyst-memos");
+          }}
+        />
+        <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
+      </>
+    ),
+  };
+
   return (
-    <div className="h-screen flex flex-col">
-      <PageSubHeader gap="gap-4">
-        <QueryMark />
-        <div className="min-w-0">
-          <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
-          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted leading-none mt-1">
-            proactive research over coverage
+    <ResponsiveShell
+      identity={
+        <>
+          <QueryMark />
+          <div className="min-w-0">
+            <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
+            <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted leading-none mt-1">
+              proactive research over coverage
+            </div>
           </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2 overflow-hidden">
+        </>
+      }
+      contextualControls={
+        <>
           <VaultMemoUpload
             onUploaded={() => {
-              // New wikilinks may ungrey / repopulate the Wiki & Memos edge.
               queryCapabilities().then(setCaps).catch(() => {});
               if (activeId === "analyst-memos") pick("analyst-memos");
             }}
           />
           <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
-          {/* The active question already leads the answer header below — no need
-              to triplicate it here. */}
           {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">building answer</span>}
-        </div>
-      </PageSubHeader>
-
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       <div className="flex-1 min-h-0 flex bg-caos-bg">
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Layout F — the ask bar is anchored at the BOTTOM (order-last), so the
@@ -1233,7 +1253,7 @@ function QueryWorkspace() {
         />
       )}
       {printMode === "report" && <QueryReportSheet sections={report} graph={graph} />}
-    </div>
+    </ResponsiveShell>
   );
 }
 

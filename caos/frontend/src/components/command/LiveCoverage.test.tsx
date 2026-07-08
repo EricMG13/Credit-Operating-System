@@ -42,19 +42,25 @@ describe("LiveCoverage", () => {
       <LiveCoverage rows={rows} selected={null} onSelect={handleSelect} />
     );
 
-    const rowBtn = screen.getByRole("button", { name: /AURC/i });
-    expect(rowBtn).toBeTruthy();
+    // The row is a role="row" with tabIndex={0} for keyboard operability,
+    // not a role="button". Accessible name comes from aria-label.
+    const rowEl = screen.getByRole("row", { name: /AURC/i });
+    expect(rowEl).toBeTruthy();
 
     // Click to select
-    fireEvent.click(rowBtn);
+    fireEvent.click(rowEl);
     expect(handleSelect).toHaveBeenCalledWith("AURC");
+
+    handleSelect.mockClear();
 
     // Press Enter to select
-    fireEvent.keyDown(rowBtn, { key: "Enter", code: "Enter" });
+    fireEvent.keyDown(rowEl, { key: "Enter", code: "Enter" });
     expect(handleSelect).toHaveBeenCalledWith("AURC");
 
+    handleSelect.mockClear();
+
     // Press Space to select
-    fireEvent.keyDown(rowBtn, { key: " ", code: "Space" });
+    fireEvent.keyDown(rowEl, { key: " ", code: "Space" });
     expect(handleSelect).toHaveBeenCalledWith("AURC");
   });
 });

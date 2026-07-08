@@ -24,6 +24,7 @@ import {
   PortfolioTable, PostureSummary, QaQueue,
 } from "@/components/command/views";
 import { NlQuery } from "@/components/command/NlQuery";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
@@ -48,39 +49,40 @@ function CommandCenter() {
 
   const alertsToday = simAlertsToday(tick, live || run.sim.done);
 
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <div className="flex items-center gap-4 shrink-0 overflow-x-auto caos-no-scrollbar">
+        {headStat("Issuers", String(PORTFOLIO.length))}
+        {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+        {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
+        <span className="flex items-baseline gap-1.5 whitespace-nowrap">
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts</span>
+          <span className="tabular text-caos-md font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
+        </span>
+      </div>
+    ),
+  };
+
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="min-h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex flex-wrap items-center gap-x-5 gap-y-1 py-1 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-md text-caos-muted truncate min-w-0">
-          US HY sleeve
-        </span>
-        <span
-          className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-warning"
-          role="note"
-          title="Sample US HY sleeve for the Phase-1 showcase — not live positions. (The NL Query lane is live.)"
-        >
-          Sample portfolio — not live
-        </span>
-        <div className="flex-1 min-w-0"></div>
-
-        {/* Unified metrics */}
-        <div className="hidden lg:flex items-center gap-5 shrink-0">
-          {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
-          {headStat("Issuers", String(PORTFOLIO.length))}
-          {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
-          {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
-          {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
-          {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
-        </div>
-
-        <div className="h-4 w-px bg-caos-border hidden lg:block shrink-0" />
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="text-caos-md text-caos-muted truncate min-w-0">US HY sleeve</span>
+          <span
+            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted hidden sm:inline"
+            title="Sample US HY sleeve for the Phase-1 showcase — not live positions."
+          >
+            Sample portfolio — not live
+          </span>
+        </>
+      }
+      primaryAction={
         <Link
           href="/monitor"
           title="Open Monitor — live CP-MON email intelligence & alert routing"
@@ -90,14 +92,21 @@ function CommandCenter() {
           <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
           <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
         </Link>
-
-        {/* Sim clock */}
-        <div className="hidden min-[1780px]:flex items-center gap-5 shrink-0">
+      }
+      contextualControls={
+        <>
+          {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
+          {headStat("Issuers", String(PORTFOLIO.length))}
+          {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+          {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
+          {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
+          {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
           <SimControls run={run} />
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
-        </div>
-      </div>
-
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* workspace */}
       <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
@@ -172,6 +181,6 @@ function CommandCenter() {
       </div>
 
       {selected ? <IssuerStrip code={selected} onClose={() => setSelected(null)} /> : null}
-    </div>
+    </ResponsiveShell>
   );
 }

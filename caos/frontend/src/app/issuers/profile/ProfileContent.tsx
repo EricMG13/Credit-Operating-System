@@ -26,6 +26,7 @@ import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -698,30 +699,24 @@ export function Profile({
   );
 
   return (
-    <div className={`${isOverlay ? "h-full" : "h-screen"} flex flex-col bg-caos-bg text-caos-text`}>
-      {/* consolidated sub-header */}
-      <div className="h-12 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        {!isOverlay ? (
-          <>
-            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
-              <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-              <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
-            </Link>
-            <div className="h-4 w-px bg-caos-border shrink-0" />
-          </>
-        ) : (
-          <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
-            Issuer Profile
-          </span>
-        )}
-        
-        {/* Consolidated Ticker & Metadata in Header */}
-        {/* Identity shrinks (name truncates first) before actions ever clip. */}
-        <div className="flex items-center gap-2 overflow-hidden mr-2 min-w-0">
-          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 16 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
-          {/* The issuer name is the page's content heading (h2 under the route's
-              sr-only h1) so assistive tech can jump straight to *whose* profile
-              this is — a plain span left the only heading as "Issuers". */}
+    <ResponsiveShell
+      heightClass={isOverlay ? "h-full" : "h-screen"}
+      identity={
+        <>
+          {!isOverlay ? (
+            <>
+              <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
+                <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
+                <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
+              </Link>
+              <span className="h-4 w-px bg-caos-border shrink-0" />
+            </>
+          ) : (
+            <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
+              Issuer Profile
+            </span>
+          )}
+          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 14 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
           <h2 className="text-caos-text font-medium leading-none truncate min-w-[64px] m-0" style={{ fontSize: 14 }} title={issuer.name} aria-label={`${issuer.ticker ? issuer.ticker.toUpperCase() + " " : ""}${issuer.name} — issuer profile`}>{issuer.name}</h2>
           <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
             {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
@@ -753,37 +748,26 @@ export function Profile({
           ) : (
             <Tag sev="low">no run</Tag>
           )}
-        </div>
-
-        <div className="flex-1" />
-        {!isOverlay && (
-          <>
-            {/* Full labelled nav only when the row has room (≥1450px). Between
-                1100 and 1450 a compact (icon + active-label) nav keeps every
-                concept reachable instead of vanishing; below 1100 it yields to
-                the identity row (brand link + bottom function bar still route). */}
-            <span className="hidden min-[1450px]:flex items-center gap-3 shrink-0">
-              <ConceptNav />
-              <div className="h-4 w-px bg-caos-border shrink-0" />
-            </span>
-            <span className="hidden min-[1100px]:flex min-[1450px]:hidden items-center gap-3 shrink-0">
-              <ConceptNav compact />
-              <div className="h-4 w-px bg-caos-border shrink-0" />
-            </span>
-          </>
-        )}
-
+        </>
+      }
+      primaryAction={
         <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
           OPEN DEEP-DIVE →
         </Link>
-        {isOverlay && onClose && (
-          <>
-            <div className="h-4 w-px bg-caos-border shrink-0" />
-            <CloseButton onClick={onClose} title="Close (Esc)" />
-          </>
-        )}
-      </div>
-
+      }
+      contextualControls={
+        !isOverlay ? (
+          <ConceptNav compact />
+        ) : onClose ? (
+          <CloseButton onClick={onClose} title="Close (Esc)" />
+        ) : null
+      }
+      narrowContract={{
+        essentialControls: isOverlay && onClose ? (
+          <CloseButton onClick={onClose} title="Close (Esc)" />
+        ) : null,
+      }}
+    >
       <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
         {body}
       </div>
@@ -802,7 +786,7 @@ export function Profile({
           </Link>
         ))}
       </div>
-    </div>
+    </ResponsiveShell>
   );
 }
 

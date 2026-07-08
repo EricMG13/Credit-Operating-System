@@ -30,6 +30,7 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { useAsk } from "@/components/shared/Ask";
 import { getIssuer } from "@/lib/api";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 // Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
 // the tab renderers (tabs.tsx + its fixture/chart tree) load when a module tab is
@@ -270,85 +271,118 @@ function DeepDive() {
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
 
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Layout</span>
+        {([
+          { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+          { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
+          { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
+        ]).map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            aria-pressed={layout === o.v}
+            onClick={() => pickLayout(o.v)}
+            title={o.t}
+            className={
+              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              (layout === o.v
+                ? "bg-caos-elevated text-caos-text border-caos-accent"
+                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+            }
+          >
+            {o.label}
+          </button>
+        ))}
+        <SimControls run={run} />
+      </>
+    ),
+  };
+
   return (
     <EvidenceSyncProvider>
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-4 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
-        {issuerErr && !isReference ? (
-          <button
-            onClick={() => setIssuerAttempt((a) => a + 1)}
-            className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring whitespace-nowrap"
-            title="Issuer lookup failed — retry"
-          >
-            RETRY
-          </button>
-        ) : null}
-        {caveatKind === "reference" ? (
-          // The reference showcase must never costume itself as a database run:
-          // SEEDED leads, the run id is part of the fiction and says so on hover.
-          <span
-            className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
-            title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
-          >
-            SEEDED RUN #2641 · {run.completed}/{run.total} modules
-          </span>
-        ) : caveatKind === "loading" ? (
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
-        ) : caveatKind === "live" ? (
-          // Always visible: this caveat pairs with the ● LIVE badge (which has no
-          // width gate), so hiding it <1280px would show "live" with no blend
-          // disclaimer. (#20)
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
-            live engine output · missing panes show no output
-          </span>
-        ) : (
-          // noRun: issuer exists but was never analysed; suppress seeded figures.
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views. Run a new simulation in pipeline or model builder to populate.`}>
-            no run for {code} · run analysis to populate
-          </span>
-        )}
-        <div className="flex-1"></div>
-        {/* No persistent tip string here: the E-xx guidance lives in the
-            one-time FirstRunHint below, and the old "replay to watch outputs
-            unlock →" clause pointed at SimControls that are themselves gated to
-            2xl. Carrying it in the bar forced the deal label to crush and the
-            row to wrap in the 1280–1535 laptop band. (critique P1) */}
-        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
-          {([
-            { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
-            { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
-            { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
-          ]).map((o) => (
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
+          {issuerErr && !isReference ? (
             <button
-              key={o.v}
-              type="button"
-              aria-pressed={layout === o.v}
-              onClick={() => pickLayout(o.v)}
-              title={o.t}
-              className={
-                "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-                (layout === o.v
-                  ? "bg-caos-elevated text-caos-text border-caos-accent"
-                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-              }
+              onClick={() => setIssuerAttempt((a) => a + 1)}
+              className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring whitespace-nowrap"
+              title="Issuer lookup failed — retry"
             >
-              {o.label}
+              RETRY
             </button>
-          ))}
-        </div>
-        {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
-        <span className="hidden 2xl:flex items-center shrink-0"><SimControls run={run} /></span>
-      </div>
-
+          ) : null}
+          {caveatKind === "reference" ? (
+            <span
+              className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
+              title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
+            >
+              SEEDED RUN #2641 · {run.completed}/{run.total} modules
+            </span>
+          ) : caveatKind === "loading" ? (
+            <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
+          ) : caveatKind === "live" ? (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
+              live engine output · missing panes show no output
+            </span>
+          ) : (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views. Run a new simulation in pipeline or model builder to populate.`}>
+              no run for {code} · run analysis to populate
+            </span>
+          )}
+        </>
+      }
+      primaryAction={
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          title="Ask follow-up questions about this issuer"
+          className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+        >
+          ASK {code}
+        </button>
+      }
+      contextualControls={
+        <>
+          <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
+            {([
+              { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+              { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
+              { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
+            ]).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                aria-pressed={layout === o.v}
+                onClick={() => pickLayout(o.v)}
+                title={o.t}
+                className={
+                  "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                  (layout === o.v
+                    ? "bg-caos-elevated text-caos-text border-caos-accent"
+                    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+                }
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
+          <SimControls run={run} />
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal
@@ -485,13 +519,6 @@ function DeepDive() {
                   ◦ NO OUTPUT
                 </span>
               ) : null}
-              <button
-                onClick={() => setChatOpen(!chatOpen)}
-                title="Ask follow-up questions about this issuer"
-                className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-              >
-                ASK {code}
-              </button>
             </span>
           }
         >
@@ -545,7 +572,7 @@ function DeepDive() {
           issuerName={isReference ? undefined : issuerMeta?.name}
         />
       ) : null}
-    </div>
+    </ResponsiveShell>
     </EvidenceSyncProvider>
   );
 }

@@ -6,6 +6,7 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { Panel } from "@/components/shared/Panel";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 import {
   askSectorTopic,
   getSectorFeeds,
@@ -225,23 +226,48 @@ export function SectorReviewWorkspace() {
     }
   };
 
-  return (
-    <div className="h-screen flex flex-col bg-caos-bg text-caos-text">
-      <div className="min-h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex flex-wrap items-center gap-x-5 gap-y-1 py-1 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-SR daily intelligence</span>
-        <ProvenanceBadge value={review?.provenance || "seed"} />
-        <div className="flex-1" />
-        <span className="tabular text-caos-xs text-caos-muted">
-          {review ? `As of ${fmtAsOf.format(new Date(review.as_of))}` : "Loading as-of"}
-        </span>
-      </div>
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <button
+        type="button"
+        onClick={refresh}
+        disabled={!selectedSector || refreshing}
+        className="rounded border border-caos-border px-2 py-1 tabular text-caos-2xs uppercase tracking-wider text-caos-muted hover:text-caos-text hover:border-caos-accent/60 disabled:opacity-50 disabled:cursor-not-allowed transition-caos focus-ring"
+      >
+        {refreshing ? "Refreshing" : "Refresh"}
+      </button>
+    ),
+  };
 
+  return (
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-SR daily intelligence</span>
+          <ProvenanceBadge value={review?.provenance || "seed"} />
+          <span className="tabular text-caos-xs text-caos-muted">
+            {review ? `As of ${fmtAsOf.format(new Date(review.as_of))}` : "Loading as-of"}
+          </span>
+        </>
+      }
+      contextualControls={
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={!selectedSector || refreshing}
+          className="rounded border border-caos-border px-2 py-1 tabular text-caos-2xs uppercase tracking-wider text-caos-muted hover:text-caos-text hover:border-caos-accent/60 disabled:opacity-50 disabled:cursor-not-allowed transition-caos focus-ring"
+        >
+          {refreshing ? "Refreshing" : "Refresh"}
+        </button>
+      }
+      narrowContract={narrowContract}
+    >
       <div className="flex-1 min-h-0 p-2 grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-2 overflow-hidden">
         <Panel
           title="Sector Feeds"
@@ -543,6 +569,6 @@ export function SectorReviewWorkspace() {
           </div>
         </div>
       ) : null}
-    </div>
+    </ResponsiveShell>
   );
 }
