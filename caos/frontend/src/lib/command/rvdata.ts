@@ -250,7 +250,7 @@ export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?
   });
 }
 
-export function invalidationTrigger(rvBp: number | null, n: number): string {
+export function invalidationTrigger(rvBp: number | null, _n: number): string {
   if (rvBp === null) return "—";
   if (rvBp >= 150) return "rvBp compresses to < +50bp or peer-set n < 4";
   if (rvBp >= 50) return "rvBp compresses to < +10bp";

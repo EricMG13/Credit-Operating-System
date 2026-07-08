@@ -387,7 +387,7 @@ function PeerTable({
         </tr>
       </thead>
       <tbody>
-        {sorted.map((r, i) => {
+        {sorted.map((r, _i) => {
           const isSel = selected === r.figi;
           const isHov = hovered === r.figi;
           // Selected row: accent tint + inset accent bar (position + tint, so the
