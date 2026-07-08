@@ -223,7 +223,6 @@ async def test_build_issuer_index_excludes_analyst_memos(seeded_db):
 async def test_retrieve_corpus_includes_analyst_memos(seeded_db):
     """The Q2 query path: retrieve_corpus must INCLUDE memo chunks so query
     answers can cite the analyst's own prior commentary (the point of the phase)."""
-    from config import get_settings
     from retrieval import retrieve_corpus
 
     async with AsyncSessionLocal() as db:

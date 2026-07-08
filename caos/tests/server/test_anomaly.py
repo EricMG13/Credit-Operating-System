@@ -6,9 +6,8 @@ short-series degradation), severity ranking, the scoped issuer_ids gate, and the
 empty-corpus path. Integration tests seed real MetricFact series into the test DB.
 """
 
-import math
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -76,11 +75,14 @@ def test_ts_jump_stable_series_no_flag():
 
 
 def test_ts_jump_nan_in_history_skipped():
+    # A nan in history must be filtered (is_finite_number), not poison the z-score:
+    # the finite history [4.0, 4.1] still yields a clear up-jump to the latest 7.0.
     s = [("FY2020", 4.0, "c0"), ("FY2021", float("nan"), "c1"),
          ("FY2022", 4.1, "c2"), ("FY2023", 7.0, "c3")]
-    # The nan is filtered in _series_by_issuer_metric; here _ts_jump receives a
-    # series that may contain nan if the caller didn't filter — verify it degrades.
-    # (History filter happens upstream; _ts_jump trusts the series is finite.)
+    a = _ts_jump(s, "net_leverage", "i1", "Acme")
+    assert a is not None
+    assert a.kind == "ts-jump"
+    assert a.direction == "up"
 
 
 # ── _peer_outlier (pure) ─────────────────────────────────────────────────────
@@ -157,7 +159,6 @@ async def _seed_series(db, issuer_id, run_id, values, start_year=2022):
 @pytest.mark.asyncio
 async def test_detect_anomalies_ranks_by_severity(seeded_db):
     async with AsyncSessionLocal() as db:
-        now = datetime.now(timezone.utc)
         # ZetaRanked: a sudden jump (ts-jump + cusum). Beta: a smaller move.
         acme = Issuer(id=str(uuid.uuid4()), name="ZetaRanked", industry="Chemicals")
         beta = Issuer(id=str(uuid.uuid4()), name="EtaRanked", industry="Chemicals")

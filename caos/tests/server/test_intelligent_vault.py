@@ -1,5 +1,4 @@
 import pytest
-import asyncio
 import uuid
 import hashlib
 from sqlalchemy import select
@@ -11,8 +10,6 @@ from database import (
     Issuer,
     LineageEdge,
     LLMCallRecord,
-    Run,
-    QAFinding,
 )
 from engine.queryinsights import fingerprint_issuer
 from engine import budget
@@ -216,8 +213,8 @@ async def test_document_embeddings_and_warmup(seeded_db):
 
 @pytest.mark.asyncio
 async def test_hybrid_retrieval_and_rrf_fusion(seeded_db, monkeypatch):
-    from engine.embeddings import get_embeddings, embed_chunks_for_document
-    from retrieval import retrieve, retrieve_corpus, rrf_fusion, Hit
+    from engine.embeddings import embed_chunks_for_document
+    from retrieval import retrieve, rrf_fusion, Hit
     from config import get_settings
 
     # Mock settings to have a configured gemini_api_key so hybrid search activates

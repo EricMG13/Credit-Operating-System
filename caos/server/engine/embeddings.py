@@ -9,7 +9,7 @@ import uuid
 from sqlalchemy import select, insert
 
 from config import get_settings
-from database import AsyncSessionLocal, DocumentChunk, DocumentChunkEmbedding
+from database import DocumentChunk, DocumentChunkEmbedding
 
 logger = logging.getLogger("caos.embeddings")
 
