@@ -169,7 +169,6 @@ export function SectorReviewWorkspace() {
     };
   }, [selectedSector, timeframe, fromDate, toDate, q, category, severity]);
 
-  const enabledFeeds = feeds.filter((feed) => feed.enabled);
   const visibleSignals = signals;
   const grouped = useMemo(() => groupSignals(visibleSignals), [visibleSignals]);
   const categories = useMemo(() => Array.from(new Set((review?.signals || signals).map((s) => s.category))).sort(), [review, signals]);
