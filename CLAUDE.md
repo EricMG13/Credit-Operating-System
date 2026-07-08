@@ -116,18 +116,17 @@ visible focus ring.
 - **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
 - **FastAPI Server Environment**: Execute the server suite and check scripts using the designated virtual environment path: `/Users/ericguei/Claude/Projects/Credit Operating System/caos/server/.venv/bin/python` or `.venv311`. Do not downgrade the FastAPI `0.138` package pin.
 
-## Task Observer (skill improvement)
+## Skill improvement observations
 
-At the start of any task-oriented session — any interaction where you will
-use tools and produce deliverables — invoke the task-observer skill before
-beginning work. This ensures skill improvement opportunities are captured
-throughout the session.
+Capture skill-improvement opportunities as you work: when a skill's guidance is
+wrong, incomplete, or could be sharper for CAOS, record it in the observation
+log (`skill-observations/observation-log.md`) as an OPEN entry tagged to that
+skill.
 
-When loading any skill, check the observation log for OPEN observations
-tagged to that skill (`skill-observations/observation-log.md`). Apply their
-insights to the current work, even if the skill file hasn't been updated yet.
-This enables immediate application of observations before they're permanently
-integrated during the weekly review.
+When loading any skill, check that log for OPEN observations tagged to it.
+Apply their insights to the current work, even if the skill file hasn't been
+updated yet. This enables immediate application of observations before they're
+permanently integrated during a later review pass.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
