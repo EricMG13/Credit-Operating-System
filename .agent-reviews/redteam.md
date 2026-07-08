@@ -157,6 +157,16 @@ Decision under review: [`caos/docs/SECURE_PERFORMANCE_FRONTEND_BLUEPRINT.md`](..
 
 Verifier misfires (process note, not a finding): 3 of 12 subagent spawns across this pass returned zero-tool-call boilerplate instead of executing; each was resumed with an explicit re-instruction and then produced full evidence-backed verdicts. No verdict in the table above rests on an unexecuted run.
 
+**Follow-up pass**: user asked "is that all" after the first 9-route sign-off. Re-checked coverage against the 5 named CAOS UI concepts (command/pipeline/deepdive/model/reports — all verified) plus route significance, and found two gaps: `/settings` (the only route where any bundle grep ever hit, previously checked only by the authoring session itself, never by an independent subagent) and `/research` (the heaviest external LLM+search lane, listed in the proxy table but never independently verified). Both closed below — 20/20 PASS overall, two small accuracy fixes folded.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-08-31 | 2026-07-08 | §1.1 `POST /api/research` credential column said "LLM + web-search keys server-side" | The /research verifier read `deepresearch.py:248` and `config.py` and found Deep Research's web search is Anthropic's own server-side `web_search_20260209` tool, gated by `ANTHROPIC_API_KEY` alone — no separate search-provider key exists in config (grepped for serper/bing/brave/tavily). "Web-search keys" implied a second credential that isn't real. | Low | Resolved | Column corrected to name `ANTHROPIC_API_KEY` only, with the tool name and the negative-grep evidence. |
+| RT-2026-07-08-32 | 2026-07-08 | Δ1 bundle-scan target | Both the /settings and /research verifiers independently noticed `caos/frontend/out/` and `caos/server/static/` are different point-in-time builds in this checkout (different chunk hashes, one route's chunk even had a prop-shape diff) — two fresh-context passes converging on the same observation flags it as a real footgun: a scan aimed at the wrong tree could pass on a stale artifact. | Low | Resolved | Δ1 now states explicitly to scan `out/` immediately post-build, not `server/static/` (a deploy-time copy that isn't a reliable freshness signal in a dev checkout). |
+
+Settings verdict: PASS/PASS — page.tsx read in full, no save-key form exists (grep for password-type inputs/apiKey fields = 0), `GET /api/settings` returns only booleans (`llm_configured` etc.) never the key string, bundle grepped additionally for masked/partial-key patterns (`sk-...`, `****`, last-4) with zero hits in both build trees.
+Research verdict: PASS/PASS — both endpoints authed, 404-not-403 isolation confirmed identical for missing-vs-not-mine (no existence leak), `ResearchJobStatus` schema carries no credential-shaped field, source URLs whitelisted to http(s) server-side with a dedicated unit test, and the report renderer uses `react-markdown` with no raw-HTML escape hatch.
+
 ## Resolved Objections
 
 - RT-2026-07-02-01: Discoverability gap fixed by linking this log from `AGENTS.md`.
