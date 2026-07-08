@@ -31,14 +31,24 @@ skills. Summary of actions taken (all recoverable via git history):
 - **§2.3 + §3 + §4 + one of §5** — deleted 25 skill directories: the 2 identical
   `gitnexus-*` copies, 6 no-CAOS-surface skills, the 15 design verbs +
   `teach-impeccable`, and `a11y-audit`.
-- **§5 — partially held.** `a11y-audit` deleted (regex-based, superseded by the
-  mandated axe runner, no inbound refs). **`code-reviewer`, `security-best-practices`,
-  and `finding-duplicate-functions` were retained**, deliberately: `code-reviewer`
-  is a routing target of the `senior-security` hub (deleting it would dangle that
-  reference — the very defect §1 fixes), and the owasp-vs-best-practices and
-  fallow-vs-finding-duplicate-functions choices are genuine judgment calls the
-  audit did not resolve. These need a routing decision + router edits before
-  removal; flagged for owner sign-off rather than an arbitrary destructive pick.
+- **§5 — resolved (second pass).**
+  - `a11y-audit` deleted (regex-based, superseded by the mandated axe runner).
+  - `security-best-practices` **deleted** — zero inbound refs, overlaps the
+    broader `owasp-security` (kept: OWASP Top 10:2025 + ASVS 5.0 + LLM/Agentic
+    coverage, directly relevant to CAOS as an agent platform).
+  - `code-reviewer` **kept** — one of only **two** live routing targets the
+    `senior-security` hub still has (see finding below); deleting it would further
+    gut an already-thin router.
+  - `finding-duplicate-functions` **kept** — distinct semantic-dup method from
+    `fallow`; both retained (fallow for breadth, this for targeted dup hunts).
+  - **New finding — `senior-security` routes to 8 absent siblings.** Its "read
+    this first" routing table dispatches to `security-pen-testing`,
+    `incident-response`, `incident-commander`, `senior-secops`, `cloud-security`,
+    `threat-detection`, `red-team`, and `ai-security` — **none vendored** here
+    (only `adversarial-reviewer` + `code-reviewer` exist). Added an "Installed in
+    CAOS" caveat so agents don't chase missing skills.
+
+  `.agents/skills/` final count: **53 → 27**.
 
 ---
 

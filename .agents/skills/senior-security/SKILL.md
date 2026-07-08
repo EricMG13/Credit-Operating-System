@@ -22,6 +22,16 @@ This skill does exactly one job itself — **STRIDE/DREAD threat modeling** (plu
 | Red-team engagement planning, ATT&CK kill chains | `../red-team/` | `engagement_planner.py` with authorization gate |
 | LLM/AI attack surface (prompt injection, poisoning) | `../ai-security/` | ATLAS-mapped `ai_threat_scanner.py` |
 
+> **Installed in CAOS:** only `../adversarial-reviewer/` and `../code-reviewer/`
+> are vendored in this repo. The other sibling lanes above
+> (`security-pen-testing`, `incident-response`, `incident-commander`,
+> `senior-secops`, `cloud-security`, `threat-detection`, `red-team`,
+> `ai-security`) are **not present** — do not attempt to load them. For those
+> lanes, handle the request inline here or use `../owasp-security/` (OWASP Top
+> 10 / ASVS / LLM + Agentic-AI) and the free-Semgrep skills
+> (`semgrep-rule-creator`, `variant-analysis`, `sarif-parsing`). Re-add a
+> specialist only when its skill is actually vendored.
+
 If the request spans lanes (e.g., "secure this new architecture"), do the threat model here first — its output (prioritized threats + mitigations) tells you which siblings to load next. Never bulk-load multiple security skills speculatively.
 
 ## What This Skill Owns: STRIDE Threat Modeling
