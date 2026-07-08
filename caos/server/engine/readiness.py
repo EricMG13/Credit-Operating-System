@@ -58,7 +58,15 @@ _CONTENT_MARKERS = {
 
 def _categorize(doc: Document, head: str = "") -> Set[str]:
     """Classify a document by doc_type / file name (cheap) and, crucially, by the
-    content of its head — so SEC filings named by accession number still classify."""
+    content of its head — so SEC filings named by accession number still classify.
+
+    Analyst memos (``doc_type == 'analyst-memo'``) short-circuit to no category:
+    they are analyst commentary, never a source filing, regardless of what terms
+    the commentary mentions (a memo discussing "credit agreement" / "10-K" must
+    not count toward source-coverage readiness). See ``engine/memochunks.py`` and
+    RT-2026-07-07-15."""
+    if (doc.doc_type or "").lower() == "analyst-memo":
+        return set()
     dt, fn, ct = (doc.doc_type or "").lower(), (doc.file_name or "").lower(), head.lower()
     return {
         cat for cat, (types, names) in _CATEGORIES.items()

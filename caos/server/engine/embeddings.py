@@ -125,9 +125,21 @@ async def warmup_embeddings_task(db) -> int:
         DocumentChunk.chunk_hash.is_not(None),
         ~DocumentChunk.chunk_hash.in_(embedded_stmt)
     )
-    to_embed = (await db.execute(stmt)).scalars().all()
-    if not to_embed:
+    rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
         return 0
+    # Dedup by chunk_hash: a memo linking N issuers creates N DocumentChunk rows
+    # that share the same text → same chunk_hash (engine/memochunks.py). Embedding
+    # is keyed by (model, chunk_hash) (unique index ix_chunk_embeddings_lookup), so
+    # inserting N copies would trip the constraint. Keep one chunk per hash; the
+    # shared embedding covers every document_chunk row via the chunk_hash join.
+    seen: set[str] = set()
+    to_embed = []
+    for c in rows:
+        if c.chunk_hash in seen:
+            continue
+        seen.add(c.chunk_hash)
+        to_embed.append(c)
 
     logger.info("Startup warmup: found %d un-embedded chunks to process.", len(to_embed))
 

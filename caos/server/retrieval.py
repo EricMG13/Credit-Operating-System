@@ -255,12 +255,21 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
 async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
     """Fetch an issuer's document chunks and build the BM25 index once. The runner
     builds this at the start of a run and reuses it across every ``retrieve()``
-    call, so the corpus is tokenized once rather than per call (P4-2)."""
+    call, so the corpus is tokenized once rather than per call (P4-2).
+
+    Excludes ``doc_type = 'analyst-memo'`` documents so the engine (CP-1–CP-6)
+    never cites analyst commentary as source truth — analyst memos are chunked
+    into ``document_chunks`` for the Q2 query path (``retrieve_corpus``), not for
+    deterministic financial extraction. See ``engine/memochunks.py`` and
+    RT-2026-07-07-14. The filter is narrow (analyst-memo only) so the
+    CONFIDENCE_AUDIT-2026-06-26 behavior — uploaded credit agreements / OMs on an
+    EDGAR issuer are reachable by reconcile — is preserved for all other doc_types."""
     rows = (
         await db.execute(
             select(DocumentChunk.id, DocumentChunk.text)
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(Document.issuer_id == issuer_id)
+            .where(Document.doc_type != "analyst-memo")
             .limit(_CORPUS_SCAN_CAP)
         )
     ).all()
@@ -281,17 +290,27 @@ async def retrieve_corpus(
     query: str,
     k: int = 8,
     issuer_ids: Optional[Sequence[str]] = None,
+    expand_graph: bool = False,
     rerank: bool = True,
 ) -> List[CorpusHit]:
     """Hybrid (BM25 + Semantic Vector) cross-issuer search with RRF fusion.
+
+    ``expand_graph=True`` (opt-in) widens ``issuer_ids`` by the 1-hop
+    ``QueryAcceptedLink`` neighbors (engine/graphexpansion.py) BEFORE the FTS/ANN
+    queries, so a scoped query also retrieves its analyst-ratified graph peers'
+    chunks — the recall fix for cross-issuer questions (sponsor/contagion
+    exposure). No-op when ``issuer_ids`` is None (unscoped = whole corpus).
 
     ``rerank=True`` (default) applies a cross-encoder re-rank to the top
     ``rerank_window`` RRF-fused hits before return — the precision fix for the
     dropped-claim-rate alarm. Gated by the ``RERANK_ENABLED`` setting (off by
     default) AND lazy-load success, so keyless/CI deploys and any model-load
     failure degrade silently to today's RRF-only ranking. Pass ``rerank=False``
-    for BM25-only paths that should never re-rank regardless of the setting.
-    See engine/rerank.py."""
+    for BM25-only paths that should never re-rank regardless of the setting
+    (e.g. the graph-expansion integration test). See engine/rerank.py."""
+    if expand_graph and issuer_ids:
+        from engine.graphexpansion import expand_issuer_set
+        issuer_ids = await expand_issuer_set(db, issuer_ids)
     # 1. BM25 Search
     if engine.dialect.name == "postgresql":
         stmt = (

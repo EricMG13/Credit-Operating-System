@@ -257,6 +257,7 @@ class MemoUploadResponse(BaseModel):
 
 @router.post("/upload/memo", response_model=MemoUploadResponse)
 async def upload_memo(
+    background_tasks: BackgroundTasks,
     memo_type: str = Form("memo"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -265,9 +266,12 @@ async def upload_memo(
     """Analyst-authored commentary (market/research notes) into the Obsidian
     vault's ``Analyst-Memos/`` — the folder ``sync_analyst_memos`` scans and the
     Query graph deep-links. Known issuer names/tickers are auto-wikilinked so a
-    plain PDF or text note links itself into coverage. Vault-only: the memo is
-    not chunked into document_chunks (upload under an issuer for engine
-    retrieval)."""
+    plain PDF or text note links itself into coverage. The memo is ALSO chunked
+    into ``document_chunks`` (one ``analyst-memo`` Document per linked issuer) so
+    Q2 query answers can cite the analyst's own prior commentary — memos linking
+    zero issuers stay vault-only (reachable via the Query graph). The run
+    pipeline excludes ``analyst-memo`` docs (``build_issuer_index`` filter) so
+    engine extraction never cites commentary as source truth."""
     _upload_rate_guard(caller)
     from config import get_settings  # local: one patch of config.get_settings covers route + sync
 
@@ -312,10 +316,43 @@ async def upload_memo(
     except Exception as e:  # the note is written; the next Query read re-syncs links
         logger.warning("analyst memo link sync failed after upload: %s", e)
 
+    # Chunk the memo into document_chunks so Q2 retrieval can cite it. One
+    # analyst-memo Document per linked issuer; memos linking zero issuers stay
+    # vault-only. Idempotent on title (re-upload replaces the prior memo's docs).
+    issuer_by_name = {i.name: i.id for i in issuers}
+    linked_ids = [issuer_by_name[n] for n in linked if n in issuer_by_name]
+    memo_doc_ids: list[str] = []
+    chunks_created = 0
+    try:
+        from engine.memochunks import chunk_memo_into_corpus
+        memo_doc_ids = await chunk_memo_into_corpus(
+            db, path.stem, text, linked_ids, caller.email,
+        )
+        if memo_doc_ids:
+            from engine.embeddings import embed_chunks_for_document
+            # Embed ONE memo document — the per-issuer copies share chunk_hash, and
+            # the embedding table is keyed by (model, chunk_hash), so one embed
+            # covers every copy via the chunk_hash join in retrieve_corpus.
+            first_doc_id = memo_doc_ids[0]
+
+            async def _embed() -> None:
+                async with AsyncSessionLocal() as session:
+                    await embed_chunks_for_document(session, first_doc_id)
+                    await session.commit()
+            background_tasks.add_task(_embed)
+            first_doc = await db.get(Document, memo_doc_ids[0])
+            chunks_created = first_doc.chunk_count if first_doc else 0
+    except Exception as e:  # chunking failure must not fail the vaulted upload
+        logger.warning("memo chunking failed (vault copy intact): %s", e)
+
+    msg = f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s)."
+    if chunks_created:
+        msg += f" Chunked into retrieval ({chunks_created} chunks × {len(memo_doc_ids)} issuer(s))."
+
     return MemoUploadResponse(
         note=path.stem,
         path=f"{vault_export.MEMOS_DIR}/{path.name}",
         memo_type=mtype,
         issuer_links=sorted(linked),
-        message=f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s).",
+        message=msg,
     )

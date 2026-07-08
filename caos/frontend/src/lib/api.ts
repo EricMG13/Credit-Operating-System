@@ -530,6 +530,14 @@ export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =
 export const queryInsights = (force = false): Promise<InsightBrief> =>
   api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
 
+// The analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
+// Non-empty → a per-analyst brief (cache row keyed by analyst_id); empty → the
+// shared book-level brief. PUT replaces the full set idempotently.
+export const getWatchlist = (): Promise<{ issuer_ids: string[] }> =>
+  api.get("/api/query/watchlist").then((r) => r.data);
+export const saveWatchlist = (issuer_ids: string[]): Promise<{ issuer_ids: string[] }> =>
+  api.put("/api/query/watchlist", { issuer_ids }).then((r) => r.data);
+
 // A grounded AI answer beside a walk — cited prose written from vault chunks (+
 // the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,
 // cache hits instant), so it outlives the 20s default timeout.
