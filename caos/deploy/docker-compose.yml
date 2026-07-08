@@ -11,7 +11,12 @@ name: caos
 
 services:
   db:
-    image: postgres:18-alpine
+    # pgvector-enabled Postgres 18 (Debian-based; the stock postgres:18-alpine
+    # lacks the `vector` extension that mig 0030's embeddings table needs). Same
+    # PG major as before, so the data dir + POSTGRES_* env are unchanged. The
+    # `backup` service below stays on postgres:18-alpine — pg_dump is a client and
+    # does not need the extension installed.
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
     # read_only is unset — the postgres entrypoint starts as root, drops to the
