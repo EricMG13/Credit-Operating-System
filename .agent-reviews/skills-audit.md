@@ -11,6 +11,37 @@ have is, for this repo, dead weight regardless of its intrinsic quality.
 
 ---
 
+## Applied — 2026-07-08
+
+This audit was **applied** to the catalog. `.agents/skills/` went from **53 → 28**
+skills. Summary of actions taken (all recoverable via git history):
+
+- **§1 Fixed broken refs** — created `skill-observations/observation-log.md`;
+  rewrote the `CLAUDE.md` "Task Observer" section to drop the mandate to invoke a
+  non-existent `task-observer` skill (now an observation-log workflow that
+  actually resolves).
+- **§2.1 impeccable** — ported the general anti-patterns (ghost-card
+  border+shadow, over-rounded cards, sketchy-SVG, stripe gradients) into the
+  canonical `.claude/` copy's Absolute bans. _Note: the raw cross-tree diff
+  overstated the gap — the `.claude/` copy already integrated the typographic
+  ceiling (letter-spacing floor ≥ -0.04em) under General rules > Typography; only
+  the anti-patterns were genuinely missing._
+- **§2.2** — documented the intentional per-agent (Codex/GPT) mirrors in
+  `_VENDORED.md`.
+- **§2.3 + §3 + §4 + one of §5** — deleted 25 skill directories: the 2 identical
+  `gitnexus-*` copies, 6 no-CAOS-surface skills, the 15 design verbs +
+  `teach-impeccable`, and `a11y-audit`.
+- **§5 — partially held.** `a11y-audit` deleted (regex-based, superseded by the
+  mandated axe runner, no inbound refs). **`code-reviewer`, `security-best-practices`,
+  and `finding-duplicate-functions` were retained**, deliberately: `code-reviewer`
+  is a routing target of the `senior-security` hub (deleting it would dangle that
+  reference — the very defect §1 fixes), and the owasp-vs-best-practices and
+  fallow-vs-finding-duplicate-functions choices are genuine judgment calls the
+  audit did not resolve. These need a routing decision + router edits before
+  removal; flagged for owner sign-off rather than an arbitrary destructive pick.
+
+---
+
 ## TL;DR — recommendation counts
 
 | Verdict | Count | Meaning |
