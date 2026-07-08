@@ -1,12 +1,13 @@
 import logging
-from typing import List, Dict, Set, Optional, Tuple
-import math
+from typing import List, Dict, Set, Optional, Sequence, TypeVar
 import tiktoken
 from sqlalchemy import select
 
 from config import get_settings
-from database import DocumentChunk, DocumentChunkEmbedding, Document
-from retrieval import Hit, CorpusHit, cosine_similarity
+from database import DocumentChunk, DocumentChunkEmbedding
+from retrieval import Hit, cosine_similarity
+
+H = TypeVar("H", bound=Hit)
 
 logger = logging.getLogger("caos.packer")
 
@@ -19,14 +20,14 @@ def get_token_count(text: str, encoding) -> int:
         return len(text.split())
 
 
-async def pack_context(
+async def pack_context(  # noqa: C901
     db,
-    hits: List[Hit],
+    hits: Sequence[H],
     query_vector: Optional[List[float]],
     token_budget: int = 6000,
     lambda_mmr: float = 0.5,
     max_chunks_per_doc: int = 3,
-) -> List[Hit]:
+) -> List[H]:
     """Packs retrieved hits into a token-budgeted context using MMR and diversity constraints.
     
     If query_vector and chunk vectors are available, uses vector cosine similarity for MMR.
@@ -72,7 +73,7 @@ async def pack_context(
     token_counts = {h.chunk_id: get_token_count(h.text, encoding) for h in hits}
 
     # 2. Run MMR selection loop
-    selected: List[Hit] = []
+    selected: List[H] = []
     selected_ids: Set[str] = set()
     doc_counts: Dict[str, int] = {}
     total_tokens = 0

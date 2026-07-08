@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from database import AsyncSessionLocal, PipelineRun
 from engine import pipeline, pipeline_executor
@@ -162,7 +162,6 @@ async def test_executor_start_sweeps_stranded_running(seeded_db):
 @pytest.mark.asyncio
 async def test_executor_enqueue_runs_job_to_complete(seeded_db, monkeypatch):
     _wire_run_cycle(monkeypatch)
-    ex = pipeline_executor.PipelineExecutor()
     async with AsyncSessionLocal() as db:
         jid = await pipeline.enqueue_cycle(db, prior_fingerprints={"i1": "old"})
     # Run the job DIRECTLY (await execute_job) rather than via the fire-and-forget

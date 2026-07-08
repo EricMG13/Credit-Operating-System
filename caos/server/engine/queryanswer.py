@@ -118,7 +118,7 @@ _SYSTEM = (
 )
 
 
-def _validate(reply: _AnswerReply, hits: list,
+def _validate(reply: _AnswerReply, hits: list,  # noqa: C901
               metric_facts: Optional[List[MetricFactEntry]] = None) -> dict:
     """Sentence gate: keep only cited, number-grounded sentences; join the
     survivors into the answer paragraph.
@@ -210,7 +210,7 @@ def _build_feedback_note(payload: dict) -> str:
     )
 
 
-async def _apply_entailment_demotions(payload: dict, hits: list,
+async def _apply_entailment_demotions(payload: dict, hits: list,  # noqa: C901
                                       metric_facts: List[MetricFactEntry]) -> None:
     """Run the entailment lane over a validated payload and demote weakly-entailed
     ``observation`` sentences to ``causal-hypothesis`` in place. No-op on empty
@@ -249,7 +249,7 @@ async def _apply_entailment_demotions(payload: dict, hits: list,
             sentences[claim.index]["claim_type"] = "causal-hypothesis"
 
 
-async def _generate(db: AsyncSession, question: str, capability_id: Optional[str],
+async def _generate(db: AsyncSession, question: str, capability_id: Optional[str],  # noqa: C901
                     issuer_id: Optional[str],
                     tier: str = presets.HEAVY) -> dict:
     """Retrieve → answer → gate. Returns the validated payload (no persistence).
@@ -364,7 +364,7 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
                 raise ValueError(f"model answer reply failed validation — {e}") from e
             logger.exception("Self-correction retry failed validation; keeping prior payload")
             break
-        except Exception as e:
+        except Exception:
             if attempt == 0:
                 raise
             logger.exception("Self-correction retry failed; keeping prior payload")

@@ -7,7 +7,6 @@ the Postgres ``pg_try_advisory_lock`` code path with a mock session.
 
 from __future__ import annotations
 
-import asyncio
 
 import pytest
 

@@ -39,10 +39,9 @@ accepting ``bool``/``0``.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from statistics import median
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
