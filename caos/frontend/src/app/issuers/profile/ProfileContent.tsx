@@ -26,7 +26,7 @@ import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).

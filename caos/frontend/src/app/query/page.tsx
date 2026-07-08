@@ -15,7 +15,6 @@ import { GroupLauncher } from "@/components/query/GroupLauncher";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { InsightFeed } from "@/components/query/InsightFeed";
-import { WatchlistEditor } from "@/components/query/WatchlistEditor";
 import { AiAnswer } from "@/components/query/AiAnswer";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
@@ -110,9 +109,9 @@ function QueryWorkspace() {
   const [brief, setBrief] = useState<InsightBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefCollapsed, setBriefCollapsed] = useState(false);
-  // Phase-2 personalization — the analyst's coverage watchlist editor (scopes
-  // the Desk Brief). Collapsible so it never crowds the graph by default.
-  const [watchlistOpen, setWatchlistOpen] = useState(false);
+  // NOTE: Phase-2 watchlist editor (WatchlistEditor.tsx + /api/query/watchlist)
+  // is built but not yet rendered here — re-add the import + a collapsible toggle
+  // when wiring the Desk-Brief personalization control into this layout.
   // Layout F — the running report the analyst assembles, the right-rail tab, and
   // which print-root is live (only one at a time so window.print never doubles).
   const [report, setReport] = useState<ReportSection[]>([]);

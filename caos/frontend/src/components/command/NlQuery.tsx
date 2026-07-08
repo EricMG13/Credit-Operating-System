@@ -6,7 +6,6 @@
 // gate-aware answer. Surfaced on the Command Center as the "scan coverage" tool.
 
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Panel as PanelShell } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
@@ -21,7 +20,7 @@ import { useModalA11y } from "@/lib/use-modal-a11y";
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
 export type OpenCite = (chunkId: string, label?: string | null) => void;
 
-const STARTERS = [
+const _STARTERS = [
   "which issuers' margins are most exposed to higher inflation in energy prices",
   "which issuer is most levered",
   "which issuers flag energy or input-cost pressure in their filings",
