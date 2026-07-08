@@ -16,13 +16,13 @@ beforeAll(() => {
   global.ResizeObserver = class ResizeObserver {
     observe() {
       // Synchronously trigger callback to establish dimensions under test
-      this.callback([{
-        contentRect: { width: 820, height: 340 }
-      }]);
+      this.callback([
+        { contentRect: { width: 820, height: 340 } } as ResizeObserverEntry,
+      ], this);
     }
     unobserve() {}
     disconnect() {}
-    constructor(public callback: any) {}
+    constructor(public callback: ResizeObserverCallback) {}
   };
 });
 
