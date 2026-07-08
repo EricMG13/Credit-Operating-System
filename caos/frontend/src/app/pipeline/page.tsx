@@ -157,9 +157,11 @@ function PipelineVisualizer() {
   }
 
   const runIdLabel = useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId;
-  const issuerLabel = useLive
-    ? (issuerId === ATLF_REFERENCE_ISSUER_ID ? "Atlas Forge — live CP-X run" : `${issuerId} — live CP-X run`)
-    : "Atlas Forge — " + mode.title;
+  const issuerName = useLive && issuerId !== ATLF_REFERENCE_ISSUER_ID ? issuerId : "Atlas Forge";
+  // Split the run-mode designator into its own span so it stays visible even when a
+  // long issuer id truncates — it names what the header shows (the live CP-X run vs
+  // the offline route template), so it must never be clipped out of view.
+  const issuerModeSuffix = useLive ? " — live CP-X run" : " — " + mode.title;
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -209,7 +211,10 @@ function PipelineVisualizer() {
           {/* RUN id is identity, not chrome — visible at every breakpoint. */}
           <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{runIdLabel}</span>
           {/* Issuer label — always names the run. */}
-          <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{issuerLabel}</span>
+          <span className="text-caos-xl text-caos-text font-medium flex items-baseline min-w-0">
+            <span className="truncate min-w-0">{issuerName}</span>
+            <span className="shrink-0 whitespace-nowrap">{issuerModeSuffix}</span>
+          </span>
         </>
       }
       primaryAction={
