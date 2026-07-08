@@ -24,3 +24,8 @@ google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported on
 # extra dependency, no local model download (policy). One batched call per query.
 pypdf==6.*
 openpyxl==3.1.*
+# Token-accurate chunking for ingest + context packing (ingest.chunk_text,
+# engine/packer.pack_context); both import tiktoken at module load, so it is a
+# hard runtime dependency, not optional. The get_encoding() download failure path
+# still degrades to a whitespace tokenizer.
+tiktoken==0.13.*

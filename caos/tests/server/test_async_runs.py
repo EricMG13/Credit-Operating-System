@@ -83,13 +83,15 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
     concurrently the two sleeps overlap (total ≈ 1×SLEEP); if it regressed to serial
     they'd sum (≈ 2×SLEEP)."""
     from database import AsyncSessionLocal, Run
-    from engine import runner
+    from engine import bindings
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import execute_run_by_id
 
     SLEEP = 0.5
     spans = {}
-    real_fp, real_cov = runner.synthesize_fact_pack, runner.synthesize_covenants
+    # These synthesizers now live behind the bindings dispatch seam (spec P1·C1);
+    # patch them there, not on runner.
+    real_fp, real_cov = bindings.synthesize_fact_pack, bindings.synthesize_covenants
 
     async def slow_fp(retrieve):
         loop = asyncio.get_running_loop()
@@ -107,8 +109,8 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
         spans["CP-4C:end"] = loop.time()
         return result
 
-    monkeypatch.setattr(runner, "synthesize_fact_pack", slow_fp)
-    monkeypatch.setattr(runner, "synthesize_covenants", slow_cov)
+    monkeypatch.setattr(bindings, "synthesize_fact_pack", slow_fp)
+    monkeypatch.setattr(bindings, "synthesize_covenants", slow_cov)
 
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")

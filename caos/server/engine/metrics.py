@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, sort_key
+from engine.periods import is_finite_number, latest, safe_div, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -170,9 +170,11 @@ def extract_facts(  # noqa: C901
         rv = rev.get(period)
         # Both operands must be finite before the divide: a NaN rv is truthy, so a
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
-        # (add() would then drop it, but compute it cleanly here regardless).
-        if is_finite_number(rv) and rv and is_finite_number(v):
-            add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
+        # (add() would then drop it, but compute it cleanly here regardless). safe_div
+        # concentrates that guard; scale the numerator so arithmetic order is unchanged.
+        m = safe_div(100 * v, rv)
+        if m is not None:
+            add("ebitda_margin", period, round(m, 1), "%", period == eb_headline)
 
     # Free cash flow + cash conversion (FCF / revenue), per period. Conversion is
     # derived here from the FCF and revenue series, not trusted as an input.
@@ -181,8 +183,9 @@ def extract_facts(  # noqa: C901
     for period, v in fcf.items():
         add("fcf", period, v, "$M", period == fcf_headline)
         rv = rev.get(period)
-        if is_finite_number(rv) and rv and is_finite_number(v):
-            add("fcf_conversion", period, round(100 * v / rv, 1), "%", period == fcf_headline)
+        m = safe_div(100 * v, rv)
+        if m is not None:
+            add("fcf_conversion", period, round(m, 1), "%", period == fcf_headline)
 
     # Net leverage: a per-period series (drives the leverage trend) when CP-1
     # provides one; else the single LTM scalar. Interest coverage stays LTM.
@@ -246,12 +249,15 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
             and is_finite_number(eb) and eb):
         return None
-    recomputed = nd / eb
+    recomputed = safe_div(nd, eb)
+    if recomputed is None:  # unreachable: the guard above proved nd, eb finite and non-zero
+        return None
     # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
     # leverage, and dividing by the signed lev would make the ratio negative —
     # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
     # vs the recomputed value) would silently escape this MATERIAL cross-check.
-    if abs(recomputed - lev) / abs(lev) <= 0.05:
+    deviation = safe_div(abs(recomputed - lev), abs(lev))
+    if deviation is None or deviation <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",

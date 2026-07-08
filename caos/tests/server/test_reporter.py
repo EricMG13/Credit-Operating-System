@@ -9,12 +9,10 @@ empty-input honest-silence path.
 from __future__ import annotations
 
 import asyncio
-import uuid
 
 import pytest
-from sqlalchemy import select
 
-from database import AsyncSessionLocal, Issuer
+from database import AsyncSessionLocal
 from engine import reporter
 from engine.analyst import ValidatedClaim
 from engine.anomaly import Anomaly

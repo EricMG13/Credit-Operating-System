@@ -43,7 +43,9 @@ def key_from_str(label: str) -> int:
     Postgres advisory-lock keys are int64; a content hash keeps distinct lanes
     from colliding while staying stable across processes (so two workers hashing
     "desk-brief-regen" derive the same key)."""
-    h = hashlib.sha1(label.encode("utf-8")).digest()
+    # Not a security hash — SHA-1 only maps a label to a stable int64 lock key;
+    # usedforsecurity=False documents that and clears the SAST weak-hash flag.
+    h = hashlib.sha1(label.encode("utf-8"), usedforsecurity=False).digest()
     # Mask to 63 bits so the int is non-negative even on drivers that sign-extend.
     return int.from_bytes(h[:8], "big", signed=False) & ((1 << 63) - 1)
 

@@ -23,7 +23,6 @@ column. The marker travels with the artifact wherever the JSON goes.
 
 from __future__ import annotations
 
-from typing import Optional
 
 WEB = "web"
 VAULT = "vault"

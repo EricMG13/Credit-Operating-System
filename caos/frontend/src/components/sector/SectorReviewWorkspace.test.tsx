@@ -99,7 +99,9 @@ describe("SectorReviewWorkspace", () => {
     render(<SectorReviewWorkspace />);
 
     expect(await screen.findByRole("heading", { name: "Industrials" })).toBeTruthy();
-    expect(screen.getByText("Q2 order books soften")).toBeTruthy();
+    // Signals load in a second effect (one tick after the heading), so await the
+    // first signal-card text; the remaining assertions render in the same batch.
+    expect(await screen.findByText("Q2 order books soften")).toBeTruthy();
     expect(screen.getByText("Earnings / 1")).toBeTruthy();
     expect(screen.getByText("ATLF / held")).toBeTruthy();
     expect(screen.getAllByText("Seed / demo").length).toBeGreaterThan(0);

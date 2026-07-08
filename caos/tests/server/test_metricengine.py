@@ -15,7 +15,6 @@ from sqlalchemy import select
 
 from database import AsyncSessionLocal, Issuer, MetricFact, Run
 from engine.metricengine import (
-    MetricFactEntry,
     _delta_entries,
     _robust_z,
     build_metric_facts,

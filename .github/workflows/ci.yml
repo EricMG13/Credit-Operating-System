@@ -42,7 +42,10 @@ jobs:
         python-version: ["3.11", "3.14"]
     services:
       postgres:
-        image: postgres:18
+        # pgvector image (matches the deploy stack's db) so migration 0030's
+        # `CREATE EXTENSION vector` succeeds — plain postgres:18 lacks pgvector
+        # and the worker-lease tests error at schema setup.
+        image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]

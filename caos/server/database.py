@@ -58,15 +58,15 @@ class SafeVector(TypeDecorator):
         return value
 
 @compiles(Vector, "sqlite")
-def compile_sqlite_vector(element, compiler, **kw):
+def compile_sqlite_vector(_element, _compiler, **kw):
     return "TEXT"
 
 @compiles(TSVECTOR, "sqlite")
-def compile_sqlite_tsvector(element, compiler, **kw):
+def compile_sqlite_tsvector(_element, _compiler, **kw):
     return "TEXT"
 
 @compiles(Computed, "sqlite")
-def compile_sqlite_computed(element, compiler, **kw):
+def compile_sqlite_computed(_element, _compiler, **kw):
     return "GENERATED ALWAYS AS (NULL) STORED"
 
 from sqlalchemy.pool import NullPool  # noqa: E402  # after @compiles decorators that must register first
@@ -977,14 +977,14 @@ async def erase_analyst_data(
 
 
 @event.listens_for(DocumentChunk, "before_insert")
-def _set_chunk_hash_insert(mapper, connection, target):
+def _set_chunk_hash_insert(_mapper, connection, target):
     if target.text:
         import hashlib
         target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()
 
 
 @event.listens_for(DocumentChunk, "before_update")
-def _set_chunk_hash_update(mapper, connection, target):
+def _set_chunk_hash_update(_mapper, connection, target):
     if target.text:
         import hashlib
         target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()

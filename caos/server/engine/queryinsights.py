@@ -35,7 +35,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -475,7 +475,7 @@ async def _regenerate(db: AsyncSession, analyst_id: Optional[str]) -> dict:
     pack = await build_pack(db, issuer_ids or None)
     model: Optional[str] = None
     if not pack:
-        payload = {"cards": [], "degraded": True,
+        payload: dict[str, Any] = {"cards": [], "degraded": True,
                    "generated_reason": "No coverage data yet.", "data_fingerprint": fp}
     else:
         cards, model, degraded = await _generate(db, pack)
