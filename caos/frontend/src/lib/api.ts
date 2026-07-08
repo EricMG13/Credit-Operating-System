@@ -217,6 +217,101 @@ export interface ChatMessage {
 export const askIssuer = (messages: ChatMessage[]): Promise<string> =>
   api.post("/api/chat/issuer", { messages }).then((r) => r.data.reply);
 
+// ─── Sector Review ────────────────────────────────────────────────────────
+export interface SectorFeed {
+  sector: string;
+  enabled: boolean;
+  notify_pref: string;
+  provenance: string;
+}
+export interface SectorSource {
+  source_type: string;
+  ref: string;
+  title: string;
+  url?: string | null;
+  tier: string;
+  provenance: string;
+}
+export interface SectorIssuer {
+  issuer_id?: string | null;
+  name: string;
+  ticker?: string | null;
+  exposure: string;
+}
+export interface SectorSignal {
+  id: string;
+  sector: string;
+  signal_date: string;
+  category: string;
+  severity: string;
+  headline: string;
+  summary: string;
+  materiality_score: number;
+  issuers: SectorIssuer[];
+  sources: SectorSource[];
+  provenance: string;
+  staleness_flag: string;
+  confidence: string;
+}
+export interface SectorReviewSection {
+  id: string;
+  title: string;
+  posture: string;
+  summary: string;
+  signal_ids: string[];
+}
+export interface SectorReview {
+  sector: string;
+  timeframe: string;
+  as_of: string;
+  posture: string;
+  confidence: string;
+  staleness_flag: string;
+  provenance: string;
+  module_status: string;
+  refresh_trigger: string;
+  sections: SectorReviewSection[];
+  signals: SectorSignal[];
+}
+export interface SectorAskResponse {
+  signal_id: string;
+  answer: string;
+  financial_impact_summary: string;
+  affected_issuers: SectorIssuer[];
+  recommended_actions: string[];
+  sources: SectorSource[];
+  provenance: string;
+  retrieval_scope: string;
+}
+export const getSectorFeeds = (): Promise<SectorFeed[]> =>
+  api.get("/api/sector/feeds").then((r) => r.data);
+export const updateSectorFeeds = (feeds: SectorFeed[]): Promise<SectorFeed[]> =>
+  api.put("/api/sector/feeds", { feeds }).then((r) => r.data);
+export const getSectorSignals = (params: {
+  sector?: string;
+  from?: string;
+  to?: string;
+  q?: string;
+  category?: string;
+  severity?: string;
+  limit?: number;
+}): Promise<SectorSignal[]> =>
+  api.get("/api/sector/signals", { params }).then((r) => r.data);
+export const getSectorReview = (params: {
+  sector: string;
+  timeframe?: string;
+  as_of?: string;
+}): Promise<SectorReview> =>
+  api.get("/api/sector/review", { params }).then((r) => r.data);
+export const refreshSectorReview = (data: {
+  sector: string;
+  timeframe?: string;
+  as_of?: string;
+}): Promise<SectorReview> =>
+  api.post("/api/sector/review/refresh", data).then((r) => r.data);
+export const askSectorTopic = (signal_id: string, question: string): Promise<SectorAskResponse> =>
+  api.post("/api/sector/ask", { signal_id, question }).then((r) => r.data);
+
 // ─── Ingestion ────────────────────────────────────────────────────────────
 // The server parses, virus-scans, and chunks the file inside the request, so a
 // real filing can run well past the 20s default. Give ingestion a generous
@@ -434,6 +529,14 @@ export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =
 // requests a fresh build (rate-limited, LLM spend).
 export const queryInsights = (force = false): Promise<InsightBrief> =>
   api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
+
+// The analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
+// Non-empty → a per-analyst brief (cache row keyed by analyst_id); empty → the
+// shared book-level brief. PUT replaces the full set idempotently.
+export const getWatchlist = (): Promise<{ issuer_ids: string[] }> =>
+  api.get("/api/query/watchlist").then((r) => r.data);
+export const saveWatchlist = (issuer_ids: string[]): Promise<{ issuer_ids: string[] }> =>
+  api.put("/api/query/watchlist", { issuer_ids }).then((r) => r.data);
 
 // A grounded AI answer beside a walk — cited prose written from vault chunks (+
 // the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,

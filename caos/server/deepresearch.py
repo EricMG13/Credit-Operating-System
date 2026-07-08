@@ -279,7 +279,7 @@ async def run_deep_research(
             model = fb_model
             msg = await _final_message(model)
         # M-1: trace each streamed turn (run-less lane → run_id is null).
-        budget.trace_llm(msg, lane="deepresearch", model=model)
+        await budget.trace_llm(msg, lane="deepresearch", model=model)
 
         for block in msg.content:
             if getattr(block, "type", None) == "text":

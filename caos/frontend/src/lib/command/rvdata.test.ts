@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { DELTA_COLS, INDEX_STATS, RV_SECTORS, ratingAverages, subSectorAverages } from "./rvdata";
+import {
+  buildRVHoldingsMap,
+  buildRVRows,
+  DELTA_COLS,
+  derivePosture,
+  INDEX_STATS,
+  RV_AS_OF,
+  RV_FILE_LABEL,
+  RV_SECTORS,
+  RV_SOURCE,
+  RV_THRESHOLDS,
+  ratingAverages,
+  rvStaleness,
+  subSectorAverages,
+  type RVRow,
+} from "./rvdata";
+import { PORTFOLIO } from "./data";
 
 describe("sector RV market data", () => {
   it("loads the market-data file into sector RV tables", () => {
@@ -22,6 +38,10 @@ describe("sector RV market data", () => {
       "Telecoms",
     ]);
     expect(DELTA_COLS).toEqual(["Δ 1M", "Δ YTD"]);
+    expect(RV_AS_OF).toBe("2026-07-06");
+    expect(RV_FILE_LABEL).toBe("Jun 29 08:39");
+    expect(RV_SOURCE).toBe("market-data.json");
+    expect(RV_THRESHOLDS).toEqual({ cheap: 150, wide: 50, tight: -50, rich: -150 });
     expect(INDEX_STATS).toHaveLength(RV_SECTORS.length);
     expect(INDEX_STATS.reduce((sum, sector) => sum + sector.n, 0)).toBe(rowCount);
     expect(RV_SECTORS.every((sector) => sector.color !== "#a1a1b5")).toBe(true);
@@ -50,6 +70,41 @@ describe("sector RV market data", () => {
 
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rv).toBe("N/A");
     expect(energy.rows.find((row) => row.company === "Natgasoline")?.rvBp).toBeNull();
+  });
+
+  it("labels feed staleness from the shared as-of date", () => {
+    expect(rvStaleness(RV_AS_OF, new Date("2026-07-06T12:00:00Z"))).toEqual({
+      label: "CURRENT (0–90d)",
+      tone: "success",
+    });
+    expect(rvStaleness(RV_AS_OF, new Date("2026-10-06T12:00:00Z"))).toEqual({
+      label: "POTENTIALLY STALE (91–180d)",
+      tone: "warning",
+    });
+  });
+
+  it("derives posture from benchmarked cheap/rich share", () => {
+    const row = (rvBp: number | null) => ({ rvBp }) as RVRow;
+
+    expect(derivePosture([row(100), row(50), row(-25), row(null)])).toMatchObject({
+      label: "CONSTRUCTIVE",
+      cheapCount: 2,
+      richCount: 1,
+      n: 3,
+    });
+    expect(derivePosture([row(25), row(-20), row(null)])).toMatchObject({ label: "NEUTRAL", n: 2 });
+    expect(derivePosture([row(-100), row(-25), row(10)])).toMatchObject({ label: "CAUTIOUS", n: 3 });
+    expect(derivePosture([])).toMatchObject({ label: "NEUTRAL", n: 0 });
+  });
+
+  it("builds exact-match portfolio overlays for Sector RV", () => {
+    const sample = buildRVRows().find((row) => row.figi)!;
+    const direct = buildRVRows(buildRVHoldingsMap([{ figi: sample.figi.toLowerCase(), headroomPct: 12 }]))
+      .find((row) => row.figi === sample.figi);
+    const sleeveRows = buildRVRows(buildRVHoldingsMap(PORTFOLIO));
+
+    expect(direct?.portfolioRv).toEqual({ held: true, headroomPct: 12 });
+    expect(sleeveRows.some((row) => row.portfolioRv.held)).toBe(true);
   });
 
   it("never surfaces a junk feed mark as an RV tail (F1)", () => {

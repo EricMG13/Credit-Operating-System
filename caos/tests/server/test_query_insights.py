@@ -98,7 +98,7 @@ def _fake_anthropic(monkeypatch, text: str, calls: list):
 
 
 def _wire(monkeypatch, pack=PACK, fp="fp0"):
-    async def _pack(db):
+    async def _pack(db, issuer_ids=None):
         return list(pack)
 
     async def _fp(db):

@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
+from database import AnalystWatchlist, Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
@@ -33,6 +33,7 @@ router = APIRouter()
 
 _QUERY_MAX_PER_MINUTE = 20
 _READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
+_WATCHLIST_MAX_ISSUERS = 200  # bound the per-analyst brief scope + the replace payload
 _ADMIN_QUERY_RE = re.compile(r"\b(all runs by user|runs by user|user\s+[A-Z0-9._%+-]+@|analyst activity|by analyst|display all runs by)\b", re.I)
 
 
@@ -130,6 +131,86 @@ async def query_insights(
     else:
         _read_rate_guard(caller)
     return await queryinsights.insights(db, force=force, analyst_id=caller.id)
+
+
+# ── Per-analyst watchlist (Desk Brief scoping) ───────────────────────────────
+# The analyst's pinned issuers. Non-empty → the Desk Brief lane builds a
+# per-analyst evidence pack and keys the cached brief by analyst_id; empty → the
+# analyst falls back to the shared book-level brief. Replace semantics: the PUT
+# payload is the full intended set (additive diff applied idempotently), so the
+# analyst's UI never has to reason about partial deletes.
+
+class WatchlistResponse(BaseModel):
+    issuer_ids: list[str] = Field(default_factory=list)
+
+
+class WatchlistUpdate(BaseModel):
+    issuer_ids: list[str] = Field(min_length=0, max_length=_WATCHLIST_MAX_ISSUERS)
+
+
+@router.get("/watchlist", response_model=WatchlistResponse)
+async def get_watchlist(
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The analyst's watchlist — the issuers their Desk Brief is scoped to."""
+    _read_rate_guard(caller)
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
+
+
+@router.put("/watchlist", response_model=WatchlistResponse)
+async def replace_watchlist(
+    body: WatchlistUpdate,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Replace the analyst's watchlist with the given issuer set (idempotent).
+
+    Validated against the issuers table so a stale/typo id is rejected rather
+    than silently producing an empty scoped brief. Deletes removed rows and
+    inserts new ones in one transaction; the Desk Brief regenerates on the next
+    fingerprint change + >24h boundary (or on an explicit force-refresh)."""
+    if not rate_limit.hit(
+        f"query-watchlist:{caller.id}", max_attempts=_READ_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Watchlist update rate limit reached — try again in a minute.",
+        )
+    target = set(body.issuer_ids)
+    # Reject any id that isn't a real issuer — a bad id would scope the brief to
+    # nothing and silently degrade the panel.
+    if target:
+        valid = set((await db.execute(
+            select(Issuer.id).where(Issuer.id.in_(list(target)))
+        )).scalars().all())
+        unknown = target - valid
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown issuer id(s): {sorted(unknown)}",
+            )
+    existing = (await db.execute(
+        select(AnalystWatchlist).where(AnalystWatchlist.analyst_id == caller.id)
+    )).scalars().all()
+    existing_ids = {r.issuer_id for r in existing}
+    for r in existing:
+        if r.issuer_id not in target:
+            await db.delete(r)
+    for iid in sorted(target - existing_ids):
+        db.add(AnalystWatchlist(analyst_id=caller.id, issuer_id=iid))
+    await db.commit()
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
 
 
 class AnswerRequest(BaseModel):

@@ -100,9 +100,17 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
         )
         resp = await gemini.call(model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
-    budget.trace_llm(
+    import hashlib
+    import json
+    prompt_data = {
+        "system": kwargs.get("system"),
+        "messages": kwargs.get("messages")
+    }
+    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    await budget.trace_llm(
         resp, lane=lane, model=used_model,
         ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
+        prompt_hash=phash,
     )
     return resp
 
@@ -140,9 +148,17 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
         )
         resp = await openrouter.call(lane=lane, model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
-    budget.trace_llm(
+    import hashlib
+    import json
+    prompt_data = {
+        "system": kwargs.get("system"),
+        "messages": kwargs.get("messages")
+    }
+    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    await budget.trace_llm(
         resp, lane=lane, model=used_model,
         ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
+        prompt_hash=phash,
     )
     return resp
 
@@ -181,6 +197,26 @@ async def create(
     fb = fallback_model or s.synth_executor_model
     t0 = time.monotonic()
     used_model, did_fallback = primary, False
+
+    import asyncio
+    import random
+
+    async def _call_with_retry(model_name: str, max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 8.0):
+        for attempt in range(max_retries + 1):
+            try:
+                return await client.messages.create(model=model_name, **kwargs)
+            except Exception as exc:
+                if attempt == max_retries or not is_overloaded(exc):
+                    raise
+                delay = min(max_delay, base_delay * (2 ** attempt))
+                jitter = delay * 0.1 * (random.random() - 0.5)
+                sleep_time = max(0.1, delay + jitter)
+                logger.warning(
+                    "caos.llm lane=%s model %s overloaded (%s). Retrying in %.2fs (attempt %d/%d)",
+                    lane, model_name, type(exc).__name__, sleep_time, attempt + 1, max_retries
+                )
+                await asyncio.sleep(sleep_time)
+
     try:
         resp = await client.messages.create(model=primary, **kwargs)
     except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
@@ -190,10 +226,21 @@ async def create(
             "caos.llm lane=%s rate-limited on %s (%s) — falling back %s -> %s",
             lane, primary, type(exc).__name__, primary, fb,
         )
-        resp = await client.messages.create(model=fb, **kwargs)
+        resp = await _call_with_retry(fb)
         used_model, did_fallback = fb, True
-    budget.trace_llm(
+        b = budget.current_budget()
+        if b is not None:
+            b.degraded = True
+    import hashlib
+    import json
+    prompt_data = {
+        "system": kwargs.get("system"),
+        "messages": kwargs.get("messages")
+    }
+    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    await budget.trace_llm(
         resp, lane=lane, model=used_model,
         ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
+        prompt_hash=phash,
     )
     return resp

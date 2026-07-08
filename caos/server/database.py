@@ -20,13 +20,59 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, update,
+    UniqueConstraint, delete, event, inspect, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+import json
+from sqlalchemy.types import TypeDecorator, UnicodeText
+from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.ext.compiler import compiles
 
-from config import SERVER_DIR, get_settings
+class SafeVector(TypeDecorator):
+    impl = Vector
+    cache_ok = True
+
+    def __init__(self, dim=None):
+        super().__init__()
+        self.dim = dim
+        self.impl = Vector(dim)
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "sqlite":
+            return dialect.type_descriptor(UnicodeText())
+        return dialect.type_descriptor(Vector(self.dim))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "sqlite":
+            return json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if dialect.name == "sqlite":
+            return json.loads(value)
+        return value
+
+@compiles(Vector, "sqlite")
+def compile_sqlite_vector(element, compiler, **kw):
+    return "TEXT"
+
+@compiles(TSVECTOR, "sqlite")
+def compile_sqlite_tsvector(element, compiler, **kw):
+    return "TEXT"
+
+@compiles(Computed, "sqlite")
+def compile_sqlite_computed(element, compiler, **kw):
+    return "GENERATED ALWAYS AS (NULL) STORED"
+
+from sqlalchemy.pool import NullPool  # noqa: E402  # after @compiles decorators that must register first
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column  # noqa: E402
+
+from config import SERVER_DIR, get_settings  # noqa: E402
 
 settings = get_settings()
 
@@ -158,15 +204,22 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
+    __table_args__ = (
+        Index("ix_document_chunks_tsv", "tsv", postgresql_using="gin"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     document_id: Mapped[str] = mapped_column(String(36), ForeignKey("documents.id"), index=True)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    tsv: Mapped[Optional[TSVECTOR]] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', text)", persisted=True),
+        nullable=True,
+    )
 
 
 # ─── Analytical engine: runs, outputs, evidence, QA ─────────────────────────
@@ -243,6 +296,59 @@ class ResearchJob(Base):
     progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class IssuerResearchReport(Base):
+    """A synthesized bank-research-style credit summary for one issuer+run.
+
+    House artifact (not analyst-scoped): any analyst viewing the same issuer+run
+    sees the same report. Cached per ``(issuer_id, run_id)``; a new complete run
+    does NOT auto-regenerate (cost control) — the UI surfaces a stale banner and
+    the analyst clicks Regenerate.
+
+    Synthesis is a durable background job (mirrors ``ResearchJob`` +
+    ``research_executor.py``): POST persists this row and enqueues a background
+    task; the client polls GET. A dropped connection does not abort execution.
+    """
+
+    __tablename__ = "issuer_research_reports"
+    __table_args__ = (
+        UniqueConstraint("issuer_id", "run_id", name="uq_issuer_run_report"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id"), index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), default="running"
+    )  # running|complete|failed
+    # The structured payload (forced tool-call output), JSON-validated.
+    payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # The rendered Markdown sections (denormalized for cheap GET + future export).
+    markdown: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Figure-validation result: {"checked": n, "verified": n, "dropped": [...], "unverified": [...]}.
+    validation: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # The module digest snapshot the report was synthesized from (reproducibility).
+    digest: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Reproducibility stamps (mirrors Run).
+    prompt_version: Mapped[Optional[str]] = mapped_column(String(32))
+    model_id: Mapped[Optional[str]] = mapped_column(String(64))
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Analyst who triggered the synthesis (for audit; the report itself is shared).
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255))
+    # Live running counts ({"sections": n, "tokens": m}) while synthesizing.
+    progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
@@ -360,6 +466,98 @@ class MetricFact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class SectorSignal(Base):
+    """CP-MON-shaped sector signal substrate consumed by Sector Review."""
+
+    __tablename__ = "sector_signals"
+    __table_args__ = (
+        UniqueConstraint("dedup_hash", name="uq_sector_signals_dedup_hash"),
+        Index("ix_sector_signals_sector_date", "sector", "signal_date"),
+        Index("ix_sector_signals_category_severity", "category", "severity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    issuer_name: Mapped[Optional[str]] = mapped_column(String(255))
+    headline: Mapped[str] = mapped_column(String(255), nullable=False)
+    body_excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    materiality_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_title: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    source_tier: Mapped[str] = mapped_column(String(32), nullable=False, default="seed")
+    dedup_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    event_date: Mapped[Optional[str]] = mapped_column(String(32))
+    provenance: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SectorReviewRun(Base):
+    """Persisted CP-SR review payload envelope once live synthesis is enabled."""
+
+    __tablename__ = "sector_review_runs"
+    __table_args__ = (
+        Index("ix_sector_review_runs_sector_as_of", "sector", "as_of"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(32), nullable=False)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    posture: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    input_signal_ids: Mapped[list] = mapped_column(JSON, default=list)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    refresh_trigger: Mapped[str] = mapped_column(String(32), nullable=False, default="scheduled")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    provenance: Mapped[str] = mapped_column(String(16), nullable=False, default="seed")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalystSectorFeed(Base):
+    """Per-analyst Sector Review feed toggles."""
+
+    __tablename__ = "analyst_sector_feeds"
+    __table_args__ = (
+        UniqueConstraint("analyst_id", "sector", name="uq_analyst_sector_feed"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notify_pref: Mapped[str] = mapped_column(String(32), nullable=False, default="in_app")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalystWatchlist(Base):
+    """An analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
+
+    Phase-2 personalization key: when non-empty, the Desk Brief lane builds a
+    per-analyst evidence pack (deltas/findings scoped to these issuers) and keys
+    the cached brief by ``analyst_id``. Empty (or no rows) → the analyst falls
+    back to the book-level brief (``QueryInsight.analyst_id IS NULL``). Mirrors
+    ``AnalystSectorFeed`` (analyst_id + value, unique pair)."""
+
+    __tablename__ = "analyst_watchlists"
+    __table_args__ = (
+        UniqueConstraint("analyst_id", "issuer_id", name="uq_analyst_watchlist"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False, index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class SavedModel(Base):
     """Latest analyst-saved Model Builder state for an issuer."""
 
@@ -442,9 +640,11 @@ class QueryInsight(Base):
     The insights lane builds a deterministic evidence pack from what changed in
     the book, has the model write cited cards over it, drops any card that cites
     nothing real or states an ungrounded number, and persists the survivors here.
-    ``data_fingerprint`` keys freshness: an unchanged book (same fingerprint) is
-    never regenerated, so the desk pays at most one LLM call per 24h. Book-level
-    in Phase-1 (``analyst_id`` records who triggered the build, not a scope)."""
+    ``data_fingerprint`` keys freshness: an unchanged scope (same fingerprint) is
+    never regenerated, so the desk pays at most one LLM call per 24h per scope.
+    ``analyst_id`` records the SCOPE: ``NULL`` = the shared book-level brief
+    (served to every analyst with no watchlist); a set value = a per-analyst
+    brief scoped to that analyst's watchlist (Phase-2 personalization)."""
 
     __tablename__ = "query_insights"
 
@@ -475,6 +675,62 @@ class QueryAnswer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class LLMCallRecord(Base):
+    """Run ledger for LLM call accounting."""
+
+    __tablename__ = "llm_call_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    lane: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    cost: Mapped[Optional[float]] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(16), default="success")  # success|failed
+    kept_count: Mapped[Optional[int]] = mapped_column(Integer)
+    dropped_count: Mapped[Optional[int]] = mapped_column(Integer)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class LineageEdge(Base):
+    """Lineage DAG showing derivation edges between artifacts."""
+
+    __tablename__ = "lineage_edges"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    artifact_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    parent_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    transform: Mapped[str] = mapped_column(String(64), nullable=False)
+    transform_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DocumentChunkEmbedding(Base):
+    """Semantic vector embedding for a document chunk."""
+
+    __tablename__ = "document_chunk_embeddings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    chunk_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    vector: Mapped[list[float]] = mapped_column(SafeVector(768), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        Index("ix_chunk_embeddings_lookup", "model", "chunk_hash", unique=True),
+        Index(
+            "ix_chunk_embeddings_vector",
+            "vector",
+            postgresql_using="hnsw",
+            postgresql_ops={"vector": "vector_cosine_ops"},
+        ),
+    )
+
+
 class AnalystQaFlag(Base):
     """An analyst-raised QA flag on a module/step output (Deep-Dive register).
 
@@ -483,7 +739,6 @@ class AnalystQaFlag(Base):
     must never trip those gates. issuer_id/run_id are plain strings (no FK) so
     the flag survives its subject — it is an audit record, not run state.
     """
-
     __tablename__ = "qa_flags"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -569,6 +824,35 @@ class PortfolioConstraint(Base):
     breach_type: Mapped[Optional[str]] = mapped_column(String(16))
     source_document: Mapped[Optional[str]] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PipelineRun(Base):
+    """A durable autonomous-cycle run (Phase 3 remainder) — the committee-
+    defensibility audit trail + the multi-worker shared prior.
+
+    ``routes/autonomy`` enqueues one ``running`` row per cycle (via
+    ``pipeline.enqueue_cycle``); the ``PipelineExecutor`` claims it
+    (``SELECT FOR UPDATE SKIP LOCKED`` on Postgres) and runs
+    ``autonomy.run_cycle`` to ``complete`` (or ``failed``). The next cycle
+    reads the latest ``complete`` row's ``current_fingerprints`` as its prior
+    (cold-start / second-worker resume). Mirrors ``research_jobs`` (migration
+    0010): additive, no edits to existing tables."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(32), default="autonomy-cycle", index=True)
+    # running|complete|failed — running is the durable claim (SKIP LOCKED target),
+    # complete is the audit row + prior source, failed is the swept strand.
+    status: Mapped[str] = mapped_column(String(16), default="complete")
+    prior_fingerprints: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    current_fingerprints: Mapped[dict] = mapped_column(JSON, default=dict)
+    draft: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    worker_id: Mapped[Optional[str]] = mapped_column(String(64))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 def _alembic_config():
@@ -681,13 +965,26 @@ async def erase_analyst_data(
         docs = await session.execute(
             update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
         )
-        docs_anonymized = docs.rowcount or 0
+        docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
-
     return {
-        "research_jobs_deleted": research.rowcount or 0,
-        "runs_anonymized": runs.rowcount or 0,
+        "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
-        "profile_deleted": profile.rowcount or 0,
+        "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]
     }
+
+
+@event.listens_for(DocumentChunk, "before_insert")
+def _set_chunk_hash_insert(mapper, connection, target):
+    if target.text:
+        import hashlib
+        target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()
+
+
+@event.listens_for(DocumentChunk, "before_update")
+def _set_chunk_hash_update(mapper, connection, target):
+    if target.text:
+        import hashlib
+        target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()

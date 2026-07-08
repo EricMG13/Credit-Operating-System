@@ -107,8 +107,10 @@ class InProcessExecutor:
 
     def __init__(self) -> None:
         self._tasks: set[asyncio.Task] = set()
+        self._sem: asyncio.Semaphore | None = None
 
     async def start(self) -> None:  # no background loop needed
+        self._sem = asyncio.Semaphore(get_settings().caos_run_concurrency)
         # Hard-crash recovery. A SIGKILL/power-loss skips stop()'s mark-failed
         # handler, stranding a run in 'running' (or 'queued') forever — SQLite
         # has no reaper (the Postgres QueueWorker self-heals via _reap_orphans).
@@ -135,7 +137,11 @@ class InProcessExecutor:
         self._tasks.clear()
 
     async def enqueue(self, run_id: str) -> None:
-        task = asyncio.create_task(execute_run_by_id(run_id))
+        async def _run_with_sem():
+            assert self._sem is not None
+            async with self._sem:
+                await execute_run_by_id(run_id)
+        task = asyncio.create_task(_run_with_sem())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

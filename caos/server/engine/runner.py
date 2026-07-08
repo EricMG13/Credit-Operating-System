@@ -584,6 +584,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             run.qa_status, worst_confidence([p.confidence for p in produced])
         )
         run.tokens_used = run_budget.used
+        if run_budget.budget_exhausted:
+            run.error = "Degraded: Ran out of LLM token budget. Some analytical modules were skipped."
+        elif run_budget.degraded:
+            run.error = "Degraded: LLM rate limits/overloads forced fallback to cheaper models."
+        else:
+            run.error = None
         run.status = "complete"
         run.completed_at = _now()
     except Exception:

@@ -73,10 +73,9 @@ export function LiveCoverage({
     ["Issuer", "issuer"], ["Sector", "sector"], ["NetLev", "netlev"], ["IntCov", "intcov"],
     ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
   ] as const;
-
   return (
-    <div className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
-      <div className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
+    <div role="grid" className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
+      <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
         {heads.map(([h, key], i) => (
           <FilterHeader
             key={key}
@@ -115,11 +114,11 @@ export function LiveCoverage({
             return (
               <div
                 key={r.issuer_id}
-                role="button"
+                role="row"
                 tabIndex={0}
                 onClick={handleClick}
                 onKeyDown={handleKeyDown}
-                aria-pressed={isSelected}
+                aria-selected={isSelected}
                 aria-label={`${r.ticker || ""} ${r.name || ""} details`}
                 className={
                   COLS +
@@ -129,20 +128,21 @@ export function LiveCoverage({
                     : "hover:bg-caos-panel/30 text-caos-text")
                 }
               >
-                <span className="flex items-center gap-1.5 min-w-0">
+                <span role="gridcell" className="flex items-center gap-1.5 min-w-0">
                   <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
                   <span className="text-caos-text truncate text-caos-md">{r.name}</span>
                 </span>
-                <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
-                <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
-                <span className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
-                <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
+                <span role="gridcell" className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
+                <span role="gridcell" className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
+                <span role="gridcell" className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
+                <span role="gridcell" className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
                   {rv ?? "—"}{typeof r.rv_percentile === "number" ? ` · p${Math.round(r.rv_percentile)}` : ""}
                 </span>
-                <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
+                <span role="gridcell" className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
                   {frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—"}
                 </span>
                 <span
+                  role="gridcell"
                   className="tabular text-caos-2xs px-1 py-px rounded border whitespace-nowrap justify-self-start"
                   style={{ color: QA_COLOR[r.qa_status] ?? "var(--caos-muted)", borderColor: QA_COLOR[r.qa_status] ?? "var(--caos-border)" }}
                   title={`Committee: ${r.committee_status}`}

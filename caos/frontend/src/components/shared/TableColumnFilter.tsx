@@ -200,7 +200,6 @@ export function FilterHeader<T>({
     return (
       <>
         <span
-          role="columnheader"
           aria-sort={ariaSort}
           className="inline-flex items-center gap-1.5 min-w-0"
         >

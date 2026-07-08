@@ -240,33 +240,33 @@ endpoint: POST /api/query/nl
 =END=
 =ROW=
 id: command-29
-concept: Command Center
-feature: Sector Board - Grid of Sector Cards
-story: As a Head of Research, I want all 8 sectors at a glance so that I can see which need refresh.
-expected: 4-col grid of sector cards; each shows name, stance badge (color), trend summary, refresh timestamp + status (UPDATED / REFRESH DUE).
-trigger: Route load (PORTFOLIO)
-files: caos/frontend/src/components/command/views.tsx:285
-endpoint: none (client-only)
+concept: Sector Review
+feature: Sector Review - Feed Selector
+story: As a Head of Research, I want sector feed toggles so that the daily brief matches my coverage scope.
+expected: Standalone /sector page shows feed toggles; selecting a sector loads its CP-SR daily brief; all seed rows are provenance-badged.
+trigger: Route load /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/feeds; PUT /api/sector/feeds
 =END=
 =ROW=
 id: command-30
-concept: Command Center
-feature: Sector Card - Open Sector Review
-story: As a Head of Research, I want to open a sector to review thesis/refresh so that I can keep analysis current.
-expected: Modal with title+stance, timeframe selector, metrics grid, refresh trace, knowledge sources, thesis+drivers, impacted issuers; close Esc/X.
-trigger: Click sector card
-files: caos/frontend/src/components/command/SectorReview.tsx:40
-endpoint: none (client-only)
+concept: Sector Review
+feature: Sector Review - Daily Signal Cards
+story: As a Head of Research, I want grouped daily sector cards so that I can scan source-backed developments quickly.
+expected: Grouped signal cards show severity, headline, summary, issuer chips, source chips, materiality score, timestamp, and seed/demo badge.
+trigger: Select sector on /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/signals; GET /api/sector/review
 =END=
 =ROW=
 id: command-31
-concept: Command Center
-feature: CP-SR Refresh Knowledge
-story: As a Head of Research, I want to refresh a sector's knowledge so that I can capture new developments and re-score issuers.
-expected: "⟳ UPDATE KNOWLEDGE" runs 4 staged steps (~650ms each: CP-0 vault scan, CP-MON search, CP-SR synth, CP-1C re-score); card stamps "UPDATED · time"; button → disabled checkmark; new finding badged "NEW · this refresh".
-trigger: Click UPDATE KNOWLEDGE
-files: caos/frontend/src/components/command/SectorReview.tsx:64; caos/frontend/src/components/command/sections.tsx:32
-endpoint: none (client-only simulated)
+concept: Sector Review
+feature: Sector Review - Refresh Briefing
+story: As a Head of Research, I want to refresh the sector brief so that stale seed or live data is re-read through the API substrate.
+expected: Refresh button calls POST /api/sector/review/refresh and re-renders the review; first version returns ad_hoc_seed provenance, not live CP-SR.
+trigger: Click Refresh on /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1; caos/server/routes/sector.py:1
+endpoint: POST /api/sector/review/refresh
 =END=
 =ROW=
 id: command-32
@@ -420,53 +420,53 @@ endpoint: POST /api/query/nl
 =END=
 =ROW=
 id: command-47
-concept: Command Center
+concept: Sector Review
 feature: Sector Review - Timeframe Selector
 story: As a Head of Research, I want to reframe sector analysis by timeframe so that I see short vs long-term moves.
-expected: Segmented 1W/1M/3M/6M/YTD/1Y; click updates all metrics; active highlighted.
-trigger: Click timeframe in sector modal
-files: caos/frontend/src/components/command/sections.tsx:32
-endpoint: none (client-only)
+expected: Segmented Today/3D/1W/1M/Custom selector; custom exposes from/to dates and feeds bounded signal queries.
+trigger: Click timeframe on /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/review; GET /api/sector/signals
 =END=
 =ROW=
 id: command-48
-concept: Command Center
-feature: Sector Review - Metrics Grid
-story: As a Head of Research, I want key spread metrics so that I can assess sector positioning.
-expected: 4-col grid: Sector DM Δ, vs Lev Loan Index, Dispersion, EW triggers (count colored by ≥3/>0/0); color-coded by direction.
-trigger: Route load / timeframe change in modal
-files: caos/frontend/src/components/command/sections.tsx:78
-endpoint: none (client-only)
+concept: Sector Review
+feature: Sector Review - Search and Filters
+story: As a Head of Research, I want to filter sector signals by text, category, and severity so that I can isolate material items.
+expected: Search input plus category/severity selectors query GET /api/sector/signals and render a true empty state when no rows match.
+trigger: Type search or change filters on /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/signals
 =END=
 =ROW=
 id: command-49
-concept: Command Center
-feature: Sector Review - Knowledge Sources List
+concept: Sector Review
+feature: Sector Review - Source Chips
 story: As a Head of Research, I want searched sources so that I understand the knowledge base.
-expected: List of EXTERNAL/VAULT sources with name, detail, checkmark/pulse; fetched progressively during refresh.
-trigger: Sector refresh in progress/done
-files: caos/frontend/src/components/command/sections.tsx:112
-endpoint: none (client-only)
+expected: Every signal card carries source chips with type/tier/title and seed/demo provenance; URLs are clickable when present.
+trigger: Route load /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/signals
 =END=
 =ROW=
 id: command-50
-concept: Command Center
-feature: Sector Review - Thesis & Drivers
-story: As a Head of Research, I want thesis + drivers so that I can make informed sector judgments.
-expected: Thesis paragraph + 3 driver bullets; after refresh a new finding appended with "NEW · this refresh" badge.
-trigger: Route load / refresh in modal
-files: caos/frontend/src/components/command/sections.tsx:152
-endpoint: none (client-only)
+concept: Sector Review
+feature: Sector Review - Topic ASK
+story: As a Head of Research, I want topic-specific ASK so that I can inspect credit impact without using issuer-only chat.
+expected: Ask Topic opens a dialog and POSTs /api/sector/ask; response is restricted to the selected signal sources plus issuer run objects.
+trigger: Click Ask Topic on signal card
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1; caos/server/routes/sector.py:1
+endpoint: POST /api/sector/ask
 =END=
 =ROW=
 id: command-51
-concept: Command Center
-feature: Sector Review - Impacted Issuers
+concept: Sector Review
+feature: Sector Review - Issuer Chips
 story: As a Head of Research, I want sector impact on held/peer issuers so that I can link sector moves to credit impacts.
-expected: Table lists impacted issuers (HELD accent / PEER muted) with move (ΔDM colored), impact summary, re-score status.
-trigger: Route load / timeframe change in modal
-files: caos/frontend/src/components/command/sections.tsx:177
-endpoint: none (client-only)
+expected: Signal cards show issuer chips with ticker/name and exposure; clicking opens issuer profile search/overlay.
+trigger: Click issuer chip on /sector
+files: caos/frontend/src/components/sector/SectorReviewWorkspace.tsx:1
+endpoint: GET /api/sector/signals
 =END=
 =ROW=
 id: pipeline-01

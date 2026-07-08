@@ -102,6 +102,34 @@ class Settings(BaseSettings):
     model_tier_strong: str = "deepseek/deepseek-v4-pro"   # BALANCED heavy
     model_tier_top: str = "claude-opus-4-8"               # MAX heavy
 
+    embedding_model: str = "text-embedding-004"
+    embedding_dim: int = 768
+
+    # LLM re-rank (engine/rerank.py) — the precision half of the dropped-claim-rate
+    # alarm fix. Re-ranks the top-`rerank_window` retrieved chunks AFTER RRF fusion,
+    # BEFORE context packing, so irrelevant chunks stop outranking relevant ones in
+    # the pack. Policy: NO local model downloads — the re-rank runs as one batched
+    # LLM call through the same API seam as every other engine lane
+    # (engine/llm_client.create), on a model picked by the tier system below. Off
+    # by default: it costs tokens per query and needs a provider key. Any failure
+    # (setting off, no key, API error, malformed JSON, score-count mismatch)
+    # degrades to passthrough, so the query lane never crashes on a reranker
+    # hiccup. Env: RERANK_ENABLED, RERANK_MODEL_TIER, RERANK_WINDOW.
+    rerank_enabled: bool = False
+    # Which model tier the re-rank LLM runs on (cheap|fast|strong|top) — resolved
+    # to a concrete model id by engine/presets.rerank_model(), with the same
+    # provider-key fallback as the per-mode lanes. The re-rank is a retrieval
+    # step (relevance scoring), not a reasoning lane, so it does NOT ride the
+    # analyst's mode table — it pins a tier. Default "cheap" (DeepSeek-v4-flash /
+    # Haiku): relevance scoring is a light task and the window is small (~20).
+    # Raise to "strong"/"top" for harder judgments at linear token cost.
+    rerank_model_tier: str = "cheap"
+    # How many of the RRF-fused hits to feed the re-rank LLM (latency + token
+    # bound). The LLM re-scores these and we keep the top `k` passed by the
+    # caller. 20 = one batched call over a small pack; raising it lifts recall
+    # at linear token cost.
+    rerank_window: int = 20
+
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic
     # gate then consumes — it never decides status itself. Off by default: it
@@ -166,6 +194,8 @@ class Settings(BaseSettings):
 
     # Async run executor.
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
+    caos_run_queue_limit: int = 20       # max runs in queued/running status before rejecting
+    caos_run_per_analyst_limit: int = 3   # max concurrent/queued runs allowed per analyst
     # Max durable Deep Research jobs running at once (research_executor.py). POST
     # returns immediately and fires a background task, so without a ceiling a
     # sustained submission rate would accumulate unbounded multi-minute web-search

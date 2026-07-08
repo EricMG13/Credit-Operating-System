@@ -120,15 +120,16 @@ def _addback_cap(text: str) -> Optional[float]:
 #      be greater than 5.75 to 1.00"
 # Anchoring on these shapes (not a bare ratio) keeps us off the incurrence tests.
 _MAINT_COVENANT_PATTERNS = (
-    re.compile(r"maximum\s+permitted\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*:\s*1(?:\.0+)?", re.IGNORECASE),
+    re.compile(r"maximum\s+permitted\s*(?:leverage\s+ratio\s*)?[:\-]?\s*(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|to\s+1(?:\.0+)?|x\b)", re.IGNORECASE),
     re.compile(
-        r"shall\s+not\s+permit[^.]{0,160}?"
-        r"(total|consolidated|net|senior\s+secured|first[\s-]?lien)\s+leverage\s+ratio"
-        r"[^.]{0,90}?(?:greater\s+than|exceed)\s*"
+        r"shall\s+not\s+permit[^.]{0,350}?"
+        r"\b(total|consolidated|net|senior\s+secured|first[\s-]?lien|consolidated\s+total|total\s+net|consolidated\s+net)?\s*leverage\s+ratio"
+        r"[^.]{0,200}?(?:greater\s+than|exceed|be\s+more\s+than|less\s+than|maximum\s+of)\s*"
         r"(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|x\b|times\b|\s+to\s+1(?:\.0+)?)",
         re.IGNORECASE | re.DOTALL,
     ),
 )
+
 # A secured-basis cue anywhere in a covenant chunk — used for the compliance-cert
 # shape, whose threshold match ("Maximum Permitted: N:1.00") carries no basis word.
 _SECURED_BASIS = re.compile(r"(senior\s+secured|first[\s-]?lien)\s+(?:net\s+)?leverage", re.IGNORECASE)

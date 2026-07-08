@@ -9,7 +9,6 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
@@ -26,6 +25,7 @@ import { buildReports } from "@/lib/reports/builders";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 
@@ -347,131 +347,170 @@ function ModelBuilder() {
       return { ...a, [yk]: years };
     });
 
-  return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header — the dense action cluster is wrapped in a single flex-1
-          scroll container so a narrow viewport scrolls the header internally
-          instead of panning the whole page and pushing SAVE/EXPORT off-canvas. */}
-      <PageSubHeader gap="gap-3">
-        <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto">
-        {isReference ? (
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        ) : eng.runId ? (
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
-        ) : null}
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
-        <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden lg:inline">
-          dbl-click a quarterly / PF input to override
-        </span>
-        <span className="flex-1"></span>
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          QUARTERS
+          QTRS
         </button>
         <button
           onClick={() => setShowAssumptions(!showAssumptions)}
-          title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
+          title="Toggle the Assumptions panel"
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          ASSUMPTIONS
+          ASMP
         </button>
         <button
           onClick={() => setShowScenarios(!showScenarios)}
-          title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
+          title="Toggle the Scenario & Sensitivity panel"
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          SCENARIOS
+          SCEN
         </button>
-        {ovCount ? (
+      </>
+    ),
+  };
+
+  return (
+    <ResponsiveShell
+      identity={
+        <>
+          {isReference ? (
+            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
+          ) : eng.runId ? (
+            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
+          ) : null}
+          <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
+          <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
+          {/* Save status — paired with the provenance badge since both describe model state */}
+          {restoreError ? (
+            <button
+              type="button"
+              onClick={retryRestore}
+              role="alert"
+              title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
+              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            >
+              ⚠ SAVED MODEL UNAVAILABLE · RETRY
+            </button>
+          ) : saveError ? (
+            <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
+              ✗ SAVE FAILED
+            </span>
+          ) : dirty ? (
+            <span
+              className="tabular text-caos-2xs whitespace-nowrap"
+              title="You have edits not yet saved to the database. Report Studio reads the last saved version."
+              style={{ color: "var(--caos-warning)" }}
+            >
+              ● UNSAVED
+            </span>
+          ) : savedAt ? (
+            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
+          ) : null}
+        </>
+      }
+      primaryAction={
+        <>
           <button
-            onClick={() => {
-              if (armReset) {
-                if (armTimer.current) window.clearTimeout(armTimer.current);
-                setArmReset(false);
-                resetAll();
-              } else {
-                setArmReset(true);
-                if (armTimer.current) window.clearTimeout(armTimer.current);
-                armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
-              }
-            }}
-            title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
-            aria-pressed={armReset}
-            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
-            style={
-              armReset
-                ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
-                : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
+            onClick={saveCurrentModel}
+            disabled={!hasIssuerModel || saving}
+            title="Save this issuer model to the database; Report Builder reads the saved version only"
+            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+          >
+            {saving ? "SAVING..." : "SAVE MODEL"}
+          </button>
+          <button
+            onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
+            disabled={!hasIssuerModel}
+            title="Export the model grid (CSV — opens in Excel)"
+            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+          >
+            ▦ EXPORT MODEL
+          </button>
+        </>
+      }
+      contextualControls={
+        <>
+          <button
+            onClick={() => setShowQuarters(!showQuarters)}
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
-            {armReset
-              ? <>▲ CONFIRM RESET?</>
-              : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
+            QUARTERS
           </button>
-        ) : null}
-        <button
-          onClick={saveCurrentModel}
-          disabled={!hasIssuerModel || saving}
-          title="Save this issuer model to the database; Report Builder reads the saved version only"
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
-        >
-          {saving ? "SAVING..." : "SAVE MODEL"}
-        </button>
-        {restoreError ? (
           <button
-            type="button"
-            onClick={retryRestore}
-            role="alert"
-            title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
-            className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            onClick={() => setShowAssumptions(!showAssumptions)}
+            title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
           >
-            ⚠ SAVED MODEL UNAVAILABLE — local draft · RETRY
+            ASSUMPTIONS
           </button>
-        ) : saveError ? (
-          <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
-            ✗ SAVE FAILED — model not stored; Report Studio reads the last saved version
-          </span>
-        ) : dirty ? (
-          <span
-            className="tabular text-caos-2xs whitespace-nowrap"
-            title="You have edits not yet saved to the database. Report Studio reads the last saved version."
-            style={{ color: "var(--caos-warning)" }}
+          <button
+            onClick={() => setShowScenarios(!showScenarios)}
+            title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
           >
-            ● UNSAVED{savedAt ? ` · saved ${new Date(savedAt).toLocaleString()}` : ""}
+            SCENARIOS
+          </button>
+          {ovCount ? (
+            <button
+              onClick={() => {
+                if (armReset) {
+                  if (armTimer.current) window.clearTimeout(armTimer.current);
+                  setArmReset(false);
+                  resetAll();
+                } else {
+                  setArmReset(true);
+                  if (armTimer.current) window.clearTimeout(armTimer.current);
+                  armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
+                }
+              }}
+              title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
+              aria-pressed={armReset}
+              className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
+              style={
+                armReset
+                  ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
+                  : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
+              }
+            >
+              {armReset
+                ? <>▲ CONFIRM RESET?</>
+                : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
+            </button>
+          ) : null}
+          <span
+            className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+          >
+            forecast cells unaudited — CP-5 scope is actuals only
           </span>
-        ) : savedAt ? (
-          <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
-        ) : null}
-        <button
-          onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
-          disabled={!hasIssuerModel}
-          title="Export the model grid (CSV — opens in Excel)"
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
-        >
-          ▦ EXPORT MODEL
-        </button>
-        <span
-          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
-          style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-        >
-          forecast cells unaudited — CP-5 scope is actuals only
-        </span>
-        </div>
-      </PageSubHeader>
-
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* workspace */}
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2">
         {hasIssuerModel ? (
@@ -576,7 +615,7 @@ function ModelBuilder() {
       {/* isLiveRun: a live issuer's E-xx id must hit the explicit unresolved
           panel, never shadow-resolve to the seeded ATLF excerpt as "VERIFIED". */}
       {evModal ? <EvidenceModal id={evModal} reports={reports} isLiveRun={!isReference} onClose={() => setEvModal(null)} /> : null}
-    </div>
+    </ResponsiveShell>
   );
 }
 

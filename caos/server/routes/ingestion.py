@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +24,7 @@ import ingest
 import rate_limit
 import ratings
 import vault_export
-from database import Document, DocumentChunk, Issuer, get_db
+from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
 
 logger = logging.getLogger("caos.ingestion")
@@ -85,6 +85,7 @@ async def _vault_document(
     file: UploadFile,
     text: str,
     content: bytes,
+    background_tasks: BackgroundTasks,
 ) -> IngestionResponse:
     issuer = await db.get(Issuer, issuer_id)
     if not issuer:
@@ -107,11 +108,39 @@ async def _vault_document(
     db.add(doc)
     await db.flush()
     if chunks:
-        await db.execute(
-            insert(DocumentChunk),
-            [{"document_id": doc.id, "seq": i, "text": chunk} for i, chunk in enumerate(chunks)]
-        )
+        import hashlib
+        import uuid
+        from database import LineageEdge
+
+        chunk_dicts = []
+        lineage_dicts = []
+        for i, chunk in enumerate(chunks):
+            cid = str(uuid.uuid4())
+            chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+            chunk_dicts.append({
+                "id": cid,
+                "document_id": doc.id,
+                "seq": i,
+                "text": chunk,
+                "chunk_hash": chash,
+            })
+            lineage_dicts.append({
+                "id": str(uuid.uuid4()),
+                "artifact_id": f"chunk:{cid}",
+                "parent_id": f"doc:{doc.id}",
+                "transform": "chunking",
+                "transform_version": "1.0",
+            })
+        await db.execute(insert(DocumentChunk), chunk_dicts)
+        await db.execute(insert(LineageEdge), lineage_dicts)
     await db.refresh(doc)
+    if chunks:
+        from engine.embeddings import embed_chunks_for_document
+        async def run_embed_task():
+            async with AsyncSessionLocal() as session:
+                await embed_chunks_for_document(session, doc.id)
+                await session.commit()
+        background_tasks.add_task(run_embed_task)
 
     return IngestionResponse(
         document_id=doc.id,
@@ -126,6 +155,7 @@ async def _vault_document(
 
 @router.post("/upload/document", response_model=IngestionResponse)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
@@ -140,7 +170,7 @@ async def upload_document(
     # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
     # large upload doesn't block the event loop for every other request.
     text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
-    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content)
+    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
 
 
 async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:
@@ -192,6 +222,7 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
 
 @router.post("/upload/pricing-sheet", response_model=IngestionResponse)
 async def upload_pricing_sheet(
+    background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
@@ -209,7 +240,8 @@ async def upload_pricing_sheet(
     # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
     # upload_document) so a large workbook doesn't stall the single event loop.
     text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
-    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content)
+    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
+
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
     await _collect_ratings(db, content, resp)
     return resp
@@ -225,6 +257,7 @@ class MemoUploadResponse(BaseModel):
 
 @router.post("/upload/memo", response_model=MemoUploadResponse)
 async def upload_memo(
+    background_tasks: BackgroundTasks,
     memo_type: str = Form("memo"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -233,9 +266,12 @@ async def upload_memo(
     """Analyst-authored commentary (market/research notes) into the Obsidian
     vault's ``Analyst-Memos/`` — the folder ``sync_analyst_memos`` scans and the
     Query graph deep-links. Known issuer names/tickers are auto-wikilinked so a
-    plain PDF or text note links itself into coverage. Vault-only: the memo is
-    not chunked into document_chunks (upload under an issuer for engine
-    retrieval)."""
+    plain PDF or text note links itself into coverage. The memo is ALSO chunked
+    into ``document_chunks`` (one ``analyst-memo`` Document per linked issuer) so
+    Q2 query answers can cite the analyst's own prior commentary — memos linking
+    zero issuers stay vault-only (reachable via the Query graph). The run
+    pipeline excludes ``analyst-memo`` docs (``build_issuer_index`` filter) so
+    engine extraction never cites commentary as source truth."""
     _upload_rate_guard(caller)
     from config import get_settings  # local: one patch of config.get_settings covers route + sync
 
@@ -280,10 +316,43 @@ async def upload_memo(
     except Exception as e:  # the note is written; the next Query read re-syncs links
         logger.warning("analyst memo link sync failed after upload: %s", e)
 
+    # Chunk the memo into document_chunks so Q2 retrieval can cite it. One
+    # analyst-memo Document per linked issuer; memos linking zero issuers stay
+    # vault-only. Idempotent on title (re-upload replaces the prior memo's docs).
+    issuer_by_name = {i.name: i.id for i in issuers}
+    linked_ids = [issuer_by_name[n] for n in linked if n in issuer_by_name]
+    memo_doc_ids: list[str] = []
+    chunks_created = 0
+    try:
+        from engine.memochunks import chunk_memo_into_corpus
+        memo_doc_ids = await chunk_memo_into_corpus(
+            db, path.stem, text, linked_ids, caller.email,
+        )
+        if memo_doc_ids:
+            from engine.embeddings import embed_chunks_for_document
+            # Embed ONE memo document — the per-issuer copies share chunk_hash, and
+            # the embedding table is keyed by (model, chunk_hash), so one embed
+            # covers every copy via the chunk_hash join in retrieve_corpus.
+            first_doc_id = memo_doc_ids[0]
+
+            async def _embed() -> None:
+                async with AsyncSessionLocal() as session:
+                    await embed_chunks_for_document(session, first_doc_id)
+                    await session.commit()
+            background_tasks.add_task(_embed)
+            first_doc = await db.get(Document, memo_doc_ids[0])
+            chunks_created = first_doc.chunk_count if first_doc else 0
+    except Exception as e:  # chunking failure must not fail the vaulted upload
+        logger.warning("memo chunking failed (vault copy intact): %s", e)
+
+    msg = f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s)."
+    if chunks_created:
+        msg += f" Chunked into retrieval ({chunks_created} chunks × {len(memo_doc_ids)} issuer(s))."
+
     return MemoUploadResponse(
         note=path.stem,
         path=f"{vault_export.MEMOS_DIR}/{path.name}",
         memo_type=mtype,
         issuer_links=sorted(linked),
-        message=f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s).",
+        message=msg,
     )

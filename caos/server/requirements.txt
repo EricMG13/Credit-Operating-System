@@ -12,9 +12,15 @@ sqlalchemy[asyncio]==2.0.*
 alembic==1.13.*
 aiosqlite==0.22.*
 asyncpg==0.31.*; python_version >= "3.10"
+# pgvector SQLAlchemy types (database.SafeVector; mig 0030 HNSW embeddings). Pure
+# Python (needs numpy, already locked); the `vector` Postgres EXTENSION is a
+# deploy-image concern, not a pip one.
+pgvector==0.4.*
 pydantic==2.*
 pydantic-settings==2.*
 anthropic>=0.115.1,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
 google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported only when a gemini-* model is selected
+# The LLM re-rank (engine/rerank.py) reuses the same API providers above — no
+# extra dependency, no local model download (policy). One batched call per query.
 pypdf==6.*
 openpyxl==3.1.*

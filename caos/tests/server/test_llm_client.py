@@ -53,6 +53,7 @@ class _Overload(Exception):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("seeded_db")
 async def test_create_falls_back_to_cheaper_model_on_overload(monkeypatch, caplog):
     monkeypatch.setattr(llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
     client = _Client(error=_Overload(), fail_times=1)
@@ -99,6 +100,7 @@ async def test_create_no_fallback_when_primary_equals_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("seeded_db")
 async def test_create_emits_trace_line_tagged_with_run_id(caplog):
     client = _Client()
     budget.set_run_id("run-xyz")
@@ -116,3 +118,20 @@ async def test_create_emits_trace_line_tagged_with_run_id(caplog):
     assert rec["model"] == "m" and rec["fallback"] is False
     assert rec["input_tokens"] == 10 and rec["output_tokens"] == 5
     assert rec["stop_reason"] == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_create_retries_on_fallback_overload(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
+    async def async_noop(*args, **kwargs):
+        pass
+    monkeypatch.setattr(asyncio, "sleep", async_noop)
+    client = _Client(error=_Overload(), fail_times=3)
+
+    resp = await llm_client.create(
+        client, lane="t", model="big-model", fallback_model="cheap-model",
+        max_tokens=10, messages=[],
+    )
+    assert client.calls == ["big-model", "cheap-model", "cheap-model", "cheap-model"]
+    assert resp.model == "cheap-model"
