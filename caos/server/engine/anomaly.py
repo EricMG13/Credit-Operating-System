@@ -38,7 +38,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact
-from engine.metrics import CATALOG_BY_KEY
 from engine.periods import is_finite_number
 
 logger = logging.getLogger("caos.anomaly")
@@ -159,7 +158,7 @@ def _peer_outlier(headlines: Dict[str, Tuple[float, str, Optional[str]]],
 
 # ── cusum-shift (pure) ───────────────────────────────────────────────────────
 
-def _cusum_shift(series: Sequence[Tuple[str, float, Optional[str]]],
+def _cusum_shift(series: Sequence[Tuple[str, float, Optional[str]]],  # noqa: C901
                  metric: str, issuer_id: str, issuer_name: str) -> Optional[Anomaly]:
     """Flag a sustained step change via a baseline-anchored CUSUM. The baseline
     mean + sigma come from the first half of the series (the stable pre-shift

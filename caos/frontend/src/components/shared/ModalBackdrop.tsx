@@ -1,26 +1,30 @@
 import type { ReactNode } from "react";
 
-// Modal scrim — the `fixed inset-0 z-modal` backdrop shared by every centered
-// or slide-over modal. Centralizes the backdrop color (rgba(5,5,7,0.72), the
-// design system has no token for it) that had drifted to bg-black/60 and
-// bg-black/70 in a few call sites. `layout`/`className` cover the two shapes
-// in use: centered ("items-center justify-center", optionally "p-6") and
-// slide-over ("justify-end").
+// Canonical dim tint for all z-modal backdrops (matches --caos-bg, not pure black).
+const BACKDROP_COLOR = "rgba(5,5,7,0.72)";
+
 export function ModalBackdrop({
   onClose,
-  layout = "items-center justify-center",
+  align = "center",
+  padded = false,
   className = "",
   children,
 }: {
   onClose: () => void;
-  layout?: string;
+  align?: "center" | "end";
+  padded?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
     <div
-      className={`fixed inset-0 z-modal flex ${layout} ${className}`}
-      style={{ background: "rgba(5,5,7,0.72)" }}
+      className={
+        "fixed inset-0 z-modal flex " +
+        (align === "end" ? "justify-end" : "items-center justify-center") +
+        (padded ? " p-6" : "") +
+        (className ? " " + className : "")
+      }
+      style={{ background: BACKDROP_COLOR }}
       onClick={onClose}
     >
       {children}

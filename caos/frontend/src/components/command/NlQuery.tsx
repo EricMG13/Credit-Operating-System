@@ -13,10 +13,10 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useModalA11y } from "@/lib/use-modal-a11y";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
 export type OpenCite = (chunkId: string, label?: string | null) => void;
@@ -283,7 +283,7 @@ export function QueryResultsModal({
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <ModalBackdrop onClose={onClose} layout="justify-end">
+    <ModalBackdrop onClose={onClose} align="end">
       <div
         ref={panelRef}
         role="dialog"

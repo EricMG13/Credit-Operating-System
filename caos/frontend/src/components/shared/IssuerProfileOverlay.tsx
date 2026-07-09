@@ -165,7 +165,7 @@ function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <ModalBackdrop onClose={onClose} className="p-6">
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"

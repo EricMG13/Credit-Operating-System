@@ -7,6 +7,7 @@
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { CloseButton } from "@/components/shared/CloseButton";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
@@ -14,7 +15,6 @@ import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FlagToQa } from "@/components/shared/FlagToQa";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { getChunk } from "@/lib/api";
 import type { LiveEvidence } from "@/lib/engine/useLiveRun";
 
@@ -120,7 +120,7 @@ function EvShell({
   children: ReactNode;
 }) {
   return (
-    <ModalBackdrop onClose={onClose} className="p-6">
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -259,7 +259,7 @@ export function EvidenceModal({
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
-    <ModalBackdrop onClose={onClose} className="p-6">
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"

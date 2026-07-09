@@ -10,6 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { usePathname } from "next/navigation";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
@@ -24,7 +25,6 @@ import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -300,7 +300,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <ModalBackdrop onClose={onClose} layout="justify-end" className="transition-opacity duration-200">
+    <ModalBackdrop onClose={onClose} align="end" className="transition-opacity duration-200">
       <div
         ref={panelRef}
         role="dialog"

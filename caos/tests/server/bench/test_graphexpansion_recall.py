@@ -27,7 +27,7 @@ from database import AsyncSessionLocal
 from engine.graphexpansion import expand_issuer_set
 from retrieval import retrieve_corpus
 from graphexpansion_seed import (
-    LABELS, build_contagion_corpus, dilution, precision_at_k, recall_at_k,
+    LABELS, build_contagion_corpus, dilution, recall_at_k,
 )
 
 

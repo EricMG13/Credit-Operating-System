@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
@@ -18,7 +19,6 @@ import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 
@@ -513,7 +513,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <ModalBackdrop onClose={onClose} className="p-6">
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"

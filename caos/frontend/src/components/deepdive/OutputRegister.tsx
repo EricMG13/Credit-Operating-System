@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { FlagToQa } from "@/components/shared/FlagToQa";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -16,7 +17,6 @@ import { MODULES } from "@/lib/pipeline/data";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Dot, Tag } from "@/components/pipeline/atoms";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { OutSections } from "./OutSections";
 import type { OutSection } from "@/lib/deepdive/module-outputs";
 

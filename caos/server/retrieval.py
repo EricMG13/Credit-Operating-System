@@ -20,7 +20,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Document, DocumentChunk, engine, DocumentChunkEmbedding
@@ -285,7 +285,7 @@ class CorpusHit(Hit):
     doc: str = ""  # source file_name
 
 
-async def retrieve_corpus(
+async def retrieve_corpus(  # noqa: C901
     db: AsyncSession,
     query: str,
     k: int = 8,
@@ -423,7 +423,7 @@ async def retrieve_corpus(
     return fused
 
 
-async def retrieve_corpus_by_issuer(
+async def retrieve_corpus_by_issuer(  # noqa: C901
     db: AsyncSession, query: str, issuer_ids: Sequence[str]
 ) -> dict[str, CorpusHit]:
     """Hybrid (BM25 + Semantic Vector) single best-matching chunk per issuer with RRF fusion."""

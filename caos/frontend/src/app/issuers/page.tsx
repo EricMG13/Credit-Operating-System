@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer, toErrorMessage } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { TextInput } from "@/components/shared/TextInput";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -19,7 +20,6 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
-import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 export default function IssuersPage() {
   return (
