@@ -22,7 +22,7 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health(response: Response, db: AsyncSession = Depends(get_db)):
+async def health(response: Response, db: AsyncSession = Depends(get_db, scope="function")):
     # Readiness, not just liveness: probe the DB so the container is only marked
     # healthy when it can actually serve. A failure returns 503 so the Docker
     # healthcheck / proxy gate holds traffic instead of routing to a dead DB. D3.

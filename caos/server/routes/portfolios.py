@@ -91,7 +91,7 @@ async def _constraints(db: AsyncSession, portfolio_id: str) -> List[Dict[str, An
 @router.get("", response_model=List[PortfolioSummary], include_in_schema=False)
 @router.get("/", response_model=List[PortfolioSummary])
 async def list_portfolios(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     rows = (await db.execute(select(Portfolio).order_by(Portfolio.name).limit(200))).scalars().all()
@@ -162,7 +162,7 @@ async def list_portfolios(
 @router.get("/{portfolio_id}", response_model=PortfolioDetail)
 async def get_portfolio(
     portfolio_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     prt = await db.get(Portfolio, portfolio_id)
@@ -239,7 +239,7 @@ async def create_portfolio(
     holdings: UploadFile = File(...),
     constraints: Optional[UploadFile] = File(None),
     mandate: Optional[UploadFile] = File(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _rate_guard(caller)
@@ -282,7 +282,7 @@ async def create_portfolio(
 async def update_holdings(
     portfolio_id: str,
     holdings: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _rate_guard(caller)

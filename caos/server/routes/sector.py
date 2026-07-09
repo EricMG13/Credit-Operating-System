@@ -511,7 +511,7 @@ async def _review_response(
 
 @router.get("/feeds", response_model=list[SectorFeed])
 async def read_feeds(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_guard(caller)
@@ -534,7 +534,7 @@ async def read_feeds(
 @router.put("/feeds", response_model=list[SectorFeed])
 async def update_feeds(
     body: SectorFeedUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _write_guard(caller)
@@ -573,7 +573,7 @@ async def read_signals(
     category: Optional[str] = None,
     severity: Optional[str] = None,
     limit: int = Query(50, ge=1, le=_MAX_SIGNALS),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_guard(caller)
@@ -594,7 +594,7 @@ async def read_review(
     sector: str = Query(..., min_length=1, max_length=128),
     timeframe: str = Query("today", max_length=32),
     as_of: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_guard(caller)
@@ -610,7 +610,7 @@ async def read_review(
 @router.post("/review/refresh", response_model=SectorReviewOut)
 async def refresh_review(
     body: SectorRefreshRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _write_guard(caller)
@@ -626,7 +626,7 @@ async def refresh_review(
 @router.post("/ask", response_model=SectorAskResponse)
 async def ask_sector_topic(
     body: SectorAskRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _ask_guard(caller)

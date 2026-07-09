@@ -208,7 +208,7 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
 async def create_run(
     body: RunCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     if not rate_limit.hit(f"runs:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
@@ -280,7 +280,7 @@ async def list_runs(
     # SELECT is a memory/latency/exfil-volume DoS as the table grows. P4.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Runs newest-first, optionally filtered to one issuer (read-only)."""
@@ -298,7 +298,7 @@ async def list_runs(
 @router.get("/{run_id}", response_model=RunSummary)
 async def get_run(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     run = await db.get(Run, run_id)
@@ -311,7 +311,7 @@ async def get_run(
 async def get_module(
     run_id: str,
     module_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     row = (
@@ -355,7 +355,7 @@ async def get_module(
 @router.get("/{run_id}/qa", response_model=QAReport)
 async def get_qa(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     run = await db.get(Run, run_id)
@@ -377,7 +377,7 @@ async def get_qa(
 @router.post("/{run_id}/report")
 async def export_committee_report(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Render the committee report — refused unless the run is Committee Ready.
@@ -423,7 +423,7 @@ async def export_committee_report(
 @router.post("/{run_id}/vault")
 async def export_to_vault(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Write this run to the Obsidian-style vault as Markdown (hub + spoke).

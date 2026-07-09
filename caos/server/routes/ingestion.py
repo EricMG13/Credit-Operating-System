@@ -159,7 +159,7 @@ async def upload_document(
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
@@ -226,7 +226,7 @@ async def upload_pricing_sheet(
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
@@ -260,7 +260,7 @@ async def upload_memo(
     background_tasks: BackgroundTasks,
     memo_type: str = Form("memo"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Analyst-authored commentary (market/research notes) into the Obsidian

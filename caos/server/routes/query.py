@@ -60,7 +60,7 @@ async def get_catalog(caller: CallerIdentity = Depends(get_identity)):
 
 @router.get("/capabilities")
 async def get_capabilities(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The Query rail: capability groups with each entry's enabled state and, when
@@ -89,7 +89,7 @@ class GraphRequest(BaseModel):
 @router.post("/graph")
 async def query_graph(
     body: GraphRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Run one capability and return its positioned node-link graph. Reads only —
@@ -112,7 +112,7 @@ async def query_graph(
 @router.get("/insights")
 async def query_insights(
     force: bool = False,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The Desk Brief: proactive, cited, AI-written insight cards over what changed
@@ -150,7 +150,7 @@ class WatchlistUpdate(BaseModel):
 
 @router.get("/watchlist", response_model=WatchlistResponse)
 async def get_watchlist(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The analyst's watchlist — the issuers their Desk Brief is scoped to."""
@@ -166,7 +166,7 @@ async def get_watchlist(
 @router.put("/watchlist", response_model=WatchlistResponse)
 async def replace_watchlist(
     body: WatchlistUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Replace the analyst's watchlist with the given issuer set (idempotent).
@@ -223,7 +223,7 @@ class AnswerRequest(BaseModel):
 @router.post("/answer")
 async def query_answer(
     body: AnswerRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The grounded answer beside a walk: a cited AI paragraph written from vault
@@ -261,7 +261,7 @@ class RouteRequest(BaseModel):
 @router.post("/route")
 async def route_query(
     body: RouteRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """LLM-route free text to up to 3 registry capabilities, each with a reason.
@@ -300,7 +300,7 @@ class OverlayRequest(BaseModel):
 @router.post("/overlay")
 async def query_overlay(
     body: OverlayRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The model overlay for one deterministic graph: citation-gated proposed
@@ -360,7 +360,7 @@ class AcceptLinkRequest(BaseModel):
 
 @router.get("/links")
 async def list_accepted_links(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
@@ -390,7 +390,7 @@ async def list_accepted_links(
 @router.post("/links")
 async def accept_link(
     body: AcceptLinkRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Ratify one model-proposed issuer↔issuer link. Analyst-initiated write —
@@ -442,7 +442,7 @@ async def accept_link(
 @router.delete("/links/{link_id}")
 async def retract_link(
     link_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Retract a ratified link — it stops being drawn on the next graph build."""
@@ -476,7 +476,7 @@ class ChunkResponse(BaseModel):
 @router.get("/chunk/{chunk_id}", response_model=ChunkResponse)
 async def get_chunk(
     chunk_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Fetch one ingested source chunk by id — backs click-to-source on the
@@ -562,7 +562,7 @@ async def get_chunk(
 @router.post("/nl")
 async def nl_query(
     body: NlQueryRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     if _ADMIN_QUERY_RE.search(body.question):

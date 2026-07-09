@@ -81,7 +81,7 @@ def _read_rate_guard(caller: CallerIdentity) -> None:
 @router.get("/daily", response_model=DigestResponse)
 async def daily_digest(
     days: int = Query(30, ge=1, le=365, description="Staleness threshold in days."),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)

@@ -31,7 +31,7 @@ class SavedModelOut(BaseModel):
 async def get_saved_model(
     issuer_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     row = (await db.execute(
         select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)
@@ -49,7 +49,7 @@ async def save_model(
     issuer_id: str,
     body: SavedModelBody,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if await db.get(Issuer, issuer_id) is None:
         raise HTTPException(404, "Issuer not found")
