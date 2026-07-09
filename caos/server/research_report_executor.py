@@ -52,6 +52,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _ratings_for(issuer: Issuer) -> list[tuple[str, str]]:
+    """(agency, rating) pairs for whichever of S&P/Moody's/Fitch the issuer has."""
+    ratings = []
+    if issuer.rating_sp:
+        ratings.append(("S&P", issuer.rating_sp))
+    if issuer.rating_moody:
+        ratings.append(("Moody's", issuer.rating_moody))
+    if issuer.rating_fitch:
+        ratings.append(("Fitch", issuer.rating_fitch))
+    return ratings
+
+
 async def execute_report_by_id(report_id: str) -> None:
     """Run one research report job in its own session; mark it failed on any error.
 
@@ -104,13 +116,7 @@ async def _run_report(report_id: str) -> None:
             digest = build_module_digest(mods)
 
             # Collect issuer context
-            ratings = []
-            if issuer.rating_sp:
-                ratings.append(("S&P", issuer.rating_sp))
-            if issuer.rating_moody:
-                ratings.append(("Moody's", issuer.rating_moody))
-            if issuer.rating_fitch:
-                ratings.append(("Fitch", issuer.rating_fitch))
+            ratings = _ratings_for(issuer)
 
             # Synthesize
             result: ResearchReportResult = await synthesize_research_report(
