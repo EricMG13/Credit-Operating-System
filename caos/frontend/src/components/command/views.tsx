@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, COVERAGE, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
@@ -517,11 +518,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center p-6"
-      style={{ background: "rgba(5,5,7,0.72)" }}
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -582,7 +579,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
           <span className="tabular text-caos-xs text-caos-muted">routed → {email.route}</span>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

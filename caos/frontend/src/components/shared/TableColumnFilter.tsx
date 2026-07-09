@@ -16,6 +16,16 @@ type Primitive = string | number | boolean | null | undefined;
 const keyOf = (v: Primitive) => (v == null || v === "" ? "—" : String(v));
 const MAX_VISIBLE_OPTIONS = 100;
 
+// The funnel glyph used by every filter-trigger variant below (icon-only,
+// label+icon combined, and sortable-column-adjacent).
+function FunnelIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 3h8M3.5 6h5M5 9h2" />
+    </svg>
+  );
+}
+
 export function useColumnFilters<T>(
   rows: T[],
   filters: FilterState,
@@ -185,9 +195,7 @@ export function FilterHeader<T>({
           : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
       }
     >
-      <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2 3h8M3.5 6h5M5 9h2" />
-      </svg>
+      <FunnelIcon />
     </button>
   );
 
@@ -259,9 +267,7 @@ export function FilterHeader<T>({
                 : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
             }
           >
-            <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2 3h8M3.5 6h5M5 9h2" />
-            </svg>
+            <FunnelIcon />
           </span>
         </button>
         {dialogNode}
@@ -297,9 +303,7 @@ export function FilterHeader<T>({
               : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
           }
         >
-          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2 3h8M3.5 6h5M5 9h2" />
-          </svg>
+          <FunnelIcon />
         </button>
       </span>
       {dialogNode}

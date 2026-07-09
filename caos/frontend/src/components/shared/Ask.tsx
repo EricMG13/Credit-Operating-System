@@ -10,6 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { usePathname } from "next/navigation";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
@@ -299,10 +300,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex justify-end bg-black/60 transition-opacity duration-200"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} align="end" className="transition-opacity duration-200">
       <div
         ref={panelRef}
         role="dialog"
@@ -630,7 +628,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       </div>
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
-    </div>
+    </ModalBackdrop>
   );
 }
 
