@@ -1,7 +1,7 @@
 "use client";
 
 // Command Center views: portfolio posture table, CP-MON email intelligence,
-// live alert feed, coverage matrix, QA queue, source gaps
+// live alert feed, QA queue, source gaps
 // and the issuer detail strip (port of design bundle concept-a.jsx).
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -11,21 +11,16 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
-  ALERTS, COVERAGE, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
+  ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
   type EmailRow,
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
-import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
+import { Dot, Tag } from "@/components/pipeline/atoms";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
-import { createRun, getRun } from "@/lib/api";
-import type { RunSummaryDTO } from "@/lib/engine/types";
-import {
-  COVERAGE_LAYERS, STATUS_RANK, worstStatus, rollupRunToCells, runnableIssuerId, ATLF_COVERAGE_ROW,
-} from "@/lib/command/coverage";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -814,87 +809,6 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
   );
 }
 
-/* ---------- Research view ---------- */
-const LAYER_TITLES: Record<string, string> = {
-  L1: "L1 — Data Foundation (financials, fact packs, performance deltas, peer benchmarks)",
-  L2: "L2 — Fundamental Credit Synthesis (fundamental credit, downside pathways, event catalysts, governance, liquidity, macro sensitivity)",
-  L3: "L3 — Valuation, Portfolio, & Refinancing (relative value, recovery waterfalls, position sizing, refinancing risk)",
-  L4: "L4 — Legal & Covenant (covenant interpretation, capacity calculator)",
-  L5: "L5 — Quality Assurance (evidence trace validation, research integrity QA)",
-  L6: "L6 — Debate & Decision (IC debate, portfolio debate)",
-};
-
-// Glance-able layer key — the full LAYER_TITLES live only in the column-head
-// hover/focus title, invisible to a scanning eye. This persistent legend gives
-// the L1–L6 taxonomy a name on-screen for the Research lens (recognition > recall).
-const LAYER_SHORT: Record<string, string> = {
-  L1: "Data Foundation", L2: "Credit Synthesis", L3: "Valuation & RV",
-  L4: "Legal & Covenant", L5: "QA", L6: "Decision",
-};
-
-// Sequential freshness ramp — solid tinted fills only. Process states
-// (running / blocked) are NOT fills; they render as an outlined glyph cell so
-// `blocked` reads as categorical, never as "a slightly redder stale".
-const FRESH_FILL: Record<string, string> = {
-  fresh: "transparent",
-  aging: "color-mix(in srgb, var(--caos-warning) 34%, transparent)",
-  stale: "color-mix(in srgb, var(--caos-critical) 40%, transparent)",
-};
-const CELL_SHORT: Record<string, string> = { fresh: "", aging: "AGING", stale: "STALE" };
-
-// `label` is a concise SR announcement ("ACOM L1 stale") — the visible glyph
-// text alone (STALE/BLKD) doesn't tell a non-sighted reader which issuer/layer
-// the state belongs to; `title` stays the verbose mouse-hover string.
-function CoverageCell({ status, title, label }: { status: string; title: string; label?: string }) {
-  if (status === "blocked") {
-    // Categorical: outlined critical ring + ✕-glyph, no red fill — visually
-    // distinct from a solid-red `stale` even for a low-vision / colorblind read.
-    return (
-      <div
-        title={title}
-        role={label ? "img" : undefined}
-        aria-label={label}
-        className="h-5 rounded-sm flex items-center justify-center gap-0.5 border transition-caos hover:opacity-80"
-        style={{ borderColor: "var(--caos-critical)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)", color: "var(--caos-critical-bright)" }}
-      >
-        <StatusGlyph kind="blocked" size={9} />
-        <span className="tabular text-caos-2xs uppercase font-medium">BLKD</span>
-      </div>
-    );
-  }
-  if (status === "running") {
-    // Accent ring + open-arc glyph + pulse. `caos-running` self-disables under
-    // prefers-reduced-motion; the glyph carries the meaning without the pulse.
-    return (
-      <div
-        title={title}
-        role={label ? "img" : undefined}
-        aria-label={label}
-        className="h-5 rounded-sm flex items-center justify-center gap-0.5 border caos-running transition-caos"
-        style={{ borderColor: "color-mix(in srgb, var(--caos-accent) 55%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 14%, transparent)", color: "var(--caos-accent)" }}
-      >
-        <StatusGlyph kind="running" size={9} />
-        <span className="tabular text-caos-2xs uppercase font-medium">RUNNING</span>
-      </div>
-    );
-  }
-  return (
-    <div
-      title={title}
-      role={label ? "img" : undefined}
-      aria-label={label}
-      className="h-5 rounded-sm flex items-center justify-center transition-caos hover:opacity-80 border border-caos-border/10"
-      style={{ background: FRESH_FILL[status] || "transparent" }}
-    >
-      {status === "fresh" ? (
-        <span className="text-[10px] text-caos-success/70" aria-hidden="true">●</span>
-      ) : (
-        <span className="tabular text-caos-2xs uppercase font-medium text-caos-text">{CELL_SHORT[status] || status}</span>
-      )}
-    </div>
-  );
-}
-
 // On-system empty / cleared note — mirrors deepdive/rails NoIssuerRailOutput:
 // role="note", severity-tinted border, glyph + uppercase label + muted body.
 function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: string; body: string }) {
@@ -906,268 +820,6 @@ function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: 
         <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color }}>{label}</span>
       </div>
       <div className="text-caos-md text-caos-muted leading-snug mt-0.5">{body}</div>
-    </div>
-  );
-}
-
-type RowRun = { phase: "queuing" | "running" | "done" | "failed"; runId?: string; error?: string; at?: string };
-
-const errMsg = (e: unknown): string => {
-  const ax = e as { response?: { data?: { detail?: string } }; message?: string };
-  return ax?.response?.data?.detail || ax?.message || "request failed";
-};
-const shortId = (id?: string) => (id ? id.slice(0, 8) : "—");
-const nowStamp = () => new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
-
-// CoverageMatrix run poll: cadence between getRun checks, and the ceiling after
-// which we stop and mark the row timed out.
-const _RUN_POLL_INTERVAL_MS = 2500;
-const _RUN_POLL_TIMEOUT_MS = 180_000;
-
-function ReRunButton({ runnable, phase, error, code, onClick }: { runnable: boolean; phase?: RowRun["phase"]; error?: string; code: string; onClick: () => void }) {
-  if (!runnable) {
-    return (
-      <span
-        title={`Seeded sample — no live engine run for ${code} (Phase-1 runs ATLF only)`}
-        aria-label={`Seeded sample — no live engine run for ${code}`}
-        className="tabular text-caos-2xs uppercase text-caos-muted border border-caos-border/50 rounded px-1 py-0.5 text-center cursor-not-allowed select-none"
-      >
-        Seeded
-      </span>
-    );
-  }
-  const busy = phase === "queuing" || phase === "running";
-  const label = phase === "queuing" ? "QUEUING" : phase === "running" ? "RUNNING" : phase === "failed" ? "RETRY" : "RE-RUN";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      title={phase === "failed" && error ? `Run failed: ${error} — click to retry` : `Trigger a real engine run for ${code}`}
-      aria-label={`${label} ${code}`}
-      className={
-        "tabular text-caos-xs rounded px-1 py-0.5 border transition-caos focus-ring cursor-pointer disabled:cursor-wait " +
-        (phase === "failed"
-          ? "border-caos-critical/60 text-caos-critical-bright hover:border-caos-critical"
-          : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60") +
-        (busy ? " caos-running" : "")
-      }
-    >
-      {label}
-    </button>
-  );
-}
-
-export function CoverageMatrix() {
-  // ATLF (the seeded reference deal) is the one engine-backed issuer and is NOT
-  // in the demo sleeve, so it is prepended — otherwise no row is runnable and
-  // RE-RUN is unreachable dead code.
-  const [coverageData, setCoverageData] = useState(() => [ATLF_COVERAGE_ROW, ...COVERAGE]);
-  const [runs, setRuns] = useState<Record<string, RowRun>>({});
-  const [filter, setFilter] = useState<"all" | "blocked" | "stale" | "aging">("all");
-  // Default to issuer order: the seeded sample repeats a 10-row status pattern,
-  // so a worst-first default stacks ~38 byte-identical rows and reads as "all
-  // broken". Staleness triage stays one click away.
-  const [sortBy, setSortBy] = useState<"staleness" | "code">("code");
-  const mounted = useRef(true);
-  // Per-row in-flight guard — a synchronous ref (not the async `runs` state) so a
-  // second RE-RUN or a repeated bulk "Re-run stale" click can't spawn a second
-  // poll loop for a row already running and race setRuns/applyRollup.
-  const inflight = useRef<Record<string, boolean>>({});
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-
-  const rows = useMemo(() => {
-    const withWorst = coverageData.map((c) => ({ ...c, worst: worstStatus(c.cells) }));
-    const filtered = filter === "all" ? withWorst : withWorst.filter((r) => r.worst === filter);
-    // Engine-backed rows first under BOTH sorts — the one runnable issuer (ATLF,
-    // where RE-RUN is real) leads the seeded sample instead of sinking ~40 rows
-    // down alphabetically. Salience marks the exception, not the 382 illustrative rows.
-    return filtered.sort((a, b) => {
-      const runRank = (runnableIssuerId(a.code) ? 0 : 1) - (runnableIssuerId(b.code) ? 0 : 1);
-      if (runRank !== 0) return runRank;
-      return sortBy === "staleness"
-        ? ((STATUS_RANK[a.worst] ?? 9) - (STATUS_RANK[b.worst] ?? 9)) || a.code.localeCompare(b.code)
-        : a.code.localeCompare(b.code);
-    });
-  }, [coverageData, filter, sortBy]);
-
-  const applyRollup = (rowId: string, run: RunSummaryDTO) => {
-    inflight.current[rowId] = false;
-    const rolled = rollupRunToCells(run);
-    setCoverageData((prev) => prev.map((it) => (it.id === rowId ? { ...it, cells: { ...it.cells, ...rolled } } : it)));
-    setRuns((r) => ({ ...r, [rowId]: { phase: "done", runId: run.id, at: nowStamp() } }));
-  };
-
-  const fail = (rowId: string, error: string, runId?: string) => {
-    inflight.current[rowId] = false;
-    setRuns((r) => ({ ...r, [rowId]: { phase: "failed", runId, error } }));
-  };
-
-  const poll = (rowId: string, runId: string, started: number) => {
-    if (!mounted.current) return;
-    getRun(runId)
-      .then((cur) => {
-        if (!mounted.current) return;
-        if (cur.status === "complete") return applyRollup(rowId, cur);
-        if (cur.status === "failed") return fail(rowId, cur.error || "run failed", runId);
-        if (Date.now() - started > _RUN_POLL_TIMEOUT_MS) return fail(rowId, "timed out waiting for the run", runId);
-        setRuns((r) => ({ ...r, [rowId]: { phase: "running", runId } }));
-        window.setTimeout(() => poll(rowId, runId, started), _RUN_POLL_INTERVAL_MS);
-      })
-      .catch((e) => {
-        if (!mounted.current) return;
-        fail(rowId, errMsg(e), runId);
-      });
-  };
-
-  // Real engine run — the honest replacement for the old setTimeout→all-fresh
-  // fake. Only fires for engine-backed rows (guarded; the button is disabled
-  // otherwise). Cells update from the REAL run's per-layer roll-up; a failure or
-  // timeout leaves the seeded cells untouched rather than fabricating freshness.
-  const reRun = (rowId: string, code: string) => {
-    const issuerId = runnableIssuerId(code);
-    if (!issuerId || inflight.current[rowId]) return; // seeded row, or already running
-    inflight.current[rowId] = true;
-    setRuns((r) => ({ ...r, [rowId]: { phase: "queuing" } }));
-    createRun(issuerId)
-      .then((created) => {
-        if (!mounted.current) return;
-        if (created.status === "complete") return applyRollup(rowId, created);
-        setRuns((r) => ({ ...r, [rowId]: { phase: "running", runId: created.id } }));
-        poll(rowId, created.id, Date.now());
-      })
-      .catch((e) => {
-        if (!mounted.current) return;
-        fail(rowId, errMsg(e));
-      });
-  };
-
-  const bulkStale = rows.filter((r) => runnableIssuerId(r.code) && r.worst !== "fresh" && r.worst !== "running");
-  const grid = "grid grid-cols-[120px_repeat(6,1fr)_84px] gap-1 items-center px-1";
-
-  return (
-    <div className="p-2 flex flex-col">
-      {/* triage controls */}
-      <div className="flex items-center flex-wrap gap-x-2 gap-y-1.5 px-1 mb-1.5">
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Filter</span>
-        <ToggleGroup
-          size="sm"
-          value={filter}
-          onChange={(k) => setFilter(k)}
-          options={[
-            { k: "all", l: "All" }, { k: "blocked", l: "Blocked" }, { k: "stale", l: "Stale" }, { k: "aging", l: "Aging" },
-          ] as const}
-        />
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted ml-1">Sort</span>
-        <ToggleGroup
-          size="sm"
-          value={sortBy}
-          onChange={(k) => setSortBy(k)}
-          options={[{ k: "staleness", l: "Staleness" }, { k: "code", l: "Issuer" }] as const}
-        />
-        <span className="flex-1" />
-        <span className="tabular text-caos-2xs text-caos-muted">{rows.length} / {coverageData.length}</span>
-        <button
-          type="button"
-          onClick={() => bulkStale.forEach((r) => reRun(r.id, r.code))}
-          disabled={!bulkStale.length}
-          title={bulkStale.length ? `Trigger real engine runs for ${bulkStale.length} engine-backed issuer(s) needing a refresh` : "No engine-backed issuers need a refresh in view"}
-          className="tabular text-caos-2xs uppercase px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Re-run engine-backed ({bulkStale.length})
-        </button>
-      </div>
-      {/* honesty banner — the matrix is a seeded sample; RE-RUN is real only where engine-backed */}
-      <div role="note" className="tabular text-caos-md text-caos-muted px-1 mb-1.5 leading-snug">
-        Seeded coverage sample · <span style={{ color: "var(--caos-accent)" }}>RE-RUN</span> triggers a real engine run where the issuer is engine-backed (Phase-1: ATLF); other rows are illustrative.
-      </div>
-      {/* Persistent L1–L6 taxonomy key — the layer meaning no longer lives only in
-          a hover title. Full descriptions stay on the column-head focus/hover. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 mb-1.5">
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Layers</span>
-        {COVERAGE_LAYERS.map((l) => (
-          <span key={l} className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">
-            <span className="text-caos-accent">{l}</span> {LAYER_SHORT[l]}
-          </span>
-        ))}
-      </div>
-
-      <div className={grid + " mb-1"}>
-        <span className="tabular text-caos-xs uppercase text-caos-muted">Issuer</span>
-        {COVERAGE_LAYERS.map((l) => (
-          <span
-            key={l}
-            title={LAYER_TITLES[l]}
-            aria-label={LAYER_TITLES[l]}
-            tabIndex={0}
-            className="tabular text-caos-xs uppercase text-caos-muted text-center cursor-help border-b border-dashed border-caos-border/50 pb-0.5 focus:outline-none focus:border-caos-accent focus:text-caos-text rounded px-0.5 transition-caos"
-          >
-            {l}
-          </span>
-        ))}
-        <span className="tabular text-caos-xs uppercase text-caos-muted text-center">Refresh</span>
-      </div>
-
-      {rows.length === 0 ? (
-        <EmptyNote tone="warning" label="No matching issuers" body={`No issuers are ${filter} in the current view. Switch the filter back to All to see full coverage.`} />
-      ) : (
-        rows.map((c) => {
-          const rr = runs[c.id];
-          const busy = rr?.phase === "queuing" || rr?.phase === "running";
-          const runnable = !!runnableIssuerId(c.code);
-          // Only the meaningful rows carry a sub-label now: a real run's id/time,
-          // a failure, or the accent "engine-backed" tag on the runnable issuer.
-          // The 382 illustrative rows show nothing — the banner + "Seeded" chip
-          // already state the boundary once, so repeating it 382× was pure noise.
-          const sub = rr?.phase === "done" && rr.at
-            ? `run ${shortId(rr.runId)} · ${rr.at}`
-            : rr?.phase === "failed" ? "run failed" : runnable ? "engine-backed" : null;
-          return (
-            <div key={c.id} className={grid + " mb-1"}>
-              <span className="min-w-0 flex flex-col leading-tight">
-                <IssuerLink query={c.code} title={`Open ${c.code} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos truncate">
-                  {c.code}
-                </IssuerLink>
-                {sub ? (
-                  <span
-                    className="tabular text-caos-2xs truncate"
-                    style={{ color: rr?.phase === "failed" ? "var(--caos-critical-bright)" : runnable ? "var(--caos-accent)" : "var(--caos-muted)" }}
-                  >
-                    {sub}
-                  </span>
-                ) : null}
-              </span>
-              {COVERAGE_LAYERS.map((l) => {
-                const st = busy ? "running" : c.cells[l];
-                return <CoverageCell key={l} status={st} title={`${c.code} ${LAYER_TITLES[l]} — ${st}`} label={`${c.code} ${l} ${st}`} />;
-              })}
-              <div className="flex justify-center">
-                <ReRunButton runnable={runnable} phase={rr?.phase} error={rr?.error} code={c.code} onClick={() => reRun(c.id, c.code)} />
-              </div>
-            </div>
-          );
-        })
-      )}
-
-      {/* legend — two labelled groups so the sequential freshness ramp reads
-          apart from the categorical process states */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 px-1">
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Freshness</span>
-        {["fresh", "aging", "stale"].map((k) => (
-          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
-            <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
-          </span>
-        ))}
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted ml-2">State</span>
-        {["running", "blocked"].map((k) => (
-          <span key={k} className="flex items-center gap-1 text-caos-xs text-caos-muted">
-            <span className="inline-flex w-9"><CoverageCell status={k} title={k} /></span>{k}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }
