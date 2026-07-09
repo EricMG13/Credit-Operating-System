@@ -13,6 +13,7 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useModalA11y } from "@/lib/use-modal-a11y";
@@ -282,10 +283,7 @@ export function QueryResultsModal({
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex justify-end bg-black/60"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} align="end">
       <div
         ref={panelRef}
         role="dialog"
@@ -373,7 +371,7 @@ export function QueryResultsModal({
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
