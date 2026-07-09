@@ -14,6 +14,7 @@ import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FlagToQa } from "@/components/shared/FlagToQa";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { getChunk } from "@/lib/api";
 import type { LiveEvidence } from "@/lib/engine/useLiveRun";
 
@@ -119,7 +120,7 @@ function EvShell({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} className="p-6">
       <div
         ref={panelRef}
         role="dialog"
@@ -137,7 +138,7 @@ function EvShell({
         </div>
         {children}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -258,7 +259,7 @@ export function EvidenceModal({
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} className="p-6">
       <div
         ref={panelRef}
         role="dialog"
@@ -371,6 +372,6 @@ export function EvidenceModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

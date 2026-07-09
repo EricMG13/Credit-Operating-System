@@ -6,6 +6,7 @@ import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
 import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { DEMO_UNIVERSE } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
 
@@ -164,11 +165,7 @@ function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center p-6"
-      style={{ background: "rgba(5, 5, 7, 0.72)" }}
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} className="p-6">
       <div
         ref={panelRef}
         role="dialog"
@@ -222,6 +219,6 @@ function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
           <Profile id={issuerId!} data={data} isOverlay={true} onClose={onClose} />
         )}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

@@ -16,6 +16,7 @@ import { MODULES } from "@/lib/pipeline/data";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Dot, Tag } from "@/components/pipeline/atoms";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { OutSections } from "./OutSections";
 import type { OutSection } from "@/lib/deepdive/module-outputs";
 
@@ -237,7 +238,7 @@ export function StepOutputModal({
   const sevKey = status === "gap" ? "critical" : status;
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <div
         ref={panelRef}
         role="dialog"
@@ -316,6 +317,6 @@ export function StepOutputModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

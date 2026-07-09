@@ -10,6 +10,7 @@ import { getChunk } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; label?: string | null; onClose: () => void }) {
   const [chunk, setChunk] = useState<ChunkDTO | null>(null);
@@ -34,10 +35,7 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 caos-enter"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} className="caos-enter">
       <div
         ref={panelRef}
         className="w-[520px] max-w-[92vw] max-h-[80vh] flex flex-col bg-caos-panel border border-caos-accent/50 rounded-md overflow-hidden"
@@ -77,6 +75,6 @@ export function CitationViewer({ chunkId, label, onClose }: { chunkId: string; l
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

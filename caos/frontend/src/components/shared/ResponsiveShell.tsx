@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { Breakpoint } from "@/lib/responsive-context";
-import { ResponsiveContext } from "@/lib/responsive-context";
 import { SubHeader } from "./SubHeader";
+
+type Breakpoint = "desktop" | "tablet" | "mobile";
 
 /**
  * A breakpoint-aware chrome that wraps every concept page. Desktop (≥1024px) is
@@ -20,8 +20,6 @@ import { SubHeader } from "./SubHeader";
  *     {children}  // desktop layout — ResponsiveShell renders as-is at ≥1024px
  *   </ResponsiveShell>
  *
- * Children use `useResponsive()` to adapt their own rendering at narrow
- * breakpoints (e.g. Deep-Dive rails collapse, Model flanks collapse).
  */
 export function ResponsiveShell({
   identity,
@@ -66,8 +64,6 @@ export function ResponsiveShell({
   }, [apply]);
 
   const isDesktop = breakpoint === "desktop";
-  const isTablet = breakpoint === "tablet";
-  const isMobile = breakpoint === "mobile";
 
   // At narrow breakpoints, the header shows only essential controls (max 3).
   // The full set renders at desktop only.
@@ -76,18 +72,15 @@ export function ResponsiveShell({
     : narrowContract.essentialControls;
 
   return (
-    <ResponsiveContext.Provider value={{ breakpoint, isDesktop, isTablet, isMobile }}>
-      <div className={`${heightClass} flex flex-col bg-caos-bg ${className}`}>
-        <SubHeader
-          identity={identity}
-          primaryAction={primaryAction}
-          contextualControls={headerContextual}
-          aria-label="Concept header"
-        />
-        {/* Desktop: render children as-is. Narrow: children use useResponsive() to adapt. */}
-        {children}
-      </div>
-    </ResponsiveContext.Provider>
+    <div className={`${heightClass} flex flex-col bg-caos-bg ${className}`}>
+      <SubHeader
+        identity={identity}
+        primaryAction={primaryAction}
+        contextualControls={headerContextual}
+        aria-label="Concept header"
+      />
+      {children}
+    </div>
   );
 }
 

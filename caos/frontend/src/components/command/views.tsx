@@ -18,6 +18,7 @@ import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 import { createRun, getRun } from "@/lib/api";
@@ -517,11 +518,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center p-6"
-      style={{ background: "rgba(5,5,7,0.72)" }}
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} className="p-6">
       <div
         ref={panelRef}
         role="dialog"
@@ -582,7 +579,7 @@ function EmailWindow({ email, onClose }: { email: EmailRow; onClose: () => void 
           <span className="tabular text-caos-xs text-caos-muted">routed → {email.route}</span>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

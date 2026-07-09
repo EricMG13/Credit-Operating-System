@@ -19,6 +19,7 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 export default function IssuersPage() {
   return (
@@ -508,7 +509,7 @@ function NewIssuerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <form
         ref={panelRef}
         role="dialog"
@@ -565,6 +566,6 @@ function NewIssuerModal({
           </button>
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

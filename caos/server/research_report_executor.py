@@ -30,6 +30,7 @@ from research_report import (
     synthesize_research_report,
     validate_report_figures,
 )
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research_report")
 
@@ -185,7 +186,7 @@ async def _mark_failed(session, report_id: str, reason: str) -> None:
         logger.exception("could not mark research report %s failed", report_id)
 
 
-class ResearchReportExecutor:
+class ResearchReportExecutor(InProcessTaskExecutor):
     """In-process background tasks for issuer research report jobs.
 
     ponytail: in-process + sweep-on-boot — sound for one app container. If ever
@@ -194,9 +195,6 @@ class ResearchReportExecutor:
     """
 
     name = "research_report_in_process"
-
-    def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
@@ -213,15 +211,5 @@ class ResearchReportExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     def enqueue(self, report_id: str) -> None:
-        task = asyncio.create_task(execute_report_by_id(report_id))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(execute_report_by_id(report_id))

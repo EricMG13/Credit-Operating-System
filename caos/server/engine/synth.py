@@ -600,20 +600,6 @@ def _payload_from_data(module_id: str, data: dict) -> ModulePayload:
     )
 
 
-def _parse_payload(module_id: str, text: str) -> ModulePayload:
-    """Parse a free-text JSON response into a ModulePayload (legacy text path)."""
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        raise SynthesisError(f"{module_id}: model returned no JSON object")
-    try:
-        # loads_finite: a NaN/Infinity/-Infinity literal (accepted by stdlib json.loads)
-        # raises ValueError → gated as a parse failure rather than entering financials.
-        data = loads_finite(match.group(0))
-    except (json.JSONDecodeError, ValueError) as e:
-        raise SynthesisError(f"{module_id}: payload JSON did not parse ({e})") from e
-    return _payload_from_data(module_id, data)
-
-
 def get_synthesizer() -> Synthesizer:
     if get_settings().anthropic_api_key:
         return LiveSynthesizer()

@@ -24,6 +24,7 @@ import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -299,10 +300,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex justify-end bg-black/60 transition-opacity duration-200"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} layout="justify-end" className="transition-opacity duration-200">
       <div
         ref={panelRef}
         role="dialog"
@@ -630,7 +628,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       </div>
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
-    </div>
+    </ModalBackdrop>
   );
 }
 
