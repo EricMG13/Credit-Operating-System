@@ -267,25 +267,27 @@ export function PortfolioTable({
         );
       case "code":
         return (
-          <IssuerLink
+          <button
             key="code"
-            query={p.code}
-            className={`sticky left-[32px] z-20 inline-flex items-center min-h-[18px] tabular text-caos-accent transition-caos ${stickyBg} ${hoverBg}`}
-            title={`Open ${p.code} profile`}
+            type="button"
+            onClick={() => onSelect(sel ? null : (p.id || p.figi || p.code))}
+            title={`Expand ${p.code} details`}
+            className={`sticky left-[32px] z-20 inline-flex items-center min-h-[18px] tabular text-caos-accent transition-caos text-left ${stickyBg} ${hoverBg}`}
           >
             {p.code}
-          </IssuerLink>
+          </button>
         );
       case "name":
         return (
-          <IssuerLink
+          <button
             key="name"
-            query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
-            title={`Open ${p.borrower || p.name} profile`}
+            type="button"
+            onClick={() => onSelect(sel ? null : (p.id || p.figi || p.code))}
+            title={`Expand ${p.borrower || p.name} details`}
+            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos text-left ${stickyBg} ${hoverBg}`}
           >
             {p.borrower || p.name}
-          </IssuerLink>
+          </button>
         );
       case "sector":
         return <span key="sector" className="text-caos-muted text-caos-md truncate">{p.sector}</span>;
@@ -442,7 +444,7 @@ export function PortfolioTable({
           )}
         </div>
       </div>
-      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-auto">
+      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-auto lg:pb-24">
         <div style={{ minWidth }}>
           <div className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
             {activeCols.map((col) => {

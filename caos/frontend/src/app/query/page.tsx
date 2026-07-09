@@ -758,21 +758,27 @@ function QueryWorkspace() {
     >
       <div className="flex-1 min-h-0 flex bg-caos-bg">
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-          {/* Layout F — the ask bar is anchored at the BOTTOM (order-last), so the
-              graph is the hero above it and the composer sits under the canvas. */}
-          <section className="order-last shrink-0 border-t border-caos-border bg-caos-panel/55 px-4 py-2.5 relative">
-            {/* The walk launcher — the question rail, moved to a click-to-open
-                group bar just above the composer. Opens upward. */}
-            <div className="mb-2">
-              <GroupLauncher
-                groups={groups}
-                cardsByGroup={cardsByGroup}
-                openId={openGroup}
-                onToggle={setOpenGroup}
-                onPick={(id) => { setText(""); setOpenGroup(null); pick(id); }}
-                onOpenChunk={(id, label) => setCite({ id, label })}
-              />
+          <section className="shrink-0 border-b border-caos-border bg-caos-panel/40 px-4 py-2 relative">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">
+                {totalReady} of {totalCaps} questions ready
+              </span>
             </div>
+            <GroupLauncher
+              groups={groups}
+              cardsByGroup={cardsByGroup}
+              openId={openGroup}
+              onToggle={setOpenGroup}
+              onPick={(id) => { setText(""); setOpenGroup(null); pick(id); }}
+              onOpenChunk={(id, label) => setCite({ id, label })}
+            />
+          </section>
+
+          {/* Layout F — the ask bar is anchored at the BOTTOM (order-last); the
+              question tray lives in its own persistent band at the TOP of the
+              canvas (above) so the analyst's menu of runnable questions is the
+              first thing seen, not the auto-run demo answer. */}
+          <section className="order-last shrink-0 border-t border-caos-border bg-caos-panel/55 px-4 py-2.5 relative">
             <div ref={composerRef} onBlur={onComposerBlur} className="relative">
               <div className="flex items-center gap-2 bg-caos-bg border border-caos-border rounded-md px-3 py-1.5 focus-within:border-caos-accent/70 transition-caos">
                 <QueryMark small />

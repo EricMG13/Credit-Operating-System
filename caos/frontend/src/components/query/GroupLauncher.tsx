@@ -1,10 +1,11 @@
 "use client";
 
 // The walk launcher — replaces the left question rail. A compact row of job
-// groups sits just above the bottom ask bar; clicking one opens a popover
-// (upward) with every walk that group can run given the data on hand (greyed +
-// reasoned when it can't), plus the AI-generated analysis already surfaced for
-// that group. One popover open at a time; picking a walk runs it and closes.
+// groups sits in a persistent band at the top of the canvas; clicking one opens
+// a popover (downward) with every walk that group can run given the data on
+// hand (greyed + reasoned when it can't), plus the AI-generated analysis
+// already surfaced for that group. One popover open at a time; picking a walk
+// runs it and closes.
 
 import type { QuestionGroup } from "@/lib/query/questions";
 import { questionFor } from "@/lib/query/questions";
@@ -52,7 +53,7 @@ export function GroupLauncher({ groups, cardsByGroup, openId, onToggle, onPick, 
 
       {open && (
         <div
-          className="absolute left-0 right-0 bottom-full mb-1.5 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden max-h-[52vh] overflow-y-auto"
+          className="absolute left-0 right-0 top-full mt-1.5 z-20 bg-caos-panel border border-caos-border rounded-md overflow-hidden max-h-[52vh] overflow-y-auto"
           style={{ boxShadow: "var(--shadow-pop)" }}
           role="tabpanel"
           aria-label={open.label}

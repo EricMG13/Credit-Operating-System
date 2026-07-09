@@ -5,7 +5,7 @@
 // Sector RV has been promoted to a standalone route under /sector-rv.
 // Click a row for the issuer detail strip; ATLF links into the Analytical Deep-Dive.
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
@@ -41,6 +41,7 @@ export default function CommandPage() {
 function CommandCenter() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
+  const governanceRef = useRef<HTMLDivElement>(null);
 
   const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
   const live = run.playing && !run.sim.done;
@@ -99,8 +100,8 @@ function CommandCenter() {
           {headStat("Issuers", String(PORTFOLIO.length))}
           {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
           {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
-          {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
-          {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
+          {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0, QA_QUEUE.length > 0 ? () => governanceRef.current?.scrollIntoView({ block: "start" }) : undefined)}
+          {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0, GAPS.length > 0 ? () => governanceRef.current?.scrollIntoView({ block: "start" }) : undefined)}
           <SimControls run={run} />
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
         </>
@@ -160,11 +161,12 @@ function CommandCenter() {
           </div>
 
           {/* Consolidated QA Findings & Source Gaps at the bottom */}
+          <div ref={governanceRef}>
           <PanelShell
             title="QA Findings & Source Gaps · CP-5 / CP-0"
             className="flex-none min-h-0"
             collapsible
-            defaultCollapsed={true}
+            defaultCollapsed={QA_QUEUE.length === 0 && GAPS.length === 0}
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
               <div>
@@ -177,6 +179,7 @@ function CommandCenter() {
               </div>
             </div>
           </PanelShell>
+          </div>
         </div>
       </div>
 
