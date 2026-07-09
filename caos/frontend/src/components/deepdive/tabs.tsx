@@ -69,16 +69,32 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
   const cfg = DEBATE_CFG[variant];
   const d = cfg.data;
   if (layout === "summary") {
+    // The full bias/memo verdict already lives in the always-visible decision
+    // rail (DecisionRail — see rails.tsx), so repeating it here is a literal
+    // duplicate, not a second data point. This pane leads with the thesis (the
+    // one thing the rail doesn't show) and condenses the IC Chair's per-claim
+    // verdicts to claim + verdict only — real information distinct from both
+    // the rail (overall bias/memo, no per-claim breakdown) and Report mode
+    // (full 4-column matrix with weight bars and evidence chips).
     return (
       <div className="p-3 flex flex-col gap-3">
         <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
           <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · thesis</div>
           <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
         </div>
-        <div className="rounded border border-caos-accent/40 bg-caos-bg px-3 py-2.5">
-          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">{cfg.verdictHeader}</div>
-          <div className="text-caos-xl text-caos-text leading-relaxed">{d.bias}</div>
-          <div className="mt-1.5 text-caos-md text-caos-text/90 leading-relaxed">{d.memo}</div>
+        <div className="rounded border border-caos-border bg-caos-bg">
+          <SectionHeader title={<><span className="text-caos-accent">⚖</span> {cfg.matrixTitle} — condensed</>} right={cfg.matrixCode} />
+          {d.weighting.map((w, i) => (
+            <div key={i} className="grid grid-cols-[1fr_auto] gap-x-3 px-3 py-1.5 items-baseline border-b border-caos-border/50">
+              <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
+              <span
+                className="text-caos-md leading-snug text-right"
+                style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}
+              >
+                {w.verdict}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     );
