@@ -404,25 +404,30 @@ def _limitation_flags(impair: Dict[int, Tuple[float, str]], imp_c: Optional[str]
             "Net leverage not derived: no recognized long-term-debt or current-debt XBRL "
             "concepts found in the filing's facts — verify the capital structure against the "
             "balance sheet.")
-    # Composition caveat on an EMITTED leverage: a debt/cash leg whose concept is
-    # entirely absent contributes $0 silently, understating leverage — the
-    # non-conservative direction (audit 2026-07-10 ENG-7). Same caveat when the
-    # current-debt leg came from a narrow instrument tag (notes payable / CP /
-    # credit lines), which may not capture every current borrowing.
     if "net_leverage_adj_ltm" in financials:
-        missing = [name for name, c in
-                   (("long-term debt", lev.ltd_c), ("current debt", lev.dc_c), ("cash", lev.cash_c))
-                   if c is None]
-        if missing:
-            limitations.append(
-                f"Net debt treats {' and '.join(missing)} as $0 — no XBRL concept for that leg "
-                "was found in the filing's facts; verify net debt composition against the "
-                "balance sheet (leverage may be understated).")
-        elif lev.dc_c in _DEBT_CURRENT_NARROW:
-            limitations.append(
-                f"Current debt was read from the narrow us-gaap:{lev.dc_c} tag — verify it "
-                "captures all short-term borrowings (leverage may be understated).")
+        limitations.extend(_net_debt_composition_flags(lev))
     return limitations
+
+
+def _net_debt_composition_flags(lev: _LevFacts) -> List[str]:
+    """Composition caveats on an EMITTED leverage: a debt/cash leg whose concept
+    is entirely absent contributes $0 silently, understating leverage — the
+    non-conservative direction (audit 2026-07-10 ENG-7). Same caveat when the
+    current-debt leg came from a narrow instrument tag (notes payable / CP /
+    credit lines), which may not capture every current borrowing."""
+    missing = [name for name, c in
+               (("long-term debt", lev.ltd_c), ("current debt", lev.dc_c), ("cash", lev.cash_c))
+               if c is None]
+    if missing:
+        return [
+            f"Net debt treats {' and '.join(missing)} as $0 — no XBRL concept for that leg "
+            "was found in the filing's facts; verify net debt composition against the "
+            "balance sheet (leverage may be understated)."]
+    if lev.dc_c in _DEBT_CURRENT_NARROW:
+        return [
+            f"Current debt was read from the narrow us-gaap:{lev.dc_c} tag — verify it "
+            "captures all short-term borrowings (leverage may be understated)."]
+    return []
 
 
 def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Optional[ModulePayload]:
