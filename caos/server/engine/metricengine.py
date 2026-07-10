@@ -39,17 +39,16 @@ accepting ``bool``/``0``.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from statistics import median
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact, Run
 from engine.metrics import CATALOG_BY_KEY
-from engine.periods import is_finite_number
+from engine.periods import is_finite_number, safe_div
 
 logger = logging.getLogger("caos.metricengine")
 
@@ -240,7 +239,9 @@ def _robust_z(iv: float, peer_vals: List[float]) -> Optional[Tuple[float, float,
     mad = median(devs)
     if mad <= 0:
         return None if iv != med else (round(med, 2), 0.0, 0.0)
-    z = 0.6745 * (iv - med) / mad
+    z = safe_div(0.6745 * (iv - med), mad)
+    if z is None:  # unreachable: mad > 0 (checked above) and iv, med finite
+        return None
     return round(med, 2), round(mad, 2), round(z, 1)
 
 

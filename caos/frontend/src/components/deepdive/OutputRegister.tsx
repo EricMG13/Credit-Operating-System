@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { FlagToQa } from "@/components/shared/FlagToQa";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -237,7 +238,7 @@ export function StepOutputModal({
   const sevKey = status === "gap" ? "critical" : status;
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <div
         ref={panelRef}
         role="dialog"
@@ -316,6 +317,6 @@ export function StepOutputModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

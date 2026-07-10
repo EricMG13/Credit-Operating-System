@@ -62,7 +62,7 @@ async def main() -> None:
     async with AsyncSessionLocal() as db:
         seed = await build_contagion_corpus(db)
         print(f"\n2-hop graph expansion measurement — synthetic contagion seed, K={K}")
-        print(f"scope: Acme; chain Acme—Beta—Delta—Gamma; Epsilon unlinked control\n")
+        print("scope: Acme; chain Acme—Beta—Delta—Gamma; Epsilon unlinked control\n")
         header = f"{'query':<42} {'min_hop':>7} | {'hops':>4} {'recall@K':>9} {'prec@K':>8} {'dilution':>9} {'#surf':>6}"
         print(header)
         print("-" * len(header))

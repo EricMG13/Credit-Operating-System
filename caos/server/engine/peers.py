@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, MetricFact
 from engine.gate import Finding
 from engine.metrics import CATALOG_BY_KEY
-from engine.periods import is_finite_number, sort_key
+from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Headline metrics worth a peer read (those CP-1 / distress produce).
@@ -55,7 +55,9 @@ def _own_values(cp1: ModulePayload) -> Dict[str, float]:
     common = [p for p in rev if p in eb and is_finite_number(rev[p]) and rev[p] and is_finite_number(eb[p])]
     if common:
         p = max(common, key=sort_key)
-        out["ebitda_margin"] = round(100 * eb[p] / rev[p], 1)
+        m = safe_div(100 * eb[p], rev[p])
+        if m is not None:
+            out["ebitda_margin"] = round(m, 1)
     return out
 
 
