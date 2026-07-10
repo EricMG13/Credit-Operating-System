@@ -96,8 +96,9 @@ caos/server/.venv311/bin/python -m pytest \
   caos/tests/server/test_security_headers.py \
   caos/tests/server/test_token_revocation.py -q
 
-# Postgres-only worker leg (CI runs this against a postgres:18 service)
-docker run --rm -d --name caos-audit-pg -p 5433:5432 -e POSTGRES_PASSWORD=postgres postgres:18
+# Postgres-only worker leg (CI runs this against pgvector/pgvector:pg18 — plain
+# postgres:18 lacks the `vector` extension migration 0030 requires, and setup fails)
+docker run --rm -d --name caos-audit-pg -p 5433:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg18
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/postgres \
   caos/server/.venv311/bin/python -m pytest \
   caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q -rs
