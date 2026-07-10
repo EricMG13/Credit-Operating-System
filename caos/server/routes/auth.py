@@ -347,7 +347,7 @@ async def recover_login(
         select(Analyst).where(func.lower(Analyst.email) == email)
     )).scalar_one_or_none()
     # Verify against three hashes whether or not the account exists — the row's when
-    # present, dummies otherwise — so a missing email costs the same scrypt work as
+    # present, dummies otherwise — so a missing email costs the same PBKDF2 work as
     # wrong words. No user enumeration via timing; mirrors the /login lane above.
     stored = (analyst.recovery_word_hashes if analyst else None) or _DUMMY_RECOVERY_HASHES
     # Three PBKDF2 verifies — off-thread (see /login) so recovery can't peg the loop.

@@ -113,10 +113,12 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
 
 ## 6. Dependencies
 
-`npm audit` advisories are confined to the **dev/build toolchain** (vitest →
-vite → esbuild); `npm ls --omit=dev` confirms none ship in the production static
-export, and the project runs tests headlessly (no exposed dev server). Tracked
-in [AUDIT.md](AUDIT.md) D-1.
+`npm audit --audit-level=high` on the current lockfile returns 0 vulnerabilities
+at every severity (last checked 2026-07-10). Historically, advisories here were
+confined to the **dev/build toolchain** (vitest → vite → esbuild); `npm ls
+--omit=dev` confirms none ship in the production static export, and the project
+runs tests headlessly (no exposed dev server). Tracked in [AUDIT.md](AUDIT.md) D-1
+(now Resolved).
 
 ## 7. Demo seed
 
