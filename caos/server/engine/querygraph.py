@@ -264,7 +264,15 @@ async def _profile_values(session: AsyncSession, keys: Sequence[str]) -> Dict[st
             partition_by=(MetricFact.issuer_id, MetricFact.metric_key),
             order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
         ).label("rn"),
-    ).where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys))).subquery()
+    ).where(
+        MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)),
+        # Fabricated demo-fixture rows (the ATLF fixture persisted for a NON-demo
+        # issuer on a keyless run) must never render as an issuer's profile in
+        # the Query graph — for a fresh issuer they are the ONLY facts, so the
+        # tier ordering alone can't keep them out (audit 2026-07-10 FE-13 server
+        # side; mirrors peers._peer_facts).
+        MetricFact.provenance != "demo_fixture",
+    ).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
@@ -754,7 +762,11 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
             partition_by=(MetricFact.issuer_id, MetricFact.metric_key, MetricFact.period),
             order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
         ).label("rn"),
-    ).where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage"))).subquery()
+    ).where(
+        MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage")),
+        # Same fabricated-fact exclusion as _profile_values (FE-13 server side).
+        MetricFact.provenance != "demo_fixture",
+    ).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer).join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))

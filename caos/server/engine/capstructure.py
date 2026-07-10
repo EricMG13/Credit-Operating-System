@@ -173,13 +173,25 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         confidence="High" if ev else "Medium",
         downstream_consumers=["CP-6A"],
         limitation_flags=limitations,
+        # Lineage honesty (audit 2026-07-10 SPEC-3): with a computed waterfall the
+        # claim asserts recovery PERCENTAGES derived from the assumed 5.0x EV —
+        # that is a calculation on an assumption, not a quoted document fact, and
+        # stamping it Directly Sourced/High let the module grade its own
+        # assumption as source-quoted (CP-5B saw nothing). The tranche chunks
+        # stay anchored via resolved_chunk_id either way; the seniority-only
+        # (no-EV) claim really is the directly-sourced tranche scan.
         claims=[ClaimSpec(
             claim_id="C-CAP1",
             claim_text=(f"Recovery preference across {len(found)} tranche(s): {pref_txt}"
                         + (f"; {waterfall_basis}." if waterfall_basis else ".")),
             evidence=[EvidenceSpec(
-                evidence_id=f"E-CAP-{i}", extraction_type="quoted_text", lineage_class="Directly Sourced",
-                source_locator="Agreement / offering disclosure (ingested chunk)", confidence="High",
+                evidence_id=f"E-CAP-{i}",
+                extraction_type="calculated_metric" if ev else "quoted_text",
+                lineage_class="Calculated" if ev else "Directly Sourced",
+                source_locator=("Absolute-priority waterfall over tranches disclosed in the "
+                                "ingested chunk (5.0x EV assumption)" if ev
+                                else "Agreement / offering disclosure (ingested chunk)"),
+                confidence="Medium" if ev else "High",
                 resolved_chunk_id=t["chunk_id"]) for i, t in enumerate(found)],
         )],
     )

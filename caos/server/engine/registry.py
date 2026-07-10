@@ -61,6 +61,15 @@ class ModuleSpec:
     layer: str
     owned_object: str
     depends_on: Tuple[str, ...] = ()
+    # SOFT ordering edges: schedule this module in a LATER dependency layer than
+    # these, WITHOUT input-gating on them. depends_on does double duty — it both
+    # orders the layering AND blocks the module when the upstream is Blocked —
+    # which forced a choice between two wrong graphs: declaring the corpus edge
+    # blocked modules the spec says should merely degrade, and omitting it
+    # co-scheduled them so upstream.get() read None at synth time (live CP-2
+    # synthesized with only CP-1 of its four spec feeds — audit 2026-07-10
+    # SPEC-1/2). ``after`` carries the pure ordering half of the corpus edge.
+    after: Tuple[str, ...] = ()
     # CP-0 source categories that, when present, make the module Full Run.
     required_sources: FrozenSet[str] = field(default_factory=frozenset)
     implemented: bool = False
@@ -96,19 +105,36 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     ModuleSpec("CP-1", "CanonicalDataFoundation", "L1", "canonical_financials",
                depends_on=("CP-0",), required_sources=frozenset({FINANCIALS}),
                implemented=True, edgar_fallback=True, session_bound=True),
+    # Corpus M2 fix: "CP-1 NOT downstream" (CP-1A/SYSTEM_REFERENCE.md — UP is
+    # CP-0/CP-X only). The old depends_on=("CP-1",) declared exactly the
+    # repudiated edge, so a Blocked CP-1 wrongly input-gated a module that needs
+    # only offering docs (audit 2026-07-10 SPEC-2). The synthesizer reads no
+    # CP-1 output (fact-pack text scan), so no ordering edge is needed either.
     ModuleSpec("CP-1A", "BusinessTransactionFactPack", "L1", "business_transaction_fact_register",
-               depends_on=("CP-1",), required_sources=frozenset({OFFERING}),
+               required_sources=frozenset({OFFERING}),
                implemented=True),
     ModuleSpec("CP-1B", "EarningsDelta", "L1", "earnings_delta",
                depends_on=("CP-1",), implemented=True),
     ModuleSpec("CP-1C", "PeerBenchmark", "L1", "peer_benchmark",
                depends_on=("CP-1",), implemented=True, session_bound=True),
     # ── L2 — fundamental credit ────────────────────────────────────────────
+    # CP-2 is the corpus "L2 hub" (SYSTEM_REFERENCE UP: CP-1, CP-1A, CP-1B,
+    # CP-1C). Only CP-1 is a hard gate; the other three are soft ``after``
+    # edges so live CP-2 synthesizes with the business facts / earnings delta /
+    # peer benchmark in its UPSTREAM OUTPUTS instead of co-scheduling beside
+    # them and reading None — the same starvation fixed for CP-2C/CP-3D/CP-6A
+    # was never applied here (audit 2026-07-10 SPEC-1).
     ModuleSpec("CP-2", "CostStructure", "L2", "cost_structure",
-               depends_on=("CP-1",), required_sources=frozenset({FINANCIALS}),
+               depends_on=("CP-1",), after=("CP-1A", "CP-1B", "CP-1C"),
+               required_sources=frozenset({FINANCIALS}),
                implemented=True),
+    # Corpus hard stop (CP_CANONICAL_STATE_RULES SEC4): CP-2B stops only when
+    # CP-1 AND CP-2 are BOTH unavailable. Hard-gating on CP-2 turned that AND
+    # into an OR (audit 2026-07-10 SPEC-2); CP-2 is a soft ordering edge — the
+    # synthesizer reads only CP-1's financials.
     ModuleSpec("CP-2B", "DownsidePathway", "L2", "downside_pathway",
-               depends_on=("CP-1", "CP-2"), required_sources=frozenset({FINANCIALS}),
+               depends_on=("CP-1",), after=("CP-2",),
+               required_sources=frozenset({FINANCIALS}),
                implemented=True),
     # CP-2C derives catalysts from CP-1B (earnings) and CP-1C (peers) as well as
     # CP-1; they are declared deps so the layerer schedules CP-2C *after* them —
@@ -127,8 +153,14 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     # ── L3 — relative value ────────────────────────────────────────────────
     ModuleSpec("CP-3", "RelativeValueSecuritySelection", "L3", "relative_value_analysis",
                depends_on=("CP-1", "CP-1C"), implemented=True),
+    # Corpus Input Gate 1 (CP-3B_ACTIVE_PROMPT): "CP-3 RV analysis must be
+    # available … else Blocked". The old dep (CP-1) implemented neither the
+    # spec gate nor the spec edge (UP: CP-3) — audit 2026-07-10 SPEC-3. CP-1 is
+    # a soft ordering edge: the waterfall reads its EBITDA opportunistically
+    # (upstream.get, degrades to seniority-only when absent).
     ModuleSpec("CP-3B", "RecoveryInstrumentPreference", "L3", "recovery_instrument_preference",
-               depends_on=("CP-1",), required_sources=frozenset({AGREEMENT}),
+               depends_on=("CP-3",), after=("CP-1",),
+               required_sources=frozenset({AGREEMENT}),
                implemented=True),
     ModuleSpec("CP-3C", "PortfolioFitPositionSizing", "L3", "portfolio_fit_analysis",
                depends_on=("CP-3", "CP-1"), implemented=True, session_bound=True),
@@ -201,13 +233,17 @@ def _validate_registry() -> None:
                         if sum(x.module_id == s.module_id for x in _SPECS) > 1})
         raise ValueError(f"registry: duplicate module_id(s) {dupes}")
     for spec in _SPECS:
-        for dep in spec.depends_on:
-            if dep not in REGISTRY:
-                raise ValueError(f"registry: {spec.module_id} depends_on unknown module {dep!r}")
-            if DECLARATION_INDEX[dep] >= DECLARATION_INDEX[spec.module_id]:
-                raise ValueError(
-                    f"registry: {spec.module_id} depends_on {dep!r} declared after it "
-                    "— violates declared-before-dependent ordering (and would admit a cycle)")
+        # ``after`` edges join the same declared-before invariant: they feed the
+        # runner's layering exactly like depends_on, so a forward or dangling
+        # reference would admit the same cycle/None-read failure modes.
+        for kind, edges in (("depends_on", spec.depends_on), ("after", spec.after)):
+            for dep in edges:
+                if dep not in REGISTRY:
+                    raise ValueError(f"registry: {spec.module_id} {kind} unknown module {dep!r}")
+                if DECLARATION_INDEX[dep] >= DECLARATION_INDEX[spec.module_id]:
+                    raise ValueError(
+                        f"registry: {spec.module_id} {kind} {dep!r} declared after it "
+                        "— violates declared-before-dependent ordering (and would admit a cycle)")
 
 
 _validate_registry()

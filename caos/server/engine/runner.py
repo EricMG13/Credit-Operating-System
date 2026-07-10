@@ -101,9 +101,15 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
     layers: List[List[str]] = []
     remaining = list(module_ids)
     while remaining:
+        # Layering honors BOTH edge kinds: depends_on (hard, also input-gated)
+        # and after (soft ordering only) — so a module scheduled ``after`` its
+        # corpus feeds actually sees them in ``upstream`` at synth time, without
+        # the input gate blocking it when a soft feed is Blocked (SPEC-1/2).
         layer = [
             m for m in remaining
-            if all(d in placed for d in REGISTRY[m].depends_on if d in in_set)
+            if all(d in placed
+                   for d in (*REGISTRY[m].depends_on, *getattr(REGISTRY[m], "after", ()))
+                   if d in in_set)
         ]
         if not layer:
             # The registry is asserted to be a DAG; an empty layer with modules
