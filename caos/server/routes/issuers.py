@@ -14,6 +14,7 @@ import rate_limit
 from database import (
     Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
+from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
 
@@ -438,8 +439,13 @@ async def get_issuer_profile(
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
+    best_fact_by_key: Dict[str, MetricFact] = {}
     for f in facts:
-        if f.headline and (f.metric_key not in headline_vals or f.provenance == "run"):
+        # Canonical collapse (engine.metrics.better_fact: run/fixture tier, then
+        # recency) — the old run-only rule let stale seed values shadow a fresh
+        # fixture fact on the profile while NL query ranked the fixture above.
+        if f.headline and better_fact(best_fact_by_key.get(f.metric_key), f):
+            best_fact_by_key[f.metric_key] = f
             headline_vals[f.metric_key] = f.value
     strengths, weaknesses = _strengths_weaknesses(signals, headline_vals)
 

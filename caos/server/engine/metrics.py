@@ -67,6 +67,34 @@ METRIC_CATALOG: List[MetricDef] = [
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
 
 
+# ── Provenance precedence (the ONE ranking every read-side collapse uses) ────
+# Minted values: run (QA-gated engine), fixture (genuine ATLF demo),
+# demo_fixture (fabricated — flagged, never authoritative), derived
+# (chunk-extracted), seed (illustrative). Read-side rule, pinned by
+# test_fact_collapse.py: run/fixture tier beats everything else, then newest
+# created_at within a tier. Five sites used to re-implement this with
+# divergent vocabularies (nlquery vs querygraph vs peers vs sponsors vs the
+# issuer profile), so the same issuer showed different numbers per surface.
+DERIVED_PROVENANCE = ("run", "fixture")
+
+
+def provenance_tier(provenance: Optional[str]) -> int:
+    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
+    return 1 if provenance in DERIVED_PROVENANCE else 0
+
+
+def better_fact(prev, fact) -> bool:
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric):
+    run/fixture tier beats seed, then newest created_at within a tier; null
+    created_at keeps prev. The reference comparator for every fact collapse."""
+    if prev is None:
+        return True
+    pt, ft = provenance_tier(prev.provenance), provenance_tier(fact.provenance)
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+
+
 def catalog_dicts() -> List[dict]:
     """The catalog as plain dicts (for the API and the LLM system prompt)."""
     return [asdict(m) for m in METRIC_CATALOG]

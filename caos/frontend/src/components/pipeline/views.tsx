@@ -9,7 +9,7 @@ import {
   NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
 } from "@/lib/pipeline/data";
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
-import { SEV_COLOR } from "@/lib/pipeline/sev";
+import { sevVar } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -118,7 +118,7 @@ export function GraphView({
         const inScope = scope.has(m.id);
         const related = !selected || sel || up.has(m.id) || down.has(m.id);
         const doneDim = dim && st === "pass" && !sel;
-        const color = SEV_COLOR[st] || "var(--caos-idle)";
+        const color = sevVar(st);
         return (
           <button
             key={m.id}
@@ -191,7 +191,7 @@ export function SwimlaneView({
                 const prog = sim.mods[m.id]?.prog || 0;
                 const sel = selected === m.id;
                 const inScope = scope.has(m.id);
-                const color = SEV_COLOR[st] || "var(--caos-idle)";
+                const color = sevVar(st);
                 return (
                   <button
                     key={m.id}

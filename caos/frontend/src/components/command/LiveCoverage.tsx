@@ -11,9 +11,12 @@ import type { PortfolioRowDTO } from "@/lib/api";
 import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
+import { fmtMult } from "@/lib/format";
 
+// Shared formatter (lib/format.fmtMult): same 1-dp + "x" + em-dash fallback;
+// the local copy could drift from every other multiple on the desk.
 const fmtX = (v: number | undefined) =>
-  typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
+  typeof v === "number" && Number.isFinite(v) ? fmtMult(v) : "—";
 
 // Fragility / posture meaning never rides on colour alone — the word travels too.
 const FRAGILITY_COLOR: Record<string, string> = {

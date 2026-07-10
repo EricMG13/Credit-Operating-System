@@ -4,7 +4,7 @@
 // run, no backend, or any error it returns empty, so the offline sim demo falls
 // back to the seeded constants unchanged ("prefer live, static fallback").
 
-import { getModule, getQA } from "@/lib/api";
+import { getModules, getQA } from "@/lib/api";
 import type { EvidenceDTO, FindingDTO } from "@/lib/engine/types";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { adaptModule } from "./adapt";
@@ -56,24 +56,19 @@ const EMPTY: LiveRunState = {
 
 export function useLiveRun(issuerId: string): LiveRunState {
   return useLatestRun<LiveRunState>(issuerId, { ...EMPTY, loading: true }, EMPTY, async (latest) => {
-    const entries = await Promise.all(
-      LIVE_MODULES.map(async (m) => {
-        try {
-          const detail = await getModule(latest.id, m);
-          return [m, adaptModule(detail), detail] as const;
-        } catch {
-          return null; // module not in this run — skip, fall back to static
-        }
-      }),
-    );
+    // One bulk request for every produced module (server joins claims/evidence in
+    // three queries) instead of the old 21-request fan-out per deep-dive open.
+    // LIVE_MODULES still scopes which ids the UI adapts; extras are ignored.
+    const eligible = new Set(LIVE_MODULES);
+    const details = (await getModules(latest.id).catch(() => []))
+      .filter((d) => eligible.has(d.module_id));
     const liveOuts: Record<string, ModuleOutput> = {};
     const liveEvidence: Record<string, LiveEvidence> = {};
-    for (const e of entries) {
-      if (!e) continue;
-      liveOuts[e[0]] = e[1];
-      for (const c of e[2].claims || []) {
+    for (const detail of details) {
+      liveOuts[detail.module_id] = adaptModule(detail);
+      for (const c of detail.claims || []) {
         for (const ev of c.evidence) {
-          liveEvidence[ev.evidence_id] = { ...ev, module: e[2].module_id, claim: c.claim_text };
+          liveEvidence[ev.evidence_id] = { ...ev, module: detail.module_id, claim: c.claim_text };
         }
       }
     }

@@ -63,6 +63,22 @@ function CellInput({ initial, label, onCommit }: { initial: string; label: strin
 }
 
 /* ---------- the sheet ---------- */
+// One source of truth for which child rows a collapsed group hides — Sheet's
+// grid and FormulaBar's visible-row coordinates both derive from it, so the
+// formula bar's cell address can never disagree with the sheet's row numbers.
+const COLLAPSE_CHILDREN: Record<string, string[]> = {
+  rev: ["segD", "gsegD", "segF", "gsegF", "segA", "gsegA"],
+  adj: ROWS.filter((r) => r.id?.startsWith("ab")).map((r) => r.id!).filter((id) => id !== "ab"),
+  secured: ["rcf", "tlb", "ssn"],
+  tdebt: ["rcf", "tlb", "ssn", "sub"],
+};
+
+function hiddenRows(collapsedRows: Set<string> | undefined): Set<string> {
+  return new Set(
+    Object.entries(COLLAPSE_CHILDREN).flatMap(([parent, kids]) => (collapsedRows?.has(parent) ? kids : [])),
+  );
+}
+
 export function Sheet({
   model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow,
 }: {
@@ -102,13 +118,7 @@ export function Sheet({
   }, [colDefs]);
 
   const hlGroup = hl && SRC[hl] ? SRC[hl].colGroup : undefined;
-  const collapseChildren: Record<string, string[]> = {
-    rev: ["segD", "gsegD", "segF", "gsegF", "segA", "gsegA"],
-    adj: ROWS.filter((r) => r.id?.startsWith("ab")).map((r) => r.id!).filter((id) => id !== "ab"),
-    secured: ["rcf", "tlb", "ssn"],
-    tdebt: ["rcf", "tlb", "ssn", "sub"],
-  };
-  const hidden = new Set(Object.entries(collapseChildren).flatMap(([parent, kids]) => collapsedRows?.has(parent) ? kids : []));
+  const hidden = hiddenRows(collapsedRows);
 
   const labelColor = (c: ColDef) =>
     c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
@@ -387,7 +397,7 @@ export function Sheet({
           rowCounter++;
           const rowIdx = rowCounter;
           const isHl = hl != null && row.src === hl;
-          const collapsible = !!row.id && !!collapseChildren[row.id];
+          const collapsible = !!row.id && !!COLLAPSE_CHILDREN[row.id];
           const collapsed = !!row.id && !!collapsedRows?.has(row.id);
           return (
             <div
@@ -517,13 +527,7 @@ export function FormulaBar({
   const colIdx = colDefs.findIndex((c) => c.key === sel.col);
   const colLetter = colIdx !== -1 ? getColLetter(colIdx) : "";
 
-  const collapseChildren: Record<string, string[]> = {
-    rev: ["segD", "gsegD", "segF", "gsegF", "segA", "gsegA"],
-    adj: ROWS.filter((r) => r.id?.startsWith("ab")).map((r) => r.id!).filter((id) => id !== "ab"),
-    secured: ["rcf", "tlb", "ssn"],
-    tdebt: ["rcf", "tlb", "ssn", "sub"],
-  };
-  const hidden = new Set(Object.entries(collapseChildren).flatMap(([parent, kids]) => collapsedRows?.has(parent) ? kids : []));
+  const hidden = hiddenRows(collapsedRows);
 
   let visibleRowIndex = -1;
   let currentVisibleIndex = 0;

@@ -414,6 +414,11 @@ export const getRun = (runId: string): Promise<RunSummaryDTO> =>
 export const getModule = (runId: string, moduleId: string): Promise<ModuleDetailDTO> =>
   api.get(`/api/runs/${runId}/modules/${moduleId}`).then((r) => r.data);
 
+// Bulk read: every produced module (with claims + evidence) in one request —
+// the Deep-Dive open used to fan out one getModule per eligible module id.
+export const getModules = (runId: string): Promise<ModuleDetailDTO[]> =>
+  api.get(`/api/runs/${runId}/modules`).then((r) => r.data);
+
 export const getQA = (runId: string): Promise<QAReportDTO> =>
   api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
 

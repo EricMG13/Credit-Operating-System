@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from engine import llm_client, presets
 from database import Issuer, MetricFact
-from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
+from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts, DERIVED_PROVENANCE, provenance_tier
 from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
 
 logger = logging.getLogger("caos.nlquery")
@@ -368,12 +368,10 @@ def _passes(value: Optional[float], op: str, target) -> bool:
 
 
 # ── Latest-per (issuer, metric) collapse ─────────────────────────────────────
-_DERIVED_PROVENANCE = ("run", "fixture")  # run/fixture outrank seed in the collapse tier
-
-
-def _derived(provenance: str) -> int:
-    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
-    return 1 if provenance in _DERIVED_PROVENANCE else 0
+# Canonical tier + comparator live in engine.metrics (shared by querygraph,
+# peers, sponsors, and the issuer profile) so no surface ranks facts differently.
+_DERIVED_PROVENANCE = DERIVED_PROVENANCE
+_derived = provenance_tier
 
 
 def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:

@@ -72,6 +72,13 @@ class ModuleSpec:
     # LLM fallbacks and never hard-fail on a thin pack — only their dependency
     # chain blocks them. Reserved for true input-gated modules.
     blocks_on_missing_sources: bool = False
+    # This module's synthesizer reads/writes the shared AsyncSession during
+    # synthesis (an AsyncSession is not safe for concurrent use), so the runner
+    # executes it serially within its layer instead of in the parallel gather.
+    # Declared HERE, next to the module, so a new session-using synthesizer
+    # can't be silently fanned out concurrently because a runner-side set was
+    # forgotten (the old hardcoded _SESSION_SYNTH failure mode).
+    session_bound: bool = False
 
     @property
     def layer_rank(self) -> int:
@@ -84,18 +91,18 @@ class ModuleSpec:
 _SPECS: Tuple[ModuleSpec, ...] = (
     # ── L0 ────────────────────────────────────────────────────────────────
     ModuleSpec("CP-0", "SourceReadiness", "L0", "source_readiness_assessment",
-               implemented=True),
+               implemented=True, session_bound=True),
     # ── L1 — financial foundation ──────────────────────────────────────────
     ModuleSpec("CP-1", "CanonicalDataFoundation", "L1", "canonical_financials",
                depends_on=("CP-0",), required_sources=frozenset({FINANCIALS}),
-               implemented=True, edgar_fallback=True),
+               implemented=True, edgar_fallback=True, session_bound=True),
     ModuleSpec("CP-1A", "BusinessTransactionFactPack", "L1", "business_transaction_fact_register",
                depends_on=("CP-1",), required_sources=frozenset({OFFERING}),
                implemented=True),
     ModuleSpec("CP-1B", "EarningsDelta", "L1", "earnings_delta",
                depends_on=("CP-1",), implemented=True),
     ModuleSpec("CP-1C", "PeerBenchmark", "L1", "peer_benchmark",
-               depends_on=("CP-1",), implemented=True),
+               depends_on=("CP-1",), implemented=True, session_bound=True),
     # ── L2 — fundamental credit ────────────────────────────────────────────
     ModuleSpec("CP-2", "CostStructure", "L2", "cost_structure",
                depends_on=("CP-1",), required_sources=frozenset({FINANCIALS}),
@@ -124,7 +131,7 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT}),
                implemented=True),
     ModuleSpec("CP-3C", "PortfolioFitPositionSizing", "L3", "portfolio_fit_analysis",
-               depends_on=("CP-3", "CP-1"), implemented=True),
+               depends_on=("CP-3", "CP-1"), implemented=True, session_bound=True),
     # CP-3D scores refinancing/LME vulnerability from CP-1 leverage *and* CP-2B
     # downside fragility; CP-2B is a declared dep so the layerer schedules CP-3D
     # after it (else upstream.get("CP-2B") is None and the fragility term is lost).

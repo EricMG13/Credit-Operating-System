@@ -316,6 +316,55 @@ async def get_run(
     return await _summary(db, run)
 
 
+@router.get("/{run_id}/modules", response_model=List[ModuleDetail])
+async def get_modules(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """All module outputs for a run, with claims + evidence, in three queries.
+
+    Bulk read for the Deep-Dive open: the per-module endpoint below costs the
+    client one HTTP round trip (and the server ~3 queries) per module — 21
+    requests per page open. This returns the same ModuleDetail shape for every
+    produced module at once."""
+    if await db.get(Run, run_id) is None:
+        raise HTTPException(404, "Run not found")
+    rows = await _modules_for(db, run_id)
+    row_pks = [r.id for r in rows]
+    claims_by_module: dict[str, List[Claim]] = {pk: [] for pk in row_pks}
+    claim_pks: List[str] = []
+    if row_pks:
+        for c in (await db.execute(
+            select(Claim).where(Claim.module_output_id.in_(row_pks))
+        )).scalars():
+            claims_by_module[c.module_output_id].append(c)
+            claim_pks.append(c.id)
+    evidence_by_claim: dict[str, List[EvidenceItem]] = {pk: [] for pk in claim_pks}
+    if claim_pks:
+        for e in (await db.execute(
+            select(EvidenceItem).where(EvidenceItem.claim_pk.in_(claim_pks))
+        )).scalars():
+            evidence_by_claim[e.claim_pk].append(e)
+    return [
+        ModuleDetail(
+            module_id=row.module_id, module_name=row.module_name, owned_object=row.owned_object,
+            schema_family=row.schema_family, runtime_output=row.runtime_output, confidence=row.confidence,
+            qa_status=row.qa_status, committee_status=row.committee_status,
+            validation_status=row.validation_status, limitation_flags=row.limitation_flags,
+            downstream_consumers=row.downstream_consumers,
+            claims=[
+                ClaimOut(
+                    claim_id=c.claim_id, claim_text=c.claim_text,
+                    evidence=[EvidenceOut.model_validate(e) for e in evidence_by_claim[c.id]],
+                )
+                for c in claims_by_module[row.id]
+            ],
+        )
+        for row in rows
+    ]
+
+
 @router.get("/{run_id}/modules/{module_id}", response_model=ModuleDetail)
 async def get_module(
     run_id: str,

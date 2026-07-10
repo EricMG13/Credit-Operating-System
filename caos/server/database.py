@@ -269,6 +269,10 @@ class Run(Base):
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
     error: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Serves the worker claim poll (status filter + created_at order, every
+    # poll tick) and the status='complete' board scans (migrations/0034).
+    __table_args__ = (Index("ix_runs_status_created_at", "status", "created_at"),)
+
 
 class ResearchJob(Base):
     """A durable Deep Research run (M-3).

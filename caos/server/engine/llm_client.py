@@ -71,9 +71,11 @@ def is_overloaded(exc: Exception) -> bool:
     return False
 
 
-def _provider(model: Optional[str]) -> str:
+def provider_of(model: Optional[str]) -> str:
     """Which provider a model id belongs to. The preset tier id decides routing —
-    no separate provider flag — so swapping a tier to a gemini-* id is all it takes."""
+    no separate provider flag — so swapping a tier to a gemini-* id is all it takes.
+    The ONE routing classifier: presets' key-degradation and the reviewer cross-
+    provider pick consume this too, so a new id shape is classified once."""
     if not model:
         return "anthropic"
     if model.startswith("gemini"):
@@ -81,6 +83,23 @@ def _provider(model: Optional[str]) -> str:
     if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
         return "openrouter"
     return "anthropic"
+
+
+async def _trace(resp, *, lane: str, model: str, t0: float, fallback: bool, kwargs: dict):
+    """Shared M-1 trace tail (prompt hash + budget.trace_llm) — was copy-pasted
+    into all three provider paths."""
+    import hashlib
+    import json
+
+    prompt_data = {"system": kwargs.get("system"), "messages": kwargs.get("messages")}
+    phash = hashlib.sha256(
+        json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    await budget.trace_llm(
+        resp, lane=lane, model=model,
+        ms=(time.monotonic() - t0) * 1000.0, fallback=fallback,
+        prompt_hash=phash,
+    )
 
 
 async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str],
@@ -94,10 +113,10 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
     s = get_settings()
     fb = fallback_model or s.model_tier_cheap
     # Same-provider fallback only. Under the shipped defaults model_tier_cheap is
-    # an OpenRouter id, which the _provider(fb) guard below would reject — leaving
+    # an OpenRouter id, which the provider_of(fb) guard below would reject — leaving
     # the promised retry-on-a-cheaper-model DEAD for every gemini-* lane. Degrade
     # to the known cheap Gemini id (the council reviewer default) instead.
-    if _provider(fb) != "gemini":
+    if provider_of(fb) != "gemini":
         fb = s.council_reviewer_model_gemini or "gemini-2.5-flash"
     call_kwargs: dict[str, Any] = dict(
         system=kwargs.get("system"),
@@ -116,7 +135,7 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
     except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
         # Fall back only to a same-provider cheaper model; never hand a non-gemini id
         # to the Gemini SDK (an operator could override model_tier_cheap).
-        if model == fb or _provider(fb) != "gemini" or not gemini.is_overloaded(exc):
+        if model == fb or provider_of(fb) != "gemini" or not gemini.is_overloaded(exc):
             raise
         logger.warning(
             "caos.llm lane=%s gemini overloaded on %s (%s) — falling back %s -> %s",
@@ -124,18 +143,7 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
         )
         resp = await gemini.call(model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
-    import hashlib
-    import json
-    prompt_data = {
-        "system": kwargs.get("system"),
-        "messages": kwargs.get("messages")
-    }
-    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-    await budget.trace_llm(
-        resp, lane=lane, model=used_model,
-        ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
-        prompt_hash=phash,
-    )
+    await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 
 
@@ -148,7 +156,7 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
     s = get_settings()
     # Default to the cheap tier (a same-provider OpenRouter model) so an overload
     # actually retries cheaper; the synth_executor default is Anthropic, which the
-    # _provider(fb) guard below would reject — making the fallback dead. Mirrors the
+    # provider_of(fb) guard below would reject — making the fallback dead. Mirrors the
     # Gemini path.
     fb = fallback_model or s.model_tier_cheap
     call_kwargs: dict[str, Any] = dict(
@@ -164,7 +172,7 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
     try:
         resp = await openrouter.call(lane=lane, model=model, **call_kwargs)
     except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
-        if model == fb or _provider(fb) != "openrouter" or not openrouter.is_overloaded(exc):
+        if model == fb or provider_of(fb) != "openrouter" or not openrouter.is_overloaded(exc):
             raise
         logger.warning(
             "caos.llm lane=%s openrouter overloaded on %s (%s) — falling back %s -> %s",
@@ -172,18 +180,7 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
         )
         resp = await openrouter.call(lane=lane, model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
-    import hashlib
-    import json
-    prompt_data = {
-        "system": kwargs.get("system"),
-        "messages": kwargs.get("messages")
-    }
-    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-    await budget.trace_llm(
-        resp, lane=lane, model=used_model,
-        ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
-        prompt_hash=phash,
-    )
+    await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 
 
@@ -210,11 +207,11 @@ async def create(
     """
     s = get_settings()
     primary = model or s.anthropic_model
-    if _provider(primary) == "gemini":
+    if provider_of(primary) == "gemini":
         return await _create_gemini(
             lane=lane, model=primary, fallback_model=fallback_model, effort=effort, **kwargs
         )
-    if _provider(primary) == "openrouter":
+    if provider_of(primary) == "openrouter":
         return await _create_openrouter(
             lane=lane, model=primary, fallback_model=fallback_model, effort=effort, **kwargs
         )
@@ -244,10 +241,10 @@ async def create(
     try:
         resp = await client.messages.create(model=primary, **kwargs)
     except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
-        # _provider(fb) guard mirrors the Gemini/OpenRouter paths: an operator-
+        # provider_of(fb) guard mirrors the Gemini/OpenRouter paths: an operator-
         # overridden non-Anthropic synth_executor_model must not be handed to the
         # Anthropic SDK (a retriable 429 would surface as a confusing 404).
-        if primary == fb or _provider(fb) != "anthropic" or not is_overloaded(exc):
+        if primary == fb or provider_of(fb) != "anthropic" or not is_overloaded(exc):
             raise
         logger.warning(
             "caos.llm lane=%s rate-limited on %s (%s) — falling back %s -> %s",
@@ -258,16 +255,9 @@ async def create(
         b = budget.current_budget()
         if b is not None:
             b.degraded = True
-    import hashlib
-    import json
-    prompt_data = {
-        "system": kwargs.get("system"),
-        "messages": kwargs.get("messages")
-    }
-    phash = hashlib.sha256(json.dumps(prompt_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-    await budget.trace_llm(
-        resp, lane=lane, model=used_model,
-        ms=(time.monotonic() - t0) * 1000.0, fallback=did_fallback,
-        prompt_hash=phash,
-    )
+    await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
+
+
+# Back-compat alias (pre-BE7 name); prefer provider_of.
+_provider = provider_of
