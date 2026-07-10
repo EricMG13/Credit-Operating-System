@@ -459,7 +459,7 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 
 
 # ── Builder: concentration (clustered / scatter / rollup views) ──────────────
-async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:
+async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:  # noqa: C901  # pre-existing multi-view builder; split per-view when reworked
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
     if by == "rating":
