@@ -229,12 +229,17 @@ requires_pg = pytest.mark.skipif(
 @requires_pg
 @pytest.mark.asyncio
 async def test_two_workers_claim_one_run_once(seeded_db):
-    from database import AsyncSessionLocal, Run
-    from engine.fixtures import REFERENCE_ISSUER_ID
+    from database import AsyncSessionLocal, Issuer, Run
     from run_executor import QueueWorker
 
+    # Dedicated issuer: the active-run partial unique index permits only one
+    # queued/running run per issuer, and this test intentionally leaves its run
+    # claimed (never drained). On Postgres the cross-test issuer cleanup is a
+    # no-op (it is SQLite-path-only), so sharing REFERENCE_ISSUER_ID would leave
+    # an active run that collides with the next pg test's insert.
     async with AsyncSessionLocal() as s:
-        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(Issuer(id="claim-race-iss", name="Claim Race Co"))
+        run = Run(issuer_id="claim-race-iss", analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
@@ -249,14 +254,17 @@ async def test_two_workers_claim_one_run_once(seeded_db):
 @requires_pg
 @pytest.mark.asyncio
 async def test_reaper_fails_exhausted_orphan(seeded_db):
-    from database import AsyncSessionLocal, Run
-    from engine.fixtures import REFERENCE_ISSUER_ID
+    from database import AsyncSessionLocal, Issuer, Run
     from run_executor import QueueWorker
     from datetime import datetime, timedelta, timezone
 
+    # Dedicated issuer (see test_two_workers_claim_one_run_once): the pg lane
+    # accumulates runs across tests, so this insert must not share an issuer with
+    # any other active run or it trips the active-run partial unique index.
     past = datetime.now(timezone.utc) - timedelta(hours=1)
     async with AsyncSessionLocal() as s:
-        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t",
+        s.add(Issuer(id="reaper-orphan-iss", name="Reaper Orphan Co"))
+        run = Run(issuer_id="reaper-orphan-iss", analyst_id="t",
                   status="running", attempts=3, lease_expires_at=past)
         s.add(run)
         await s.commit()
