@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from database import (
     Document, Issuer, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
@@ -17,6 +18,11 @@ from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
+
+# Authenticated write cap — issuer creation parses no documents but still spawns a
+# row, so bound it (duplicate-issuer spam / accidental double-submit). Reads stay
+# on their own generous page caps.
+_WRITE_MAX_PER_MINUTE = 30
 
 
 class IssuerCreate(BaseModel):
@@ -133,8 +139,23 @@ async def create_issuer(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    if not rate_limit.hit(
+        f"issuer-create:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(429, "Issuer-create rate limit reached — try again in a minute.")
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
+    name = (data.get("name") or "").strip()
+    # Dedup on a case-insensitive name so a double-click or two analysts adding the
+    # same issuer don't fork coverage into duplicate rows that then split
+    # runs/metric_facts. There is no DB uniqueness on Issuer.name yet, so this
+    # app-level check covers the realistic double-submit; a unique index on
+    # lower(name) is the durable follow-up for true concurrency.
+    existing = (await db.execute(
+        select(Issuer).where(func.lower(Issuer.name) == name.lower())
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(409, "An issuer with that name already exists.")
     issuer = Issuer(**data)
     db.add(issuer)
     await db.flush()

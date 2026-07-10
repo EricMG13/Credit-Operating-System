@@ -116,13 +116,33 @@ def current_query_model() -> Optional[str]:
     return _query_model_var.get()
 
 
+# Client-supplied X-Query-Model is restricted to this bounded allowlist so an
+# analyst can't point a query lane at an arbitrary (e.g. maximally expensive)
+# provider model and spend org keys. It is the four configured tier models plus the
+# fixed set the Settings UI offers — keep in sync with app/settings/page.tsx.
+_QUERY_MODEL_ALLOW_EXTRA = frozenset({
+    "claude-sonnet-4-6", "gemini-1.5-pro", "deepseek/deepseek-chat",
+})
+
+
+def _query_model_allowlist(s) -> frozenset:
+    return frozenset({
+        s.model_tier_cheap, s.model_tier_fast, s.model_tier_strong, s.model_tier_top,
+    }) | _QUERY_MODEL_ALLOW_EXTRA
+
+
 def resolved_query_model() -> str:
     """The resolved model ID for query lanes, falling back to the standard Light
-    preset model when no custom query model override is set or its key is missing.
+    preset model when no custom query model override is set, off the allowlist, or
+    its provider key is missing.
     """
     s = get_settings()
     model = current_query_model()
     if not model or model in ("null", "undefined"):
+        return model_for(LIGHT)
+    # Off-allowlist (an arbitrary/expensive model id) degrades to the Light preset
+    # rather than billing the org's keys on the analyst's chosen model.
+    if model not in _query_model_allowlist(s):
         return model_for(LIGHT)
     if model.startswith("gemini") and not s.gemini_api_key:
         return model_for(LIGHT)

@@ -81,9 +81,12 @@ CASES = [
     ("mixed_nonnumeric", _nf({"FY23": "n/a", "FY24": 120.0}, {"FY23": 20.0, "FY24": 30.0}),
      _out([_row("FY23", "n/a", 20.0, None), _row("FY24", 120.0, 30.0, 25.0)],
           _sum(None, 50.0, None, "FY24", "FY23"), [])),
+    # Negative prior base: YoY % is None (not the old sign-flipped +20%). A revenue
+    # of -100 -> -120 is a worsening, but (−120−(−100))/(−100) = +20% reads as growth,
+    # so _yoy now degrades a negative base to None rather than emit a flipped figure.
     ("negative_revenue", _nf({"FY23": -100.0, "FY24": -120.0}, {"FY23": 20.0, "FY24": 30.0}),
      _out([_row("FY23", -100.0, 20.0, -20.0), _row("FY24", -120.0, 30.0, -25.0)],
-          _sum(20.0, 50.0, -5.0, "FY24", "FY23"),
+          _sum(None, 50.0, -5.0, "FY24", "FY23"),
           ["EBITDA margin compressed 5pp YoY."])),
     ("rounding_margin", _nf({"FY23": 300.0, "FY24": 700.0}, {"FY23": 100.0, "FY24": 200.0}),
      _out([_row("FY23", 300.0, 100.0, 33.3), _row("FY24", 700.0, 200.0, 28.6)],

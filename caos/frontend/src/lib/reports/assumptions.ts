@@ -92,10 +92,16 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
 
 const KEY = "caos-d-assumptions";
 
-export function loadAssumptions(): Assumptions {
+// Namespace by an optional scope (the issuer id) so assumptions built for one
+// issuer never load onto another's grid. Absent scope keeps the legacy global key.
+function keyFor(scope?: string): string {
+  return scope ? `${KEY}:${scope}` : KEY;
+}
+
+export function loadAssumptions(scope?: string): Assumptions {
   if (typeof window === "undefined") return DEFAULT_ASSUMPTIONS;
   try {
-    const s = JSON.parse(localStorage.getItem(KEY) || "null");
+    const s = JSON.parse(localStorage.getItem(keyFor(scope)) || "null");
     if (s && s.base && s.down) {
       return {
         base: { ...DEFAULT_CASE, ...s.base }, down: { ...DEFAULT_CASE, ...s.down },
@@ -106,8 +112,8 @@ export function loadAssumptions(): Assumptions {
   return DEFAULT_ASSUMPTIONS;
 }
 
-export function saveAssumptions(a: Assumptions): void {
-  try { localStorage.setItem(KEY, JSON.stringify(a)); } catch { /* private mode / quota */ }
+export function saveAssumptions(a: Assumptions, scope?: string): void {
+  try { localStorage.setItem(keyFor(scope), JSON.stringify(a)); } catch { /* private mode / quota */ }
 }
 
 /** Count of fields in a case that differ from the agent baseline (panel chip). */

@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { logout } from "@/lib/api";
+import { clearWorkspaceStorage, logout } from "@/lib/api";
 import { initials } from "@/lib/format";
 
 export function AnalystBadge() {
@@ -22,6 +22,7 @@ export function AnalystBadge() {
     try {
       await logout();
     } finally {
+      clearWorkspaceStorage(); // don't leak this analyst's workspace state to the next login
       await refresh(); // re-resolve → RequireAuth shows the login landing
     }
   };

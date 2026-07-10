@@ -10,10 +10,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from database import Issuer, SavedModel, get_db
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
+
+_WRITE_MAX_PER_MINUTE = 30
 
 
 class SavedModelBody(BaseModel):
@@ -51,6 +54,10 @@ async def save_model(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db),
 ):
+    if not rate_limit.hit(
+        f"model-save:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(429, "Model-save rate limit reached — try again in a minute.")
     if await db.get(Issuer, issuer_id) is None:
         raise HTTPException(404, "Issuer not found")
     row = (await db.execute(

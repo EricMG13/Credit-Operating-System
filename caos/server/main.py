@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if is_deployed(settings) and settings.analyst_signup_code in ("", "131113"):
+    if is_deployed(settings) and settings.analyst_signup_code in ("", "131113", "change-me-private-code"):
         # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
         # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
         # would ship a known self-registration gate by omission. Refuse to start

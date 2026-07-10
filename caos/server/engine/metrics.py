@@ -198,7 +198,15 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
     claim/evidence/chunk that asserts it. Empty if the module derived no value.
     """
     val = (payload.runtime_output or {}).get("energy_cost_pct")
-    if val is None:
+    # is_finite_number (not a bare `is None`): CP-2's runtime_output is LLM-authored
+    # and energy_cost_pct is NOT pinned in the CP-2 tool schema (synth pins only the
+    # 9 dimensions + credit_implication), so a live/replayed payload can carry a NaN
+    # float or a non-numeric string. float(val) on a NaN would land a non-finite value
+    # in the SHARED cross-issuer store (poisoning peer ranking + 500-ing the /query
+    # response), and a string would raise inside the runner's fact-projection block —
+    # which sits OUTSIDE per-module isolation, so it fails the whole run. Drop any
+    # non-finite value at the projection boundary, exactly like extract_facts.add().
+    if not is_finite_number(val):
         return []
     claim_id = evidence_id = chunk = None
     for c in payload.claims:
@@ -273,5 +281,12 @@ def derive_energy_cost_pct(
             continue
         m = _COST_PCT_RE.search(text)
         if m:
-            return float(m.group(1)), chunk_id, doc
+            v = float(m.group(1))
+            # Range-guard like the sibling extractors (derive_addbacks 0<pct<1,
+            # covenants._addback_cap 0<v<=60): an erroneous/adversarial "250 percent
+            # of cost of goods sold", or an unbounded-digit figure that parses to inf,
+            # must not enter the CP-2 claim, the metric store, or the cross-issuer
+            # energy ranking. Energy as a % of the cost base is 0<v<=100.
+            if 0 < v <= 100:
+                return v, chunk_id, doc
     return None

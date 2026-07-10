@@ -86,7 +86,7 @@ function ModelBuilder() {
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
   const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const [hydratedFor, setHydratedFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
@@ -94,23 +94,32 @@ function ModelBuilder() {
   const reports = useMemo(() => buildReports(), []);
 
   useEffect(() => {
+    let stale = false;
+    // Namespace browser-cached model inputs by issuer so a model built for issuer A
+    // never loads onto (or persists under) issuer B's grid. Reset the persist gate
+    // synchronously on issuer change so the prior issuer's in-memory overrides can't
+    // be written under the new issuer's key during the transition.
+    setHydratedFor(null);
     try {
-      const o = JSON.parse(localStorage.getItem("caos-d-overrides") || "{}");
-      if (o && typeof o === "object") setOverrides(o);
-      setAssumptions(loadAssumptions());
-    } catch { /* first visit */ }
+      const o = JSON.parse(localStorage.getItem(`caos-d-overrides:${issuerId}`) || "{}");
+      setOverrides(o && typeof o === "object" ? (o as Overrides) : {});
+    } catch { setOverrides({}); }
+    setAssumptions(loadAssumptions(issuerId));
     getSavedModel(issuerId).then((saved) => {
-      if (!saved?.payload) return;
-      if (saved.payload.overrides && typeof saved.payload.overrides === "object") setOverrides(saved.payload.overrides as Overrides);
-      if (saved.payload.assumptions && typeof saved.payload.assumptions === "object") setAssumptions(saved.payload.assumptions as Assumptions);
-      if (Array.isArray(saved.payload.collapsedRows)) setCollapsedRows(new Set(saved.payload.collapsedRows as string[]));
-      setSavedAt(saved.updated_at);
-    }).catch(() => {});
-    setHydrated(true);
+      if (stale) return;  // a newer issuer's load has superseded this response
+      if (saved?.payload) {
+        if (saved.payload.overrides && typeof saved.payload.overrides === "object") setOverrides(saved.payload.overrides as Overrides);
+        if (saved.payload.assumptions && typeof saved.payload.assumptions === "object") setAssumptions(saved.payload.assumptions as Assumptions);
+        if (Array.isArray(saved.payload.collapsedRows)) setCollapsedRows(new Set(saved.payload.collapsedRows as string[]));
+        setSavedAt(saved.updated_at);
+      }
+    }).catch(() => {}).finally(() => { if (!stale) setHydratedFor(issuerId); });
+    return () => { stale = true; };
   }, [issuerId]);
-  // persist only after restore — writing earlier clobbers stored state with defaults
-  useEffect(() => { if (hydrated) try { localStorage.setItem("caos-d-overrides", JSON.stringify(overrides)); } catch {} }, [hydrated, overrides]);
-  useEffect(() => { if (hydrated) saveAssumptions(assumptions); }, [hydrated, assumptions]);
+  // Persist only after the CURRENT issuer's restore completes (hydratedFor === issuerId),
+  // so a mid-transition write can't clobber a key with defaults or the prior issuer's values.
+  useEffect(() => { if (hydratedFor === issuerId) try { localStorage.setItem(`caos-d-overrides:${issuerId}`, JSON.stringify(overrides)); } catch {} }, [hydratedFor, overrides, issuerId]);
+  useEffect(() => { if (hydratedFor === issuerId) saveAssumptions(assumptions, issuerId); }, [hydratedFor, assumptions, issuerId]);
   useEffect(() => {
     const onCollapse = () => {
       const next = !(showAssumptions || showScenarios);

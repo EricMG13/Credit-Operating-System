@@ -188,7 +188,9 @@ async def create_profile(
 
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic
     # (401-by-source) sees it. Constant-time compare.
-    if not hmac.compare_digest(body.code, settings.analyst_signup_code):
+    if not hmac.compare_digest(
+        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid access code.")
 
     # Strip interior control chars before persistence — body.name and the
@@ -248,7 +250,9 @@ async def register(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-up disabled — invite code not configured."
         )
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic sees it.
-    if not hmac.compare_digest(body.code, settings.analyst_signup_code):
+    if not hmac.compare_digest(
+        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid invite code.")
 
     name = sanitize_field(body.name).strip()

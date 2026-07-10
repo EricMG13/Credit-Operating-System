@@ -30,7 +30,13 @@ def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
     if len(vals) < 2:
         return None
     (pp, prev), (lp, last) = vals[-2], vals[-1]
-    if not prev:
+    # Guard 0 AND a negative base: negative EBITDA is realistic here (the EDGAR proxy
+    # is operating income + D&A, negative in loss years; distressed HY is in scope).
+    # A negative prior base sign-flips the ratio — prev=-50, last=100 gives
+    # (150)/(-50) = -300%, so a genuine EBITDA *recovery* would read as "declined
+    # 300% YoY" in the committee claim, the CP-1B-MONITOR signal, catalysts, and the
+    # debate points. Degrade to None (no YoY) rather than emit a sign-flipped figure.
+    if not prev or prev < 0:
         return None
     return round(100 * (last - prev) / prev, 1), pp, lp
 

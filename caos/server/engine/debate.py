@@ -30,6 +30,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from engine.periods import is_finite_number
+
 from config import get_settings
 from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
@@ -84,7 +86,11 @@ def _leverage(cp1: Optional[ModulePayload]) -> Optional[float]:
         return None
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev = nf.get("net_leverage_adj_ltm")
-    return float(lev) if isinstance(lev, (int, float)) else None
+    # is_finite_number (not bare isinstance): a NaN passes isinstance and fails every
+    # band test below (NaN comparisons are False), so it would fall into the bullish
+    # "manageable at nanx net" else-branch (+1 toward CONSTRUCTIVE) with "nan" in the
+    # committee narrative. Treat non-finite as missing. Mirrors refinancing.py.
+    return float(lev) if is_finite_number(lev) else None
 
 
 def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]:
@@ -112,7 +118,7 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
     if cp1b is not None:
         rt = cp1b.runtime_output or {}
         eg = (rt.get("summary") or {}).get("ebitda_growth_pct")
-        if isinstance(eg, (int, float)) and eg > 0:
+        if is_finite_number(eg) and eg > 0:
             bull.append(Point(f"Adjusted EBITDA grew {eg:g}% YoY.", "CP-1B", 1))
         for sig in rt.get("monitoring_signals") or []:
             bear.append(Point(str(sig), "CP-1B", 2))
@@ -133,7 +139,7 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
         if rt.get("covenant_structure") == "cov-lite":
             bear.append(Point("Cov-lite structure — no maintenance covenant to trip early.", "CP-4C", 2))
         for calc in rt.get("calculations") or []:
-            if "headroom" in str(calc.get("name", "")).lower() and isinstance(calc.get("value"), (int, float)):
+            if "headroom" in str(calc.get("name", "")).lower() and is_finite_number(calc.get("value")):
                 hr = calc["value"]
                 if hr >= 1.0:
                     bull.append(Point(f"{hr:g} turns of covenant headroom.", "CP-4C", 1))

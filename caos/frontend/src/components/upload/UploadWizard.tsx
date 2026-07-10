@@ -6,7 +6,7 @@
 // no per-document type or date entry: ingested documents are already dated,
 // and classification is CP-0's job.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { createIssuer, getIssuers, uploadDocument, uploadPricingSheet } from "@/lib/api";
@@ -58,7 +58,14 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     },
   });
 
+  // Ref guard (not state): synchronous, so a same-tick double-click can't fire two
+  // POSTs. The button isn't disabled during the await, and the server now dedups on
+  // name (409), which would otherwise surface a confusing "already exists" on the
+  // second submit even though the first succeeded.
+  const creatingIssuer = useRef(false);
   const handleCreateIssuer = async () => {
+    if (creatingIssuer.current) return;
+    creatingIssuer.current = true;
     try {
       const created = await createIssuer({ name: newIssuerName, ticker: newIssuerTicker || null });
       setIssuers([...issuers, created]);
@@ -69,6 +76,8 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(detail || "Failed to create issuer");
+    } finally {
+      creatingIssuer.current = false;
     }
   };
 

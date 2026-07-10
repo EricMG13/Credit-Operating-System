@@ -171,7 +171,14 @@ function QueryWorkspace() {
   // so the analyst can accept several proposals in one sitting.
   const refreshGraph = useCallback(() => {
     if (!activeId) return;
-    queryGraph(activeId).then(setGraph).catch(() => {});
+    // Bind to the current run sequence: if the analyst switches capability (run()
+    // bumps runSeq) while this refresh is in flight, its response must not clobber
+    // the newer graph. Mirrors the guard in run().
+    const seq = runSeq.current;
+    queryGraph(activeId).then((g) => {
+      if (seq !== runSeq.current) return;
+      setGraph(g);
+    }).catch(() => {});
   }, [activeId]);
 
   const acceptLink = useCallback((edge: OverlayEdge) => {
@@ -493,13 +500,20 @@ function QueryWorkspace() {
                         setOverlay(null);
                         return;
                       }
+                      // The overlay LLM lane runs 30-130s; bind the run sequence so a
+                      // capability switch mid-flight (run() bumps runSeq + clears the
+                      // overlay) can't have this stale response draw its proposed links
+                      // over a different graph.
+                      const seq = runSeq.current;
                       setOverlayBusy(true);
                       queryOverlay(activeId)
                         .then((o) => {
+                          if (seq !== runSeq.current) return;
                           setOverlay(o);
                           notify("Model overlay ready", `${o.edges.length} proposed link${o.edges.length === 1 ? "" : "s"}${o.cached ? " (cached)" : ""}`);
                         })
                         .catch((e) => {
+                          if (seq !== runSeq.current) return;
                           const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
                             || (e as Error)?.message || "model overlay failed";
                           notify("Model overlay failed", String(d));

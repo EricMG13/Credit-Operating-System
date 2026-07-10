@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from config import get_settings
 from database import Analyst, get_db
 from deepresearch import _EFFORT, _MAX_SEARCHES, _MAX_TOKENS as _DR_MAX_TOKENS
@@ -19,6 +20,8 @@ from identity import CallerIdentity, get_identity
 from llm import llm_configured
 
 router = APIRouter()
+
+_WRITE_MAX_PER_MINUTE = 30
 
 
 class AnalystSettings(BaseModel):
@@ -91,6 +94,12 @@ async def write_analyst_settings(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db),
 ):
+    if not rate_limit.hit(
+        f"settings-save:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "Settings-save rate limit reached — try again in a minute."
+        )
     analyst = await db.get(Analyst, caller.id)
     if analyst is None:
         # No persisted profile for this identity (e.g. proxy/local caller without a

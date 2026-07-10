@@ -33,7 +33,10 @@ export function EdgarImport({
 
   const vault = async () => {
     const u = url.trim();
-    if (!u) return;
+    // Guard vaulting in the handler, not just the button: the Enter key (onKeyDown)
+    // calls vault() directly, so a second quick Enter would fire a duplicate batch
+    // (double-vaulted exhibits → duplicate chunks feeding E-xx evidence).
+    if (!u || vaulting) return;
     setVaulting(true);
     setError("");
     setNotConfigured(false);

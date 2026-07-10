@@ -134,10 +134,14 @@ def test_issuers_collection_slash_tolerant(client):
 
 
 def test_create_and_get_issuer(client):
+    # Use a name that does NOT collide with a seeded demo issuer: create_issuer now
+    # dedups on a case-insensitive name (409 on a duplicate), and the seed already
+    # holds "Atlas Forge Industrials" — creating a second one is the duplicate-issuer
+    # bug the dedup prevents, so this round-trip uses a distinct name.
     r = client.post(
         "/api/issuers/",
         json={
-            "name": "Atlas Forge Industrials",
+            "name": "Bastion Metals Corp",
             "ticker": "ATLF",
             "industry": "Industrials",
             "figi": "BBG00TLSFRG5",
@@ -150,7 +154,13 @@ def test_create_and_get_issuer(client):
 
     r2 = client.get(f"/api/issuers/{issuer['id']}")
     assert r2.status_code == 200
-    assert r2.json()["name"] == "Atlas Forge Industrials"
+    assert r2.json()["name"] == "Bastion Metals Corp"
+
+
+def test_create_issuer_duplicate_name_conflicts(client):
+    """The case-insensitive dedup: a second issuer with a seeded name is refused."""
+    r = client.post("/api/issuers/", json={"name": "atlas forge industrials"})
+    assert r.status_code == 409
 
 
 def test_search_by_name_case_insensitive(client):
