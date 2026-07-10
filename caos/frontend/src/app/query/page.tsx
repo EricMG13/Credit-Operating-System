@@ -1058,10 +1058,6 @@ function QueryWorkspace() {
                       // over a different graph.
                       const seq = runSeq.current;
                       setOverlayBusy(true);
-                      // Seq guard: this lane runs up to 130s — if the analyst runs a
-                      // different question meanwhile (run() clears overlay + bumps
-                      // seq), the late overlay must not attach to the new graph.
-                      const seq = runSeq.current;
                       queryOverlay(activeId)
                         .then((o) => {
                           if (seq !== runSeq.current) return;
