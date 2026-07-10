@@ -65,15 +65,20 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if is_deployed(settings) and settings.analyst_signup_code in ("", "131113"):
+    if is_deployed(settings) and settings.analyst_signup_code in (
+        "", "131113", "change-me-private-code",
+    ):
         # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
         # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
         # would ship a known self-registration gate by omission. Refuse to start
         # without a private one — same posture as the SESSION_SECRET guard above.
+        # The deny-list includes the historical .env.example placeholder: a deploy
+        # that shipped `cp .env.example .env` unedited booted cleanly with a
+        # repo-public signup code (audit 2026-07-10 DEP-3).
         raise RuntimeError(
             "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
-            "in-source default (131113) is public and would leave analyst profile "
-            "self-registration open. Set ANALYST_SIGNUP_CODE."
+            "in-source defaults/placeholders are public and would leave analyst "
+            "profile self-registration open. Set ANALYST_SIGNUP_CODE."
         )
     if is_deployed(settings) and settings.caos_demo_seed:
         # Fail closed (was warn-only): demo seeding ships fictional issuers + the

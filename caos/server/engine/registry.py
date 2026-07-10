@@ -21,15 +21,22 @@ Two populations:
     (CP-SR SectorReview, CP-MON CreditPulse) and the Infra modules (CP-RENDER,
     CP-EXTRACT) named in the CP-X route graph. CP-X routes to them and the planner
     marks them ``Not Implemented`` (engine.planner) so the route plan reflects the
-    full corpus mesh honestly; they are never executed and never counted in the QA
+    corpus mesh honestly; they are never executed and never counted in the QA
     roll-up. Their ``owned_object`` is not validated by the one-owner check (that
     only runs over implemented modules), so where the corpus pins one we use it
     (sector_review, signal_register) and otherwise a sensible canonical name.
 
+    One corpus route-graph node is deliberately NOT registered: **CP-DB** (the
+    persistence layer) — the database/Alembic stack IS its implementation, and
+    it is neither routable nor executable as a module, so listing it would put a
+    permanently-dead node in every route plan. Named here so the omission is a
+    documented decision, not a silent gap (audit 2026-07-10 SPEC-4).
+
 Layer ordering (Active Prompt / REF_CP-X_02): L0 -> Orch -> L1 -> L2 -> L3 ->
-L4 -> L5/L6 -> Infra. CP-X (Orch) is the router itself and the infrastructure
-modules (CP-5B/5C/5) are produced by the QA phase, so neither is a routed entry
-here.
+L4 -> L5/L6 -> Infra. CP-X (Orch) is the router itself, and the QA-phase
+records (CP-5B lineage, CP-5 gate — plus the engine-local CP-5C committee-review
+record, an ENGINE addition that has no corpus module or routing-index entry) are
+produced after synthesis, so none is a routed entry here.
 """
 
 from __future__ import annotations

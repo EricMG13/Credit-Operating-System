@@ -12,8 +12,7 @@ name: caos
 services:
   db:
     # pgvector-enabled Postgres 18 (Debian-based; the stock postgres:18-alpine
-    # lacks the `vector` extension that mig 0030's embeddings table needs). Same
-    # PG major as before, so the data dir + POSTGRES_* env are unchanged. The
+    # lacks the `vector` extension that mig 0030's embeddings table needs). The
     # `backup` service below stays on postgres:18-alpine — pg_dump is a client and
     # does not need the extension installed.
     image: pgvector/pgvector:pg18
@@ -28,7 +27,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: caos
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # PG18 layout (audit 2026-07-10 DEP-1): the official 18+ images moved
+      # PGDATA to /var/lib/postgresql/<major>/docker and declare their volume at
+      # /var/lib/postgresql — mount the volume THERE. A mount at the pre-18
+      # /var/lib/postgresql/data path is detected by the 18+ entrypoint as an
+      # "unused mount/volume" and ABORTS the container: the stack never
+      # completed a first boot as previously shipped. (pgvector:pg18 shares the
+      # official image's entrypoint/layout.)
+      - db-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U caos -d caos"]
       interval: 10s
