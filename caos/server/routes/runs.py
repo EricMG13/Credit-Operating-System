@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +119,15 @@ class RunListItem(BaseModel):
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes (stored UTC); serialize with an
+        # explicit offset so clients don't parse UTC wall-clock as local time.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class EvidenceOut(BaseModel):
