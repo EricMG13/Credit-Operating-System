@@ -20,7 +20,7 @@ import re
 from itertools import groupby
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest_annual
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -92,7 +92,7 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
-    eb = latest(nf.get("adj_ebitda") or {})
+    eb = latest_annual(nf.get("adj_ebitda") or {})
     return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
 
 

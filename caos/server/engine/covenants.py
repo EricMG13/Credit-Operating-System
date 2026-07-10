@@ -392,9 +392,12 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
         # Explicit finiteness on BOTH operands (not just `lev is not None`): cp1_leverage
         # now returns None for a NaN lev, but gate here too so a non-finite thr (or a
         # future lev source that skips that gate) degrades to the sourced-threshold /
-        # no-headroom branch below instead of emitting a NaN headroom/cushion. Guard
-        # thr != 0 so the cushion divide can't blow up.
-        if is_finite_number(lev) and is_finite_number(thr) and thr != 0:
+        # no-headroom branch below instead of emitting a NaN headroom/cushion. Both
+        # operands must also be POSITIVE: a net-cash issuer's negative lev yields an
+        # arithmetically faithful but meaningless ">100% EBITDA decline to a breach"
+        # cushion in committee text (audit 2026-07-10 V3), and a thr<=0 blows the
+        # divide — degrade to the sourced-threshold branch in both cases.
+        if is_finite_number(lev) and lev > 0 and is_finite_number(thr) and thr > 0:
             headroom = round(thr - lev, 2)
             cushion = round((1 - lev / thr) * 100, 1)
             calcs.append({

@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, safe_div, sort_key
+from engine.periods import is_finite_number, latest, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -279,7 +279,7 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     # malformed adj_ebitda series itself.
     nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    eb = latest(nf.get("adj_ebitda") or {})
+    eb = latest_annual(nf.get("adj_ebitda") or {})
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
             and is_finite_number(eb) and eb):
         return None

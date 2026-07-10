@@ -43,7 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import is_finite_number, latest, safe_div
+from engine.periods import is_finite_number, latest_annual, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -165,7 +165,7 @@ async def reconcile_adjusted_ebitda(
     # silently assumes the disclosed leverage and net debt share the same EBITDA
     # basis/period; use the reconstruction only when adj_ebitda is absent. (#16)
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    disclosed = latest(nf.get("adj_ebitda") or {})
+    disclosed = latest_annual(nf.get("adj_ebitda") or {})
     if is_finite_number(disclosed) and disclosed > 0:
         ebitda = float(disclosed)
     elif lev != 0:
@@ -235,10 +235,17 @@ def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     return Finding(
         finding_id="CP-1A-RECON", severity="MINOR", lane=2, module_id="CP-1",
         affected_claim_id="C-ADJ1",
+        # Gate the interpolated sibling fields too: a replayed/stripped payload
+        # with these keys absent or non-finite would otherwise print "~Nonex" /
+        # "~nanx" in committee-facing finding text (audit 2026-07-10 A1).
         description=(
             f"Add-backs are {pct * 100:.1f}% of EBITDA; excluding them net leverage would be "
-            f"~{ro.get('leverage_excl_addbacks')}x (+{gap} turns vs {ro.get('leverage_current')}x "
-            "reported). Assess add-back permanence and the covenant-defined EBITDA basis before "
+            + (f"~{ro.get('leverage_excl_addbacks'):g}x"
+               if is_finite_number(ro.get("leverage_excl_addbacks")) else "materially higher")
+            + f" (+{gap:g} turns"
+            + (f" vs {ro.get('leverage_current'):g}x reported"
+               if is_finite_number(ro.get("leverage_current")) else "")
+            + "). Assess add-back permanence and the covenant-defined EBITDA basis before "
             "relying on the adjusted leverage."
         ),
         required_remediation="Review the add-back composition/permanence; confirm covenant EBITDA basis.",
