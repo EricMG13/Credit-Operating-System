@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,11 +22,14 @@ router = APIRouter()
 
 class IssuerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    sub_sector: Optional[str] = None
-    country: Optional[str] = None
+    # Bounds mirror the DB columns (String(32)/String(128), database.py): an
+    # unbounded field raises DataError → 500 on Postgres and silently persists
+    # oversized junk on SQLite (which ignores VARCHAR lengths).
+    ticker: Optional[str] = Field(default=None, max_length=32)
+    sector: Optional[str] = Field(default=None, max_length=128)
+    industry: Optional[str] = Field(default=None, max_length=128)
+    sub_sector: Optional[str] = Field(default=None, max_length=128)
+    country: Optional[str] = Field(default=None, max_length=128)
     figi: Optional[str] = Field(default=None, max_length=32)
     sponsor: Optional[str] = Field(default=None, max_length=255)
     # Agency ratings are no longer a create-time input — they're collected from
@@ -199,6 +202,16 @@ class RunBrief(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes; stored values are UTC. Serialize with
+        # an explicit offset, else `new Date()` client-side parses the UTC wall
+        # clock as LOCAL time and run dates shift by up to a day.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class MetricFactOut(BaseModel):
@@ -580,6 +593,14 @@ class ResearchReportOut(BaseModel):
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     is_stale: bool = False
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # Same naive-UTC → aware conversion as RunBrief (SQLite drops tzinfo).
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 def _report_out(report: IssuerResearchReport, is_stale: bool = False) -> ResearchReportOut:

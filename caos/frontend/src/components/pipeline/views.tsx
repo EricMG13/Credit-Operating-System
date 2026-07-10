@@ -145,7 +145,8 @@ export function GraphView({
             }}
           >
             <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
-              <Dot sev={st} pulse={st === "running"} />
+              {/* glyph: a terminal warning-vs-pass node otherwise differs by hue alone (the swimlane view prints the state as text; the DAG node doesn't) */}
+              <Dot sev={st} pulse={st === "running"} glyph />
               <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
               {inScope && NODE_QA[m.id] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
@@ -373,7 +374,8 @@ export function Inspector({
         <div className="flex flex-wrap gap-1">
           {deps.length ? deps.map((d) => (
             <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg">
-              <Dot sev={sim.mods[d]?.state || "idle"} />{d}
+              {/* glyph: the dot is the sole status carrier here (the id text says nothing) — never color-alone */}
+              <Dot sev={sim.mods[d]?.state || "idle"} glyph />{d}
             </span>
           )) : <span className="text-caos-md text-caos-muted">— root node (source intake)</span>}
         </div>

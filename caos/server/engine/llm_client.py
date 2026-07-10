@@ -31,9 +31,27 @@ from engine import budget
 logger = logging.getLogger("caos.llm")
 
 
+# One client per (class, key, timeout): AsyncAnthropic owns an httpx connection
+# pool, so per-call construction re-pays TLS setup on every request-lane call
+# and leaks unclosed transports to GC under load. The CLASS is part of the key
+# so a test that monkeypatches anthropic.AsyncAnthropic always gets its fresh
+# fake (each fake is a distinct class object), while production reuses one
+# client per configured key/timeout.
+_client_cache: dict = {}
+
+
 def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic:
     s = settings or get_settings()
-    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+    cache_key = (anthropic.AsyncAnthropic, s.anthropic_api_key, s.caos_llm_timeout_s)
+    client = _client_cache.get(cache_key)
+    if client is None:
+        client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+        # Bound the cache: monkeypatched classes make transient keys; never let
+        # them accumulate past a handful of live entries.
+        if len(_client_cache) > 8:
+            _client_cache.clear()
+        _client_cache[cache_key] = client
+    return client
 
 
 def is_overloaded(exc: Exception) -> bool:
@@ -75,6 +93,12 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
 
     s = get_settings()
     fb = fallback_model or s.model_tier_cheap
+    # Same-provider fallback only. Under the shipped defaults model_tier_cheap is
+    # an OpenRouter id, which the _provider(fb) guard below would reject — leaving
+    # the promised retry-on-a-cheaper-model DEAD for every gemini-* lane. Degrade
+    # to the known cheap Gemini id (the council reviewer default) instead.
+    if _provider(fb) != "gemini":
+        fb = s.council_reviewer_model_gemini or "gemini-2.5-flash"
     call_kwargs: dict[str, Any] = dict(
         system=kwargs.get("system"),
         messages=kwargs.get("messages"),
@@ -220,7 +244,10 @@ async def create(
     try:
         resp = await client.messages.create(model=primary, **kwargs)
     except Exception as exc:  # noqa: BLE001 — narrow to overload below, re-raise the rest
-        if primary == fb or not is_overloaded(exc):
+        # _provider(fb) guard mirrors the Gemini/OpenRouter paths: an operator-
+        # overridden non-Anthropic synth_executor_model must not be handed to the
+        # Anthropic SDK (a retriable 429 would surface as a confusing 404).
+        if primary == fb or _provider(fb) != "anthropic" or not is_overloaded(exc):
             raise
         logger.warning(
             "caos.llm lane=%s rate-limited on %s (%s) — falling back %s -> %s",

@@ -22,8 +22,12 @@ const FRAGILITY_COLOR: Record<string, string> = {
 const RV_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", NEUTRAL: "var(--caos-muted)", UNDERWEIGHT: "var(--caos-critical)",
 };
+// Keys are the server's qa_status vocabulary (engine/gate.py: "Not Reviewed" /
+// "Passed" / "Restricted" / "Blocked") — the previous keys ("Pass", "Ready with
+// Limitations") never matched, so a Restricted run rendered the same muted grey
+// as a Passed one on this clearance surface.
 const QA_COLOR: Record<string, string> = {
-  Pass: "var(--caos-success)", "Ready with Limitations": "var(--caos-warning)",
+  Passed: "var(--caos-success)", Restricted: "var(--caos-warning)",
   Blocked: "var(--caos-critical)",
 };
 

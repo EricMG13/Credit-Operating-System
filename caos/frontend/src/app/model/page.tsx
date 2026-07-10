@@ -148,7 +148,12 @@ function ModelBuilder() {
     // baseline dirty at local-storage state; refined below if a DB model restores
     savedSnapshot.current = serializeSavable(la, lo, lc);
     setRestoreError(false);
+    // Stale guard: the component stays mounted across ?issuer=A → B (search-param
+    // change only), so a slow response for A must not clobber B's state — SAVE
+    // MODEL would then persist A's overrides into B's record.
+    let stale = false;
     getSavedModel(issuerId).then((saved) => {
+      if (stale) return;
       const parsed = parseSavedPayload(saved);
       if (!parsed) return;
       const { o, a, c, updatedAt } = parsed;
@@ -158,8 +163,9 @@ function ModelBuilder() {
       setSavedAt(updatedAt);
       // re-baseline the dirty flag at the just-restored DB state
       savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-    }).catch(() => setRestoreError(true));
+    }).catch(() => { if (!stale) setRestoreError(true); });
     setHydrated(true);
+    return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuerId, ovKey, isReference]);
   // Retry a failed DB-model restore. Runs post-hydration, so current state is the

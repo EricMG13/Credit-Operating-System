@@ -100,8 +100,10 @@ def _normalize_response(data: dict) -> _Response:
         if text:
             blocks.append(_TextBlock(text))
             
-        # Tool / function calls
-        tool_calls = message.get("tool_calls", [])
+        # Tool / function calls. `or []`, not a .get default: OpenAI-compatible
+        # providers serialize "tool_calls": null on text-only replies, and dict.get
+        # returns that None (TypeError on iteration, discarding a valid response).
+        tool_calls = message.get("tool_calls") or []
         for tc in tool_calls:
             func = tc.get("function", {})
             name = func.get("name", "")

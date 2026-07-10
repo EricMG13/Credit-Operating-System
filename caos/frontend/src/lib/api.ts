@@ -340,6 +340,9 @@ export interface VaultMemoResult {
 export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
   api.post("/api/ingestion/upload/memo", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    // Same synchronous ingest pipeline (AV scan + parse) as the sibling uploads —
+    // don't leave this one on the 20s instance default.
+    timeout: 60_000,
   }).then((r) => r.data);
 
 // ─── Portfolios (managed CLO books; exposure + compliance computed server-side) ─

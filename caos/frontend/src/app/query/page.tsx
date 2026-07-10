@@ -372,8 +372,12 @@ function QueryWorkspace() {
     if (!caps?.availability?.model_lane) return;
     didAutoOverlay.current = true;
     setOverlayBusy(true);
+    // Seq guard (same contract as queryGraph): the overlay lane runs 30–130s, so a
+    // late resolution after the analyst ran a different question must not attach
+    // the OLD graph's overlay to the new graph. run() clears overlay + bumps seq.
+    const seq = runSeq.current;
     queryOverlay(graph.capability_id)
-      .then((o) => setOverlay((cur) => cur ?? o)) // never clobber a manual toggle
+      .then((o) => { if (seq === runSeq.current) setOverlay((cur) => cur ?? o); }) // never clobber a manual toggle
       .catch(() => { /* ambient — silent, the deterministic graph is untouched */ })
       .finally(() => setOverlayBusy(false));
   }, [graph, caps]);
@@ -1042,8 +1046,13 @@ function QueryWorkspace() {
                         return;
                       }
                       setOverlayBusy(true);
+                      // Seq guard: this lane runs up to 130s — if the analyst runs a
+                      // different question meanwhile (run() clears overlay + bumps
+                      // seq), the late overlay must not attach to the new graph.
+                      const seq = runSeq.current;
                       queryOverlay(activeId)
                         .then((o) => {
+                          if (seq !== runSeq.current) return;
                           setOverlay(o);
                           notify("Model overlay ready", `${o.edges.length} proposed link${o.edges.length === 1 ? "" : "s"}${o.cached ? " (cached)" : ""}`);
                         })

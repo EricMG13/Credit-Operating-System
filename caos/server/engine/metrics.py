@@ -144,6 +144,12 @@ def extract_facts(  # noqa: C901
         provenance = "fixture" if is_reference_issuer else "demo_fixture"
     else:
         provenance = "run"
+    # Money unit honours the payload's disclosed currency: a reported-disclosure
+    # CP-1 for a GBP/EUR filer (reported_cp1.py stores runtime_output["currency"])
+    # must not project £/€ magnitudes into the shared cross-issuer store labeled
+    # "$M" — a silent unit mismatch in every cross-issuer ranking. (#AA4)
+    cur = ro.get("currency")
+    money_unit = f"{cur}M" if isinstance(cur, str) and cur and cur != "$" else "$M"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -164,9 +170,9 @@ def extract_facts(  # noqa: C901
     rev_headline = _headline_period(list(rev.keys()))
     eb_headline = _headline_period(list(eb.keys()))
     for period, v in rev.items():
-        add("revenue", period, v, "$M", period == rev_headline)
+        add("revenue", period, v, money_unit, period == rev_headline)
     for period, v in eb.items():
-        add("adj_ebitda", period, v, "$M", period == eb_headline)
+        add("adj_ebitda", period, v, money_unit, period == eb_headline)
         rv = rev.get(period)
         # Both operands must be finite before the divide: a NaN rv is truthy, so a
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
@@ -181,7 +187,7 @@ def extract_facts(  # noqa: C901
     fcf = _as_dict(fin.get("free_cash_flow"))
     fcf_headline = _headline_period(list(fcf.keys()))
     for period, v in fcf.items():
-        add("fcf", period, v, "$M", period == fcf_headline)
+        add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
         m = safe_div(100 * v, rv)
         if m is not None:

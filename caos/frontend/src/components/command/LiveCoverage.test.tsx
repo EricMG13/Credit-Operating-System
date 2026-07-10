@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const row = (over: Partial<PortfolioRowDTO> = {}): PortfolioRowDTO => ({
   issuer_id: "i1", name: "Aurora Cables", ticker: "AURC", sector: "Telecom",
-  run_id: "r1", qa_status: "Pass", committee_status: "Committee Ready", as_of: null,
+  run_id: "r1", qa_status: "Passed", committee_status: "Committee Ready", as_of: null,
   metrics: { net_leverage: 5.7, interest_coverage: 2.1 },
   rv_recommendation: "OVERWEIGHT", rv_percentile: 64, downside_fragility: "MODERATE",
   ...over,
@@ -23,7 +23,7 @@ describe("LiveCoverage", () => {
     expect(screen.getByText("2.1x")).toBeTruthy();      // interest coverage
     expect(screen.getByText(/OVERWEIGHT · p64/)).toBeTruthy();
     expect(screen.getByText(/MODERATE/)).toBeTruthy();  // fragility band word travels with the colour
-    expect(screen.getByText("Pass")).toBeTruthy();
+    expect(screen.getByText("Passed")).toBeTruthy();  // server vocabulary (gate.py), not "Pass"
   });
 
   it("degrades missing metrics / RV / fragility to em-dash, never crashes", () => {
