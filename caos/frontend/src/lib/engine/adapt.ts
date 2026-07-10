@@ -52,8 +52,14 @@ function adaptCp0(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   if (docMap.length) {
     sections.push({
       type: "table", title: "CP-0 · Document map & quality",
-      cols: ["Doc", "Name", "Type", "Grade"], align: [0, 0, 0, 0],
-      rows: docMap.map((d) => [d.doc, d.name, d.type, d.grade]),
+      // The fixture emits a per-doc `grade`; a LIVE run (readiness.py) emits the
+      // engine's `categories` classification instead — fall through so the column
+      // isn't permanently blank on real issuers. (mock↔live seam)
+      cols: ["Doc", "Name", "Type", "Grade / Categories"], align: [0, 0, 0, 0],
+      rows: docMap.map((d) => {
+        const cats = (d as Record<string, unknown>).categories;
+        return [d.doc, d.name, d.type, d.grade ?? (Array.isArray(cats) ? cats.join(", ") : "—")];
+      }),
     });
   }
   if (gaps.length) {
@@ -82,9 +88,11 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   const sections: OutSection[] = [];
   const rev = (fin.revenue as Record<string, unknown>) || {};
   const eb = (fin.adj_ebitda as Record<string, unknown>) || {};
-  // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy in the same keys the
-  // fixture/LLM use for covenant-adjusted figures — don't label it 'Adj.'. (#15)
-  const reported = rt.basis === "reported_gaap_xbrl";
+  // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy — and the issuer-
+  // disclosed lane (reported_cp1.py, basis "reported_disclosure") carries figures
+  // "taken as reported — not covenant-adjusted" — in the same keys the fixture/
+  // LLM use for covenant-adjusted figures. Neither may be labeled 'Adj.'. (#15)
+  const reported = rt.basis === "reported_gaap_xbrl" || rt.basis === "reported_disclosure";
   const ebLabel = reported ? "EBITDA (reported proxy)" : "Adj. EBITDA";
   const levLabel = reported ? "Net leverage (reported)" : "Net leverage (adj.)";
   // Currency symbol from the engine (reported-disclosure CP-1 carries £/€/$ for a

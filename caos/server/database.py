@@ -245,14 +245,17 @@ class Run(Base):
 
     __tablename__ = "runs"
     # At most one active (queued|running) run per issuer — the multi-replica dedup
-    # backstop behind create_run's in-process lock (migration 0034). Partial unique
-    # index so a fresh run is allowed once the prior one is terminal.
+    # backstop behind create_run's in-process lock (migration 0035). Partial unique
+    # index so a fresh run is allowed once the prior one is terminal. Plus the
+    # composite index serving the worker claim poll (status filter + created_at
+    # order) and the status='complete' board scans (migration 0034).
     __table_args__ = (
         Index(
             "uq_runs_active_per_issuer", "issuer_id", unique=True,
             sqlite_where=text("status IN ('queued', 'running')"),
             postgresql_where=text("status IN ('queued', 'running')"),
         ),
+        Index("ix_runs_status_created_at", "status", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -985,6 +988,13 @@ async def erase_analyst_data(
     research = await session.execute(
         delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
     )
+    # SavedModel rows are the analyst's PRIVATE Model Builder state (per-analyst
+    # overrides/assumptions, not shared work product) keyed on their uuid — a
+    # re-registration mints a fresh uuid, so undeleted rows would orphan forever
+    # while still holding the subject's personal work. Delete, don't anonymize.
+    models = await session.execute(
+        delete(SavedModel).where(SavedModel.analyst_id.in_(keys))
+    )
     runs = await session.execute(
         update(Run).where(Run.analyst_id.in_(keys)).values(analyst_id=None)
     )
@@ -998,6 +1008,7 @@ async def erase_analyst_data(
     await session.commit()
     return {
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
         "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]

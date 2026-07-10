@@ -110,26 +110,26 @@ export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() || "";
   useEffect(() => {
-    // fallow-ignore-next-line complexity
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-        e.preventDefault();
-        if (pathname.startsWith("/query")) {
-          window.dispatchEvent(new Event("caos:query-focus"));
-        } else {
-          setOpen((v) => !v);
-        }
-      } else if (e.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    const onAskToggle = () => {
+    // One toggle for both entry points (⌘K and the header Ask button): the same
+    // gesture must do the same thing — on /query it focuses the query bar, else
+    // it toggles the modal. Two inline copies of this branch had already begun
+    // to drift-proof one path at a time.
+    const fire = () => {
       if (pathname.startsWith("/query")) {
         window.dispatchEvent(new Event("caos:query-focus"));
       } else {
         setOpen((v) => !v);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        fire();
+      } else if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    const onAskToggle = () => fire();
     window.addEventListener("keydown", onKey);
     window.addEventListener("caos:ask-toggle", onAskToggle);
     return () => {

@@ -9,7 +9,7 @@ import {
   NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
 } from "@/lib/pipeline/data";
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
-import { SEV_COLOR } from "@/lib/pipeline/sev";
+import { sevVar } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -118,7 +118,7 @@ export function GraphView({
         const inScope = scope.has(m.id);
         const related = !selected || sel || up.has(m.id) || down.has(m.id);
         const doneDim = dim && st === "pass" && !sel;
-        const color = SEV_COLOR[st] || "var(--caos-idle)";
+        const color = sevVar(st);
         return (
           <button
             key={m.id}
@@ -145,7 +145,8 @@ export function GraphView({
             }}
           >
             <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
-              <Dot sev={st} pulse={st === "running"} />
+              {/* glyph: a terminal warning-vs-pass node otherwise differs by hue alone (the swimlane view prints the state as text; the DAG node doesn't) */}
+              <Dot sev={st} pulse={st === "running"} glyph />
               <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
               {inScope && NODE_QA[m.id] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
               {inScope && NODE_LIMITS[m.id] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
@@ -190,7 +191,7 @@ export function SwimlaneView({
                 const prog = sim.mods[m.id]?.prog || 0;
                 const sel = selected === m.id;
                 const inScope = scope.has(m.id);
-                const color = SEV_COLOR[st] || "var(--caos-idle)";
+                const color = sevVar(st);
                 return (
                   <button
                     key={m.id}
@@ -373,7 +374,8 @@ export function Inspector({
         <div className="flex flex-wrap gap-1">
           {deps.length ? deps.map((d) => (
             <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg">
-              <Dot sev={sim.mods[d]?.state || "idle"} />{d}
+              {/* glyph: the dot is the sole status carrier here (the id text says nothing) — never color-alone */}
+              <Dot sev={sim.mods[d]?.state || "idle"} glyph />{d}
             </span>
           )) : <span className="text-caos-md text-caos-muted">— root node (source intake)</span>}
         </div>

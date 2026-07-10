@@ -570,8 +570,11 @@ def test_engine_llm_clients_carry_timeout(monkeypatch):
     monkeypatch.setattr(s, "anthropic_api_key", "sk-test")
     monkeypatch.setattr(s, "caos_llm_timeout_s", 77.0)
 
-    for obj in (LiveSynthesizer(), LiveReviewer(), LiveDebater()):
-        obj._get_client()
+    clients = [obj._get_client() for obj in (LiveSynthesizer(), LiveReviewer(), LiveDebater())]
 
-    assert len(captured) == 3
-    assert all(c.get("timeout") == 77.0 for c in captured)
+    # llm_client.anthropic_client caches per (class, key, timeout): the three
+    # lanes now SHARE one pooled client (one construction) instead of building
+    # three — the timeout must still be carried on that construction.
+    assert len(captured) == 1
+    assert captured[0].get("timeout") == 77.0
+    assert clients[0] is clients[1] is clients[2]

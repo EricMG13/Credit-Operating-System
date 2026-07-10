@@ -67,6 +67,34 @@ METRIC_CATALOG: List[MetricDef] = [
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
 
 
+# ── Provenance precedence (the ONE ranking every read-side collapse uses) ────
+# Minted values: run (QA-gated engine), fixture (genuine ATLF demo),
+# demo_fixture (fabricated — flagged, never authoritative), derived
+# (chunk-extracted), seed (illustrative). Read-side rule, pinned by
+# test_fact_collapse.py: run/fixture tier beats everything else, then newest
+# created_at within a tier. Five sites used to re-implement this with
+# divergent vocabularies (nlquery vs querygraph vs peers vs sponsors vs the
+# issuer profile), so the same issuer showed different numbers per surface.
+DERIVED_PROVENANCE = ("run", "fixture")
+
+
+def provenance_tier(provenance: Optional[str]) -> int:
+    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
+    return 1 if provenance in DERIVED_PROVENANCE else 0
+
+
+def better_fact(prev, fact) -> bool:
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric):
+    run/fixture tier beats seed, then newest created_at within a tier; null
+    created_at keeps prev. The reference comparator for every fact collapse."""
+    if prev is None:
+        return True
+    pt, ft = provenance_tier(prev.provenance), provenance_tier(fact.provenance)
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+
+
 def catalog_dicts() -> List[dict]:
     """The catalog as plain dicts (for the API and the LLM system prompt)."""
     return [asdict(m) for m in METRIC_CATALOG]
@@ -144,6 +172,12 @@ def extract_facts(  # noqa: C901
         provenance = "fixture" if is_reference_issuer else "demo_fixture"
     else:
         provenance = "run"
+    # Money unit honours the payload's disclosed currency: a reported-disclosure
+    # CP-1 for a GBP/EUR filer (reported_cp1.py stores runtime_output["currency"])
+    # must not project £/€ magnitudes into the shared cross-issuer store labeled
+    # "$M" — a silent unit mismatch in every cross-issuer ranking. (#AA4)
+    cur = ro.get("currency")
+    money_unit = f"{cur}M" if isinstance(cur, str) and cur and cur != "$" else "$M"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -164,9 +198,9 @@ def extract_facts(  # noqa: C901
     rev_headline = _headline_period(list(rev.keys()))
     eb_headline = _headline_period(list(eb.keys()))
     for period, v in rev.items():
-        add("revenue", period, v, "$M", period == rev_headline)
+        add("revenue", period, v, money_unit, period == rev_headline)
     for period, v in eb.items():
-        add("adj_ebitda", period, v, "$M", period == eb_headline)
+        add("adj_ebitda", period, v, money_unit, period == eb_headline)
         rv = rev.get(period)
         # Both operands must be finite before the divide: a NaN rv is truthy, so a
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
@@ -181,7 +215,7 @@ def extract_facts(  # noqa: C901
     fcf = _as_dict(fin.get("free_cash_flow"))
     fcf_headline = _headline_period(list(fcf.keys()))
     for period, v in fcf.items():
-        add("fcf", period, v, "$M", period == fcf_headline)
+        add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
         m = safe_div(100 * v, rv)
         if m is not None:

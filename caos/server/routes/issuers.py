@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ import rate_limit
 from database import (
     Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
+from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
 from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
@@ -28,11 +29,14 @@ _WRITE_MAX_PER_MINUTE = 30
 
 class IssuerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    sub_sector: Optional[str] = None
-    country: Optional[str] = None
+    # Bounds mirror the DB columns (String(32)/String(128), database.py): an
+    # unbounded field raises DataError → 500 on Postgres and silently persists
+    # oversized junk on SQLite (which ignores VARCHAR lengths).
+    ticker: Optional[str] = Field(default=None, max_length=32)
+    sector: Optional[str] = Field(default=None, max_length=128)
+    industry: Optional[str] = Field(default=None, max_length=128)
+    sub_sector: Optional[str] = Field(default=None, max_length=128)
+    country: Optional[str] = Field(default=None, max_length=128)
     figi: Optional[str] = Field(default=None, max_length=32)
     sponsor: Optional[str] = Field(default=None, max_length=255)
     # Agency ratings are no longer a create-time input — they're collected from
@@ -224,6 +228,16 @@ class RunBrief(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes; stored values are UTC. Serialize with
+        # an explicit offset, else `new Date()` client-side parses the UTC wall
+        # clock as LOCAL time and run dates shift by up to a day.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class MetricFactOut(BaseModel):
@@ -448,8 +462,13 @@ async def get_issuer_profile(
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
+    best_fact_by_key: Dict[str, MetricFact] = {}
     for f in facts:
-        if f.headline and (f.metric_key not in headline_vals or f.provenance == "run"):
+        # Canonical collapse (engine.metrics.better_fact: run/fixture tier, then
+        # recency) — the old run-only rule let stale seed values shadow a fresh
+        # fixture fact on the profile while NL query ranked the fixture above.
+        if f.headline and better_fact(best_fact_by_key.get(f.metric_key), f):
+            best_fact_by_key[f.metric_key] = f
             headline_vals[f.metric_key] = f.value
     strengths, weaknesses = _strengths_weaknesses(signals, headline_vals)
 
@@ -601,6 +620,14 @@ class ResearchReportOut(BaseModel):
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     is_stale: bool = False
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # Same naive-UTC → aware conversion as RunBrief (SQLite drops tzinfo).
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 def _report_out(report: IssuerResearchReport, is_stale: bool = False) -> ResearchReportOut:

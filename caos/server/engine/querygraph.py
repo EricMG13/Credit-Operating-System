@@ -51,7 +51,7 @@ from database import (
     QAFinding,
     Run,
 )
-from engine.metrics import CATALOG_BY_KEY
+from engine.metrics import CATALOG_BY_KEY, DERIVED_PROVENANCE, better_fact
 from engine.registry import REGISTRY, all_specs
 from retrieval import retrieve_corpus
 
@@ -246,18 +246,10 @@ def _empty(cap: dict, title: str, why: str) -> dict:
 
 # ── Latest-per (issuer, metric) fact selection (run > seed, then most recent) ─
 def _best_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
-    """True if ``fact`` should replace ``prev`` for one (issuer, metric): run/fixture
-    tier beats seed, then newest created_at within a tier; null created_at keeps prev.
-    Unified with nlquery._better_fact (same rule — the two collapses are pinned identical
-    by test_fact_collapse.py, so the Query graph and the NL rank never pick different
-    facts). Now the documented reference the _profile_values window ORDER BY mirrors."""
-    if prev is None:
-        return True
-    pt = 1 if prev.provenance in ("run", "fixture") else 0
-    ft = 1 if fact.provenance in ("run", "fixture") else 0
-    if ft != pt:
-        return ft > pt
-    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric). Delegates
+    to the canonical comparator in engine.metrics (shared with nlquery, peers,
+    sponsors, and the issuer profile; pinned by test_fact_collapse.py)."""
+    return better_fact(prev, fact)
 
 
 async def _profile_values(session: AsyncSession, keys: Sequence[str]) -> Dict[str, dict]:
@@ -265,7 +257,7 @@ async def _profile_values(session: AsyncSession, keys: Sequence[str]) -> Dict[st
     fact per (issuer, metric) via a bounded SQL window (mirrors _best_fact: run/fixture tier,
     newest created_at, deterministic id tiebreak), so the read stays issuers×metrics rather
     than O(run history)."""
-    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    tier = case((MetricFact.provenance.in_(DERIVED_PROVENANCE), 1), else_=0)
     win = select(
         MetricFact.id.label("fid"),
         func.row_number().over(
@@ -467,7 +459,7 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 
 
 # ── Builder: concentration (clustered / scatter / rollup views) ──────────────
-async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:
+async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:  # noqa: C901  # pre-existing multi-view builder; split per-view when reworked
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
     if by == "rating":
@@ -755,7 +747,7 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
     # collapse: run/fixture tier, newest created_at, id tiebreak) so re-runs of the same
     # period collapse deterministically and the read is issuers×metrics×periods, not ×runs.
     # No headline filter — a trend needs the prior (non-headline) periods too.
-    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    tier = case((MetricFact.provenance.in_(DERIVED_PROVENANCE), 1), else_=0)
     win = select(
         MetricFact.id.label("fid"),
         func.row_number().over(
@@ -1015,35 +1007,26 @@ async def _latest_run(session: AsyncSession, issuer_id: Optional[str],
                       prefer_claims: bool = False) -> Optional[Run]:
     """The most recent run that produced module outputs. When ``prefer_claims`` is
     set (trace / lineage / orphan), prefer one whose CP-1 actually carries claims —
-    so the source-chain isn't empty just because the newest run had a thin CP-1."""
-    stmt = select(Run).order_by(Run.created_at.desc())
+    so the source-chain isn't empty just because the newest run had a thin CP-1.
+
+    EXISTS subqueries, not a per-run COUNT loop: the old fallback scan issued up
+    to 200 (400 with prefer_claims) sequential round trips per graph build when
+    leading runs were thin. This is 1-2 queries regardless of history."""
+    has_outputs = select(ModuleOutput.id).where(ModuleOutput.run_id == Run.id).exists()
+    base = select(Run).where(has_outputs).order_by(Run.created_at.desc())
     if issuer_id:
-        stmt = stmt.where(Run.issuer_id == issuer_id)
-    # ponytail: bound the per-run COUNT probe below to the most recent N runs so a
-    # long history can't turn the fallback scan into an unbounded round-trip loop.
-    # The common case still returns on the first run with outputs; this only caps
-    # the degenerate "leading runs are all empty" tail. Rewrite as an EXISTS
-    # subquery if the probe ever shows up hot.
-    stmt = stmt.limit(200)
-    fallback: Optional[Run] = None
-    for run in (await session.execute(stmt)).scalars():
-        has = (await session.execute(
-            select(func.count()).select_from(ModuleOutput).where(ModuleOutput.run_id == run.id)
-        )).scalar()
-        if not has:
-            continue
-        if fallback is None:
-            fallback = run
-        if not prefer_claims:
-            return run
-        claims = (await session.execute(
-            select(func.count()).select_from(Claim)
+        base = base.where(Run.issuer_id == issuer_id)
+    if prefer_claims:
+        cp1_has_claims = (
+            select(Claim.id)
             .join(ModuleOutput, ModuleOutput.id == Claim.module_output_id)
-            .where(ModuleOutput.run_id == run.id, ModuleOutput.module_id == "CP-1")
-        )).scalar()
-        if claims:
-            return run
-    return fallback
+            .where(ModuleOutput.run_id == Run.id, ModuleOutput.module_id == "CP-1")
+            .exists()
+        )
+        preferred = (await session.execute(base.where(cp1_has_claims).limit(1))).scalars().first()
+        if preferred is not None:
+            return preferred
+    return (await session.execute(base.limit(1))).scalars().first()
 
 
 async def _modules(session: AsyncSession, run_id: str) -> List[ModuleOutput]:

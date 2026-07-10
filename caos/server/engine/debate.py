@@ -30,11 +30,10 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from engine.periods import is_finite_number
-
 from config import get_settings
 from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -86,10 +85,9 @@ def _leverage(cp1: Optional[ModulePayload]) -> Optional[float]:
         return None
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev = nf.get("net_leverage_adj_ltm")
-    # is_finite_number (not bare isinstance): a NaN passes isinstance and fails every
-    # band test below (NaN comparisons are False), so it would fall into the bullish
-    # "manageable at nanx net" else-branch (+1 toward CONSTRUCTIVE) with "nan" in the
-    # committee narrative. Treat non-finite as missing. Mirrors refinancing.py.
+    # is_finite_number, not bare isinstance (CLAUDE.md engine convention): a NaN
+    # passes isinstance, fails every band comparison below, and would land in the
+    # else branch as a bullish "manageable at nanx net" committee point.
     return float(lev) if is_finite_number(lev) else None
 
 
