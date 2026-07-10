@@ -20,6 +20,7 @@ AML.T0051.001 (indirect prompt injection):
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Optional, Sequence, Tuple, Type
 
 from pydantic import BaseModel, ValidationError
@@ -46,18 +47,33 @@ def _reject_non_finite(token: str) -> float:
     raise ValueError(f"non-finite JSON literal {token!r} rejected (fail-closed)")
 
 
+def _float_finite(token: str) -> float:
+    """``parse_float`` for ``json.loads`` — refuse numerals that OVERFLOW to inf.
+
+    ``parse_constant`` only sees the literal tokens ``NaN``/``Infinity``; a
+    numeral like ``1e999`` parses via the float path and silently becomes
+    ``inf``, bypassing the literal check (audit 2026-07-10 ENG-17). Same
+    fail-closed contract: raise ``ValueError`` so the reply is treated as
+    malformed."""
+    v = float(token)
+    if not math.isfinite(v):
+        raise ValueError(f"JSON numeral {token!r} overflows to non-finite (fail-closed)")
+    return v
+
+
 def loads_finite(s: str):
-    """``json.loads`` that rejects ``NaN``/``Infinity``/``-Infinity`` (fail-closed).
+    """``json.loads`` that rejects ``NaN``/``Infinity``/``-Infinity`` literals AND
+    overflow numerals (``1e999`` → inf) — fail-closed.
 
     Use everywhere an LLM/document reply is parsed into numbers, so a non-finite
-    literal can never reach a financial field. Raises ``ValueError`` (incl. the
+    value can never reach a financial field. Raises ``ValueError`` (incl. the
     ``json.JSONDecodeError`` subclass) on malformed or non-finite input."""
-    return json.loads(s, parse_constant=_reject_non_finite)
+    return json.loads(s, parse_constant=_reject_non_finite, parse_float=_float_finite)
 
 
 def first_json_value(text: str, open_ch: str = "{") -> Optional[Any]:
     """First complete JSON value starting at ``open_ch``, or None if absent."""
-    dec = json.JSONDecoder(parse_constant=_reject_non_finite)
+    dec = json.JSONDecoder(parse_constant=_reject_non_finite, parse_float=_float_finite)
     i = text.find(open_ch)
     while i != -1:
         try:
