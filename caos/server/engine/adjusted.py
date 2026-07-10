@@ -198,7 +198,7 @@ async def reconcile_adjusted_ebitda(
             evidence_id="E-ADJ1", extraction_type="documentary_fact",
             # Only a model-pinned, actually-retrieved chunk earns "Directly Sourced / High";
             # a substituted/absent id is downgraded so it never overstates provenance.
-            lineage_class="Directly Sourced" if exact else "Inferred",
+            lineage_class="Directly Sourced" if exact else "Analyst Inference",
             source_locator="Add-back disclosure (ingested credit agreement / OM chunk)",
             confidence="High" if exact else "Medium", resolved_chunk_id=chunk_id,
         )],

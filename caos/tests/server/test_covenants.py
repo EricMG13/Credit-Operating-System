@@ -294,8 +294,12 @@ def test_synthesize_rp_and_cross_default_surfaced():
 def test_inexact_chunk_id_downgrades_citation(monkeypatch):
     """When the model didn't pin a real retrieved chunk (safe_chunk_id exact=False),
     the covenant citation must NOT claim 'Directly Sourced / High' — it downgrades to
-    Inferred/Medium so a substituted/absent source never overstates provenance."""
+    Analyst Inference/Medium so a substituted/absent source never overstates
+    provenance. The downgrade value must be a member of schemas.LINEAGE_CLASSES:
+    the earlier "Inferred" literal failed validate_payload and hard-Blocked the
+    module on exactly this graceful-downgrade path (audit 2026-07-10 QA-1)."""
     import engine.covenants as cov
+    from engine.schemas import LINEAGE_CLASSES, validate_payload
 
     cp1_no_lev = ModulePayload(
         module_id="CP-1", module_name="X", owned_object="o",
@@ -308,7 +312,9 @@ def test_inexact_chunk_id_downgrades_citation(monkeypatch):
     monkeypatch.setattr(cov, "extract_covenant_terms", terms_inexact)
     p = asyncio.run(cov.synthesize_covenants(cp1_no_lev, _retrieve(_INDENTURE, "c-sub")))
     ev = p.claims[0].evidence[0]
-    assert ev.lineage_class == "Inferred" and ev.confidence == "Medium"
+    assert ev.lineage_class == "Analyst Inference" and ev.confidence == "Medium"
+    assert ev.lineage_class in LINEAGE_CLASSES  # must never block the payload
+    assert validate_payload(p) == []
     assert ev.resolved_chunk_id == "c-sub"  # still points at the chunk for navigation
 
     async def terms_exact(retrieve):

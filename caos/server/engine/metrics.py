@@ -328,5 +328,11 @@ def derive_energy_cost_pct(
             continue
         m = _COST_PCT_RE.search(text)
         if m:
-            return float(m.group(1)), chunk_id, doc
+            v = float(m.group(1))
+            # Domain clamp (0, 100]: a matched percentage outside it is a mis-read
+            # ("0 percent of cost base" / a stray figure), not a cost share — its
+            # sibling extractors all range-guard, this one published a headline
+            # MetricFact unclamped (audit 2026-07-10 S1). Degrade, never guess.
+            if 0 < v <= 100:
+                return v, chunk_id, doc
     return None
