@@ -11,6 +11,7 @@ const row = (over: Partial<PortfolioRowDTO> = {}): PortfolioRowDTO => ({
   run_id: "r1", qa_status: "Passed", committee_status: "Committee Ready", as_of: null,
   metrics: { net_leverage: 5.7, interest_coverage: 2.1 },
   rv_recommendation: "OVERWEIGHT", rv_percentile: 64, downside_fragility: "MODERATE",
+  gaps: [],
   ...over,
 });
 

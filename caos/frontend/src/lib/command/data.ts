@@ -18411,7 +18411,17 @@ export const QA_QUEUE: QaQueueItem[] = [
   { id: "QA-105", issuer: "NWCF", module: "CP-5B", sev: "LOW", age: "4d", text: "Driver #4 lineage chain missing intermediate calc register reference" },
 ];
 
-export const GAPS = [
+// One CP-0 source-gap row. The live derivation (lib/command/gaps.ts) emits the
+// same shape from real run gap logs so GapsList can prefer live over this seed.
+export interface GapItem {
+  issuer: string;
+  doc: string;
+  impact: string;
+  sev: "high" | "medium" | "low";
+  requested: string;
+}
+
+export const GAPS: GapItem[] = [
   { issuer: "ATLF", doc: "Hedging register / swap confirms", impact: "CP-2F degraded — floating exposure modeled from SFA only", sev: "medium", requested: "Jun 04" },
   { issuer: "ATLF", doc: "Q4-25 management accounts", impact: "CP-1 derived-period bridge uses sponsor model figures", sev: "low", requested: "Jun 04" },
   { issuer: "QLMH", doc: "Unrestricted subsidiary financials", impact: "CP-4 leakage analysis incomplete — transfer capacity unbounded", sev: "high", requested: "Jun 06" },

@@ -88,6 +88,11 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
 // ─── Portfolio board (cross-issuer latest-run posture) ──────────────────────
+export interface PortfolioGapDTO {
+  sev: string; // high | medium | low
+  doc: string; // the missing source, e.g. "No audited financials vaulted."
+}
+
 export interface PortfolioRowDTO {
   issuer_id: string;
   name: string;
@@ -101,6 +106,7 @@ export interface PortfolioRowDTO {
   rv_recommendation: string | null;
   rv_percentile: number | null;
   downside_fragility: "HIGH" | "MODERATE" | "LOW" | null;
+  gaps: PortfolioGapDTO[]; // CP-0 source-readiness gap log
 }
 export interface PortfolioDTO {
   rows: PortfolioRowDTO[];

@@ -6,7 +6,7 @@ const row = (over: Partial<PortfolioRowDTO>): PortfolioRowDTO => ({
   issuer_id: "i1", name: "Atlas Forge", ticker: "ATLF", sector: "Industrials",
   run_id: "abcdef1234567890", qa_status: "Passed", committee_status: "Cleared",
   as_of: "2026-06-30", metrics: {}, rv_recommendation: null, rv_percentile: null,
-  downside_fragility: null, ...over,
+  downside_fragility: null, gaps: [], ...over,
 });
 
 describe("liveQaItems", () => {

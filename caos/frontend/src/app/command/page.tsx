@@ -20,6 +20,7 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { liveQaItems } from "@/lib/command/qa";
+import { liveGaps } from "@/lib/command/gaps";
 import {
   GapsList, IssuerStrip,
   PortfolioTable, PostureSummary, QaQueue,
@@ -50,6 +51,8 @@ function CommandCenter() {
   // Prefer the live CP-5 gate queue (real run roll-ups) over the seeded finding
   // list when a backend answered; offline, QaQueue falls back to the seed (A-1).
   const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
+  // Live CP-0 source-gap board off the same portfolio fetch; seed fallback offline.
+  const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
 
   const alertsToday = simAlertsToday(tick, live || run.sim.done);
 
@@ -177,7 +180,7 @@ function CommandCenter() {
               </div>
               <div>
                 <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">Source Gaps · CP-0 gap log</h3>
-                <GapsList />
+                <GapsList items={liveGapsItems} />
               </div>
             </div>
           </PanelShell>

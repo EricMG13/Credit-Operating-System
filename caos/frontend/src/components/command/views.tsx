@@ -12,7 +12,7 @@ import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
-  type EmailRow, type QaQueueItem,
+  type EmailRow, type QaQueueItem, type GapItem,
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
@@ -868,12 +868,15 @@ export function QaQueue({ items }: { items?: QaQueueItem[] }) {
   );
 }
 
-export function GapsList() {
+// `items` is the live CP-0 source-gap log (lib/command/gaps.ts) when a backend
+// is present; absent, it falls back to the seeded list so the offline demo is
+// unchanged. An empty live array is a real "no open gaps" state.
+export function GapsList({ items }: { items?: GapItem[] }) {
   // Source gaps read worst-first: severity primary, most-recent request as the
   // tiebreak — so a high-severity gap never hides below a low one (the data
   // array isn't authored in order). Matches the QA-queue / alert-feed ordering.
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  const gaps = [...GAPS].sort(
+  const gaps = [...(items ?? GAPS)].sort(
     (a, b) =>
       (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9) ||
       Date.parse(`${b.requested} 2026`) - Date.parse(`${a.requested} 2026`),
