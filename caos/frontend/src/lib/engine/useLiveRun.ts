@@ -8,7 +8,7 @@ import { getModule, getQA } from "@/lib/api";
 import type { EvidenceDTO, FindingDTO } from "@/lib/engine/types";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { adaptModule } from "./adapt";
-import { useLatestRun } from "./useLatestRun";
+import { useLatestRunStatus, type RunPhase } from "./useLatestRun";
 
 // One run's own evidence, indexed by E-xx id, so the click-to-source modal can
 // resolve a LIVE chip to the run's real source instead of the seeded demo map
@@ -47,42 +47,61 @@ export interface LiveRunState {
   // council is disabled or no live run exists).
   council: FindingDTO[];
   loading: boolean;
+  // Underlying listRuns/build load phase (see RunPhase in useLatestRun), so a
+  // caller can tell a genuine backend *error* apart from a truly *empty*
+  // coverage (none/in_flight) instead of both collapsing into the same
+  // empty-looking state. Additive field — existing consumers that only
+  // destructure liveOuts/liveEvidence/runId/etc. are unaffected.
+  phase: RunPhase;
 }
 
-const EMPTY: LiveRunState = {
+// The build/init/empty values threaded through useLatestRunStatus — everything
+// but `phase`, which useLiveRun attaches afterward from the status envelope
+// itself (the authoritative phase; see LiveRunState.phase above).
+type LiveRunValue = Omit<LiveRunState, "phase">;
+
+const EMPTY: LiveRunValue = {
   liveOuts: {}, liveEvidence: {}, runId: null, committeeStatus: null,
   council: [], loading: false,
 };
 
 export function useLiveRun(issuerId: string): LiveRunState {
-  return useLatestRun<LiveRunState>(issuerId, { ...EMPTY, loading: true }, EMPTY, async (latest) => {
-    const entries = await Promise.all(
-      LIVE_MODULES.map(async (m) => {
-        try {
-          const detail = await getModule(latest.id, m);
-          return [m, adaptModule(detail), detail] as const;
-        } catch {
-          return null; // module not in this run — skip, fall back to static
-        }
-      }),
-    );
-    const liveOuts: Record<string, ModuleOutput> = {};
-    const liveEvidence: Record<string, LiveEvidence> = {};
-    for (const e of entries) {
-      if (!e) continue;
-      liveOuts[e[0]] = e[1];
-      for (const c of e[2].claims || []) {
-        for (const ev of c.evidence) {
-          liveEvidence[ev.evidence_id] = { ...ev, module: e[2].module_id, claim: c.claim_text };
+  const status = useLatestRunStatus<LiveRunValue>(
+    issuerId,
+    { ...EMPTY, loading: true },
+    EMPTY,
+    async (latest) => {
+      const entries = await Promise.all(
+        LIVE_MODULES.map(async (m) => {
+          try {
+            const detail = await getModule(latest.id, m);
+            return [m, adaptModule(detail), detail] as const;
+          } catch {
+            return null; // module not in this run — skip, fall back to static
+          }
+        }),
+      );
+      const liveOuts: Record<string, ModuleOutput> = {};
+      const liveEvidence: Record<string, LiveEvidence> = {};
+      for (const e of entries) {
+        if (!e) continue;
+        liveOuts[e[0]] = e[1];
+        for (const c of e[2].claims || []) {
+          for (const ev of c.evidence) {
+            liveEvidence[ev.evidence_id] = { ...ev, module: e[2].module_id, claim: c.claim_text };
+          }
         }
       }
-    }
-    // CP-5C committee review is persisted as QA findings; pull the subset.
-    const qa = await getQA(latest.id).catch(() => null);
-    const council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
-    return {
-      liveOuts, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
-      council, loading: false,
-    };
-  });
+      // CP-5C committee review is persisted as QA findings; pull the subset.
+      const qa = await getQA(latest.id).catch(() => null);
+      const council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
+      return {
+        liveOuts, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
+        council, loading: false,
+      };
+    },
+  );
+  // Thread the underlying load phase through so a caller can distinguish a
+  // genuine backend error from no-coverage-yet (M-1/M-2 fix) — see RunPhase.
+  return { ...status.value, phase: status.phase };
 }

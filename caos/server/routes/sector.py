@@ -452,9 +452,10 @@ def _sections_for(sector: str, signals: list[SectorSignalOut]) -> list[SectorRev
             title=title,
             posture="watch" if count else "quiet",
             summary=(
-                f"{count} seed-backed signal{'s' if count != 1 else ''} currently frame the {sector} daily brief."
+                f"{count} seed-backed signal{'s' if count != 1 else ''} currently "
+                f"{'frame' if count != 1 else 'frames'} the {sector} daily brief."
                 if section_id in {"market", "issuer", "actions"}
-                else "No live CP-SR synthesis yet; section awaits source-backed payload generation."
+                else "No sector synthesis yet — this section fills once source-backed signals are available."
             ),
             signal_ids=by_category.get(section_id, []),
         )

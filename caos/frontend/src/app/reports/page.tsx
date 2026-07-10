@@ -256,7 +256,20 @@ function ReportStudio() {
         <>
           <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
           <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
-          {caveatKind === "reference" ? (
+          {caveatKind === "reference" && eng.runId ? (
+            // FE-5: buildReports incorporates eng.anchor when a live run exists on
+            // the reference issuer, but the debate/recovery/covenant tabs and the
+            // DEAL narrative stay ATLF fixtures regardless (same rationale as
+            // lib/deepdive/caveat.ts) — say both halves precisely instead of the
+            // blanket "not a live issuer run" claim.
+            <span
+              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              role="note"
+              title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
+            >
+              REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run
+            </span>
+          ) : caveatKind === "reference" ? (
             <span
               className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
               role="note"
@@ -327,7 +340,7 @@ function ReportStudio() {
                 aria-pressed={paper === p.v}
                 aria-label={"Paper tone " + p.label}
                 title={"Paper tone — " + p.label + " · preview only"}
-                className={"focus-ring w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
+                className={"focus-ring w-6 h-6 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
                 style={{ background: p.v }}
               />
             ))}

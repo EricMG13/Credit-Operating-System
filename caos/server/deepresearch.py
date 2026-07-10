@@ -277,7 +277,20 @@ async def run_deep_research(
                 raise
             logger.warning("deep research overloaded on %s — falling back to %s", model, fb_model)
             model = fb_model
-            msg = await _final_message(model)
+            try:
+                msg = await _final_message(model)
+            except Exception as exc2:  # noqa: BLE001 — BE4-2: double-overload degrades, doesn't fail the job
+                if not llm_client.is_overloaded(exc2):
+                    raise
+                if not text_parts and not sources:
+                    logger.warning("deep research overloaded again on fallback %s — degrading to demo", fb_model)
+                    return ResearchResult(report=_demo_report(), demo=True, truncated=False)
+                logger.warning(
+                    "deep research overloaded again on fallback %s — composing %d turn(s) already gathered",
+                    fb_model, len(text_parts),
+                )
+                last_stop = "overloaded"
+                break
         # M-1: trace each streamed turn (run-less lane → run_id is null).
         await budget.trace_llm(msg, lane="deepresearch", model=model)
 
@@ -300,9 +313,10 @@ async def run_deep_research(
             continue
         break
 
-    # Truncated if we ran out the continuation cap still paused, or any turn hit
-    # the token ceiling — the report may be missing later sections. L2.
-    truncated = last_stop in ("pause_turn", "max_tokens")
+    # Truncated if we ran out the continuation cap still paused, any turn hit the
+    # token ceiling, or a double-overload cut a partial report short (BE4-2) — the
+    # report may be missing later sections. L2.
+    truncated = last_stop in ("pause_turn", "max_tokens", "overloaded")
 
     # de-dup sources by URL, preserving first-seen order
     seen: set = set()

@@ -13,9 +13,8 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { COVERAGE, GAPS, PORTFOLIO, QA_QUEUE, simAlertsToday } from "@/lib/command/data";
 import { ATLF_COVERAGE_ROW, worstStatus } from "@/lib/command/coverage";
 import { PORTFOLIO_AVG_DM_LABEL } from "@/lib/command/stats";
-import { SIM_PLAN } from "@/lib/pipeline/data";
-import { useSimRun } from "@/lib/pipeline/sim";
-import { SimControls } from "@/components/pipeline/atoms";
+import { useSharedDayRun } from "@/lib/pipeline/sim";
+import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
@@ -42,12 +41,13 @@ function CommandCenter() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
 
-  const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
-  const live = run.playing && !run.sim.done;
+  const run = useSharedDayRun();
   const tick = run.sim.tick;
   const portfolio = usePortfolio();
 
-  const alertsToday = simAlertsToday(tick, live || run.sim.done);
+  // "Still accruing" is "not done yet" — matches Monitor's identical read of
+  // the same shared clock so the two pages never disagree (critique P1).
+  const alertsToday = simAlertsToday(tick, !run.sim.done);
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -102,6 +102,12 @@ function CommandCenter() {
           {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
           {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
           <SimControls run={run} />
+          <span className="flex items-center gap-1.5" title="Demo replay clock, not a live feed — matches Monitor and Sector RV">
+            <Dot sev={run.sim.done ? "ok" : "running"} pulse={run.playing && !run.sim.done} glyph={run.sim.done} />
+            <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">
+              {run.playing && !run.sim.done ? "SIM" : run.sim.done ? "COMPLETE" : "PAUSED"}
+            </span>
+          </span>
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
         </>
       }
@@ -159,10 +165,13 @@ function CommandCenter() {
             </div>
           </div>
 
-          {/* Consolidated QA Findings & Source Gaps at the bottom */}
+          {/* Consolidated QA Findings & Source Gaps at the bottom. mb-9 keeps this
+              panel's title bar clear of the floating Ask launcher (fixed
+              bottom-3 right-3), which otherwise sits on top of it at this
+              collapsed height (critique P2). */}
           <PanelShell
             title="QA Findings & Source Gaps · CP-5 / CP-0"
-            className="flex-none min-h-0"
+            className="flex-none min-h-0 mb-9"
             collapsible
             defaultCollapsed={true}
           >

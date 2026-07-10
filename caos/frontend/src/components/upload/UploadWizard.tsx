@@ -9,8 +9,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import { createIssuer, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
+import { createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
+import type { RunSummaryDTO } from "@/lib/engine/types";
 import { Dot } from "@/components/pipeline/atoms";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EdgarImport } from "@/components/upload/EdgarImport";
@@ -42,6 +43,13 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // name, so the primary action reads "UPLOADING 3/12 — filename…" instead of a
   // single opaque spinner across a minutes-long batch.
   const [progress, setProgress] = useState<{ index: number; total: number; name: string } | null>(null);
+  // Run-creation (FE-2): the wizard vaults documents but never kicked off an
+  // analytical run — POST /api/runs existed as API-client-only, unused by any
+  // page. This is the missing trigger: explicit action on the result step, not
+  // automatic, so an analyst can stage more documents before spending a run.
+  const [runCreating, setRunCreating] = useState(false);
+  const [runCreated, setRunCreated] = useState<RunSummaryDTO | null>(null);
+  const [runError, setRunError] = useState("");
   // A cancel flag checked between iterations lets an analyst abort a stalled
   // batch. A ref (not state) so the running loop reads the latest value without
   // a stale closure.
@@ -150,6 +158,20 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     cancelRef.current = true;
   };
 
+  const handleCreateRun = async () => {
+    if (!selectedIssuer) return;
+    setRunCreating(true);
+    setRunError("");
+    try {
+      const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+      setRunCreated(run);
+    } catch (err) {
+      setRunError(toErrorMessage(err, "Could not create the run"));
+    } finally {
+      setRunCreating(false);
+    }
+  };
+
   const reset = () => {
     setStep("issuer");
     setSelectedIssuer(null);
@@ -159,6 +181,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setError("");
     setProgress(null);
     setRejected([]);
+    setRunCreating(false);
+    setRunCreated(null);
+    setRunError("");
     cancelRef.current = false;
   };
 
@@ -189,7 +214,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-2">
       <FirstRunHint id="upload-intake">
-        Drop <span className="text-white font-medium">all</span> of an issuer&apos;s deal documents at once — CP-0 classifies and dates each on ingest. Pick a run mode and the engine routes the matching modules.
+        Drop <span className="text-white font-medium">all</span>{" "}of an issuer&apos;s deal documents at once — CP-0 classifies and dates each on ingest. Pick a run mode and the engine routes the matching modules.
       </FirstRunHint>
       <StepStrip step={step} selectedIssuer={selectedIssuer} modeMeta={modeMeta} filesCount={files.length} />
 
@@ -285,6 +310,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           progress={progress}
           onReset={reset}
           onRetryFailed={handleRetryFailed}
+          runCreating={runCreating}
+          runCreated={runCreated}
+          runError={runError}
+          onCreateRun={handleCreateRun}
         />
       ) : null}
     </div>

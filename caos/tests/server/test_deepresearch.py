@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 from types import SimpleNamespace
 
+import pytest
+
+import deepresearch
 from deepresearch import (
     _AI_MODES,
     ResearchBrief,
@@ -15,6 +18,7 @@ from deepresearch import (
     _emit_progress,
     build_brief,
     _demo_report,
+    run_deep_research,
 )
 
 
@@ -107,6 +111,103 @@ def test_emit_progress_reports_unique_source_count_and_is_best_effort():
     asyncio.run(_emit_progress(boom, sources, searches=4))  # swallowed, must not raise
 
     assert seen == [{"sources": 2, "searches": 4}]
+
+
+# ── Overload fallback / double-overload degrade (BE4-2) ───────────────────────
+# The Anthropic SDK's own overload errors need a real httpx response to construct
+# (see test_llm_client.py's header note) — monkeypatch is_overloaded to classify a
+# local sentinel instead, matching that file's established pattern.
+class _Overload(Exception):
+    pass
+
+
+class _FakeStream:
+    def __init__(self, raise_exc=None, msg=None):
+        self._raise, self._msg = raise_exc, msg
+
+    async def __aenter__(self):
+        if self._raise:
+            raise self._raise
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get_final_message(self):
+        return self._msg
+
+
+def _msg(text="ok", stop_reason="end_turn"):
+    return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], stop_reason=stop_reason)
+
+
+class _FakeMessages:
+    def __init__(self, by_model):
+        self._by_model = by_model  # model -> list of _FakeStream, consumed in order
+
+    def stream(self, *, model, **kw):
+        return self._by_model[model].pop(0)
+
+
+class _FakeClient:
+    def __init__(self, by_model):
+        self.messages = _FakeMessages(by_model)
+
+
+@pytest.mark.asyncio
+async def test_double_overload_with_no_progress_degrades_to_demo_report(monkeypatch):
+    """Primary model overloads -> falls back (existing M-2 behavior) -> fallback
+    ALSO overloads with nothing gathered yet -> must degrade to a demo report
+    (job completes), not propagate and strand the job as failed (BE4-2)."""
+    monkeypatch.setattr(deepresearch, "llm_configured", lambda: True)
+    monkeypatch.setattr(
+        deepresearch,
+        "_get_client",
+        lambda: _FakeClient({
+            "claude-opus-4-8": [_FakeStream(raise_exc=_Overload("primary overloaded"))],
+            "claude-sonnet-4-6": [_FakeStream(raise_exc=_Overload("fallback also overloaded"))],
+        }),
+    )
+    monkeypatch.setattr(deepresearch.llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
+
+    result = await run_deep_research(ResearchBrief(subject="Atlas Forge"))
+
+    assert result.demo is True
+    assert "Executive Summary" in result.report  # the canned _demo_report(), not a crash/empty report
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("seeded_db")  # turn 1 succeeds -> budget.trace_llm writes an llm_call_records row
+async def test_double_overload_with_partial_progress_composes_truncated_report(monkeypatch):
+    """Same double-overload, but the first continuation turn already gathered real
+    text before the SECOND turn's fallback overloads too — must compose what was
+    already gathered (truncated=True), not discard real progress for a canned demo."""
+    monkeypatch.setattr(deepresearch, "llm_configured", lambda: True)
+    monkeypatch.setattr(
+        deepresearch,
+        "_get_client",
+        lambda: _FakeClient({
+            # Turn 1 on the primary model succeeds and pauses (continuation needed).
+            "claude-opus-4-8": [_FakeStream(msg=_msg("Real gathered text.", stop_reason="pause_turn"))],
+            # Turn 2: primary overloads, fallback ALSO overloads.
+            "claude-sonnet-4-6": [_FakeStream(raise_exc=_Overload("fallback overloaded"))],
+        }),
+    )
+    # Turn 2's primary attempt (still "claude-opus-4-8", model hasn't been
+    # reassigned to fb_model between turns) must also overload to reach the
+    # fallback branch; append a second stream for that same model key.
+    calls = {"claude-opus-4-8": [
+        _FakeStream(msg=_msg("Real gathered text.", stop_reason="pause_turn")),
+        _FakeStream(raise_exc=_Overload("primary overloaded turn 2")),
+    ], "claude-sonnet-4-6": [_FakeStream(raise_exc=_Overload("fallback overloaded"))]}
+    monkeypatch.setattr(deepresearch, "_get_client", lambda: _FakeClient(calls))
+    monkeypatch.setattr(deepresearch.llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
+
+    result = await run_deep_research(ResearchBrief(subject="Atlas Forge"))
+
+    assert result.demo is False
+    assert result.truncated is True
+    assert "Real gathered text." in result.report
 
 
 # ── Endpoint (demo path — no ANTHROPIC_API_KEY in tests) ──────────────────────

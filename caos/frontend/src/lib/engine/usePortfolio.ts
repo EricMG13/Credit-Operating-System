@@ -7,16 +7,23 @@
 import { useEffect, useState } from "react";
 import { getPortfolio, type PortfolioRowDTO } from "@/lib/api";
 
+// `error` is additive: a genuine fetch failure (no backend / network / 5xx)
+// still resolves the same empty rows/covered=0 shape every existing consumer
+// reads (fail-open to the static demo board), but callers that care can now
+// tell "backend reachable, genuinely no coverage yet" apart from "the fetch
+// itself failed" instead of both collapsing into indistinguishable EMPTY
+// (M-6; same error-phase pattern as useLatestRunStatus's RunPhase).
 export interface PortfolioState {
   rows: PortfolioRowDTO[];
   issuerCount: number;
   coveredCount: number;
   live: boolean;     // at least one issuer has a completed run
   loading: boolean;
+  error: boolean;     // true when the last load attempt threw
 }
 
 const EMPTY: PortfolioState = {
-  rows: [], issuerCount: 0, coveredCount: 0, live: false, loading: false,
+  rows: [], issuerCount: 0, coveredCount: 0, live: false, loading: false, error: false,
 };
 
 export function usePortfolio(): PortfolioState {
@@ -33,9 +40,15 @@ export function usePortfolio(): PortfolioState {
           coveredCount: d.covered_count,
           live: d.covered_count > 0,
           loading: false,
+          error: false,
         });
       })
-      .catch(() => { if (alive) setState(EMPTY); }); // no backend → fall back to mock
+      .catch((err) => {
+        // no backend → fall back to mock, but log + flag the phase so the
+        // failure is distinguishable from genuine no-data (M-6).
+        console.warn("usePortfolio: getPortfolio failed, falling back to static board", err);
+        if (alive) setState({ ...EMPTY, error: true });
+      });
     return () => { alive = false; };
   }, []);
 

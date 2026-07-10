@@ -14,6 +14,7 @@ import {
   ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
   type EmailRow,
 } from "@/lib/command/data";
+import { cleanRating } from "@/lib/command/rvdata";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
@@ -184,7 +185,10 @@ export function PortfolioTable({
 
   const presetKeys = {
     full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
-    credit: ["expand", "code", "name", "sector", "rank", "rating", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
+    // lev/snrLev/totalLev/cov aren't populated in this sample sleeve (all rows
+    // read "—") — dropped from the default view, still reachable via COLUMNS
+    // for coverage where they're real. (critique P2)
+    credit: ["expand", "code", "name", "sector", "rank", "rating", "posture", "conv", "qa", "alerts"],
     market: ["expand", "code", "name", "sector", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "posture", "alerts"],
   } as const;
 
@@ -281,10 +285,14 @@ export function PortfolioTable({
           <IssuerLink
             key="name"
             query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
-            title={`Open ${p.borrower || p.name} profile`}
+            className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
+            title={`Open ${p.borrower || p.name} profile — ${p.name}, ${p.size}`}
           >
-            {p.borrower || p.name}
+            <span className="truncate">{p.borrower || p.name}</span>
+            {/* One borrower can hold multiple tranches (e.g. two Acrisure TLs at
+                different sizes/maturities) — size distinguishes rows that would
+                otherwise look like duplicates in the credit-column preset. */}
+            <span className="tabular text-caos-2xs text-caos-muted shrink-0" aria-hidden="true">{p.size}</span>
           </IssuerLink>
         );
       case "sector":
@@ -296,7 +304,7 @@ export function PortfolioTable({
       case "rank":
         return <span key="rank" className="tabular text-caos-md text-caos-muted">{p.rank || "—"}</span>;
       case "rating":
-        return <span key="rating" className="tabular text-caos-md text-caos-muted">{p.rating}</span>;
+        return <span key="rating" className="tabular text-caos-md text-caos-muted">{cleanRating(p.rating)}</span>;
       case "size":
         return <span key="size" className="tabular text-caos-md text-caos-text text-right truncate w-full">{p.size || "$—"}</span>;
       case "margin":
@@ -442,15 +450,16 @@ export function PortfolioTable({
           )}
         </div>
       </div>
-      <div ref={scrollerRef} className="flex-1 min-h-0 overflow-auto">
+      <div ref={scrollerRef} role="grid" aria-label="Coverage positions" className="flex-1 min-h-0 overflow-auto">
         <div style={{ minWidth }}>
-          <div className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+          <div role="row" className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
             {activeCols.map((col) => {
               const alignsRight = ["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"].includes(col.key);
               if (col.key === "expand") {
                 return (
                   <div
                     key="expand"
+                    role="columnheader"
                     className={th + " sticky left-0 z-30 bg-caos-panel flex items-center justify-center"}
                     style={{ width: col.width }}
                   />
@@ -461,6 +470,7 @@ export function PortfolioTable({
                 return (
                   <div
                     key={col.key}
+                    role="columnheader"
                     className={th + ((col as { sticky?: string }).sticky ? " " + (col as { sticky?: string }).sticky + " bg-caos-panel" : "")}
                     style={{ width: col.width }}
                   >
@@ -477,6 +487,7 @@ export function PortfolioTable({
                   getValue={getter}
                   selected={filters[col.key]}
                   onChange={setFilter}
+                  asHeaderCell
                   className={th + (alignsRight ? " justify-end text-right w-full" : "") + ((col as { sticky?: string }).sticky ? " " + (col as { sticky?: string }).sticky + " bg-caos-panel" : "")}
                 >
                   {col.head}
@@ -494,10 +505,15 @@ export function PortfolioTable({
               return (
                 <div
                   key={key}
+                  role="row"
                   className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center ${rowBg} ${rowHoverBg} z-0`}
                   style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
                 >
-                  {activeCols.map((col) => renderCell(col.key, p, sel))}
+                  {activeCols.map((col) => (
+                    <div key={col.key} role="gridcell" className="contents">
+                      {renderCell(col.key, p, sel)}
+                    </div>
+                  ))}
                 </div>
               );
             })}

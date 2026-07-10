@@ -431,7 +431,9 @@ export function Profile({
   const recGated = latest_run?.committee_status === "Blocked";
 
   const ratings = [
-    { ag: "S&P", v: issuer.rating_sp }, { ag: "Moody’s", v: issuer.rating_moody }, { ag: "Fitch", v: issuer.rating_fitch },
+    { ag: "S&P", short: "S&P", v: issuer.rating_sp },
+    { ag: "Moody’s", short: "Mdy", v: issuer.rating_moody },
+    { ag: "Fitch", short: "Fitch", v: issuer.rating_fitch },
   ].filter((r) => r.v);
   const factsByCode = (codes: string[]) => business.filter((f) => codes.includes(f.code));
   const sponsorLedger = Array.isArray((sponsor as { ledger?: unknown }).ledger)
@@ -650,7 +652,7 @@ export function Profile({
             <div className="px-3 py-4 flex flex-col items-center justify-center gap-2 text-center min-h-[120px]">
               <span style={{ color: "var(--caos-muted)" }}><StatusGlyph kind="idle" size={16} /></span>
               <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[360px] leading-relaxed">
-                No loan mark or discount-margin series server-side. Structured market data lands Phase-2 (<span className="tabular text-caos-text/70">market_quotes</span>).
+                No loan mark or discount-margin series for this issuer yet — structured market data is a future phase.
               </p>
             </div>
           </Panel>
@@ -725,7 +727,7 @@ export function Profile({
             <span className="flex items-center gap-1 shrink-0">
               {ratings.map((r) => (
                 <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
-                  <span className="text-caos-muted">{r.ag.substring(0, 3)}</span> <span className="text-caos-text font-semibold">{r.v}</span>
+                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
                 </span>
               ))}
             </span>

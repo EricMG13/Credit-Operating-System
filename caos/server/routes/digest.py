@@ -150,6 +150,9 @@ async def daily_digest(
         as_of=now,
         coverage={
             "issuers": len(issuers),
+            # BE6-3: the issuer scan is capped (query-path P4 discipline); flag it so a
+            # consumer never reads "issuers" as the true book size past the cap.
+            "truncated": 1 if len(issuers) >= 2000 else 0,
             "rated": rated,
             "unrated": len(issuers) - rated,
             "with_complete_run": sum(1 for i in issuers if i.id in latest),

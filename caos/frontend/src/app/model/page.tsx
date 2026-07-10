@@ -26,6 +26,8 @@ import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngi
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import Link from "next/link";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 
@@ -129,6 +131,10 @@ function ModelBuilder() {
   const ovKey = "caos-d-overrides:" + issuerId;
 
   useEffect(() => {
+    // Guards the getSavedModel response below: fast issuer A->B switching must
+    // not let A's late-arriving restore land on B's state / persist under B's
+    // ovKey (SEC-H1 — mirrors the deepdive getIssuer stale-flag).
+    let stale = false;
     // locals track what was actually loaded so the dirty-baseline snapshot below
     // reflects restored state, not the stale render closure.
     let lo: Overrides = {};
@@ -149,6 +155,7 @@ function ModelBuilder() {
     savedSnapshot.current = serializeSavable(la, lo, lc);
     setRestoreError(false);
     getSavedModel(issuerId).then((saved) => {
+      if (stale) return;
       const parsed = parseSavedPayload(saved);
       if (!parsed) return;
       const { o, a, c, updatedAt } = parsed;
@@ -158,8 +165,9 @@ function ModelBuilder() {
       setSavedAt(updatedAt);
       // re-baseline the dirty flag at the just-restored DB state
       savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-    }).catch(() => setRestoreError(true));
+    }).catch(() => { if (!stale) setRestoreError(true); });
     setHydrated(true);
+    return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuerId, ovKey, isReference]);
   // Retry a failed DB-model restore. Runs post-hydration, so current state is the
@@ -387,6 +395,12 @@ function ModelBuilder() {
     <ResponsiveShell
       identity={
         <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
           {isReference ? (
             <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
           ) : eng.runId ? (
@@ -406,6 +420,19 @@ function ModelBuilder() {
             >
               ⚠ SAVED MODEL UNAVAILABLE · RETRY
             </button>
+          ) : !isReference && eng.phase === "error" ? (
+            // M-5: eng (useModelEngine) collapsed a genuine backend error into the
+            // same empty state as "no run yet" before the phase field existed —
+            // surface it distinctly, same posture as restoreError above (no retry
+            // action here: useModelEngine has no on-demand refetch to wire).
+            <span
+              role="alert"
+              title="Could not load this issuer's live run — showing the local/seeded model, not a confirmed no-run."
+              className="tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            >
+              ⚠ LIVE RUN UNAVAILABLE
+            </span>
           ) : saveError ? (
             <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
               ✗ SAVE FAILED
@@ -429,7 +456,7 @@ function ModelBuilder() {
             onClick={saveCurrentModel}
             disabled={!hasIssuerModel || saving}
             title="Save this issuer model to the database; Report Builder reads the saved version only"
-            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
           >
             {saving ? "SAVING..." : "SAVE MODEL"}
           </button>
@@ -437,7 +464,7 @@ function ModelBuilder() {
             onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
             disabled={!hasIssuerModel}
             title="Export the model grid (CSV — opens in Excel)"
-            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
           >
             ▦ EXPORT MODEL
           </button>
