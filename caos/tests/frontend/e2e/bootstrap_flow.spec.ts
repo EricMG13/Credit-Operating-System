@@ -179,8 +179,14 @@ test.describe("Bootstrap journey — create → run → output", () => {
 
     // The live-run honesty caveat only renders when a completed run exists for
     // the issuer (deepDiveCaveatKind === "live") — a direct signal that the run
-    // reached the UI, not a seeded fixture.
-    await expect(page.getByText("live engine output", { exact: false })).toBeVisible({
+    // reached the UI, not a seeded fixture. Match the badge's FULL text: the
+    // bare phrase also appears in the tabs caveat note and the rail's no-output
+    // note once live module content renders, so the loose locator only passed
+    // while it raced ahead of the data (strict-mode violation once the page
+    // loads fast enough).
+    await expect(
+      page.getByText("live engine output · missing panes show no output")
+    ).toBeVisible({
       timeout: 15000,
     });
 
