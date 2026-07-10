@@ -1,5 +1,16 @@
 # CAOS Confidence Audit — 2026-07-10
 
+> **Remediation status (same branch, same day):** the fix commits following
+> this report on `claude/caos-confidence-audit-12mcez` address every CONFIRMED
+> BUG that was still open on `bc339c8`, in six batches (extractors · period
+> basis/negative gates · QA-gate integrity · orchestration/consumers · frontend
+> live surfaces · deploy/docs). Deliberately NOT "fixed" as code: the
+> UNDERDETERMINED product decisions (now documented in place — shared-desk link
+> retraction, committee-status "Requires More Work", the Anthropic-key live
+> gate, prompt-corpus pinning) and the fixture-narrative internal
+> inconsistencies (FE-12/M3 — labeled reference-template content). Grep
+> `audit 2026-07-10` for every fix site.
+
 _Full-depth confidence audit of the shipped system: every FastAPI route, every
 implemented engine module (CP-0 … CP-6E + QA phase), the five UI concepts plus
 Monitor and Ask, the Modular OS corpus cross-check, and the Docker deploy path.
