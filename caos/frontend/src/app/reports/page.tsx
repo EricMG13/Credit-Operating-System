@@ -408,7 +408,17 @@ function ReportStudio() {
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
-            {rep ? <div style={{ zoom, "--rd-zoom": zoom } as React.CSSProperties}>
+            {/* CSS `zoom` is non-standard — Firefox ignores it outright and some
+                webviews clip it; `transform: scale()` is the standard,
+                cross-browser-correct way to scale a preview. `transformOrigin:
+                "top center"` keeps horizontal centering identical to the old
+                zoom behavior (symmetric X scaling) while anchoring the
+                document's top edge at the natural scroll position instead of
+                shifting it on every zoom change. `--rd-zoom` is unchanged — the
+                WCAG touch-target counter-scale in globals.css (.rd-cite /
+                .rd-revert-dot) compensates the same way regardless of which
+                CSS property does the visual scaling. */}
+            {rep ? <div style={{ transform: `scale(${zoom})`, transformOrigin: "top center", "--rd-zoom": zoom } as React.CSSProperties}>
               <ReportDoc
                 rep={rep}
                 omit={repOmit}
