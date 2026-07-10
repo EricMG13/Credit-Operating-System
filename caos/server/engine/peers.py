@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, MetricFact
 from engine.gate import Finding
 from engine.metrics import CATALOG_BY_KEY
-from engine.periods import is_finite_number, sort_key
+from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Headline metrics worth a peer read (those CP-1 / distress produce).
@@ -55,7 +55,9 @@ def _own_values(cp1: ModulePayload) -> Dict[str, float]:
     common = [p for p in rev if p in eb and is_finite_number(rev[p]) and rev[p] and is_finite_number(eb[p])]
     if common:
         p = max(common, key=sort_key)
-        out["ebitda_margin"] = round(100 * eb[p] / rev[p], 1)
+        m = safe_div(100 * eb[p], rev[p])
+        if m is not None:
+            out["ebitda_margin"] = round(m, 1)
     return out
 
 
@@ -63,12 +65,20 @@ async def _peer_facts(
     session: AsyncSession, issuer: Issuer, keys: List[str], same_industry: bool
 ) -> Dict[str, List[Tuple[str, float]]]:
     """{metric_key: [(peer_issuer_id, value)]} for headline facts, latest-per-issuer
-    (run over seed, then most recent), excluding the issuer itself."""
+    (run over seed, then most recent), excluding the issuer itself and any
+    fabricated demo_fixture rows."""
     stmt = (
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(keys),
-               MetricFact.issuer_id != issuer.id)
+               MetricFact.issuer_id != issuer.id,
+               # #10: never benchmark against fabricated figures — the ATLF fixture
+               # persisted for another keyless-run issuer (provenance demo_fixture)
+               # must not enter a real issuer's peer medians/percentiles (SEAM2-2).
+               MetricFact.provenance != "demo_fixture",
+               # A gate-Blocked (QA-failed) fact must never enter a real peer's
+               # medians/percentiles — defense-in-depth behind the runner write-skip.
+               MetricFact.qa_status != "Blocked")
     )
     if same_industry and issuer.industry:
         stmt = stmt.where(Issuer.industry == issuer.industry)
@@ -122,11 +132,17 @@ async def synthesize_peer_benchmark(
     comparisons: List[dict] = []
     outliers: List[str] = []
     for mk in keys:
-        peer_vals = [v for _iid, v in peers.get(mk, [])]
+        # Per-value finite gate on the store read (BE2-2): the write paths are
+        # is_finite_number-gated, but this consumer feeds median()/_percentile —
+        # defense-in-depth so a smuggled NaN can't poison peer stats for OTHER
+        # issuers. Same posture as the leaf gates in metrics.add().
+        peer_vals = [v for _iid, v in peers.get(mk, []) if is_finite_number(v)]
         if not peer_vals:
             continue
         md = CATALOG_BY_KEY[mk]
         iv = own[mk]
+        if not is_finite_number(iv):
+            continue
         percentile = _percentile(iv, peer_vals, md.higher_is_better)
         flag = percentile <= _WORST_QUARTILE
         comparisons.append({
@@ -174,6 +190,10 @@ def peer_outlier_finding(cp1c: Optional[ModulePayload]) -> Optional[Finding]:
     if cp1c is None:
         return None
     outliers = (cp1c.runtime_output or {}).get("outlier_metrics") or []
+    if not isinstance(outliers, (list, tuple)):
+        # A bare str would join char-by-char; a truthy scalar would raise on
+        # iteration in the QA phase and abort the whole run (BE3-6) — wrap it.
+        outliers = [outliers]
     if not outliers:
         return None
     scope = (cp1c.runtime_output or {}).get("peer_scope", "peers")

@@ -5,10 +5,26 @@ import { createPortal } from "react-dom";
 
 export type FilterState = Record<string, string[] | undefined>;
 
+// Sort direction a sortable column header can be in. `null` = unsorted (the
+// register falls back to its default order). Clicking a sortable label cycles
+// asc → desc → null.
+export type SortDir = "asc" | "desc";
+export type SortState = { col: string; dir: SortDir } | null;
+
 type Primitive = string | number | boolean | null | undefined;
 
 const keyOf = (v: Primitive) => (v == null || v === "" ? "—" : String(v));
 const MAX_VISIBLE_OPTIONS = 100;
+
+// The funnel glyph used by every filter-trigger variant below (icon-only,
+// label+icon combined, and sortable-column-adjacent).
+function FunnelIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 3h8M3.5 6h5M5 9h2" />
+    </svg>
+  );
+}
 
 export function useColumnFilters<T>(
   rows: T[],
@@ -33,6 +49,9 @@ export function FilterHeader<T>({
   onChange,
   className = "",
   iconOnly = false,
+  sortable = false,
+  sortState = null,
+  onSort,
   children,
 }: {
   label: string;
@@ -43,6 +62,12 @@ export function FilterHeader<T>({
   onChange: (col: string, values: string[] | undefined) => void;
   className?: string;
   iconOnly?: boolean;
+  // When set, the label becomes a sort control that cycles asc → desc → none.
+  // The funnel filter stays a separate control. Opt-in so existing call sites
+  // (Command views, NlQuery, SectorRV, LiveCoverage) are unchanged.
+  sortable?: boolean;
+  sortState?: SortState;
+  onSort?: (col: string) => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -149,6 +174,70 @@ export function FilterHeader<T>({
     document.body
   ) : null;
 
+  // Shared funnel-filter trigger — identical chrome whether or not the column
+  // is sortable, so the filter affordance never changes shape between columns.
+  const filterTrigger = (
+    <button
+      type="button"
+      aria-label={`Filter ${label}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      title={`Filter ${label}`}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openAt(e.currentTarget);
+      }}
+      className={
+        "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos focus-ring " +
+        (active
+          ? "border-caos-accent text-caos-accent bg-caos-elevated"
+          : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
+      }
+    >
+      <FunnelIcon />
+    </button>
+  );
+
+  if (!iconOnly && sortable && onSort) {
+    const dir = sortState?.col === col ? sortState.dir : null;
+    // aria-sort lives on the header cell; the visible glyph + label carry the
+    // same meaning by position + shape (never color alone).
+    const ariaSort = dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none";
+    const nextVerb = dir === "asc" ? "descending" : dir === "desc" ? "clear sort on" : "ascending";
+    return (
+      <>
+        <span
+          aria-sort={ariaSort}
+          className="inline-flex items-center gap-1.5 min-w-0"
+        >
+          <button
+            type="button"
+            aria-label={`Sort ${label} ${nextVerb}`}
+            title={`Sort ${label} ${nextVerb}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSort(col);
+            }}
+            className={
+              "inline-flex items-center gap-1 min-w-0 hover:text-caos-text transition-caos focus-ring " +
+              className +
+              (dir ? " text-caos-accent" : " text-caos-muted")
+            }
+          >
+            <span className="truncate">{children}</span>
+            <span aria-hidden="true" className="inline-flex w-2 shrink-0 justify-center leading-none text-caos-2xs">
+              {dir === "asc" ? "▲" : dir === "desc" ? "▼" : ""}
+            </span>
+          </button>
+          {filterTrigger}
+        </span>
+        {dialogNode}
+      </>
+    );
+  }
+
   if (!iconOnly) {
     return (
       <>
@@ -178,9 +267,7 @@ export function FilterHeader<T>({
                 : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
             }
           >
-            <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2 3h8M3.5 6h5M5 9h2" />
-            </svg>
+            <FunnelIcon />
           </span>
         </button>
         {dialogNode}
@@ -216,9 +303,7 @@ export function FilterHeader<T>({
               : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
           }
         >
-          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2 3h8M3.5 6h5M5 9h2" />
-          </svg>
+          <FunnelIcon />
         </button>
       </span>
       {dialogNode}

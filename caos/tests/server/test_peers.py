@@ -63,3 +63,51 @@ def test_atlf_cp1c_benchmarks_against_peers(client):
     lev = next(c for c in ro["comparisons"] if c["metric"] == "net_leverage")
     assert lev["issuer_value"] == 5.68    # ATLF's own value is stable
     assert lev["peer_median"] is not None and isinstance(lev["percentile"], int)
+
+
+def test_peer_facts_exclude_fabricated_demo_fixture_rows(client):
+    # #10 / SEAM2-2: a keyless run on a NON-reference issuer persists the ATLF
+    # fixture numbers under provenance demo_fixture. Those fabricated rows must
+    # never enter another issuer's peer distribution — same industry or not.
+    ref = client.get(f"/api/issuers/{REFERENCE_ISSUER_ID}").json()
+    iid = client.post("/api/issuers", json={
+        "name": "Fabricated Peer Co", "industry": ref["industry"],
+    }).json()["id"]
+    wait_for_run(client, client.post("/api/runs", json={"issuer_id": iid}).json()["id"])
+
+    run = wait_for_run(client, client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID}).json()["id"])
+    ro = client.get(f"/api/runs/{run['id']}/modules/CP-1C").json()["runtime_output"]
+    assert iid not in {p["issuer_id"] for p in ro["peers"]}
+
+
+@pytest.mark.asyncio
+async def test_peer_facts_exclude_gate_blocked_rows(seeded_db):
+    # HIGH audit finding: a gate-Blocked (QA-failed) CP-1 metric fact must never
+    # enter a real peer's medians/percentiles — the defense-in-depth read-filter in
+    # _peer_facts behind the runner write-skip. Isolated by a unique industry + a
+    # rollback so no row persists to the process-shared test DB (see the shared-DB
+    # gotcha: seeds that persist can pollute other modules' peer sets).
+    from database import AsyncSessionLocal, Issuer, MetricFact
+    from engine.peers import _peer_facts
+
+    industry = "ZZ-Blocked-Filter-Test"
+    async with AsyncSessionLocal() as s:
+        clean = Issuer(name="Clean Peer Co", industry=industry)
+        blocked = Issuer(name="Blocked Peer Co", industry=industry)
+        s.add_all([clean, blocked])
+        await s.flush()  # assign ids; visible within this session, not committed
+        s.add_all([
+            MetricFact(issuer_id=clean.id, metric_key="net_leverage", period="LTM",
+                       value=4.0, headline=True, qa_status="Committee Ready", provenance="run"),
+            MetricFact(issuer_id=blocked.id, metric_key="net_leverage", period="LTM",
+                       value=9.9, headline=True, qa_status="Blocked", provenance="run"),
+        ])
+        await s.flush()
+
+        probe = Issuer(id="probe-transient-id", name="Probe Co", industry=industry)
+        facts = await _peer_facts(s, probe, ["net_leverage"], same_industry=True)
+        peer_ids = {iid for iid, _ in facts.get("net_leverage", [])}
+
+        assert clean.id in peer_ids, "QA-passed peer should be benchmarked"
+        assert blocked.id not in peer_ids, "gate-Blocked peer must be excluded from peer medians"
+        await s.rollback()  # discard the probe rows — nothing persists

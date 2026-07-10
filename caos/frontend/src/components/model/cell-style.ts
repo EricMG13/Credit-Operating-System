@@ -21,6 +21,23 @@ export function kpiDistressColor(rowId: string, v: number | null): string | null
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
+// Severity band for a KPI cell, mirroring kpiDistressColor's thresholds so
+// distress is signalled by a glyph too (never color-alone, per the design
+// mandate). null where the color is null (benign); "crit" at the red end where
+// the interpolation clamps (t >= 1); "warn" through the orange→red ramp.
+export function kpiDistressLevel(rowId: string, v: number | null): "warn" | "crit" | null {
+  if (v == null) return null;
+  let t: number | null = null;
+  if (LEV_ROWS.has(rowId)) t = (v - 6) / 2;
+  else if (rowId === "intcov") t = (2 - v) / 1.5;
+  if (t == null || t < 0) return null;
+  return t >= 1 ? "crit" : "warn";
+}
+
+// Glyph paired with each distress band (▲ = critical, ■ = warning) so the
+// KPI shading meaning survives without color. Drawn glyphs, no emoji.
+export const KPI_DISTRESS_GLYPH: Record<"warn" | "crit", string> = { warn: "■", crit: "▲" };
+
 // Cell text color: KPI distress shading wins; otherwise override > pct sign >
 // negative-money muting > bold > default.
 export function cellTextColor(opts: {
@@ -58,7 +75,7 @@ export function cellBackground(opts: {
 }): string {
   const { isSel, cellHl, colHl, isHl, shade } = opts;
   return isSel
-    ? "rgba(79,140,255,0.22)"
+    ? "color-mix(in srgb, var(--caos-accent) 22%, transparent)"
     : cellHl
     ? "rgba(79,140,255,0.28)"
     : colHl || isHl

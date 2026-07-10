@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { barSpecFor, narrate } from "./viz";
 import type { SemanticResult, StructuredResult } from "./types";
 
-const cell = (value: number, provenance: "run" | "derived" | "seed" = "run") => ({
+type Prov = "run" | "derived" | "seed" | "fixture" | "demo_fixture";
+
+const cell = (value: number, provenance: Prov = "run") => ({
   value, unit: "x", provenance, qa_status: "Pass", period: "LTM", citation: null,
 });
 
 const structured = (
-  rows: Array<{ name: string; v: number; p?: "run" | "derived" | "seed" }>,
+  rows: Array<{ name: string; v: number; p?: Prov }>,
   total?: number, // universe before the top-N cap; defaults to uncapped
 ): StructuredResult => ({
   mode: "structured",
@@ -40,7 +42,17 @@ describe("barSpecFor", () => {
     expect(spec.type).toBe("interval");
     expect((spec.data as unknown[]).length).toBe(2);
     expect(spec.encode).toMatchObject({ color: "prov" });
-    expect(spec.scale.color.domain).toEqual(["run", "derived", "seed"]);
+    // Full provenance domain — fabricated (demo_fixture) and reference-demo
+    // (fixture) each get their own colour + legend entry, never an off-domain
+    // fill that reads as an ordinary category (#10 / SEAM2-1).
+    expect(spec.scale.color.domain).toEqual(["run", "derived", "seed", "fixture", "demo_fixture"]);
+  });
+
+  it("keeps a fabricated (demo_fixture) bar in-domain so it colours honestly, not off-scale", () => {
+    const spec = barSpecFor(structured([{ name: "A", v: 5.8 }, { name: "B", v: 4.4, p: "demo_fixture" }]))!;
+    expect(spec.scale.color.domain).toContain("demo_fixture");
+    const provs = (spec.data as Array<{ prov: string }>).map((d) => d.prov);
+    expect(provs).toContain("demo_fixture"); // passes through untouched (not coerced to "seed")
   });
 });
 

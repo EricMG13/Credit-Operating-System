@@ -39,7 +39,9 @@ test.describe("CAOS single-process app", () => {
 
   test("issuer directory renders with seeded + created issuers", async ({ page }) => {
     await page.goto("/issuers/");
-    await expect(page.getByText("ISSUER REGISTER", { exact: false })).toBeVisible({
+    // "Issuer Register" appears in both a sidebar label and the panel heading, so
+    // anchor on the exact panel heading to avoid a strict-mode ambiguity.
+    await expect(page.getByRole("heading", { name: "Issuer Register · coverage universe" })).toBeVisible({
       timeout: 10000,
     });
     await page.getByLabel("Search issuers").fill(issuerName);

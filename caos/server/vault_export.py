@@ -22,10 +22,15 @@ BM25/evidence stack untouched. See caos/docs/OBSIDIAN_DATABANK.md.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
+
+# The issuer hub lists a run history; bound the load so a long-lived issuer's
+# ever-growing run set doesn't get re-read whole on every export (N2).
+_HUB_RUN_HISTORY_CAP = 200
 
 # Strip only what breaks a filesystem name or an Obsidian wikilink; keep spaces
 # so the human title doubles as both the filename and the [[link]] target.
@@ -269,8 +274,12 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
         }
         for m in modules
     ]
+    # Runs accumulate one-per-analysis forever; the hub only lists a history, so
+    # bound the load to the most recent N rather than re-reading the whole run
+    # history on every Committee-Ready export (N2).
     issuer_runs = (await session.execute(
         select(Run).where(Run.issuer_id == run.issuer_id)
+        .order_by(Run.as_of_date.desc()).limit(_HUB_RUN_HISTORY_CAP)
     )).scalars().all()
     findings = (await session.execute(
         select(QAFinding).where(QAFinding.run_id == run_id)
@@ -280,7 +289,10 @@ async def export_run(session, run_id: str, vault_dir: str | Path) -> List[Path]:
     cp1c = next((m for m in modules if m.module_id == "CP-1C"), None)
     related = [p["name"] for p in ((cp1c.runtime_output or {}).get("peers") or [])] if cp1c else []
 
-    return write_run_to_vault(
+    # Off-thread the two sync note writes so a slow vault disk doesn't block the
+    # event loop (export runs on the executor's loop). (N2)
+    return await asyncio.to_thread(
+        write_run_to_vault,
         vault_dir,
         {"name": issuer.name, "ticker": issuer.ticker,
          "industry": issuer.industry, "country": issuer.country},
@@ -313,6 +325,30 @@ def _mention_pattern(term: str) -> str:
     return rf"(?<!\[){lead}({re.escape(term)}){tail}(?!\])"
 
 
+def _in_url_or_email(text: str, pos: int) -> bool:
+    """True when ``pos`` sits inside a URL or email token — so an issuer name in
+    'https://ford.com' or 'ir@ford.com' is NOT wikilinked (which would break it:
+    'https://[[ford]].com'). Memos routinely cite the issuer's own IR page, whose
+    URL contains the issuer name/ticker."""
+    start = pos
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    end = pos
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    token = text[start:end]
+    return ("://" in token or "@" in token or "www." in token
+            or bool(re.search(r"\.[a-z]{2,}(?:[/:?#]|$)", token, re.IGNORECASE)))
+
+
+def _first_plain_mention(pattern: str, text: str, flags: int):
+    """First match of ``pattern`` not inside a URL/email token, or None."""
+    for m in re.finditer(pattern, text, flags):
+        if not _in_url_or_email(text, m.start(1)):
+            return m
+    return None
+
+
 def autolink_issuers(
     text: str, issuers: Sequence[Tuple[str, Optional[str]]]
 ) -> Tuple[str, List[str]]:
@@ -337,9 +373,9 @@ def autolink_issuers(
             continue
         # ponytail: lookarounds only block a match hard against [[ ]] brackets —
         # a name inside an alias label can still double-wrap; fine for memos.
-        m = re.search(_mention_pattern(name), text, re.IGNORECASE)
+        m = _first_plain_mention(_mention_pattern(name), text, re.IGNORECASE)
         if m is None and len(tick) >= 2:
-            m = re.search(_mention_pattern(tick), text)
+            m = _first_plain_mention(_mention_pattern(tick), text, 0)
         if m is None:
             continue
         text = f"{text[:m.start(1)]}[[{m.group(1)}]]{text[m.end(1):]}"
@@ -382,15 +418,52 @@ def write_memo(vault_dir: str | Path, title: str, md: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{title}.md"
     n = 2
-    while path.exists():
-        path = d / f"{title} - {n}.md"
-        n += 1
-    path.write_text(md, encoding="utf-8")
-    return path
+    while True:
+        try:
+            with path.open("x", encoding="utf-8") as f:
+                f.write(md)
+            return path
+        except FileExistsError:
+            path = d / f"{title} - {n}.md"
+            n += 1
 
 
 _last_vault_mtime = 0.0
 _last_vault_file_count = 0
+_last_scan_time = 0.0
+_scan_cooldown_seconds = 10.0
+_sync_lock = None
+
+
+def _scan_memo_files(vault_path: Path) -> "tuple[list[Path], float, int]":
+    """Sync vault walk + per-file mtime, off-loaded from the event loop via
+    asyncio.to_thread. Returns (memo paths, newest mtime, count), excluding the
+    generated Runs/ and Issuers/ trees."""
+    import os
+
+    md_files = []
+    # Prune the generated Runs/ and Issuers/ trees DURING the walk — rglob visits
+    # every exported run note first and filters after, so the per-request scan
+    # grew with total run history (BE5-6). Both trees live at the vault root.
+    for root, dirs, files in os.walk(vault_path):
+        if Path(root) == vault_path:
+            dirs[:] = [d for d in dirs if d not in ("Runs", "Issuers")]
+        md_files.extend(Path(root) / f for f in files if f.endswith(".md"))
+    if not md_files:
+        return [], 0.0, 0
+    return md_files, max(os.path.getmtime(f) for f in md_files), len(md_files)
+
+
+def _read_memo_notes(md_files: "list[Path]") -> "list[tuple[str, list[str]]]":
+    """Sync read of each memo file (off-loaded). Returns (note stem, lines) for
+    every readable file; unreadable files are skipped."""
+    notes = []
+    for p in md_files:
+        try:
+            notes.append((p.stem, p.read_text(encoding="utf-8").splitlines()))
+        except Exception:
+            continue
+    return notes
 
 
 async def sync_analyst_memos(session) -> int:  # noqa: C901
@@ -398,92 +471,90 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
     Markdown files, parsing [[wikilinks]] that reference known issuers. Caches
     resolved links into the analyst_links table (syncing additions and deletions).
     """
-    from sqlalchemy import select, delete
+    from sqlalchemy import select, delete, insert
     from database import Issuer, AnalystLink
     from config import get_settings
+    import asyncio
     import re
-    import os
+    import time
+    import sys
+
+    global _sync_lock, _last_scan_time, _last_vault_mtime, _last_vault_file_count
 
     settings = get_settings()
     if not settings.vault_export_dir:
         return 0
 
-    vault_path = Path(settings.vault_export_dir)
-    if not vault_path.exists() or not vault_path.is_dir():
+    is_testing = "pytest" in sys.modules
+
+    if not is_testing and time.time() - _last_scan_time < _scan_cooldown_seconds:
         return 0
 
-    global _last_vault_mtime, _last_vault_file_count
-    md_files = []
-    for p in vault_path.rglob("*.md"):
-        parts = p.relative_to(vault_path).parts
-        if parts and parts[0] in ("Runs", "Issuers"):
-            continue
-        md_files.append(p)
+    if _sync_lock is None:
+        _sync_lock = asyncio.Lock()
 
-    if not md_files:
-        if _last_vault_file_count > 0:
-            await session.execute(delete(AnalystLink))
-            _last_vault_file_count = 0
-            _last_vault_mtime = 0.0
-            return 1
-        return 0
+    async with _sync_lock:
+        if not is_testing and time.time() - _last_scan_time < _scan_cooldown_seconds:
+            return 0
+        _last_scan_time = time.time()
 
-    max_mtime = max(os.path.getmtime(f) for f in md_files)
-    file_count = len(md_files)
+        vault_path = Path(settings.vault_export_dir)
+        if not vault_path.exists() or not vault_path.is_dir():
+            return 0
 
-    if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
-        return 0
+        md_files, max_mtime, file_count = await asyncio.to_thread(_scan_memo_files, vault_path)
 
-    issuers = (await session.execute(select(Issuer))).scalars().all()
-    issuer_map = {}
-    for iss in issuers:
-        issuer_map[iss.name.lower().strip()] = iss.id
-        if iss.ticker:
-            issuer_map[iss.ticker.lower().strip()] = iss.id
+        if not md_files:
+            if _last_vault_file_count > 0:
+                await session.execute(delete(AnalystLink))
+                _last_vault_file_count = 0
+                _last_vault_mtime = 0.0
+                return 1
+            return 0
 
-    parsed_links = []
-    link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
+        if max_mtime == _last_vault_mtime and file_count == _last_vault_file_count:
+            return 0
 
-    for p in vault_path.rglob("*.md"):
-        parts = p.relative_to(vault_path).parts
-        if parts and parts[0] in ("Runs", "Issuers"):
-            continue
+        issuers = (await session.execute(select(Issuer))).scalars().all()
+        issuer_map = {iss.name.lower().strip(): iss.id for iss in issuers}
+        for iss in issuers:
+            if iss.ticker:
+                issuer_map[iss.ticker.lower().strip()] = iss.id
 
-        try:
-            content = p.read_text(encoding="utf-8")
-        except Exception:
-            continue
+        link_re = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
-        note_name = p.stem
-        lines = content.splitlines()
-        for idx, line in enumerate(lines):
-            for match in link_re.finditer(line):
-                target_name = match.group(1).strip()
-                target_id = issuer_map.get(target_name.lower())
-                if target_id:
-                    excerpt = line.strip()
-                    excerpt = link_re.sub(r"\1", excerpt)
-                    parsed_links.append({
-                        "source_note": note_name,
-                        "target_issuer_id": target_id,
-                        "excerpt": excerpt[:200] or f"Note: {note_name}"
-                    })
+        def process_memos_in_thread(files, mappings):
+            links = []
+            for p in files:
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        note_name = p.stem
+                        for line in f:
+                            for match in link_re.finditer(line):
+                                target_name = match.group(1).strip().lower()
+                                target_id = mappings.get(target_name)
+                                if target_id:
+                                    excerpt = line.strip()
+                                    excerpt = link_re.sub(r"\1", excerpt)
+                                    links.append({
+                                        "source_note": note_name,
+                                        "target_issuer_id": target_id,
+                                        "excerpt": excerpt[:200] or f"Note: {note_name}"
+                                    })
+                except Exception:
+                    continue
+            return links
 
-    await session.execute(delete(AnalystLink))
+        parsed_links = await asyncio.to_thread(process_memos_in_thread, md_files, issuer_map)
 
-    count = 0
-    for link_data in parsed_links:
-        link = AnalystLink(
-            source_note=link_data["source_note"],
-            target_issuer_id=link_data["target_issuer_id"],
-            excerpt=link_data["excerpt"]
-        )
-        session.add(link)
-        count += 1
+        await session.execute(delete(AnalystLink))
 
-    _last_vault_mtime = max_mtime
-    _last_vault_file_count = file_count
-    return count
+        if parsed_links:
+            await session.execute(insert(AnalystLink).values(parsed_links))
+
+        _last_vault_mtime = max_mtime
+        _last_vault_file_count = file_count
+        return len(parsed_links)
 
 
 if __name__ == "__main__":  # ponytail: one runnable self-check for the render/link logic

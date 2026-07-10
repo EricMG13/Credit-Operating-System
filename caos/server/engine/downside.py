@@ -66,24 +66,23 @@ def compute_pathways(nf: dict) -> Optional[dict]:
     if not is_finite_number(lev):
         return None  # CP-1 gave no usable (finite) leverage figure — nothing to stress.
     cov = nf.get("interest_coverage_ltm")
+    # Narrow via the TypeGuard inline (a stored bool wouldn't narrow `cov` for mypy).
+    cov_val: Optional[float] = cov if is_finite_number(cov) else None
 
-    scenarios = []
-    shock_to_breach: Optional[int] = None
-    for s in _SHOCKS:
-        # EBITDA down by s, net debt flat -> leverage UP (divide by 1 - s),
-        # coverage DOWN (multiply by 1 - s).
-        sl = round(lev / (1 - s), 2)
-        # Inline the finite check (not a stored bool) so the TypeGuard narrows cov to
-        # float here — a non-finite coverage yields a per-scenario None, never a NaN.
-        sc = round(cov * (1 - s), 2) if is_finite_number(cov) else None
-        scenarios.append({
-            "ebitda_shock_pct": round(s * 100),  # 0.10 -> 10, 0.20 -> 20, 0.30 -> 30
-            "stressed_net_leverage": sl,
-            "stressed_interest_coverage": sc,
-        })
-        # First shock whose stressed leverage reaches the 7.0x distress marker.
-        if shock_to_breach is None and sl >= _BREACH_X:
-            shock_to_breach = round(s * 100)
+    scenarios: list[dict[str, Optional[float]]] = [
+        {
+            "ebitda_shock_pct": round(s * 100),
+            "stressed_net_leverage": round(lev / (1 - s), 2),
+            "stressed_interest_coverage": round(cov_val * (1 - s), 2) if cov_val is not None else None,
+        }
+        for s in _SHOCKS
+    ]
+
+    shock_to_breach = next(
+        (sc["ebitda_shock_pct"] for sc in scenarios
+         if (stressed_lev := sc["stressed_net_leverage"]) is not None and stressed_lev >= _BREACH_X),
+        None,
+    )
 
     # Fragility ladder: already-distressed or breaches by 10% -> HIGH; by 20% ->
     # MODERATE; survives a 30% shock -> LOW.

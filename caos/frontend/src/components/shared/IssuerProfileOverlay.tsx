@@ -6,6 +6,7 @@ import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
 import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { DEMO_UNIVERSE } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
 
@@ -144,22 +145,44 @@ export function IssuerProfileOverlay() {
     };
   }, [isOpen, issuerId]);
 
-  const panelRef = useModalA11y<HTMLDivElement>(closeProfile);
-
+  // The modal body — and its useModalA11y — live in a child that mounts only
+  // while open. Calling the hook on this always-mounted component would engage
+  // the body scroll-lock the entire time the overlay sits closed.
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-center justify-center p-6"
-      style={{ background: "rgba(5, 5, 7, 0.72)" }}
-      onClick={closeProfile}
-    >
+    <IssuerProfileModal issuerId={issuerId} data={data} loading={loading} error={error} onClose={closeProfile} />
+  );
+}
+
+function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
+  issuerId: string | null;
+  data: IssuerProfile | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
+
+  return (
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Issuer Profile Overlay"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          // This modal mounts in the root layout, ABOVE the router — a <Link>
+          // inside it swaps the route underneath without unmounting the overlay,
+          // stranding a scroll-locked focus trap over the new page. Delegated
+          // close: a plain left-click on a same-origin link closes; modified
+          // clicks (new tab/window) and external/protocol links ("OPEN IN
+          // VAULT" obsidian://) don't navigate this page, so the overlay stays.
+          const a = (e.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null;
+          if (a && a.origin === window.location.origin &&
+              !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) onClose();
+        }}
         className="caos-enter bg-caos-panel border border-caos-border rounded-md w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden relative"
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
@@ -173,7 +196,7 @@ export function IssuerProfileOverlay() {
             <p className="text-caos-2xl text-caos-text font-medium">{error || "No data."}</p>
             <div className="flex gap-2">
               <button
-                onClick={closeProfile}
+                onClick={onClose}
                 className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
               >
                 CLOSE
@@ -184,7 +207,7 @@ export function IssuerProfileOverlay() {
               {issuerId ? (
                 <Link
                   href={"/deepdive?issuer=" + encodeURIComponent(issuerId)}
-                  onClick={closeProfile}
+                  onClick={onClose}
                   className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
                 >
                   OPEN DEEP-DIVE
@@ -193,9 +216,9 @@ export function IssuerProfileOverlay() {
             </div>
           </div>
         ) : (
-          <Profile id={issuerId!} data={data} isOverlay={true} onClose={closeProfile} />
+          <Profile id={issuerId!} data={data} isOverlay={true} onClose={onClose} />
         )}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

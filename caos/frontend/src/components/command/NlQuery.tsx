@@ -5,8 +5,7 @@
 // QuerySpec over the curated metric store and returns a ranked, evidence-cited,
 // gate-aware answer. Surfaced on the Command Center as the "scan coverage" tool.
 
-import { Fragment, useMemo, useState } from "react";
-import { Panel as PanelShell } from "@/components/shared/Panel";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
@@ -14,13 +13,15 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
-import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult } from "@/lib/query/types";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
+import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
-type OpenCite = (chunkId: string, label?: string | null) => void;
+export type OpenCite = (chunkId: string, label?: string | null) => void;
 
-const STARTERS = [
+const _STARTERS = [
   "which issuers' margins are most exposed to higher inflation in energy prices",
   "which issuer is most levered",
   "which issuers flag energy or input-cost pressure in their filings",
@@ -37,7 +38,7 @@ function Pill({ text, color, title }: { text: string; color: string; title?: str
     <span
       title={title}
       className="tabular text-caos-3xs uppercase tracking-wide px-1 py-px rounded border whitespace-nowrap"
-      style={{ color, borderColor: color + "66", background: color + "14" }}
+      style={{ color, borderColor: `color-mix(in srgb, ${color} 40%, transparent)`, background: `color-mix(in srgb, ${color} 8%, transparent)` }}
     >
       {text}
     </span>
@@ -59,7 +60,15 @@ function Cell({ cell, ranked, onOpenCite }: { cell: MetricCell | undefined; rank
       >
         {fmtMetric(cell.value, cell.unit)}
       </span>
-      {cell.provenance === "fixture" ? (
+      {cell.provenance === "demo_fixture" ? (
+        <span
+          title="Fabricated Atlas Forge demo-fixture value — served because no model key is configured for this issuer; NOT sourced from its filings."
+          className="tabular text-caos-3xs font-semibold px-1 rounded"
+          style={{ color: "var(--caos-critical)", background: "color-mix(in srgb, var(--caos-critical) 12%, transparent)" }}
+        >
+          fab
+        </span>
+      ) : cell.provenance === "fixture" ? (
         <span
           title="Demo fixture value (Atlas Forge reference deal — not a real issuer run)"
           className="tabular text-caos-3xs"
@@ -141,13 +150,19 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
             const cells = row.metrics;
             const i = res.rows.indexOf(row);
             const provs = Object.values(cells).map((m) => m.provenance);
+            const anyFab = provs.includes("demo_fixture");
             const anyRun = provs.includes("run");
             const anyDerived = provs.includes("derived");
-            const badge = anyRun
+            // Fabricated takes priority over any positive label: one synthetic ATLF
+            // cell taints the row's trust, so it must never hide behind a LIVE/DERIVED
+            // badge (matches Issuer Profile's "fabricated is always marked" rule). #10
+            const badge = anyFab
+              ? { text: "FABRICATED", color: "var(--caos-critical)", title: "One or more values are synthetic Atlas Forge demo-fixture data (served with no model key) — NOT sourced from this issuer's filings." }
+              : anyRun
               ? { text: "CP-1 LIVE", color: "var(--caos-success)", title: "Financials are run-derived and cited (CP-1)." }
               : anyDerived
               ? { text: "DERIVED", color: "var(--caos-accent)", title: "Includes a value derived from this issuer's filings (cited)." }
-              : { text: "SEEDED", color: "var(--caos-idle)", title: "Illustrative seed values (no source yet)." };
+              : { text: "SEEDED", color: "var(--caos-muted)", title: "Illustrative seed values (no source yet)." };
             const worstQa = Object.values(cells).map((m) => m.qa_status);
             const qa = worstQa.includes("Blocked") ? "Blocked" : worstQa.includes("Restricted") ? "Restricted" : "ok";
             return (
@@ -198,11 +213,17 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
   );
 }
 
-// Semantic (evidence-retrieval) results — issuers grouped by document match, each
-// with cited source excerpts (the qualitative counterpart to the metric table).
-function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: OpenCite }) {
+// Semantic (evidence-retrieval) and synthesis (agent-wiki retrieval) results —
+// issuers grouped by match, each with cited source excerpts (the qualitative
+// counterpart to the metric table). Same row shape; the pill names the corpus.
+function SemanticView({ res, onOpenCite }: { res: SemanticResult | SynthesisResult; onOpenCite: OpenCite }) {
+  const synth = res.mode === "synthesis";
   if (!res.rows.length) {
-    return <div className="tabular text-caos-md text-caos-muted py-1">No issuer documents matched.</div>;
+    return (
+      <div className="tabular text-caos-md text-caos-muted py-1">
+        {synth ? "No matching agent syntheses, claims, or QA findings." : "No issuer documents matched."}
+      </div>
+    );
   }
   return (
     <div className="flex flex-col gap-2 overflow-auto" style={{ maxHeight: 300 }}>
@@ -214,7 +235,9 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
             {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
             {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
-            <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />
+            {synth
+              ? <Pill text="SYNTHESIS" color="var(--caos-accent)" title="Matched in agent syntheses, claims, and QA findings" />
+              : <Pill text="EVIDENCE" color="var(--caos-accent)" title="Matched in the issuer's source documents" />}
           </div>
           <div className="flex flex-col gap-1.5 px-2 py-1.5">
             {row.excerpts.map((ex) => (
@@ -237,29 +260,167 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult; onOpenCite: Op
 }
 
 // The query body (input + ranked/semantic results), reused both as the Command
+// Center panel, inside the global Ask launcher (⌘K) modal, AND on the Query page
+// as the "Scan metrics" lane (one-box unification — additive, not replacing the
+// walk-primary Enter). The modal is self-contained: it brings its own focus trap
+// (useModalA11y), interpretation/summary/chart/table/caveats, and citation chips
+// that call back into the host's openCite.
+export function QueryResultsModal({
+  question,
+  res,
+  busy,
+  err,
+  onClose,
+  openCite,
+}: {
+  question: string;
+  res: NlQueryResult | null;
+  busy: boolean;
+  err: string | null;
+  onClose: () => void;
+  openCite: OpenCite;
+}) {
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
+
+  return (
+    <ModalBackdrop onClose={onClose} align="end">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Query Results Overlay"
+        onClick={(e) => e.stopPropagation()}
+        className="caos-enter bg-caos-panel border-l border-caos-border h-full w-full max-w-3xl flex flex-col overflow-hidden relative shadow-2xl"
+      >
+        {/* Header */}
+        <div className="h-10 shrink-0 px-4 border-b border-caos-border flex items-center justify-between bg-caos-panel/80">
+          <span className="text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-muted truncate max-w-2xl">
+            Query Results: {question}
+          </span>
+          <button
+            onClick={onClose}
+            className="text-caos-muted hover:text-caos-text p-1 rounded hover:bg-caos-elevated transition-caos cursor-pointer focus-ring"
+            aria-label="Close overlay"
+          >
+            <svg viewBox="0 0 16 16" className="w-4 h-4 stroke-current" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 4l8 8m0-8l-8 8" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
+          {busy && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <StatusGlyph kind="running" className="caos-running" size={24} />
+              <span className="tabular text-caos-md text-caos-muted">Querying the metric store…</span>
+            </div>
+          )}
+
+          {err && (
+            <div role="alert" className="tabular text-caos-md px-3 py-2 rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
+              <StatusGlyph kind="warning" /> {err}
+            </div>
+          )}
+
+          {res && !busy && (
+            <div className="flex flex-col gap-4 min-h-0">
+              {/* interpretation */}
+              <div className="tabular text-caos-md text-caos-muted leading-snug">
+                <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5 font-semibold">Reading</span>
+                {res.interpretation}
+              </div>
+
+              {/* auto-generated narrative */}
+              {(() => {
+                const summary = narrate(res);
+                return summary ? (
+                  <div className="text-caos-md text-caos-text/90 leading-snug">
+                    <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5 font-semibold">Summary</span>
+                    {summary}
+                  </div>
+                ) : null;
+              })()}
+
+              {/* auto-selected visualization */}
+              {(() => {
+                const spec = barSpecFor(res);
+                if (!spec) return null;
+                const h = Math.max(150, Math.min(280, (spec.data as unknown[]).length * 34 + 56));
+                return (
+                  <div className="rounded border border-caos-border/60 bg-caos-bg/30 p-2">
+                    <G2Chart spec={spec} height={h} />
+                  </div>
+                );
+              })()}
+
+              {/* Table or list */}
+              <div className="min-h-0 overflow-auto">
+                {res.mode === "semantic" || res.mode === "synthesis"
+                  ? <SemanticView res={res} onOpenCite={openCite} />
+                  : <StructuredView res={res} onOpenCite={openCite} />}
+              </div>
+
+              {/* caveats */}
+              {res.caveats.length ? (
+                <div className="tabular text-caos-xs text-caos-muted leading-snug border-t border-caos-border/50 pt-2">
+                  {res.caveats.map((c, i) => <div key={i}>· {c}</div>)}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// The query body (input + ranked/semantic results), reused both as the Command
 // Center panel and inside the global Ask launcher (⌘K) modal.
 export function NlQueryBody() {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<NlQueryResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showOverlay, setShowOverlay] = useState(false);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);
+  // Polite live-region text so screen-reader users follow the otherwise
+  // visual-only query run (busy start → result count / cancelled / failed).
+  const [liveMsg, setLiveMsg] = useState("");
+  const abortRef = useRef<AbortController | null>(null);
   const openCite: OpenCite = (id, label) => setCite({ id, label });
+
+  // A second click while in-flight aborts the request (button reads CANCEL).
+  const cancel = () => abortRef.current?.abort();
 
   const run = async (text?: string) => {
     const question = (text ?? q).trim();
     if (!question || busy) return;
     if (text) setQ(text);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setBusy(true);
     setErr(null);
+    setShowOverlay(true);
+    setLiveMsg("Querying the metric store…");
     try {
-      setRes(await nlQuery(question));
+      const result = await nlQuery(question, ctrl.signal);
+      setRes(result);
+      const n = result.rows.length;
+      setLiveMsg(`${n} ${n === 1 ? "issuer" : "issuers"} returned.`);
     } catch (e) {
+      if (ctrl.signal.aborted) {
+        setRes(null);
+        setLiveMsg("Query cancelled.");
+        return;
+      }
       const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
         || (e as Error)?.message || "query failed";
       setErr(String(detail));
       setRes(null);
+      setLiveMsg("Query failed.");
     } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
       setBusy(false);
     }
   };
@@ -279,109 +440,47 @@ export function NlQueryBody() {
             className="flex-1 px-2.5 py-1.5 text-caos-xl"
           />
           <button
-            onClick={() => run()}
-            disabled={busy || !q.trim()}
+            onClick={() => (busy ? cancel() : run())}
+            disabled={!busy && !q.trim()}
+            aria-label={busy ? "Cancel query" : "Ask across issuers"}
             className="shrink-0 tabular text-caos-md px-3 py-1.5 rounded transition-caos disabled:opacity-40"
-            style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
+            style={
+              busy
+                ? { background: "transparent", color: "var(--caos-muted)", boxShadow: "inset 0 0 0 1px var(--caos-border)" }
+                : { background: "var(--caos-accent)", color: "var(--caos-bg)" }
+            }
           >
-            {busy ? "…" : "ASK"}
+            {busy ? "CANCEL" : "ASK"}
           </button>
         </div>
 
-        {/* starters (only before a result) */}
-        {!res && !busy ? (
-          <div className="flex flex-wrap gap-1.5">
-            {STARTERS.map((s) => (
-              <button
-                key={s}
-                onClick={() => run(s)}
-                className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {/* polite live region — announces run start, result count, cancel, or failure */}
+        <div className="sr-only" role="status" aria-live="polite">{liveMsg}</div>
 
-        {err ? (
-          <div role="alert" className="tabular text-caos-md px-2 py-1.5 rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
-            <StatusGlyph kind="warning" /> {err}
-          </div>
-        ) : null}
-
-        {res ? (
-          <div className="flex flex-col gap-2">
-            {/* interpretation — show the analyst exactly how the question was read */}
-            <div className="tabular text-caos-md text-caos-muted leading-snug">
-              <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5">Reading</span>
-              {res.interpretation}
-            </div>
-
-            {/* auto-generated narrative — the so-what, always shown */}
-            {(() => {
-              const summary = narrate(res);
-              return summary ? (
-                <div className="text-caos-md text-caos-text/90 leading-snug">
-                  <span className="uppercase tracking-wider text-caos-2xs text-caos-accent mr-1.5">Summary</span>
-                  {summary}
-                </div>
-              ) : null;
-            })()}
-
-            {/* auto-selected visualization — bar chart for rankable multi-row results */}
-            {(() => {
-              const spec = barSpecFor(res);
-              if (!spec) return null;
-              const h = Math.max(150, Math.min(280, (spec.data as unknown[]).length * 34 + 56));
-              return (
-                <div className="rounded border border-caos-border/60 bg-caos-bg/30 p-1.5">
-                  <G2Chart spec={spec} height={h} />
-                </div>
-              );
-            })()}
-
-            {res.mode === "semantic"
-              ? <SemanticView res={res} onOpenCite={openCite} />
-              : <StructuredView res={res} onOpenCite={openCite} />}
-
-            {/* caveats — honesty about seed vs run-derived / qualitative match */}
-            {res.caveats.length ? (
-              <div className="tabular text-caos-xs text-caos-muted leading-snug">
-                {res.caveats.map((c, i) => <div key={i}>· {c}</div>)}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+        {/* Modal Overlay for Results */}
+        {showOverlay && (
+          <QueryResultsModal
+            question={q}
+            res={res}
+            busy={busy}
+            err={err}
+            onClose={() => {
+              setShowOverlay(false);
+              if (busy) cancel();
+            }}
+            openCite={openCite}
+          />
+        )}
 
         {cite ? <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} /> : null}
     </div>
   );
 }
 
-export function NlQuery({ compact: _compact = false }: { compact?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+export function NlQuery() {
   return (
-    <PanelShell
-      title="Ask across issuers · cross-issuer query"
-      className="shrink-0"
-      right={<span className="tabular text-caos-xs text-caos-muted">grounded in the metric store · cited where run-derived</span>}
-    >
-      {expanded ? (
-        <div className="p-2.5"><NlQueryBody /></div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="m-2.5 flex items-center gap-2 rounded border border-caos-border bg-caos-bg px-2.5 py-2 text-left text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
-        >
-          <span className="text-caos-accent text-caos-2xl" aria-hidden="true">✦</span>
-          <span className="flex-1 min-w-0">
-            <span className="block text-caos-lg text-caos-text">Ask across issuers</span>
-            <span className="block tabular text-caos-xs text-caos-muted truncate">Open the cited metric-store query lane</span>
-          </span>
-          <span className="tabular text-caos-xs text-caos-accent">OPEN</span>
-        </button>
-      )}
-    </PanelShell>
+    <div className="shrink-0 flex flex-col gap-2 p-2.5 rounded-md border border-caos-border bg-caos-panel">
+      <NlQueryBody />
+    </div>
   );
 }

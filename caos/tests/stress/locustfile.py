@@ -40,7 +40,11 @@ class Analyst(HttpUser):
     @task(1)
     def report(self) -> None:
         if self.run_id:  # the heavy one: re-assembles every module+claim+evidence to Markdown
-            self.client.post(f"/api/runs/{self.run_id}/report", name="POST /runs/{id}/report")
+            with self.client.post(f"/api/runs/{self.run_id}/report", name="POST /runs/{id}/report", catch_response=True) as r:
+                if r.status_code in (200, 409):
+                    r.success()
+
+
 
     @task(1)
     def nl_query(self) -> None:  # rate-limited 20/min — expect (and accept) 429s

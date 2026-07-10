@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, Fragment } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
@@ -13,7 +13,9 @@ const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
   cite: { stroke: CHART_HEX.accent, width: 1.2 },
   driver: { stroke: CHART_HEX.warning, width: 2.4 },
-  member: { stroke: "var(--caos-border)", width: 1 },
+  // Wiki walk: membership IS the answer, so make these hairlines legible — a
+  // touch lighter than the raw border and rendered at higher opacity below.
+  member: { stroke: "#4a4f66", width: 1 },
   seq: { stroke: CHART_HEX.accent, width: 1.8 },
   bull: { stroke: CHART_HEX.success, width: 1.5, dash: "4 3" },
   bear: { stroke: CHART_HEX.critical, width: 1.5, dash: "4 3" },
@@ -34,6 +36,21 @@ const HALO = {
 };
 
 const short = (s: string, n = 18) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+// Issuer/center labels are real names ("Virgin Media O2 Investments Holdings")
+// on a mostly-empty canvas — hard-cutting at 18 wastes the space. Split onto up
+// to two lines at the space nearest the midpoint (generous ~18-char budget per
+// line), ellipsis only if a single word still overflows. Returns 1 or 2 lines.
+const wrapLabel = (s: string, budget = 18): string[] => {
+  if (s.length <= budget) return [s];
+  const mid = s.length / 2;
+  let best = -1;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === " " && (best === -1 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  if (best === -1) return [short(s, budget)]; // no break point — one clipped line
+  return [short(s.slice(0, best), budget), short(s.slice(best + 1), budget)];
+};
 
 type OpenChunk = (chunkId: string, label?: string | null) => void;
 type SelectNode = (node: GraphNode) => void;
@@ -95,12 +112,14 @@ export function GraphCanvas({
     svg.call(zoom.transform, fitTransform);
   }, [graph, fitTransform]);
 
-  // Reset zoom back to the fitted view cleanly
+  // Reset zoom back to the fitted view cleanly. Honor prefers-reduced-motion
+  // (instant) and otherwise keep it snappy within the 160ms system rhythm.
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
+      const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       select(svgRef.current)
         .transition()
-        .duration(300)
+        .duration(reduce ? 0 : 180)
         .call(zoomBehaviorRef.current.transform, fitTransform);
     }
   };
@@ -274,7 +293,7 @@ function EdgeLine({ edge, x1, y1, x2, y2 }: { edge: GraphEdge; x1: number; y1: n
         x1={x1} y1={y1} x2={x2} y2={y2}
         stroke={base.stroke} strokeWidth={base.width} strokeDasharray={base.dash}
         markerEnd={arrow ? "url(#qg-arrow)" : undefined}
-        opacity={k === "member" || k === "dep" || k === "finding" ? 0.32 : 0.85}
+        opacity={k === "member" ? 0.5 : k === "dep" || k === "finding" ? 0.32 : 0.85}
       />
       {edge.label ? (
         <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} textAnchor="middle" fill="#aeb9d4" fontFamily="var(--font-mono)" fontSize={13} {...HALO}>
@@ -312,6 +331,13 @@ function NodeMark({
 
   const s = nodeStyle(n);
 
+  // Wrap long labels onto two lines rather than hard-clipping — the label often
+  // IS the answer (a provenance class, a driver, a percentile). Modules stay
+  // tight (dense DAGs); issuers/center and other kinds wrap over two lines.
+  const labelLines = n.kind === "module"
+    ? [short(n.label, 8)]
+    : wrapLabel(n.label, s.isCircle ? 18 : 20);
+
   const wikiLink = n.obsidian_url ? (
     <a
       href={n.obsidian_url}
@@ -339,7 +365,7 @@ function NodeMark({
         if (isChunk) onOpenChunk(n.chunk_id!, n.label);
         else if (onSelectNode) onSelectNode(n);
       })}
-      aria-label={`Select ${n.label}`}
+      aria-label={`Select ${n.label}${n.exposed && n.kind === "issuer" ? " (exposed)" : ""}`}
     >
       <title>{n.title || n.label}</title>
       {children}
@@ -356,7 +382,14 @@ function NodeMark({
   return wrap(
     <>
       {s.isCircle ? (
-        <circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />
+        <>
+          {/* Exposed issuers carry a non-color cue too (a11y): a concentric
+              outer ring so "exposed" reads without relying on the warning hue. */}
+          {n.exposed && n.kind === "issuer" ? (
+            <circle cx={cx} cy={cy} r={s.r + 3.5} fill="none" stroke={s.stroke} strokeWidth={1} opacity={0.7} />
+          ) : null}
+          <circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />
+        </>
       ) : s.shape === "pill" ? (
         <NodePill cx={cx} cy={cy} label={n.label} color={s.color} />
       ) : (
@@ -364,15 +397,29 @@ function NodeMark({
       )}
 
       {n.kind !== "sector" ? (
-        <text x={cx} y={cy + (s.isCircle ? s.r + 16 : 4.5)} textAnchor="middle"
-          fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={s.isCircle ? 13.5 : 12.5}
-          fontWeight={n.kind === "center" ? 600 : 400}
-          fontFamily={s.isMono ? "var(--font-mono)" : undefined} {...HALO}>
-          {short(n.label, n.kind === "module" ? 8 : 18)}
-        </text>
+        s.isCircle ? (
+          // Issuer/center: real names get up to two lines so they don't all clip.
+          <text x={cx} y={cy + s.r + 16} textAnchor="middle"
+            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={13.5}
+            fontWeight={n.kind === "center" ? 600 : 400} {...HALO}>
+            {labelLines.map((ln, i) => (
+              <tspan key={i} x={cx} dy={i === 0 ? 0 : 15}>{ln}</tspan>
+            ))}
+          </text>
+        ) : (
+          <text x={cx} y={cy + 4.5} textAnchor="middle"
+            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={12.5}
+            fontWeight={n.kind === "center" ? 600 : 400}
+            fontFamily={s.isMono ? "var(--font-mono)" : undefined} {...HALO}>
+            {labelLines.map((ln, i) => (
+              <tspan key={i} x={cx} dy={i === 0 ? 0 : 14}>{ln}</tspan>
+            ))}
+          </text>
+        )
       ) : null}
       {n.sub && n.kind !== "module" ? (
-        <text x={cx} y={cy + (s.isCircle ? s.r + 31 : 19)} textAnchor="middle"
+        // Push below a second label line when the name wrapped, so they don't collide.
+        <text x={cx} y={cy + (s.isCircle ? s.r + 31 + (labelLines.length > 1 ? 15 : 0) : 19 + (labelLines.length > 1 ? 14 : 0))} textAnchor="middle"
           fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>
           {short(n.sub, 24)}
         </text>
@@ -386,7 +433,7 @@ function NodePill({ cx, cy, label, color }: { cx: number; cy: number; label: str
   const w = Math.max(64, text.length * 8.2 + 22);
   return (
     <g>
-      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={color + "22"} stroke={color} strokeWidth={1.2} />
+      <rect x={cx - w / 2} y={cy - 14} width={w} height={28} rx={6} fill={`color-mix(in srgb, ${color} 13%, transparent)`} stroke={color} strokeWidth={1.2} />
       <text x={cx} y={cy + 4.5} textAnchor="middle" fill={color} fontSize={12.5} fontWeight={500} fontFamily="var(--font-mono)" {...HALO}>{text}</text>
     </g>
   );

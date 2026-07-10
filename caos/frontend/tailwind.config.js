@@ -42,8 +42,8 @@ module.exports = {
       // code. Headings keep a tight line-height; font-size otherwise inherits the
       // 1.5 base and the dense UI tunes leading per context.
       fontSize: {
-        "caos-3xs": "8.5px", // micro  (alias of 2xs)
-        "caos-2xs": "8.5px", // micro
+        "caos-3xs": "9px", // micro  (alias of 2xs) — at the 9px label floor
+        "caos-2xs": "9px", // micro — 9px is the design-context minimum label size
         "caos-xs": "9.5px", //  label
         "caos-sm": "9.5px", //  label  (alias of xs)
         "caos-md": "10.5px", // body
@@ -51,6 +51,7 @@ module.exports = {
         "caos-xl": "12px", //   row
         "caos-2xl": "12px", //  row    (alias of xl)
         "caos-metric": ["16px", { lineHeight: "1.15" }],
+        "caos-metric-lg": ["18px", { lineHeight: "1.12" }], // severity-ramp rung between metric and hero (email tiles)
         "caos-hero": ["22px", { lineHeight: "1.1" }],
         // Display tier — the single focal "answer" on a surface (committee
         // verdict, anchor metric). ~3x body so one element genuinely commands

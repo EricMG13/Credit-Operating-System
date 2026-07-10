@@ -40,6 +40,17 @@ export function issuerSector(issuer: Pick<Issuer, "sector" | "industry">): strin
   return issuer.sector || issuer.industry || "";
 }
 
+// Rating shown in the register — the credit signal a HY book is scanned for.
+// First agency rating on file (S&P → Moody's → Fitch). The letters carry the
+// meaning, so a distress color is redundant reinforcement, not the sole channel
+// (WCAG 1.4.1). CCC / Caa and below (S&P·Fitch C/D, Moody's Caa/Ca/C) read as
+// distressed — the whole distressed set is exactly the ratings starting C or D.
+export function issuerRating(i: Pick<Issuer, "rating_sp" | "rating_moody" | "rating_fitch">): string {
+  return (i.rating_sp || i.rating_moody || i.rating_fitch || "").trim();
+}
+
+export const ratingDistressed = (r: string): boolean => /^[cd]/i.test(r);
+
 export function issuerProfileHref(issuer: Pick<Issuer, "id">): string {
   return "/issuers/profile?id=" + encodeURIComponent(issuer.id);
 }

@@ -10,10 +10,12 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { usePathname } from "next/navigation";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
+import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
@@ -45,7 +47,6 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
   ],
   monitor: [
-    { id: "run-diff", text: "Show what changed since the last run", sub: "run diff" },
     { id: "open-findings", text: "Surface live QA exceptions", sub: "governance" },
     { id: "coverage-completeness", text: "Find coverage gaps", sub: "coverage health" },
     { id: "impact-analysis", text: "Map affected downstream conclusions", sub: "impact analysis" },
@@ -63,7 +64,6 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "gate-lane", text: "Show items blocked at gates", sub: "workflow lane" },
     { id: "impact-analysis", text: "Map downstream impact of a blocker", sub: "impact analysis" },
     { id: "open-findings", text: "List QA findings by issuer", sub: "governance" },
-    { id: "run-diff", text: "Compare pipeline output changes", sub: "run diff" },
   ],
   deepdive: [
     { id: "trace-source", text: "Trace this issuer's verdict to sources", sub: "provenance walk" },
@@ -93,6 +93,13 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "scatter", text: "Plot leverage × coverage", sub: "cross-issuer scatter" },
     { id: "trace-source", text: "Trace the IC verdict to its sources", sub: "provenance walk" },
     ANALYST_MEMO_PROMPT,
+  ],
+  "sector-rv": [
+    { id: "peer-set", text: "Map RV tails to closest credit peers", sub: "issuer graph · CP-1C" },
+    { id: "scatter", text: "Plot RV names against leverage and coverage", sub: "cross-issuer scatter" },
+    { id: "distribution", text: "Rank downside pressure in this sector", sub: "distribution" },
+    { id: "trace-source", text: "Trace RV conclusions to evidence", sub: "provenance walk" },
+    { id: "debate-digest", text: "Digest the relative-value debate", sub: "research synthesis" },
   ],
 };
 
@@ -182,8 +189,11 @@ export function AskLauncher() {
   if (!open) return trigger;
 
   // Model and other issuer-scoped concepts → the ATLF issuer Q&A slide-over.
+  // No specific module is in view from this generic launcher, so pass an empty
+  // tab: IssuerChat then omits the "currently viewing <module>" line instead of
+  // asserting a fabricated one (was hardcoded "M-118" on every route — N4).
   if (scope === "issuer") {
-    return <>{trigger}<IssuerChat tab="M-118" onClose={() => setOpen(false)} /></>;
+    return <>{trigger}<IssuerChat tab="" onClose={() => setOpen(false)} /></>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.
@@ -290,20 +300,17 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex items-start justify-center p-6 bg-[#050507]/72 transition-opacity duration-200"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} align="end" className="transition-opacity duration-200">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Ask with Query"
         onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border border-caos-accent/60 rounded-md w-full transition-caos flex flex-col overflow-hidden ${
+        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full transition-all duration-300 flex flex-col overflow-hidden shadow-2xl ${
           hasQueried
-            ? "max-w-6xl h-[82vh] max-h-[900px] mt-[6vh]"
-            : "max-w-2xl mt-[18vh] p-4 gap-3.5"
+            ? "max-w-4xl"
+            : "max-w-md p-4 gap-3.5"
         }`}
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
@@ -594,11 +601,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence</div>
                         <span
                           className="tabular text-caos-3xs font-semibold px-2 py-0.5 rounded border"
-                          style={{
-                            color: selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                            borderColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                            backgroundColor: (selectedNode.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
-                          }}
+                          style={sevSurface(selectedNode.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
                         >
                           {selectedNode.confidence}
                         </span>
@@ -625,7 +628,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       </div>
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
-    </div>
+    </ModalBackdrop>
   );
 }
 

@@ -20,8 +20,11 @@ export interface MetricCell {
   value: number;
   unit: string;
   // run = QA-gated engine run; derived = extracted from a cited document chunk;
-  // fixture = ATLF demo numbers (not a real run, #04); seed = illustrative, no source.
-  provenance: "run" | "derived" | "fixture" | "seed";
+  // fixture = ATLF demo numbers for the genuine reference issuer (not a real run, #04);
+  // demo_fixture = the ATLF fixture served for a NON-demo issuer on a keyless run —
+  // fabricated, must be flagged loud, never read as seed (#10 / SEAM2-1);
+  // seed = illustrative, no source.
+  provenance: "run" | "derived" | "fixture" | "demo_fixture" | "seed";
   qa_status: string;
   period: string;
   citation: Citation | null;
@@ -85,8 +88,18 @@ export interface SemanticResult {
   caveats: string[];
 }
 
-// The endpoint returns one or the other, discriminated by `mode`.
-export type NlQueryResult = StructuredResult | SemanticResult;
+// Synthesis (agent-wiki retrieval) results — same row shape as semantic, but
+// matched against agent syntheses / claims / QA findings instead of documents.
+export interface SynthesisResult {
+  mode: "synthesis";
+  interpretation: string;
+  rank_by: null;
+  rows: SemanticRow[];
+  caveats: string[];
+}
+
+// The endpoint returns one of these, discriminated by `mode`.
+export type NlQueryResult = StructuredResult | SemanticResult | SynthesisResult;
 
 // One ingested source chunk — backs the click-to-source citation viewer.
 export interface ChunkDTO {

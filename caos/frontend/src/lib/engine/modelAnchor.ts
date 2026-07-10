@@ -6,6 +6,7 @@
 // caller falls back to the seeded model ("prefer live, static fallback").
 
 import type { ModuleDetailDTO } from "./types";
+import { finiteNumber } from "./numbers";
 
 export interface ModelAnchor {
   ltmRevenue: number;    // LTM revenue ($M)
@@ -13,10 +14,6 @@ export interface ModelAnchor {
   netDebt: number;       // LTM net debt ($M)
   netLeverage: number;   // adj. net leverage (x) as CP-1 reports it
   intCov: number | null; // interest coverage (x), if reported
-}
-
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 // Latest period key in a {label: value} series — prefer an LTM-prefixed label,
@@ -46,10 +43,10 @@ export function cp1ToAnchor(detail: ModuleDetailDTO): ModelAnchor | null {
 
   const rev = fin.revenue as Record<string, unknown> | undefined;
   const eb = fin.adj_ebitda as Record<string, unknown> | undefined;
-  const ltmRevenue = rev ? num(rev[latestPeriod(rev)]) : null;
-  const ltmAdjEbitda = eb ? num(eb[latestPeriod(eb)]) : null;
-  const netDebt = num(fin.net_debt_ltm);
-  const netLeverage = num(fin.net_leverage_adj_ltm);
+  const ltmRevenue = rev ? finiteNumber(rev[latestPeriod(rev)]) : null;
+  const ltmAdjEbitda = eb ? finiteNumber(eb[latestPeriod(eb)]) : null;
+  const netDebt = finiteNumber(fin.net_debt_ltm);
+  const netLeverage = finiteNumber(fin.net_leverage_adj_ltm);
 
   // The four figures the anchor actually drives; anything missing → fall back.
   if (ltmRevenue == null || ltmAdjEbitda == null || netDebt == null || netLeverage == null) {
@@ -60,6 +57,6 @@ export function cp1ToAnchor(detail: ModuleDetailDTO): ModelAnchor | null {
     ltmAdjEbitda,
     netDebt,
     netLeverage,
-    intCov: num(fin.interest_coverage_ltm),
+    intCov: finiteNumber(fin.interest_coverage_ltm),
   };
 }

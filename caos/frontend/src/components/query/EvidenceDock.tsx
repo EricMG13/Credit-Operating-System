@@ -11,7 +11,9 @@ import type { GraphNode, GraphResult, OverlayEdge, OverlayResult } from "@/lib/q
 import { pairKey } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { QUESTIONS } from "@/lib/query/questions";
+import { displayMeta } from "@/lib/query/format";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { sevSurface } from "@/lib/pipeline/sev";
 
 type OpenChunk = (chunkId: string, label?: string | null) => void;
 
@@ -84,6 +86,11 @@ function ModelCommentary({
   const issuerIds = new Set(
     (graph?.nodes ?? []).filter((n) => n.kind === "issuer" || n.kind === "center").map((n) => n.id)
   );
+  // The analyst ratifies by name, not by raw UUID — resolve endpoint ids to
+  // their node labels. A node id can drop out (run-scoped nodes vary across
+  // runs), so fall back to a short slug rather than leak the full UUID.
+  const labelOf = new Map((graph?.nodes ?? []).map((n) => [n.id, n.label]));
+  const resolveId = (id: string) => labelOf.get(id) ?? id.slice(0, 8);
   return (
     <div className="p-4 pt-0 flex flex-col gap-3 print:hidden" data-testid="model-commentary">
       <div className="border-t border-caos-border pt-3">
@@ -118,7 +125,7 @@ function ModelCommentary({
               return (
                 <li key={i} className="text-caos-2xs font-mono leading-normal border border-caos-border rounded p-2 bg-caos-bg/50">
                   <div className="text-caos-text">
-                    {e.source} ⇢ {e.target}
+                    <span title={e.source}>{resolveId(e.source)}</span> ⇢ <span title={e.target}>{resolveId(e.target)}</span>
                     <span className="text-caos-muted"> · {e.confidence}</span>
                   </div>
                   {e.rationale && <div className="text-caos-muted mt-0.5 font-sans text-caos-xs">{e.rationale}</div>}
@@ -174,7 +181,7 @@ function ModelCommentary({
 
       {overlay.suggested_walks.length > 0 && onPickWalk && (
         <div>
-          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Suggested next walks</div>
+          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Suggested next questions</div>
           <div className="flex gap-1.5 flex-wrap">
             {overlay.suggested_walks.map((w) => (
               <button
@@ -213,7 +220,7 @@ function AnswerNotes({ graph }: { graph: GraphResult | null }) {
       <div>
         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">Scope</div>
         <div className="flex flex-col gap-1">
-          {graph.meta.map((m, i) => (
+          {displayMeta(graph.meta).map((m, i) => (
             <span key={i} className="tabular text-caos-2xs text-caos-text font-mono border border-caos-border rounded px-1.5 py-1 bg-caos-bg">
               {m}
             </span>
@@ -257,7 +264,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         <CloseButton onClick={onClear} title="Clear selection" />
       </div>
 
-      <div className="flex-1 flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-3 p-4">
         {node.sub && (
           <div>
             <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description</div>
@@ -284,7 +291,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         )}
 
         <div className="flex items-center gap-2 flex-wrap">
-          {node.group && (
+          {node.group && node.group !== node.sub && (
             <span className="tabular text-caos-2xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5">
               {node.group}
             </span>
@@ -292,11 +299,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
           {node.confidence && (
             <span
               className="tabular text-caos-2xs font-semibold px-2 py-0.5 rounded border"
-              style={{
-                color: node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)",
-                borderColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "55",
-                backgroundColor: (node.confidence === "High" ? "var(--caos-success)" : "var(--caos-warning)") + "11",
-              }}
+              style={sevSurface(node.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
             >
               {node.confidence} confidence
             </span>

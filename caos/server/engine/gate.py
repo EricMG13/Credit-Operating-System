@@ -50,9 +50,27 @@ def committee_status_from(qa_status: str, confidence: str) -> str:
         return "Restricted"
     if qa_status == "Not Reviewed":
         return "Draft Only"
+    # Fail-closed: only an explicit "Passed" can reach committee-ready. Any
+    # unrecognized/partial gate state (a stray "Pending", "", or a status a future
+    # code path introduces) must degrade to non-committee, never fall through to
+    # "Committee Ready" — a wrong-read on the money path.
+    if qa_status != "Passed":
+        return "Draft Only"
     if confidence == "Insufficient Information":
         return "Insufficient Information"
     return "Committee Ready"
+
+
+def cap_committee_status_for_blocked_upstream(committee_status: str) -> str:
+    """CP-5D cascade: a module whose (transitive) upstream is post-gate ``Blocked``
+    cannot be committee-ready — its conclusion rests on a Blocked foundation, even
+    though its own evidence lineage passed. Cap its committee usability at
+    ``Restricted``. Only ``Committee Ready`` ranks above that line; every other
+    status (Restricted / Draft Only / Insufficient Information / Blocked) already
+    signals "not committee-ready" and is left untouched, so this is a downgrade
+    only. The module's own ``qa_status`` is *not* changed — its QA record stays
+    honest; only the committee verdict reflects the compromised input."""
+    return "Restricted" if committee_status == "Committee Ready" else committee_status
 
 
 def roll_up_qa_status(statuses: Iterable[str]) -> str:
@@ -60,7 +78,10 @@ def roll_up_qa_status(statuses: Iterable[str]) -> str:
     statuses = list(statuses)
     if not statuses:
         return "Not Reviewed"
-    return max(statuses, key=lambda s: _QA_RANK.get(s, -1))
+    # Fail-closed: an unrecognized status ranks WORST (99), not most-benign, so a
+    # stray/unknown module status can't let the run roll up to Passed and then
+    # slip through committee_status_from's fail-closed default too.
+    return max(statuses, key=lambda s: _QA_RANK.get(s, 99))
 
 
 def worst_confidence(confidences: Iterable[str]) -> str:

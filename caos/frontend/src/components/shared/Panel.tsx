@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function Panel({
   title,
@@ -10,6 +10,7 @@ export function Panel({
   as: Heading = "h2",
   collapsible = false,
   defaultCollapsed = false,
+  onCollapse,
 }: {
   title: string;
   right?: React.ReactNode;
@@ -18,8 +19,27 @@ export function Panel({
   as?: "h2" | "h3";
   collapsible?: boolean;
   defaultCollapsed?: boolean;
+  onCollapse?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // Only a body that actually clips needs to be a keyboard-focusable scroll
+  // region — measure real overflow so a panel whose content fits isn't an inert
+  // tab stop (a dense page had ~9 of them before every real action).
+  const [scrollable, setScrollable] = useState(false);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) { setScrollable(false); return; }
+    const measure = () => setScrollable(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // ResizeObserver is absent in jsdom / non-DOM renders — a one-time measure is
+    // the safe fallback (the region just won't re-evaluate on resize there).
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [collapsed]);
 
   return (
     <div
@@ -30,7 +50,13 @@ export function Panel({
         {collapsible && (
           <button
             type="button"
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => {
+              if (onCollapse) {
+                onCollapse();
+              } else {
+                setCollapsed(!collapsed);
+              }
+            }}
             className="w-5 h-5 -ml-1 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring cursor-pointer"
             aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
           >
@@ -43,11 +69,17 @@ export function Panel({
         <div className="flex-1" />
         {right}
       </div>
-      {/* Body is keyboard-focusable so a clipping panel can be scrolled without a
-          mouse (WCAG 2.1.1; axe scrollable-region-focusable). Labeled by the panel
-          title so the focused region is announced. */}
+      {/* Body is keyboard-focusable ONLY when it actually clips, so a scrollable
+          panel can be reached without a mouse (WCAG 2.1.1; axe
+          scrollable-region-focusable) while a fitting one stays out of the tab
+          order. Labeled by the panel title so the focused region is announced. */}
       {!collapsed && (
-        <div tabIndex={0} aria-label={title} className="flex-1 min-h-0 overflow-auto focus-ring">
+        <div
+          ref={bodyRef}
+          tabIndex={scrollable ? 0 : undefined}
+          aria-label={scrollable ? title : undefined}
+          className={"flex-1 min-h-0 overflow-auto" + (scrollable ? " focus-ring" : "")}
+        >
           {children}
         </div>
       )}

@@ -11,7 +11,12 @@ name: caos
 
 services:
   db:
-    image: postgres:18-alpine
+    # pgvector-enabled Postgres 18 (Debian-based; the stock postgres:18-alpine
+    # lacks the `vector` extension that mig 0030's embeddings table needs). Same
+    # PG major as before, so the data dir + POSTGRES_* env are unchanged. The
+    # `backup` service below stays on postgres:18-alpine — pg_dump is a client and
+    # does not need the extension installed.
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
     # read_only is unset — the postgres entrypoint starts as root, drops to the
@@ -165,7 +170,7 @@ services:
   # MAX_UPLOAD_MB=250) so large credit agreements / 10-Ks scan instead of failing
   # closed (503) on clamd's 25 MB default. Verify clamd starts on the first av deploy.
   clamav:
-    image: clamav/clamav:1.4
+    image: clamav/clamav:1.5
     profiles: ["av"]
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]

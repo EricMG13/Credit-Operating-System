@@ -29,10 +29,7 @@ def year(period: str) -> int:
     if not nums:
         return -1
     y = int(nums[-1])
-    return 2000 + y if y < 100 else y
-
-
-_QUARTER_RE = re.compile(r"Q\s*([1-4])", re.IGNORECASE)
+    return y + (2000 if y < 100 else 0)
 
 
 def _intra_year_rank(period: str) -> float:
@@ -44,10 +41,9 @@ def _intra_year_rank(period: str) -> float:
     ``FY2025``, and ``LTM_Q3`` just above ``Q3``. (Domain call: LTM is the headline
     current figure in leveraged credit; flip the +0.5 if a desk prefers closed FY.)"""
     p = period or ""
-    is_ltm = p.upper().startswith("LTM")
-    m = _QUARTER_RE.search(p)
+    m = re.search(r"Q\s*([1-4])", p, re.I)
     base = float(m.group(1)) if m else 4.0
-    return base + (0.5 if is_ltm else 0.0)
+    return base + (0.5 if p.upper().startswith("LTM") else 0.0)
 
 
 def sort_key(period: str) -> tuple:
@@ -55,13 +51,20 @@ def sort_key(period: str) -> tuple:
     ``key=`` for max()/sorted() so two same-year labels order by quarter (and an LTM
     stub above the full year it trails) instead of tying on year and keeping whichever
     happened to come first."""
-    return (year(period), _intra_year_rank(period))
+    return year(period), _intra_year_rank(period)
 
 
 def latest(series: dict) -> Optional[float]:
-    """Numeric value at the most-recent period (by total recency order), or None."""
-    vals = [(p, v) for p, v in (series or {}).items() if isinstance(v, (int, float))]
-    return max(vals, key=lambda kv: sort_key(kv[0]))[1] if vals else None
+    """Numeric value at the most-recent period (by total recency order), or None.
+
+    Tolerates a truthy non-dict series: live runtime_output interiors are
+    unvalidated below the top level, so a list/str where a period map belongs
+    must degrade to None here, not AttributeError inside the QA/projection
+    phase (where any raise aborts and rolls back the whole run — BE3-2)."""
+    if not isinstance(series, dict):
+        return None
+    valid = {p: v for p, v in series.items() if isinstance(v, (int, float))}
+    return valid[max(valid, key=sort_key)] if valid else None
 
 
 def is_finite_number(x: object) -> TypeGuard[float]:
@@ -79,3 +82,14 @@ def is_finite_number(x: object) -> TypeGuard[float]:
     into the payload (silent wrong reads downstream) or crashing. ``bool`` is
     intentionally accepted (it is an int subclass; ``False`` is a valid 0)."""
     return isinstance(x, (int, float)) and math.isfinite(x)
+
+
+def safe_div(numerator: object, denominator: object) -> Optional[float]:
+    """Finite-guarded division for CP-1 arithmetic. Returns
+    numerator/denominator as a float only when BOTH operands are finite
+    (is_finite_number) AND the denominator is non-zero; otherwise None.
+    This is the structural form of the CLAUDE.md divide-guard: a caller
+    cannot divide a CP-1 figure without the NaN/inf/zero-denominator check."""
+    if is_finite_number(numerator) and is_finite_number(denominator) and denominator != 0:
+        return float(numerator) / float(denominator)
+    return None

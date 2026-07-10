@@ -1,8 +1,8 @@
 # Clears starlette 0.46.2's 7 CVEs (PYSEC-2026-161 + 6 GHSA). The last two
 # advisories are only fixed in starlette >=1.3.1, which requires Python >=3.10 —
 # as does any fastapi that lifts the starlette cap to 1.x (0.135+). So this pin
-# also sets the floor at Python 3.10 (CI/Docker already run 3.11). There is no
-# py3.9-compatible combination that clears all seven.
+# also sets the floor at Python 3.10 (CI runs a 3.11+3.14 matrix; the deploy image
+# ships 3.14). There is no py3.9-compatible combination that clears all seven.
 fastapi==0.138.*
 uvicorn[standard]==0.49.*
 # 0.0.31+ required: multipart DoS (CVE-2024-53981 + GHSA unbounded headers /
@@ -12,9 +12,20 @@ sqlalchemy[asyncio]==2.0.*
 alembic==1.13.*
 aiosqlite==0.22.*
 asyncpg==0.31.*; python_version >= "3.10"
+# pgvector SQLAlchemy types (database.SafeVector; mig 0030 HNSW embeddings). Pure
+# Python (needs numpy, already locked); the `vector` Postgres EXTENSION is a
+# deploy-image concern, not a pip one.
+pgvector==0.4.*
 pydantic==2.*
 pydantic-settings==2.*
-anthropic>=0.112.0,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
+anthropic>=0.115.1,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
 google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported only when a gemini-* model is selected
+# The LLM re-rank (engine/rerank.py) reuses the same API providers above — no
+# extra dependency, no local model download (policy). One batched call per query.
 pypdf==6.*
 openpyxl==3.1.*
+# Token-accurate chunking for ingest + context packing (ingest.chunk_text,
+# engine/packer.pack_context); both import tiktoken at module load, so it is a
+# hard runtime dependency, not optional. The get_encoding() download failure path
+# still degrades to a whitespace tokenizer.
+tiktoken==0.13.*

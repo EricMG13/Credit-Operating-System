@@ -43,7 +43,7 @@ _RETRIEVE_QUERY = (
 # Incremental / incurrence debt capacity: the $-amount tied to the incremental
 # clause (same sentence), in millions or billions — NOT the first dollar figure
 # anywhere in the chunk, which used to grab a preceding fee/figure and cite it as
-# the basket (review run-2026-06-26 #1).
+# the basket (review review-2026-06-26 #1).
 # ponytail: keyword-then-amount, same sentence. A reverse-order "$250M incremental",
 # or a figure sitting between the keyword and the basket, degrades to None (an
 # honest "not parsed" + limitation flag) rather than a wrong number. Widen to a
@@ -120,24 +120,26 @@ def _addback_cap(text: str) -> Optional[float]:
 #      be greater than 5.75 to 1.00"
 # Anchoring on these shapes (not a bare ratio) keeps us off the incurrence tests.
 _MAINT_COVENANT_PATTERNS = (
-    re.compile(r"maximum\s+permitted\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*:\s*1(?:\.0+)?", re.IGNORECASE),
+    re.compile(r"maximum\s+permitted\s*(?:leverage\s+ratio\s*)?[:\-]?\s*(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|to\s+1(?:\.0+)?|x\b)", re.IGNORECASE),
     re.compile(
-        r"shall\s+not\s+permit[^.]{0,160}?"
-        r"(total|consolidated|net|senior\s+secured|first[\s-]?lien)\s+leverage\s+ratio"
-        r"[^.]{0,90}?(?:greater\s+than|exceed)\s*"
+        r"shall\s+not\s+permit[^.]{0,350}?"
+        r"\b(total|consolidated|net|senior\s+secured|first[\s-]?lien|consolidated\s+total|total\s+net|consolidated\s+net)?\s*leverage\s+ratio"
+        r"[^.]{0,200}?(?:greater\s+than|exceed|be\s+more\s+than|less\s+than|maximum\s+of)\s*"
         r"(\d+(?:\.\d+)?)\s*(?::\s*1(?:\.0+)?|x\b|times\b|\s+to\s+1(?:\.0+)?)",
         re.IGNORECASE | re.DOTALL,
     ),
 )
+
 # A secured-basis cue anywhere in a covenant chunk — used for the compliance-cert
 # shape, whose threshold match ("Maximum Permitted: N:1.00") carries no basis word.
 _SECURED_BASIS = re.compile(r"(senior\s+secured|first[\s-]?lien)\s+(?:net\s+)?leverage", re.IGNORECASE)
+_BASIS_RE = re.compile(r"[\s\-_]+")
 
 
 def _normalize_basis(raw: object) -> Optional[str]:
     """Map a leverage-basis qualifier to {senior_secured, first_lien, total} or None.
     Tolerant of regex captures ('Senior Secured') and LLM tokens ('senior_secured')."""
-    key = re.sub(r"[\s\-_]+", " ", (raw if isinstance(raw, str) else "").strip().lower())
+    key = _BASIS_RE.sub(" ", (raw if isinstance(raw, str) else "").strip().lower())
     if key.startswith("senior secured"):
         return "senior_secured"
     if key.startswith("first lien"):
@@ -148,28 +150,29 @@ def _normalize_basis(raw: object) -> Optional[str]:
 
 
 def _maintenance_leverage_threshold(text: str) -> Optional[Tuple[float, Optional[str]]]:
-    """(threshold turns, leverage basis) for the financial maintenance leverage
-    covenant if present — matched on the compliance-certificate or covenant-clause
-    shape, not an incurrence ratio test. Basis is 'senior_secured' / 'first_lien' /
-    'total', or None when the matched shape carries no qualifier. Range-guarded."""
-    # Compliance-certificate shape: the threshold match has no basis word; infer a
-    # secured basis only when the chunk states one nearby, else leave it unknown.
+    """(threshold turns, leverage basis) for the financial maintenance leverage covenant if present."""
     m = _MAINT_COVENANT_PATTERNS[0].search(text)
-    if m:
-        v = float(m.group(1))
-        if 1.0 <= v <= 12.0:
-            sec = _SECURED_BASIS.search(text)
-            return v, (_normalize_basis(sec.group(1)) if sec else None)
-    # Covenant-clause shape: the basis qualifier is captured directly.
+    if m and 1.0 <= float(m.group(1)) <= 12.0:
+        sec = _SECURED_BASIS.search(text)
+        return float(m.group(1)), (_normalize_basis(sec.group(1)) if sec else None)
     m = _MAINT_COVENANT_PATTERNS[1].search(text)
-    if m:
-        v = float(m.group(2))
-        if 1.0 <= v <= 12.0:
-            return v, _normalize_basis(m.group(1))
+    if m and 1.0 <= float(m.group(2)) <= 12.0:
+        return float(m.group(2)), _normalize_basis(m.group(1))
     return None
 
 
-def derive_covenant_terms(  # noqa: C901
+# Precompiled checks to avoid lowercasing text chunks and allocating strings
+_INCR_CHECK_1 = re.compile(r"incremental", re.I)
+_INCR_CHECK_2 = re.compile(r"capacity|incurrence", re.I)
+_LEV_CHECK = re.compile(r"leverage", re.I)
+_RP_CHECK = re.compile(r"restricted\s+payment|builder\s+basket|available\s+amount|general\s+basket", re.I)
+_CD_CHECK_1 = re.compile(r"material\s+indebtedness", re.I)
+_CD_CHECK_2 = re.compile(r"default|accelerat", re.I)
+_CROSS_CHECK = re.compile(r"cross", re.I)
+_AB_CHECK = re.compile(r"add-back|add\s+back|addback|cost-sav|cost\s+sav|synerg", re.I)
+
+
+def derive_covenant_terms(
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
@@ -186,31 +189,27 @@ def derive_covenant_terms(  # noqa: C901
     addback_cap: Optional[Tuple[float, str, bool]] = None
     leverage_basis: Optional[str] = None
     for cid, text in chunks:
-        low = text.lower()
-        if incremental is None and "incremental" in low and ("capacity" in low or "incurrence" in low):
+        if incremental is None and _INCR_CHECK_1.search(text) and _INCR_CHECK_2.search(text):
             m = _INCREMENTAL_AMT.search(text)
             if m:
                 amt = float(m.group(1).replace(",", ""))
                 if m.group(2).lower() == "billion":
                     amt *= 1000  # normalise to $M
                 incremental = (amt, cid, True)
-        if leverage_cov is None and "leverage" in low:
+        if leverage_cov is None and _LEV_CHECK.search(text):
             res = _maintenance_leverage_threshold(text)
             if res is not None:
                 val, leverage_basis = res
                 leverage_cov = (val, cid, True)
-        if rp_basket is None and ("restricted payment" in low or "builder basket" in low
-                                  or "available amount" in low or "general basket" in low):
+        if rp_basket is None and _RP_CHECK.search(text):
             amt2 = _amount_match(_RP_BASKET_AMT, text)
             if amt2 is not None:
                 rp_basket = (amt2, cid, True)
-        if cross_default is None and (("cross" in low and ("default" in low or "accelerat" in low))
-                                      or "material indebtedness" in low):
+        if cross_default is None and (_CD_CHECK_1.search(text) or (_CROSS_CHECK.search(text) and _CD_CHECK_2.search(text))):
             amt3 = _amount_match(_CROSS_DEFAULT_AMT, text)
             if amt3 is not None:
                 cross_default = (amt3, cid, True)
-        if addback_cap is None and ("add-back" in low or "add back" in low or "addback" in low
-                                    or "cost-sav" in low or "cost sav" in low or "synerg" in low):
+        if addback_cap is None and _AB_CHECK.search(text):
             cap = _addback_cap(text)
             if cap is not None:
                 addback_cap = (cap, cid, True)
@@ -520,6 +519,10 @@ def addback_cap_finding(cp4c: Optional[ModulePayload]) -> Optional[Finding]:
     if cp4c is None:
         return None
     audit = (cp4c.runtime_output or {}).get("addback_audit") or {}
+    # Container-level twin of the finite gates below: a truthy non-dict here
+    # (replay/LLM producer) would raise in the QA phase and abort the run (BE3-6).
+    if not isinstance(audit, dict):
+        return None
     if audit.get("breach") is not True:
         return None
     disclosed, cap = audit.get("disclosed_addback_pct"), audit.get("cap_pct")

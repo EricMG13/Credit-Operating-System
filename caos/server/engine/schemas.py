@@ -88,24 +88,17 @@ class ModulePayload:
     is_fixture: bool = False
 
 
-def validate_payload(p: ModulePayload) -> List[str]:
-    """Return a list of schema errors (empty == valid).
+def _claim_errors(claims: List[ClaimSpec]) -> List[str]:
+    """Errors for the claims/evidence block of CP_MODULE_PAYLOAD_BASE.
 
-    Enforces the CP_MODULE_PAYLOAD_BASE constraints the engine depends on so a
-    malformed model response is recorded as a validation failure and gated,
-    never persisted as if it were sound.
+    Error text and append order are load-bearing: strings are fed verbatim to
+    the corrective-retry prompt in synth.py and asserted across the test suite.
+    Do not reword, reorder, or dedupe (a triplicate claim_id must yield two
+    errors — the seen-set is checked before it is added to).
     """
     errors: List[str] = []
-    if not MODULE_ID_RE.match(p.module_id):
-        errors.append(f"module_id {p.module_id!r} does not match the CP module pattern")
-    if p.confidence not in CONFIDENCE:
-        errors.append(f"confidence {p.confidence!r} is not a permitted value")
-    if p.schema_family not in {"Nested", "Infrastructure"}:
-        errors.append(f"schema_family {p.schema_family!r} is invalid")
-    if not isinstance(p.runtime_output, dict):
-        errors.append("runtime_output must be an object")
     seen_claim_ids: set[str] = set()
-    for c in p.claims:
+    for c in claims:
         if c.claim_id in seen_claim_ids:
             errors.append(f"duplicate claim_id {c.claim_id!r}")
         seen_claim_ids.add(c.claim_id)
@@ -116,6 +109,27 @@ def validate_payload(p: ModulePayload) -> List[str]:
                 errors.append(f"{c.claim_id}: lineage_class {e.lineage_class!r} invalid")
             if e.confidence not in CONFIDENCE:
                 errors.append(f"{c.claim_id}: evidence confidence {e.confidence!r} invalid")
+    return errors
+
+
+def validate_payload(p: ModulePayload) -> List[str]:
+    """Return a list of schema errors (empty == valid).
+
+    Enforces the CP_MODULE_PAYLOAD_BASE constraints the engine depends on so a
+    malformed model response is recorded as a validation failure and gated,
+    never persisted as if it were sound. Header errors first, then claim/
+    evidence errors in input order (see _claim_errors for the string contract).
+    """
+    errors: List[str] = []
+    if not MODULE_ID_RE.match(p.module_id):
+        errors.append(f"module_id {p.module_id!r} does not match the CP module pattern")
+    if p.confidence not in CONFIDENCE:
+        errors.append(f"confidence {p.confidence!r} is not a permitted value")
+    if p.schema_family not in {"Nested", "Infrastructure"}:
+        errors.append(f"schema_family {p.schema_family!r} is invalid")
+    if not isinstance(p.runtime_output, dict):
+        errors.append("runtime_output must be an object")
+    errors.extend(_claim_errors(p.claims))
     return errors
 
 

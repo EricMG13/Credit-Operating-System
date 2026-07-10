@@ -55,6 +55,13 @@ const ICONS: Record<string, Icon> = {
     <circle cx="7" cy="3.2" r="1.5" /><circle cx="3.2" cy="10.2" r="1.5" /><circle cx="10.8" cy="10.2" r="1.5" />
     <path d="M6.2 4.5 4 8.9M7.8 4.5 10 8.9M4.7 10.2h4.6" />
   </>),
+  sector: svg(<>
+    <path d="M2 3.2h10M2 7h10M2 10.8h10" />
+    <path d="M3.4 1.8v2.8M7 5.6v2.8M10.6 9.4v2.8" />
+  </>),
+  "sector-rv": svg(<>
+    <path d="M1.5 12.5h11M3.5 12.5v-4M7 12.5v-8M10.5 12.5v-6" />
+  </>),
   settings: svg(<>
     <circle cx="7" cy="7" r="2.1" />
     <path d="M7 1.5v1.6M7 10.9v1.6M12.5 7h-1.6M3.1 7H1.5M10.9 3.1 9.8 4.2M4.2 9.8l-1.1 1.1M10.9 10.9 9.8 9.8M4.2 4.2 3.1 3.1" />
@@ -69,6 +76,8 @@ const SECTIONS: ConceptSection[] = [
   { sep: true },
   { href: "/research", icon: "research", label: "Research" },
   { href: "/query", icon: "query", label: "Query" },
+  { href: "/sector", icon: "sector", label: "Sector Review" },
+  { href: "/sector-rv", icon: "sector-rv", label: "Sector RV" },
   { sep: true },
   { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
   { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
@@ -85,7 +94,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
       <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold ALT + ← / → to switch concepts">
         {SECTIONS.map((s, idx) => {
           if ("sep" in s) return <span key={"sep-" + idx} className="h-4 w-px bg-caos-border mx-0.5" />;
-          const active = pathname.startsWith(s.href);
+          const active = pathname === s.href || pathname.startsWith(s.href + "/");
           const Glyph = ICONS[s.icon];
           return (
             <Link

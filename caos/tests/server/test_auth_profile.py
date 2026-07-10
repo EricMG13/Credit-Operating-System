@@ -25,6 +25,19 @@ def test_wrong_code_rejected(client):
     assert "code" in r.json()["detail"].lower()
 
 
+def test_non_ascii_code_is_401_not_500(client):
+    # SEAM4-2: a non-ASCII code used to hit compare_digest(str, str) → TypeError →
+    # 500, which hid the probe from the 401 brute-force heuristic and spammed logs.
+    # Bytes-mode compare rejects it cleanly as a wrong code (both /profile + /register).
+    for path in ("/api/auth/profile", "/api/auth/register"):
+        body = {"code": "café١٣", "name": "Probe"}
+        if path.endswith("register"):  # RegisterRequest carries extra required fields
+            body |= {"email": "probe@example.com",
+                     "recovery_words": ["alpha", "bravo", "charlie"]}
+        r = client.post(path, json=body)
+        assert r.status_code == 401, (path, r.status_code, r.text)
+
+
 def test_create_profile_sets_identity_and_initials_source(client):
     r = client.post("/api/auth/profile", json={"code": "131113", "name": "Eric Gub"})
     assert r.status_code == 201, r.text
@@ -76,7 +89,11 @@ def test_cookie_secure_off_in_dev_on_when_deployed(client, monkeypatch):
     assert "secure" not in (dev.headers.get("set-cookie") or "").lower()
 
     monkeypatch.setattr(s, "environment", "staging")
-    stg = client.post("/api/auth/profile", json={"code": "131113", "name": "Stg User"})
+    stg = client.post(
+        "/api/auth/profile",
+        json={"code": "131113", "name": "Stg User"},
+        headers={"X-Forwarded-Email": "stg@example.com"}
+    )
     assert "secure" in (stg.headers.get("set-cookie") or "").lower()
 
 

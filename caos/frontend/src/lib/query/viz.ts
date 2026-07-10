@@ -12,8 +12,12 @@ import { fmtMetric } from "@/lib/query/format";
 import type { NlQueryResult } from "@/lib/query/types";
 
 // Provenance → trust colour: run-derived (accent) and document-derived (teal)
-// are cited; seed is illustrative (muted slate).
-const PROV = { run: CHART_HEX.accent, derived: CHART_HEX.teal, seed: CHART_HEX.eq };
+// are cited; seed is illustrative (muted slate); fixture is the reference-demo
+// (warning); demo_fixture is fabricated (critical — must not read as seed, #10).
+const PROV = {
+  run: CHART_HEX.accent, derived: CHART_HEX.teal, seed: CHART_HEX.eq,
+  fixture: CHART_HEX.warning, demo_fixture: CHART_HEX.critical,
+};
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -24,7 +28,9 @@ function median(xs: number[]): number {
 // A horizontal bar of the ranked metric across issuers, coloured by provenance.
 // null when the result isn't a rankable multi-row structured result (→ no chart).
 export function barSpecFor(res: NlQueryResult): G2Spec | null {
-  if (res.mode === "semantic") return null;
+  // Only structured/hybrid results carry columns + a rankable metric; semantic
+  // and synthesis (agent-wiki) results have no `columns` at all (SEAM1-1).
+  if (res.mode !== "structured" && res.mode !== "hybrid") return null;
   const col = res.columns.find((c) => c.key === res.rank_by);
   if (!col) return null;
   const data = res.rows
@@ -33,7 +39,7 @@ export function barSpecFor(res: NlQueryResult): G2Spec | null {
       value: r.metrics[res.rank_by]?.value,
       prov: r.metrics[res.rank_by]?.provenance ?? "seed",
     }))
-    .filter((d): d is { name: string; value: number; prov: "run" | "derived" | "seed" } => typeof d.value === "number");
+    .filter((d): d is { name: string; value: number; prov: keyof typeof PROV } => typeof d.value === "number");
   if (data.length < 2) return null;
   return {
     type: "interval",
@@ -41,7 +47,13 @@ export function barSpecFor(res: NlQueryResult): G2Spec | null {
     encode: { x: "name", y: "value", color: "prov" },
     coordinate: { transform: [{ type: "transpose" }] },
     scale: {
-      color: { domain: ["run", "derived", "seed"], range: [PROV.run, PROV.derived, PROV.seed] },
+      // Full provenance domain so a fabricated (demo_fixture) or reference-demo
+      // (fixture) bar gets its own honest colour + legend entry, never an
+      // undefined off-domain fill that reads as an ordinary category (#10).
+      color: {
+        domain: ["run", "derived", "seed", "fixture", "demo_fixture"],
+        range: [PROV.run, PROV.derived, PROV.seed, PROV.fixture, PROV.demo_fixture],
+      },
       x: { padding: 0.3 },
     },
     axis: { x: { title: false }, y: { title: false } },
@@ -53,11 +65,14 @@ export function barSpecFor(res: NlQueryResult): G2Spec | null {
 
 // One- to two-line plain-language summary of the result. Always produced.
 export function narrate(res: NlQueryResult): string {
-  if (res.mode === "semantic") {
-    if (!res.rows.length) return "No issuer documents matched.";
+  if (res.mode === "semantic" || res.mode === "synthesis") {
+    const what = res.mode === "semantic" ? "document evidence" : "agent syntheses and QA findings";
+    if (!res.rows.length) {
+      return res.mode === "semantic" ? "No issuer documents matched." : "No matching agent syntheses, claims, or QA findings.";
+    }
     const top = res.rows[0];
     const total = res.rows.reduce((s, r) => s + r.excerpts.length, 0);
-    return `${res.rows.length} issuer${res.rows.length === 1 ? "" : "s"} matched on document evidence — top hit ${top.issuer.name} (${top.excerpts.length} excerpt${top.excerpts.length === 1 ? "" : "s"}, ${total} total).`;
+    return `${res.rows.length} issuer${res.rows.length === 1 ? "" : "s"} matched on ${what} — top hit ${top.issuer.name} (${top.excerpts.length} excerpt${top.excerpts.length === 1 ? "" : "s"}, ${total} total).`;
   }
   if (!res.rows.length) return "No issuers matched.";
   const col = res.columns.find((c) => c.key === res.rank_by);

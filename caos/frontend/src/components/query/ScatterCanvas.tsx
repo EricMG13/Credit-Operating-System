@@ -32,32 +32,72 @@ export function ScatterCanvas({
   // Hovered node tracking for highlighting edges
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
+  // Fit the initial view to the node bounding box (as GraphCanvas does) — points
+  // clustered in one corner should fill the plot, not float in empty dark.
+  const fitTransform = useMemo(() => {
+    if (graph.nodes.length === 0) return zoomIdentity;
+    const xs = graph.nodes.map((n) => px(n.x));
+    const ys = graph.nodes.map((n) => py(n.y));
+    const M = 110; // labels render above nodes
+    const bw = Math.max(...xs) - Math.min(...xs);
+    const bh = Math.max(...ys) - Math.min(...ys);
+    const k = Math.max(0.3, Math.min(1.5, (W - 2 * M) / Math.max(bw, 1), (H - 2 * M) / Math.max(bh, 1)));
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return zoomIdentity.translate(W / 2 - k * cx, H / 2 - k * cy).scale(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph]);
+
   // Setup D3 Zoom
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = select(svgRef.current);
-    
+
     const zoom = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 8])
       .on("zoom", (event) => {
         setTransform(event.transform);
       });
-      
+
     zoomBehaviorRef.current = zoom;
     svg.call(zoom);
-    svg.call(zoom.transform, zoomIdentity);
-  }, [graph]);
+    svg.call(zoom.transform, fitTransform);
+  }, [graph, fitTransform]);
 
+  // Reset to the fitted view. Honor prefers-reduced-motion (instant) and
+  // otherwise stay within the 160ms system rhythm.
   const handleResetZoom = () => {
     if (svgRef.current && zoomBehaviorRef.current) {
+      const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       select(svgRef.current)
         .transition()
-        .duration(300)
-        .call(zoomBehaviorRef.current.transform, zoomIdentity);
+        .duration(reduce ? 0 : 180)
+        .call(zoomBehaviorRef.current.transform, fitTransform);
     }
   };
 
   const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
+
+  // Real metric-unit ticks when the builder emits domains (xdomain/ydomain in
+  // meta); otherwise the honest normalized 0→1 scale. Positions mirror the
+  // builder's 0.1..0.9 inset (x) and 0.9..0.1 (y, high value at top).
+  const ticks = useMemo(() => {
+    const parse = (p: string) => {
+      const m = graph.meta.find((s) => s.startsWith(p));
+      if (!m) return null;
+      const [lo, hi] = m.slice(p.length).split("|").map(Number);
+      return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
+    };
+    const dx = parse("xdomain="), dy = parse("ydomain=");
+    const F = [0, 0.25, 0.5, 0.75, 1];
+    const x = dx
+      ? F.map((f) => ({ p: 0.1 + 0.8 * f, label: (dx.lo + f * (dx.hi - dx.lo)).toFixed(1) + "x" }))
+      : F.map((f) => ({ p: f, label: f.toFixed(2) }));
+    const y = dy
+      ? F.map((f) => ({ p: 0.9 - 0.8 * f, label: (dy.lo + f * (dy.hi - dy.lo)).toFixed(1) + "x" }))
+      : F.map((f) => ({ p: 1 - f, label: f.toFixed(2) }));
+    return { x, y };
+  }, [graph.meta]);
 
   // Compute active focus target: hovered node first, then selected node
   const activeFocusId = hoveredNodeId || selectedNodeId;
@@ -119,33 +159,29 @@ export function ScatterCanvas({
         {/* View transform group */}
         <g transform={transform.toString()}>
           
-          {/* Scatter Plot Grid Lines */}
+          {/* Grid lines at the tick positions (metric-unit when the builder
+              emits a domain, else normalized). */}
           <g className="grid-lines" opacity={0.3}>
-            {/* Horizontal lines */}
-            {[0, 0.25, 0.5, 0.75, 1.0].map((v) => (
-              <line
-                key={`h-${v}`}
-                x1={px(0)}
-                y1={py(v)}
-                x2={px(1)}
-                y2={py(v)}
-                stroke="var(--caos-border)"
-                strokeWidth={1}
-                strokeDasharray="2 3"
-              />
+            {ticks.y.map((t, i) => (
+              <line key={`h-${i}`} x1={px(0)} y1={py(t.p)} x2={px(1)} y2={py(t.p)}
+                stroke="var(--caos-border)" strokeWidth={1} strokeDasharray="2 3" />
             ))}
-            {/* Vertical lines */}
-            {[0, 0.25, 0.5, 0.75, 1.0].map((v) => (
-              <line
-                key={`v-${v}`}
-                x1={px(v)}
-                y1={py(0)}
-                x2={px(v)}
-                y2={py(1)}
-                stroke="var(--caos-border)"
-                strokeWidth={1}
-                strokeDasharray="2 3"
-              />
+            {ticks.x.map((t, i) => (
+              <line key={`v-${i}`} x1={px(t.p)} y1={py(0)} x2={px(t.p)} y2={py(1)}
+                stroke="var(--caos-border)" strokeWidth={1} strokeDasharray="2 3" />
+            ))}
+          </g>
+
+          {/* Tick labels — real metric values (e.g. "5.2x") when the builder
+              emits a domain, else the honest normalized 0→1. Small mono muted,
+              outside the plot; y reads the high value at top. */}
+          <g className="grid-ticks" fill="var(--caos-muted)" fontSize={10}
+            fontFamily="var(--font-mono)" opacity={0.75}>
+            {ticks.x.map((t, i) => (
+              <text key={`tx-${i}`} x={px(t.p)} y={py(1) + 16} textAnchor="middle">{t.label}</text>
+            ))}
+            {ticks.y.map((t, i) => (
+              <text key={`ty-${i}`} x={px(0) - 8} y={py(t.p) + 3.5} textAnchor="end">{t.label}</text>
             ))}
           </g>
 
@@ -190,6 +226,7 @@ export function ScatterCanvas({
                 role="button"
                 style={{ opacity, transition: "opacity 160ms ease-out" }}
                 className="cursor-pointer focus-ring outline-none"
+                aria-label={`Select ${n.label}${n.kind ? ` (${n.kind})` : ""}`}
                 onFocus={() => setHoveredNodeId(n.id)}
                 onBlur={() => setHoveredNodeId(null)}
                 onMouseEnter={() => setHoveredNodeId(n.id)}

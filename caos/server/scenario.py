@@ -69,14 +69,33 @@ def _demo_translate(text: str) -> ScenarioSpec:
     t = text.lower()
     s = ScenarioSpec(label=text.strip()[:60] or "Custom scenario")
     parts: list[str] = []
+    upside = any(w in t for w in (
+        "growth", "expansion", "upside", "recovery", "demand surge",
+        "demand recovery", "demand improves", "volume recovery", "accelerates",
+    ))
+    capex_bps = False
+    margin_bps = False
 
     # explicit "+200bps" / "200 bps" rate move (sign from hike/cut wording)
     m = re.search(r"(\d+(?:\.\d+)?)\s*bps", t)
     if m:
-        bps = float(m.group(1)) / 10000.0
-        cut = any(w in t for w in ("cut", "ease", "easing", "lower", "fall"))
-        s.rate_delta += -bps if cut else bps
-        parts.append(f"rates {'-' if cut else '+'}{int(float(m.group(1)))}bps")
+        raw_bps = float(m.group(1))
+        bps = raw_bps / 10000.0
+        cut = any(w in t for w in ("cut", "ease", "easing", "lower", "fall", "relief")) or (
+            "spread" in t and any(w in t for w in ("tighten", "tightens", "tighter"))
+        )
+        rate_context = any(w in t for w in ("rate", "rates", "spread", "spreads", "refinancing", "interest", "coupon"))
+        margin_bps = any(w in t for w in ("margin", "margins", "gross margin", "ebitda margin", "compress")) and not rate_context
+        capex_bps = "capex" in t and not rate_context and not margin_bps
+        if margin_bps:
+            s.margin_delta += -bps if cut or "compress" in t else bps
+            parts.append(f"margin {'-' if cut or 'compress' in t else '+'}{int(raw_bps)}bps")
+        elif capex_bps:
+            s.capex_delta += -bps if cut else bps
+            parts.append(f"capex {'-' if cut else '+'}{int(raw_bps)}bps of revenue")
+        else:
+            s.rate_delta += -bps if cut else bps
+            parts.append(f"rates {'-' if cut else '+'}{int(raw_bps)}bps")
     elif any(w in t for w in ("rate hike", "higher rates", "tightening", "hawkish")):
         s.rate_delta += 0.01
         parts.append("rates +100bps")
@@ -84,26 +103,38 @@ def _demo_translate(text: str) -> ScenarioSpec:
         s.rate_delta -= 0.01
         parts.append("rates -100bps")
 
-    if any(w in t for w in ("energy", "fuel", "power", "gas", "oil", "commodit", "input cost", "inflation")):
+    if any(w in t for w in ("deflation", "cost relief", "lower input cost", "raw material relief")):
+        s.margin_delta += 0.02
+        parts.append("margin +2pp on input-cost relief")
+
+    if any(w in t for w in ("energy", "fuel", "gas", "oil", "commodit", "input cost", "inflation")) or (
+        "power" in t and "pricing power" not in t
+    ):
         s.margin_delta -= 0.03
         if "bps" not in t:
             s.rate_delta += 0.005
         parts.append("margin -3pp on input-cost inflation")
 
-    if any(w in t for w in ("recession", "downturn", "demand", "slowdown", "destock", "volume")):
+    if any(w in t for w in ("recession", "downturn", "slowdown", "destock")) or (
+        any(w in t for w in ("demand", "volume")) and not upside
+    ):
         s.rev_growth_delta -= 0.05
         s.margin_delta -= 0.02
         parts.append("revenue -5pp, margin -2pp on weaker demand")
 
-    if any(w in t for w in ("compress", "margin pressure", "pricing pressure", "cost pressure")):
+    if not margin_bps and any(w in t for w in ("compress", "margin pressure", "pricing pressure", "cost pressure")):
         s.margin_delta -= 0.025
         parts.append("margin -2.5pp")
 
-    if any(w in t for w in ("capex", "capital expenditure", "investment", "growth spend")):
+    if not capex_bps and any(w in t for w in ("capex", "capital expenditure", "investment", "growth spend")):
         s.capex_delta += 0.02
         parts.append("capex +2pp of revenue")
 
-    if any(w in t for w in ("growth", "expansion", "upside", "recovery", "demand surge")) and s.rev_growth_delta == 0:
+    if any(w in t for w in ("pricing improves", "pricing improvement", "pricing power")):
+        s.margin_delta += 0.015
+        parts.append("margin +1.5pp on better pricing")
+
+    if upside and s.rev_growth_delta == 0:
         s.rev_growth_delta += 0.03
         parts.append("revenue +3pp")
 

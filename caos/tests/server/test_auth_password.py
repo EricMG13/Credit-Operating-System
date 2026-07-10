@@ -93,6 +93,37 @@ def test_recovery_requires_all_words(client):
     assert ok.status_code == 200, ok.text
 
 
+def test_sso_adoption_revokes_self_registered_password(client):
+    # SEAM4-3: with no proxy identity present, register keys on a shape-checked
+    # email only — so an invite-code holder can pre-squat a colleague's address
+    # under an attacker-chosen password. When the real colleague later signs in
+    # through SSO, create_profile adopts the row and MUST revoke the pre-existing
+    # password + recovery credential, or the squatter keeps a parallel login as them.
+    email = "victim@firm.com"
+    # 1. Squatter self-registers the victim's email with a password they control.
+    r = client.post("/api/auth/register", json=_register_body("Victim V", email, "squatterpass1"))
+    assert r.status_code == 201, r.text
+    client.cookies.clear()
+
+    # 2. The real victim signs in via SSO (edge proxy sets the verified email header).
+    r = client.post(
+        "/api/auth/profile",
+        json={"code": "131113", "name": "Victim V"},
+        headers={"X-Forwarded-Email": email},
+    )
+    assert r.status_code == 201, r.text
+    client.cookies.clear()
+
+    # 3. Neither the squatter's password nor their recovery words authenticate now.
+    login = client.post("/api/auth/login", json={"email": email, "password": "squatterpass1"})
+    assert login.status_code == 401, login.text
+    recover = client.post(
+        "/api/auth/recover",
+        json={"email": email, "recovery_words": ["alpha", "bravo", "charlie"]},
+    )
+    assert recover.status_code == 401, recover.text
+
+
 def test_recovery_unknown_email_denied(client):
     # No account for this email — the dummy-hash path must still verify (constant
     # work, no enumeration) and deny, not crash or fast-path.

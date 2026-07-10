@@ -97,6 +97,8 @@ export function LineageFlow({
 
   const activeFocusId = hoveredNodeId || selectedNodeId;
 
+  const hasNodes = graph.nodes.length > 0;
+
   // Trace upstream (parents) and downstream (children) nodes using BFS/DFS
   const activeLineage = useMemo(() => {
     if (!activeFocusId) {
@@ -142,9 +144,21 @@ export function LineageFlow({
         </span>
       </div>
 
+      {!hasNodes ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 select-none">
+          <div className="tabular text-caos-xs font-mono uppercase tracking-wider text-caos-text mb-1">Lineage</div>
+          <div className="tabular text-caos-2xs text-caos-muted font-mono max-w-xs leading-normal">
+            No lineage steps for this walk.
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Draw SVG background connectors */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none z-0"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
           <g>
             {graph.edges.map((e, idx) => {
               const fromPos = nodeCoordinates[e.source];
@@ -179,11 +193,8 @@ export function LineageFlow({
                   }
                   strokeWidth={isActive ? 2.0 : 0.8}
                   opacity={isActive ? 0.8 : isDimmed ? 0.04 : 0.3}
-                  style={{
-                    transform: "scale(1)", // SVG percent scale placeholder
-                    transition: "opacity 160ms, stroke-width 160ms",
-                  }}
-                  className="transition-all duration-150 motion-reduce:transition-none"
+                  style={{ transition: "opacity 160ms" }}
+                  className="motion-reduce:transition-none"
                 />
               );
             })}
@@ -206,7 +217,7 @@ export function LineageFlow({
                   {COLUMN_TITLES[colIdx]}
                 </span>
                 <span className="tabular text-caos-3xs text-caos-muted font-mono block mt-0.5">
-                  ({col.length} nodes)
+                  {col.length} item{col.length === 1 ? "" : "s"}
                 </span>
               </div>
 
@@ -251,7 +262,7 @@ export function LineageFlow({
                           ? "var(--caos-warning)" 
                           : "var(--caos-border)",
                       }}
-                      className={`w-full max-w-[170px] bg-caos-panel/90 border rounded p-2 cursor-pointer transition-all duration-150 motion-reduce:transition-none flex flex-col gap-1 text-left relative focus-ring ${
+                      className={`w-full max-w-[170px] bg-caos-panel/90 border rounded p-2 cursor-pointer transition-colors duration-150 motion-reduce:transition-none flex flex-col gap-1 text-left relative focus-ring ${
                         isFocused || isSelected ? "shadow-pop bg-caos-elevated" : "hover:border-caos-accent/50"
                       }`}
                     >
@@ -270,7 +281,7 @@ export function LineageFlow({
 
                       {/* Main Title / Label */}
                       <span
-                        className={`tabular text-caos-xs text-caos-text font-sans font-medium line-clamp-2 leading-tight break-all ${
+                        className={`tabular text-caos-xs text-caos-text font-sans font-medium line-clamp-2 leading-tight break-words ${
                           isFocused || isSelected ? "text-caos-accent" : ""
                         }`}
                         title={node.label}
@@ -292,6 +303,7 @@ export function LineageFlow({
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }

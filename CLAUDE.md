@@ -1,13 +1,15 @@
-# CLAUDE.md
+# CAOS — Agent Guide
 
-Guidance for Claude Code when working in this repository.
+Guidance for AI coding agents (Claude Code, Codex, and peers) working in this
+repository. This is the single canonical source: `AGENTS.md` is a symlink to
+`CLAUDE.md`, so the two never drift.
 
 ## Project
 
 **CAOS — Credit Agent OS**: an institutional leveraged-finance credit analysis
 platform. A five-concept Next.js 15 analyst UI (Command Center, Pipeline,
 Deep-Dive, Model Builder, Report Studio) backed by a FastAPI service, deployed
-as a single Databricks App. The analytical methodology is the 27-module
+as a self-hosted Docker stack (Caddy → oauth2-proxy → FastAPI → Postgres). The analytical methodology is the 27-module
 "Modular OS" prompt corpus under `Modular OS/`. The app lives under `caos/`
 (`frontend/` Next.js, `server/` FastAPI). See [caos/README.md](caos/README.md)
 and [caos/docs/](caos/docs/) for architecture and current build status.
@@ -27,6 +29,12 @@ downstream) or crashing on a zero denominator. `is_finite_number` rejects
 `NaN`/`±inf` while accepting `bool`/`0`. Also guard a denominator that can reach
 `0` (e.g. `ebitda * (1 - pct)` when `pct → 1`) — return `None`/degrade rather than
 divide. This pattern recurs across CP-2B/2E/2F/3B/3D and the Altman score.
+
+## Red-team decision gate
+
+Before committing to an architecture, interface, or rollout plan, record a
+critic pass in [.agent-reviews/redteam.md](.agent-reviews/redteam.md). Fix and
+verify each high-impact objection, or document why the risk is accepted.
 
 ## Design Context
 
@@ -100,10 +108,30 @@ visible focus ring.
 5. **Committee-ready by default** — when in doubt, choose what would survive
    investment-committee scrutiny. Polish means *intentional*, not *ornamented*.
 
+## Working Conventions
+
+- **Parallel WIP Git Staging**: Stage explicit paths only (never use wildcard `git add -A` or `git add .` unless you are sure no user changes are present). Only stage and commit files modified by the agent, preserving the user's parallel work-in-progress.
+- **Git Branch Comparisons**: For `detect_changes()` and general diffs, compare against `origin/main` as the default branch/base reference, as local `main` might be stale or shallow.
+- **Turbopack Dev Cache**: Ensure `turbopackFileSystemCacheForDev: false` remains in `next.config.js` to prevent persistent development server cache crashes and high disk write overhead.
+- **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
+- **FastAPI Server Environment**: Execute the server suite and check scripts using the designated virtual environment path: `/Users/ericguei/Claude/Projects/Credit Operating System/caos/server/.venv/bin/python` or `.venv311`. Do not downgrade the FastAPI `0.138` package pin.
+
+## Skill improvement observations
+
+Capture skill-improvement opportunities as you work: when a skill's guidance is
+wrong, incomplete, or could be sharper for CAOS, record it in the observation
+log (`skill-observations/observation-log.md`) as an OPEN entry tagged to that
+skill.
+
+When loading any skill, check that log for OPEN observations tagged to it.
+Apply their insights to the current work, even if the skill file hasn't been
+updated yet. This enables immediate application of observations before they're
+permanently integrated during a later review pass.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Credit-Operating-System** (9534 symbols, 16680 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Credit-Operating-System** (10837 symbols, 19186 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

@@ -16,13 +16,16 @@ import { buildReports } from "@/lib/reports/builders";
 import { listRuns } from "@/lib/api";
 import { MODULES, RUN_MODES, type Driver, type RunMode, type PlanStep } from "@/lib/pipeline/data";
 import { useSimRun, type SimRun } from "@/lib/pipeline/sim";
-import { useLivePipelineStatus, type LivePipeline } from "@/lib/pipeline/useLivePipeline";
+import { useLivePipelineStatus } from "@/lib/pipeline/useLivePipeline";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
-import { deriveClearance, type Clearance } from "@/lib/pipeline/clearance";
+import { deriveClearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import type { Sim } from "@/lib/pipeline/sim-engine";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { SubHeader } from "@/components/shared/SubHeader";
 
 export default function PipelinePage() {
   return (
@@ -52,6 +55,8 @@ function useViewPreference(initial: "graph" | "lanes") {
   return [view, setView] as const;
 }
 
+const VIEWS = ["graph", "lanes"] as const;
+
 function PipelineVisualizer() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,11 +68,10 @@ function PipelineVisualizer() {
     const onCycle = (e: Event) => {
       const customEvent = e as CustomEvent<{ direction: number }>;
       const dir = customEvent.detail?.direction || 1;
-      const views = ["graph", "lanes"] as const;
       setView((curr) => {
-        const idx = views.indexOf(curr);
-        const nextIdx = (idx + dir + views.length) % views.length;
-        return views[nextIdx];
+        const idx = VIEWS.indexOf(curr);
+        const nextIdx = (idx + dir + 2) % 2;
+        return VIEWS[nextIdx];
       });
     };
     window.addEventListener("caos:subview-cycle", onCycle);
@@ -98,6 +102,7 @@ function PipelineVisualizer() {
   const issuerId = issuerParam || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const { value: live, phase, latest } = useLivePipelineStatus(issuerId);
+  const liveRun = useLiveRun(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
   // Fail-open guard: for a *real* issuer the analyst opened expecting their run,
@@ -108,6 +113,12 @@ function PipelineVisualizer() {
     !isReference && liveMode && phase !== "complete" && phase !== "loading"
       ? phase
       : null;
+  // While a *real* issuer's run is still loading, blockingState is null and
+  // useLive is false — falling through would autoplay the ATLF green-PASS demo
+  // stamped with another deal's name under this issuer's URL (the same fabricated
+  // -green leak the fail-open guard exists to prevent, on the loading phase it
+  // forgot). Show a neutral loading shell until the real state resolves instead.
+  const loadingState = !isReference && liveMode && phase === "loading";
 
   const sim = useLive ? live!.sim : run.sim;
   const scope = useLive ? live!.scope : simScope;
@@ -115,8 +126,6 @@ function PipelineVisualizer() {
   const completed = useLive ? live!.completed : run.completed;
   const total = useLive ? live!.total : run.total;
   const modeLabel = useLive ? "LIVE" : mode.label;
-
-
 
   const cp5 = sim.mods["CP-5"]?.state || "idle";
   const clearance = deriveClearance({ useLive, live, cp5, modeDone: mode.done });
@@ -137,33 +146,131 @@ function PipelineVisualizer() {
   };
 
   // A real issuer's run errored / is mid-flight / never ran — render an honest
-  // state, never the fabricated green-PASS demo monitor under their name.
+  // state, never the fabricated green-PASS demo under their name.
   if (blockingState) {
     return <PipelineRunState state={blockingState} issuerId={issuerId} runStatus={latest?.status ?? null} />;
   }
+  // Real issuer, fetch still in flight — show a neutral loading shell rather than
+  // the autoplaying demo sim (which would flash another deal's green PASS run).
+  if (loadingState) {
+    return <PipelineLoadingState issuerId={issuerId} />;
+  }
+
+  const runIdLabel = useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId;
+  const issuerName = useLive && issuerId !== ATLF_REFERENCE_ISSUER_ID ? issuerId : "Atlas Forge";
+  // Split the run-mode designator into its own span so it stays visible even when a
+  // long issuer id truncates — it names what the header shows (the live CP-X run vs
+  // the offline route template), so it must never be clipped out of view.
+  const issuerModeSuffix = useLive ? " — live CP-X run" : " — " + mode.title;
+
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{runIdLabel}</span>
+        <div className="w-32 flex items-center gap-2 shrink-0">
+          <Bar pct={total ? (completed / total) * 100 : 0} color="var(--caos-accent)" />
+          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{completed}/{total}</span>
+        </div>
+        <Tag sev={clearance.tag}>{clearance.text}</Tag>
+        <ToggleGroup
+          className="shrink-0"
+          value={view}
+          onChange={setView}
+          options={[
+            { k: "graph", l: "DAG" },
+            { k: "lanes", l: "SWIMLANES" },
+          ] as const}
+        />
+      </>
+    ),
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      <PipelineHeader
-        live={live}
-        liveMode={liveMode}
-        setLiveMode={setLiveMode}
-        setSelected={setSelected}
-        useLive={useLive}
-        modeK={modeK}
-        setModeK={setModeK}
-        mode={mode}
-        issuerId={issuerId}
-        total={total}
-        completed={completed}
-        clearance={clearance}
-        run={run}
-        view={view}
-        setView={setView}
-        dimCompleted={dimCompleted}
-        setDimCompleted={setDimCompleted}
-      />
-
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          {/* Live vs. offline-demo source (only when a live run exists) */}
+          {live ? (
+            <ToggleGroup
+              size="sm"
+              className="shrink-0"
+              value={liveMode}
+              onChange={(k) => { setLiveMode(k); setSelected(null); }}
+              options={[
+                { k: true, l: "LIVE", title: "Live CP-X run for the reference issuer" },
+                { k: false, l: "DEMO", title: "Offline route-template demo" },
+              ]}
+            />
+          ) : null}
+          {/* RUN id is identity, not chrome — visible at every breakpoint. */}
+          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{runIdLabel}</span>
+          {/* Issuer label — always names the run. */}
+          <span className="text-caos-xl text-caos-text font-medium flex items-baseline min-w-0">
+            <span className="truncate min-w-0">{issuerName}</span>
+            <span className="shrink-0 whitespace-nowrap">{issuerModeSuffix}</span>
+          </span>
+        </>
+      }
+      primaryAction={
+        <Link
+          href="/upload"
+          title="L0 · Document Intake — add source documents (CP-0) that feed this route"
+          className="no-underline flex items-center gap-1 tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0 focus-ring"
+        >
+          ↑ L0 INTAKE
+        </Link>
+      }
+      contextualControls={
+        <>
+          {/* CP-X route template switcher (demo mode only) */}
+          {!useLive ? (
+            <ToggleGroup
+              size="sm"
+              className="shrink-0"
+              value={modeK}
+              onChange={(k) => { setModeK(k); setSelected(null); }}
+              options={RUN_MODES.map((m) => ({ k: m.k, l: m.label, title: m.title }))}
+            />
+          ) : null}
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">
+            {useLive ? live!.summary : mode.sub}
+          </span>
+          <div className="w-44 flex items-center gap-2 shrink-0">
+            <Bar pct={total ? (completed / total) * 100 : 0} color="var(--caos-accent)" />
+            <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{completed}/{total}</span>
+          </div>
+          <Tag sev={clearance.tag}>{clearance.text}</Tag>
+          {!useLive ? <SimControls run={run} /> : null}
+          {!useLive ? <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span> : null}
+          <ToggleGroup
+            className="shrink-0"
+            value={view}
+            onChange={setView}
+            options={[
+              { k: "graph", l: "DAG" },
+              { k: "lanes", l: "SWIMLANES" },
+            ] as const}
+          />
+          <button
+            onClick={() => setDimCompleted(!dimCompleted)}
+            title="Dim completed nodes"
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap shrink-0 focus-ring " +
+              (dimCompleted ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
+          >
+            DIM ✓
+          </button>
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       <PipelineWorkspace
         view={view}
         sim={sim}
@@ -181,8 +288,8 @@ function PipelineVisualizer() {
         setEvModal={setEvModal}
       />
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} onClose={() => setEvModal(null)} /> : null}
-    </div>
+      {evModal ? <EvidenceModal id={evModal} reports={reports} live={liveRun.liveEvidence} isLiveRun={!isReference && !!liveRun.runId} onClose={() => setEvModal(null)} /> : null}
+    </ResponsiveShell>
   );
 }
 
@@ -214,15 +321,18 @@ function PipelineRunState({
   }[state];
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="flex-1" />
-        <Tag sev={cfg.tag}>{cfg.head.toUpperCase()}</Tag>
-      </div>
+      <SubHeader
+        identity={
+          <>
+            <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+              ← Directory
+            </Link>
+            <span className="h-4 w-px bg-caos-border shrink-0" />
+            <ConceptNav compact />
+          </>
+        }
+        contextualControls={<Tag sev={cfg.tag}>{cfg.head.toUpperCase()}</Tag>}
+      />
       <div className="flex-1 min-h-0 flex items-center justify-center p-6">
         <div role="alert" className="max-w-md w-full flex flex-col gap-3 rounded-lg border border-caos-border bg-caos-panel p-7 text-center">
           <div className="flex items-center justify-center gap-2" style={{ color: `var(--caos-${cfg.tag === "critical" ? "critical" : cfg.tag === "warning" ? "warning" : "muted"})` }}>
@@ -246,112 +356,30 @@ function PipelineRunState({
   );
 }
 
-interface PipelineHeaderProps {
-  live: LivePipeline | null;
-  liveMode: boolean;
-  setLiveMode: (v: boolean) => void;
-  setSelected: (v: string | null) => void;
-  useLive: boolean;
-  modeK: string;
-  setModeK: (v: string) => void;
-  mode: RunMode;
-  issuerId: string;
-  total: number;
-  completed: number;
-  clearance: Clearance;
-  run: SimRun;
-  view: "graph" | "lanes";
-  setView: (v: "graph" | "lanes") => void;
-  dimCompleted: boolean;
-  setDimCompleted: (v: boolean) => void;
-}
-
-function PipelineHeader({
-  live,
-  liveMode,
-  setLiveMode,
-  setSelected,
-  useLive,
-  modeK,
-  setModeK,
-  mode,
-  issuerId,
-  total,
-  completed,
-  clearance,
-  run,
-  view,
-  setView,
-  dimCompleted,
-  setDimCompleted,
-}: PipelineHeaderProps) {
+// Neutral loading shell for a real issuer whose run is still being fetched.
+function PipelineLoadingState({ issuerId }: { issuerId: string }) {
   return (
-    <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-      <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-        ← Directory
-      </Link>
-      <div className="h-4 w-px bg-caos-border" />
-      <ConceptNav compact />
-      <div className="h-4 w-px bg-caos-border" />
-      {/* Live vs. offline-demo source (only when a live run exists) */}
-      {live ? (
-        <ToggleGroup
-          size="sm"
-          className="shrink-0"
-          value={liveMode}
-          onChange={(k) => { setLiveMode(k); setSelected(null); }}
-          options={[
-            { k: true, l: "LIVE", title: "Live CP-X run for the reference issuer" },
-            { k: false, l: "DEMO", title: "Offline route-template demo" },
-          ]}
-        />
-      ) : null}
-      {/* CP-X route template switcher (demo mode only) */}
-      {!useLive ? (
-        <ToggleGroup
-          size="sm"
-          className="shrink-0"
-          value={modeK}
-          onChange={(k) => { setModeK(k); setSelected(null); }}
-          options={RUN_MODES.map((m) => ({ k: m.k, l: m.label, title: m.title }))}
-        />
-      ) : null}
-      <Link
-        href="/upload"
-        title="L0 · Document Intake — add source documents (CP-0) that feed this route"
-        className="no-underline flex items-center gap-1 tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0"
-      >
-        ↑ L0 INTAKE
-      </Link>
-      <span className="tabular text-caos-md text-caos-accent whitespace-nowrap hidden 2xl:inline">{useLive ? `RUN ${live!.runId.slice(0, 8)}` : mode.runId}</span>
-      <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{useLive ? (issuerId === ATLF_REFERENCE_ISSUER_ID ? "Atlas Forge — live CP-X run" : "Live CP-X run") : "Atlas Forge — " + mode.title}</span>
-      <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">{useLive ? live!.summary : mode.sub}</span>
-      <div className="w-44 flex items-center gap-2 shrink-0">
-        <Bar pct={total ? (completed / total) * 100 : 0} color="var(--caos-accent)" />
-        <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{completed}/{total}</span>
-      </div>
-      <div className="flex-1" />
-      <Tag sev={clearance.tag}>{clearance.text}</Tag>
-      {!useLive ? <SimControls run={run} /> : null}
-      {!useLive ? <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span> : null}
-      <ToggleGroup
-        value={view}
-        onChange={setView}
-        options={[
-          { k: "graph", l: "DAG" },
-          { k: "lanes", l: "SWIMLANES" },
-        ] as const}
-      />
-      <button
-        onClick={() => setDimCompleted(!dimCompleted)}
-        title="Dim completed nodes"
-        className={
-          "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
-          (dimCompleted ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+    <div className="h-screen flex flex-col bg-caos-bg">
+      <SubHeader
+        identity={
+          <>
+            <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+              ← Directory
+            </Link>
+            <span className="h-4 w-px bg-caos-border shrink-0" />
+            <ConceptNav compact />
+            <span className="h-4 w-px bg-caos-border shrink-0" />
+            <span className="tabular text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{issuerId}</span>
+          </>
         }
-      >
-        DIM ✓
-      </button>
+        contextualControls={<Tag sev="idle">LOADING</Tag>}
+      />
+      <div className="flex-1 min-h-0 flex items-center justify-center p-6">
+        <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-caos-muted">
+          <Dot sev="running" pulse />
+          <span className="tabular text-caos-lg">Loading run…</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -429,7 +457,7 @@ function PipelineWorkspace({
       </div>
       <div className="flex flex-col gap-2 min-h-0">
         <PanelShell title="Module Inspector" className="flex-[3]">
-          <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} />
+          <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} onOpen={openModule} />
         </PanelShell>
         <PanelShell
           title={mode.drivers ? `Data Lineage · CP-5B drivers in scope (${mode.drivers.length}/5)` : "Data Lineage · CP-5B top-5 material drivers"}

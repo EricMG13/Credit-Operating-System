@@ -204,14 +204,15 @@ class _LevFacts:
 def _ebitda_proxy(years: Sequence[int], opinc: Dict[int, Tuple[float, str]],
                   da: Dict[int, Tuple[float, str]],
                   impair: Dict[int, Tuple[float, str]]) -> Dict[int, float]:
-    """Reported EBITDA proxy = operating income + D&A, plus a non-cash impairment add-back
-    ONLY in a year the impairment drove operating income negative (Six Flags FY25: op
-    income -$1.4bn on a ~$1.5bn goodwill write-down, masking a cash-generative
-    business). On a profitable year, adding the impairment back would overstate EBITDA
-    and understate leverage, and companyfacts gives no calc-linkbase to confirm the
-    charge sits above the operating-income subtotal — so gate on opinc < 0. (#26)"""
-    return {y: opinc[y][0] + da[y][0] + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
-            for y in years if y in opinc and y in da}
+    """Reported EBITDA proxy = operating income + D&A (defaulting to 0.0 if missing),
+    plus a non-cash impairment add-back ONLY in a year the impairment drove operating
+    income negative (Six Flags FY25: op income -$1.4bn on a ~$1.5bn goodwill write-down,
+    masking a cash-generative business). On a profitable year, adding the impairment
+    back would overstate EBITDA and understate leverage, and companyfacts gives no
+    calc-linkbase to confirm the charge sits above the operating-income subtotal —
+    so gate on opinc < 0. (#26, #27)"""
+    return {y: opinc[y][0] + (da[y][0] if y in da else 0.0) + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
+            for y in years if y in opinc}
 
 
 def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
@@ -253,7 +254,10 @@ def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
         leverage = round(net_debt / eb_ly, 2)  # reported basis
         financials["net_debt_ltm"] = _m(net_debt)
         financials["net_leverage_adj_ltm"] = leverage
-    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_fresh:
+    # int_ly[0] > 0, not just truthy — symmetric with the leverage guard above: a
+    # filer tagging interest as a negative XBRL value would otherwise emit a
+    # nonsensical NEGATIVE coverage (finite but wrong-signed, BE1-1).
+    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_ly[0] > 0 and int_fresh:
         financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
     return _LevFacts(
         total_debt=total_debt, net_debt=net_debt, leverage=leverage, debt_fresh=debt_fresh,

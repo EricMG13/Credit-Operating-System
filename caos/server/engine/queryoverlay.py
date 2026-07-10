@@ -27,17 +27,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import get_settings
 from database import QueryOverlay
 from engine import llm_client, presets, querygraph
-from engine.llm_safety import UNTRUSTED_RULE, loads_finite, wrap_untrusted
+from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from retrieval import retrieve_corpus
 
 logger = logging.getLogger("caos")
@@ -50,26 +48,11 @@ _CONFIDENCE = {"High", "Medium", "Low"}
 
 
 def available() -> bool:
-    """True when some provider key exists — the presets seam resolves the rest."""
-    s = get_settings()
-    return bool(s.anthropic_api_key or s.openrouter_api_key or s.gemini_api_key)
-
-
-def _client():
-    import anthropic
-
-    s = get_settings()
-    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
-
-
-def _first_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise ValueError("model reply contained no JSON object")
-    parsed = loads_finite(m.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("model reply was not a JSON object")
-    return parsed
+    """True when a resolved Query model has its provider key."""
+    return (
+        presets.can_run_model(presets.route_model())
+        or presets.can_run_model(presets.model_for(presets.HEAVY))
+    )
 
 
 def _text_of(resp) -> str:
@@ -106,9 +89,11 @@ async def route(text: str, capabilities: list[dict]) -> dict:
     """
     registry = [{"id": c["id"], "label": c["label"], "enabled": c["enabled"]} for c in capabilities]
     resp = await llm_client.create(
-        _client(),
+        llm_client.anthropic_client(),
         lane="query-route",
-        model=presets.model_for(presets.LIGHT),
+        # A bounded classify, not a reasoning task — pin the fast lane (Haiku when
+        # an Anthropic key exists) so routing doesn't inherit DeepSeek's ~19s burn.
+        model=presets.route_model(),
         effort=presets.effort_for(presets.LIGHT),
         max_tokens=300,
         system=_ROUTE_SYSTEM,
@@ -120,7 +105,7 @@ async def route(text: str, capabilities: list[dict]) -> dict:
             ),
         }],
     )
-    reply = _RouteReply.model_validate(_first_json(_text_of(resp)))
+    reply = _RouteReply.model_validate(first_json_object(_text_of(resp)))
     by_id = {c["id"]: c for c in capabilities}
     out: list[dict] = []
     for cand in reply.candidates:
@@ -287,7 +272,7 @@ async def overlay(
         f"WALKS:\n{json.dumps(walks_for_prompt, ensure_ascii=False)}"
     )
     resp = await llm_client.create(
-        _client(),
+        llm_client.anthropic_client(),
         lane="query-overlay",
         model=presets.model_for(presets.HEAVY),
         effort=presets.effort_for(presets.HEAVY),
@@ -298,7 +283,7 @@ async def overlay(
         messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
     )
     try:
-        reply = _OverlayReply.model_validate(_first_json(_text_of(resp)))
+        reply = _OverlayReply.model_validate(first_json_object(_text_of(resp)))
     except (ValidationError, ValueError) as e:
         raise ValueError(f"model overlay reply failed validation — {e}") from e
 

@@ -35,13 +35,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
 from config import get_settings
 from engine import budget, llm_client, presets
 from engine.gate import SEVERITY_RANK, Finding
+from engine.llm_safety import first_json_value
 from engine.schemas import ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -94,12 +94,7 @@ class LiveReviewer:
 
     def _get_client(self):
         if self._client is None:
-            import anthropic
-
-            self._client = anthropic.AsyncAnthropic(
-                api_key=self._settings.anthropic_api_key,
-                timeout=self._settings.caos_llm_timeout_s,
-            )
+            self._client = llm_client.anthropic_client(self._settings)
         return self._client
 
     async def review(self, produced: Sequence[ModulePayload]) -> List[Finding]:
@@ -213,12 +208,11 @@ class LiveReviewer:
 
 def _parse_ballot(text: str) -> Dict[str, dict]:
     """Parse a peer-vote response into {label: {keep, severity}} (defensive)."""
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        return {}
     try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
+        data = first_json_value(text, "{")
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
         return {}
     return {str(k): v for k, v in data.items() if isinstance(v, dict)}
 
@@ -254,16 +248,16 @@ def _tally_votes(findings: List[Finding], ballots: Sequence[Dict[str, dict]]) ->
 
 def _parse(seat: Seat, text: str) -> List[Finding]:
     """Parse a seat's JSON array into Findings (defensive; bad output -> none)."""
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if not match:
-        return []
     try:
-        items = json.loads(match.group(0))
-    except json.JSONDecodeError as e:
-        logger.warning("council seat %s returned unparseable JSON: %s", seat.name, e)
+        items = first_json_value(text, "[")
+    except ValueError:
+        return []
+    if not isinstance(items, list):
+        if items is None and "[" in text:
+            logger.warning("council seat %s returned unparseable JSON", seat.name)
         return []
     findings: List[Finding] = []
-    for i, d in enumerate(items if isinstance(items, list) else []):
+    for i, d in enumerate(items):
         if not isinstance(d, dict):
             continue
         severity = str(d.get("severity", "")).upper()

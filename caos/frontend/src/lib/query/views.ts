@@ -12,9 +12,28 @@ export const VIEW_LABELS: Record<QueryView, string> = {
   scatter: "Scatter",
 };
 
-// Capabilities whose x/y actually encode metrics (the only honest scatter).
+// Capability-first overrides, so the NATIVE (first) view fits the walk's actual
+// shape. List-shaped walks (a ranked peer set, a handful of concentration
+// clusters, a note list of memos) read as a table first — a sparse node-link
+// graph buries the ranking they exist to convey — with graph kept one click away
+// for the cases where topology is genuinely the answer. Scatter is the only
+// honest metric-axis plot, so it stays scatter-native.
 const BY_CAP: Record<string, QueryView[]> = {
   scatter: ["scatter", "rv"],
+  "peer-set": ["rv", "graph"],
+  "concentration-map": ["rv", "graph"],
+  // Rating distribution is a bucket table first (IG/BB/B/CCC), hub-graph second.
+  "rating-distribution": ["rv", "graph"],
+  // Portfolio exposure is a sector-concentration cluster graph first, table second.
+  "portfolio-exposure": ["graph", "rv"],
+  // Memos are a note list with no lineage edges — Lineage renders empty columns,
+  // so this override lands before BY_MODE provenance's trace-native default.
+  "analyst-memos": ["rv", "graph"],
+  // A covenant register is a table of names × covenant terms first; hub-graph second.
+  "covenant-register": ["rv", "graph"],
+  // Sponsor is a hub topology, not a lineage trace — pin it to graph, never the
+  // "trace" renderer its provenance mode would otherwise default to.
+  "sponsor-graph": ["graph", "rv"],
 };
 
 const BY_MODE: Record<string, QueryView[]> = {

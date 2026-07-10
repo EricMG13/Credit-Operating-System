@@ -177,3 +177,40 @@ def test_available_false_when_keyless():
     # conftest pins all provider keys to "" — the lanes must report unavailable, so
     # the route endpoint answers with the keyword-fallback contract and /overlay 503s.
     assert queryoverlay.available() is False
+
+
+def test_available_false_when_only_gemini_key_has_no_gemini_tier(monkeypatch):
+    from config import get_settings
+    from engine import queryanswer, queryinsights
+
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "")
+    monkeypatch.setattr(s, "gemini_api_key", "x")
+
+    assert queryoverlay.available() is False
+    assert queryanswer.available() is False
+    assert queryinsights.available() is False
+
+
+def test_route_model_prefers_haiku_with_anthropic_key(monkeypatch):
+    """The route lane is a bounded classify — pin fast cheap Haiku when an Anthropic
+    key exists, so routing doesn't inherit the DeepSeek reasoning-model latency.
+    Without an Anthropic key it falls back to the LIGHT-lane model."""
+    from types import SimpleNamespace
+    from engine import presets
+
+    def _settings(anthropic, openrouter):
+        return SimpleNamespace(
+            anthropic_api_key=anthropic, openrouter_api_key=openrouter, gemini_api_key="",
+            model_tier_cheap="deepseek/deepseek-v4-flash", model_tier_fast="deepseek/deepseek-v4-flash",
+            model_tier_strong="deepseek/deepseek-v4-pro", model_tier_top="claude-opus-4-8",
+        )
+
+    presets.set_mode("BALANCED")
+    monkeypatch.setattr(presets, "get_settings", lambda: _settings("sk-ant", ""))
+    assert presets.route_model().startswith("claude-haiku")  # fast lane, no reasoning burn
+
+    # No Anthropic key → LIGHT-lane model (here OpenRouter's DeepSeek flash).
+    monkeypatch.setattr(presets, "get_settings", lambda: _settings("", "sk-or"))
+    assert presets.route_model() == presets.model_for(presets.LIGHT)

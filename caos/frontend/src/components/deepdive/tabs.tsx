@@ -65,9 +65,24 @@ type OpenEv = (id: string) => void;
 const LEAD_TITLE = /overall|view|conclusion|summary|memo|clearance|readiness|selection/i;
 
 /* ---------- Debate tab (CP-6A IC debate · CP-6E portfolio debate) ---------- */
-export function DebateTab({ onOpenEvidence, layout = "base", variant = "CP-6A" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout; variant?: DebateVariant }) {
+export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout; variant?: DebateVariant }) {
   const cfg = DEBATE_CFG[variant];
   const d = cfg.data;
+  if (layout === "summary") {
+    return (
+      <div className="p-3 flex flex-col gap-3">
+        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
+          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · thesis</div>
+          <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
+        </div>
+        <div className="rounded border border-caos-accent/40 bg-caos-bg px-3 py-2.5">
+          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">{cfg.verdictHeader}</div>
+          <div className="text-caos-xl text-caos-text leading-relaxed">{d.bias}</div>
+          <div className="mt-1.5 text-caos-md text-caos-text/90 leading-relaxed">{d.memo}</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="p-3 flex flex-col gap-3">
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
@@ -197,13 +212,32 @@ const CAPSTACK_CHART_SPEC: G2Spec = {
   }],
 };
 
-export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
+export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
   const total = CAPSTACK.reduce((s, c) => s + (c.key !== "eq" ? c.claim : 0), 0);
   const ebitdas = [421, 360, 295], mults = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5];
+  if (layout === "summary") {
+    return (
+      <div className="p-3 flex flex-col gap-3">
+        <StatCard
+          size="hero"
+          sev="ok"
+          value="2L TL over TLB"
+          label="Instrument preference"
+          sub="Recovery delta acceptable at 6.0x stress; position sized through downside convexity."
+        />
+        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 text-caos-lg text-caos-text/90 leading-relaxed">
+          CP-3B keeps the 2L as the preferred instrument: severe-case recovery is thin, but the carry and entry discount compensate when sized below the max sleeve.
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="p-3 flex flex-col gap-3">
-      <div className="grid grid-cols-[440px_1fr] gap-3">
-        <div className="rounded border border-caos-border bg-caos-bg">
+      {/* Stack on a narrow centre pane; side-by-side above xl. Both tracks are
+          minmax(0,…) so the G2 canvas's min-content can't lock the pane wide
+          and force an inner horizontal scrollbar. (critique P2) */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-3">
+        <div className="rounded border border-caos-border bg-caos-bg min-w-0">
           <SectionHeader title="CP-3B-02 · Capital structure ($M)" />
           {CAPSTACK.map((c) => (
             <div key={c.cls} className="grid grid-cols-[14px_1fr_70px_60px_56px] gap-x-2 items-center px-3 py-1.5 border-b border-caos-border/50">
@@ -225,7 +259,7 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
           </div>
         </div>
 
-        <div className="rounded border border-caos-border bg-caos-bg">
+        <div className="rounded border border-caos-border bg-caos-bg min-w-0">
           <SectionHeader title="CP-3B-06 · Recovery waterfall by scenario" right="claims: 1L $1,970 · 2L $900 · Sub $400" />
           {RECOVERY.map((s) => (
             <div key={s.scen} className="flex items-center gap-3 px-3 py-1.5 border-b border-caos-border/50">
@@ -272,7 +306,7 @@ export function RecoveryTab({ onOpenEvidence, layout = "base" }: { onOpenEvidenc
 }
 
 /* ---------- Covenants tab ---------- */
-export function CovenantsTab({ onOpenEvidence, layout = "base" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
+export function CovenantsTab({ onOpenEvidence, layout = "report" }: { onOpenEvidence: OpenEv; layout?: DeepDiveLayout }) {
   const [open, setOpen] = useState<string | null>(COVENANTS[1].ref);
   const seg = (n: number) => (
     <span className="flex gap-px" role="img" aria-label={`aggressiveness ${n} of 10`}>
@@ -281,6 +315,19 @@ export function CovenantsTab({ onOpenEvidence, layout = "base" }: { onOpenEviden
       ))}
     </span>
   );
+  if (layout === "summary") {
+    return (
+      <div className="p-3 flex flex-col gap-3">
+        <StatCard
+          size="hero"
+          sev="critical"
+          value="7.2 / 10"
+          label="Covenant aggressiveness — the binding read on this credit"
+          sub="Docs do not block the trade; they force sizing discipline."
+        />
+      </div>
+    );
+  }
   return (
     <div className="p-3 flex flex-col gap-3">
       <StatCard
@@ -355,7 +402,7 @@ export function ModuleView({
   onOpenEvidence,
   liveOut,
   allowSeededFallback = true,
-  layout = "base",
+  layout = "report",
 }: {
   id: string;
   sim: Sim;
@@ -390,95 +437,115 @@ export function ModuleView({
               : "This module id is not part of the CP-X route graph."}
         </div>
         {meta ? (
+          // Route the CTA where the copy points: a missing issuer output is
+          // fixed by running the issuer (Pipeline), not by opening the
+          // reference committee pack (Report Studio).
           <Link
-            href="/reports"
+            href={!allowSeededFallback ? "/pipeline" : "/reports"}
             className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
           >
-            OPEN REPORT STUDIO →
+            {!allowSeededFallback ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
           </Link>
         ) : null}
       </div>
     );
   }
-  // Two layouts, chosen in Settings (browser-local):
-  //   core  — original: workflow register (collapsed), then sections in source
-  //           order (conclusion last), then charts.
-  //   dense — conclusion-first: leading "Overall … view", supporting tables,
-  //           charts, every workflow step packed into newspaper columns, then
-  //           the full register. Evidence stays inline as E-xx chips.
+  // Three information tiers:
+  //   summary -- analysis body plus compact workflow-step summary.
+  //   report  -- analysis body plus consolidated workflow cards and register.
+  //   dense   -- analysis body plus unconsolidated packed steps and register.
   const secs = out.sections;
   const lead = secs.length && secs[secs.length - 1].type === "text" && LEAD_TITLE.test(secs[secs.length - 1].title)
     ? (secs[secs.length - 1] as Extract<typeof secs[number], { type: "text" }>)
     : null;
   const rest = lead ? secs.slice(0, -1) : secs;
+  const kpiBlock = isLive && out.kpis.length > 0 && out.kpis.every((k) => !k.v || k.v === "—") ? (
+    <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">
+      Engine ran and produced this module, but no populated headline figures are
+      available — thin source data for this issuer. Any produced sections appear below.
+    </div>
+  ) : (
+    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+      {out.kpis.map((k) => (
+        <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
+      ))}
+    </div>
+  );
+  const leadBlock = lead ? (
+    <div className="rounded border border-caos-accent/40 bg-caos-elevated px-3 py-2.5">
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent mb-1">▸ {lead.title}</div>
+      <div className="text-caos-xl text-caos-text leading-relaxed">
+        {lead.body}
+        {lead.ev && lead.ev.length ? (
+          <span className="inline-flex gap-1 ml-1.5 align-middle">
+            {lead.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+  const liveFixtureNote = (
+    <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
+      Charts, step detail, and the workflow register are not yet wired for live
+      runs — the figures above are this issuer&apos;s live engine output.
+    </div>
+  );
+  const analysisBody = (
+    <>
+      {kpiBlock}
+      {leadBlock}
+      <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />
+      {!isLive ? <ModuleCharts id={id} /> : null}
+    </>
+  );
+  const body = (() => {
+    switch (layout) {
+      case "summary":
+        return (
+          <>
+            {analysisBody}
+            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="summary" /> : liveFixtureNote}
+          </>
+        );
+      case "report":
+        return (
+          <>
+            {analysisBody}
+            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="report" /> : null}
+            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveFixtureNote}
+          </>
+        );
+      case "dense":
+        return (
+          <>
+            {analysisBody}
+            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="dense" /> : null}
+            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveFixtureNote}
+          </>
+        );
+    }
+  })();
 
   return (
     <div className="p-3 flex flex-col gap-3">
+      {/* Live modules must not wear the ATLF sim's costume: the Dot/Tag state and
+          the plan "event" line are replay fixtures, so a live render shows only
+          the module's identity — provenance is the ● LIVE badge in the panel
+          header, produced-ness is the output itself. (critique: two state
+          machines disagreeing under ● LIVE) */}
       <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Dot sev={st} />
+            {!isLive ? <Dot sev={st} /> : null}
             <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
             <span className="text-caos-2xl font-semibold text-caos-text">{meta.name}</span>
-            <Tag sev={st}>{st}</Tag>
+            {!isLive ? <Tag sev={st}>{st}</Tag> : null}
           </div>
           <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
-          {plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
+          {!isLive && plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
         </div>
       </div>
-
-      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-        {out.kpis.map((k) => (
-          <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
-        ))}
-      </div>
-
-      {layout === "core" ? (
-        <>
-          <OutSections sections={out.sections} onOpenEvidence={onOpenEvidence} />
-          {!isLive ? <ModuleCharts id={id} /> : null}
-        </>
-      ) : (
-        <>
-          {lead ? (
-            <div className="rounded border border-caos-accent/40 bg-caos-elevated px-3 py-2.5">
-              <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent mb-1">▸ {lead.title}</div>
-              <div className="text-caos-xl text-caos-text leading-relaxed">
-                {lead.body}
-                {lead.ev && lead.ev.length ? (
-                  <span className="inline-flex gap-1 ml-1.5 align-middle">
-                    {lead.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />
-
-          {!isLive ? <ModuleCharts id={id} /> : null}
-
-          {/* Workflow-step outputs — newspaper packing both ways; base caps at 4
-              columns, dense fits as many as the pane allows. */}
-          {!isLive ? (
-            <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode={layout === "dense" ? "dense" : "base"} />
-          ) : null}
-        </>
-      )}
-
-      {/* Workflow completeness register — bottom backstop on every module view
-          (bespoke + generic); collapsed only in the legacy core layout. layout is
-          in the key so the open-state re-seeds when the pref resolves on mount.
-          Suppressed for live modules: it is a hardcoded ATLF fixture (no live
-          equivalent), so it must not render beneath a live module's output. */}
-      {!isLive ? (
-        <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
-      ) : (
-        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
-          Charts, step detail, and the workflow register are not yet wired for live
-          runs — the figures above are this issuer&apos;s live engine output.
-        </div>
-      )}
+      {body}
     </div>
   );
 }

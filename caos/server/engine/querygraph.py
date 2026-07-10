@@ -5,12 +5,15 @@ Where the NL query ([nlquery.py]) *flattens* the store and ranks a column, Query
 (provenance chains, the module DAG, issuer↔issuer peer links, sector clusters)
 and returns a positioned node-link graph the frontend renders directly.
 
-Four builders cover the whole capability surface via params:
+Five builders cover the whole capability surface via params:
 
   - ``_peers``         — issuer↔issuer similarity over the metric store (CP-1C math,
                          computed live so it works on seed data before any run).
-  - ``_contagion``     — a shared-driver overlay: issuers linked to one risk driver
-                         via ``energy_cost_pct`` + BM25 corpus overlap.
+  - ``_contagion``     — the *energy* shock overlay: issuers linked to the energy
+                         driver via ``energy_cost_pct`` + BM25 corpus overlap.
+  - ``_shared_theme``  — a generic risk-theme overlay: issuers whose filings/memos
+                         co-mention an analyst-supplied ``theme`` (BM25 corpus only,
+                         no fact anchor — so any theme works, not just energy).
   - ``_concentration`` — clustered views (sector/country, provenance split, scatter,
                          percentile, coverage, committee/gate rollups).
   - ``_provenance``    — layered DAGs over one run's modules → claims → evidence →
@@ -18,7 +21,7 @@ Four builders cover the whole capability surface via params:
 
 ``availability`` reads the DB once and decides which capabilities are runnable now,
 so the rail greys a query exactly when its edge can't be walked from what's stored
-(no run → no provenance; one run → no diff; CP-2D stores no sponsor names → ever).
+(no run → no provenance; one run → no diff; no CP-4C run → no covenant register).
 
 Positions are normalized 0..1 (computed here, not in the client) so the renderer
 stays a dumb projector. Pure helpers (``_rank_peers``, ``_norm``, layout) are
@@ -31,16 +34,20 @@ import logging
 from statistics import median
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from engine.periods import is_finite_number
 
 from database import (
     Claim,
+    Document,
     DocumentChunk,
     EvidenceItem,
     Issuer,
     MetricFact,
     ModuleOutput,
+    PortfolioPosition,
     QAFinding,
     Run,
 )
@@ -81,17 +88,16 @@ GROUPS: List[dict] = [
         _cap("peer-profile", "Peer-by-profile", "peers", {}, "facts"),
         _cap("shared-theme", "Shared-theme links", "contagion", {"theme": "energy input-cost pressure"}, "docs"),
         _cap("concentration-map", "Concentration map", "concentration", {"by": "industry"}, "issuers"),
+        _cap("rating-distribution", "Rating distribution", "concentration", {"by": "rating"}, "rated"),
+        _cap("portfolio-exposure", "Portfolio exposure", "concentration", {"by": "portfolio"}, "portfolio"),
         _cap("contagion", "Contagion query", "contagion", {"theme": "energy"}, "facts"),
         _cap("sponsor-graph", "Sponsor / counterparty graph", "provenance", {"focus": "sponsor"}, "sponsor_names"),
+        _cap("covenant-register", "Covenant register", "concentration", {"by": "covenant"}, "covenant"),
     ]},
     {"id": "metric", "label": "Metric x time", "icon": "timeline", "caps": [
         _cap("distribution", "Distribution / percentile", "concentration", {"by": "percentile"}, "facts"),
         _cap("scatter", "Cross-issuer scatter", "concentration", {"by": "scatter"}, "facts"),
         _cap("metric-trend", "Metric trend", "concentration", {"by": "trend"}, "periods2"),
-    ]},
-    {"id": "versions", "label": "Run versions", "icon": "versions", "caps": [
-        _cap("run-diff", "Run diff (what changed)", "provenance", {"focus": "diff"}, "runs2"),
-        _cap("coverage-changed", "Coverage what-changed", "provenance", {"focus": "diff"}, "runs2"),
     ]},
     {"id": "qa", "label": "QA / governance", "icon": "shield-check", "caps": [
         _cap("open-findings", "Open findings", "provenance", {"focus": "findings"}, "findings"),
@@ -116,11 +122,13 @@ _REASONS: Dict[str, str] = {
     "issuers": "no issuers in coverage",
     "docs": "no source documents ingested",
     "runs": "needs a completed run",
-    "runs2": "needs ≥2 runs of one issuer",
     "periods2": "needs ≥2 reporting periods",
     "findings": "no QA findings yet",
     "debate": "no IC debate run yet",
-    "sponsor_names": "CP-2D stores no sponsor names",
+    "sponsor_names": "no sponsor-owned issuers in coverage",
+    "covenant": "no covenant analysis yet",
+    "rated": "no agency ratings on file",
+    "portfolio": "no portfolio holdings ingested",
 }
 
 
@@ -136,40 +144,43 @@ async def availability(session: AsyncSession) -> Dict[str, bool]:
     runs = await count(select(func.count(func.distinct(ModuleOutput.run_id))))
     findings = await count(select(func.count()).select_from(QAFinding))
     debate = await count(select(func.count()).select_from(ModuleOutput).where(ModuleOutput.module_id == "CP-6A"))
-
-    # ≥2 *fact-bearing* runs for some issuer — the real precondition for a diff.
-    # Counting bare Run rows over-reports: a run that never persisted headline facts
-    # can't be compared, so the rail would greenlight a diff with nothing to diff.
-    fact_runs = (await session.execute(
-        select(Run.issuer_id, MetricFact.run_id)
-        .join(MetricFact, MetricFact.run_id == Run.id)
-        .where(MetricFact.headline.is_(True))
-        .group_by(Run.issuer_id, MetricFact.run_id)
-    )).all()
-    per_issuer: Dict[str, int] = {}
-    for iid, _rid in fact_runs:
-        per_issuer[iid] = per_issuer.get(iid, 0) + 1
-    runs2 = any(c >= 2 for c in per_issuer.values())
+    # Analyst-entered PE sponsor (Issuer.sponsor, mig 0018) — the sponsor/counterparty
+    # graph draws issuer↔sponsor edges off it, so it's runnable the moment one issuer
+    # is tagged (no CP-2D name extraction needed).
+    sponsors = await count(select(func.count()).select_from(Issuer).where(
+        Issuer.sponsor.isnot(None), Issuer.sponsor != ""))
+    # Any persisted CP-4C covenant analysis → the cross-issuer register is walkable.
+    covenant = await count(select(func.count()).select_from(ModuleOutput).where(
+        ModuleOutput.module_id == "CP-4C"))
+    # ≥1 issuer carrying an agency rating (collected from ingested holdings/market
+    # sheets, ratings.py) → the rating-distribution walk is runnable, no run needed.
+    rated = await count(select(func.count()).select_from(Issuer).where(or_(
+        Issuer.rating_moody.isnot(None), Issuer.rating_sp.isnot(None),
+        Issuer.rating_fitch.isnot(None))))
+    # ≥1 ingested CLO position → the portfolio-exposure walk is runnable.
+    portfolio = await count(select(func.count()).select_from(PortfolioPosition))
 
     # ≥2 distinct periods for some (issuer, metric): the trend axis.
-    periods = (await session.execute(
-        select(MetricFact.issuer_id, MetricFact.metric_key, func.count(func.distinct(MetricFact.period)))
+    # HAVING…LIMIT 1 existence check — don't materialize every group to test any().
+    periods2 = (await session.execute(
+        select(MetricFact.issuer_id)
         .group_by(MetricFact.issuer_id, MetricFact.metric_key)
-    )).all()
-    periods2 = any(c >= 2 for _i, _k, c in periods)
+        .having(func.count(func.distinct(MetricFact.period)) >= 2)
+        .limit(1)
+    )).first() is not None
 
     return {
         "facts": facts > 0,
         "issuers": issuers > 0,
         "docs": chunks > 0,
         "runs": runs > 0,
-        "runs2": runs2,
         "periods2": periods2,
         "findings": findings > 0,
         "debate": debate > 0,
-        # CP-2D persists a governance score, never a sponsor *name* — the edge has
-        # no endpoints to draw, so this stays off until that extraction exists.
-        "sponsor_names": False,
+        "sponsor_names": sponsors > 0,
+        "covenant": covenant > 0,
+        "rated": rated > 0,
+        "portfolio": portfolio > 0,
     }
 
 
@@ -235,29 +246,41 @@ def _empty(cap: dict, title: str, why: str) -> dict:
 
 # ── Latest-per (issuer, metric) fact selection (run > seed, then most recent) ─
 def _best_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
-    return (prev is None
-            or (fact.provenance == "run" and prev.provenance != "run")
-            or (fact.provenance == prev.provenance and fact.created_at and prev.created_at
-                and fact.created_at > prev.created_at))
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric): run/fixture
+    tier beats seed, then newest created_at within a tier; null created_at keeps prev.
+    Unified with nlquery._better_fact (same rule — the two collapses are pinned identical
+    by test_fact_collapse.py, so the Query graph and the NL rank never pick different
+    facts). Now the documented reference the _profile_values window ORDER BY mirrors."""
+    if prev is None:
+        return True
+    pt = 1 if prev.provenance in ("run", "fixture") else 0
+    ft = 1 if fact.provenance in ("run", "fixture") else 0
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
 
 
 async def _profile_values(session: AsyncSession, keys: Sequence[str]) -> Dict[str, dict]:
-    """{issuer_id: {"issuer": Issuer, "m": {key: value}}} over headline facts."""
+    """{issuer_id: {"issuer": Issuer, "m": {key: value}}} over headline facts — one winning
+    fact per (issuer, metric) via a bounded SQL window (mirrors _best_fact: run/fixture tier,
+    newest created_at, deterministic id tiebreak), so the read stays issuers×metrics rather
+    than O(run history)."""
+    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    win = select(
+        MetricFact.id.label("fid"),
+        func.row_number().over(
+            partition_by=(MetricFact.issuer_id, MetricFact.metric_key),
+            order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
+        ).label("rn"),
+    ).where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys))).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
-        .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)))
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
     )).all()
-    best: Dict[Tuple[str, str], MetricFact] = {}
-    issuers: Dict[str, Issuer] = {}
-    for fact, iss in rows:
-        issuers[iss.id] = iss
-        k = (iss.id, fact.metric_key)
-        if _best_fact(best.get(k), fact):
-            best[k] = fact
     out: Dict[str, dict] = {}
-    for (iid, mk), fact in best.items():
-        out.setdefault(iid, {"issuer": issuers[iid], "m": {}})["m"][mk] = fact.value
+    for fact, iss in rows:
+        out.setdefault(iss.id, {"issuer": iss, "m": {}})["m"][fact.metric_key] = fact.value
     return out
 
 
@@ -352,12 +375,15 @@ async def _contagion(session: AsyncSession, theme: Optional[str], cap: dict) -> 
     if not rows:
         return _empty(cap, "Contagion overlay", "No issuers expose this driver in the store.")
 
-    present = [v for _i, v, _h in rows if v is not None]
+    # is_finite_number, not is-None: the store is write-gated finite, but this
+    # consumer feeds median()/round()/a divide — a smuggled NaN would 500 every
+    # /graph contagion request for all analysts (BE5-3 defense-in-depth).
+    present = [v for _i, v, _h in rows if is_finite_number(v)]
     thresh = max(15.0, median(present)) if present else 15.0
     driver = "driver"
     nodes = [_node(driver, "Energy input cost ↑", "driver", 0.5, 0.12)]
     edges: List[dict] = []
-    exposed = [(iss, v) for iss, v, h in rows if (v is not None and v >= thresh) or h and v is not None]
+    exposed = [(iss, v) for iss, v, h in rows if is_finite_number(v) and (v >= thresh or h)]
     others = [iss for iss, v, h in rows if (iss, v) not in exposed]
 
     ex_pos = _spread(len(exposed), y=0.45, x0=0.16, x1=0.84)
@@ -375,6 +401,62 @@ async def _contagion(session: AsyncSession, theme: Optional[str], cap: dict) -> 
     return _result(cap, "Energy-shock contagion", nodes, edges, meta, cav)
 
 
+# ── Builder: shared theme (generic corpus co-mention overlay) ────────────────
+async def _shared_theme(session: AsyncSession, theme: Optional[str], cap: dict) -> dict:
+    """Issuers whose filings/memos co-mention an analyst-supplied ``theme``.
+
+    Unlike ``_contagion`` (anchored on the ``energy_cost_pct`` fact + threshold),
+    this overlay is anchored purely on BM25 corpus overlap, so *any* risk theme
+    works — 'tariff exposure', 'refinancing wall', 'FX translation' — not just
+    energy. Members are the distinct issuers with a corpus hit; the rest of the
+    documented universe sits below as dim, un-linked context so the synthesis
+    denominator reflects coverage, not just the matched set."""
+    theme = (theme or "").strip()
+    if not theme:
+        return _empty(cap, "Shared-theme overlay",
+                      "Supply a risk theme to overlay (e.g. 'tariff exposure', 'refinancing wall').")
+
+    hits = await retrieve_corpus(session, theme, k=24)
+    member_ids: List[str] = []
+    seen = set()
+    for h in hits:  # distinct issuers, best-BM25 order preserved
+        if h.issuer_id not in seen:
+            seen.add(h.issuer_id)
+            member_ids.append(h.issuer_id)
+    member_ids = member_ids[:12]  # keep the canvas legible
+    if not member_ids:
+        return _empty(cap, "Shared-theme overlay",
+                      f"No issuer in the corpus co-mentions “{_clip(theme, 60)}”.")
+
+    # Documented universe = issuers with any source doc (only they *can* co-mention).
+    # ponytail: dim "others" unbounded; fine for the Phase-1 loans universe (dozens).
+    # Cap + "+N more" summary node if the documented set ever reaches the hundreds.
+    doc_ids = set((await session.execute(select(Document.issuer_id).distinct())).scalars())
+    all_ids = list(dict.fromkeys(member_ids + [i for i in doc_ids if i not in seen]))
+    issuers = {i.id: i for i in (await session.execute(
+        select(Issuer).where(Issuer.id.in_(all_ids)))).scalars()}
+    member_ids = [i for i in member_ids if i in issuers]
+    other_ids = [i for i in doc_ids if i not in seen and i in issuers]
+
+    driver = "theme"
+    nodes = [_node(driver, _clip(theme, 40), "driver", 0.5, 0.12)]
+    edges: List[dict] = []
+    for iid, (x, y) in zip(member_ids, _spread(len(member_ids), y=0.45, x0=0.16, x1=0.84)):
+        iss = issuers[iid]
+        nodes.append(_node(iid, iss.name, "issuer", x, y, group=iss.industry,
+                           exposed=True, sub="corpus co-mention"))
+        edges.append(_edge(driver, iid, kind="driver"))
+    for iid, (x, y) in zip(other_ids, _spread(len(other_ids), y=0.85, x0=0.16, x1=0.84)):
+        nodes.append(_node(iid, issuers[iid].name, "issuer", x, y, dim=True, sub="no co-mention"))
+
+    denom = len(member_ids) + len(other_ids)
+    meta = [f"{len(member_ids)} of {denom} documented issuers co-mention the theme",
+            f"theme: “{_clip(theme, 60)}”"]
+    cav = ["Membership = BM25 corpus co-mention of the theme terms across filings / "
+           "analyst memos — a shared-language overlay, not a modeled correlation."]
+    return _result(cap, f"Shared theme — {_clip(theme, 40)}", nodes, edges, meta, cav)
+
+
 def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[float, float]]:
     if n <= 0:
         return []
@@ -388,6 +470,10 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
+    if by == "rating":
+        return await _rating_distribution(session, cap)
+    if by == "portfolio":
+        return await _portfolio_exposure(session, cap)
     if by == "wiki":
         return await _cluster_by_wiki(session, cap)
     if by == "provenance":
@@ -404,6 +490,8 @@ async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str
         return await _committee(session, cap)
     if by == "gate_lane":
         return await _gate_lane(session, cap)
+    if by == "covenant":
+        return await _covenant_register(session, cap)
     return _empty(cap, "Concentration", f"unknown view {by!r}")
 
 
@@ -416,7 +504,7 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
     covered = set((await session.execute(
         select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
     )).scalars())
-    covered |= set((await session.execute(select(Run.issuer_id))).scalars())
+    covered |= set((await session.execute(select(Run.issuer_id).distinct())).scalars())
     if not covered:
         return _empty(cap, "Concentration", "No analyzed issuers yet.")
     issuers = (await session.execute(select(Issuer).where(Issuer.id.in_(covered)))).scalars().all()
@@ -438,11 +526,113 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
         for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
             nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name, compact=True))
             edges.append(_edge(gid, iss.id, kind="member"))
-    top = ordered[0]
-    meta = [f"{total} analyzed issuers", f"{len(ordered)} {field} groups",
-            f"{top[0]} = {round(100 * len(top[1]) / total)}% (largest)"]
+    # Only claim a single "largest" cluster when there is a strict maximum. On a
+    # tie (e.g. four one-name sectors all at 25%) naming one "largest" is a false
+    # superlative — mirror the client synthesis line and report the tie honestly.
+    top_len = len(ordered[0][1])
+    top_pct = round(100 * top_len / total)
+    n_top = sum(1 for _, m in ordered if len(m) == top_len)
+    if n_top == len(ordered):
+        conc = f"evenly split — {top_pct}% each"
+    elif n_top == 1:
+        conc = f"{ordered[0][0]} = {top_pct}% (largest)"
+    else:
+        conc = f"{n_top} groups tied at {top_pct}%"
+    meta = [f"{total} analyzed issuers", f"{len(ordered)} {field} groups", conc]
     cav = [f"Covered issuers only (≥1 fact or run). Grouped by {field}; >30% flags concentration."]
     return _result(cap, f"Concentration by {field}", nodes, edges, meta, cav)
+
+
+async def _rating_distribution(session: AsyncSession, cap: dict) -> dict:
+    """Cross-issuer rating distribution — issuers bucketed by agency rating
+    (Moody's-preferred), mirroring the CP-6A exposure report's rating table.
+    Ratings are collected off ingested holdings/market sheets (ratings.py), so
+    this lights up the moment one rated sheet is uploaded — no run required. Emits
+    the same sector-cluster / member-edge shape as _cluster_by_field so the client
+    concentration synthesis reads it unchanged."""
+    from ratings import rating_bucket, rating_index  # local: ratings.py has no engine deps
+
+    issuers = (await session.execute(
+        select(Issuer).where(or_(
+            Issuer.rating_moody.isnot(None), Issuer.rating_sp.isnot(None),
+            Issuer.rating_fitch.isnot(None))).limit(2000)
+    )).scalars().all()
+    if not issuers:
+        return _empty(cap, "Rating distribution", "No agency ratings on file yet.")
+    # Fixed senior→junior order so the register reads like a rating table.
+    order = ["IG", "BB", "B", "CCC", "Unrated"]
+    groups: Dict[str, List[Issuer]] = {}
+    for iss in issuers:
+        b = rating_bucket(rating_index(iss.rating_moody, iss.rating_sp, iss.rating_fitch))
+        groups.setdefault(b, []).append(iss)
+    ordered = [(b, groups[b]) for b in order if b in groups]
+    centers = _grid_centers(len(ordered))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    total = len(issuers)
+    for (name, members), (cx, cy) in zip(ordered, centers):
+        gid = f"grp:{name}"
+        pct = round(100 * len(members) / total)
+        nodes.append(_node(gid, f"{name} · {len(members)}", "sector", cx, cy,
+                           group=name, sub=f"{pct}% of rated book",
+                           flag=(name == "CCC") or None))
+        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name,
+                               sub=iss.rating_moody or iss.rating_sp or iss.rating_fitch,
+                               compact=True))
+            edges.append(_edge(gid, iss.id, kind="member"))
+    ccc = len(groups.get("CCC", []))
+    meta = [f"{total} rated issuers", f"{len(ordered)} rating buckets",
+            f"{ccc} in CCC/below" if ccc else "none in CCC/below"]
+    cav = ["Bucketed by best available agency rating (Moody's-preferred); collected "
+           "from ingested holdings/market sheets."]
+    return _result(cap, "Rating distribution", nodes, edges, meta, cav)
+
+
+async def _portfolio_exposure(session: AsyncSession, cap: dict) -> dict:
+    """The CLO's sector concentration, computed from ingested holdings
+    (engine/portfolio.py). Sector clusters (kind 'sector') with their obligors as
+    members — the same shape as _cluster_by_field, so the client concentration
+    synthesis reads it unchanged. >10% sectors flag (the typical single-sector cap)."""
+    from engine.portfolio import compute_exposure
+
+    rows = (await session.execute(select(PortfolioPosition).limit(5000))).scalars().all()
+    if not rows:
+        return _empty(cap, "Portfolio exposure", "No portfolio holdings ingested yet.")
+    positions = [{"borrower_name": r.borrower_name, "issuer_id": r.issuer_id, "sector": r.sector,
+                  "ranking": r.ranking, "rating_moody": r.rating_moody, "rating_sp": r.rating_sp,
+                  "par_usd": r.par_usd, "price": r.price} for r in rows]
+    ex = compute_exposure(positions)
+    sectors = ex["sectors"][:20]  # top 20 by MV
+    # obligor names per sector (distinct), for member dots under each cluster.
+    per_sector: Dict[str, List[str]] = {}
+    for r in rows:
+        s = str(r.sector or "Unclassified")
+        name = (r.borrower_name or "—")
+        bucket = per_sector.setdefault(s, [])
+        if name not in bucket:
+            bucket.append(name)
+
+    centers = _grid_centers(len(sectors))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for sec, (cx, cy) in zip(sectors, centers):
+        name = sec["sector"]
+        pct = sec["pct_nav"]
+        gid = f"grp:{name}"
+        nodes.append(_node(gid, f"{name} · {pct}%", "sector", cx, cy, group=name,
+                           sub=f"{sec['n_obligors']} obligors", flag=(pct is not None and pct > 10) or None))
+        members = per_sector.get(name, [])[:24]
+        for oname, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            oid = f"pos:{name}:{oname}"
+            nodes.append(_node(oid, oname, "issuer", mx, my, group=name, compact=True))
+            edges.append(_edge(gid, oid, kind="member"))
+    top = sectors[0]
+    meta = [f"${ex['total_nav']:,.0f} NAV · {ex['n_positions']} positions · {ex['n_obligors']} obligors",
+            f"{len(sectors)} sectors shown",
+            f"top: {top['sector']} {top['pct_nav']}%"]
+    cav = ["Computed from ingested CLO holdings (%NAV by sector); >10% flags a single-sector-cap breach."]
+    return _result(cap, "Portfolio exposure", nodes, edges, meta, cav)
 
 
 def _grid_centers(n: int) -> List[Tuple[float, float]]:
@@ -518,8 +708,15 @@ async def _scatter(session: AsyncSession, cap: dict) -> dict:
     for iss, x, y in pts:
         nodes.append(_node(iss.id, iss.name, "issuer",
                            0.1 + 0.8 * _norm(x, xlo, xhi), 0.9 - 0.8 * _norm(y, ylo, yhi),
-                           group=iss.industry, sub=f"{x:.1f}x / {y:.1f}x"))
-    meta = ["x = net leverage →", "y = interest coverage ↑", f"{len(pts)} issuers"]
+                           group=iss.industry,
+                           sub=f"net leverage {x:.1f}x · interest coverage {y:.1f}x"))
+    # Axis names carry the metric range for immediate scale; the machine-readable
+    # xdomain/ydomain lines let the scatter place real-value ticks (they don't
+    # match the "x = "/"y = " axis-name filter, so they never render as labels).
+    meta = [f"x = net leverage ({xlo:.1f}x → {xhi:.1f}x)",
+            f"y = interest coverage ({ylo:.1f}x → {yhi:.1f}x)",
+            f"{len(pts)} issuers",
+            f"xdomain={xlo:.2f}|{xhi:.2f}", f"ydomain={ylo:.2f}|{yhi:.2f}"]
     return _result(cap, "Leverage × coverage", nodes, [], meta, [_BASIS_CAVEAT])
 
 
@@ -547,15 +744,28 @@ async def _percentile(session: AsyncSession, issuer_id: Optional[str], cap: dict
         edges.append(_edge(target, nid, kind="member"))
     meta = [f"focus: {tgt.name}", f"{len(keys)} metrics vs {len(vals) - 1} peers",
             "x = percentile rank (polarity-adjusted)"]
+    # Same cross-issuer basis mix as peers/scatter — carry the same disclosure.
     return _result(cap, f"{tgt.name} percentile rank", nodes, edges, meta,
-                   ["p≤25 = bottom-quartile outlier."])
+                   [_BASIS_CAVEAT, "p≤25 = bottom-quartile outlier."])
 
 
 async def _trend(session: AsyncSession, cap: dict) -> dict:
     from engine.periods import sort_key
+    # One winning fact per (issuer, metric, period) via a bounded window (mirrors the
+    # collapse: run/fixture tier, newest created_at, id tiebreak) so re-runs of the same
+    # period collapse deterministically and the read is issuers×metrics×periods, not ×runs.
+    # No headline filter — a trend needs the prior (non-headline) periods too.
+    tier = case((MetricFact.provenance.in_(("run", "fixture")), 1), else_=0)
+    win = select(
+        MetricFact.id.label("fid"),
+        func.row_number().over(
+            partition_by=(MetricFact.issuer_id, MetricFact.metric_key, MetricFact.period),
+            order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(), MetricFact.id.desc()),
+        ).label("rn"),
+    ).where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage"))).subquery()
     rows = (await session.execute(
         select(MetricFact, Issuer).join(Issuer, MetricFact.issuer_id == Issuer.id)
-        .where(MetricFact.metric_key.in_(("revenue", "adj_ebitda", "net_leverage")))
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
     )).all()
     series: Dict[Tuple[str, str], List[Tuple[str, float]]] = {}
     issuers: Dict[str, Issuer] = {}
@@ -588,9 +798,12 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
 async def _coverage(session: AsyncSession, cap: dict) -> dict:
     designed = [s for s in all_specs() if s.implemented]
     total = len(designed)
+    # distinct (issuer, module): the by_issuer set-fold below dedups anyway, so push
+    # DISTINCT to the DB — bounds the scan to issuers×modules, not O(runs×modules).
     rows = (await session.execute(
         select(Run.issuer_id, ModuleOutput.module_id)
         .join(ModuleOutput, ModuleOutput.run_id == Run.id)
+        .distinct()
     )).all()
     if not rows:
         return _empty(cap, "Coverage completeness", "No completed runs yet.")
@@ -619,31 +832,55 @@ async def _coverage(session: AsyncSession, cap: dict) -> dict:
 
 
 async def _committee(session: AsyncSession, cap: dict) -> dict:
+    # Distinct (committee_status, issuer): the board shows an issuer once per state it
+    # has a run in — not once per run, which piled duplicate-id nodes on repeat issuers
+    # and scanned the whole (append-only) Run history. DB DISTINCT bounds this to
+    # states×issuers and fixes the duplicate-node id collision.
     rows = (await session.execute(
-        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id)
+        select(Run.committee_status, Issuer.id, Issuer.name)
+        .join(Issuer, Run.issuer_id == Issuer.id)
+        .distinct()
     )).all()
     if not rows:
         return _empty(cap, "Committee-readiness", "No runs yet.")
-    groups: Dict[str, List[Issuer]] = {}
-    for run, iss in rows:
-        groups.setdefault(run.committee_status or "Draft Only", []).append(iss)
+    groups: Dict[str, List[Tuple[str, str]]] = {}
+    for status, iid, name in rows:
+        groups.setdefault(status or "Draft Only", []).append((iid, name))
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
     centers = _grid_centers(len(ordered))
     nodes, edges = [], []
     for (status, members), (cx, cy) in zip(ordered, centers):
         gid = f"cs:{status}"
         nodes.append(_node(gid, f"{status} · {len(members)}", "sector", cx, cy, group=status))
-        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(f"{gid}:{iss.id}", iss.name, "issuer", mx, my, compact=True))
-            edges.append(_edge(gid, f"{gid}:{iss.id}", kind="member"))
-    meta = [f"{len(rows)} runs", f"{len(ordered)} committee states"]
+        for (iid, name), (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(f"{gid}:{iid}", name, "issuer", mx, my, compact=True))
+            edges.append(_edge(gid, f"{gid}:{iid}", kind="member"))
+    meta = [f"{sum(len(m) for _s, m in ordered)} issuer-states", f"{len(ordered)} committee states"]
     return _result(cap, "Committee-readiness board", nodes, edges, meta, [])
 
 
+_GATE_NODE_CAP = 300  # rollup graph, not a ledger — render the most-severe/newest slice
+
+
 async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
-    rows = (await session.execute(select(QAFinding))).scalars().all()
-    if not rows:
+    total = int((await session.execute(select(func.count()).select_from(QAFinding))).scalar() or 0)
+    if total == 0:
         return _empty(cap, "Gate-lane rollup", "No QA findings yet.")
+    crit = int((await session.execute(
+        select(func.count()).select_from(QAFinding).where(QAFinding.severity == "CRITICAL")
+    )).scalar() or 0)
+    # QAFinding grows O(modules×runs); a rollup past a few hundred nodes is both an
+    # unreadable canvas and a huge payload. Render the most-severe, newest slice so a
+    # cap never hides a CRITICAL behind newer MINORs; the full totals stay in meta.
+    sev_rank = case(
+        (QAFinding.severity == "CRITICAL", 0),
+        (QAFinding.severity == "MATERIAL", 1),
+        (QAFinding.severity == "MINOR", 2),
+        else_=3,
+    )
+    rows = (await session.execute(
+        select(QAFinding).order_by(sev_rank, QAFinding.id.desc()).limit(_GATE_NODE_CAP)
+    )).scalars().all()
     groups: Dict[str, List[QAFinding]] = {}
     for f in rows:
         groups.setdefault(f"Lane {f.lane}" if f.lane is not None else "Unscoped", []).append(f)
@@ -659,9 +896,118 @@ async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
                                mx, my, sub=f.severity, module=f.module_id, compact=True,
                                title=f"{f.finding_id} · {f.severity}: {_clip(f.description, 80)}"))
             edges.append(_edge(gid, f"f:{f.id}", kind="member"))
-    crit = sum(1 for f in rows if f.severity == "CRITICAL")
-    meta = [f"{len(rows)} findings", f"{len(ordered)} CP-5 lanes", f"{crit} CRITICAL"]
+    shown = f" ({len(rows)} shown)" if len(rows) < total else ""
+    meta = [f"{total} findings{shown}", f"{len(ordered)} CP-5 lanes", f"{crit} CRITICAL"]
     return _result(cap, "Gate findings by lane", nodes, edges, meta, [])
+
+
+# ── Builder: cross-issuer registers (sponsor field, covenant CP-4C output) ───
+async def _sponsor_graph(session: AsyncSession, cap: dict) -> dict:
+    """Sponsor / counterparty graph over the analyst-entered ``Issuer.sponsor``
+    field (mig 0018): each sponsor is a hub, the issuers it owns hang off it, so
+    shared-sponsor concentration and a sponsor's track record read off one view.
+    Only sponsor-owned names appear (NULL/blank sponsor = not sponsor-owned); a hub
+    with >2 names flags a concentration edge. No ownership feed, so this is exactly
+    as good as the analyst's tagging — stated in the caveat."""
+    issuers = (await session.execute(
+        select(Issuer).where(Issuer.sponsor.isnot(None), Issuer.sponsor != "")
+    )).scalars().all()
+    if not issuers:
+        return _empty(cap, "Sponsor graph", "No sponsor-owned issuers in coverage.")
+    groups: Dict[str, List[Issuer]] = {}
+    for iss in issuers:
+        groups.setdefault((iss.sponsor or "").strip(), []).append(iss)
+    ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    centers = _grid_centers(len(ordered))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (sponsor, members), (cx, cy) in zip(ordered, centers):
+        gid = f"sp:{sponsor}"
+        nodes.append(_node(gid, f"{sponsor} · {len(members)}", "sector", cx, cy,
+                           group=sponsor, sub="sponsor", flag=len(members) > 2 or None))
+        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=sponsor, compact=True))
+            edges.append(_edge(gid, iss.id, kind="member"))
+    multi = sum(1 for _s, m in ordered if len(m) > 1)
+    meta = [f"{len(issuers)} sponsor-owned issuers", f"{len(ordered)} sponsors",
+            f"{multi} sponsor(s) with >1 name"]
+    cav = ["Analyst-entered sponsor field (no ownership feed); >2 names flags concentration."]
+    return _result(cap, "Sponsor / counterparty graph", nodes, edges, meta, cav)
+
+
+# Latest-CP-4C-per-issuer read; bound the (append-only) module_output history scan.
+_COVENANT_SCAN_CAP = 2000
+
+
+async def _covenant_register(session: AsyncSession, cap: dict) -> dict:
+    """Covenant register over the latest CP-4C output per issuer: clusters names by
+    structure (maintenance leverage covenant vs cov-lite) and annotates each
+    maintenance name with its threshold and turns of headroom, flagging thin
+    cushions. Cov-lite is the leveraged-loan norm, not itself a flag — the risk
+    signal is a maintenance name running thin headroom. Extraction-based, so the
+    caveat states the basis."""
+    rows = (await session.execute(
+        select(ModuleOutput, Issuer.id, Issuer.name)
+        .join(Run, Run.id == ModuleOutput.run_id)
+        .join(Issuer, Issuer.id == Run.issuer_id)
+        .where(ModuleOutput.module_id == "CP-4C")
+        .order_by(ModuleOutput.created_at.desc())
+        .limit(_COVENANT_SCAN_CAP)
+    )).all()
+    if not rows:
+        return _empty(cap, "Covenant register", "No covenant analysis yet.")
+    # Rows are newest-first → first sighting of an issuer is its latest CP-4C.
+    latest: Dict[str, Tuple[ModuleOutput, str]] = {}
+    for mo, iid, name in rows:
+        latest.setdefault(iid, (mo, name))
+
+    maint: List[Tuple] = []
+    covlite: List[Tuple] = []
+    thin = 0
+    for iid, (mo, name) in latest.items():
+        out = mo.runtime_output or {}
+        lev_cov = out.get("leverage_covenant_x")
+        cur = out.get("current_net_leverage")
+        # Guard both CP-1-derived figures before subtracting: a NaN/inf leverage
+        # would poison the headroom read and slip a false flag past `< 1.0`.
+        if is_finite_number(lev_cov):
+            head = round(lev_cov - cur, 2) if is_finite_number(cur) else None
+            is_thin = head is not None and head < 1.0
+            thin += 1 if is_thin else 0
+            maint.append((iid, name, lev_cov, out.get("covenant_basis"), head, is_thin))
+        else:
+            covlite.append((iid, name))
+
+    clusters: List[Tuple[str, List[Tuple]]] = []
+    if maint:
+        clusters.append(("Maintenance covenant", maint))
+    if covlite:
+        clusters.append(("Cov-lite", covlite))
+    centers = _grid_centers(len(clusters))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (label, members), (cx, cy) in zip(clusters, centers):
+        gid = f"cov:{label}"
+        nodes.append(_node(gid, f"{label} · {len(members)}", "sector", cx, cy, group=label))
+        for member, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            iid, name = member[0], member[1]
+            if label == "Maintenance covenant":
+                _iid, _name, lev_cov, basis, head, is_thin = member
+                sub = f"{lev_cov:g}x cov" + (f" · {head:g}x headroom" if head is not None else "")
+                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
+                                   sub=sub, basis=basis, flag=is_thin or None,
+                                   title=f"{name}: {lev_cov:g}x maintenance covenant"
+                                         + (f", {head:g}x headroom" if head is not None else "")))
+            else:
+                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
+                                   sub="cov-lite"))
+            edges.append(_edge(gid, iid, kind="member"))
+    meta = [f"{len(latest)} covenant-analyzed issuers",
+            f"{len(maint)} maintenance · {len(covlite)} cov-lite",
+            f"{thin} thin headroom (<1.0x)"]
+    cav = ["Latest CP-4C per issuer; extraction-based (keyword scan of governing docs). "
+           "Cov-lite is the loan-market norm — the flag is thin maintenance headroom."]
+    return _result(cap, "Covenant register", nodes, edges, meta, cav)
 
 
 # ── Builder: provenance (layered DAGs over a run) ────────────────────────────
@@ -707,8 +1053,8 @@ async def _modules(session: AsyncSession, run_id: str) -> List[ModuleOutput]:
 
 
 async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str], cap: dict) -> dict:
-    if focus == "sponsor":  # never enabled, but guard the dispatch
-        return _empty(cap, "Sponsor graph", "CP-2D persists no sponsor names to link.")
+    if focus == "sponsor":
+        return await _sponsor_graph(session, cap)
     if focus == "memos":
         return await _analyst_memos(session, issuer_id, cap)
     run = await _latest_run(session, issuer_id, prefer_claims=focus in ("trace", "lineage", "orphan"))
@@ -729,8 +1075,6 @@ async def _provenance(session: AsyncSession, focus: str, issuer_id: Optional[str
         return await _findings(session, run, name, cap, sp_title)
     if focus in ("debate", "tension"):
         return await _debate(name, mods, focus, cap, sp_title)
-    if focus == "diff":
-        return await _diff(session, run, name, cap, sp_title)
     return _empty(cap, "Provenance", f"unknown focus {focus!r}")
 
 
@@ -901,65 +1245,17 @@ async def _debate(name: str, mods: List[ModuleOutput], focus: str, cap: dict, sp
                    ["The chair verdict is a reproducible function of point weights, not a judgement."])
 
 
-async def _diff(session: AsyncSession, run: Run, name: str, cap: dict, sp_title: str) -> dict:
-    # A diff needs two runs that BOTH persisted headline facts. Bare Run rows
-    # over-report — many runs never extracted facts — so select fact-bearing runs,
-    # newest first, for an issuer that has at least two (preferring the run in hand).
-    rows = (await session.execute(
-        select(MetricFact.run_id, Run.issuer_id, Run.created_at, Run.as_of_date)
-        .join(Run, Run.id == MetricFact.run_id)
-        .where(MetricFact.headline.is_(True))
-        .group_by(MetricFact.run_id, Run.issuer_id, Run.created_at, Run.as_of_date)
-    )).all()
-    by_issuer: Dict[str, List[Tuple]] = {}
-    for rid, iid, created, asof in rows:
-        by_issuer.setdefault(iid, []).append((created, rid, asof))
-    eligible = {iid: sorted(v, reverse=True) for iid, v in by_issuer.items() if len(v) >= 2}
-    if not eligible:
-        return _empty(cap, "Run diff", "No issuer has two runs with comparable headline facts yet.")
-    iid = run.issuer_id if run.issuer_id in eligible else max(eligible, key=lambda i: eligible[i][0][0])
-    issuer = await session.get(Issuer, iid)
-    iname = issuer.name if issuer else name
-    (_c1, cur_id, cur_asof), (_c2, prev_id, prev_asof) = eligible[iid][0], eligible[iid][1]
-
-    async def facts(rid: str) -> Dict[str, float]:
-        rs = (await session.execute(
-            select(MetricFact.metric_key, MetricFact.value)
-            .where(MetricFact.run_id == rid, MetricFact.headline.is_(True))
-        )).all()
-        return {k: v for k, v in rs}
-
-    a, b = await facts(cur_id), await facts(prev_id)
-    keys = sorted(set(a) | set(b))
-    nodes, edges = [], []
-    pos = _spread(len(keys), y=0.5, x0=0.12, x1=0.88)
-    moved = 0
-    for k, (x, _y) in zip(keys, pos):
-        md = CATALOG_BY_KEY.get(k)
-        av, bv = a.get(k), b.get(k)
-        if av is None:
-            kind, sub = "metric", "dropped"
-        elif bv is None:
-            kind, sub = "metric", "new"
-        else:
-            delta = round(av - bv, 2)
-            # Adverse = the metric moved in its *bad* direction (polarity-aware).
-            worse = bool(md) and ((delta > 0 and not md.higher_is_better) or (delta < 0 and md.higher_is_better))
-            kind = "metric" if delta == 0 else ("finding-mat" if worse else "point-bull")
-            sub = f"{bv:g} → {av:g}" + (f" ({'+' if delta >= 0 else ''}{delta})" if delta else " (flat)")
-            moved += 1 if delta else 0
-        nodes.append(_node(f"d:{k}", md.label if md else k, kind, x, 0.5, sub=sub, run_spoke_title=sp_title))
-    meta = [iname, f"{cur_asof or 'current'} vs {prev_asof or 'prior'}",
-            f"{len(keys)} metrics · {moved} moved"]
-    return _result(cap, f"{iname} — what changed", nodes, edges, meta,
-                   ["Current vs prior fact-bearing run. Amber = adverse move, green = improvement (polarity-aware)."])
+# Wiki graph bounds: the vault mirrors every run as a note, but the GRAPH is a
+# structural overview, not a ledger — render the newest few spokes per issuer.
+_WIKI_RUNS_PER_ISSUER = 2
+_WIKI_RUN_CAP = 300  # same posture as _GATE_NODE_CAP
 
 
 async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
     covered = set((await session.execute(
         select(MetricFact.issuer_id).where(MetricFact.headline.is_(True))
     )).scalars())
-    covered |= set((await session.execute(select(Run.issuer_id))).scalars())
+    covered |= set((await session.execute(select(Run.issuer_id).distinct())).scalars())
     if not covered:
         return _empty(cap, "Wiki Graph", "No analyzed issuers to display in the wiki.")
 
@@ -967,8 +1263,25 @@ async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
         select(Issuer).where(Issuer.id.in_(covered))
     )).scalars().all()
 
+    # Run is append-only (never pruned), so an uncapped select here grows without
+    # bound and every node lands in the overlay LLM prompt (BE5-1). Newest runs
+    # per issuer via the same SQL window the fact reads use (rn ≤ per-issuer cap),
+    # then a severity-neutral total cap; true totals stay in meta.
+    win = select(
+        Run.id.label("rid"),
+        func.row_number().over(
+            partition_by=Run.issuer_id,
+            order_by=(Run.created_at.desc().nullslast(), Run.id.desc()),
+        ).label("rn"),
+    ).where(Run.issuer_id.in_(covered)).subquery()
+    total_runs = int((await session.execute(
+        select(func.count()).select_from(Run).where(Run.issuer_id.in_(covered))
+    )).scalar() or 0)
     runs = (await session.execute(
-        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id).where(Run.issuer_id.in_(covered))
+        select(Run, Issuer).join(Issuer, Run.issuer_id == Issuer.id)
+        .where(Run.id.in_(select(win.c.rid).where(win.c.rn <= _WIKI_RUNS_PER_ISSUER)))
+        .order_by(Run.created_at.desc().nullslast(), Run.id.desc())
+        .limit(_WIKI_RUN_CAP)
     )).all()
 
     nodes = []
@@ -994,14 +1307,28 @@ async def _cluster_by_wiki(session: AsyncSession, cap: dict) -> dict:
             edges.append(_edge(center_id, iss.id, kind="member"))
 
     from vault_export import spoke_title
-    for i, (run, issuer) in enumerate(runs):
+    # Anchor each run spoke just outside its issuer's ring position (was a fixed
+    # (0.5, 0.5) — every run node stacked on the canvas centre); siblings step
+    # further out so an issuer's newest-2 spokes never overlap.
+    issuer_xy = {iss.id: xy for iss, xy in zip(issuers, iss_pos)}
+    seen_per_issuer: Dict[str, int] = {}
+    for run, issuer in runs:
         sp_title = spoke_title(issuer.name, {"id": run.id, "as_of_date": run.as_of_date})
         nid = f"run:{run.id}"
         label = f"Run {run.as_of_date or run.id[:8]}"
-        nodes.append(_node(nid, label, "module", 0.5, 0.5, run_spoke_title=sp_title, sub=run.committee_status))
+        j = seen_per_issuer.get(issuer.id, 0)
+        seen_per_issuer[issuer.id] = j + 1
+        ix, iy = issuer_xy.get(issuer.id, (0.5, 0.5))
+        dx, dy = ix - 0.5, iy - 0.5
+        norm = (dx * dx + dy * dy) ** 0.5 or 1.0
+        reach = 0.52 + 0.07 * j
+        rx = min(0.96, max(0.04, 0.5 + dx / norm * reach))
+        ry = min(0.96, max(0.04, 0.5 + dy / norm * reach))
+        nodes.append(_node(nid, label, "module", rx, ry, run_spoke_title=sp_title, sub=run.committee_status))
         edges.append(_edge(issuer.id, nid, kind="dep"))
 
-    meta = [f"{len(issuers)} issuers", f"{len(runs)} runs", f"{len(industries)} sectors"]
+    shown = f"{total_runs} runs" if total_runs == len(runs) else f"{total_runs} runs · showing newest {len(runs)}"
+    meta = [f"{len(issuers)} issuers", shown, f"{len(industries)} sectors"]
     return _result(cap, "Wiki Knowledge Graph", nodes, edges, meta,
                    ["Traverses the derived wiki note structure. Issuers link to sectors, runs link to issuers."])
 
@@ -1098,7 +1425,8 @@ async def _append_accepted_links(session: AsyncSession, graph: dict) -> dict:
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 async def build_graph(session: AsyncSession, capability_id: str,
-                      issuer_id: Optional[str] = None) -> dict:
+                      issuer_id: Optional[str] = None,
+                      theme: Optional[str] = None) -> dict:
     cap = CAP_BY_ID.get(capability_id)
     if cap is None:
         raise KeyError(capability_id)
@@ -1106,7 +1434,13 @@ async def build_graph(session: AsyncSession, capability_id: str,
     if mode == "peers":
         graph = await _peers(session, issuer_id, cap)
     elif mode == "contagion":
-        graph = await _contagion(session, cap["params"].get("theme"), cap)
+        # Two overlays share the render mode but not the anchor: shared-theme is
+        # a generic corpus co-mention driven by the analyst's ``theme``; contagion
+        # stays the energy-fact overlay and ignores any supplied theme.
+        if capability_id == "shared-theme":
+            graph = await _shared_theme(session, theme or cap["params"].get("theme"), cap)
+        else:
+            graph = await _contagion(session, cap["params"].get("theme"), cap)
     elif mode == "concentration":
         graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
     elif mode == "provenance":
@@ -1161,4 +1495,4 @@ if __name__ == "__main__":  # ponytail: DB-free self-check over the pure logic
     assert _clip("x" * 200).endswith("…") and len(_clip("x" * 200)) <= 90
 
     print("querygraph self-check OK —", len(ids), "capabilities,",
-          len({c['mode'] for c in CAP_BY_ID.values()}), "builders")
+          len({c['mode'] for c in CAP_BY_ID.values()}), "render modes")

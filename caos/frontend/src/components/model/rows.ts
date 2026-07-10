@@ -43,6 +43,10 @@ export interface RowDef {
   pct?: 1;
   src?: string;
   formula?: string;
+  /** ATLF-specific lineage tail shown only for the reference issuer — appended
+   *  to `formula` when one exists, standalone otherwise (a refNote-only row
+   *  falls back to the plain-source line for live issuers). */
+  refNote?: string;
 }
 
 export const ROWS: RowDef[] = [
@@ -53,7 +57,9 @@ export const ROWS: RowDef[] = [
   { id: "gsegF", l: "% growth", g: (c) => c.gSegF, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "segA", l: "Aftermarket & Services", g: (c) => c.segA, f: "m", ind: 1, shade: 1, src: "cp1a" },
   { id: "gsegA", l: "% growth", g: (c) => c.gSegA, f: "p", ind: 1, pct: 1, src: "cp1b" },
-  { id: "rev", l: "Total revenue", g: (c) => c.rev, f: "m", bold: 1, line: 1, src: "cp1", formula: "Total revenue = Σ divisions · CP-1 T4.7 normalized financials" },
+  // refNote-only: the Σ-divisions claim is ATLF-specific AND false on anchored
+  // live columns (applyAnchor re-bases rev but not the segment rows).
+  { id: "rev", l: "Total revenue", g: (c) => c.rev, f: "m", bold: 1, line: 1, src: "cp1", refNote: "Total revenue = Σ divisions · CP-1 T4.7 normalized financials" },
   { id: "grev", l: "% growth", g: (c) => c.gRev, f: "p", ind: 1, pct: 1, src: "cp1b" },
   { id: "cogs", l: "COGS", g: (c) => -c.cogs, f: "m", ind: 1, shade: 1, src: "cp1" },
   { id: "gp", l: "Gross Profit", g: (c) => c.gp, f: "m", bold: 1, src: "cp1" },
@@ -71,7 +77,7 @@ export const ROWS: RowDef[] = [
 
   { sec: "Cash Flow" },
   { id: "adj2", l: "Adj. EBITDA", g: (c) => c.adj, f: "m", bold: 1 },
-  { id: "int", l: "Cash Interest", g: (c) => -c.int, f: "m", ind: 1, shade: 1, src: "cp2f", formula: "Cash interest = Σ instrument balance × (base rate + margin) · CP-2F T2F.2 — modeled, hedging register absent (L-04)" },
+  { id: "int", l: "Cash Interest", g: (c) => -c.int, f: "m", ind: 1, shade: 1, src: "cp2f", formula: "Cash interest = Σ instrument balance × (base rate + margin)", refNote: "CP-2F T2F.2 — modeled, hedging register absent (L-04)" },
   { id: "leases", l: "Leases", g: (c) => -c.leases, f: "m", ind: 1, shade: 1 },
   { id: "tax", l: "Cash Taxes", g: (c) => -c.tax, f: "m", ind: 1, shade: 1 },
   { id: "oth", l: "Other", g: (c) => -c.oth, f: "m", ind: 1, shade: 1 },
@@ -82,16 +88,17 @@ export const ROWS: RowDef[] = [
   { id: "fcf", l: "FCF", g: (c) => c.fcf, f: "m", bold: 1, src: "cp1k22", formula: "FCF = CFO − capex & intangible investment · CP-1 calc register K-22" },
   { id: "acq", l: "Acquisitions", g: (c) => c.acq, f: "m", ind: 1, shade: 1 },
   { id: "diss", l: "Debt Issue / (Repay)", g: (c) => c.diss, f: "m", ind: 1, shade: 1, src: "cp3b" },
-  { id: "div", l: "Dividends", g: (c) => c.div, f: "m", ind: 1, shade: 1, src: "cp2d", formula: "Sponsor distributions · watch CP-2D flag — RP basket $240M (trigger T-4)" },
+  { id: "div", l: "Dividends", g: (c) => c.div, f: "m", ind: 1, shade: 1, src: "cp2d", formula: "Sponsor distributions", refNote: "watch CP-2D flag — RP basket $240M (trigger T-4)" },
   { id: "othf", l: "Other", g: (c) => c.othf, f: "m", ind: 1, shade: 1 },
-  { id: "ncf", l: "NCF", g: (c) => c.ncf, f: "m", bold: 1, line: 1, src: "cp2e", formula: "NCF = FCF + acquisitions + debt issue/(repay) + dividends + other · ties CP-2E bridge" },
+  { id: "ncf", l: "NCF", g: (c) => c.ncf, f: "m", bold: 1, line: 1, src: "cp2e", formula: "NCF = FCF + acquisitions + debt issue/(repay) + dividends + other", refNote: "ties CP-2E bridge" },
 
   { sec: "Balance Sheet" },
-  { id: "cash", l: "Cash", g: (c) => c.cash, f: "m", bold: 1, src: "cp2e", formula: "Cash rolls forward from NCF · anchored to CP-2E beginning liquidity register ($184M Mar-26)" },
+  { id: "cash", l: "Cash", g: (c) => c.cash, f: "m", bold: 1, src: "cp2e", formula: "Cash rolls forward from NCF", refNote: "anchored to CP-2E beginning liquidity register ($184M Mar-26)" },
   { id: "rcfsize", l: "RCF size", g: (c) => c.rcfSize, f: "m", ind: 1, shade: 1, src: "cp3b" },
   { id: "rcf", l: "RCF (drawn)", sub: "S+350", g: (c) => c.rcf, f: "m", ind: 1, shade: 1, src: "cp3b" },
   { id: "tlb", l: "1L Term Loan", sub: "S+375", g: (c) => c.tlb, f: "m", ind: 1, shade: 1, src: "cp3b" },
-  { id: "ssn", l: "2L TL '31", sub: "S+425", g: (c) => c.ssn, f: "m", ind: 1, shade: 1, src: "cp3b", formula: "2L bridge to May-26, refinanced by the subject 2L TL '31 at issue · CP-3B T3B.2" },
+  // refNote-only: the bridge/refi story is an ATLF deal fact, not a formula.
+  { id: "ssn", l: "2L TL '31", sub: "S+425", g: (c) => c.ssn, f: "m", ind: 1, shade: 1, src: "cp3b", refNote: "2L bridge to May-26, refinanced by the subject 2L TL '31 at issue · CP-3B T3B.2" },
   { id: "sub", l: "Sub Notes '32", sub: "10.000%", g: (c) => c.sub, f: "m", ind: 1, shade: 1, src: "cp3b" },
   { id: "secured", l: "Secured Debt", g: (c) => c.secured, f: "m", bold: 1, src: "cp3b" },
   { id: "tdebt", l: "Total Debt", g: (c) => c.tdebt, f: "m", bold: 1, line: 1, src: "cp3b" },
@@ -103,7 +110,7 @@ export const ROWS: RowDef[] = [
   { sec: "KPIs" },
   { id: "srsec", l: "Sr. Sec Net Leverage", g: (c) => c.srsec, f: "x", ind: 1 },
   { id: "totlev", l: "Total Leverage", g: (c) => c.totlev, f: "x", ind: 1 },
-  { id: "netlev", l: "Total Net Leverage", g: (c) => c.netlev, f: "x", bold: 1, src: "cp1", formula: "Total Net Leverage = (Total Debt − Cash) / Adj. EBITDA · ties to Q1-26 compliance cert 5.68x" },
+  { id: "netlev", l: "Total Net Leverage", g: (c) => c.netlev, f: "x", bold: 1, src: "cp1", formula: "Total Net Leverage = (Total Debt − Cash) / Adj. EBITDA", refNote: "ties to Q1-26 compliance cert 5.68x" },
   { id: "intcov", l: "Interest Coverage", g: (c) => c.intcov, f: "x", ind: 1 },
   { id: "fcfd", l: "FCF as % of Debt", g: (c) => c.fcfdebt, f: "p", ind: 1, pct: 1 },
   { id: "sga", l: "SG&A % of Sales", g: (c) => c.sga, f: "p", ind: 1, pct: 1, shade: 1 },

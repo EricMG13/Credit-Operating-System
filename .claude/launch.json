@@ -42,6 +42,20 @@
       "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/frontend' && NEXT_PUBLIC_API_URL='http://localhost:8020' NEXT_DIST_DIR='.next-qa2' PORT=3020 exec npm run dev"],
       "autoPort": false,
       "port": 3020
+    },
+    {
+      "name": "qa3-backend",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/server' && PORT=8030 HOST=127.0.0.1 ENVIRONMENT=development CAOS_DEMO_SEED=1 DATABASE_URL='sqlite+aiosqlite:////Users/ericguei/Claude/Projects/Credit Operating System/caos/server/data/caos_qa3.db' SESSION_SECRET='qa-fixed-secret-do-not-change' ANTHROPIC_API_KEY= EDGAR_USER_AGENT= VAULT_EXPORT_DIR= exec .venv/bin/python run.py"],
+      "autoPort": false,
+      "port": 8030
+    },
+    {
+      "name": "qa3-frontend",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/frontend' && NEXT_PUBLIC_API_URL='http://localhost:8030' NEXT_DIST_DIR='.next-qa3' PORT=3030 exec npm run dev"],
+      "autoPort": false,
+      "port": 3030
     }
   ]
 }

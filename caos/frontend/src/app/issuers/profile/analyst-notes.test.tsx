@@ -63,6 +63,6 @@ describe("AnalystNotesPanel", () => {
 
     render(<AnalystNotesPanel issuerId="iss-1" issuerName="VMO2" ticker={null} />);
 
-    expect(await screen.findByText("Couldn't load analyst notes - sync failed")).toBeTruthy();
+    expect(await screen.findByText("Couldn't load analyst notes — sync failed")).toBeTruthy();
   });
 });

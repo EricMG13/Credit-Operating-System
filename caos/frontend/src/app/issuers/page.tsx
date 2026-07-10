@@ -1,23 +1,25 @@
 "use client";
 
-// Issuer Directory — the workspace hub, in the CAOS design language shared by
+// Issuer Register — the workspace hub, in the CAOS design language shared by
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getIssuers, createIssuer } from "@/lib/api";
+import { getIssuers, createIssuer, toErrorMessage } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { TextInput } from "@/components/shared/TextInput";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerSector } from "@/lib/issuers";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
+import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 export default function IssuersPage() {
   return (
@@ -28,7 +30,14 @@ export default function IssuersPage() {
 }
 
 
-const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", rating_sp: "", rating_moody: "", rating_fitch: "" };
+// Ratings are no longer typed here — collected from ingested structured sheets
+// (see server ratings.py / ingestion._collect_ratings) and still shown read-only
+// in the directory + profile from the issuer record.
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "" };
+const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
+const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
+
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
@@ -43,8 +52,23 @@ function IssuersDirectory() {
   // but a banner makes the degraded state explicit rather than passing fabricated
   // issuers off as real coverage (trust-through-transparency). See QA BUG-002.
   const [degraded, setDegraded] = useState(false);
+  // True when the registry is reachable but *empty*, so the rows on screen are
+  // the DEMO_UNIVERSE sample rather than real coverage. Distinct from `degraded`
+  // (fetch failure): a neutral, non-alarming signal that invites starting real
+  // coverage rather than warning of a broken fetch. See QA BUG-002.
+  const [demo, setDemo] = useState(false);
+  // Latches once a real (non-demo, non-empty) registry response lands this
+  // session. Used by the fetch-failure path to decide whether it may fall back
+  // to the demo universe (only when no real coverage was ever loaded) rather
+  // than swapping the analyst's actual book for fabricated rows. A ref, not
+  // state, so the effect's catch reads the live value without re-subscribing.
+  const hadRealCoverage = useRef(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [filters, setFilters] = useState<FilterState>({});
+  // Column sort. Default: issuer name ascending, so a 60+ name register lands
+  // in a scannable order (H7). Clicking a sortable header cycles asc→desc→none;
+  // `null` (cleared) reverts to the raw server/demo order.
+  const [sort, setSort] = useState<SortState>({ col: "name", dir: "asc" });
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -65,11 +89,25 @@ function IssuersDirectory() {
         .then((rows) => {
           if (stale) return;
           setDegraded(false);
-          setIssuers(rows.length > 0 ? rows : demoFiltered());
+          const empty = rows.length === 0;
+          setDemo(empty);
+          if (!empty) hadRealCoverage.current = true;
+          setIssuers(empty ? demoFiltered() : rows);
         })
-        // Network/500 → degrade to the demo directory (so it's not a blank table
-        // or an unhandled rejection) AND flag it, so the banner can say so.
-        .catch(() => { if (!stale) { setDegraded(true); setIssuers(demoFiltered()); } })
+        // Network/500 → degrade, but NEVER swap real coverage for fabricated
+        // sample rows: if we already have real issuers loaded this session, keep
+        // them on screen (the banner explains it's a stale/last-loaded view).
+        // Only fall back to the demo universe when no real coverage was ever
+        // fetched — otherwise the register would show demo names where the
+        // analyst's actual book just was (worst failure shape; QA BUG-002).
+        .catch(() => {
+          if (stale) return;
+          setDegraded(true);
+          setDemo(false);
+          // Retain the last real rows if we ever had them; only fabricate demo
+          // coverage when nothing real was ever loaded this session.
+          setIssuers((prev) => (hadRealCoverage.current && prev.length > 0 ? prev : demoFiltered()));
+        })
         .finally(() => { if (!stale) setLoading(false); });
     }, query ? 200 : 0);
     return () => { stale = true; clearTimeout(t); };
@@ -80,18 +118,49 @@ function IssuersDirectory() {
     if (q) setQuery(q);
   }, []);
 
-  const cols = "grid grid-cols-[64px_minmax(200px,1.5fr)_1fr_1fr_110px_120px_90px] items-center gap-x-3";
-  const filterKeys = ["ticker", "name", "sector", "sub_sector", "country", "figi", "action"] as const;
-  const filterVals = useMemo<Record<(typeof filterKeys)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
+  const filterVals = useMemo<Record<(typeof FILTER_KEYS)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
     ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
     name: (i) => i.name,
+    rating: (i) => issuerRating(i) || "—",
     sector: (i) => issuerSector(i) || "—",
     sub_sector: (i) => i.sub_sector || "—",
     country: (i) => i.country || "—",
-    figi: (i) => i.figi || "—",
     action: () => "UPLOAD",
   }), []);
-  const shownIssuers = useColumnFilters(issuers, filters, filterVals);
+  const filteredIssuers = useColumnFilters(issuers, filters, filterVals);
+
+  // Apply the active column sort after filtering. Comparison reuses the same
+  // per-column accessors as filtering (filterVals), so what you sort by is
+  // exactly what the row shows. Placeholder "—" cells sink to the bottom on
+  // asc and rise last on desc rather than colliding with real values. A stable
+  // tie-break on issuer name keeps equal keys in a deterministic order.
+  const shownIssuers = useMemo(() => {
+    if (!sort || !SORTABLE.has(sort.col)) return filteredIssuers;
+    const get = filterVals[sort.col as keyof typeof filterVals];
+    const factor = sort.dir === "asc" ? 1 : -1;
+    const norm = (v: string | number | null | undefined) => {
+      if (v == null) return "";
+      const s = String(v).trim();
+      return s === "—" ? "" : s;
+    };
+    const cmp = (a: Issuer, b: Issuer) => {
+      const av = norm(get(a));
+      const bv = norm(get(b));
+      // Empty/placeholder always sorts last, regardless of direction.
+      if (av === "" && bv === "") return 0;
+      if (av === "") return 1;
+      if (bv === "") return -1;
+      const primary = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" }) * factor;
+      if (primary !== 0) return primary;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    };
+    return [...filteredIssuers].sort(cmp);
+  }, [filteredIssuers, sort, filterVals]);
+  const cycleSort = (col: string) =>
+    setSort((s) =>
+      s?.col !== col ? { col, dir: "asc" } : s.dir === "asc" ? { col, dir: "desc" } : null
+    );
+  const ratedCount = useMemo(() => issuers.filter((i) => issuerRating(i)).length, [issuers]);
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((f) => {
       const next = { ...f };
@@ -103,41 +172,87 @@ function IssuersDirectory() {
       return next;
     });
 
-  return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <span className="flex items-center gap-2">
-          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-          <span className="text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">CREDIT OS</span>
-          <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
-        </span>
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Issuer Directory</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
-          {loading
-            ? "loading…"
-            : query
-            ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
-            : issuers.length + " issuers · US HY sleeve"}
-        </span>
-        <div className="flex-1" />
-        <ConceptNav />
-        <div className="h-4 w-px bg-caos-border" />
+  const summaryLabel = loading
+    ? "loading…"
+    : query
+    ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
+    : demo
+    ? DEMO_UNIVERSE.length + " sample issuers"
+    : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve";
+
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <ConceptNav compact />
+        <span className="h-4 w-px bg-caos-border shrink-0" />
         <Link
           href="/upload"
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
-          UPLOAD DOCUMENTS
+          UPLOAD
         </Link>
+      </>
+    ),
+  };
+
+  return (
+    <ResponsiveShell
+      identity={
+        <>
+          <span className="flex items-center gap-2 shrink-0">
+            <span
+              className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold"
+              style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
+            >
+              C
+            </span>
+            <span className="text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
+              CREDIT OS
+            </span>
+            <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
+              v2.2
+            </span>
+          </span>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap">
+            Issuer Register
+          </span>
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
+            {summaryLabel}
+          </span>
+          {!loading && demo ? (
+            <span
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden sm:inline"
+              style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
+              title="No live coverage yet — these are sample issuers, not real coverage"
+            >
+              Demo coverage
+            </span>
+          ) : null}
+        </>
+      }
+      primaryAction={
         <button
           onClick={() => setShowForm(true)}
-          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring"
         >
           + NEW ISSUER
         </button>
-      </div>
-
+      }
+      contextualControls={
+        <>
+          <ConceptNav />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <Link
+            href="/upload"
+            className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          >
+            UPLOAD DOCUMENTS
+          </Link>
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* degraded banner — registry fetch failed; demo coverage shown is NOT live */}
       {degraded ? (
         <div
@@ -146,12 +261,36 @@ function IssuersDirectory() {
           style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 12%, transparent)", color: "var(--caos-text)" }}
         >
           <StatusGlyph kind="warning" />
-          <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+          {hadRealCoverage.current ? (
+            <span>Couldn&rsquo;t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>the last loaded results</span>, which may be out of date.</span>
+          ) : (
+            <span>Couldn&rsquo;t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+          )}
           <button
             onClick={() => setReloadKey((k) => k + 1)}
             className="ml-1 tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
           >
             RETRY
+          </button>
+        </div>
+      ) : null}
+
+      {/* demo banner — registry is reachable but empty; the rows below are a
+          sample sleeve, not real coverage. Neutral (not warning): an invitation
+          to start coverage, styled apart from the amber fetch-failure banner. */}
+      {!loading && demo && !degraded ? (
+        <div
+          className="shrink-0 mx-2 mt-2 flex items-center gap-2 px-3 py-1.5 rounded border border-caos-border bg-caos-elevated/40 tabular text-caos-sm text-caos-muted"
+        >
+          <StatusGlyph kind="idle" className="text-caos-muted" />
+          <span>
+            No live coverage yet — showing a <span className="text-caos-text">sample sleeve</span> so you can explore the workspace.
+          </span>
+          <button
+            onClick={() => setShowForm(true)}
+            className="ml-1 tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring whitespace-nowrap"
+          >
+            + NEW ISSUER
           </button>
         </div>
       ) : null}
@@ -189,10 +328,22 @@ function IssuersDirectory() {
           }
         >
           {loading ? (
-            <div className="px-3 py-3 text-caos-lg text-caos-muted">Loading issuers…</div>
+            <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className={COLS + " px-3 py-[7px] border-b border-caos-border/50"}>
+                  <span className="h-2.5 w-9 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-44 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-8 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-24 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-20 rounded-sm bg-caos-elevated/70" />
+                  <span className="h-2.5 w-16 rounded-sm bg-caos-elevated/70" />
+                  <span />
+                </div>
+              ))}
+            </div>
           ) : issuers.length === 0 && query ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-2xl font-medium">No matches for “{query}”</p>
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for &ldquo;{query}&rdquo;</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
                 Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
               </p>
@@ -205,7 +356,7 @@ function IssuersDirectory() {
             </div>
           ) : issuers.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-2xl font-medium">No issuers yet</p>
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No issuers yet</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
                 Add your first issuer, then drop its deal documents and pick a run mode to start a run.
               </p>
@@ -216,22 +367,38 @@ function IssuersDirectory() {
                 + NEW ISSUER
               </button>
             </div>
+          ) : shownIssuers.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No rows match the active column filters</p>
+              <p className="text-caos-muted text-caos-lg max-w-xs">
+                {issuers.length} issuer{issuers.length === 1 ? "" : "s"} in the register are hidden by the filters set on one or more columns.
+              </p>
+              <button
+                onClick={() => setFilters({})}
+                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+              >
+                CLEAR FILTERS
+              </button>
+            </div>
           ) : (
-            <div className="text-caos-xl">
-              <div className={cols + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
-                {["Ticker", "Issuer", "Sector", "Sub-sector", "Country", "FIGI", ""].map((h, i) => (
+            <div role="grid" className="text-caos-xl">
+              <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+                {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
-                    key={i}
-                    label={h || "Action"}
-                    col={filterKeys[i]}
-                    rows={issuers}
-                    getValue={filterVals[filterKeys[i]]}
-                    selected={filters[filterKeys[i]]}
-                    onChange={setFilter}
-                    className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
-                  >
-                    {h}
-                  </FilterHeader>
+                     key={i}
+                     label={h || "Action"}
+                     col={FILTER_KEYS[i]}
+                     rows={issuers}
+                     getValue={filterVals[FILTER_KEYS[i]]}
+                     selected={filters[FILTER_KEYS[i]]}
+                     onChange={setFilter}
+                     sortable={SORTABLE.has(FILTER_KEYS[i])}
+                     sortState={sort}
+                     onSort={cycleSort}
+                     className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
+                   >
+                     {h}
+                   </FilterHeader>
                 ))}
               </div>
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
@@ -241,36 +408,53 @@ function IssuersDirectory() {
               {shownIssuers.map((issuer) => (
                 <div
                   key={issuer.id}
-                  className={cols + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
+                  role="row"
+                  className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
                   {/* Stretched primary link: whole row is the click target for mouse,
                       and a single keyboard/SR-focusable control per row. Replaces the
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
-                  <a
-                    href={issuerProfileHref(issuer)}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openProfile(issuer.id);
-                    }}
-                    aria-label={`Open profile for ${issuer.name}`}
-                    className="absolute inset-0 z-0 focus-ring cursor-pointer"
-                  />
-                  <span className="tabular text-caos-accent text-caos-lg">
+                  <span role="gridcell" className="absolute inset-0 z-0 pointer-events-none">
+                    <a
+                      href={issuerProfileHref(issuer)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openProfile(issuer.id);
+                      }}
+                      aria-label={`Open profile for ${issuer.name}`}
+                      className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
+                    />
+                  </span>
+                  <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span className="text-caos-text text-caos-xl truncate group-hover:text-white transition-caos">{issuer.name}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
-                  <span className="tabular text-caos-muted text-caos-sm truncate">{issuer.figi || "—"}</span>
-                  <button
-                    onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
-                    aria-label={`Upload documents for ${issuer.name}`}
-                    className="relative z-[1] inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
-                  >
-                    UPLOAD
-                  </button>
+                  <span role="gridcell" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+                  {(() => {
+                    const r = issuerRating(issuer);
+                    return (
+                      <span
+                        role="gridcell"
+                        className="tabular text-caos-md truncate"
+                        title={r ? "Agency rating — S&P / Moody's / Fitch (first on file)" : "No agency rating on file"}
+                        style={{ color: r ? (ratingDistressed(r) ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
+                      >
+                        {r || "—"}
+                      </span>
+                    );
+                  })()}
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
+                  <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
+                    <button
+                      onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
+                      aria-label={`Upload documents for ${issuer.name}`}
+                      className="inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
+                    >
+                      UPLOAD
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -288,7 +472,7 @@ function IssuersDirectory() {
           }}
         />
       ) : null}
-    </div>
+    </ResponsiveShell>
   );
 }
 
@@ -318,15 +502,14 @@ function NewIssuerModal({
       onCreated(await createIssuer(form));
       onClose();
     } catch (err) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setCreateError(detail || "Couldn't create the issuer. Check the details and try again.");
+      setCreateError(toErrorMessage(err, "Couldn't create the issuer. Check the details and try again."));
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <form
         ref={panelRef}
         role="dialog"
@@ -344,19 +527,18 @@ function NewIssuerModal({
           <CloseButton onClick={onClose} />
         </div>
         <div className="p-3 flex flex-col gap-2.5">
+          {/* max mirrors the server caps (routes/issuers.py IssuerCreate + the
+              issuers DB columns) so a length 422/500 is unreachable from typing */}
           {([
-            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials" },
-            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF" },
-            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials" },
-            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components" },
-            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9" },
-            { key: "rating_sp", label: "S&P rating", required: false, ph: "e.g. B+" },
-            { key: "rating_moody", label: "Moody’s rating", required: false, ph: "e.g. B1" },
-            { key: "rating_fitch", label: "Fitch rating", required: false, ph: "e.g. BB-" },
-          ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string }[]).map(({ key, label, required, ph }) => (
+            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials", max: 255 },
+            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF", max: 32 },
+            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
+            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
+            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
+          ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
-              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} className="w-full px-2.5 py-1.5 text-caos-lg" />
+              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} maxLength={max} className="w-full px-2.5 py-1.5 text-caos-lg" />
             </div>
           ))}
           <div>
@@ -384,6 +566,6 @@ function NewIssuerModal({
           </button>
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

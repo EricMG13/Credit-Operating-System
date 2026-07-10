@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 
@@ -17,28 +18,26 @@ def build_register(up: Dict[str, ModulePayload]) -> List[dict]:
     """Forward catalysts derived from the produced upstream payloads."""
     catalysts: List[dict] = []
 
-    cp1b = up.get("CP-1B")
-    if cp1b is not None:
+    if cp1b := up.get("CP-1B"):
         rt = cp1b.runtime_output or {}
-        for sig in rt.get("monitoring_signals") or []:
-            catalysts.append({"event": f"Confirm/refute: {sig}", "type": "earnings",
-                              "horizon": "next reporting period", "impact": "HIGH", "source": "CP-1B"})
-        latest = (rt.get("summary") or {}).get("latest_period")
-        if latest:
+        catalysts.extend({"event": f"Confirm/refute: {sig}", "type": "earnings",
+                          "horizon": "next reporting period", "impact": "HIGH", "source": "CP-1B"}
+                         for sig in rt.get("monitoring_signals") or [])
+        if latest := (rt.get("summary") or {}).get("latest_period"):
             catalysts.append({"event": f"Next print after {latest}", "type": "earnings",
                               "horizon": "next quarter", "impact": "MEDIUM", "source": "CP-1B"})
 
-    cp1c = up.get("CP-1C")
-    if cp1c is not None:
-        for label in (cp1c.runtime_output or {}).get("outlier_metrics") or []:
-            catalysts.append({"event": f"Close/widen the peer gap on {label}", "type": "relative_value",
-                              "horizon": "ongoing", "impact": "MEDIUM", "source": "CP-1C"})
+    if cp1c := up.get("CP-1C"):
+        catalysts.extend({"event": f"Close/widen the peer gap on {label}", "type": "relative_value",
+                          "horizon": "ongoing", "impact": "MEDIUM", "source": "CP-1C"}
+                         for label in (cp1c.runtime_output or {}).get("outlier_metrics") or [])
 
-    cp1 = up.get("CP-1")
-    lev = ((cp1.runtime_output or {}).get("normalized_financials") or {}).get("net_leverage_adj_ltm") if cp1 else None
-    if isinstance(lev, (int, float)) and lev >= 5.0:
-        catalysts.append({"event": f"Deleveraging progress from {lev:g}x net", "type": "credit",
-                          "horizon": "current FY", "impact": "MEDIUM", "source": "CP-1"})
+    if cp1 := up.get("CP-1"):
+        lev = (cp1.runtime_output or {}).get("normalized_financials", {}).get("net_leverage_adj_ltm")
+        # CP-1 net leverage check per engine CP-1 convention
+        if is_finite_number(lev) and lev >= 5.0:
+            catalysts.append({"event": f"Deleveraging progress from {lev:g}x net", "type": "credit",
+                              "horizon": "current FY", "impact": "MEDIUM", "source": "CP-1"})
 
     return catalysts
 

@@ -11,7 +11,7 @@ import type { Overrides } from "@/lib/reports/model";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { ROWS, SRC } from "./rows";
 import { CW, fmt, GROUPS_META, isEditable, LBL, ovField } from "./model-format";
-import { cellBackground, cellBoxShadow, cellTextColor } from "./cell-style";
+import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressLevel, KPI_DISTRESS_GLYPH } from "./cell-style";
 
 export interface CellRef {
   row: string;
@@ -38,6 +38,11 @@ interface ColDef {
 
 /* ---------- cell editor ---------- */
 function CellInput({ initial, label, onCommit }: { initial: string; label: string; onCommit: (v: string | null) => void }) {
+  // A no-op edit (open the editor, click away, no keystrokes) must NOT stamp a
+  // spurious MANUAL OVERRIDE. `initial` is the rounded display seed, so any value
+  // string-identical to it is an unchanged blur — commit null (cancel) instead of
+  // re-stamping the cell with a rounded copy of its own sourced actual.
+  const commit = (v: string | null) => onCommit(v != null && v === initial ? null : v);
   return (
     <input
       autoFocus
@@ -47,10 +52,10 @@ function CellInput({ initial, label, onCommit }: { initial: string; label: strin
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         const t = e.target as HTMLInputElement;
-        if (e.key === "Enter") { t.dataset.done = "1"; onCommit(t.value); }
+        if (e.key === "Enter") { t.dataset.done = "1"; commit(t.value); }
         else if (e.key === "Escape") { t.dataset.done = "1"; onCommit(null); }
       }}
-      onBlur={(e) => { if (!e.target.dataset.done) onCommit(e.target.value); }}
+      onBlur={(e) => { if (!e.target.dataset.done) commit(e.target.value); }}
       className="w-full tabular text-caos-xs text-right bg-caos-elevated outline-none px-0.5 rounded-sm"
       style={{ height: 15, border: "1px solid var(--caos-accent)", color: "var(--caos-text)" }}
     />
@@ -73,6 +78,10 @@ export function Sheet({
   onCommit: (value: string | null) => void;
   collapsedRows?: Set<string>;
   onToggleRow?: (row: string) => void;
+  /** Reference (seeded Atlas Forge demo) vs live issuer. Accepted for prop
+   *  symmetry with FormulaBar/Manifest; the Sheet grid itself carries no
+   *  ATLF-specific lineage, so it is not read in the body. Default false. */
+  isReference?: boolean;
 }) {
   const colDefs: ColDef[] = useMemo(() => {
     const list = model.columns.filter((c) => showQ || c.group !== "Q");
@@ -113,8 +122,10 @@ export function Sheet({
 
     if (!sel || rowIds.length === 0 || colKeys.length === 0) return;
 
-    let rowIdx = rowIds.indexOf(sel.row);
-    let colIdx = colKeys.indexOf(sel.col);
+    const startRowIdx = rowIds.indexOf(sel.row);
+    const startColIdx = colKeys.indexOf(sel.col);
+    let rowIdx = startRowIdx;
+    let colIdx = startColIdx;
 
     if (rowIdx === -1 || colIdx === -1) return;
 
@@ -149,6 +160,15 @@ export function Sheet({
             colIdx = 0;
           }
         }
+        // WCAG 2.1.2: at a grid boundary the Tab indices don't change — let the
+        // browser move focus naturally out of the grid instead of trapping it.
+        if (rowIdx === startRowIdx && colIdx === startColIdx) {
+          preventDefault = false;
+        }
+        break;
+      case "Escape":
+        // Return focus to the grid container's natural tab position.
+        (e.currentTarget as HTMLElement).focus();
         break;
       case "Enter":
         const rowId = sel.row;
@@ -163,9 +183,26 @@ export function Sheet({
 
     if (preventDefault) {
       e.preventDefault();
-      onSel({ row: rowIds[rowIdx], col: colKeys[colIdx] });
+      // Escape doesn't move the selection; every other handled key may.
+      if (e.key !== "Escape") onSel({ row: rowIds[rowIdx], col: colKeys[colIdx] });
     }
   };
+
+  // Stable per-cell DOM id, referenced by aria-activedescendant so AT announces
+  // the active cell as arrow keys move the selection.
+  const cellDomId = (rowId: string, colKey: string) => `cell-${rowId}-${colKey}`;
+  const selectedCellId = sel ? cellDomId(sel.row, sel.col) : undefined;
+
+  // Screen-reader description of the current selection (row · period · value).
+  let selectionSummary = "";
+  if (sel) {
+    const selRow = ROWS.find((r) => r.id === sel.row);
+    const selCtx = model.cols[sel.col];
+    if (selRow && selCtx) {
+      const sv = selRow.g ? selRow.g(selCtx) : null;
+      selectionSummary = `${selRow.l} · ${selCtx.label} · ${fmt(sv, selRow.f) || "—"}`;
+    }
+  }
 
   const renderCell = (rowId: string, c: ColDef, opts: { bold?: 1; pct?: 1; shade?: 1; line?: 1; isHl?: boolean }) => {
     const isSel = sel != null && sel.row === rowId && sel.col === c.key;
@@ -180,12 +217,27 @@ export function Sheet({
     const isOv = editable && !!c.ctx.ov && !!c.ctx.ov[field];
     const display = fmt(v, row.f);
     const color = cellTextColor({ rowId, v, isOv, pct: !!opts.pct, bold: !!opts.bold, rowFmt: row.f });
+    // Color-alone fix (interface #3): pair the distress-shaded value with a glyph.
+    const distress = kpiDistressLevel(rowId, v);
+    const distressGlyph = distress ? KPI_DISTRESS_GLYPH[distress] : null;
 
     return (
       <div
         key={c.key}
+        id={cellDomId(rowId, c.key)}
+        role="gridcell"
+        aria-selected={isSel}
         onClick={() => onSel({ row: rowId, col: c.key })}
-        onDoubleClick={() => { if (editable) onEdit({ row: rowId, col: c.key }); }}
+        onDoubleClick={(e) => {
+          if (editable) {
+            // Stop the row-level onDoubleClick (which toggles a collapsible
+            // parent's children) from firing on the SAME gesture that opens the
+            // editor — otherwise overriding a rev / Adj. EBITDA quarterly yanks
+            // the segment / add-back rows shut mid-edit.
+            e.stopPropagation();
+            onEdit({ row: rowId, col: c.key });
+          }
+        }}
         title={editable ? "double-click to override" : undefined}
         className="shrink-0 text-right pr-1.5 cursor-cell"
         style={{
@@ -207,6 +259,9 @@ export function Sheet({
             className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-semibold" : "")}
             style={{ color, borderBottom: isOv ? "1px dotted var(--caos-warning)" : "none" }}
           >
+            {distressGlyph ? (
+              <span aria-hidden className="mr-0.5" style={{ fontSize: "0.75em" }}>{distressGlyph}</span>
+            ) : null}
             {display}
           </span>
         )}
@@ -217,24 +272,34 @@ export function Sheet({
   let rowCounter = 0;
 
   return (
+    <>
+      {/* Visually-hidden live region: names the active cell as selection moves.
+          Lives OUTSIDE the grid — an un-roled div with global ARIA as a direct
+          grid child violates aria-required-children. */}
+      <div className="sr-only" aria-live="polite">
+        {selectionSummary ? `Selected ${selectionSummary}` : ""}
+      </div>
     <div
       tabIndex={0}
+      role="grid"
       aria-label="Model worksheet"
+      aria-activedescendant={selectedCellId}
       onKeyDown={handleKeyDown}
       className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring"
     >
       <div style={{ width: "max-content", minWidth: "100%" }}>
         {/* group bar */}
-        <div className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
+        <div role="row" className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
           <div
+            role="presentation"
             className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
             style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
           />
-          <div className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
+          <div role="columnheader" className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
-            <div key={i} className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
               <div
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "color-mix(in srgb, var(--tranche-2l) 16%, transparent)", transition: "background 160ms" }}
@@ -247,14 +312,19 @@ export function Sheet({
           ))}
         </div>
         {/* period labels */}
-        <div className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
+        <div role="row" className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
           <div
+            role="presentation"
             className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
             style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }}
           />
-          <div className="sticky z-10 shrink-0" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}></div>
+          <div role="columnheader" className="sticky z-10 shrink-0 flex items-end justify-end pr-1.5 pb-0.5" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
+            {colDefs.some((c) => c.ctx.derived) ? (
+              <span className="tabular text-[9px] leading-[10px] whitespace-nowrap select-none" style={{ color: "var(--caos-warning)" }}>* derived period</span>
+            ) : null}
+          </div>
           {colDefs.map((c, colIdx) => (
-            <div key={c.key} className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
+            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
               <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(colIdx)}</span>
               <span
                 className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
@@ -270,7 +340,9 @@ export function Sheet({
           if (row.sec) {
             rowCounter++;
             return (
-              <div key={"s" + ri} className="flex mt-1.5">
+              // Section dividers are visual banding, not data rows — presentation
+              // keeps them out of the grid's aria-required-children contract.
+              <div key={"s" + ri} role="presentation" className="flex mt-1.5">
                 <div
                   className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
                   style={{
@@ -320,11 +392,13 @@ export function Sheet({
           return (
             <div
               key={row.id}
+              role="row"
               onDoubleClick={() => collapsible && onToggleRow?.(row.id!)}
               className="flex group"
               style={{ background: isHl ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}
             >
               <div
+                role="presentation"
                 className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none"
                 style={{
                   width: 24,
@@ -337,6 +411,7 @@ export function Sheet({
                 {rowIdx}
               </div>
               <div
+                role="rowheader"
                 className="sticky z-10 shrink-0 flex items-baseline gap-1.5 px-2"
                 style={{
                   left: 24,
@@ -349,7 +424,9 @@ export function Sheet({
                 {collapsible ? (
                   <button
                     onClick={() => onToggleRow?.(row.id!)}
-                    title={collapsed ? "Expand account rows" : "Collapse account rows"}
+                    aria-label={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
+                    aria-expanded={!collapsed}
+                    title={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
                     className="tabular text-caos-3xs text-caos-accent focus-ring"
                   >
                     {collapsed ? "▸" : "▾"}
@@ -367,6 +444,7 @@ export function Sheet({
         <div className="h-2"></div>
       </div>
     </div>
+    </>
   );
 }
 
@@ -376,16 +454,20 @@ export function Sheet({
 // flow. Extracting would scatter the bar's layout for no real simplification.
 // fallow-ignore-next-line complexity
 export function FormulaBar({
-  model, sel, severity, overrides, onResetCell, onOpenEvidence, showQ, collapsedRows,
+  model, sel, overrides, onResetCell, onOpenEvidence, showQ, collapsedRows, isReference = false,
 }: {
   model: Model;
   sel: CellRef | null;
-  severity: number;
+  /** Reserved for a future analyst severity dial; currently const 1 upstream. */
+  severity?: number;
   overrides: Overrides;
   onResetCell: (key: string) => void;
   onOpenEvidence: (id: string) => void;
   showQ: boolean;
   collapsedRows: Set<string>;
+  /** Reference (seeded Atlas Forge demo) vs live issuer. When false, ATLF-specific
+   *  case notes + the netlev compliance-cert tail are suppressed. Default false. */
+  isReference?: boolean;
 }) {
   if (!sel) {
     return (
@@ -398,14 +480,37 @@ export function FormulaBar({
 
   const row = ROWS.find((r) => r.id === sel.row)!;
   const ctx = model.cols[sel.col];
-  const src = row.src ? SRC[row.src] : null;
+  // SRC is the seeded Atlas Forge module-output set (same registry the Manifest
+  // gates): rendering its chips / L-04 warn / E-xx evidence for a live issuer
+  // would fabricate lineage, so the whole chip block is reference-only.
+  const src = isReference && row.src ? SRC[row.src] : null;
   const v = row.g!(ctx);
   const editable = isEditable(sel.row, sel.col);
   const ovKey = sel.col + ":" + ovField(sel.row);
   const isOv = editable && overrides && overrides[ovKey] != null;
-  const caseNote = ctx.kind === "b" ? "base case = sponsor model − CP-6A chair haircut ($35M) − CP-1B phasing"
-    : ctx.kind === "d" ? `downside = CP-2B pathway P1 (OEM destocking) at severity ×${severity.toFixed(2)}`
-    : ctx.derived ? "derived period — Q4-25 management accounts missing (gap G-02)" : null;
+  const caseNote = ctx.kind === "b"
+    ? (isReference
+        ? "base case = sponsor model − CP-6A chair haircut ($35M) − CP-1B phasing"
+        : "base case = agent forecast")
+    : ctx.kind === "d"
+    ? (isReference
+        ? "downside = CP-2B pathway P1 (OEM destocking)"
+        : "downside = CP-2B first-order EBITDA-shock pathway")
+    : ctx.derived
+    ? (isReference
+        ? "derived period — Q4-25 management accounts missing (gap G-02)"
+        : "derived period")
+    : null;
+
+  // Formula string: keep `row.formula` generic; append the ATLF-specific
+  // `refNote` (e.g. the Q1-26 compliance-cert tie) ONLY for the reference issuer.
+  // A refNote-only row (no generic formula exists) shows the note for the
+  // reference and falls through to the plain-source line for live issuers.
+  const refText = isReference && row.refNote
+    ? (row.formula ? row.formula + " · " + row.refNote : row.refNote)
+    : row.formula;
+  const formulaText = refText
+    || `${row.l} — sourced from ${src ? src.name : "model logic"}`;
 
   // Calculate grid cell coordinate (e.g. C12)
   const colDefs = model.columns.filter((c) => showQ || c.group !== "Q");
@@ -433,7 +538,7 @@ export function FormulaBar({
   const cellCoord = colLetter && visibleRowIndex !== -1 ? `${colLetter}${visibleRowIndex}` : "";
 
   return (
-    <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-hidden">
+    <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-x-auto overflow-y-hidden">
       <span className="tabular text-caos-xl text-caos-accent">ƒ</span>
       {cellCoord ? (
         <span className="tabular text-caos-xs px-1.5 py-0.5 rounded bg-caos-elevated border border-caos-accent/40 text-caos-accent font-semibold select-none">
@@ -457,7 +562,7 @@ export function FormulaBar({
           </button>
         </span>
       ) : (
-        <span className="text-caos-sm text-caos-muted truncate">{row.formula || `${row.l} — sourced from ${src ? src.name : "model logic"}`}</span>
+        <span className="text-caos-sm text-caos-muted truncate">{formulaText}</span>
       )}
       {!isOv && editable ? <span className="tabular text-caos-xs whitespace-nowrap text-caos-accent">✎ historical input — double-click to override</span> : null}
       {caseNote ? (
@@ -482,7 +587,12 @@ export function FormulaBar({
 }
 
 /* ---------- build manifest strip ---------- */
-export function Manifest({ hl, setHl }: { hl: string | null; setHl: (k: string | null) => void }) {
+export function Manifest({ hl, setHl, isReference = false }: { hl: string | null; setHl: (k: string | null) => void; isReference?: boolean }) {
+  // The SRC registry is the seeded Atlas Forge module output set. Presenting it
+  // as a live issuer's sources would fabricate lineage, so for live issuers the
+  // ATLF manifest strip renders nothing (a followup can add real per-issuer
+  // sources). Reference issuer keeps the full traceable chip strip.
+  if (!isReference) return null;
   return (
     <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
       <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Built from</span>

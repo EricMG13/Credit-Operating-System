@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { PortfolioRowDTO } from "@/lib/api";
 import { LiveCoverage } from "./LiveCoverage";
 
@@ -32,5 +32,35 @@ describe("LiveCoverage", () => {
     })]} />);
     // net lev, int cov, RV, fragility all absent → four em-dashes in the row
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("supports selection via click and keyboard (Enter/Space)", () => {
+    const handleSelect = vi.fn();
+    const rows = [row({ issuer_id: "i1", ticker: "AURC", name: "Aurora Cables" })];
+    
+    render(
+      <LiveCoverage rows={rows} selected={null} onSelect={handleSelect} />
+    );
+
+    // The row is a role="row" with tabIndex={0} for keyboard operability,
+    // not a role="button". Accessible name comes from aria-label.
+    const rowEl = screen.getByRole("row", { name: /AURC/i });
+    expect(rowEl).toBeTruthy();
+
+    // Click to select
+    fireEvent.click(rowEl);
+    expect(handleSelect).toHaveBeenCalledWith("AURC");
+
+    handleSelect.mockClear();
+
+    // Press Enter to select
+    fireEvent.keyDown(rowEl, { key: "Enter", code: "Enter" });
+    expect(handleSelect).toHaveBeenCalledWith("AURC");
+
+    handleSelect.mockClear();
+
+    // Press Space to select
+    fireEvent.keyDown(rowEl, { key: " ", code: "Space" });
+    expect(handleSelect).toHaveBeenCalledWith("AURC");
   });
 });
