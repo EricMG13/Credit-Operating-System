@@ -17,14 +17,23 @@ RUN npm run build
 
 # ─── Stage 2: Python runtime (FastAPI + static UI) ──────────────────────────
 # Pinned by digest (#24); refresh with:
-#   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
-FROM python:3.14-slim@sha256:63a4c7f612a00f92042cbdcc7cdc6a306f38485af0a200b9c89de7d9b1607d15 AS runtime
+#   docker buildx imagetools inspect python:3.14-slim --format '{{.Manifest.Digest}}'
+FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
     PORT=8000 \
     ENVIRONMENT=production
 WORKDIR /app
+
+# Scanned/image PDFs carry no text layer — pypdf yields 0 chunks. ocrmypdf (wraps
+# Tesseract + Ghostscript) is the last-resort OCR lane, shelled out via
+# CAOS_OCRMYPDF_CMD only when markitdown and pypdf both come back empty. Own layer,
+# before the pip install, so it caches independently of the app deps. Heavier OCR
+# (tables/equations) = olmOCR, but that needs a GPU → Phase-2.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ocrmypdf tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
 
 # Python deps first for layer caching. If a wheel build ever fails on slim,
 # add: RUN apt-get update && apt-get install -y --no-install-recommends gcc
@@ -37,7 +46,7 @@ WORKDIR /app
 # Regenerate after editing requirements.txt:
 #   pip-compile --generate-hashes --strip-extras --output-file=server/requirements.lock \
 #     <(cat server/requirements.txt; echo 'markitdown[pdf]==0.1.6')
-# The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.11 runtime
+# The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.14 runtime
 # installs the CLI straight onto PATH (/usr/local/bin/markitdown). [pdf] not
 # [all] — PDF pilot; xlsx falls back to the built-in openpyxl path.
 COPY server/requirements.lock ./

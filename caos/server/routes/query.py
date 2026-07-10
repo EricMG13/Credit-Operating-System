@@ -18,11 +18,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
-from engine import querygraph, queryoverlay
+from database import AnalystWatchlist, Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
+from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
 from tenancy import block_if_tenancy_unscoped, require_issuer
@@ -33,6 +34,7 @@ router = APIRouter()
 
 _QUERY_MAX_PER_MINUTE = 20
 _READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
+_WATCHLIST_MAX_ISSUERS = 200  # bound the per-analyst brief scope + the replace payload
 _ADMIN_QUERY_RE = re.compile(r"\b(all runs by user|runs by user|user\s+[A-Z0-9._%+-]+@|analyst activity|by analyst|display all runs by)\b", re.I)
 
 
@@ -80,6 +82,9 @@ async def get_capabilities(
 class GraphRequest(BaseModel):
     capability_id: str = Field(min_length=1, max_length=64)
     issuer_id: Optional[str] = Field(default=None, max_length=36)
+    # Free-text risk theme for the shared-theme walk (BM25 corpus overlay).
+    # Ignored by every other capability. None → the capability's default seed.
+    theme: Optional[str] = Field(default=None, max_length=200)
 
 
 @router.post("/graph")
@@ -98,11 +103,156 @@ async def query_graph(
     except Exception as e:
         logger.warning("Could not sync analyst memos: %s", e)
     try:
-        return await querygraph.build_graph(db, body.capability_id, body.issuer_id)
+        return await querygraph.build_graph(db, body.capability_id, body.issuer_id, theme=body.theme)
     except KeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown capability {body.capability_id!r}. See /api/query/capabilities.",
+        ) from e
+
+
+@router.get("/insights")
+async def query_insights(
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The Desk Brief: proactive, cited, AI-written insight cards over what changed
+    in the book. Returns instantly (persisted brief or deterministic highlights);
+    regeneration is a background single-flight task, so this read never blocks on
+    the model. ``force`` requests a fresh build (rate-limited)."""
+    if force:
+        # A fresh build is LLM spend — hold it to the tighter overlay bucket.
+        if not rate_limit.hit(
+            f"query-insights:{caller.id}", max_attempts=_OVERLAY_MAX_PER_MINUTE, window_seconds=60
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Insight refresh rate limit reached — try again in a minute.",
+            )
+    else:
+        _read_rate_guard(caller)
+    return await queryinsights.insights(db, force=force, analyst_id=caller.id)
+
+
+# ── Per-analyst watchlist (Desk Brief scoping) ───────────────────────────────
+# The analyst's pinned issuers. Non-empty → the Desk Brief lane builds a
+# per-analyst evidence pack and keys the cached brief by analyst_id; empty → the
+# analyst falls back to the shared book-level brief. Replace semantics: the PUT
+# payload is the full intended set (additive diff applied idempotently), so the
+# analyst's UI never has to reason about partial deletes.
+
+class WatchlistResponse(BaseModel):
+    issuer_ids: list[str] = Field(default_factory=list)
+
+
+class WatchlistUpdate(BaseModel):
+    issuer_ids: list[str] = Field(min_length=0, max_length=_WATCHLIST_MAX_ISSUERS)
+
+
+@router.get("/watchlist", response_model=WatchlistResponse)
+async def get_watchlist(
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The analyst's watchlist — the issuers their Desk Brief is scoped to."""
+    _read_rate_guard(caller)
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
+
+
+@router.put("/watchlist", response_model=WatchlistResponse)
+async def replace_watchlist(
+    body: WatchlistUpdate,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Replace the analyst's watchlist with the given issuer set (idempotent).
+
+    Validated against the issuers table so a stale/typo id is rejected rather
+    than silently producing an empty scoped brief. Deletes removed rows and
+    inserts new ones in one transaction; the Desk Brief regenerates on the next
+    fingerprint change + >24h boundary (or on an explicit force-refresh)."""
+    if not rate_limit.hit(
+        f"query-watchlist:{caller.id}", max_attempts=_READ_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Watchlist update rate limit reached — try again in a minute.",
+        )
+    target = set(body.issuer_ids)
+    # Reject any id that isn't a real issuer — a bad id would scope the brief to
+    # nothing and silently degrade the panel.
+    if target:
+        valid = set((await db.execute(
+            select(Issuer.id).where(Issuer.id.in_(list(target)))
+        )).scalars().all())
+        unknown = target - valid
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown issuer id(s): {sorted(unknown)}",
+            )
+    existing = (await db.execute(
+        select(AnalystWatchlist).where(AnalystWatchlist.analyst_id == caller.id)
+    )).scalars().all()
+    existing_ids = {r.issuer_id for r in existing}
+    for r in existing:
+        if r.issuer_id not in target:
+            await db.delete(r)
+    for iid in sorted(target - existing_ids):
+        db.add(AnalystWatchlist(analyst_id=caller.id, issuer_id=iid))
+    await db.commit()
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
+
+
+class AnswerRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    capability_id: Optional[str] = Field(default=None, max_length=64)
+    issuer_id: Optional[str] = Field(default=None, max_length=36)
+    force: bool = False
+
+
+@router.post("/answer")
+async def query_answer(
+    body: AnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The grounded answer beside a walk: a cited AI paragraph written from vault
+    chunks (+ the walk graph). Loud on failure (502), isolated from /graph. A
+    cache hit over an unchanged corpus is free."""
+    if not rate_limit.hit(
+        f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Query rate limit reached — try again in a minute.",
+        )
+    if not queryanswer.available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model lane unavailable — no provider key configured.",
+        )
+    try:
+        return await queryanswer.answer(
+            db, body.question, capability_id=body.capability_id,
+            issuer_id=body.issuer_id, analyst_id=caller.id, force=body.force,
+        )
+    except Exception as e:  # noqa: BLE001 — surface as an explicit lane failure
+        logger.warning("query-answer LLM lane failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Model answer failed — the deterministic result is unaffected. Try again.",
         ) from e
 
 
@@ -219,8 +369,26 @@ async def list_accepted_links(
 ):
     """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
     _read_rate_guard(caller)
-    rows = (await db.execute(select(QueryAcceptedLink))).scalars().all()
-    return {"links": [_link_dict(r) for r in rows]}
+    rows = (await db.execute(
+        select(
+            QueryAcceptedLink.id, QueryAcceptedLink.issuer_a, QueryAcceptedLink.issuer_b,
+            QueryAcceptedLink.capability_id, QueryAcceptedLink.rationale, QueryAcceptedLink.chunk_ids,
+            QueryAcceptedLink.confidence, QueryAcceptedLink.model, QueryAcceptedLink.analyst_id,
+            QueryAcceptedLink.created_at
+        ).limit(1000)
+    )).all()
+    return {
+        "links": [
+            {
+                "id": r.id, "issuer_a": r.issuer_a, "issuer_b": r.issuer_b,
+                "capability_id": r.capability_id, "rationale": r.rationale or "",
+                "chunk_ids": r.chunk_ids or [], "confidence": r.confidence or "Low",
+                "model": r.model or "", "analyst_id": r.analyst_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
 
 
 @router.post("/links")
@@ -257,7 +425,20 @@ async def accept_link(
         model=body.model, analyst_id=caller.id,
     )
     db.add(row)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Concurrent double-accept of the same pair (double-click / racing request)
+        # both passed the existence SELECT above; uq_accepted_link_pair then fires.
+        # Honour the idempotency contract — return the row the winner wrote — rather
+        # than a 500. (Saboteur W6)
+        await db.rollback()
+        existing = (await db.execute(
+            select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
+        )).scalars().first()
+        if existing is not None:
+            return {**_link_dict(existing), "created": False}
+        raise
     await db.refresh(row)
     return {**_link_dict(row), "created": True}
 

@@ -25,11 +25,11 @@ The mode picks a model *tier* + a reasoning *effort* per lane class:
 The four tiers wire the **OpenRouter hybrid**: cheap/fast/strong on DeepSeek-v4
 (flash on cheap/fast, pro on strong), the top tier on Claude Opus — so MAX heavy =
 Opus and the cheap/light lanes run on DeepSeek Flash. The hybrid only takes effect
-when ``OPENROUTER_API_KEY`` is set; without it an OpenRouter tier degrades to its
-Anthropic equivalent (below), so the engine runs unchanged — and offline tests stay
-Anthropic. A tier can also point at a ``gemini-*`` id (needs ``GEMINI_API_KEY``);
-effort then drives Gemini's thinking config — it is inert on Anthropic and
-OpenRouter lanes (the seam drops it).
+when ``OPENROUTER_API_KEY`` is set; without it a tier degrades to a configured
+provider, preserving the Anthropic fallback for keyless/offline tests. A tier can
+also point at a ``gemini-*`` id (needs ``GEMINI_API_KEY``); effort then drives
+Gemini's thinking config — it is inert on Anthropic and OpenRouter lanes (the seam
+drops it).
 
 Carried in a ContextVar (like engine/budget's run id / budget) so it threads a
 whole run — including the background runner task — without touching every
@@ -116,37 +116,28 @@ def current_query_model() -> Optional[str]:
     return _query_model_var.get()
 
 
-# Client-supplied X-Query-Model is restricted to this bounded allowlist so an
-# analyst can't point a query lane at an arbitrary (e.g. maximally expensive)
-# provider model and spend org keys. It is the four configured tier models plus the
-# fixed set the Settings UI offers — keep in sync with app/settings/page.tsx.
-_QUERY_MODEL_ALLOW_EXTRA = frozenset({
-    "claude-sonnet-4-6", "gemini-1.5-pro", "deepseek/deepseek-chat",
-})
-
-
-def _query_model_allowlist(s) -> frozenset:
-    return frozenset({
-        s.model_tier_cheap, s.model_tier_fast, s.model_tier_strong, s.model_tier_top,
-    }) | _QUERY_MODEL_ALLOW_EXTRA
+def _allowed_query_models(s) -> set:
+    """The client-pinnable universe: the four configured tier models plus their
+    Anthropic degrade targets — exactly what the mode table itself can resolve to."""
+    return ({_tier_model(s, t) for t in ("cheap", "fast", "strong", "top")}
+            | set(_ANTHROPIC_FALLBACK.values()))
 
 
 def resolved_query_model() -> str:
     """The resolved model ID for query lanes, falling back to the standard Light
-    preset model when no custom query model override is set, off the allowlist, or
-    its provider key is missing.
+    preset model when no custom query model override is set or its key is missing.
     """
     s = get_settings()
     model = current_query_model()
     if not model or model in ("null", "undefined"):
         return model_for(LIGHT)
-    # Off-allowlist (an arbitrary/expensive model id) degrades to the Light preset
-    # rather than billing the org's keys on the analyst's chosen model.
-    if model not in _query_model_allowlist(s):
+    # Allowlist against the configured tiers (BE6-1): X-Query-Model is caller
+    # input, and passing it through verbatim let an analyst pin ANY id the
+    # deploy's key could reach — bypassing the mode-tier cost table. An id
+    # outside the configured universe degrades to the standard Light lane.
+    if model not in _allowed_query_models(s):
         return model_for(LIGHT)
-    if model.startswith("gemini") and not s.gemini_api_key:
-        return model_for(LIGHT)
-    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
+    if not _has_provider_key(s, model):
         return model_for(LIGHT)
     return model
 
@@ -160,16 +151,35 @@ def _tier_model(s, tier: str) -> str:
     }[tier]
 
 
+def _has_provider_key(s, model: str) -> bool:
+    if model.startswith("gemini"):
+        return bool(s.gemini_api_key)
+    if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
+        return bool(s.openrouter_api_key)
+    return bool(s.anthropic_api_key)
+
+
+def _configured_fallback(s, tier: str) -> str:
+    if s.anthropic_api_key:
+        return _ANTHROPIC_FALLBACK[tier]
+    for t in (tier, "strong", "fast", "cheap", "top"):
+        model = _tier_model(s, t)
+        if _has_provider_key(s, model):
+            return model
+    return _ANTHROPIC_FALLBACK[tier]
+
+
+def can_run_model(model: str) -> bool:
+    return _has_provider_key(get_settings(), model)
+
+
 def model_for(lane_class: str) -> str:
-    """The model ID for ``lane_class`` under the active mode. A Gemini tier
-    degrades to its Anthropic equivalent when no GEMINI_API_KEY is set."""
+    """The model ID for ``lane_class`` under the active mode."""
     s = get_settings()
     tier = _TABLE[current_mode()][lane_class]
     model = _tier_model(s, tier)
-    if model.startswith("gemini") and not s.gemini_api_key:
-        return _ANTHROPIC_FALLBACK[tier]
-    if ("/" in model or model.startswith("deepseek") or model.startswith("openrouter")) and not s.openrouter_api_key:
-        return _ANTHROPIC_FALLBACK[tier]
+    if not _has_provider_key(s, model):
+        return _configured_fallback(s, tier)
     return model
 
 
@@ -177,6 +187,22 @@ def effort_for(lane_class: str) -> str:
     """The normalized reasoning effort (minimal|low|medium|high) for ``lane_class``
     under the active mode. Applied by the Gemini adapter; inert on Anthropic."""
     return _EFFORT[current_mode()][lane_class]
+
+
+def route_model() -> str:
+    """Model for the Query route lane — a bounded closed-set classification, not a
+    reasoning task.
+
+    The LIGHT tier defaults to DeepSeek-v4-flash, which burns reasoning tokens even
+    at ``minimal`` effort (~19s for a one-shot classify). Prefer the fast, cheap
+    Anthropic Haiku whenever an Anthropic key is set (no reasoning-token burn,
+    ~1–2s). Without an Anthropic key, fall back to the LIGHT-lane model so an
+    OpenRouter-only deploy still gets a router (just slower). Keyless: the lane
+    never runs — ``queryoverlay.available()`` is already False."""
+    s = get_settings()
+    if s.anthropic_api_key:
+        return _ANTHROPIC_FALLBACK["cheap"]  # claude-haiku-4-5 — fast, cheap, no reasoning burn
+    return model_for(LIGHT)
 
 
 def reviewer_model() -> str:
@@ -196,4 +222,23 @@ def reviewer_model() -> str:
     # cross critic is Anthropic (Claude critiques the DeepSeek draft).
     if heavy.startswith("claude") or heavy.startswith("anthropic"):
         return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
-    return s.council_reviewer_model_anthropic
+    return s.council_reviewer_model_anthropic if s.anthropic_api_key else heavy
+
+
+def rerank_model() -> str:
+    """Model for the LLM re-rank lane (engine/rerank.py). Pinned tier
+    (``RERANK_MODEL_TIER``, default ``cheap``) — the re-rank is a retrieval step
+    (relevance scoring over a ~20-item window), not a per-mode reasoning lane, so
+    it does NOT ride the analyst's mode table. Resolves the tier to a concrete
+    model id with the same provider-key fallback as ``model_for``: when the tier's
+    configured model has no key, degrade to a configured model that DOES, so a
+    partial-key deploy still reranks rather than silently no-op'ing. An invalid
+    tier coerces to ``cheap`` (the latency/price-sensitive default)."""
+    s = get_settings()
+    tier = (s.rerank_model_tier or "cheap").strip().lower()
+    if tier not in ("cheap", "fast", "strong", "top"):
+        tier = "cheap"
+    model = _tier_model(s, tier)
+    if not _has_provider_key(s, model):
+        return _configured_fallback(s, tier)
+    return model

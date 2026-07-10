@@ -62,7 +62,9 @@ function liveContext(tab: string, live: LiveRunState, issuerName?: string, focus
     const body = o.sections.map(flatSection).join(" ; ");
     lines.push(id + (id === tab ? " (CURRENTLY VIEWING)" : "") + ": " + kp + (body ? " — " + body : ""));
   }
-  lines.push("USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".");
+  // Only assert a specific view when we actually have one — a generic launcher
+  // (Model/Pipeline/profile) passes no tab, so don't fabricate a module name.
+  if (tab) lines.push("USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".");
   const fl = focusLine(focusEv);
   if (fl) lines.push(fl);
   return lines.join("\n");
@@ -77,12 +79,13 @@ export function caosChatContext(
   if (live?.runId) return liveContext(tab, live, issuerName, focusEv);
   if (live) {
     const mod = MODULES.find((m) => m.id === tab);
-    return [
+    const lines = [
       "You are the Credit OS analyst assistant. No completed issuer-specific run is available.",
       "Do not use Atlas Forge reference figures. Tell the analyst to run the issuer or open the reference demo for sample data.",
       "ISSUER: " + (issuerName || "this issuer") + ".",
-      "USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".",
-    ].join("\n");
+    ];
+    if (tab) lines.push("USER IS CURRENTLY VIEWING: " + tab + (mod ? " — " + mod.name : "") + ".");
+    return lines.join("\n");
   }
 
   // Fixture path (reference deal / no live run): the rich ATLF reference context.
@@ -194,7 +197,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
       <div className="h-9 shrink-0 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/70">
         <span className="text-caos-accent text-caos-2xl">✦</span>
         <span className="tabular text-caos-xl text-caos-text whitespace-nowrap">{label} · Issuer Q&A</span>
-        <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in {runLabel} · viewing {tab}</span>
+        <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted whitespace-nowrap">grounded in {runLabel}{tab ? " · viewing " + tab : ""}</span>
         <div className="flex-1"></div>
         {msgs.length ? (
           <button onClick={() => setMsgs([])} title="Clear conversation" className="text-caos-muted hover:text-caos-text transition-caos text-caos-xl">⌫</button>
@@ -264,7 +267,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-          placeholder={"Ask about " + label + " — e.g. recovery, covenants, " + tab + "…"}
+          placeholder={"Ask about " + label + " — e.g. recovery, covenants" + (tab ? ", " + tab : "") + "…"}
           aria-label="Ask a question about this issuer"
           maxLength={600}
           className="flex-1 px-2.5 py-1.5 text-caos-lg"

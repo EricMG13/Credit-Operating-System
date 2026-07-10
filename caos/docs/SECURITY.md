@@ -35,12 +35,12 @@ per source IP and a wrong code returns 401 (so the access-log brute heuristic
 catches it).
 
 **Fail-closed gate.** A request with no profile cookie and no identity headers
-means the edge was bypassed. [identity.py](../server/identity.py) rejects it (401) when
-`ENVIRONMENT == "production"` — which the Docker stack bakes in — or when the
-legacy `DATABRICKS_APP_PORT` is set. So the gate fails closed in production;
-`DATABRICKS_APP_PORT` is now a vestigial trigger carried over from the Databricks
-path (AUDIT DOC-1). The permissive local-dev identity (`local-dev`) is returned
-**only** for genuine local runs (non-prod, no port).
+means the edge was bypassed. [identity.py](../server/identity.py) rejects it (401)
+whenever `ENVIRONMENT` is anything other than `development` (`config.is_deployed`)
+— a typo or unset value fails closed, and the Docker stack bakes in
+`ENVIRONMENT=production`. So the gate fails closed in production. The permissive
+local-dev identity (`local-dev`) is returned **only** for genuine local runs
+(`ENVIRONMENT=development`).
 
 **Trust assumption (S-3).** In production the app *trusts* the `X-Forwarded-*`
 headers. This is safe **only because the auth proxy is the sole network path to

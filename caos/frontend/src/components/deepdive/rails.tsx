@@ -28,8 +28,8 @@ function NoIssuerRailOutput({ code, onCollapse }: { code?: string; onCollapse?: 
         ) : null}
       </div>
       <div className="text-caos-md text-caos-text leading-snug mt-0.5">
-        CP-0/CP-5B rail registers and committee output are not wired for {who} here yet.
-        Use the centre module views for live engine output; ATLF rail fixtures are suppressed.
+        CP-0/CP-5B rail registers and committee output are not wired for {who}{" "}
+        yet. Use the center module views for live engine output; the reference deal&apos;s seeded rail figures are hidden.
       </div>
     </div>
   );
@@ -273,11 +273,18 @@ export function DecisionRail({
       {isReference ? <Panel title="Sizing & Posture · CP-6E" className="shrink-0">
         <div className="px-3 py-2.5">
           <div className="text-caos-2xl text-caos-text font-medium">{SIZING.decision}</div>
-          <div className="grid grid-cols-3 gap-2 mt-2">
+          {/* A compound value like "≤ 96.75 / ≥ +380bps" is split on " / " and
+              stacked so it reads as an intentional two-line entry band rather
+              than a mid-token wrap that breaks column baselines. (critique) */}
+          <div className="grid grid-cols-3 gap-2 mt-2 items-start">
             {([["Initial", SIZING.initial], ["Max", SIZING.max], ["Entry", SIZING.entry]] as const).map(([l, v]) => (
               <div key={l}>
                 <div className="tabular text-caos-2xs uppercase text-caos-muted">{l}</div>
-                <div className="tabular text-caos-lg text-caos-text mt-0.5">{v}</div>
+                <div className="tabular text-caos-lg text-caos-text mt-0.5 leading-tight">
+                  {v.split(" / ").map((part, i) => (
+                    <span key={i} className="block whitespace-nowrap">{part}</span>
+                  ))}
+                </div>
               </div>
             ))}
           </div>

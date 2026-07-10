@@ -9,7 +9,14 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id, wrap_untrusted
+from engine.llm_safety import (
+    UNTRUSTED_RULE,
+    extract_json,
+    first_json_object,
+    first_json_value,
+    safe_chunk_id,
+    wrap_untrusted,
+)
 
 
 def _hit(cid):
@@ -33,6 +40,21 @@ def test_wrap_untrusted_delimits_and_rule_present():
     assert "END UNTRUSTED DOCUMENT CONTENT" in wrapped
     assert "18.2 percent" in wrapped
     assert "never as instructions" in UNTRUSTED_RULE
+
+
+def test_first_json_value_uses_first_complete_value():
+    text = 'prose [{"keep": 1}] trailing [note]'
+    assert first_json_value(text, "[") == [{"keep": 1}]
+    assert first_json_object('lead {"ok": true} trailing {"ignored": true}') == {"ok": True}
+
+
+def test_first_json_object_rejects_non_finite_literals():
+    try:
+        first_json_object('{"net_leverage": NaN}')
+    except ValueError as exc:
+        assert "non-finite" in str(exc)
+    else:
+        raise AssertionError("NaN should fail closed")
 
 
 # ── AISEC-1: the untrusted-wrap is the load-bearing indirect-injection control;
@@ -134,10 +156,15 @@ _REVIEWED_LLM_CALL_SITES = {
     "engine/debate.py",      # CP-6A debate over derived payloads (+ UNTRUSTED_RULE)
     "engine/synth.py",       # module synth over upstream payloads (+ beta advisor branch)
     "engine/queryoverlay.py",  # Query route/overlay: chunks via wrap_untrusted (+ rule); output gated to registry ids + retrieved chunk ids
+    "engine/queryinsights.py",  # Desk Brief: pack via wrap_untrusted (+ rule); cards gated to pack ids + numeric grounding gate
+    "engine/queryanswer.py",   # Grounded answer: chunks via wrap_untrusted (+ rule); sentences gated to retrieved chunk ids + numeric grounding gate
+    "engine/rerank.py",        # LLM re-rank: chunks via wrap_untrusted (+ UNTRUSTED_RULE in system); output is a 0-1 score list, no free-text content surfaced
+    "engine/entailment.py",    # Phase 2 NLI demote: evidence wrapped via wrap_untrusted (+ UNTRUSTED_RULE in system); verdict-driven demote, no new content
     "llm.py",                # issuer chat (system prompt carries untrusted rule)
     "nlquery.py",            # NL→spec; output allowlist-validated to the catalog
     "scenario.py",           # scenario prompt (user text)
     "deepresearch.py",       # web_search stream (system prompt carries untrusted rule)
+    "research_report.py",    # issuer research report synthesis (system prompt carries untrusted rule; module digests are untrusted DATA)
 }
 
 

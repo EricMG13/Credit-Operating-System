@@ -19,6 +19,8 @@ const TITLES: Record<string, string> = {
   settings: "Settings",
   query: "Query",
   monitor: "Monitor",
+  sector: "Sector Review",
+  "sector-rv": "Sector RV",
 };
 
 export function RouteHeading() {

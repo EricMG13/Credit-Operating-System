@@ -10,6 +10,7 @@ import { uploadVaultMemo, type VaultMemoResult } from "@/lib/api";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { useNotify } from "@/components/shared/Notifications";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 
 const MEMO_TYPES = [
   { id: "market-commentary", label: "Market commentary" },
@@ -76,7 +77,7 @@ function MemoDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/60 caos-enter" onClick={onClose}>
+    <ModalBackdrop onClose={onClose} className="caos-enter">
       <div
         ref={panelRef}
         className="w-[440px] max-w-[92vw] flex flex-col bg-caos-panel border border-caos-accent/50 rounded-md overflow-hidden"
@@ -149,6 +150,6 @@ function MemoDialog({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

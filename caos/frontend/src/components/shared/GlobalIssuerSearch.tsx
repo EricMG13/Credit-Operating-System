@@ -11,6 +11,7 @@ export function GlobalIssuerSearch() {
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<Issuer[]>([]);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     const focus = () => {
@@ -26,12 +27,16 @@ export function GlobalIssuerSearch() {
     const term = q.trim();
     if (term.length < 2) {
       setRows([]);
+      setError(false);
       return;
     }
     const t = setTimeout(() => {
       getIssuers(term)
-        .then((r) => { if (!stale) setRows(r.slice(0, 6)); })
-        .catch(() => { if (!stale) setRows([]); });
+        .then((r) => { if (!stale) { setRows(r.slice(0, 6)); setError(false); } })
+        // A failed lookup must NOT read as "no such issuer" (empty dropdown) — surface
+        // it distinctly so the analyst retries instead of concluding the name isn't
+        // registered. SEAM3-6.
+        .catch(() => { if (!stale) { setRows([]); setError(true); } });
     }, 150);
     return () => { stale = true; clearTimeout(t); };
   }, [q]);
@@ -63,7 +68,13 @@ export function GlobalIssuerSearch() {
       <span className="pointer-events-none absolute right-2 top-1.5 tabular text-caos-2xs px-1 rounded border border-caos-border text-caos-muted">
         {hasText ? "RET" : "SP+S"}
       </span>
-      {open && rows.length > 0 ? (
+      {open && error && rows.length === 0 ? (
+        <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border bg-caos-panel shadow-lg overflow-hidden" style={{ borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)" }}>
+          <div role="alert" className="px-2.5 py-1.5 text-caos-sm" style={{ color: "var(--caos-critical)" }}>
+            Search unavailable — check your connection and retry.
+          </div>
+        </div>
+      ) : open && rows.length > 0 ? (
         <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border border-caos-border bg-caos-panel shadow-lg overflow-hidden">
           {rows.map((issuer) => (
             <button

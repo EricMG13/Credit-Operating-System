@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import (
-    Document, Issuer, MetricFact, ModuleOutput, QAFinding, Run, get_db,
+    Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
@@ -34,10 +34,10 @@ class IssuerCreate(BaseModel):
     sub_sector: Optional[str] = None
     country: Optional[str] = None
     figi: Optional[str] = Field(default=None, max_length=32)
-    rating_sp: Optional[str] = Field(default=None, max_length=16)
-    rating_moody: Optional[str] = Field(default=None, max_length=16)
-    rating_fitch: Optional[str] = Field(default=None, max_length=16)
     sponsor: Optional[str] = Field(default=None, max_length=255)
+    # Agency ratings are no longer a create-time input — they're collected from
+    # ingested structured sheets (see ratings.py / ingestion._collect_ratings) and
+    # written onto the issuer's rating_* columns, which IssuerResponse still returns.
 
 
 class IssuerResponse(BaseModel):
@@ -53,6 +53,7 @@ class IssuerResponse(BaseModel):
     rating_moody: Optional[str] = None
     rating_fitch: Optional[str] = None
     sponsor: Optional[str] = None
+    created_by: Optional[str] = None  # governance attribution (SEAM4-4); NULL for seed rows
 
     model_config = {"from_attributes": True}
 
@@ -73,6 +74,7 @@ class IssuerResponse(BaseModel):
                 "rating_moody": obj.rating_moody,
                 "rating_fitch": obj.rating_fitch,
                 "sponsor": obj.sponsor,
+                "created_by": obj.created_by,
             }
         return super().model_validate(data, *args, **kwargs)
 
@@ -158,9 +160,10 @@ async def create_issuer(
     if existing is not None:
         raise HTTPException(409, "An issuer with that name already exists.")
     # Stamp the creator's team so tenancy scoping applies to this issuer and
-    # everything derived from it (None when tenancy is off → shared/global).
+    # everything derived from it (None when tenancy is off → shared/global). Attribution
+    # (created_by) comes from the verified identity, never the request body. SEAM4-4.
     data["team_id"] = new_issuer_team(caller)
-    issuer = Issuer(**data)
+    issuer = Issuer(**data, created_by=caller.id)
     db.add(issuer)
     await db.flush()
     await db.refresh(issuer)
@@ -321,7 +324,7 @@ def _strengths_weaknesses(  # noqa: C901
     weaknesses: List[str] = []
 
     def num(x: Any) -> Optional[float]:
-        return x if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+        return float(x) if is_finite_number(x) else None
 
     pct = num(signals.get("composite_percentile"))
     if pct is not None:
@@ -438,10 +441,10 @@ async def get_issuer_profile(
             "categories_missing": cp0.get("categories_missing"),
             "edgar_available": cp0.get("edgar_available"),
         })
-        for f in (await db.execute(
+        for qf in (await db.execute(
             select(QAFinding).where(QAFinding.run_id == latest_complete.id)
         )).scalars().all():
-            findings[f.severity] = findings.get(f.severity, 0) + 1
+            findings[qf.severity] = findings.get(qf.severity, 0) + 1
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
@@ -510,11 +513,11 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
         sized = is_finite_number(amt)
         trips: Optional[bool] = None
         if thr is not None and sized:
-            trips = float(amt) >= thr
+            trips = float(amt) >= thr  # type: ignore[arg-type]  # guarded by is_finite_number on line above
         rows.append(CrossDefaultDomino(
             code=str(t["code"]),
             tranche=str(t.get("tranche") or t["code"]),
-            amount_musd=float(amt) if sized else None,
+            amount_musd=float(amt) if sized else None,  # type: ignore[arg-type]  # guarded by is_finite_number
             trips_cross_default=trips,
             pulls_in=[str(o["code"]) for o in clean if o is not t] if trips else [],
         ))
@@ -559,3 +562,201 @@ async def get_cross_default_map(
         dominoes=_domino_map(tranches, thr),
         note=" ".join(notes) or None,
     )
+
+
+# ── Issuer Research Report (AI-synthesized credit summary) ───────────────────
+# A durable background job (mirrors ResearchJob + research_executor.py): POST
+# persists an IssuerResearchReport row and enqueues a background task; the client
+# polls GET. The report is a house artifact (not analyst-scoped) — any analyst
+# viewing the same issuer+run sees the same report. Cached per (issuer_id, run_id).
+
+_REPORT_MAX_PER_MINUTE = 3
+
+
+class ResearchReportBrief(BaseModel):
+    ai_mode: str = Field(
+        default="standard", pattern="^(max|standard|lite)$",
+    )
+
+
+class ResearchReportCreated(BaseModel):
+    id: str
+    status: str
+
+
+class ResearchReportOut(BaseModel):
+    id: str
+    issuer_id: str
+    run_id: str
+    status: str
+    payload: Optional[dict] = None
+    markdown: Optional[str] = None
+    validation: Optional[dict] = None
+    prompt_version: Optional[str] = None
+    tokens_used: int = 0
+    demo: bool = False
+    truncated: bool = False
+    progress: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    is_stale: bool = False
+
+
+def _report_out(report: IssuerResearchReport, is_stale: bool = False) -> ResearchReportOut:
+    return ResearchReportOut(
+        id=report.id,
+        issuer_id=report.issuer_id,
+        run_id=report.run_id,
+        status=report.status,
+        payload=report.payload,
+        markdown=report.markdown,
+        validation=report.validation,
+        prompt_version=report.prompt_version,
+        tokens_used=report.tokens_used,
+        demo=report.demo,
+        truncated=report.truncated,
+        progress=report.progress,
+        error=report.error,
+        created_at=report.created_at,
+        completed_at=report.completed_at,
+        is_stale=is_stale,
+    )
+
+
+@router.post(
+    "/{issuer_id}/research-report",
+    response_model=ResearchReportCreated,
+    status_code=201,
+)
+async def create_research_report(
+    issuer_id: str,
+    brief: ResearchReportBrief = ResearchReportBrief(),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects by type; default is dead code but keeps the optional-param shape consistent
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    # Must have a completed run
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+    if latest_complete is None:
+        raise HTTPException(
+            409,
+            "No completed run — run the pipeline first before generating a research report.",
+        )
+
+    if not rate_limit.hit(
+        f"research_report:{caller.id}",
+        max_attempts=_REPORT_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            429,
+            "Research report rate limit reached — try again in a minute.",
+        )
+
+    # Idempotent: if a report already exists for this issuer+run and is running
+    # or complete, return it instead of creating a duplicate. A failed report
+    # is ignored — the analyst can re-generate after a failure.
+    existing = (await db.execute(
+        select(IssuerResearchReport).where(
+            IssuerResearchReport.issuer_id == issuer_id,
+            IssuerResearchReport.run_id == latest_complete.id,
+            IssuerResearchReport.status.in_(("running", "complete")),
+        ).order_by(IssuerResearchReport.created_at.desc()).limit(1)
+    )).scalars().first()
+    if existing is not None:
+        return ResearchReportCreated(id=existing.id, status=existing.status)
+
+    report = IssuerResearchReport(
+        status="running",
+        issuer_id=issuer_id,
+        run_id=latest_complete.id,
+        analyst_id=caller.id,
+    )
+    db.add(report)
+    await db.commit()
+
+    # Fire-and-forget: execution outlives the request.
+    request.app.state.research_report_executor.enqueue(report.id)
+    return ResearchReportCreated(id=report.id, status=report.status)
+
+
+@router.get(
+    "/{issuer_id}/research-report",
+    response_model=ResearchReportOut,
+)
+async def get_latest_research_report(
+    issuer_id: str,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the latest research report for this issuer, or 404 if none.
+    Sets is_stale when the report's run_id != latest complete run_id."""
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    # Latest complete run (for staleness check)
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+
+    # Latest report for this issuer (complete reports only — failed/running
+    # reports are not surfaced as the current house view).
+    report = (await db.execute(
+        select(IssuerResearchReport).where(
+            IssuerResearchReport.issuer_id == issuer_id,
+            IssuerResearchReport.status == "complete",
+        ).order_by(IssuerResearchReport.created_at.desc()).limit(1)
+    )).scalars().first()
+
+    if report is None:
+        raise HTTPException(404, "No research report — generate one first.")
+
+    is_stale = (
+        latest_complete is not None
+        and report.run_id != latest_complete.id
+    )
+    return _report_out(report, is_stale=is_stale)
+
+
+@router.get(
+    "/{issuer_id}/research-report/{report_id}",
+    response_model=ResearchReportOut,
+)
+async def get_research_report(
+    issuer_id: str,
+    report_id: str,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db),
+):
+    """Poll a specific research report job by id."""
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    report = await db.get(IssuerResearchReport, report_id)
+    if report is None or report.issuer_id != issuer_id:
+        raise HTTPException(404, "Research report not found.")
+
+    # Staleness check
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+    is_stale = (
+        latest_complete is not None
+        and report.run_id != latest_complete.id
+    )
+    return _report_out(report, is_stale=is_stale)

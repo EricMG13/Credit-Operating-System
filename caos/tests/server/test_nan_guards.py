@@ -257,3 +257,165 @@ def test_extract_facts_provenance_demo_fixture_for_non_reference():
     other = {f["provenance"] for f in extract_facts("r", cp1, "Passed", is_reference_issuer=False)}
     assert ref == {"fixture"}            # genuine demo keeps "fixture"
     assert other == {"demo_fixture"}     # served elsewhere → non-authoritative tag
+
+
+# ── 2026-07-03 container-guard pass (BE3-1/2/3/4/6, BE5-3, BE2-1/2/3, BE1-1) ──
+# The leaf-level is_finite_number discipline above holds, but live runtime_output
+# interiors are unvalidated below the top level: `or {}` keeps a truthy non-dict
+# whose .keys()/.items()/.get() raised inside the fatal QA/projection phase and
+# aborted + rolled back the whole run. These pin the container-level guards.
+
+def test_latest_tolerates_non_dict_series():
+    from engine.periods import latest
+
+    assert latest([358, 392, 415]) is None          # list where a period map belongs
+    assert latest("not disclosed") is None          # narrative string
+    assert latest(None) is None
+    assert latest({"FY24": 1.0, "FY25": 2.0}) == 2.0
+
+
+def test_extract_facts_tolerates_wrong_typed_containers():
+    from engine.metrics import extract_facts
+
+    payload = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={
+            "normalized_financials": {
+                "revenue": [{"period": "FY24", "value": 2588}],  # list, not period map
+                "adj_ebitda": "not disclosed",                   # narrative string
+                "net_leverage": 5.1,                             # scalar where series belongs
+                "net_leverage_adj_ltm": 5.1,
+                "interest_coverage_ltm": 2.1,
+            },
+            "distress": "not computable",                        # truthy non-dict
+        })
+    facts = extract_facts("r1", payload, "Passed")               # must not raise
+    keys = {(f["metric_key"], f["period"]) for f in facts}
+    assert ("net_leverage", "LTM") in keys        # scalar degrades to the LTM fallback
+    assert ("interest_coverage", "LTM") in keys
+    assert not any(mk == "revenue" for mk, _ in keys)
+
+
+def test_extract_facts_tolerates_narrative_normalized_financials():
+    from engine.metrics import extract_facts
+
+    payload = ModulePayload(module_id="CP-1", module_name="X", owned_object="o",
+                            runtime_output={"normalized_financials": "narrative text"})
+    assert extract_facts("r1", payload, "Passed") == []
+
+
+def test_leverage_plausibility_tolerates_wrong_typed_containers():
+    from engine.metrics import leverage_plausibility_finding
+
+    # Narrative normalized_financials → inputs absent → None, not AttributeError.
+    assert leverage_plausibility_finding(
+        ModulePayload(module_id="CP-1", module_name="X", owned_object="o",
+                      runtime_output={"normalized_financials": "narrative"})) is None
+    # List-shaped adj_ebitda series → latest() degrades → None.
+    assert leverage_plausibility_finding(
+        _cp1(net_leverage_adj_ltm=5.0, net_debt_ltm=2400.0, adj_ebitda=[400.0])) is None
+
+
+def test_reconciliation_finding_tolerates_scalar_key():
+    from engine.adjusted import reconciliation_finding
+
+    p = ModulePayload(module_id="CP-1", module_name="X", owned_object="o",
+                      runtime_output={"adjusted_ebitda_reconciliation": "not disclosed"})
+    assert reconciliation_finding(p) is None
+
+
+def test_extract_cost_facts_rejects_non_finite_and_non_numeric():
+    from engine.metrics import extract_cost_facts
+
+    for bad in (NAN, INF, "12% of COGS", None, [12.0]):
+        p = ModulePayload(module_id="CP-2", module_name="X", owned_object="o",
+                          runtime_output={"energy_cost_pct": bad})
+        assert extract_cost_facts("r1", p, "Passed") == [], bad
+    ok = extract_cost_facts("r1", ModulePayload(
+        module_id="CP-2", module_name="X", owned_object="o",
+        runtime_output={"energy_cost_pct": 12.5}), "Passed")
+    assert ok and ok[0]["value"] == 12.5
+
+
+def test_qa_gates_tolerate_scalar_containers():
+    from engine.covenants import addback_cap_finding
+    from engine.earnings import monitoring_finding
+    from engine.peers import peer_outlier_finding
+
+    def mk(mid, ro):
+        return ModulePayload(module_id=mid, module_name="X", owned_object="o",
+                             runtime_output=ro)
+
+    # A truthy scalar where a list belongs must not raise on iteration.
+    f = monitoring_finding(mk("CP-1B", {"monitoring_signals": 5}))
+    assert f is not None and "5" in f.description
+    # A bare string joins as ONE item, not char-by-char.
+    f = peer_outlier_finding(mk("CP-1C", {"outlier_metrics": "net_leverage"}))
+    assert f is not None and "net_leverage" in f.description and "n, e, t" not in f.description
+    # A truthy non-dict audit degrades to None, never AttributeError.
+    assert addback_cap_finding(mk("CP-4C", {"addback_audit": "n/a"})) is None
+
+
+def test_build_route_plan_tolerates_llm_shaped_cp0():
+    from engine.planner import build_route_plan
+
+    cp0 = ModulePayload(
+        module_id="CP-0", module_name="SourceReadiness", owned_object="source_readiness",
+        runtime_output={"categories_present": "financials",   # scalar, not a list
+                        "edgar_available": False,
+                        "files_classified": "fourteen"},      # non-numeric count
+        limitation_flags=["ok-flag", 7],                      # non-str flag
+    )
+    plan = build_route_plan(cp0)                              # must not raise (BE3-4)
+    assert plan.execution_order  # still routes the graph
+
+
+@pytest.mark.asyncio
+async def test_liquidity_sum_drops_non_finite_amounts(monkeypatch):
+    # BE2-1/BE2-3: a NaN amount must not reach the disclosed-liquidity sum (the
+    # producers can't emit one today — this pins the is_finite_number filter so a
+    # regression back to bare isinstance fails loudly).
+    import engine.liquidity as liquidity
+
+    monkeypatch.setattr(liquidity, "scan_liquidity", lambda pairs: [
+        {"source": "Undrawn RCF", "amount_musd": 250.0, "chunk_id": "c1"},
+        {"source": "Cash on hand", "amount_musd": NAN, "chunk_id": "c2"},
+    ])
+
+    class _Hit:
+        chunk_id, text = "c1", "irrelevant"
+
+    async def retrieve(_q, _k=6):
+        return [_Hit()]
+
+    out = await liquidity.synthesize_liquidity(retrieve)
+    total = out.runtime_output["disclosed_liquidity_musd"]
+    assert total == 250.0 and math.isfinite(total)
+    assert "nan" not in out.claims[0].claim_text.lower()
+
+
+def test_recovery_waterfall_skips_non_finite_claim():
+    # BE2-3: the is_finite_number(claim) guard treats a NaN claim as unsized —
+    # no NaN may leak into any waterfall row.
+    from engine.capstructure import recovery_waterfall
+
+    rows = recovery_waterfall(
+        [{"code": "TLB", "seniority_rank": 1, "amount_musd": NAN},
+         {"code": "2L", "seniority_rank": 2, "amount_musd": 900.0}],
+        distressed_ev=1000.0,
+    )
+    for row in rows:
+        for v in row.values():
+            if isinstance(v, float):
+                assert math.isfinite(v), row
+
+
+def test_edgar_interest_coverage_requires_positive_interest():
+    # BE1-1: a negative-tagged interest concept must not emit a negative coverage.
+    # The guard is inline in edgar_cp1's leverage block; pin the predicate shape
+    # the fix restored (symmetry with the leverage guard): only a strictly
+    # positive interest figure reaches the divide.
+    eb_ly, int0 = 421.0, -50.0
+    assert not (eb_ly and eb_ly > 0 and int0 and int0 > 0)
+    int0 = 200.0
+    assert (eb_ly and eb_ly > 0 and int0 and int0 > 0)

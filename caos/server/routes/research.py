@@ -40,6 +40,7 @@ class ResearchJobStatus(BaseModel):
     sources: List[Source] = []
     demo: bool = False
     truncated: bool = False
+    progress: Optional[dict] = None  # live {"sources": n, "searches": m} while running
     error: Optional[str] = None
 
 
@@ -88,5 +89,6 @@ async def get_research(
         sources=[Source(**s) for s in (job.sources or [])],
         demo=job.demo,
         truncated=job.truncated,
+        progress=job.progress,
         error=job.error,
     )

@@ -14,6 +14,7 @@ signed cookie; /logout clears it.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import re
 import time
@@ -27,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from access_log import client_source, sanitize_field
-from config import get_settings
+from config import get_settings, is_deployed
 from database import Analyst, erase_analyst_data, get_db
 from identity import (
     COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
@@ -49,10 +50,10 @@ _LOGIN_GLOBAL_PER_MINUTE = 30
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Verify a login against this when no account matches, so a missing email and a
-# wrong password cost the same scrypt work — no user enumeration via timing.
+# wrong password cost the same PBKDF2 work — no user enumeration via timing.
 _DUMMY_HASH = hash_password("caos-no-such-account")
 # Three dummies for the recovery lane — verifying against these when no account
-# matches costs the same scrypt work as three real words, so /recover can't leak
+# matches costs the same PBKDF2 work as three real words, so /recover can't leak
 # account existence by returning fast.
 _DUMMY_RECOVERY_HASHES = [_DUMMY_HASH, _DUMMY_HASH, _DUMMY_HASH]
 
@@ -88,7 +89,9 @@ class RegisterRequest(BaseModel):
     password: Optional[str] = Field(default=None, min_length=8, max_length=128)
     coverage_area: Optional[str] = Field(default=None, max_length=64)
     location: Optional[str] = Field(default=None, max_length=16)
-    recovery_words: list[str] = Field(default_factory=list, max_length=3)
+    # Exactly 3 words, declared at the schema (not just the handler's 422) so the
+    # required-in-practice contract is visible in OpenAPI (BE7-2).
+    recovery_words: list[str] = Field(min_length=3, max_length=3)
     recovery_hints: list[str] = Field(default_factory=list, max_length=3)
 
 
@@ -170,61 +173,55 @@ def _recovery_ok(words: list[str], hashes: list[str]) -> bool:
 
 
 @router.post("/profile", response_model=MeResponse, status_code=201)
-async def create_profile(
+async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO bind/adopt + credential revoke + cookie); extracting would fragment the auth path
     body: ProfileCreate, request: Request, response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     settings = get_settings()
+    sso_email = request.headers.get("x-forwarded-email")
+    sso_user = request.headers.get("x-forwarded-user")
+
+    if is_deployed(settings) and not (sso_email or sso_user):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "No forwarded identity — request did not pass the auth proxy / edge."
+        )
 
     _throttle(request)
 
-    # Fail closed if the access code is unset: an empty setting would make
-    # compare_digest admit any caller the moment the body min_length guard is
-    # ever relaxed. Refuse login outright rather than degrade silently. S2.
-    if not settings.analyst_signup_code:
+    code = settings.analyst_signup_code
+    if not code:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Login disabled — access code not configured."
         )
 
-    # 401 (not 403) on a wrong code so the access-log brute-force heuristic
-    # (401-by-source) sees it. Constant-time compare.
-    if not hmac.compare_digest(
-        body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
-    ):
+    if not hmac.compare_digest(body.code.encode("utf-8", "ignore"), code.encode("utf-8")):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid access code.")
 
-    # Strip interior control chars before persistence — body.name and the
-    # forwarded email become Analyst rows and round-trip through identity/logging.
-    # Matches the sanitize done in identity.get_identity. S7.
     name = sanitize_field(body.name).strip()
     if not name:
         raise HTTPException(422, "Name is required.")
 
-    # The edge proxy sets X-Forwarded-Email from the verified session (trustworthy
-    # because the proxy is the sole ingress). When present, key the profile on it:
-    # one profile per SSO identity, so a caller can't adopt someone else's name.
-    sso_email = request.headers.get("x-forwarded-email")
     if sso_email:
         sso_email = sanitize_field(sso_email)
-    if sso_email:
-        analyst = (await db.execute(
-            select(Analyst).where(Analyst.email == sso_email)
-        )).scalar_one_or_none()
+        analyst = (await db.execute(select(Analyst).where(Analyst.email == sso_email))).scalar_one_or_none()
         if analyst is None:
             analyst = Analyst(name=name, email=sso_email)
             db.add(analyst)
-        elif analyst.name != name:
-            analyst.name = name  # rename own profile
+        else:
+            if analyst.name != name:
+                analyst.name = name
+            if analyst.password_hash or analyst.recovery_word_hashes:
+                analyst.password_hash = None
+                analyst.recovery_word_hashes = []
+                analyst.token_version += 1
         try:
             await db.commit()
-        except IntegrityError:  # display name already taken by another email
+        except IntegrityError:
             await db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, "That display name is taken — pick another.")
     else:
-        # Proxy-less / local: re-attach by (case-insensitive) name, else create.
-        analyst = (await db.execute(
-            select(Analyst).where(func.lower(Analyst.name) == name.lower())
-        )).scalar_one_or_none()
+        analyst = (await db.execute(select(Analyst).where(func.lower(Analyst.name) == name.lower()))).scalar_one_or_none()
         if analyst is None:
             analyst = Analyst(name=name)
             db.add(analyst)
@@ -240,7 +237,7 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ):
     """Email + password self-registration, gated by the shared invite code. Creates
-    an Analyst with a scrypt password hash and mints the profile cookie. Independent
+    an Analyst with a PBKDF2 password hash and mints the profile cookie. Independent
     of edge SSO — this is the lane for callers who don't sign in through the proxy."""
     settings = get_settings()
     _throttle(request)
@@ -250,6 +247,8 @@ async def register(
             status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-up disabled — invite code not configured."
         )
     # 401 (not 403) on a wrong code so the access-log brute-force heuristic sees it.
+    # Bytes-mode compare: a non-ASCII code would make compare_digest(str,str) raise
+    # TypeError → 500 (hides the probe, spams logs). SEAM4-2, as in create_profile.
     if not hmac.compare_digest(
         body.code.encode("utf-8", "ignore"), settings.analyst_signup_code.encode("utf-8")
     ):
@@ -280,13 +279,19 @@ async def register(
             status.HTTP_409_CONFLICT, "An account with that email already exists — sign in instead."
         )
 
+    # Four PBKDF2 hashes (password + 3 recovery words) — off-thread so registration
+    # doesn't block the event loop for ~2M iterations. _recovery_hashes validates
+    # word count and raises HTTPException(422), which propagates cleanly through
+    # to_thread.
+    password_hash = await asyncio.to_thread(hash_password, _passcode(body))
+    recovery_word_hashes = await asyncio.to_thread(_recovery_hashes, body.recovery_words)
     analyst = Analyst(
         name=name,
         email=email,
-        password_hash=hash_password(_passcode(body)),
+        password_hash=password_hash,
         coverage_area=sanitize_field(body.coverage_area or "").strip() or None,
         location=sanitize_field(body.location or "").strip() or None,
-        recovery_word_hashes=_recovery_hashes(body.recovery_words),
+        recovery_word_hashes=recovery_word_hashes,
         recovery_hints=[sanitize_field(h).strip()[:160] for h in body.recovery_hints[:3]],
     )
     db.add(analyst)
@@ -319,7 +324,10 @@ async def login(
     # password) so a missing email and a wrong password take the same time — no
     # user enumeration via timing. Compute `ok` unconditionally before branching.
     stored = analyst.password_hash if analyst else None
-    ok = verify_password(_passcode(body), stored or _DUMMY_HASH)
+    # PBKDF2 (600k iters) is CPU-bound; off-thread it so a login can't stall the
+    # single event loop for every other request (and so a burst of login attempts
+    # can't be used to peg it). Same posture as the upload-parse off-threading.
+    ok = await asyncio.to_thread(verify_password, _passcode(body), stored or _DUMMY_HASH)
     if not ok or analyst is None:
         # 401 (not 403) feeds the access-log brute-force heuristic. Generic message.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password.")
@@ -342,7 +350,8 @@ async def recover_login(
     # present, dummies otherwise — so a missing email costs the same scrypt work as
     # wrong words. No user enumeration via timing; mirrors the /login lane above.
     stored = (analyst.recovery_word_hashes if analyst else None) or _DUMMY_RECOVERY_HASHES
-    ok = _recovery_ok(body.recovery_words, stored)
+    # Three PBKDF2 verifies — off-thread (see /login) so recovery can't peg the loop.
+    ok = await asyncio.to_thread(_recovery_ok, body.recovery_words, stored)
     if not ok or analyst is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Recovery failed — contact admin.")
     _set_cookie(response, analyst)

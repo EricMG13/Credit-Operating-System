@@ -7,12 +7,14 @@
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { CloseButton } from "@/components/shared/CloseButton";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
 import type { Report } from "@/lib/reports/builders";
 import { useEvidenceSync } from "@/lib/evidence-sync";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { FlagToQa } from "@/components/shared/FlagToQa";
 import { getChunk } from "@/lib/api";
 import type { LiveEvidence } from "@/lib/engine/useLiveRun";
 
@@ -37,11 +39,11 @@ export function EvChip({ id, onOpen }: { id: string; onOpen: (id: string) => voi
       onBlur={() => setActive(null)}
       title={"Open source for " + id}
       aria-label={"Open source for " + id}
-      className="tabular text-caos-xs px-1 py-px rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
+      className="tabular text-caos-xs inline-flex items-center justify-center min-w-6 min-h-6 px-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
       style={{
         color: open ? "var(--caos-warning)" : "var(--caos-accent)",
-        borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 40%, transparent)",
-        background: synced ? "color-mix(in srgb, var(--tranche-2l) 18%, transparent)" : "color-mix(in srgb, var(--tranche-2l) 7%, transparent)",
+        borderColor: synced ? "var(--caos-accent)" : open ? "color-mix(in srgb, var(--caos-warning) 50%, transparent)" : "color-mix(in srgb, var(--caos-accent) 40%, transparent)",
+        background: synced ? "color-mix(in srgb, var(--caos-accent) 18%, transparent)" : "color-mix(in srgb, var(--caos-accent) 7%, transparent)",
         boxShadow: synced ? "0 0 0 1px var(--caos-accent)" : undefined,
       }}
     >
@@ -97,11 +99,11 @@ function StatusBadge({ status, label }: { status: "verified" | "open"; label?: s
   );
 }
 
-function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+function Row({ k, v, accent, title }: { k: string; v: string; accent?: boolean; title?: string }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-caos-muted whitespace-nowrap">{k}</span>
-      <span className={"tabular text-right break-words" + (accent ? " text-caos-accent" : "")}>{v}</span>
+      <span className={"tabular text-right break-words" + (accent ? " text-caos-accent" : "")} title={title}>{v}</span>
     </div>
   );
 }
@@ -118,7 +120,7 @@ function EvShell({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -136,18 +138,19 @@ function EvShell({
         </div>
         {children}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
 // Live click-to-source: resolve a run's own evidence to its real source chunk,
 // instead of the seeded demo map (which 404s for live ids).
 function LiveEvidencePanel({
-  id, ev, text, panelRef, onClose,
+  id, ev, text, error, panelRef, onClose,
 }: {
   id: string;
   ev: LiveEvidence;
   text: string | null;
+  error: boolean;
   panelRef: RefObject<HTMLDivElement>;
   onClose: () => void;
 }) {
@@ -160,6 +163,10 @@ function LiveEvidencePanel({
           {ev.document_chunk_id ? (
             text != null ? (
               <p className="text-caos-lg leading-[1.7] text-caos-text whitespace-pre-wrap">{text}</p>
+            ) : error ? (
+              <div role="alert" className="text-caos-md" style={{ color: "var(--caos-warning)" }}>
+                Source unavailable — the linked chunk could not be loaded. Retry, or reopen once the run finishes.
+              </div>
             ) : (
               <div className="text-caos-md text-caos-muted">Loading source…</div>
             )
@@ -174,7 +181,9 @@ function LiveEvidencePanel({
           <Row k="Lineage class" v={ev.lineage_class} />
           <Row k="Confidence" v={ev.confidence} />
           <Row k="Trace status" v={status === "open" ? "lineage flagged" : "CP-5B verified"} />
-          <Row k="Chunk id" v={ev.document_chunk_id || "—"} />
+          {/* Short source ref, not a raw 36-char UUID dump on an analyst
+              surface; full id stays on hover for lineage debugging. (critique) */}
+          <Row k="Source ref" v={ev.document_chunk_id ? ev.document_chunk_id.slice(0, 8) : "—"} title={ev.document_chunk_id || undefined} />
         </div>
       </div>
     </EvShell>
@@ -229,16 +238,20 @@ export function EvidenceModal({
   // ATLF excerpt (cross-issuer "verified" leak).
   const ev = liveEv || isLiveRun ? undefined : EVIDENCE[id];
   const [chunkText, setChunkText] = useState<string | null>(null);
+  const [chunkErr, setChunkErr] = useState(false);
   const chunkId = liveEv?.document_chunk_id ?? null;
   useEffect(() => {
     if (!chunkId) return;
     let alive = true;
     setChunkText(null);
-    getChunk(chunkId).then((c) => { if (alive) setChunkText(c.text); }).catch(() => { /* leave loading→unavailable */ });
+    setChunkErr(false);
+    // On failure surface an explicit unavailable state — the render had no error
+    // branch, so a 404 / failed chunk fetch spun "Loading source…" forever. SEAM3-3.
+    getChunk(chunkId).then((c) => { if (alive) setChunkText(c.text); }).catch(() => { if (alive) setChunkErr(true); });
     return () => { alive = false; };
   }, [chunkId]);
 
-  if (liveEv) return <LiveEvidencePanel id={id} ev={liveEv} text={chunkText} panelRef={panelRef} onClose={onClose} />;
+  if (liveEv) return <LiveEvidencePanel id={id} ev={liveEv} text={chunkText} error={chunkErr} panelRef={panelRef} onClose={onClose} />;
   // Unknown id (neither live nor seeded): an explicit state, never a silent no-op.
   if (!ev) return <UnresolvedEvidencePanel id={id} panelRef={panelRef} onClose={onClose} />;
   const doc = DOCS.find((d) => d.id === ev.doc);
@@ -246,7 +259,7 @@ export function EvidenceModal({
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -349,16 +362,16 @@ export function EvidenceModal({
               {!cites.length ? <div className="text-caos-sm text-caos-muted">No registered citations.</div> : null}
             </div>
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
-                OPEN IN SOURCE VAULT
-              </button>
-              <button className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">
-                FLAG TO QA · CP-5
-              </button>
+              {/* Same recorded flag lane as the step-output modal — flagging a
+                  citation from the source you're doubting is the natural spot.
+                  The old "OPEN IN SOURCE VAULT" button had no target (fixture
+                  docs carry no vault entry) and is gone until a real deep link
+                  exists — no affordance beats a silent no-op. */}
+              <FlagToQa moduleId={ev.module} stepRef={`evidence ${id}`} />
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

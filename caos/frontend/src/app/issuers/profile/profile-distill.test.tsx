@@ -38,11 +38,18 @@ const data: IssuerProfile = {
     created_at: "2026-06-30T10:00:00Z", completed_at: "2026-06-30T10:05:00Z",
   },
   runs: [],
-  metrics: [{
-    metric_key: "net_leverage", period: "FY2025", value: 5.2, unit: "x", basis: null,
-    provenance: "run", headline: true, qa_status: "Passed",
-    source_claim_id: null, source_evidence_id: null, document_chunk_id: null,
-  }],
+  metrics: [
+    {
+      metric_key: "net_leverage", period: "FY2024", value: 5.0, unit: "x", basis: null,
+      provenance: "run", headline: false, qa_status: "Passed",
+      source_claim_id: null, source_evidence_id: null, document_chunk_id: null,
+    },
+    {
+      metric_key: "net_leverage", period: "FY2025", value: 5.2, unit: "x", basis: null,
+      provenance: "run", headline: true, qa_status: "Passed",
+      source_claim_id: null, source_evidence_id: null, document_chunk_id: null,
+    },
+  ],
   signals: {}, coverage: {}, findings: {}, business: [], sponsor: {},
   strengths: [], weaknesses: [],
   earnings: {
@@ -79,8 +86,23 @@ describe("Profile (distilled)", () => {
     }
     expect(screen.queryByText("Credit Ratings")).toBeNull();
 
-    // Snapshot metric tile still renders with its formatted value.
-    expect(screen.getByText("Net leverage")).toBeTruthy();
-    expect(screen.getByText("5.2×")).toBeTruthy();
+    // Snapshot metric tile still renders with its formatted value. The metric
+    // also appears as a trend small-multiple card (snapshot value + trend), so
+    // allow the deliberate duplicate.
+    expect(screen.getAllByText("Net leverage").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("5.2×").length).toBeGreaterThanOrEqual(1);
+
+    const headings = screen.getAllByRole("heading").map((h) => h.textContent || "");
+    const order = (label: string) => headings.findIndex((h) => h.includes(label));
+    const financial = order("Financial & credit trend");
+    const thesis = order("Thesis & key drivers");
+    const business = order("Business profile");
+    const market = order("Market · price & DM");
+    expect([financial, thesis, business, market]).not.toContain(-1);
+    expect(financial).toBeLessThan(thesis);
+    expect(thesis).toBeLessThan(business);
+    expect(business).toBeLessThan(market);
+
+    expect(screen.getByRole("img", { name: /FY2024 5\.0×; FY2025 5\.2×/ })).toBeTruthy();
   });
 });

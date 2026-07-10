@@ -253,16 +253,13 @@ def _classify_flag(flag: str) -> Optional[str]:
     return None
 
 
-def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[ModuleSpec]] = None) -> RoutePlan:
-    """Build the CP-X route plan from a CP-0 payload and the module registry."""
-    specs = list(specs) if specs is not None else all_specs()
-    rt = cp0_payload.runtime_output or {}
-    present: Set[str] = set(rt.get("categories_present", []))
-    edgar = bool(rt.get("edgar_available", False))
-    files = int(rt.get("files_classified", 0) or 0)
-    cp0_flags = list(cp0_payload.limitation_flags or [])
+def _validate_ownership(specs: Sequence[ModuleSpec]) -> Tuple[List[OwnershipEntry], Set[str]]:
+    """Step 4 (precedes verdicts): one-owner-per-object validation (VE-009).
 
-    # ── Step 4 (precedes verdicts): one-owner-per-object validation (VE-009) ──
+    Walks ``specs`` in declaration order; the first module to claim an object
+    owns it, every later claimant is excluded from routing. Returns the TX.4
+    register plus the set of excluded module ids.
+    """
     ownership: List[OwnershipEntry] = []
     excluded: Set[str] = set()
     owner_of: Dict[str, str] = {}
@@ -278,10 +275,19 @@ def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[Module
                 f"VE-009 OWNERSHIP_VIOLATION: {s.module_id} excluded; {prior} owns "
                 f"{s.owned_object}.",
             ))
+    return ownership, excluded
 
-    # ── Steps 2/3: dependency-ordered verdicts ────────────────────────────────
-    order = _topological_order(specs)
-    spec_by_id = {s.module_id: s for s in specs}
+
+def _readiness_verdicts(
+    order: Sequence[str], spec_by_id: Dict[str, ModuleSpec], excluded: Set[str],
+    present: Set[str], edgar: bool,
+) -> Tuple[List[ReadinessEntry], Dict[str, str]]:
+    """Steps 2/3: dependency-ordered readiness verdicts (the TX.3 register).
+
+    Walks the topological ``order`` so every module is judged after its
+    upstreams' statuses are settled (``_verdict`` reads them from ``statuses``).
+    VE-009 exclusions short-circuit to Excluded without consulting sources.
+    """
     statuses: Dict[str, str] = {}
     readiness: List[ReadinessEntry] = []
     for mid in order:
@@ -297,11 +303,22 @@ def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[Module
             readiness=verdict, sources_met=_sources_met(s, present),
             blocking_reason=reason, depends_on=s.depends_on,
         ))
+    return readiness, statuses
+
+
+def _propagate_limitations(
+    cp0_flags: Sequence[str], execution_order: Sequence[str],
+    spec_by_id: Dict[str, ModuleSpec], readiness: Sequence[ReadinessEntry],
+) -> List[LimitationEntry]:
+    """Step 6: limitation propagation register (TX.6).
+
+    A CP-0 flag classified to a source category reaches the executing modules
+    that require that category; an unclassified flag reaches every executing
+    module (never CP-0 itself). Each hit is appended (deduped) onto the
+    affected ``ReadinessEntry.limitation_flags`` in place; a TX.6 row is
+    recorded only when a flag actually reached someone.
+    """
     readiness_by_id = {r.module_id: r for r in readiness}
-
-    execution_order = [mid for mid in order if statuses.get(mid) in _EXECUTABLE]
-
-    # ── Step 6: limitation propagation register (TX.6) ────────────────────────
     limitations: List[LimitationEntry] = []
     for flag in cp0_flags:
         cat = _classify_flag(flag)
@@ -320,8 +337,24 @@ def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[Module
                 limitation=flag, source="CP-0", affected_modules=affected,
                 impact=impact, propagated_flag=flag,
             ))
+    return limitations
 
-    # ── Step 1 + Step 7: gate status and summary ──────────────────────────────
+
+def _gate_and_summary(
+    files: int, edgar: bool, present: Set[str],
+    readiness: Sequence[ReadinessEntry], execution_order: Sequence[str],
+) -> Tuple[str, str, str]:
+    """Step 1 + Step 7: overall gate status, CP-0 assessment, route summary.
+
+    Gate ladder (order is contractual): a critically thin CP-0 (no files, no
+    EDGAR) LABELS the run BLOCKED; any *executing* module on limitations degrades
+    the gate; otherwise Full Run. Verdict counts roll up over ALL routed modules.
+
+    The gate status is a persisted LABEL, not an execution switch (BE3-7): the
+    runner gates execution per-module via each verdict, so a zero-source run
+    still executes its degradable modules — which then flag limitations and land
+    behind the CP-5 gate. That is the intended degrade-and-disclose posture.
+    """
     if files == 0 and not edgar:
         gate_status = BLOCKED
         cp0_assessment = "CP-0 critically thin: no documents vaulted and no EDGAR source."
@@ -340,6 +373,48 @@ def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[Module
         f"Route plan includes {len(execution_order)} modules for execution "
         f"({n_full} Full Run, {n_lim} Ready with Limitations); "
         f"{n_blocked} Blocked, {n_unimpl} not yet implemented."
+    )
+    return gate_status, cp0_assessment, summary
+
+
+def build_route_plan(cp0_payload: ModulePayload, specs: Optional[Sequence[ModuleSpec]] = None) -> RoutePlan:
+    """Build the CP-X route plan from a CP-0 payload and the module registry.
+
+    Orchestrates the corpus methodology steps over the registry:
+    Step 4 ownership/VE-009 → Steps 2/3 dependency-ordered verdicts →
+    Step 6 limitation propagation (TX.6) → Step 1 + Step 7 gate and summary.
+    """
+    specs = list(specs) if specs is not None else all_specs()
+    rt = cp0_payload.runtime_output or {}
+    # Defensive casts: the deterministic CP-0 emits exact types, but the
+    # deleted-issuer fallback path synthesizes CP-0 via the LLM, whose interior
+    # types are unvalidated — a "fourteen" files count or scalar categories list
+    # would raise here, OUTSIDE the per-module guard, and abort the run (BE3-4).
+    raw_present = rt.get("categories_present")
+    present: Set[str] = ({c for c in raw_present if isinstance(c, str)}
+                         if isinstance(raw_present, (list, tuple, set)) else set())
+    edgar = bool(rt.get("edgar_available", False))
+    try:
+        files = int(rt.get("files_classified", 0) or 0)
+    except (TypeError, ValueError):
+        files = 0
+    cp0_flags = [f for f in (cp0_payload.limitation_flags or []) if isinstance(f, str)]
+
+    # Step 4 (precedes verdicts): one-owner-per-object validation (VE-009).
+    ownership, excluded = _validate_ownership(specs)
+
+    # Steps 2/3: dependency-ordered verdicts over the topological order.
+    order = _topological_order(specs)
+    spec_by_id = {s.module_id: s for s in specs}
+    readiness, statuses = _readiness_verdicts(order, spec_by_id, excluded, present, edgar)
+    execution_order = [mid for mid in order if statuses.get(mid) in _EXECUTABLE]
+
+    # Step 6: limitation propagation register (TX.6) — annotates ``readiness``.
+    limitations = _propagate_limitations(cp0_flags, execution_order, spec_by_id, readiness)
+
+    # Step 1 + Step 7: gate status and summary.
+    gate_status, cp0_assessment, summary = _gate_and_summary(
+        files, edgar, present, readiness, execution_order,
     )
 
     return RoutePlan(

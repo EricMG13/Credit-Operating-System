@@ -43,7 +43,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -59,23 +59,24 @@ _PCT_OF_EBITDA = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(?:its\s+|the\s+|consolidated\s+)*(?:adjusted\s+)?ebitda",
     re.IGNORECASE,
 )
-_ADDBACK_KW = ("add-back", "add back", "addback")
-_CATEGORY_KW = {
-    "synergies": ("synerg",),
-    "cost savings": ("cost saving", "cost-saving"),
-    "run-rate": ("run-rate", "run rate"),
-    "restructuring": ("restructuring",),
-    "transaction / non-recurring": ("transaction", "non-recurring", "nonrecurring", "one-time", "one time"),
-    "stock-based comp": ("stock-based", "stock based", "share-based"),
-    "pro forma": ("pro forma", "pro-forma"),
+_ADDBACK_RE = re.compile(r"add-back|add\s+back|addback", re.IGNORECASE)
+
+_CATEGORY_RE = {
+    "synergies": re.compile(r"synerg", re.I),
+    "cost savings": re.compile(r"cost\s+saving|cost-saving", re.I),
+    "run-rate": re.compile(r"run-rate|run\s+rate", re.I),
+    "restructuring": re.compile(r"restructuring", re.I),
+    "transaction / non-recurring": re.compile(r"transaction|non-recurring|nonrecurring|one-time|one\s+time", re.I),
+    "stock-based comp": re.compile(r"stock-based|stock\s+based|share-based", re.I),
+    "pro forma": re.compile(r"pro\s+forma|pro-forma", re.I),
 }
 
 _RETRIEVE_QUERY = "adjusted EBITDA add-backs add back synergies cost savings run-rate pro forma"
 
 
 def _categories(text: str) -> List[str]:
-    low = text.lower()
-    return [label for label, kws in _CATEGORY_KW.items() if any(k in low for k in kws)]
+    # Avoid text.lower() allocations; search original text with case-insensitive precompiled regexes
+    return [label for label, pat in _CATEGORY_RE.items() if pat.search(text)]
 
 
 def derive_addbacks(
@@ -87,14 +88,12 @@ def derive_addbacks(
     an "N% of EBITDA" load, else None. Deterministic path: the figure is regex-matched
     in that exact chunk, so ``exact`` is always True."""
     for chunk_id, text in chunks:
-        low = text.lower()
-        if not any(kw in low for kw in _ADDBACK_KW):
-            continue
-        m = _PCT_OF_EBITDA.search(text)
-        if m:
-            pct = float(m.group(1)) / 100.0
-            if 0 < pct < 1:
-                return pct, _categories(text), chunk_id, True
+        if _ADDBACK_RE.search(text):
+            m = _PCT_OF_EBITDA.search(text)
+            if m:
+                pct = float(m.group(1)) / 100.0
+                if 0 < pct < 1:
+                    return pct, _categories(text), chunk_id, True
     return None
 
 
@@ -170,13 +169,13 @@ async def reconcile_adjusted_ebitda(
     if is_finite_number(disclosed) and disclosed > 0:
         ebitda = float(disclosed)
     elif lev != 0:
-        ebitda = nd / lev  # reconstruct from leverage only when adj_ebitda is absent
+        ebitda = safe_div(nd, lev)  # reconstruct from leverage only when adj_ebitda is absent
     else:
         return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
     if ebitda_excl <= 0:
         return None  # add-backs claim >= 100% of EBITDA — no meaningful excl leverage
-    lev_excl = round(nd / ebitda_excl, 2)
+    lev_excl = round(safe_div(nd, ebitda_excl), 2)
     gap = round(lev_excl - lev, 2)
 
     recon = {
@@ -216,6 +215,12 @@ def reconciliation_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     if cp1 is None:
         return None
     ro = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
+    # A live CP-1 may emit this key as a truthy non-dict ("not disclosed"), which
+    # `or {}` keeps and `.get` would then raise on — aborting the whole run in the
+    # QA phase (BE3-1). The runner only overwrites the key when its own reconcile
+    # produced a dict, so the model's scalar can survive to here. Degrade instead.
+    if not isinstance(ro, dict):
+        return None
     pct, gap = ro.get("addback_pct"), ro.get("leverage_gap_turns")
     # A persisted/replayed CP-1 payload could carry a NaN (-> "nan%" committee
     # text) or a str (-> a TypeError that fails the whole run) here. is_finite_number

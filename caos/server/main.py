@@ -6,9 +6,9 @@ terminates TLS and authenticates the caller; on top of that, analysts hold a
 code-gated in-app profile (routes/auth.py) that supplies the app-level identity.
 Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 """
-
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -25,8 +25,10 @@ from config import get_settings, is_deployed
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, query, research, runs, scenario, settings as settings_routes, sponsors
+from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
 from research_executor import get_research_executor
+from research_report_executor import ResearchReportExecutor
+from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -97,7 +99,31 @@ async def lifespan(app: FastAPI):
     app.state.research_executor = get_research_executor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
+    # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows
+    # the autonomy route enqueues, runs the Sentinel→Analyst→Reporter cycle off
+    # the request thread. Sweeps stranded 'running' rows to 'failed' on boot.
+    app.state.pipeline_executor = PipelineExecutor()
+    await app.state.pipeline_executor.start()
+    logger.info("CAOS pipeline executor started (%s)", app.state.pipeline_executor.name)
+    # Durable Issuer Research Report synthesis: background jobs the client polls,
+    # swept on boot. Mirrors ResearchExecutor.
+    app.state.research_report_executor = ResearchReportExecutor()
+    await app.state.research_report_executor.start()
+    logger.info("CAOS research report executor started (%s)", app.state.research_report_executor.name)
+
+    async def run_warmup():
+        try:
+            from engine.embeddings import warmup_embeddings_task
+            async with AsyncSessionLocal() as session:
+                await warmup_embeddings_task(session)
+        except Exception:
+            logger.exception("Failed to run embeddings warmup task")
+
+    asyncio.create_task(run_warmup())
+
     yield
+    await app.state.pipeline_executor.stop()
+    await app.state.research_report_executor.stop()
     await app.state.research_executor.stop()
     await app.state.executor.stop()
     logger.info("CAOS shutting down")
@@ -268,12 +294,16 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
+app.include_router(portfolios.router, prefix="/api/portfolios", tags=["portfolios"])
 app.include_router(sponsors.router, prefix="/api/sponsors", tags=["sponsors"])
 app.include_router(digest.router, prefix="/api/digest", tags=["digest"])
+app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 
 
 # Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that

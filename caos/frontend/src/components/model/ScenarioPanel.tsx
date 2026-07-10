@@ -385,7 +385,12 @@ function ScenarioBuilder({
           {busy ? "…" : "BUILD"}
         </button>
       </div>
-      {err ? <div className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" /> {err}</div> : null}
+      {err ? (
+        <div className="tabular text-caos-xs flex items-start gap-1" style={{ color: "var(--caos-warning)" }}>
+          <span className="shrink-0"><StatusGlyph kind="warning" /></span>
+          <span className="min-w-0 max-h-16 overflow-y-auto break-words leading-snug">{err}</span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -394,6 +399,13 @@ function ScenarioBuilder({
 // columns, worst = the DOWNSIDE columns, so both the base- and downside-case
 // Assumptions sliders re-center the lens (best/base/worst + tornado). The
 // Scenario Builder layers a custom scenario on top; Reset reverts to it.
+//
+// BY DESIGN: a BASE-case driver edit re-derives BEST and BASE but NOT WORST.
+// worst reads the DOWNSIDE columns (d0/d1/d2) in buildScenarios(); best/base
+// read the BASE columns (b0/b1/b2). worst therefore owns its own downside
+// drivers and is independent of base-case nudges (only downside-case sliders
+// and the Scenario Builder deltas — layered onto both cases — move it). This is
+// correct, not a stale column.
 export function ScenarioPanel({ model, downside, onCollapse }: { model: Model; downside?: DownsidePathway | null; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);

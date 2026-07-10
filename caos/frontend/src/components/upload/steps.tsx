@@ -17,9 +17,12 @@ type Dropzone = ReturnType<typeof useDropzone>;
 
 export type RunMode = { k: string; code: string; label: string; desc: string };
 
-// Run-mode templates — same keys as the Concept B (Pipeline) CP-X routes.
+// Run-mode templates for document intake. Keys mirror the Concept B (Pipeline)
+// CP-X routes, plus "primary" (intake-only: a full-committee route that warns to
+// include the new-loan price/OID/cap table — the Pipeline demo sim doesn't carry it).
 export const RUN_MODES: RunMode[] = [
   { k: "full", code: "R-IC", label: "Full IC Committee", desc: "Complete CP-X route — new-issue / full committee review" },
+  { k: "primary", code: "R-PT", label: "Primary Transaction", desc: "New-issue primary — full CP-X route; needs new-loan price, OID + cap table" },
   { k: "earnings", code: "R-ER", label: "Earnings Update", desc: "Delta route — quarterly / annual results refresh" },
   { k: "rv", code: "R-RV", label: "Relative Value", desc: "RV refresh — pricing, comps and positioning" },
   { k: "legal", code: "R-LG", label: "Legal Review", desc: "Covenant & docs deep-dive on the legal stack" },
@@ -44,6 +47,9 @@ export interface FileOutcome {
   name: string;
   result?: UploadResult;
   error?: string;
+  // The original File is kept alongside its outcome so a partial-batch failure
+  // can be retried without the analyst re-locating and re-dropping the source.
+  file?: File;
 }
 
 export const isSpreadsheet = (name: string) => /\.(xlsx|xls)$/i.test(name);
@@ -135,7 +141,7 @@ export function IssuerStep({
             key={issuer.id}
             onClick={() => onSelectIssuer(issuer)}
             className={
-              "w-full grid grid-cols-[64px_1fr_110px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 text-left transition-caos hover:bg-caos-elevated/60 " +
+              "focus-ring w-full grid grid-cols-[64px_1fr_110px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 text-left transition-caos hover:bg-caos-elevated/60 " +
               (selectedIssuer?.id === issuer.id ? "bg-caos-elevated caos-selected relative z-[5]" : "")
             }
           >
@@ -149,18 +155,21 @@ export function IssuerStep({
         {!showNewIssuer ? (
           <button
             onClick={() => setShowNewIssuer(true)}
-            className="w-full tabular text-caos-md py-1.5 rounded border border-dashed border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos"
+            className="focus-ring w-full tabular text-caos-md py-1.5 rounded border border-dashed border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos"
           >
             + ADD NEW ISSUER
           </button>
         ) : (
           <div className="flex flex-col gap-2">
+            {/* maxLength mirrors routes/issuers.py IssuerCreate + the issuers
+                DB columns so a length 422/500 is unreachable from typing */}
             <TextInput
               type="text"
               value={newIssuerName}
               onChange={(e) => setNewIssuerName(e.target.value)}
               placeholder="Issuer name (e.g. Atlas Forge Industrials)"
               aria-label="Issuer name"
+              maxLength={255}
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <TextInput
@@ -169,19 +178,20 @@ export function IssuerStep({
               onChange={(e) => setNewIssuerTicker(e.target.value)}
               placeholder="Ticker (optional)"
               aria-label="Ticker (optional)"
+              maxLength={32}
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <div className="flex gap-2">
               <button
                 onClick={onCreateIssuer}
                 disabled={!newIssuerName.trim()}
-                className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40"
+                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40"
               >
                 CREATE
               </button>
               <button
                 onClick={() => setShowNewIssuer(false)}
-                className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
               >
                 CANCEL
               </button>
@@ -196,7 +206,8 @@ export function IssuerStep({
 /* ---------- step 2: files + run mode ---------- */
 export function FileStep({
   selectedIssuer, getRootProps, getInputProps, isDragActive,
-  files, onRemoveFile, runMode, setRunMode, uploading, onUpload, onBack,
+  files, onRemoveFile, runMode, setRunMode, uploading, progress, onUpload, onCancel, onBack,
+  portfolios = [], portfolioId = "", setPortfolioId,
 }: {
   selectedIssuer: Issuer | null;
   getRootProps: Dropzone["getRootProps"];
@@ -207,14 +218,22 @@ export function FileStep({
   runMode: string;
   setRunMode: (k: string) => void;
   uploading: boolean;
+  progress: { index: number; total: number; name: string } | null;
   onUpload: () => void;
+  onCancel: () => void;
   onBack: () => void;
+  // Portfolio context: which book this issuer's run is evaluated against (CP-3C
+  // concentration). Empty = auto-bind the book that holds it. Optional so callers
+  // with no portfolios don't render the picker.
+  portfolios?: { id: string; name: string }[];
+  portfolioId?: string;
+  setPortfolioId?: (v: string) => void;
 }) {
   return (
     <Panel
       title={"Files & run mode · " + (selectedIssuer?.name || "")}
       right={
-        <button onClick={onBack} className="tabular text-caos-xs text-caos-muted hover:text-caos-text transition-caos">
+        <button onClick={onBack} className="focus-ring rounded px-1 tabular text-caos-xs text-caos-muted hover:text-caos-text transition-caos">
           ← BACK
         </button>
       }
@@ -222,7 +241,7 @@ export function FileStep({
       <div className="p-3 flex flex-col gap-3">
         <div
           {...getRootProps()}
-          className="rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos"
+          className="focus-ring rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos"
           style={{
             borderColor: isDragActive ? "var(--caos-accent)" : files.length ? "color-mix(in srgb, var(--caos-success) 50%, transparent)" : "var(--caos-border)",
             background: isDragActive ? "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" : files.length ? "color-mix(in srgb, var(--caos-success) 4%, transparent)" : "var(--caos-bg)",
@@ -245,7 +264,8 @@ export function FileStep({
                 <span className="tabular text-caos-xs text-caos-muted text-right">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
                 <button
                   onClick={() => onRemoveFile(f)}
-                  className="tabular text-caos-xs text-caos-muted hover:text-caos-text text-right transition-caos"
+                  aria-label={"Remove " + f.name}
+                  className="focus-ring rounded tabular text-caos-xs text-caos-muted hover:text-caos-text text-right transition-caos"
                 >
                   REMOVE
                 </button>
@@ -261,8 +281,9 @@ export function FileStep({
               <button
                 key={m.k}
                 onClick={() => setRunMode(m.k)}
+                aria-pressed={runMode === m.k}
                 className={
-                  "w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 " +
+                  "focus-ring w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 " +
                   (runMode === m.k ? "bg-caos-elevated" : "")
                 }
               >
@@ -277,20 +298,73 @@ export function FileStep({
           </div>
         </div>
 
-        <button
-          onClick={onUpload}
-          disabled={files.length === 0 || uploading}
-          className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
+        {/* Primary Transaction runs the full IC route, but pricing + structure
+            only analyse if the deal terms are in the source materials — warn, don't gate. */}
+        {runMode === "primary" ? (
+          <div
+            role="note"
+            className="rounded border px-3 py-2 flex items-start gap-2"
+            style={{
+              borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)",
+              background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)",
+            }}
+          >
+            <Dot sev="warning" />
+            <span className="text-caos-sm leading-snug" style={{ color: "var(--caos-warning)" }}>
+              Primary transaction — include the <span className="font-medium">new-loan price</span>,{" "}
+              <span className="font-medium">OID</span> and <span className="font-medium">cap table</span>{" "}
+              in your source materials so pricing and structure are analysed.
+            </span>
+          </div>
+        ) : null}
+
+        {portfolios.length && setPortfolioId ? (
+          <div>
+            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">
+              Portfolio context
+            </div>
+            <select
+              value={portfolioId}
+              onChange={(e) => setPortfolioId(e.target.value)}
+              aria-label="Portfolio to evaluate this issuer against"
+              className="w-full px-2.5 py-1.5 text-caos-lg rounded border border-caos-border bg-caos-bg text-caos-text focus-ring"
+            >
+              <option value="">Auto — the book holding this issuer</option>
+              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div className="tabular text-caos-2xs text-caos-muted mt-1 leading-snug">
+              The book CP-3C evaluates the issuer against (concentration + headroom). Auto-binds when the issuer is held.
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex gap-2">
+          <button
+            onClick={onUpload}
+            disabled={files.length === 0 || uploading}
+            className="focus-ring flex-1 min-w-0 h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-3"
+          >
+            {uploading ? (
+              <>
+                <Dot sev="running" pulse />
+                <span className="whitespace-nowrap">
+                  UPLOADING <span className="tabular">{progress?.index ?? 0}/{progress?.total ?? files.length}</span>
+                </span>
+                {progress?.name ? <span className="text-caos-muted truncate min-w-0">— {progress.name}</span> : null}
+              </>
+            ) : (
+              `UPLOAD ${files.length || ""} FILE${files.length === 1 ? "" : "S"} & PROCESS`
+            )}
+          </button>
           {uploading ? (
-            <>
-              <Dot sev="running" pulse />
-              UPLOADING & CHUNKING…
-            </>
-          ) : (
-            `UPLOAD ${files.length || ""} FILE${files.length === 1 ? "" : "S"} & PROCESS`
-          )}
-        </button>
+            <button
+              onClick={onCancel}
+              className="focus-ring shrink-0 h-8 px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-critical/60 transition-caos tabular text-caos-md"
+            >
+              CANCEL
+            </button>
+          ) : null}
+        </div>
       </div>
     </Panel>
   );
@@ -298,7 +372,8 @@ export function FileStep({
 
 /* ---------- step 3: result ---------- */
 export function ResultStep({
-  outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks, onReset,
+  outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks,
+  uploading, progress, onReset, onRetryFailed,
 }: {
   outcomes: FileOutcome[];
   selectedIssuer: Issuer | null;
@@ -306,7 +381,10 @@ export function ResultStep({
   okCount: number;
   failCount: number;
   totalChunks: number;
+  uploading: boolean;
+  progress: { index: number; total: number; name: string } | null;
   onReset: () => void;
+  onRetryFailed: () => void;
 }) {
   const { openProfile } = useIssuerProfileOverlay();
   // A vaulted doc that produced 0 chunks has no extractable text (scanned /
@@ -317,23 +395,33 @@ export function ResultStep({
   const noTextTitle = "No extractable text (scanned or encrypted PDF?) — vaulted but not searchable or analysed.";
   return (
     <Panel
-      title="Intake complete · CP-0 ready"
+      title={uploading ? "Ingesting · CP-0 processing" : "Intake complete · CP-0 ready"}
       right={
         <span className="flex items-center gap-1.5">
-          <Dot sev={failCount || zeroCount ? "warning" : "ok"} />
+          <Dot sev={uploading ? "running" : failCount || zeroCount ? "warning" : "ok"} pulse={uploading} />
           <span className="tabular text-caos-xs text-caos-muted">
-            {okCount}/{outcomes.length} vaulted · {totalChunks} chunks
+            {uploading && progress
+              ? `${progress.index}/${progress.total} processing`
+              : `${okCount}/${outcomes.length} vaulted · ${totalChunks} chunks`}
           </span>
         </span>
       }
     >
-      <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
-        {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
-        {modeMeta?.label} ({modeMeta?.code}) run queued
-        {failCount ? ` · ${failCount} failed` : ""}
-        {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
-        <span className="text-caos-muted"> — return to the issuer dictionary to review coverage</span>
-      </div>
+      {uploading && progress ? (
+        <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2 text-caos-lg leading-snug">
+          <Dot sev="running" pulse />
+          <span className="tabular text-caos-text whitespace-nowrap">{progress.index}/{progress.total}</span>
+          <span className="text-caos-muted truncate min-w-0">— {progress.name}</span>
+        </div>
+      ) : (
+        <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
+          {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
+          {modeMeta?.label} ({modeMeta?.code}) run queued
+          {failCount ? <span style={{ color: "var(--caos-critical)" }}> · {failCount} failed</span> : null}
+          {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
+          <span className="text-caos-muted"> — return to the issuer register to review coverage</span>
+        </div>
+      )}
       <div className="text-caos-md">
         {outcomes.map((o) => {
           const noText = !!o.result && o.result.chunks_created === 0;
@@ -353,32 +441,45 @@ export function ResultStep({
         })}
       </div>
       <div className="p-3 flex gap-2">
+        {/* Retry only the failed files — issuer, run mode, and the rows that
+            already succeeded are all preserved, so a transient 5xx on 2 of 12
+            never forces re-selecting the issuer or re-dropping the batch. */}
+        {failCount > 0 && !uploading ? (
+          <button
+            onClick={onRetryFailed}
+            className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos flex items-center justify-center gap-1.5"
+          >
+            <Dot sev="critical" />
+            RETRY <span className="tabular">{failCount}</span> FAILED
+          </button>
+        ) : null}
         <button
           onClick={onReset}
-          className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+          disabled={uploading}
+          className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos disabled:opacity-40 disabled:cursor-not-allowed"
         >
           UPLOAD ANOTHER
         </button>
         {selectedIssuer ? (
           <button
             onClick={() => openProfile(selectedIssuer.id)}
-            className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+            className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
           >
             OPEN ISSUER PROFILE →
           </button>
         ) : (
           <Link
             href="/issuers"
-            className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
+            className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
           >
             OPEN ISSUER PROFILE →
           </Link>
         )}
         <Link
           href="/issuers"
-          className="flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+          className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
         >
-          ISSUER DICTIONARY →
+          ISSUER REGISTER →
         </Link>
       </div>
     </Panel>

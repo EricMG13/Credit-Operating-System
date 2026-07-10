@@ -10,7 +10,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Fill the Audience default, save, and wait for the confirmation.
 async function saveAudience(page: Page, value: string) {
-  await page.getByRole("button", { name: "Research" }).click();
+  await page.getByRole("tab", { name: "Research" }).click();
   await page.getByLabel("Audience").fill(value);
   await page.getByRole("button", { name: "Save" }).click();
   // exact: the panel heading also contains "saved".
@@ -21,7 +21,7 @@ async function saveAudience(page: Page, value: string) {
 test.describe("Settings", () => {
   test("mirrors the server workspace configuration", async ({ page }) => {
     await page.goto("/settings/");
-    await page.getByRole("button", { name: "Workspace" }).click();
+    await page.getByRole("tab", { name: "Workspace" }).click();
 
     await expect(page.getByRole("heading", { name: "Workspace configuration · set via environment, restart to change" })).toBeVisible({
       timeout: 10000,
@@ -39,7 +39,7 @@ test.describe("Settings", () => {
     await saveAudience(page, value);
 
     await page.reload();
-    await page.getByRole("button", { name: "Research" }).click();
+    await page.getByRole("tab", { name: "Research" }).click();
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 
@@ -51,6 +51,9 @@ test.describe("Settings", () => {
 
     // Same browser context → localStorage carries the standing lens to Research.
     await page.goto("/research/");
+    // Audience is seeded into state on load but lives inside the collapsed
+    // "Advanced brief" disclosure — expand it before reading the field.
+    await page.getByRole("button", { name: "Advanced brief" }).click();
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 });

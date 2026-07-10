@@ -37,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </a>
             {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
             <main id="main-content"><RouteHeading />{children}</main>
-            <div className="fixed bottom-3 left-3 z-overlay hidden lg:block">
+            <div className="fixed bottom-16 left-3 z-overlay hidden lg:block">
               <GlobalIssuerSearch />
             </div>
             <AskLauncher />

@@ -7,7 +7,15 @@ from fastapi.testclient import TestClient
 
 from types import SimpleNamespace
 
-from deepresearch import _AI_MODES, ResearchBrief, _collect_sources, build_brief, _demo_report
+from deepresearch import (
+    _AI_MODES,
+    ResearchBrief,
+    Source,
+    _collect_sources,
+    _emit_progress,
+    build_brief,
+    _demo_report,
+)
 
 
 # ── Brief assembly ───────────────────────────────────────────────────────────
@@ -72,6 +80,33 @@ def test_collect_sources_drops_non_http_schemes():
     out: list = []
     _collect_sources(block, out)
     assert [s.url for s in out] == ["https://sec.gov/ok", "http://example.com/also-ok"]
+
+
+# ── Live progress (real running counts for the polled UI, never fabricated) ───
+def test_emit_progress_reports_unique_source_count_and_is_best_effort():
+    """The running counter must reflect REAL work: unique sources so far (deduped
+    by URL) and the search count. A None sink is a no-op, and a raising sink is
+    swallowed — the counter is a nicety, never a reason to abort the run."""
+    import asyncio
+
+    seen: list = []
+    sources = [
+        Source(title="A", url="https://sec.gov/a"),
+        Source(title="A-dup", url="https://sec.gov/a"),  # same URL → counts once
+        Source(title="B", url="https://sec.gov/b"),
+    ]
+
+    async def cb(p):
+        seen.append(p)
+
+    async def boom(p):
+        raise RuntimeError("sink down")
+
+    asyncio.run(_emit_progress(cb, sources, searches=4))
+    asyncio.run(_emit_progress(None, sources, searches=4))  # no-op, must not raise
+    asyncio.run(_emit_progress(boom, sources, searches=4))  # swallowed, must not raise
+
+    assert seen == [{"sources": 2, "searches": 4}]
 
 
 # ── Endpoint (demo path — no ANTHROPIC_API_KEY in tests) ──────────────────────

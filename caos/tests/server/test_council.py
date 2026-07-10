@@ -81,6 +81,22 @@ def test_parse_returns_empty_on_garbage():
     assert _parse(SEAT, '{"severity":"CRITICAL"}') == []  # object, not the array we require
 
 
+def test_parse_survives_prose_and_fences_around_the_array():
+    # Regression: the old greedy [.*] matched first-'[' to last-']', so a reviewer
+    # that fenced the array or appended a bracketed note lost ALL its findings —
+    # a silently-missed QA catch. raw_decode stops at the array's true end.
+    body = '[{"severity":"MATERIAL","module_id":"CP-1","description":"x"}]'
+    for text in (
+        f"```json\n{body}\n```",                       # markdown-fenced
+        f"{body}\n\nSee footnote [1] for detail.",       # trailing bracketed prose
+        f"Here are my findings:\n{body}",                # leading prose
+        f"note [ref]: {body} — done.",                   # stray bracket BEFORE the array
+    ):
+        out = _parse(SEAT, text)
+        assert len(out) == 1, text
+        assert out[0].severity == "MATERIAL" and out[0].module_id == "CP-1"
+
+
 # ── _attribute: pin findings to real modules so the gate can act ─────────────
 
 def test_attribute_assigns_sole_module_when_id_missing():

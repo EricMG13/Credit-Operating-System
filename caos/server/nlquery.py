@@ -22,7 +22,7 @@ import re
 from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
@@ -360,8 +360,71 @@ def _passes(value: Optional[float], op: str, target) -> bool:
         t = float(target)
     except (TypeError, ValueError):
         return False  # fail closed: an unparseable filter excludes, never admits all (#4)
-    return {"=": value == t, ">": value > t, ">=": value >= t,
-            "<": value < t, "<=": value <= t}.get(op, False)  # unknown op excludes
+    if op == "=":
+        return value == t
+    if op == ">":
+        return value > t
+    if op == ">=":
+        return value >= t
+    if op == "<":
+        return value < t
+    if op == "<=":
+        return value <= t
+    return False
+
+
+# ── Latest-per (issuer, metric) collapse ─────────────────────────────────────
+_DERIVED_PROVENANCE = ("run", "fixture")  # run/fixture outrank seed in the collapse tier
+
+
+def _derived(provenance: str) -> int:
+    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
+    return 1 if provenance in _DERIVED_PROVENANCE else 0
+
+
+def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:
+    """True if ``fact`` should replace ``prev`` as the kept value for one
+    (issuer, metric): run/fixture-derived beats seed, then most-recent created_at
+    within the same tier. Several runs of one issuer collapse to the latest.
+
+    NB two sharp edges any SQL-window reimplementation must reproduce exactly:
+    (1) when either created_at is null the tie stays with ``prev`` (first seen) — an
+        iteration-order dependence a window ORDER BY must pin with a deterministic id
+        tiebreak, and whose NULLS position differs SQLite(dev)↔Postgres(prod);
+    (2) this tiers run==fixture, and engine.querygraph._best_fact was unified onto the
+        same rule — the two collapses are pinned identical by test_fact_collapse.py's
+        test_both_collapses_agree_after_unification.
+    """
+    if prev is None:
+        return True
+    pt, ft = _derived(prev.provenance), _derived(fact.provenance)
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
+
+
+def _provenance_caveats(label: str, provs: set) -> List[str]:
+    """Result-level honesty sentences for the ranked metric's provenance mix.
+
+    The seed/derived chain keeps the pre-existing wording. demo_fixture is
+    checked INDEPENDENTLY of that chain: fabricated figures (the ATLF fixture
+    persisted for a non-demo issuer on a keyless run, #10) must be called out
+    even when mixed with sourced values — the row-level badges alone read as
+    benign seed (SEAM2-1)."""
+    out: List[str] = []
+    if provs == {"seed"}:
+        out.append(f"{label} is illustrative seed data (no sourced value yet).")
+    elif "seed" in provs:
+        out.append(f"{label} is derived from filings for some issuers, illustrative seed for others.")
+    elif provs == {"derived"}:
+        out.append(f"{label} is derived from each issuer's filings (cited).")
+    if "demo_fixture" in provs:
+        out.append(
+            f"{label} for one or more issuers is fabricated Atlas Forge demo-fixture data "
+            "(served because no model key is configured) — NOT sourced from those issuers' "
+            "filings; treat as illustrative only."
+        )
+    return out
 
 
 async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
@@ -370,35 +433,40 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
     issuer_filters = [f for f in spec.filters if f.field in _FILTER_FIELDS]
     metric_filters = [f for f in spec.filters if f.field in CATALOG_BY_KEY]
 
-    stmt = (
-        select(MetricFact, Issuer)
+    # Bound the scan: pick one winning fact per (issuer, metric) in SQL via a window
+    # ordered to mirror _better_fact — run/fixture tier, then newest created_at, then a
+    # deterministic id tiebreak (which also pins the null-created_at case the Python fold
+    # left to iteration order). Keeps the read at issuers×metrics, not O(run history).
+    # _better_fact stays the pinned reference this ORDER BY must match (test_fact_collapse).
+    tier = case((MetricFact.provenance.in_(_DERIVED_PROVENANCE), 1), else_=0)
+    win = (
+        select(
+            MetricFact.id.label("fid"),
+            func.row_number().over(
+                partition_by=(MetricFact.issuer_id, MetricFact.metric_key),
+                order_by=(tier.desc(), MetricFact.created_at.desc().nullslast(),
+                          MetricFact.id.desc()),
+            ).label("rn"),
+        )
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
         .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(needed))
     )
     for f in issuer_filters:
         col = getattr(Issuer, f.field)
-        stmt = stmt.where(col.ilike(f"%{f.value}%") if f.op == "ilike" else col == f.value)
+        win = win.where(col.ilike(f"%{f.value}%") if f.op == "ilike" else col == f.value)
+    win = win.subquery()
 
+    stmt = (
+        select(MetricFact, Issuer)
+        .join(Issuer, MetricFact.issuer_id == Issuer.id)
+        .where(MetricFact.id.in_(select(win.c.fid).where(win.c.rn == 1)))
+    )
     rows = (await session.execute(stmt)).all()
 
-    # Pivot per issuer; per (issuer, metric) keep the best fact: run-derived
-    # (a real run OR the demo fixture, #04) over seed, then most recent. Several
-    # runs of one issuer collapse to the latest.
-    def _derived(p: str) -> int:
-        return 1 if p in ("run", "fixture") else 0
-
+    # The window already collapsed to one fact per (issuer, metric) — just pivot.
     by_issuer: Dict[str, dict] = {}
     for fact, issuer in rows:
-        entry = by_issuer.setdefault(issuer.id, {"issuer": issuer, "metrics": {}})
-        prev = entry["metrics"].get(fact.metric_key)
-        better = (
-            prev is None
-            or _derived(fact.provenance) > _derived(prev.provenance)
-            or (_derived(fact.provenance) == _derived(prev.provenance)
-                and fact.created_at and prev.created_at and fact.created_at > prev.created_at)
-        )
-        if better:
-            entry["metrics"][fact.metric_key] = fact
+        by_issuer.setdefault(issuer.id, {"issuer": issuer, "metrics": {}})["metrics"][fact.metric_key] = fact
 
     md: MetricDef = CATALOG_BY_KEY[spec.rank_by]
     results = []
@@ -456,15 +524,9 @@ async def execute(session: AsyncSession, spec: QuerySpec) -> dict:  # noqa: C901
          "higher_is_better": CATALOG_BY_KEY[m].higher_is_better}
         for m in spec.metrics
     ]
-    caveats = []
     provs = {r["metrics"].get(spec.rank_by, {}).get("provenance") for r in results}
     provs.discard(None)
-    if provs == {"seed"}:
-        caveats.append(f"{md.label} is illustrative seed data (no sourced value yet).")
-    elif "seed" in provs:
-        caveats.append(f"{md.label} is derived from filings for some issuers, illustrative seed for others.")
-    elif provs == {"derived"}:
-        caveats.append(f"{md.label} is derived from each issuer's filings (cited).")
+    caveats = _provenance_caveats(md.label, provs)
     # Reported (EDGAR GAAP) vs adjusted (covenant/modeled) EBITDA are not directly
     # comparable; warn when a leverage/EBITDA ranking mixes them across issuers.
     if spec.rank_by in {"net_leverage", "adj_ebitda"}:
@@ -615,10 +677,15 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
 
     for m_out, run, issuer in modules:
         key = f"m:{m_out.id}"
+        # Row count is capped (_SYNTH_SCAN_CAP) but a runtime_output can be tens
+        # of KB (CP-1 FactPack) — serialize a bounded slice so the on-loop
+        # tokenize/rank stays O(cap × 2KB), not O(cap × payload) (BE5-4). BM25
+        # ranks on term overlap; a 2KB head is plenty of signal for retrieval.
+        payload = json.dumps(m_out.runtime_output, ensure_ascii=False)[:2000]
         text = (
             f"Module: {m_out.module_name} ({m_out.module_id}). "
             f"Confidence: {m_out.confidence}. QA Status: {m_out.qa_status}. "
-            f"Output payload: {json.dumps(m_out.runtime_output, ensure_ascii=False)}"
+            f"Output payload: {payload}"
         )
         corpus.append((key, text))
         meta[key] = {

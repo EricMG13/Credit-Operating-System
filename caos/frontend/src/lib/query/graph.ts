@@ -113,3 +113,57 @@ export interface AcceptedLink {
 
 // Normalized undirected pair key — mirrors the server's (issuer_a < issuer_b).
 export const pairKey = (a: string, b: string): string => [a, b].sort().join("|");
+
+// ── Desk Brief (routes/query.py /insights) — proactive AI research, marked ────
+// Cited, AI-written insight cards over what changed in the book. Every card cites
+// a real evidence entry; ungrounded cards are dropped server-side, so anything
+// rendered here is grounded. `chunk_id` (when set) opens the citation viewer,
+// else the card deep-links `walk`.
+export interface InsightEvidence {
+  id: string;
+  label: string;
+  chunk_id: string | null;
+}
+
+export interface InsightCard {
+  id: string;
+  headline: string;
+  detail: string;
+  walk: string | null;
+  issuer_id: string | null;
+  evidence: InsightEvidence[];
+}
+
+export interface InsightBrief {
+  cards: InsightCard[];
+  degraded: boolean; // true = deterministic highlights (no model / nothing groundable)
+  generated_reason: string;
+  data_fingerprint: string;
+  model: string | null;
+  generated_at: string | null;
+  cached: boolean;
+  refreshing: boolean; // a background regeneration is in flight — poll for the AI brief
+  available: boolean; // model lane usable; false → the client hides the panel
+}
+
+// ── Grounded answer (routes/query.py /answer) — cited AI prose beside a walk ──
+export interface AnswerCitation {
+  chunk_id: string;
+  label: string;
+}
+
+export interface AnswerSentence {
+  text: string;
+  chunk_ids: string[];
+}
+
+export interface AnswerResult {
+  answer: string; // survivor sentences joined; "" when unavailable
+  sentences: AnswerSentence[];
+  citations: AnswerCitation[];
+  unavailable: boolean;
+  reason?: string;
+  model: string | null;
+  created_at: string | null;
+  cached: boolean;
+}

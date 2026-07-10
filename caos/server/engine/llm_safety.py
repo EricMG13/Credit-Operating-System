@@ -20,8 +20,7 @@ AML.T0051.001 (indirect prompt injection):
 from __future__ import annotations
 
 import json
-import re
-from typing import Optional, Sequence, Tuple, Type
+from typing import Any, Optional, Sequence, Tuple, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -54,6 +53,27 @@ def loads_finite(s: str):
     literal can never reach a financial field. Raises ``ValueError`` (incl. the
     ``json.JSONDecodeError`` subclass) on malformed or non-finite input."""
     return json.loads(s, parse_constant=_reject_non_finite)
+
+
+def first_json_value(text: str, open_ch: str = "{") -> Optional[Any]:
+    """First complete JSON value starting at ``open_ch``, or None if absent."""
+    dec = json.JSONDecoder(parse_constant=_reject_non_finite)
+    i = text.find(open_ch)
+    while i != -1:
+        try:
+            return dec.raw_decode(text, i)[0]
+        except json.JSONDecodeError:
+            i = text.find(open_ch, i + 1)
+    return None
+
+
+def first_json_object(text: str) -> dict:
+    parsed = first_json_value(text, "{")
+    if parsed is None:
+        raise ValueError("model reply contained no JSON object")
+    if not isinstance(parsed, dict):
+        raise ValueError("model reply was not a JSON object")
+    return parsed
 
 
 def wrap_untrusted(grounding: str) -> str:
@@ -102,16 +122,12 @@ async def extract_json(
     reply — instead of handing a malformed dict downstream. Domain ranges (e.g.
     "0 < pct < 1") stay in the caller; the schema only constrains shape/types.
     """
-    import anthropic
-
     settings = get_settings()
     hits = await retrieve(query, k)
     if not hits:
         return None
     grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits)
-    client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
-    )
+    client = llm_client.anthropic_client(settings)
     resp = await llm_client.create(
         client,
         lane="extract",
@@ -122,13 +138,12 @@ async def extract_json(
         messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
     )
     text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    parsed = first_json_value(text, "{")
+    if parsed is None:
         return None
-    # loads_finite (not json.loads): reject NaN/Infinity/-Infinity so a non-finite
-    # number can't enter an extracted financial field. A raised ValueError propagates
-    # to the caller's try/except → its deterministic fallback, the documented contract.
-    parsed = loads_finite(match.group(0))
+    # first_json_value rejects NaN/Infinity/-Infinity, so a non-finite number can't
+    # enter an extracted financial field. A raised ValueError propagates to the
+    # caller's try/except → its deterministic fallback, the documented contract.
     if schema is None:
         return parsed, hits
     # L-2: validate the reply shape at the boundary; a mismatch degrades to the

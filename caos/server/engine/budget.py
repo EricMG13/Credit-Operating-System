@@ -32,6 +32,8 @@ _trace_logger = logging.getLogger("caos.llm")
 class RunBudget:
     limit: int        # max total tokens for the run; <= 0 means unlimited
     used: int = 0
+    degraded: bool = False  # Track if model rate limits/overloads forced a degraded fallback path
+    budget_exhausted: bool = False  # Track if run ran out of token budget
 
     def exhausted(self) -> bool:
         return self.limit > 0 and self.used >= self.limit
@@ -70,7 +72,10 @@ def set_run_id(run_id: Optional[str]) -> None:
 def llm_allowed() -> bool:
     """True when there is budget left (or no budget is set)."""
     b = _budget_var.get()
-    return b is None or not b.exhausted()
+    if b is not None and b.exhausted():
+        b.budget_exhausted = True
+        return False
+    return True
 
 
 def _input_tokens(u) -> int:
@@ -104,8 +109,8 @@ def record_usage(resp) -> None:
             b.record(_input_tokens(it), getattr(it, "output_tokens", 0) or 0)
 
 
-def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
-              fallback: bool = False) -> None:
+async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
+                    fallback: bool = False, prompt_hash: Optional[str] = None) -> None:
     """M-1: accrue usage onto the run budget AND emit one structured ``caos.llm``
     trace line for the inference. Replaces the bare ``record_usage`` call at each
     live LLM site so tracing can never be forgotten where billing is recorded.
@@ -116,16 +121,53 @@ def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
     record_usage(resp)
     try:
         usage = getattr(resp, "usage", None)
+        in_tokens = _input_tokens(usage) if usage is not None else 0
+        out_tokens = (getattr(usage, "output_tokens", 0) or 0) if usage is not None else 0
+
+        cost = 0.0
+        m_lower = model.lower()
+        if "sonnet" in m_lower:
+            cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000.0
+        elif "haiku" in m_lower:
+            cost = (in_tokens * 0.25 + out_tokens * 1.25) / 1_000_000.0
+        elif "gemini-1.5-pro" in m_lower or "gemini-2.0-pro" in m_lower:
+            cost = (in_tokens * 1.25 + out_tokens * 3.75) / 1_000_000.0
+        elif "gemini-1.5-flash" in m_lower or "gemini-2.0-flash" in m_lower:
+            cost = (in_tokens * 0.075 + out_tokens * 0.3) / 1_000_000.0
+        else:
+            cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000.0
+
         _trace_logger.info(json.dumps({
             "event": "llm_call",
             "run_id": _run_id_var.get(),
             "lane": lane,
             "model": model,
             "fallback": fallback,
-            "input_tokens": _input_tokens(usage) if usage is not None else 0,
-            "output_tokens": (getattr(usage, "output_tokens", 0) or 0) if usage is not None else 0,
+            "input_tokens": in_tokens,
+            "output_tokens": out_tokens,
             "stop_reason": getattr(resp, "stop_reason", None),
             "ms": round(ms, 1) if ms is not None else None,
         }))
+
+        from database import AsyncSessionLocal, LLMCallRecord
+        async with AsyncSessionLocal() as session:
+            record = LLMCallRecord(
+                run_id=_run_id_var.get(),
+                lane=lane,
+                model=model,
+                prompt_hash=prompt_hash,
+                prompt_tokens=in_tokens,
+                completion_tokens=out_tokens,
+                cost=cost,
+                status="success",
+                latency_ms=round(ms) if ms is not None else None,
+            )
+            session.add(record)
+            await session.commit()
+            if hasattr(resp, "__dict__") or isinstance(resp, object):
+                try:
+                    resp.llm_call_id = record.id
+                except AttributeError:
+                    pass
     except Exception:  # noqa: BLE001 — a trace must never fail the inference
         _trace_logger.exception("caos.llm trace failed for lane=%s", lane)

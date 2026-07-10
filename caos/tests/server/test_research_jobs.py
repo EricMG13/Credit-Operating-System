@@ -34,7 +34,7 @@ async def test_execute_research_marks_failed_on_error(seeded_db, monkeypatch):
     from database import AsyncSessionLocal, ResearchJob
     import research_executor
 
-    async def boom(brief):
+    async def boom(brief, on_progress=None):
         raise RuntimeError("synthetic research failure")
 
     monkeypatch.setattr(research_executor, "run_deep_research", boom)
@@ -113,7 +113,8 @@ async def test_get_returns_running_for_in_progress_job(seeded_db):
 
     async with AsyncSessionLocal() as s:
         job = ResearchJob(status="running", analyst_id="alice",
-                          brief={"subject": "Acme", "mode": "issuer"})
+                          brief={"subject": "Acme", "mode": "issuer"},
+                          progress={"sources": 2, "searches": 3})
         s.add(job)
         await s.commit()
         jid = job.id
@@ -123,6 +124,7 @@ async def test_get_returns_running_for_in_progress_job(seeded_db):
         out = await get_research(jid, caller=caller, db=s)
     assert out.status == "running"
     assert out.report is None
+    assert out.progress == {"sources": 2, "searches": 3}
 
 
 # ── Concurrency cap: jobs past the cap queue, but all still complete ──────────

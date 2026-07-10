@@ -53,7 +53,6 @@ def row_for(code: str, text: str) -> str:
 
 
 def main() -> int:
-    nroute, nonboard = norm(read(CPX_ROUTE)), norm(read(ONBOARDING))
     route_txt, onboard_txt = read(CPX_ROUTE), read(ONBOARDING)
     fails, checked = [], 0
     for sp in sorted(PAYLOADS.glob("*__payload.schema.txt")):

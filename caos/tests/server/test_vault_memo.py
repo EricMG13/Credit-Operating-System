@@ -3,6 +3,7 @@
 Query graph read-back."""
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,6 +55,27 @@ def test_autolink_skips_already_linked_issuer():
     assert linked == ["Acme Corp"]
 
 
+def test_autolink_does_not_break_urls_or_emails():
+    # An issuer name inside its own IR-page URL or an email must NOT be wikilinked
+    # ('https://[[ford]].com' breaks the link). Memos routinely cite the issuer URL.
+    for txt in ("Refinancing at https://ford.com/investors today.",
+                "Contact ir@ford.com for the deck.",
+                "See ford.com for the latest."):
+        out, linked = autolink_issuers(txt, [("Ford", "FRD")])
+        assert "[[" not in out, out
+        assert linked == []
+
+
+def test_autolink_still_links_a_plain_mention_alongside_a_url():
+    # The URL match is skipped, but a plain mention elsewhere still links.
+    out, linked = autolink_issuers(
+        "See https://ford.com then Ford reported strong results.", [("Ford", "FRD")]
+    )
+    assert out.count("[[Ford]]") == 1
+    assert "https://ford.com" in out  # URL untouched
+    assert linked == ["Ford"]
+
+
 def test_autolink_ignores_one_char_ticker():
     text, linked = autolink_issuers("Grade F quarter, no names.", [("Ford Motor", "F")])
     assert "[[" not in text
@@ -85,6 +107,14 @@ def test_write_memo_dedupes_instead_of_overwriting(tmp_path):
     assert p1.name == "Note.md" and p2.name == "Note - 2.md"
     assert p1.read_text() == "one" and p2.read_text() == "two"
     assert p1.parent.name == vault_export.MEMOS_DIR
+
+
+def test_write_memo_same_title_concurrently_does_not_overwrite(tmp_path):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        paths = list(pool.map(lambda body: write_memo(tmp_path, "Race", body), ["one", "two"]))
+
+    assert len({p.name for p in paths}) == 2
+    assert sorted(p.read_text() for p in paths) == ["one", "two"]
 
 
 def test_memo_title_sanitizes_traversal_and_illegal_chars():

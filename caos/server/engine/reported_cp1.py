@@ -54,12 +54,29 @@ _REVENUE_AMOUNT = re.compile(r"(?:total\s+(?:service\s+)?)?revenue[^.\n]{0,40}?"
 _PERIOD = re.compile(r"\b(Q[1-4]|FY|H[12]|LTM|annualised|annualized)\b", re.IGNORECASE)
 
 
+# A leverage figure directly preceded by one of these is a covenant THRESHOLD/
+# cap, not the issuer's actual leverage — e.g. "maximum net leverage of 6.0x".
+# NB deliberately excludes bare "covenant"/"leverage covenant", which real
+# disclosures use for the ACTUAL covenant-BASIS metric (VMO2's 4.38x), not the cap.
+_LIMIT_CTX = re.compile(
+    r"(?:maximum|permitted|headroom|threshold|up\s+to|no\s+(?:greater|higher|more)\s+than|"
+    r"capped\s+at|springing)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_limit(text: str, start: int) -> bool:
+    """True when a covenant-cap word sits just before the matched figure — so a
+    'maximum net leverage of 6.0x' threshold is not mistaken for the actual."""
+    return bool(_LIMIT_CTX.search(text[max(0, start - 28): start]))
+
+
 def _leverage(text: str) -> Optional[float]:
     for pat in _LEVERAGE_PATTERNS:
-        m = pat.search(text)
-        if m:
+        for m in pat.finditer(text):
             v = float(m.group(1))
-            if 0.5 <= v <= 15.0:  # plausible HY leverage; reject stray multiples
+            # plausible HY leverage (reject stray multiples) AND not a covenant cap.
+            if 0.5 <= v <= 15.0 and not _is_limit(text, m.start()):
                 return v
     return None
 
@@ -80,15 +97,27 @@ def _all_leverage(text: str) -> List[Tuple[float, str]]:
     return [(v, ph) for _, v, ph in found]
 
 
+_AMOUNT_RE = re.compile(_AMOUNT, re.IGNORECASE)
+
+
 def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
-    """(value_in_units, currency, period) for the first disclosed amount, or None.
+    """(value_in_units, currency, period) for the disclosed CURRENT amount, or None.
     'billion' is scaled to the same unit as 'million' (×1000)."""
     m = pat.search(text)
     if not m:
         return None
-    cur, num, scale = m.group(1), m.group(2).replace(",", ""), (m.group(3) or "").lower()
+    cur, num_g, scale = m.group(1), m.group(2), (m.group(3) or "").lower()
+    # "revenue increased from £392m to £415m": the metric-anchored match lands on the
+    # PRIOR value (£392m, right after 'from'); the actual is the '... to £B' figure.
+    # Re-point to the next amount when this one is a 'from' comparative. (reported-scan)
+    if re.search(r"\bfrom\s*$", text[max(0, m.start(1) - 6): m.start(1)], re.IGNORECASE):
+        nxt = _AMOUNT_RE.search(text, m.end())
+        if nxt and nxt.start() - m.end() <= 12 and \
+                re.search(r"\bto\s*$", text[max(0, nxt.start() - 5): nxt.start()], re.IGNORECASE):
+            m = nxt
+            cur, num_g, scale = m.group(1), m.group(2), (m.group(3) or "").lower()
     try:
-        val = float(num)
+        val = float(num_g.replace(",", ""))
     except ValueError:
         return None
     if scale.startswith("b"):

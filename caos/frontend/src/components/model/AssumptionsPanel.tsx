@@ -9,7 +9,7 @@
 // side-by-side across years. The ALL column broadcasts to every year; a year
 // column (FY26e/FY27e/FY28e) pins that year only and overrides ALL for it.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Panel } from "@/components/shared/Panel";
 import { CollapseButton } from "@/components/shared/CollapseButton";
 import {
@@ -63,7 +63,7 @@ const GROUPS: { title: string; items: DriverSpec[] }[] = [
 
 const GRID = "grid grid-cols-[1fr_repeat(4,40px)] gap-1 items-center";
 const CELL =
-  "w-full h-5 px-1 text-right tabular text-caos-2xs rounded border bg-caos-elevated cursor-ew-resize select-none " +
+  "w-full h-5 px-1 text-right tabular text-caos-xs rounded border bg-caos-elevated cursor-ew-resize select-none " +
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none " +
   "focus:outline-none focus:border-caos-accent";
 
@@ -73,12 +73,15 @@ const PX_PER_STEP = 4;
 // A value cell that is both a number input (click to type) and a horizontal
 // scrubber (drag left/right to step the value, like a Figma/Blender field).
 // Drag only engages past a 3px threshold, so a plain click still focuses to type.
-function Cell({ spec, model, modified, accent, label, onChange, onReset, onScrub, onScrubEnd }: {
+function Cell({ spec, model, modified, accent, label, clearLabel, onChange, onReset, onScrub, onScrubEnd }: {
   spec: DriverSpec;
   model: number;
   modified: boolean;
   accent: string;
   label: string;
+  // When set on a MODIFIED cell, a visible, keyboard-operable clear (✕) button
+  // is rendered so per-cell reset is discoverable (double-click stays a shortcut).
+  clearLabel?: string;
   onChange: (v: number) => void;
   onReset: () => void;
   onScrub?: () => void;
@@ -87,7 +90,8 @@ function Cell({ spec, model, modified, accent, label, onChange, onReset, onScrub
   const disp = +(model * spec.scale).toFixed(spec.dp);
   const drag = useRef<{ x: number; v: number; moved: boolean } | null>(null);
   const set = (raw: number) => onChange(Math.max(spec.min, Math.min(spec.max, Math.round(raw * 1e6) / 1e6)));
-  return (
+  const showClear = !!clearLabel && modified;
+  const input = (
     <input
       type="number"
       value={disp}
@@ -128,6 +132,24 @@ function Cell({ spec, model, modified, accent, label, onChange, onReset, onScrub
         touchAction: "none",
       }}
     />
+  );
+  if (!showClear) return input;
+  // Reveal on hover/focus-within so an unmodified column stays clean; the button
+  // is keyboard-reachable (Tab) and always visible while the cell is a target.
+  return (
+    <span className="relative block group/cell">
+      {input}
+      <button
+        type="button"
+        onClick={onReset}
+        aria-label={clearLabel}
+        title={clearLabel}
+        className="absolute -top-1 -right-1 w-3 h-3 flex items-center justify-center rounded-sm border bg-caos-panel tabular text-caos-3xs leading-none text-caos-muted opacity-0 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 focus:opacity-100 focus:outline-none hover:text-caos-text focus:text-caos-text transition-caos"
+        style={{ borderColor: accent }}
+      >
+        ✕
+      </button>
+    </span>
   );
 }
 
@@ -170,6 +192,7 @@ function DriverRow({ spec, caseKey, ca, yearsOv, accent, onChange, onChangeYear,
             modified={ov !== undefined}
             accent={accent}
             label={`${spec.label} — ${FORECAST_LABELS[y]}`}
+            clearLabel={`Clear ${spec.label} ${FORECAST_LABELS[y]} override`}
             onChange={(v) => onChangeYear(caseKey, y, spec.key, v)}
             onReset={() => onResetYearCell(caseKey, y, spec.key)}
             onScrub={() => onScrub?.(caseKey, spec.key, y)}
@@ -193,6 +216,14 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
 }) {
   const [caseKey, setCaseKey] = useState<"base" | "down">("base");
   const [expanded, setExpanded] = useState<Set<string>>(new Set(GROUPS.map((g) => g.title)));
+  // Inline two-step reset: first click arms (holds the armed case), second click
+  // within the window commits; auto-disarms on timeout. No modal, keyboard-operable.
+  const [armedReset, setArmedReset] = useState<"base" | "down" | null>(null);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmReset = () => {
+    if (resetTimer.current) { clearTimeout(resetTimer.current); resetTimer.current = null; }
+    setArmedReset(null);
+  };
 
   const toggleGroup = (title: string) => {
     setExpanded((prev) => {
@@ -201,6 +232,10 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
       return next;
     });
   };
+
+  // Switching case cancels a pending reset arm; clear the timer on unmount.
+  useEffect(() => { disarmReset(); }, [caseKey]);
+  useEffect(() => () => { if (resetTimer.current) clearTimeout(resetTimer.current); }, []);
 
   const ca = assumptions[caseKey];
   const yearsOv = (caseKey === "base" ? assumptions.baseYears : assumptions.downYears) ?? {};
@@ -249,19 +284,31 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
         {/* column headers */}
         <div className={GRID + " sticky top-0 bg-caos-panel z-10 py-0.5 border-b border-caos-border/40"}>
           <span className="flex items-center">
-            {changed > 0 ? (
-              <button
-                onClick={() => {
-                  if (window.confirm(`Are you sure you want to reset all ${changed} assumptions changes in the ${caseKey} case?`)) {
-                    onResetCase(caseKey);
+            {changed > 0 ? (() => {
+              const armed = armedReset === caseKey;
+              return (
+                <button
+                  onClick={() => {
+                    if (armed) { disarmReset(); onResetCase(caseKey); return; }
+                    setArmedReset(caseKey);
+                    if (resetTimer.current) clearTimeout(resetTimer.current);
+                    resetTimer.current = setTimeout(() => setArmedReset(null), 3000);
+                  }}
+                  onBlur={armed ? disarmReset : undefined}
+                  aria-label={armed ? `Confirm reset ${caseKey} case` : `Reset ${changed} ${caseKey} change${changed > 1 ? "s" : ""} to the agent's forecast`}
+                  title={armed ? `Confirm reset ${caseKey} case` : `Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
+                  className={
+                    "tabular text-caos-3xs px-1.5 py-px rounded border transition-caos whitespace-nowrap " +
+                    (armed
+                      ? "text-caos-critical"
+                      : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
                   }
-                }}
-                title={`Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
-                className="tabular text-caos-3xs px-1.5 py-px rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
-              >
-                ↶ {changed}
-              </button>
-            ) : null}
+                  style={armed ? { borderColor: "var(--caos-critical)" } : undefined}
+                >
+                  {armed ? `confirm reset ${caseKey}?` : `↶ ${changed}`}
+                </button>
+              );
+            })() : null}
           </span>
           <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">All</span>
           {([0, 1, 2] as FY[]).map((y) => (
@@ -277,6 +324,8 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
             <div key={g.title} className="flex flex-col gap-1.5">
               <button
                 onClick={() => toggleGroup(g.title)}
+                aria-expanded={isExpanded}
+                aria-label={`${isExpanded ? "Collapse" : "Expand"} ${g.title} drivers`}
                 className="flex items-center justify-between w-full text-left py-1 hover:text-caos-text transition-caos border-b border-caos-border/40 select-none group"
               >
                 <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold text-caos-muted group-hover:text-caos-text transition-caos">{g.title}</span>

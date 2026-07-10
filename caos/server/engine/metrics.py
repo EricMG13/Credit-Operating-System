@@ -16,8 +16,17 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, sort_key
+from engine.periods import is_finite_number, latest, safe_div, sort_key
 from engine.schemas import ModulePayload
+
+
+def _as_dict(x: object) -> dict:
+    """Interior containers of live runtime_output are unvalidated below the top
+    level, and ``or {}`` keeps a truthy non-dict (a list-of-objects revenue, a
+    narrative string) whose ``.keys()/.items()/.get()`` would raise inside the
+    fatal projection phase and abort + roll back the whole run (BE3-3). The
+    container-level twin of the leaf-level ``is_finite_number`` gate in add()."""
+    return x if isinstance(x, dict) else {}
 
 
 @dataclass(frozen=True)
@@ -120,9 +129,9 @@ def extract_facts(  # noqa: C901
     keeps, so a UI/peer read never mistakes fabricated demo figures for a real run.
     """
     ro = payload.runtime_output or {}
-    fin = ro.get("normalized_financials") or {}
-    rev = fin.get("revenue") or {}
-    eb = fin.get("adj_ebitda") or {}
+    fin = _as_dict(ro.get("normalized_financials"))
+    rev = _as_dict(fin.get("revenue"))
+    eb = _as_dict(fin.get("adj_ebitda"))
     # EDGAR = reported GAAP; issuer-disclosed = reported_disclosure (distinct from
     # fully-modeled/fixture); fixture/LLM carry covenant-adjusted figures. (#27)
     raw_basis = ro.get("basis")
@@ -161,23 +170,26 @@ def extract_facts(  # noqa: C901
         rv = rev.get(period)
         # Both operands must be finite before the divide: a NaN rv is truthy, so a
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
-        # (add() would then drop it, but compute it cleanly here regardless).
-        if is_finite_number(rv) and rv and is_finite_number(v):
-            add("ebitda_margin", period, round(100 * v / rv, 1), "%", period == eb_headline)
+        # (add() would then drop it, but compute it cleanly here regardless). safe_div
+        # concentrates that guard; scale the numerator so arithmetic order is unchanged.
+        m = safe_div(100 * v, rv)
+        if m is not None:
+            add("ebitda_margin", period, round(m, 1), "%", period == eb_headline)
 
     # Free cash flow + cash conversion (FCF / revenue), per period. Conversion is
     # derived here from the FCF and revenue series, not trusted as an input.
-    fcf = fin.get("free_cash_flow") or {}
+    fcf = _as_dict(fin.get("free_cash_flow"))
     fcf_headline = _headline_period(list(fcf.keys()))
     for period, v in fcf.items():
         add("fcf", period, v, "$M", period == fcf_headline)
         rv = rev.get(period)
-        if is_finite_number(rv) and rv and is_finite_number(v):
-            add("fcf_conversion", period, round(100 * v / rv, 1), "%", period == fcf_headline)
+        m = safe_div(100 * v, rv)
+        if m is not None:
+            add("fcf_conversion", period, round(m, 1), "%", period == fcf_headline)
 
     # Net leverage: a per-period series (drives the leverage trend) when CP-1
     # provides one; else the single LTM scalar. Interest coverage stays LTM.
-    lev = fin.get("net_leverage") or {}
+    lev = _as_dict(fin.get("net_leverage"))
     if lev:
         lev_headline = _headline_period(list(lev.keys()))
         for period, v in lev.items():
@@ -186,7 +198,7 @@ def extract_facts(  # noqa: C901
         add("net_leverage", "LTM", fin.get("net_leverage_adj_ltm"), "x", True)
     add("interest_coverage", "LTM", fin.get("interest_coverage_ltm"), "x", True)
     # Altman Z'' distress score (EDGAR-derived; lives outside normalized_financials).
-    dz = (payload.runtime_output or {}).get("distress") or {}
+    dz = _as_dict((payload.runtime_output or {}).get("distress"))
     add("altman_z", "LTM", dz.get("altman_z"), "", True)
     return facts
 
@@ -204,8 +216,8 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
     # float or a non-numeric string. float(val) on a NaN would land a non-finite value
     # in the SHARED cross-issuer store (poisoning peer ranking + 500-ing the /query
     # response), and a string would raise inside the runner's fact-projection block —
-    # which sits OUTSIDE per-module isolation, so it fails the whole run. Drop any
-    # non-finite value at the projection boundary, exactly like extract_facts.add().
+    # which sits OUTSIDE per-module isolation, so it fails the whole run (BE5-3). Drop
+    # any non-finite value at the projection boundary, exactly like extract_facts.add().
     if not is_finite_number(val):
         return []
     claim_id = evidence_id = chunk = None
@@ -232,18 +244,25 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     never trip it."""
     if cp1 is None:
         return None
-    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    # _as_dict: a truthy non-dict normalized_financials (live-LLM narrative
+    # string) must degrade to "inputs absent", not AttributeError in the QA
+    # phase where a raise aborts the whole run (BE3-2). latest() tolerates a
+    # malformed adj_ebitda series itself.
+    nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
     eb = latest(nf.get("adj_ebitda") or {})
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
             and is_finite_number(eb) and eb):
         return None
-    recomputed = nd / eb
+    recomputed = safe_div(nd, eb)
+    if recomputed is None:  # unreachable: the guard above proved nd, eb finite and non-zero
+        return None
     # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
     # leverage, and dividing by the signed lev would make the ratio negative —
     # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
     # vs the recomputed value) would silently escape this MATERIAL cross-check.
-    if abs(recomputed - lev) / abs(lev) <= 0.05:
+    deviation = safe_div(abs(recomputed - lev), abs(lev))
+    if deviation is None or deviation <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",
@@ -301,7 +320,7 @@ def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
 # Energy cost exposure stated as a percent of the cost base, alongside an
 # energy keyword — the specific "N percent of cost of goods sold" pattern avoids
 # grabbing unrelated percentages (e.g. a gross-margin figure in the same chunk).
-_ENERGY_KW = ("energy", "power", "natural gas", "electricity", "fuel")
+_ENERGY_CHECK = re.compile(r"energy|power|natural\s+gas|electricity|fuel", re.IGNORECASE)
 _COST_PCT_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(?:the\s+)?(?:cost of goods sold|cogs|cost base)",
     re.IGNORECASE,
@@ -319,8 +338,7 @@ def derive_energy_cost_pct(
     hardcoded seed value for energy_cost_pct.
     """
     for chunk_id, doc, text in chunks:
-        low = text.lower()
-        if not any(kw in low for kw in _ENERGY_KW):
+        if not _ENERGY_CHECK.search(text):
             continue
         m = _COST_PCT_RE.search(text)
         if m:

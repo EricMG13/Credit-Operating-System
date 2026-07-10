@@ -82,8 +82,8 @@ def read_session_token(token: str, secret: str) -> dict | None:
     The browser cookie's max-age is only a client-side hint — a copied raw token
     value would otherwise be valid until SESSION_SECRET rotates. So an `exp` claim
     (epoch seconds, set at mint) is enforced here server-side: a token past its exp
-    is rejected regardless of the cookie. Tokens without an exp (legacy) are still
-    accepted for back-compat.
+    is rejected regardless of the cookie, and a token WITHOUT an exp (pre-#32
+    legacy) is treated as expired — see the exp check below.
     """
     try:
         raw, sig = token.rsplit(".", 1)
@@ -131,8 +131,8 @@ async def get_identity(
     session revocation (token_version) — see the cookie branch below.
     """
     settings = get_settings()
-    # Fail closed: ANY environment other than "development" (typo/unset included),
-    # or the legacy platform port, counts as deployed. (config.is_deployed)
+    # Fail closed: ANY environment other than "development" (typo/unset included)
+    # counts as deployed. (config.is_deployed)
     deployed = is_deployed(settings)
 
     # Edge-proxy origin check FIRST — before any identity is resolved — so that a

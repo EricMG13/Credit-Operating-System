@@ -124,7 +124,7 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT}),
                implemented=True),
     ModuleSpec("CP-3C", "PortfolioFitPositionSizing", "L3", "portfolio_fit_analysis",
-               depends_on=("CP-3",), implemented=True),
+               depends_on=("CP-3", "CP-1"), implemented=True),
     # CP-3D scores refinancing/LME vulnerability from CP-1 leverage *and* CP-2B
     # downside fragility; CP-2B is a declared dep so the layerer schedules CP-3D
     # after it (else upstream.get("CP-2B") is None and the fragility term is lost).
@@ -145,7 +145,7 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     # opportunistically; CP-6A lands in a later layer via CP-3 (→CP-1C), so those
     # reads now resolve too. See [debate.py].
     ModuleSpec("CP-6A", "ICDebateChallenge", "L6", "ic_debate_challenge",
-               depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3"), implemented=True),
+               depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3", "CP-3C"), implemented=True),
     ModuleSpec("CP-6E", "PortfolioDebateChallenge", "L6", "portfolio_debate_challenge",
                depends_on=("CP-6A",), implemented=True),
     # ── Spec-only corpus modules (no engine synthesizer) ────────────────────
@@ -187,6 +187,12 @@ def _validate_registry() -> None:
     graph's own declared invariant (every dependency declared before its dependent,
     see the _SPECS note) — which also guarantees acyclicity, since a cycle cannot be
     forward-declared only. (review run-2 #B9/#B10)"""
+    # A duplicated module_id would silently last-win in REGISTRY/DECLARATION_INDEX
+    # and skew the planner's indegree bookkeeping (BE3-5) — fail loud instead.
+    if len(REGISTRY) != len(_SPECS):
+        dupes = sorted({s.module_id for s in _SPECS
+                        if sum(x.module_id == s.module_id for x in _SPECS) > 1})
+        raise ValueError(f"registry: duplicate module_id(s) {dupes}")
     for spec in _SPECS:
         for dep in spec.depends_on:
             if dep not in REGISTRY:

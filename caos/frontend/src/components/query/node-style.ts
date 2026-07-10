@@ -13,9 +13,12 @@ import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 export const MODEL_HUE = "#a78bfa";
 
 // Categorical hues for issuer grouping (industry/country). Distinct, no banding —
-// pairs with the always-present text label, so meaning is never color-only. The
-// first three mirror tokens (via chart-colors); the rest are graph-only hues.
-const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, CHART_HEX.warning, MODEL_HUE, "#94a3b8", "#f472b6", "#34d399", "#fb923c"];
+// pairs with the always-present text label, so meaning is never color-only.
+// Deliberately excludes the semantic hues (warning/critical/success/MODEL_HUE):
+// a hashed sector must never read as "exposed" (warning) or model/ratified
+// provenance (purple). First two mirror tokens (via chart-colors); the rest are
+// graph-only neutral/distinct hues.
+const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, "#94a3b8", "#f472b6", "#34d399", "#22d3ee", "#818cf8"];
 
 export function hueFor(group: string | null | undefined): string {
   if (!group) return "var(--caos-muted)";
@@ -61,7 +64,7 @@ export function nodeStyle(n: GraphNode): NodeStyle {
   if (n.compact) {
     return {
       shape: "compact",
-      fill: palette?.fill ?? groupColor + "33",
+      fill: palette?.fill ?? `color-mix(in srgb, ${groupColor} 20%, transparent)`,
       stroke: palette?.stroke ?? groupColor,
       r: 6,
       sw: 1.4,
@@ -78,7 +81,7 @@ export function nodeStyle(n: GraphNode): NodeStyle {
   if (n.kind === "center") {
     fill = "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
   } else if (n.kind === "issuer") {
-    fill = groupColor + "33"; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
+    fill = `color-mix(in srgb, ${groupColor} 20%, transparent)`; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
   } else {
     fill = palette?.fill ?? "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "var(--caos-border)"; r = 13; sw = 1.4;
   }

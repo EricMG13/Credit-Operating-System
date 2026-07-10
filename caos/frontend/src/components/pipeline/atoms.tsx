@@ -124,27 +124,44 @@ export function SimControls({ run }: { run?: SimRun }) {
   const isDone = !!run.sim.done;
   const currentSpeed = run.speed ?? 1;
 
-  const playPauseTitle = isPlaying ? "Pause simulation" : "Play simulation";
+  // At completion, ▶ replays from the top (run.reset restarts and autoplays) —
+  // otherwise the button silently does nothing once the sim is done, since the
+  // step loop is gated on !sim.done. Mid-run it toggles play/pause as usual.
+  const playPauseTitle = isDone ? "Replay simulation" : isPlaying ? "Pause simulation" : "Play simulation";
+  const onPlayPause = () => (isDone ? run.reset() : run.setPlaying(!isPlaying));
+  const showPause = isPlaying && !isDone;
 
   return (
     <div className="flex items-center gap-1.5" role="toolbar" aria-label="Simulation Controls">
       <button
         type="button"
-        onClick={() => run.setPlaying(!isPlaying)}
-        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-text hover:border-caos-accent/60 transition-caos text-caos-xs focus-ring"
+        onClick={onPlayPause}
+        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
         title={playPauseTitle}
         aria-label={playPauseTitle}
       >
-        {isPlaying && !isDone ? "❚❚" : "▶"}
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="w-3 h-3 fill-current">
+          {showPause ? (
+            <>
+              <rect x="4" y="3" width="3" height="10" rx="0.5" />
+              <rect x="9" y="3" width="3" height="10" rx="0.5" />
+            </>
+          ) : (
+            <path d="M5 3.2v9.6a.6.6 0 0 0 .92.5l7.4-4.8a.6.6 0 0 0 0-1L5.92 2.7A.6.6 0 0 0 5 3.2Z" />
+          )}
+        </svg>
       </button>
       <button
         type="button"
         onClick={run.reset}
-        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos text-caos-md focus-ring"
+        className="w-6 h-6 rounded border border-caos-border bg-caos-elevated flex items-center justify-center text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
         title="Reset run"
         aria-label="Reset run"
       >
-        ↺
+        <svg viewBox="0 0 16 16" aria-hidden="true" className="w-3.5 h-3.5 stroke-current" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12.5 5.5A5 5 0 1 0 13 9" />
+          <path d="M12.7 2.6v3h-3" />
+        </svg>
       </button>
       {SPEED_OPTIONS.map((s) => (
         <button

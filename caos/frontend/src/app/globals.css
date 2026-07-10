@@ -40,6 +40,16 @@
   --tranche-sub: #a855f7;
   --tranche-eq: #64748b;
 
+  --paper-bg: #f7f5ee;
+  --paper-ink: #16161e;
+  --paper-meta: #5c5c66;
+  --paper-query-bg: #faf8f2;
+  --paper-query-ink: #1a1a1a;
+  --paper-query-meta: #5a5a5a;
+  --paper-query-rule: #c9c4b5;
+  --paper-chart-fill: #efece2;
+  --paper-ai: #5b4bb0;
+
   /* ===== Design tokens — Phase 0 foundation ===== */
   /* Type scale lives in tailwind.config.js (`text-caos-*`); it is the single
      source. Charts/paper code use the px literals directly. */
@@ -59,6 +69,13 @@
 body {
   background: var(--caos-bg);
   color: var(--caos-text);
+}
+
+html,
+body,
+main#main-content {
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* Monospaced numerics with aligned decimals (Blueprint §5.2) */
@@ -137,10 +154,14 @@ body {
   border-radius: 4px;
 }
 
-/* Source-vault clause highlight (Evidence Sync target) */
+/* Source-vault clause highlight (Evidence Sync target): highlighter wash +
+   full hairline in the same hue. Deliberately NOT a left side-stripe — the
+   verbatim/quoted meaning is carried by the wash plus the adjacent
+   "(verbatim)" / "source extract" labels, and a full border reads as a
+   highlight, not a severity accent. */
 .clause-highlight {
   background: rgba(245, 165, 36, 0.14);
-  box-shadow: inset 3px 0 0 var(--caos-warning);
+  border: 1px solid color-mix(in srgb, var(--caos-warning) 45%, transparent);
   border-radius: 2px;
 }
 
@@ -160,10 +181,10 @@ body {
 }
 
 /* Dense app tables: even cells, centered values. Paper deliverables keep rd-* rules. */
-main table:not(.rd-table) {
+main table:not(.rd-table):not(.rv-table) {
   border-spacing: 0;
 }
-main table:not(.rd-table) :is(th, td) {
+main table:not(.rd-table):not(.rv-table) :is(th, td) {
   text-align: center;
   padding-left: 0.625rem;
   padding-right: 0.625rem;
@@ -174,6 +195,15 @@ main table:not(.rd-table) :is(th, td) {
 ::-webkit-scrollbar-track { background: var(--caos-bg); }
 ::-webkit-scrollbar-thumb { background: var(--caos-border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #374151; }
+
+/* A horizontal scroller whose overflow is signalled by edge fades + chevrons
+   (the module-launcher strip), so the thin native bar is redundant noise. */
+.caos-no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.caos-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* Rendered colour of the launcher strip (panel/40 over the page bg) — the
+   opaque stop for its edge-fade gradients so chips fade into the strip, not a
+   mismatched block. */
+:root { --caos-strip-bg: color-mix(in srgb, var(--caos-panel) 40%, var(--caos-bg)); }
 
 /* ===== Report Studio: rendered document (rd-*) — Concept E ===== */
 .rd-paper { position: relative; width: 980px; color: #16161e; font-family: var(--font-sans), system-ui, sans-serif; padding: 40px 46px 26px; box-shadow: 0 24px 70px -24px rgba(0,0,0,0.85); }
@@ -246,10 +276,31 @@ main table:not(.rd-table) :is(th, td) {
 .rd-editing [contenteditable="true"]:empty { display: inline-block; min-width: 14px; min-height: 1em; }
 
 .rd-srcline { margin-top: 18px; font-family: var(--font-mono), monospace; font-size: 7.8px; font-weight: 500; color: #6c6c76; letter-spacing: 0.04em; line-height: 1.7; }
+
+/* On-paper citation register — models the research-doc .rdoc-sources block so the two paper surfaces share a language. */
+.rd-sources { margin-top: 18px; padding-top: 12px; border-top: 1px solid #16161e; position: relative; z-index: 2; }
+.rd-sources-h { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #5c5c66; margin-bottom: 7px; }
+.rd-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: rdsrc; }
+.rd-sources li { counter-increment: rdsrc; display: flex; align-items: baseline; gap: 8px; font-family: var(--font-mono), monospace; font-size: 8.2px; line-height: 1.5; color: #5c5c66; }
+.rd-sources li::before { content: counter(rdsrc, decimal-leading-zero); font-weight: 700; color: #16161e; }
+.rd-src-chip { font-weight: 700; color: #16161e; white-space: nowrap; }
+.rd-src-name { color: #6c6c76; flex: 1; }
+/* Interactive citation: the button is an invisible 24×24 hit target (WCAG 2.5.8);
+   the visible ink-on-cream chip is the inner .rd-cite-chip, so the paper stays dense. */
+/* min target counter-scales against the preview zoom (--rd-zoom) so the
+   EFFECTIVE hit area stays ≥24px CSS px even when the paper renders at 0.85. */
+.rd-cite { display: inline-flex; align-items: center; justify-content: center; min-width: calc(24px / var(--rd-zoom, 1)); min-height: calc(24px / var(--rd-zoom, 1)); margin-left: 4px; padding: 0; border: none; background: none; cursor: pointer; text-decoration: none; }
+.rd-cite-chip { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; color: #1f4fa0; border: 1px solid rgba(31,79,160,0.35); border-radius: 2px; padding: 0 3px; background: rgba(31,79,160,0.06); }
+button.rd-cite:hover .rd-cite-chip { background: rgba(31,79,160,0.14); border-color: rgba(31,79,160,0.6); }
+button.rd-cite:focus-visible { outline: 2px solid #1f4fa0; outline-offset: 1px; }
+.rd-cite-print { vertical-align: super; border: none; background: none; padding: 0; }
+.rd-cite-none { font-style: italic; color: #6a6a72; margin-left: 4px; } /* ≥4.5:1 on the #f7f5ee paper */
+
 .rd-foot { display: flex; justify-content: space-between; border-top: 1px solid #16161e; margin-top: 8px; padding-top: 6px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; color: #5c5c66; letter-spacing: 0.06em; }
+.rd-colophon { margin-top: 10px; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; letter-spacing: 0.05em; color: #a24310; text-transform: uppercase; }
 
 .rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; display: flex; flex-direction: column; justify-content: space-around; align-items: center; transform: rotate(-16deg); }
-.rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: rgba(190,84,16,0.09); }
+.rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: rgba(190,84,16,0.18); }
 
 /* ===== Deep Research: the report files as a paper tear-sheet =====
    A deliverable, so it's the deliberate LIGHT counterpoint to the dark
@@ -283,6 +334,16 @@ main table:not(.rd-table) :is(th, td) {
   font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; letter-spacing: 0; }
 .rdoc-meta { font-family: var(--font-mono), monospace; font-size: 8.5px; font-weight: 500;
   letter-spacing: 0.12em; color: #5c5c66; text-transform: uppercase; white-space: nowrap; }
+
+/* Integrity notice — an amputated narrative announces itself on the sheet (H1).
+   Amber-on-cream, same family as the model's QC blockquote so it reads as a filed
+   caveat rather than app chrome, and survives the PDF export. The leading rule and
+   uppercase "INCOMPLETE" carry the meaning without relying on hue alone. */
+.rdoc-truncated { margin: 0 0 16px; padding: 8px 12px; border: 1px solid rgba(245,165,36,0.42);
+  background: rgba(245,165,36,0.10); color: #16161e; border-radius: 2px;
+  font-size: 11px; line-height: 1.45; text-wrap: pretty; }
+.rdoc-truncated strong { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.1em; color: #16161e; }
 
 /* report body — semantic markdown elements */
 .research-doc > :first-child { margin-top: 0; }
@@ -334,13 +395,18 @@ main table:not(.rd-table) :is(th, td) {
 /* colophon */
 .rdoc-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 8px; border-top: 1px solid #16161e; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 500; letter-spacing: 0.08em; color: #5c5c66; text-transform: uppercase; }
 
-/* ===== Report Studio: print only the document ===== */
+/* ===== Print exhibit: print only the .print-root document =====
+   Shared by Report Studio and the Query committee exhibit. Routes mount under
+   <main id="main-content"> (layout.tsx), so hiding only `body > div` left the
+   dark app visible behind the sheet — hide EVERY direct body child except the
+   print-root (main, overlays, launchers) so the printed page is the sheet alone. */
 .print-root { display: none; }
 @media print {
   html, body { background: #fff !important; }
-  body > div:not(.print-root) { display: none !important; }
+  body > *:not(.print-root) { display: none !important; }
   .print-root { display: block !important; }
   .print-root .rd-paper { width: 100%; box-shadow: none; padding: 0; }
+  .print-root .research-doc { max-width: none; box-shadow: none; padding: 0; }
   .rd-page-container { page-break-after: always; }
   .rd-page-container:last-child { page-break-after: avoid; }
   @page { size: letter; margin: 13mm 14mm; }
@@ -353,18 +419,38 @@ main table:not(.rd-table) :is(th, td) {
   display: inline-flex;
   align-items: center;
 }
+/* Per-field revert is a precision committee action (WCAG 2.5.8): the button is
+   an invisible ≥24px hit target, the visible ink is the inner .rd-revert-mark
+   so the tear-sheet stays dense. The min target counter-scales against the
+   preview zoom (--rd-zoom) so the EFFECTIVE hit area holds ≥24px CSS px even
+   when the paper renders at 0.7/0.85 — mirrors .rd-cite. */
 .rd-revert-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(24px / var(--rd-zoom, 1));
+  min-height: calc(24px / var(--rd-zoom, 1));
+  margin-left: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.rd-revert-mark {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background-color: var(--caos-warning);
-  margin-left: 4px;
-  cursor: pointer;
   transition: transform 120ms ease-out;
-  border: none;
-  padding: 0;
 }
-.rd-revert-dot:hover {
+@media (prefers-reduced-motion: reduce) {
+  .rd-revert-mark { transition: none; }
+}
+button.rd-revert-dot:hover .rd-revert-mark {
   transform: scale(1.4);
+}
+button.rd-revert-dot:focus-visible {
+  outline: 2px solid var(--caos-warning);
+  outline-offset: 1px;
 }

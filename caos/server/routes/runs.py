@@ -21,11 +21,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +33,9 @@ import rate_limit
 import vault_export
 from config import get_settings
 from engine import presets
-from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
+from database import (
+    Claim, EvidenceItem, Issuer, ModuleOutput, PortfolioPosition, QAFinding, Run, get_db,
+)
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
 from tenancy import require_issuer, require_run_access, scope_issuers, tenancy_enabled
@@ -62,10 +64,24 @@ def _create_run_lock() -> asyncio.Lock:
 _RUNS_MAX_PER_MINUTE = 12
 
 
+async def _auto_portfolio(db: AsyncSession, issuer_id: str) -> Optional[str]:
+    """The single portfolio holding this issuer, if exactly one does — so a run
+    auto-binds its book for CP-3C. None when unheld or held in several (ambiguous
+    → don't guess; the caller can pass an explicit portfolio_id)."""
+    pids = (await db.execute(
+        select(PortfolioPosition.portfolio_id)
+        .where(PortfolioPosition.issuer_id == issuer_id).distinct()
+    )).scalars().all()
+    return pids[0] if len(pids) == 1 else None
+
+
 # ── Request / response models ───────────────────────────────────────────────
 class RunCreate(BaseModel):
     issuer_id: str = Field(min_length=1, max_length=36)
     as_of_date: Optional[str] = Field(default=None, max_length=32)
+    # Portfolio to evaluate the issuer against (CP-3C concentration goes live).
+    # Omit to auto-bind the portfolio that holds this issuer, if exactly one does.
+    portfolio_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class ModuleStatus(BaseModel):
@@ -160,6 +176,16 @@ class QAReport(BaseModel):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+async def _summary_modules(db: AsyncSession, run_id: str) -> List[Any]:
+    rows = await db.execute(
+        select(
+            ModuleOutput.module_id, ModuleOutput.module_name, ModuleOutput.qa_status,
+            ModuleOutput.committee_status, ModuleOutput.confidence, ModuleOutput.validation_status
+        ).where(ModuleOutput.run_id == run_id).order_by(ModuleOutput.created_at)
+    )
+    return list(rows.all())
+
+
 async def _modules_for(db: AsyncSession, run_id: str) -> List[ModuleOutput]:
     rows = await db.execute(
         select(ModuleOutput).where(ModuleOutput.run_id == run_id).order_by(ModuleOutput.created_at)
@@ -168,7 +194,7 @@ async def _modules_for(db: AsyncSession, run_id: str) -> List[ModuleOutput]:
 
 
 async def _summary(db: AsyncSession, run: Run) -> RunSummary:
-    modules = await _modules_for(db, run.id)
+    modules = await _summary_modules(db, run.id)
     return RunSummary(
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
@@ -198,6 +224,30 @@ async def create_run(
     # runs' facts → last-writer-wins). Re-runs once the prior one is terminal are
     # allowed. The lock makes the check→insert atomic against a concurrent POST.
     async with _create_run_lock():
+        settings = get_settings()
+
+        # 1. Per-analyst active limit check
+        analyst_active_count = (await db.execute(
+            select(func.count(Run.id))
+            .where(Run.analyst_id == caller.id, Run.status.in_(("queued", "running")))
+        )).scalar() or 0
+        if analyst_active_count >= settings.caos_run_per_analyst_limit:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"You have reached the limit of concurrent/queued runs ({settings.caos_run_per_analyst_limit}). Please wait for them to finish."
+            )
+
+        # 2. Global queue limit check
+        global_active_count = (await db.execute(
+            select(func.count(Run.id))
+            .where(Run.status.in_(("queued", "running")))
+        )).scalar() or 0
+        if global_active_count >= settings.caos_run_queue_limit:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "The analysis run queue is currently full. Please try again later."
+            )
+
         active = (await db.execute(
             select(Run.id)
             .where(Run.issuer_id == body.issuer_id, Run.status.in_(("queued", "running")))
@@ -206,8 +256,13 @@ async def create_run(
         if active:
             raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
 
+        # Bind a portfolio: the explicit choice, else auto-bind the one book that
+        # holds this issuer (so CP-3C's concentration goes live with no extra step;
+        # ambiguous when held in several → left unbound rather than guessing).
+        portfolio_id = body.portfolio_id or await _auto_portfolio(db, body.issuer_id)
         run = Run(
             issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
+            portfolio_id=portfolio_id,
             # Pin the mode the X-Model-Mode dependency resolved for this request, so
             # the background runner (and any re-claim) uses the same tier.
             model_mode=presets.current_mode(),
@@ -238,14 +293,17 @@ async def list_runs(
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Runs newest-first, optionally filtered to one issuer (read-only)."""
-    stmt = select(Run).order_by(Run.created_at.desc())
+    stmt = select(
+        Run.id, Run.issuer_id, Run.status, Run.qa_status, Run.committee_status,
+        Run.as_of_date, Run.analyst_id, Run.created_at
+    ).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
     if tenancy_enabled():
         # Only runs whose issuer is visible to the caller's team.
         stmt = stmt.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     stmt = stmt.limit(limit).offset(offset)
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
     return [RunListItem.model_validate(r) for r in rows]
 
 

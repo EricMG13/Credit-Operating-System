@@ -27,6 +27,7 @@ def test_model_for_hybrid_when_openrouter_key_set(monkeypatch):
     on DeepSeek (OpenRouter), top on Claude — so BALANCED heavy = DeepSeek strong,
     MAX heavy = Claude."""
     s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "x")
     monkeypatch.setattr(s, "openrouter_api_key", "x")
     expected = {
         "TEST":     {presets.HEAVY: s.model_tier_cheap,  presets.LIGHT: s.model_tier_cheap, presets.EXTRACT: s.model_tier_cheap},
@@ -64,6 +65,35 @@ def test_model_for_falls_back_to_anthropic_without_provider_key(monkeypatch):
         presets.set_mode(presets.DEFAULT_MODE)
 
 
+def test_model_for_uses_configured_gemini_tier(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "")
+    monkeypatch.setattr(s, "gemini_api_key", "x")
+    monkeypatch.setattr(s, "model_tier_fast", "gemini-2.5-flash")
+    monkeypatch.setattr(s, "model_tier_strong", "gemini-2.5-pro")
+    try:
+        presets.set_mode("BALANCED")
+        assert presets.model_for(presets.HEAVY) == "gemini-2.5-pro"
+        assert presets.route_model() == "gemini-2.5-flash"
+        presets.set_mode("MAX")
+        assert presets.model_for(presets.HEAVY) == "gemini-2.5-pro"
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
+def test_model_for_uses_openrouter_when_anthropic_top_key_is_missing(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "x")
+    monkeypatch.setattr(s, "gemini_api_key", "")
+    try:
+        presets.set_mode("MAX")
+        assert presets.model_for(presets.HEAVY) == s.model_tier_strong
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
 def test_effort_for_per_mode():
     cases = [
         ("TEST", presets.HEAVY, "minimal"),
@@ -96,6 +126,7 @@ def test_reviewer_model_opposite_provider_when_cross_on(monkeypatch):
     (OpenRouter) heavy is reviewed by Anthropic; a Claude heavy by Gemini."""
     s = get_settings()
     monkeypatch.setattr(s, "council_cross_model", True)
+    monkeypatch.setattr(s, "anthropic_api_key", "x")
     monkeypatch.setattr(s, "openrouter_api_key", "x")  # heavy = real DeepSeek (not degraded)
     monkeypatch.setattr(s, "gemini_api_key", "x")      # opposite provider available for MAX
     try:
@@ -118,6 +149,19 @@ def test_reviewer_model_degrades_when_opposite_key_missing(monkeypatch):
         presets.set_mode("MAX")  # heavy = Claude; wants Gemini reviewer but no key
         assert presets.reviewer_model() == presets.model_for(presets.HEAVY)
         assert presets.reviewer_model().startswith("claude")
+    finally:
+        presets.set_mode(presets.DEFAULT_MODE)
+
+
+def test_reviewer_model_degrades_to_heavy_when_anthropic_reviewer_key_missing(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "council_cross_model", True)
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "x")
+    try:
+        presets.set_mode("BALANCED")
+        assert presets.model_for(presets.HEAVY).startswith("deepseek")
+        assert presets.reviewer_model() == presets.model_for(presets.HEAVY)
     finally:
         presets.set_mode(presets.DEFAULT_MODE)
 
