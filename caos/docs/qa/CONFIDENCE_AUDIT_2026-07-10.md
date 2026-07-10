@@ -41,6 +41,48 @@ tooling. **[NEW]** = not in the 2026-06-26 audit.
 | LLM-2 | A fabricated-but-internally-consistent live figure whose citation can't resolve draws only a MINOR CP-5B finding → lands as a **Passed**, `provenance="run"` MetricFact ranked in cross-issuer query | BUG/UNDERDET · MATERIAL |
 | FE-2..7 | Command Center research lens, Monitor, sector review and coverage "RE-RUN" simulate liveness over canned data without the sample label the CIO lens carries; the one genuinely live board mis-colors Restricted runs, never refreshes, and has no evidence path | BUG cluster · MATERIAL |
 
+### Base-tree note and reconciliation against current main
+
+This audit was executed against `9bdaeb8` (main at session start). At
+publication, `origin/main` had advanced to `bc339c8` (~607 files); every
+executive-summary finding was re-verified against that head:
+
+- **Still present on main:** ENG-1 (Altman constant/cutoffs, unchanged), QA-1
+  (all six `"Inferred"` sites), DEP-3 (signup-code placeholder), SPEC-1 (CP-2
+  `depends_on=("CP-1",)` unchanged), FE-1 (`createRun` still has zero UI call
+  sites — the signature even gained a `portfolio_id` param, still "ahead of its
+  UI consumer"), META-1 (CLAUDE.md still mandates GitNexus; still no index).
+- **Still present, image renamed — DEP-1:** main swapped the db image to
+  `pgvector/pgvector:pg18` (for the new embeddings migration). That image is
+  built on the official Debian PG18 base and shares its entrypoint, and the
+  volume is still mounted at `/var/lib/postgresql/data`; the new compose
+  comment ("Same PG major as before, so the data dir … unchanged") states
+  exactly the misconception this finding documents. First boot still aborts.
+- **Fixed on main:** ENG-3 (YoY now divides by `abs(prev)` with the exact
+  negative-base comment, plus `is_finite_number` in the row filter); DEP-2
+  (lock regenerated — `google-genai` present, anthropic floor raised — **and**
+  a dedicated "Lock — requirements.lock in sync" CI gate added whose comment
+  cites this precise defect; independently discovered while this audit ran);
+  FE-8 core (the anchor now re-bases interest from the run's own
+  `intCov` so coverage ties to the live figure, nulls the mixed-base
+  totlev/srsec/fcfdebt KPIs, and guards the negative cash back-solve — the
+  fabricated-coverage CRITICAL is closed; seeded non-anchored grid content and
+  ATLF provenance chrome remain to be re-checked on the new tree).
+- **Partially fixed on main — ENG-2/ENG-4:** a comparative re-pointer now
+  handles "increased **from** £X to £Y" (guard regex `\bfrom\s*$`) and a
+  ≥1e7 magnitude check rescales full-digit amounts. **Neither covers this
+  audit's cases:** "increased **by** £12.3M **to** £963.4M" still captures the
+  delta (the word before the amount is "by", not "from"), and "£963,400
+  thousand" (=963.4M full units, but 963,400 < 1e7) still lands as
+  £963.4bn-in-millions. The CRITICAL narrows but stands.
+
+Findings outside the executive summary were **not** re-verified against
+`bc339c8`; sections below describe `9bdaeb8`. New main surface (pgvector
+embeddings, migration 0030, Command-Center refinement) is outside this
+audit's scope.
+
+---
+
 The trust boundary (Caddy → oauth2-proxy → edge-secret → identity) **held**
 under adversarial review — no CRITICAL/MATERIAL auth or tenancy finding. The
 `is_finite_number` convention is applied with impressive consistency: **zero
@@ -504,9 +546,9 @@ secondary personas (PM/CIO, Head of Research) scan._
 
 ## §8 Deployment and durability
 
-**DEP-1 · CONFIRMED BUG · MATERIAL (launch blocker) · [NEW]** — `deploy/docker-compose.yml:14,26`: `postgres:18-alpine` with `db-data:/var/lib/postgresql/data`. Verified against the official image docs and entrypoint source: PG18 moved `PGDATA` to `/var/lib/postgresql/18/docker` (image volume `/var/lib/postgresql`), and the 18+ entrypoint **detects any mount at the legacy path — including a fresh empty named volume — appends it to `OLD_DATABASES` as "unused mount/volume", and aborts with guidance**. As shipped, `docker compose up -d --build` per the README/LAUNCH runbook leaves `db` crash-looping and the app (gated on `db` healthy) never starts: the flagship stack is dead-on-arrival, loudly. Fails safe (no silent data loss), but it also proves the runbook was never end-to-end boot-tested with this image pin — CI's postgres:18 service container has no legacy mount, so CI cannot catch it.
+**DEP-1 · CONFIRMED BUG · MATERIAL (launch blocker) · [NEW]** — `deploy/docker-compose.yml:14,26`: `postgres:18-alpine` with `db-data:/var/lib/postgresql/data`. Verified against the official image docs and entrypoint source: PG18 moved `PGDATA` to `/var/lib/postgresql/18/docker` (image volume `/var/lib/postgresql`), and the 18+ entrypoint **detects any mount at the legacy path — including a fresh empty named volume — appends it to `OLD_DATABASES` as "unused mount/volume", and aborts with guidance**. As shipped, `docker compose up -d --build` per the README/LAUNCH runbook leaves `db` crash-looping and the app (gated on `db` healthy) never starts: the flagship stack is dead-on-arrival, loudly. Fails safe (no silent data loss), but it also proves the runbook was never end-to-end boot-tested with this image pin — CI's postgres:18 service container has no legacy mount, so CI cannot catch it. **Status on current main:** the image was swapped to `pgvector/pgvector:pg18` (same official PG18 base and entrypoint), the mount path is unchanged, and the new comment asserts "the data dir … unchanged" — the finding carries over verbatim to the new image.
 
-**DEP-2 · CONFIRMED BUG · MATERIAL · [NEW]** — `server/requirements.txt:18` declares `google-genai>=2.10,<3`; `server/requirements.lock` (the only thing the image installs, `--require-hashes`) contains **no google-genai** — the Gemini lane raises `ModuleNotFoundError` at call time in the shipped image if ever configured. CI installs `requirements.txt`, not the lock, so `test_gemini.py` passes in CI against packages the image doesn't ship, and the pinned set is never tested on the shipped interpreter (the lock header says it was compiled under Python 3.11; the image runs 3.14 — any ≥3.12-only dependency would have been omitted at compile time). Unreachable in the stock compose (no Gemini/OpenRouter keys passed — which itself silently reduces the documented DeepSeek/Gemini tier hybrid to Anthropic-only; UNDERDETERMINED operator decision).
+**DEP-2 · CONFIRMED BUG · MATERIAL · [NEW]** — `server/requirements.txt:18` declares `google-genai>=2.10,<3`; `server/requirements.lock` (the only thing the image installs, `--require-hashes`) contains **no google-genai** — the Gemini lane raises `ModuleNotFoundError` at call time in the shipped image if ever configured. CI installs `requirements.txt`, not the lock, so `test_gemini.py` passes in CI against packages the image doesn't ship, and the pinned set is never tested on the shipped interpreter (the lock header says it was compiled under Python 3.11; the image runs 3.14 — any ≥3.12-only dependency would have been omitted at compile time). Unreachable in the stock compose (no Gemini/OpenRouter keys passed — which itself silently reduces the documented DeepSeek/Gemini tier hybrid to Anthropic-only; UNDERDETERMINED operator decision). **Status on current main: FIXED** — the lock was regenerated (google-genai present, anthropic floor raised) and a dedicated "Lock — requirements.lock in sync" CI gate was added whose comment cites this exact defect.
 
 **DEP-3 · CONFIRMED BUG · MATERIAL · [NEW]** — `deploy/.env.example:21` ships `ANALYST_SIGNUP_CODE=change-me-private-code` (verified). Compose `:?` rejects only unset/empty; the boot guard's deny-list is `("", "131113")` — the placeholder boots cleanly. Both fill-in checklists (`deploy/README.md`, `LAUNCH_PHASE1.md` §2.3) omit ANALYST_SIGNUP_CODE, so the documented quick-start produces a deploy whose analyst self-registration gate is a **repo-public string** — exactly the condition the guard's own comment says justifies refusing boot. (SSO + email-domain restriction + SSO-email binding keep this MATERIAL rather than CRITICAL.) Contrast: EDGE_PROXY_SECRET/SESSION_SECRET are empty in the example and fail loudly.
 
@@ -640,10 +682,15 @@ integration test.
 
 ## §12 Prior audit (2026-06-26) — remediation status
 
-_Each of the 36 findings re-checked against today's code (fix signatures read
-directly where cited; otherwise established by this audit's subsystem sweeps)._
+_Each of the 36 findings re-checked against today's code — fix signatures read
+directly where cited, reconciled against the remediation commits (`41ab847`,
+`b57a669`, `9aeb8df`, `449a0bd`, the run-2 fixes, and the 2026-07-01
+confidence-review follow-ups). Caveat for future readers: the `#NN` tags in
+code comments are a **separate remediation numbering**, not the audit's `[NN]`
+(e.g. code tag `#17` closes audit finding `[19]`); the mapping lives in the
+remediation commit bodies. Net: **33 FIXED · 3 PARTIALLY FIXED · 0 OPEN**._
 
-**FIXED (25):**
+**FIXED (33):**
 [00]/[10] adjusted-on-reported double-strip → basis guard `runner.py:167-174`.
 [01] year() width mixing → normalization in `periods.py:20-32` (the audit's
 exact recommended fix). [02] ±120-char amount window → clause-bounded rewrite
@@ -682,37 +729,55 @@ unauthenticated health path → `skip_auth_routes` + edge exemption
 (`oauth2-proxy.cfg:16`, `main.py:205`, #33). [34] demo-seed warn-only →
 fail-closed boot refusal (`main.py:76-85`). [35] reported-disclosure basis
 conflation → `reported_disclosure` basis mapping (`metrics.py:127-130`, #27).
+[08] module-level LIVE badge → per-module `moduleIsLive` + "◦ NO OUTPUT"
+states; `isLive` suppresses seeded charts/registers; ATLF-bespoke tabs are
+reference-issuer-only (residual chrome nits logged as FE-7 N3/N4). [16] CP-X
+FULL_RUN over silent None reads → the substantive defect closed by the
+registry-dep fixes; the run-level gate already demotes on any
+Ready-with-Limitations module (`planner.py:328-330`); the per-module
+coverage-only label is corpus-mandated design (REF_CP-X_03). [22] live-blend
+caveat hidden below 1280px → caveat now always visible
+(`deepdive/page.tsx:217-223`, #20). [25] EDGAR reported proxy labeled "Adj." →
+basis-aware labels "EBITDA (reported proxy)" / "Net leverage (reported)"
+(`adapt.ts:82-91`, #15). [27] net-debt-flat assumption undisclosed → explicit
+limitation flag + "(net debt held flat)" claim text (`downside.py:128-137`,
+#35; `covenants.py:382`); the flat 5.0× EV stays a documented, payload-
+disclosed ponytail (new residual on the same line: the negative-EBITDA gate
+gap, ENG-8). [31] Command Center 100% mock with no disclaimer → "Sample
+portfolio — not live" note + the genuinely live NL-Query and
+LiveCoverage/`usePortfolio` lanes (#29) — the *original finding's scope* is
+closed; the Research-lens and Monitor labeling gaps found this pass are new
+findings (FE-4/FE-5), not this one reopened.
 
-**PARTIALLY FIXED (4):** [08] run-level vs module-level LIVE badge — module
-surfaces now honor `allowSeededFallback`/`isReference` (test-pinned), but
-seeded chrome still leaks on narrow screens and EvChip styling (FE-7 N3/N4).
-[17] open runtime_output — CP-1/CP-2 tool schemas now pinned
-(`synth.py:172-334`); other modules remain free-form (residuals ENG-16,
-LLM-2). [20] BM25 memory/re-tokenization — per-run index built once
-(`runner.py:257-262`, P4-2); whole-corpus-in-memory remains (accepted at pilot
-scale). [23] backup restore-testing — automated daily backup service + a
-documented scratch-restore drill now exist; restores are still never
-*exercised* automatically. [31] Command Center mock — "Sample portfolio — not
-live" + "Market-data file" labels shipped on two of three lenses and the live
-NL-Query/LiveCoverage lanes exist; the Research lens and Monitor remain
-unlabeled simulations (FE-4/FE-5).
+**PARTIALLY FIXED (3):** [17] open runtime_output — CP-1/CP-2 tool schemas now
+pinned (`synth.py:172-334`) and the MATERIAL leverage plausibility cross-check
+exists; `validate_payload` remains structural-only, revenue/EBITDA/coverage
+have no plausibility checks, and Restricted facts are surfaced but not
+excluded from cross-issuer rankings (residuals ENG-16, LLM-2). [20] BM25
+memory/re-tokenization — per-run index built once (P4-2) and the cross-issuer
+scan capped at 5,000 chunks with a documented pgvector exit;
+`retrieve_corpus_by_issuer` remains unbounded and the NL-query path rebuilds
+the index per request. [23] backup restore-testing — automated daily backup
+service + scratch-target restore drill + a required quarterly drill checklist
+now exist; no automated/CI restore exercise, and `deploy/README.md:63` still
+documents a divergent plain-SQL `pg_dump` path.
 
-**ACCEPTED/DOCUMENTED (1):** [27] flat 5.0× distressed-EV multiple and
-net-debt-held-constant remain, disclosed in `waterfall_basis`/covenant notes
-(new residual on the same line: the negative-EBITDA gate gap, ENG-8).
+**Residuals noted during the sweep** (stale prose where behavior is fixed):
+`identity.py:81-82` docstring still claims legacy no-exp tokens are accepted
+(code rejects them); `database.py:328-330` basis comment predates the
+three-valued mapping; `deploy/README.md:63` (above). Plus one adjacent gap:
+the reported-CP1 leverage regexes still require a literal "x" and miss
+"net leverage of 4.4 times" ([07]'s residual).
 
-**NOT CONCLUSIVELY RE-CLASSIFIED (2):** [16] CP-X `gate_status` FULL_RUN vs
-downstream limitations (planner behavior was re-read and found faithful to the
-REF shape, but the specific reported combination was not reproduced); [22]
-Deep-Dive live-caveat visibility below 1280px (not re-checked this pass; the
-class of issue recurs in FE-7's DecisionRail note).
-
-**Net assessment:** the 2026-06-26 remediation wave was real and largely
-landed — 25 of 36 fixed outright, with fix-tagged comments that make the
-lineage auditable. The recurring pattern in what remains: a fix applied at the
+**Net assessment:** the 2026-06-26 remediation wave was real and landed — 33
+of 36 fixed outright with commit-traceable fix tags, 3 partially, none open.
+The recurring pattern in what this audit found *anyway*: a fix applied at the
 *site* of the prior finding but not to its *class* (layer-starvation fixed for
 three modules, missed for CP-2; anchor suppression added for three extraction
-types, not thirteen; provenance flagged at the store, not at consumers). New
-CRITICALs in this audit (ENG-1, ENG-2, FE-1, FE-8) are all in surface area the
-prior audit did not reach (distress scoring, reported-CP1 extraction, run
-creation UX, model-anchor rendering).
+types, not thirteen; provenance flagged at the store, not at consumers; the
+comparative-phrasing re-pointer covering "from X to Y" but not "by X to Y").
+New CRITICALs in this audit (ENG-1, ENG-2, FE-1, FE-8) are all in surface area
+the prior audit did not reach (distress scoring, reported-CP1 extraction, run
+creation UX, model-anchor rendering) — and two of the four (ENG-3-class YoY,
+FE-8 core) were independently fixed on main while this audit ran, which is
+itself evidence the underlying review loop works.
