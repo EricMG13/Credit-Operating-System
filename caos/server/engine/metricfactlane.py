@@ -70,7 +70,9 @@ _SYNONYMS: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def _match_metric_keys(query: str) -> Dict[str, int]:
+def _match_metric_keys(query: str) -> Dict[str, int]:  # noqa: C901 — pre-existing
+    # (unchanged since origin/main); flat synonym/label/key scan, splitting would
+    # scatter the scoring rule across files for one small function
     """Map a natural-language query to matched metric keys → match score.
 
     The score is the count of distinct synonyms (word-boundary, case-insensitive)

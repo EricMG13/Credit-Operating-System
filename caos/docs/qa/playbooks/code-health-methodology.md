@@ -121,7 +121,16 @@ grep -rn "fastapi\|from routes\|import routes" caos/server/engine/*.py
 grep -rn "from ['\"]@/app\|from ['\"]\.\./app" caos/frontend/src/lib
 # Frontend lint/type (skip if node_modules absent and run is pre-deploy-CI-covered)
 (cd caos/frontend && npm run lint -- --max-warnings=0 && npx tsc --noEmit)
-# Fallow backlog sweep — report-only, new-vs-baseline via identity snapshot
+# Fallow backlog sweep — report-only, new-vs-baseline via identity snapshot.
+# If local isolated-QA-stack build dirs exist (caos/frontend/.next-qa*, .next/
+# — gitignored, thousands of bundled-JS files each), a full (non-changed-since)
+# fallow scan degrades from sub-second to 7+ minutes because .fallowrc.json's
+# ignorePatterns doesn't cover them (confirmed 2026-07-10: 5.3s excluded vs
+# still-running past 7min unexcluded). Don't edit the tracked .fallowrc.json —
+# pass a scratch config instead (same content plus those globs in
+# ignorePatterns) via `--config /path/to/scratch.json`; this is report-only
+# tooling, not a repo change. Check `ls caos/frontend/.next-qa* 2>/dev/null`
+# first and only bother with the scratch config when they exist.
 npx --yes fallow dead-code --format json --quiet --baseline caos/docs/qa/playbooks/fallow-baseline.json 2>/dev/null || true
 npx --yes fallow dupes --format json --quiet 2>/dev/null || true
 npx --yes fallow dead-code --format json --quiet --stale-suppressions 2>/dev/null || true
@@ -174,8 +183,11 @@ enumerates the marks — the code is the register of record:
 | `--ignore-names cls` (vulture, in ci.yml) | classmethod signature arg | ci.yml |
 | `fallow-baseline.json` | full-sweep backlog identity snapshot | this dir |
 
-Each run: `grep -rn "noqa: C901" caos/server caos/scripts` and `grep -rn
-"fallow-ignore\|@expected-unused" caos/frontend/src caos/tests/frontend`; diff
-the set against the previous report. A new mark without a stated reason, or a
-stale suppression (§3.11), is a finding. Never add, move, or delete a mark
-yourself — propose it in the report and let a human commit the acceptance.
+Each run: `grep -rn "noqa: C901" caos/server caos/scripts --include='*.py' |
+grep -vE '(^|/)\.(venv|venv311)/'` (unfiltered, vendored site-packages under
+`.venv`/`.venv311` outnumber real project marks ~6 to 1 and swamp the diff) and
+`grep -rn "fallow-ignore\|@expected-unused" caos/frontend/src
+caos/tests/frontend`; diff the set against the previous report. A new mark
+without a stated reason, or a stale suppression (§3.11), is a finding. Never
+add, move, or delete a mark yourself — propose it in the report and let a
+human commit the acceptance.

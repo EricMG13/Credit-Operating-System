@@ -229,7 +229,9 @@ async def _emit_progress(cb: "Optional[ProgressCb]", sources: List[Source], sear
         logger.debug("research progress callback failed", exc_info=True)
 
 
-async def run_deep_research(
+async def run_deep_research(  # noqa: C901 — streaming continuation loop with cross-turn
+    # overload-fallback state (model persists across turns, BE4-2); extracting the
+    # fallback branch would split state that must stay coupled to stay correct.
     brief: ResearchBrief, on_progress: "Optional[ProgressCb]" = None
 ) -> ResearchResult:
     prompt = build_brief(brief)

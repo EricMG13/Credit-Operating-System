@@ -400,10 +400,9 @@ import type {
   RunSummaryDTO,
 } from "@/lib/engine/types";
 
-// API-client surface for POST /api/runs — kept ahead of its UI consumer.
-// portfolioId is optional: omit to let the server auto-bind the book that holds
-// the issuer (CP-3C concentration); pass one to evaluate against a specific book.
-// fallow-ignore-next-line unused-export
+// API-client surface for POST /api/runs, used by UploadWizard. portfolioId is
+// optional: omit to let the server auto-bind the book that holds the issuer
+// (CP-3C concentration); pass one to evaluate against a specific book.
 export const createRun = (issuerId: string, asOfDate?: string, portfolioId?: string): Promise<RunSummaryDTO> =>
   api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId }).then((r) => r.data);
 
