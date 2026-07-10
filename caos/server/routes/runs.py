@@ -26,6 +26,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -35,6 +36,7 @@ from engine import presets
 from database import Claim, EvidenceItem, Issuer, ModuleOutput, QAFinding, Run, get_db
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
+from tenancy import require_issuer, require_run_access, scope_issuers, tenancy_enabled
 
 logger = logging.getLogger("caos")
 router = APIRouter()
@@ -188,8 +190,7 @@ async def create_run(
     if not rate_limit.hit(f"runs:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
 
-    if await db.get(Issuer, body.issuer_id) is None:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, body.issuer_id))
 
     # Dedup: refuse a second run while one is already active for this issuer, so
     # two analysts (or a double-click) don't kick off duplicate work that then
@@ -212,7 +213,15 @@ async def create_run(
             model_mode=presets.current_mode(),
         )
         db.add(run)
-        await db.commit()  # persist the queued run so the executor can see it
+        try:
+            await db.commit()  # persist the queued run so the executor can see it
+        except IntegrityError:
+            # The partial unique index (uq_runs_active_per_issuer, migration 0021) is
+            # the multi-replica backstop behind the in-process lock: a concurrent
+            # replica already created the active run for this issuer between our SELECT
+            # and INSERT. Surface the same 409 as the SELECT dedup above.
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
 
     await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
@@ -232,6 +241,9 @@ async def list_runs(
     stmt = select(Run).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)
+    if tenancy_enabled():
+        # Only runs whose issuer is visible to the caller's team.
+        stmt = stmt.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     stmt = stmt.limit(limit).offset(offset)
     rows = (await db.execute(stmt)).scalars().all()
     return [RunListItem.model_validate(r) for r in rows]
@@ -243,9 +255,7 @@ async def get_run(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    run = await db.get(Run, run_id)
-    if not run:
-        raise HTTPException(404, "Run not found")
+    run = await require_run_access(caller, await db.get(Run, run_id), db)
     return await _summary(db, run)
 
 
@@ -256,6 +266,8 @@ async def get_module(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    if tenancy_enabled():
+        await require_run_access(caller, await db.get(Run, run_id), db)
     row = (
         await db.execute(
             select(ModuleOutput).where(
@@ -300,9 +312,7 @@ async def get_qa(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    run = await db.get(Run, run_id)
-    if not run:
-        raise HTTPException(404, "Run not found")
+    run = await require_run_access(caller, await db.get(Run, run_id), db)
     findings = list(
         (await db.execute(select(QAFinding).where(QAFinding.run_id == run_id))).scalars().all()
     )
@@ -328,9 +338,7 @@ async def export_committee_report(
     The refusal (409) carries the blocking findings so the caller knows what to
     remediate.
     """
-    run = await db.get(Run, run_id)
-    if not run:
-        raise HTTPException(404, "Run not found")
+    run = await require_run_access(caller, await db.get(Run, run_id), db)
 
     if not committee_export_allowed(run.committee_status):
         blocking = (
@@ -382,8 +390,7 @@ async def export_to_vault(
     settings = get_settings()
     if not settings.vault_export_dir:
         raise HTTPException(503, "Vault export not configured (set VAULT_EXPORT_DIR).")
-    if await db.get(Run, run_id) is None:
-        raise HTTPException(404, "Run not found")
+    await require_run_access(caller, await db.get(Run, run_id), db)
 
     try:
         paths = await vault_export.export_run(db, run_id, settings.vault_export_dir)

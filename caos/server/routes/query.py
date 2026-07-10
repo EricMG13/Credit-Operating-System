@@ -25,6 +25,7 @@ from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
 from engine import querygraph, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
+from tenancy import block_if_tenancy_unscoped, require_issuer
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
 
 logger = logging.getLogger("caos")
@@ -89,6 +90,7 @@ async def query_graph(
 ):
     """Run one capability and return its positioned node-link graph. Reads only —
     no LLM, no writes — so it shares the looser read rate guard."""
+    block_if_tenancy_unscoped()  # cross-issuer graph is not team-scoped
     _read_rate_guard(caller)
     try:
         from vault_export import sync_analyst_memos
@@ -127,6 +129,7 @@ async def route_query(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Query rate limit reached — try again in a minute.",
         )
+    block_if_tenancy_unscoped()  # cross-issuer routing is not team-scoped
     if not queryoverlay.available():
         return {"candidates": [], "source": "keyword"}
     caps = await querygraph.capabilities(db)
@@ -164,6 +167,7 @@ async def query_overlay(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Overlay rate limit reached — try again in a minute.",
         )
+    block_if_tenancy_unscoped()  # cross-issuer overlay is not team-scoped
     if not queryoverlay.available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -314,6 +318,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "Module output not found")
             m_out, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             import json
             text = (
                 f"Module: {m_out.module_name} ({m_out.module_id}).\n"
@@ -336,6 +341,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "Claim not found")
             claim, m_out, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = f"Claim {claim.claim_id} ({m_out.module_name}):\n\n{claim.claim_text}"
             return ChunkResponse(
                 chunk_id=chunk_id, issuer_id=issuer.id, issuer_name=issuer.name,
@@ -352,6 +358,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "QA Finding not found")
             finding, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = (
                 f"QA Finding {finding.finding_id} ({finding.severity})\n"
                 f"Module: {finding.module_id or 'Run'} · Lane {finding.lane}\n\n"
@@ -372,6 +379,7 @@ async def get_chunk(
     if row is None:
         raise HTTPException(404, "Chunk not found")
     chunk, doc, issuer = row
+    require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
     return ChunkResponse(
         chunk_id=chunk.id, issuer_id=issuer.id, issuer_name=issuer.name,
         doc=doc.file_name, doc_type=doc.doc_type, seq=chunk.seq, text=chunk.text,
@@ -384,6 +392,7 @@ async def nl_query(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    block_if_tenancy_unscoped()  # cross-issuer metric ranking is not team-scoped
     if _ADMIN_QUERY_RE.search(body.question):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

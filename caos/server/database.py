@@ -91,6 +91,11 @@ class Issuer(Base):
     # Analyst-entered private-equity sponsor (exact-string grouped by the sponsor
     # track-record view — no free ownership feed). NULL = not sponsor-owned/unknown.
     sponsor: Mapped[Optional[str]] = mapped_column(String(255))
+    # Optional multi-team tenancy anchor (migration 0023). NULL = shared/global
+    # (visible to every team, e.g. the reference demo issuer); a non-null value scopes
+    # this issuer — and everything keyed off it (runs, documents, metric_facts,
+    # portfolio) — to one team when CAOS_TENANCY_ENABLED is set. Inert by default.
+    team_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -123,6 +128,9 @@ class Analyst(Base):
     token_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # The analyst's team for multi-team tenancy (migration 0023). NULL = unassigned
+    # (sees only shared, team-less issuers when tenancy is enabled). Inert by default.
+    team_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
 
 
 class Document(Base):
@@ -205,7 +213,11 @@ class ResearchJob(Base):
     __tablename__ = "research_jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    status: Mapped[str] = mapped_column(String(16), default="running")  # running|complete|failed
+    # queued|running|complete|failed. Created 'queued' (was 'running'): the durable
+    # executor claims it, so a redeploy re-claims + re-executes from `brief` rather
+    # than losing an in-flight job (migration 0022). Both queued and running mean
+    # "keep polling" to the client.
+    status: Mapped[str] = mapped_column(String(16), default="queued")
     analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     brief: Mapped[dict] = mapped_column(JSON, default=dict)
     report: Mapped[Optional[str]] = mapped_column(Text)
@@ -215,6 +227,12 @@ class ResearchJob(Base):
     error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Async executor lease/recovery — mirrors Run (migration 0022). A job is a pure
+    # function of its brief, so a Postgres worker re-claims and re-executes an orphan.
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    worker_id: Mapped[Optional[str]] = mapped_column(String(64))
 
 
 class ModuleOutput(Base):

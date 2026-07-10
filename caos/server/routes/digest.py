@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import Issuer, Run, get_db
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers, tenancy_enabled
 
 router = APIRouter()
 
@@ -111,7 +112,7 @@ async def daily_digest(
     now = datetime.now(timezone.utc)
 
     issuers = list((await db.execute(
-        select(Issuer).order_by(Issuer.name).limit(2000)
+        scope_issuers(select(Issuer), caller).order_by(Issuer.name).limit(2000)
     )).scalars().all())
 
     # Latest complete run per issuer, one query (newest-first, first wins).
@@ -119,9 +120,12 @@ async def daily_digest(
     # sits beyond the newest 5000 completes drops off the digest rather than
     # letting the scan grow without bound.
     latest: Dict[str, Run] = {}
+    complete_stmt = select(Run).where(Run.status == "complete")
+    if tenancy_enabled():
+        # Scope qa/activity counts to the caller's team too (not just the issuer list).
+        complete_stmt = complete_stmt.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     for r in (await db.execute(
-        select(Run).where(Run.status == "complete")
-        .order_by(Run.created_at.desc()).limit(5000)
+        complete_stmt.order_by(Run.created_at.desc()).limit(5000)
     )).scalars().all():
         latest.setdefault(r.issuer_id, r)
 
@@ -155,8 +159,11 @@ async def daily_digest(
     # 24h activity: bounded recent window, timestamps compared in Python so the
     # count is identical across SQLite (string dates) and Postgres.
     cutoff = now - timedelta(hours=24)
+    recent_stmt = select(Run)
+    if tenancy_enabled():
+        recent_stmt = recent_stmt.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     recent = (await db.execute(
-        select(Run).order_by(Run.created_at.desc()).limit(1000)
+        recent_stmt.order_by(Run.created_at.desc()).limit(1000)
     )).scalars().all()
     def within_24h(ts: Optional[datetime]) -> bool:
         aware = _aware(ts)

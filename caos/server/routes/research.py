@@ -58,11 +58,14 @@ async def create_research(
             detail="Deep-research rate limit reached — try again in a minute.",
         )
 
-    job = ResearchJob(status="running", analyst_id=caller.id, brief=brief.model_dump())
+    # Created 'queued' (model default): the durable executor claims + executes it, so
+    # a redeploy re-claims from `brief` instead of losing the job. On SQLite the
+    # in-process executor picks it up via enqueue; on Postgres the QueueWorker loop does.
+    job = ResearchJob(analyst_id=caller.id, brief=brief.model_dump())
     db.add(job)
     await db.commit()
-    # Fire-and-forget: execution outlives the request, so a dropped connection
-    # doesn't lose the run. The client polls GET below.
+    # Execution outlives the request, so a dropped connection doesn't lose the run.
+    # The client polls GET below.
     request.app.state.research_executor.enqueue(job.id)
     return ResearchJobCreated(id=job.id, status=job.status)
 

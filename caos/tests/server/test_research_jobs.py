@@ -59,7 +59,7 @@ async def test_research_executor_sweeps_stranded_jobs(seeded_db):
     """Hard-crash recovery: a job left 'running' by a restart (a stream can't be
     resumed) must be swept to 'failed' on the next start(); terminal jobs untouched."""
     from database import AsyncSessionLocal, ResearchJob
-    from research_executor import ResearchExecutor
+    from research_executor import InProcessResearchExecutor
 
     async with AsyncSessionLocal() as s:
         stranded = ResearchJob(status="running", analyst_id="t", brief={"subject": "Acme", "mode": "issuer"})
@@ -68,7 +68,7 @@ async def test_research_executor_sweeps_stranded_jobs(seeded_db):
         await s.commit()
         sid, did = stranded.id, done.id
 
-    await ResearchExecutor().start()
+    await InProcessResearchExecutor().start()
 
     async with AsyncSessionLocal() as s:
         assert (await s.get(ResearchJob, sid)).status == "failed"

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import Issuer, MetricFact, ModuleOutput, Run, get_db
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers
 
 router = APIRouter()
 
@@ -73,7 +74,9 @@ async def get_portfolio(
     """Latest-complete-run posture across the coverage universe."""
     _read_rate_guard(identity)
 
-    issuers = (await db.execute(select(Issuer))).scalars().all()
+    # Rows are built only for issuers in this list, so scoping it to the caller's team
+    # scopes the whole board (runs/facts inherit the issuer's team). No-op when off.
+    issuers = (await db.execute(scope_issuers(select(Issuer), identity))).scalars().all()
 
     # Latest complete run per issuer: scan complete runs newest-first, keep the
     # first seen for each issuer. One query; the universe is small.

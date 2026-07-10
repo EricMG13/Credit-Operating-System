@@ -255,6 +255,49 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     )
 
 
+# The headline metrics a CP-1 must carry at least one of to be a real credit
+# foundation. `revenue`/`adj_ebitda` are period series (checked via latest());
+# leverage/coverage are LTM scalars.
+_CP1_HEADLINE_SERIES = ("revenue", "adj_ebitda", "free_cash_flow")
+_CP1_HEADLINE_SCALARS = ("net_leverage_adj_ltm", "interest_coverage_ltm", "net_debt_ltm")
+
+
+def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MATERIAL finding when a CP-1 asserts real confidence yet carries NO finite
+    headline metric — the numeric-completeness lane the CP-5 gate otherwise lacks.
+
+    The deterministic gate (gate.py) only maps finding severity; nothing checks that
+    CP-1 actually produced numbers, so a live-LLM CP-1 that passes schema validation
+    but leaves every metric null (or NaN-degraded-to-absent) rolls up Passed ->
+    Committee Ready and becomes exportable. Every legitimate producer (EDGAR emits at
+    least revenue; reported-disclosure emits net leverage; the fixture is full) carries
+    at least one finite headline metric, so this only fires on a genuinely empty-but-
+    confident CP-1 — never on a net-cash issuer (which still has revenue/EBITDA) or a
+    CP-1 that honestly reports ``Insufficient Information``.
+    """
+    if cp1 is None:
+        return None
+    # An honestly-insufficient CP-1 is already surfaced (confidence -> committee
+    # status "Insufficient Information"); don't double-flag it.
+    if cp1.confidence == "Insufficient Information":
+        return None
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    has_series = any(is_finite_number(latest(nf.get(k) or {})) for k in _CP1_HEADLINE_SERIES)
+    has_scalar = any(is_finite_number(nf.get(k)) for k in _CP1_HEADLINE_SCALARS)
+    if has_series or has_scalar:
+        return None
+    return Finding(
+        finding_id="CP-1-INCOMPLETE", severity="MATERIAL", lane=6, module_id="CP-1",
+        description=(
+            f"CP-1 reports {cp1.confidence} confidence but its normalized_financials carry no "
+            "finite headline metric (revenue, adjusted EBITDA, net leverage, or coverage) — the "
+            "canonical foundation is empty, so downstream leverage/recovery/covenant reads have "
+            "no numbers to stand on and the run must not ship as committee-ready."
+        ),
+        required_remediation="Re-run CP-1 against usable source financials, or mark it Insufficient Information.",
+    )
+
+
 # Energy cost exposure stated as a percent of the cost base, alongside an
 # energy keyword — the specific "N percent of cost of goods sold" pattern avoids
 # grabbing unrelated percentages (e.g. a gross-margin figure in the same chunk).

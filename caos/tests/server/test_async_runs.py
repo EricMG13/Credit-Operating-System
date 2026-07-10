@@ -162,13 +162,18 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
 async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
     """Hard-crash recovery: a run left 'running'/'queued' by a SIGKILL (no stop())
     must be swept to 'failed' on the next start() — SQLite has no reaper."""
-    from database import AsyncSessionLocal, Run
+    from database import AsyncSessionLocal, Issuer, Run
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import InProcessExecutor
 
     async with AsyncSessionLocal() as s:
-        stranded_running = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="running")
-        stranded_queued = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="queued")
+        # Distinct issuers: the active-run partial unique index (migration 0021) permits
+        # only one queued/running run per issuer, and a crash can strand at most one
+        # active run per issuer — so put the stranded running and queued runs on
+        # separate issuers to test that the boot sweep fails BOTH.
+        s.add_all([Issuer(id="strand-a", name="Strand A"), Issuer(id="strand-b", name="Strand B")])
+        stranded_running = Run(issuer_id="strand-a", analyst_id="t", status="running")
+        stranded_queued = Run(issuer_id="strand-b", analyst_id="t", status="queued")
         done = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t", status="complete")
         s.add_all([stranded_running, stranded_queued, done])
         await s.commit()
@@ -181,6 +186,32 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
         assert r_running.status == "failed" and "process restart" in (r_running.error or "")
         assert r_queued.status == "failed"
         assert r_done.status == "complete"  # terminal runs are untouched
+
+
+@pytest.mark.asyncio
+async def test_active_run_unique_index_blocks_racing_second(seeded_db):
+    """The partial unique index (migration 0021) is the multi-replica backstop behind
+    the in-process create_run lock: a second queued/running run for the same issuer
+    cannot be committed even by a direct insert (a racing replica that slipped past the
+    per-process lock). Uses a dedicated issuer so it doesn't pollute shared run state."""
+    from sqlalchemy.exc import IntegrityError
+
+    from database import AsyncSessionLocal, Issuer, Run
+
+    async with AsyncSessionLocal() as s:
+        s.add(Issuer(id="dedup-idx-iss", name="Dedup Idx Co"))
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="running"))
+        await s.commit()
+
+    async with AsyncSessionLocal() as s:
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="queued"))
+        with pytest.raises(IntegrityError):
+            await s.commit()
+
+    # A terminal run for the same issuer is allowed (the index predicate excludes it).
+    async with AsyncSessionLocal() as s:
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="complete"))
+        await s.commit()
 
 
 # These exercise the SKIP LOCKED claim path and only run against Postgres.

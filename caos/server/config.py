@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     analyst_signup_code: str = "131113"
     session_secret: str = "dev-insecure-session-secret"
 
+    # Multi-team tenancy (identity.py / tenancy.py). OFF by default: the platform is a
+    # single shared coverage desk (every analyst sees every issuer/run/portfolio),
+    # safe because the edge SSO admits one team. Set CAOS_TENANCY_ENABLED=true only
+    # when the deployment admits MORE THAN ONE team; every issuer-derived read/write is
+    # then scoped to the caller's Analyst.team_id (issuers with a NULL team_id stay
+    # shared/global). Assign teams by setting Analyst.team_id / Issuer.team_id.
+    caos_tenancy_enabled: bool = False
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
@@ -171,6 +179,12 @@ class Settings(BaseSettings):
     # sustained submission rate would accumulate unbounded multi-minute web-search
     # runs; jobs past the cap queue on a semaphore rather than fan out.
     caos_research_concurrency: int = 2
+    # Durable research lease/recovery (research_executor.py QueueWorker on Postgres),
+    # mirroring the run lease. Generous window — deep research runs several minutes; a
+    # streamed run can't resume mid-flight, so a re-claim RE-EXECUTES from the brief.
+    caos_research_lease_seconds: int = 1800
+    caos_research_max_attempts: int = 2      # re-claims before an orphan is reaped to failed
+    caos_research_poll_seconds: float = 2.0  # worker loop tick
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
     caos_run_poll_seconds: float = 1.0   # worker loop tick

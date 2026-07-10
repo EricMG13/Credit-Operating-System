@@ -52,7 +52,7 @@ from engine.coststructure import synthesize_cost_structure
 from engine.earnings import monitoring_finding, synthesize_earnings_delta
 from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
 from engine.readiness import synthesize_source_readiness
-from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
+from engine.metrics import cp1_completeness_finding, extract_cost_facts, extract_facts, leverage_plausibility_finding
 from engine.gate import (
     Finding,
     committee_status_from,
@@ -419,6 +419,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
         if lev_plaus is not None:
             findings.append(lev_plaus)
+        # CP-5 numeric-completeness lane: a confident-but-empty CP-1 must not ship
+        # committee-ready just because it raised no severity findings (the gate has
+        # no numeric check of its own).
+        cp1_complete = cp1_completeness_finding(upstream.get("CP-1"))
+        if cp1_complete is not None:
+            findings.append(cp1_complete)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
