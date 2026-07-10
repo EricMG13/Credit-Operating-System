@@ -3,6 +3,10 @@
 **Audit date:** 2026-06-16 (full re-audit after the EDGAR engine stack (#13),
 the DM/loans re-model (#14), and the retention / N+1 / async / budgeting work;
 supersedes the 2026-06-14 pass).
+**Last reconciled:** 2026-07-10 — health snapshot + the S-4 / PERF-2 / A-1 rows
+refreshed against shipped code from the pre-production security-audit branch (NaN
+guards, run dedup, durable research, opt-in tenancy, the CP-5 completeness lane,
+and the Command QA-queue live slice).
 **Scope:** `caos/` — FastAPI server (~6.8k LOC Python, 51 files), Next.js frontend
 (~14.7k LOC TS/TSX, 87 files), config, CI, tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
@@ -14,9 +18,10 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot (all green)
 
-Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · **101 vitest ✓** · `next build` ✓
-(12/12 static pages, export OK). Server: **171 pytest ✓** (2 Postgres-only worker
-tests skipped on the SQLite default suite).
+Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · **419 vitest ✓** · `next build` ✓
+(16/16 static pages, export OK). Server: **1308 pytest ✓** (2 Postgres-only worker
+tests skipped on the SQLite default suite; the worker/reaper/claim lane runs green
+against pgvector/pg16 in the CI Postgres step).
 CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
 vitest + build on the frontend job, pytest on the server job, and a Docker image
 build — so the tests and the deploy image are gated. No committed secrets/DB/vault
@@ -54,12 +59,12 @@ hardening, led by the live-synthesis path (SYNTH-1).
 | D-1 | P2 | Deps | **8 npm advisories (2 moderate + 6 high).** The 2 moderate are **postcss `<8.5.10`** pulled transitively by Next.js build tooling (build-time only, no untrusted-CSS path). The high set is the **vite/esbuild/vitest dev chain**, incl. the esbuild dev-server arbitrary-file-read advisory (dev-server-on-Windows only). None ship in the static export. | **Accepted-risk** — none exploitable in this app's usage; `npm audit fix --force` downgrades Next (**do not run**). Track upstream Next/esbuild bumps. |
 | DATA-1 | P3 | Storage | `metric_facts` run-derived rows accumulating unbounded per run. | **Resolved** — on run completion the runner deletes the issuer's older `provenance="run"` rows ([runner.py](../server/engine/runner.py) "Retention (DATA-1)"); seed facts untouched; covered by [test_retention.py](../tests/server/test_retention.py). |
 | PERF-1 | P3 | Query | Hybrid `execute()` issued one `retrieve_corpus` per ranked issuer (N+1). | **Resolved** — `retrieve_corpus_by_issuer` ([retrieval.py](../server/retrieval.py)) does one query + one BM25 pass for the best chunk per issuer ([nlquery.py](../server/nlquery.py)). *(Separate in-flight perf: P4-2 builds the issuer BM25 index once per run rather than per `retrieve()` — on `perf/bm25-corpus-memo`, not yet merged.)* |
-| PERF-2 | P3 | Bundle | `/deepdive` first-load JS is **643 kB** (largest route; `/reports` 561 kB). Fine functionally; heavy for a desk on a metered link. | **Open (new)** — code-split `/deepdive` (the 1.8k-LOC seeded step-outputs dominate). Tracked as a Phase-4 pre-prod item. |
+| PERF-2 | P3 | Bundle | `/deepdive` first-load JS was **643 kB** (largest route), dominated by the 1.8k-LOC seeded step-outputs. | **Resolved** — the step-outputs register is code-split behind the dynamic `tabs.tsx` import ([deepdive/page.tsx](../frontend/src/app/deepdive/page.tsx):42) — confirmed absent from every route's first-load HTML; and the tear-sheet report tree (`buildReports`) is now lazily imported on first evidence-modal open rather than eagerly on mount. First-load is **~323 kB gzipped** (framework + polyfills + the shared deal/model chunk the eager 3-pane render needs). |
 | F-1 | P2 | Tests | RTL component coverage was thin. | **Resolved** — RTL render/interaction tests now cover `EdgarImport`, `evidence-sync`, `primitives`, `issuer-chat-context`, and (this round) **`NlQuery`** ([NlQuery.test.tsx](../frontend/src/components/command/NlQuery.test.tsx), 5 cases), **`CitationViewer`** (4), **`ScenarioPanel`** (5) — 14 new render+interaction cases, mocked API / offline. Frontend vitest 218 passing. |
 | DOC-1 | P3 | Docs/Deploy | **Stale "Databricks" references** survive the self-hosted-Docker pivot ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)): [retrieval.py](../server/retrieval.py) docstring (Databricks Vector Search), [routes/auth.py](../server/routes/auth.py) + [identity.py](../server/identity.py) + SECURITY.md §1 (Databricks-Apps auth model). **Functionally sound** — `ENVIRONMENT=production` is fixed in the stack so the identity gate still fails closed, and Caddy strips client `X-Forwarded-*` (both verified in LAUNCH_PHASE1 §5) — but `DATABRICKS_APP_PORT` was still read as a vestigial no-op trigger. | **Resolved** — retrieval/auth docstrings + SECURITY §1 refreshed; the vestigial `DATABRICKS_APP_PORT` branch removed — `config.is_deployed` / identity.py now key on `ENVIRONMENT != development` only. |
-| S-4 | P3 | Authz | No per-issuer / row-level authz — any authenticated analyst can read any issuer; `/query/*` + `/scenario` widen this cross-issuer surface. | **Documented** ([SECURITY.md](SECURITY.md) §2) — single-team-by-design. **Now a Phase-2 entry criterion:** material the moment multi-user, entitlement-restricted (Bloomberg/MNPI) data lands, not only on multi-tenancy. |
+| S-4 | P3 | Authz | No per-issuer / row-level authz — any authenticated analyst can read any issuer; `/query/*` + `/scenario` widen this cross-issuer surface. | **Enforcement scaffold shipped (opt-in, default off)** — [tenancy.py](../server/tenancy.py) adds `require_issuer` / `scope_issuers` / `require_run_access` / `block_if_tenancy_unscoped` wired across the issuer-derived spine; `CAOS_TENANCY_ENABLED` (default **off**) gates it, so default behaviour is unchanged single-team. Cross-issuer aggregate lanes fail closed (501) under tenancy; `team_id` on issuers/analysts (migration 0037). `test_tenancy` pins the isolation. Documented [SECURITY.md](SECURITY.md) §2; flip on when multi-user, entitlement-restricted (Bloomberg/MNPI) data lands. |
 | F-2 | P3 | Types | Localized `any` confined to [reports/model.ts](../frontend/src/lib/reports/model.ts) + whole-file `eslint-disable` on the large mock-data files. New code is `any`-free. | Open (acceptable; eslint clean, no regression). |
-| A-1 | — | Architecture | **Mock-vs-engine gap — narrowing further.** Now engine-derived: CP-1/1A/1B/1C, CP-2, CP-4C, peers, distress, `metric_facts`, NL query, citation viewer. **Still seeded mock:** much of Deep-Dive ([step-outputs.ts](../frontend/src/lib/deepdive/step-outputs.ts)), Command boards, Pipeline sim, Monitor, and the CP-3 RV / CP-3B recovery / CP-6A surfaces; the Scenario Builder drives the **panel only**, not the model grid's BASE/DOWN columns. CP-3 RV is **market-data-gated (Phase 2)**. | Known — smaller but real; tracked as the mock→engine epic. |
+| A-1 | — | Architecture | **Mock-vs-engine gap — narrowing further.** Now engine-derived: CP-1/1A/1B/1C, CP-2, CP-4C, peers, distress, `metric_facts`, NL query, citation viewer, live coverage, and (latest) the **Command QA queue** — [qa.ts](../frontend/src/lib/command/qa.ts) derives it from real CP-5 gate roll-ups on the live portfolio, with the seeded finding list as the offline fallback (per-issuer today; per-finding needs an aggregated findings endpoint). **Still seeded mock:** much of Deep-Dive ([step-outputs.ts](../frontend/src/lib/deepdive/step-outputs.ts)), the rest of the Command boards (gaps, portfolio table), Pipeline sim, Monitor, and the CP-3 RV / CP-3B recovery / CP-6A surfaces; the Scenario Builder drives the **panel only**, not the model grid's BASE/DOWN columns. CP-3 RV is **market-data-gated (Phase 2)**. | Known — smaller but real; tracked as the mock→engine epic. |
 | S-1/2/3, B-1/2 | P2/P3 | Security/Seed/Ingest | Fail-closed auth gate (S-1), security-headers middleware (S-2), forwarded-identity trust model (S-3), demo-seed flag (B-1), untrusted-doc parsing surface (B-2). | **Fixed / documented** (see below). B-2 now also covers **EDGAR exhibits** on the document→LLM path; mitigated by [llm_safety](../server/engine/llm_safety.py) `wrap_untrusted` + `UNTRUSTED_RULE`. |
 
 ## Fixed / addressed
@@ -79,12 +84,23 @@ hardening, led by the live-synthesis path (SYNTH-1).
 - **Frontend:** 0 `dangerouslySetInnerHTML`, 0 `eval`, `any` only in the known mock files; tsc strict + eslint clean.
 
 ## Recommended next
-1. **SYNTH-1** — structured output + one-shot repair + mocked-client tests for the live path (biggest correctness/coverage gap).
-2. ~~**DOC-1** — finish the Databricks→oauth2-proxy doc reconciliation; retire the vestigial `DATABRICKS_APP_PORT` branch in identity.py.~~ **Resolved** — SECURITY §1 + identity.py comment refreshed; the branch is removed (`config.is_deployed` keys on `ENVIRONMENT` only). LAUNCH_PHASE1 §8 already lists DATA-1 as Resolved.
-3. **F-1 (cont.)** — RTL tests for `NlQuery` / `CitationViewer` / `ScenarioPanel`.
-4. **PERF-2** — code-split `/deepdive`; land P4-2 (index-once-per-run).
-5. **S-4** — per-issuer authorization as a Phase-2 entry criterion (multi-user MNPI/Bloomberg-entitled data).
-6. **CP-1A naming** — ~~reconcile the implemented `AdjustedEBITDABridge` against the corpus `BusinessTransactionFactPack`~~ **Resolved** — the code already implements CP-1A as `BusinessTransactionFactPack` ([factpack.py](../server/engine/factpack.py); [registry.py](../server/engine/registry.py) line 92); the reported-vs-adjusted EBITDA bridge was folded into CP-1. Module map and code agree.
+
+SYNTH-1, DOC-1, F-1, PERF-2, and the CP-1A naming item above are all **Resolved**
+(reconciled against code, not the tracker). What genuinely remains:
+
+1. **A-1 (mock→engine epic)** — the live spine keeps growing (latest: the Command
+   QA queue reads real CP-5 gate roll-ups). Next slices: the remaining Command
+   boards (coverage gaps, portfolio table) off `usePortfolio`; a per-finding QA
+   queue behind an aggregated findings endpoint; the Scenario Builder's model-grid
+   BASE/DOWN columns; and the Deep-Dive `step-outputs` register.
+2. **S-4 follow-through** — the tenancy enforcement scaffold ships opt-in
+   (`CAOS_TENANCY_ENABLED`, default off); flip it on and add the entitlement model
+   when multi-user MNPI/Bloomberg-restricted data lands (Phase-2 entry criterion).
+3. **F-2** — retire the localized `any` in [reports/model.ts](../frontend/src/lib/reports/model.ts) (acceptable today; eslint-clean, no regression).
+4. **D-1** — track upstream Next/esbuild bumps to clear the accepted-risk dev-chain npm advisories (none ship in the static export).
+5. **Sector Review (CP-SR)** — the 9 `Pending Verification` stories in the feature
+   tracker are seed/demo until live signal persistence + CP-SR synthesis exist
+   (`registry.implemented=false`, Phase-2); not defects.
 
 ## Notably well done
 - Identity on every route via `Depends(get_identity)`; only `/health` open. Rate limits on all mutating/LLM endpoints.

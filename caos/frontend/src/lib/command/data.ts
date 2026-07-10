@@ -18392,7 +18392,18 @@ export const COVERAGE = PORTFOLIO.map((p, i) => ({
   cells: Object.fromEntries(Object.entries(COVERAGE_CELLS).map(([l, arr]) => [l, arr[i % arr.length]])) as Record<string, string>,
 }));
 
-export const QA_QUEUE = [
+// One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits the same
+// shape from real run gate roll-ups so QaQueue can prefer live over this seed.
+export interface QaQueueItem {
+  id: string;
+  issuer: string;
+  module: string;
+  sev: "HIGH" | "MEDIUM" | "LOW";
+  age: string;
+  text: string;
+}
+
+export const QA_QUEUE: QaQueueItem[] = [
   { id: "QA-117", issuer: "ATLF", module: "CP-1C", sev: "HIGH", age: "2h", text: "Citation E-44 (peer EBITDA margin) unresolved — source page mismatch in CIM Annex C" },
   { id: "QA-114", issuer: "SXAA", module: "CP-4", sev: "HIGH", age: "1d", text: "Covenant register cites superseded credit agreement draft — controlling-doc check failed" },
   { id: "QA-112", issuer: "QLMH", module: "CP-1B", sev: "MEDIUM", age: "1d", text: "Variance bridge math: D&A add-back double count $4.1M (0.9% of EBITDA)" },

@@ -19,6 +19,7 @@ import { SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
+import { liveQaItems } from "@/lib/command/qa";
 import {
   GapsList, IssuerStrip,
   PortfolioTable, PostureSummary, QaQueue,
@@ -46,6 +47,9 @@ function CommandCenter() {
   const live = run.playing && !run.sim.done;
   const tick = run.sim.tick;
   const portfolio = usePortfolio();
+  // Prefer the live CP-5 gate queue (real run roll-ups) over the seeded finding
+  // list when a backend answered; offline, QaQueue falls back to the seed (A-1).
+  const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
 
   const alertsToday = simAlertsToday(tick, live || run.sim.done);
 
@@ -169,7 +173,7 @@ function CommandCenter() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
               <div>
                 <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">QA Queue · CP-5 open findings</h3>
-                <QaQueue />
+                <QaQueue items={liveQa} />
               </div>
               <div>
                 <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">Source Gaps · CP-0 gap log</h3>

@@ -12,7 +12,7 @@ import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
-  type EmailRow,
+  type EmailRow, type QaQueueItem,
 } from "@/lib/command/data";
 import { simClock } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
@@ -831,13 +831,17 @@ function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: 
   );
 }
 
-export function QaQueue() {
-  if (QA_QUEUE.length === 0) {
+// `items` is the live CP-5 gate queue (lib/command/qa.ts) when a backend is
+// present; absent, it falls back to the seeded per-finding list so the offline
+// demo is unchanged. An empty live array is a real "queue clear" state.
+export function QaQueue({ items }: { items?: QaQueueItem[] }) {
+  const queue = items ?? QA_QUEUE;
+  if (queue.length === 0) {
     return <EmptyNote tone="success" label="QA queue clear" body="No open CP-5 findings. New QA-gate failures land here for triage." />;
   }
   return (
     <div>
-      {QA_QUEUE.map((q) => (
+      {queue.map((q) => (
         <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
