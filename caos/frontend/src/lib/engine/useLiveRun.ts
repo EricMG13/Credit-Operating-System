@@ -4,7 +4,7 @@
 // run, no backend, or any error it returns empty, so the offline sim demo falls
 // back to the seeded constants unchanged ("prefer live, static fallback").
 
-import { getModule, getQA } from "@/lib/api";
+import { getModules, getQA } from "@/lib/api";
 import type { EvidenceDTO, FindingDTO } from "@/lib/engine/types";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 import { adaptModule } from "./adapt";
@@ -56,30 +56,44 @@ const EMPTY: LiveRunState = {
 
 export function useLiveRun(issuerId: string): LiveRunState {
   return useLatestRun<LiveRunState>(issuerId, { ...EMPTY, loading: true }, EMPTY, async (latest) => {
-    const entries = await Promise.all(
-      LIVE_MODULES.map(async (m) => {
-        try {
-          const detail = await getModule(latest.id, m);
-          return [m, adaptModule(detail), detail] as const;
-        } catch {
-          return null; // module not in this run — skip, fall back to static
-        }
-      }),
-    );
+    // One bulk request for every produced module (server joins claims/evidence in
+    // three queries) instead of the old 21-request fan-out per deep-dive open.
+    // LIVE_MODULES still scopes which ids the UI adapts; extras are ignored.
+    const eligible = new Set(LIVE_MODULES);
+    const all = await getModules(latest.id).catch(() => []);
+    const details = all.filter((d) => eligible.has(d.module_id));
     const liveOuts: Record<string, ModuleOutput> = {};
     const liveEvidence: Record<string, LiveEvidence> = {};
-    for (const e of entries) {
-      if (!e) continue;
-      liveOuts[e[0]] = e[1];
-      for (const c of e[2].claims || []) {
+    for (const detail of details) {
+      liveOuts[detail.module_id] = adaptModule(detail);
+      for (const c of detail.claims || []) {
         for (const ev of c.evidence) {
-          liveEvidence[ev.evidence_id] = { ...ev, module: e[2].module_id, claim: c.claim_text };
+          liveEvidence[ev.evidence_id] = { ...ev, module: detail.module_id, claim: c.claim_text };
         }
       }
     }
-    // CP-5C committee review is persisted as QA findings; pull the subset.
-    const qa = await getQA(latest.id).catch(() => null);
-    const council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
+    // Committee review from CP-5C's own persisted output (issue_log) — the typed
+    // channel, so the panel no longer depends on the backend's finding_id string
+    // format ("CP-5C-…", an untyped coupling a mint reformat would silently
+    // break). Runs persisted before CP-5C outputs existed fall back to the old
+    // QA-findings prefix filter.
+    const cp5c = all.find((d) => d.module_id === "CP-5C");
+    const log = (cp5c?.runtime_output as { issue_log?: unknown } | undefined)?.issue_log;
+    let council: FindingDTO[];
+    if (Array.isArray(log)) {
+      council = (log as Array<Record<string, unknown>>).map((e) => ({
+        finding_id: String(e.id ?? ""),
+        severity: String(e.severity ?? "MINOR"),
+        lane: typeof e.lane === "number" ? e.lane : null,
+        module_id: typeof e.module === "string" ? e.module : null,
+        description: String(e.finding ?? ""),
+        affected_claim_id: typeof e.claim === "string" ? e.claim : null,
+        required_remediation: null,
+      }));
+    } else {
+      const qa = await getQA(latest.id).catch(() => null);
+      council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
+    }
     return {
       liveOuts, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
       council, loading: false,

@@ -172,7 +172,7 @@ _CROSS_CHECK = re.compile(r"cross", re.I)
 _AB_CHECK = re.compile(r"add-back|add\s+back|addback|cost-sav|cost\s+sav|synerg", re.I)
 
 
-def derive_covenant_terms(
+def derive_covenant_terms(  # noqa: C901  # pre-existing multi-pattern extractor; split per-term helpers when reworked
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
@@ -355,7 +355,16 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
     # basis) — comparing the two understates headroom, so label by basis and flag the
     # mismatch rather than silently calling everything a "total leverage covenant".
     cov_basis = terms.get("leverage_covenant_basis")
-    cov_label = {"senior_secured": "senior secured", "first_lien": "first-lien"}.get(cov_basis, "total")
+    # None (no basis qualifier in the matched text) is NOT the same as an explicit
+    # "total": defaulting the label to "total" asserted an unverified basis as fact
+    # in the committee-facing C-CAP2 claim. Unknown renders unqualified ("leverage
+    # covenant") and is flagged as a limitation below.
+    cov_label = {
+        "senior_secured": "senior secured",
+        "first_lien": "first-lien",
+        "total": "total",
+    }.get(cov_basis, "")
+    cov_prefix = f"{cov_label} " if cov_label else ""
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
         thr, cid, cov_exact = lev_cov
@@ -377,7 +386,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
                 claim_text=(
-                    f"The {cov_label} leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
+                    f"The {cov_prefix}leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
                     f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA decline to a breach, net debt flat)."
                 ),
                 evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
@@ -390,10 +399,16 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
                     f"total/consolidated ({lev:g}x): the covenant tests a narrower (secured) debt "
                     "basis, so the computed headroom is conservative (overstates breach risk)."
                 )
+            elif cov_basis is None:
+                limitations.append(
+                    f"The matched covenant text ({thr:g}x) states no leverage basis "
+                    "(total vs senior secured / first-lien): headroom is computed against CP-1's "
+                    "total net leverage and may be misstated if the covenant tests a narrower basis."
+                )
         else:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
-                claim_text=f"The agreement sets a maximum {cov_label} leverage covenant of {thr:g}x (financial maintenance).",
+                claim_text=f"The agreement sets a maximum {cov_prefix}leverage covenant of {thr:g}x (financial maintenance).",
                 evidence=[EvidenceSpec("E-CAP2", "table_value",
                                        "Directly Sourced" if cov_exact else "Inferred",
                                        "Financial maintenance covenant threshold (governing document)",

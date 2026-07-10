@@ -122,6 +122,14 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
         return None
     if scale.startswith("b"):
         val *= 1000.0  # billion → million
+    elif not scale and val >= 1e7:
+        # No million/bn token AND a magnitude no in-millions figure reaches: this
+        # is an amount written in full units ("£1,562,300,000"), which must not
+        # pass through as if already in millions — a 10^6 mis-scale that would
+        # poison leverage, EV and reconciliation downstream. Smaller scale-less
+        # amounts stay as-is: they are "in millions" table rows ("Total Revenue
+        # £ 2,390.1", golden-pinned for VMO2).
+        val /= 1e6  # full units → millions
     period_m = _PERIOD.search(text[max(0, m.start() - 40): m.end() + 10])
     period = (period_m.group(1).upper() if period_m else "Reported")
     return round(val, 1), cur, period

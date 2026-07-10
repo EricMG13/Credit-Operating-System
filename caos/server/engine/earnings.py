@@ -12,7 +12,6 @@ watch, not a defect that should block committee export.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
@@ -26,13 +25,15 @@ _MARGIN_COMPRESSION_PP = 1.0
 def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
     """(YoY % change, prior period, latest period) for ``key`` across the ordered
     rows, or None when fewer than two periods carry the value."""
-    vals = [(r["period"], r[key]) for r in rows if isinstance(r.get(key), (int, float))]
+    vals = [(r["period"], r[key]) for r in rows if is_finite_number(r.get(key))]
     if len(vals) < 2:
         return None
     (pp, prev), (lp, last) = vals[-2], vals[-1]
     if not prev:
         return None
-    return round(100 * (last - prev) / prev, 1), pp, lp
+    # Divide by |prior| so the sign of the change survives a negative base:
+    # a loss that halves (-100 -> -50) must read +50% (improving), not -50%.
+    return round(100 * (last - prev) / abs(prev), 1), pp, lp
 
 
 def compute_deltas(normalized_financials: dict) -> dict:
@@ -73,9 +74,9 @@ def compute_deltas(normalized_financials: dict) -> dict:
         adj_ebitda = adj_ebitda_by_period.get(period)
 
         # Drop a non-finite float/int to None, keeping other types (like "n/a" strings) untouched.
-        if isinstance(revenue, (int, float)) and not isinstance(revenue, bool) and not math.isfinite(revenue):
+        if isinstance(revenue, (int, float)) and not is_finite_number(revenue):
             revenue = None
-        if isinstance(adj_ebitda, (int, float)) and not isinstance(adj_ebitda, bool) and not math.isfinite(adj_ebitda):
+        if isinstance(adj_ebitda, (int, float)) and not is_finite_number(adj_ebitda):
             adj_ebitda = None
 
         if (

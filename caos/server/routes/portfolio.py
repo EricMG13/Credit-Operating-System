@@ -21,6 +21,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import timezone
+
 import rate_limit
 from database import Issuer, MetricFact, ModuleOutput, Run, get_db
 from identity import CallerIdentity, get_identity
@@ -149,7 +151,10 @@ async def get_portfolio(
             PortfolioRow(
                 issuer_id=iss.id, name=iss.name, ticker=iss.ticker, sector=iss.industry,
                 run_id=run.id, qa_status=run.qa_status, committee_status=run.committee_status,
-                as_of=run.created_at.isoformat() if run.created_at else None,
+                # Stamp UTC on the (SQLite-naive) timestamp so the client's
+                # Date parse doesn't shift the as-of date by the local offset.
+                as_of=(run.created_at.replace(tzinfo=run.created_at.tzinfo or timezone.utc)
+                       .isoformat() if run.created_at else None),
                 metrics=by_run_metric.get(run.id, {}),
                 rv_recommendation=ro3.get("recommendation"),
                 rv_percentile=ro3.get("composite_percentile"),

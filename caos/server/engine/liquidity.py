@@ -25,14 +25,19 @@ _MATURITY_WALL = "Maturity wall"
 
 # (label, keyword pattern). A nearby $ amount, if present, is captured.
 _SOURCES: Tuple[Tuple[str, str], ...] = (
-    ("Undrawn revolving credit facility", r"undrawn|available (?:under|capacity)|revolv"),
+    # No bare "revolv": text about a DRAWN revolver ("borrowings of $500 million
+    # outstanding under the revolving credit facility") must not be captured as an
+    # undrawn liquidity source — that inflates disclosed liquidity and the runway
+    # precisely for stressed issuers. Require an availability cue. (#AA6)
+    ("Undrawn revolving credit facility", r"undrawn|available (?:under|capacity)|(?:availab\w+|unused|undrawn)[^.]{0,60}revolv"),
     ("Cash and cash equivalents", r"cash and cash equivalents|cash on hand|cash balance"),
     (_MATURITY_WALL, r"matur(?:es|ity|ities)|debt maturit"),
 )
 
 # Precompiled regexes to avoid compiling inside the scan loop
 _SOURCES_COMPILED = {
-    "Undrawn revolving credit facility": re.compile(r"undrawn|available (?:under|capacity)|revolv", re.IGNORECASE),
+    "Undrawn revolving credit facility": re.compile(
+        r"undrawn|available (?:under|capacity)|(?:availab\w+|unused|undrawn)[^.]{0,60}revolv", re.IGNORECASE),
     "Cash and cash equivalents": re.compile(r"cash and cash equivalents|cash on hand|cash balance", re.IGNORECASE),
     _MATURITY_WALL: re.compile(r"matur(?:es|ity|ities)|debt maturit", re.IGNORECASE),
 }

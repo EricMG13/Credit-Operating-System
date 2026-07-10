@@ -233,8 +233,13 @@ async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-unt
         if not hmac.compare_digest(
             presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
         ):
+            # This response short-circuits BEFORE the security_headers middleware
+            # (registered earlier = wrapped inner), so stamp the headers here too —
+            # otherwise the 401 ships without CSP/nosniff/HSTS.
             return JSONResponse(
-                {"detail": "Request did not carry a valid edge credential."}, status_code=401
+                {"detail": "Request did not carry a valid edge credential."},
+                status_code=401,
+                headers=dict(_SECURITY_HEADERS),
             )
     return await call_next(request)
 

@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
-        Analyst, AsyncSessionLocal, Document, Issuer, ResearchJob, Run,
+        Analyst, AsyncSessionLocal, Document, Issuer, ResearchJob, Run, SavedModel,
         erase_analyst_data,
     )
 
@@ -25,9 +25,14 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         s.add(ResearchJob(id="gdpr-job", status="complete", analyst_id=subj_id))
         s.add(Document(id="gdpr-doc", issuer_id="gdpr-issuer", doc_type="10-K",
                        file_name="f.pdf", storage_key="k", uploaded_by=subj_email))
+        # Private Model Builder state — personal work product, must be DELETED
+        # (analyst_id is a loose string key; a re-registration mints a new uuid,
+        # so an undeleted row would orphan while still holding subject data).
+        s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=subj_id, payload={"o": 1}))
         # Bystander's data — must survive untouched
         s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id))
         s.add(ResearchJob(id="gdpr-job-other", status="complete", analyst_id=other_id))
+        s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=other_id, payload={"o": 2}))
         await s.commit()
 
     async with AsyncSessionLocal() as s:
@@ -35,6 +40,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
 
     assert summary == {
         "research_jobs_deleted": 1,
+        "saved_models_deleted": 1,
         "runs_anonymized": 1,
         "documents_anonymized": 1,
         "profile_deleted": 1,
@@ -55,6 +61,10 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         run_other = await s.get(Run, "gdpr-run-other")
         assert run_other is not None and run_other.analyst_id == other_id
         assert await s.get(ResearchJob, "gdpr-job-other") is not None
+        # Saved models: subject's deleted, bystander's kept.
+        from sqlalchemy import select
+        kept = (await s.execute(select(SavedModel.analyst_id))).scalars().all()
+        assert kept == [other_id]
 
 
 @pytest.mark.asyncio

@@ -79,7 +79,10 @@ def _stamp_prompt_version(synthesizer_name: str) -> str:
 # serially within their layer while the pure (retrieve-only) modules fan out.
 # CP-0 reads the issuer's vaulted docs; CP-1 may vault EDGAR XBRL; CP-1C reads
 # the metric store for peers; CP-3C reads the bound portfolio's positions.
-_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C", "CP-3C"}
+# Derived from the registry (ModuleSpec.session_bound), not hardcoded: a new
+# session-using synthesizer declares the flag where the module is declared, so
+# it can never be silently fanned out concurrently on the shared AsyncSession.
+_SESSION_SYNTH = {m.module_id for m in REGISTRY.values() if m.session_bound}
 
 
 def _now() -> datetime:
@@ -348,26 +351,23 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 
         # ── CP-5B: evidence lineage validation ───────────────────────────
         findings = validate_lineage(produced)
-        # CP-1's embedded reported-vs-adjusted reconciliation → an informational
-        # finding the deterministic CP-5 gate consumes alongside lineage findings.
-        recon = reconciliation_finding(upstream.get("CP-1"))
-        if recon is not None:
-            findings.append(recon)
-        covlite = covlite_finding(upstream.get("CP-4C"))
-        if covlite is not None:
-            findings.append(covlite)
-        addback_cap = addback_cap_finding(upstream.get("CP-4C"))
-        if addback_cap is not None:
-            findings.append(addback_cap)
-        monitor = monitoring_finding(upstream.get("CP-1B"))
-        if monitor is not None:
-            findings.append(monitor)
-        peer = peer_outlier_finding(upstream.get("CP-1C"))
-        if peer is not None:
-            findings.append(peer)
-        lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
-        if lev_plaus is not None:
-            findings.append(lev_plaus)
+        # Deterministic per-module finding providers the CP-5 gate consumes
+        # alongside lineage findings. Table-driven: six copy-pasted blocks used
+        # to live here, and a pasted-wrong upstream key silently fed a check the
+        # wrong module's payload (the finding just never fired). Declare the
+        # (provider, module) pair once; the loop cannot drift.
+        _FINDING_PROVIDERS = (
+            (reconciliation_finding, "CP-1"),      # reported-vs-adjusted recon
+            (covlite_finding, "CP-4C"),
+            (addback_cap_finding, "CP-4C"),
+            (monitoring_finding, "CP-1B"),
+            (peer_outlier_finding, "CP-1C"),
+            (leverage_plausibility_finding, "CP-1"),
+        )
+        for provider, module_id in _FINDING_PROVIDERS:
+            f = provider(upstream.get(module_id))
+            if f is not None:
+                findings.append(f)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
@@ -520,10 +520,17 @@ async def _persist_output(
     )
     session.add(row)
     await session.flush()  # assign row.id for claim FK
-    for c in payload.claims:
-        claim = Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
-        session.add(claim)
+    # Two flushes per module, not one per claim: add every Claim, flush once to
+    # materialize all their PKs, then add the EvidenceItems — the old per-claim
+    # flush cost a serial DB round trip per claim across every module of every run.
+    claims = [
+        Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
+        for c in payload.claims
+    ]
+    session.add_all(claims)
+    if claims:
         await session.flush()
+    for c, claim in zip(payload.claims, claims):
         for e in c.evidence:
             session.add(EvidenceItem(
                 claim_pk=claim.id, evidence_id=e.evidence_id,

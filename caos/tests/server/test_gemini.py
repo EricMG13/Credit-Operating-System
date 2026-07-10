@@ -149,8 +149,10 @@ def test_normalize_folds_tool_use_prompt_and_clamps_cache():
 
 @pytest.mark.asyncio
 async def test_seam_does_not_cross_providers_on_fallback(monkeypatch):
-    """A Gemini overload must NOT retry on a non-gemini fallback id (operator could
-    override MODEL_TIER_CHEAP to a Claude id) — re-raise instead."""
+    """A Gemini overload must NOT hand a non-gemini fallback id to the Gemini SDK
+    (operator could override MODEL_TIER_CHEAP to a Claude id). Instead of leaving
+    the promised M-2 retry dead, the seam degrades to the cheap same-provider
+    Gemini id — the Claude id is never called."""
     from config import get_settings
 
     s = get_settings()
@@ -169,4 +171,7 @@ async def test_seam_does_not_cross_providers_on_fallback(monkeypatch):
     with pytest.raises(_Overload):
         await llm_client.create(None, lane="t", model="gemini-2.5-pro", effort="low",
                                 max_tokens=10, system="s", messages=[{"role": "user", "content": "q"}])
-    assert calls == ["gemini-2.5-pro"]  # never retried on the Claude fallback id
+    # Fallback stays same-provider: one retry on the cheap Gemini id, and the
+    # operator's Claude id never reaches the Gemini SDK.
+    assert calls == ["gemini-2.5-pro", s.council_reviewer_model_gemini or "gemini-2.5-flash"]
+    assert "claude-haiku-4-5-20251001" not in calls

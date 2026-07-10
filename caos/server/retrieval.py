@@ -106,6 +106,22 @@ def bm25_rank(query: str, corpus: Sequence[Tuple[str, str]], k: int = 5) -> List
     return rank_with_index(build_index(corpus), query, k=k)
 
 
+# Whole-corpus BM25 index cache for the SQLite lane (Postgres uses DB-side FTS).
+# The corpus only changes on document ingest/delete, but the unscoped NL-query
+# path re-fetched and re-tokenized up to _CORPUS_SCAN_CAP chunks per request.
+# Keyed by a cheap version tuple (doc count, chunk count, newest upload) so any
+# ingest or delete invalidates; one cached copy replaces per-request rebuilds.
+_corpus_cache: dict = {}
+
+
+async def _corpus_version(db: AsyncSession) -> tuple:
+    row = (await db.execute(
+        select(func.count(Document.id), func.max(Document.uploaded_at))
+    )).one()
+    chunks = (await db.execute(select(func.count(DocumentChunk.id)))).scalar() or 0
+    return (int(row[0] or 0), int(chunks), str(row[1] or ""))
+
+
 def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     """Calculates the cosine similarity between two vectors."""
     dot = sum(x * y for x, y in zip(v1, v2))
@@ -333,17 +349,31 @@ async def retrieve_corpus(  # noqa: C901
             for r in rows
         ]
     else:
-        stmt = (
-            select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
-            .join(Document, Document.id == DocumentChunk.document_id)
-        )
-        if issuer_ids:
-            stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
-        stmt = stmt.limit(_CORPUS_SCAN_CAP)
-        rows = (await db.execute(stmt)).all()
-        meta = {r[0]: (r[2], r[3]) for r in rows}
-        corpus = [(r[0], r[1]) for r in rows]
-        hits = await asyncio.to_thread(bm25_rank, query, corpus, k * 2)
+        # Unscoped queries reuse the cached whole-corpus index (rebuilt only when
+        # the version tuple moves); scoped queries fetch fresh — their issuer-set
+        # cardinality would explode a cache.
+        index = meta = None
+        version = None
+        if not issuer_ids:
+            version = await _corpus_version(db)
+            cached = _corpus_cache.get("corpus")
+            if cached and cached[0] == version:
+                _v, index, meta = cached
+        if index is None:
+            stmt = (
+                select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
+                .join(Document, Document.id == DocumentChunk.document_id)
+            )
+            if issuer_ids:
+                stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+            stmt = stmt.limit(_CORPUS_SCAN_CAP)
+            rows = (await db.execute(stmt)).all()
+            meta = {r[0]: (r[2], r[3]) for r in rows}
+            corpus = [(r[0], r[1]) for r in rows]
+            index = await asyncio.to_thread(build_index, corpus)
+            if not issuer_ids and version is not None:
+                _corpus_cache["corpus"] = (version, index, meta)
+        hits = await asyncio.to_thread(rank_with_index, index, query, k * 2)
         bm25_hits = [
             CorpusHit(chunk_id=h.chunk_id, text=h.text, score=h.score,
                       issuer_id=meta[h.chunk_id][0], doc=meta[h.chunk_id][1])

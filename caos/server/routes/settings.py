@@ -8,10 +8,13 @@ deliberately excluded; booleans expose whether a key/UA is present, not its valu
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from config import get_settings
 from database import Analyst, get_db
 from deepresearch import _EFFORT, _MAX_SEARCHES, _MAX_TOKENS as _DR_MAX_TOKENS
@@ -19,6 +22,12 @@ from identity import CallerIdentity, get_identity
 from llm import llm_configured
 
 router = APIRouter()
+
+# Analyst settings are two small lane/preference maps. Cap the persisted JSON so
+# this mutating endpoint can't bloat the Analyst.settings blob (replayed on every
+# GET) without bound, and rate-guard it like every sibling write.
+_MAX_SETTINGS_BYTES = 100_000
+_WRITES_PER_MINUTE = 30
 
 
 class AnalystSettings(BaseModel):
@@ -91,6 +100,10 @@ async def write_analyst_settings(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db),
 ):
+    if not rate_limit.hit(f"settings:{caller.id}", max_attempts=_WRITES_PER_MINUTE, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Settings rate limit reached — try again in a minute.")
+    if len(json.dumps(body.model_dump())) > _MAX_SETTINGS_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
     analyst = await db.get(Analyst, caller.id)
     if analyst is None:
         # No persisted profile for this identity (e.g. proxy/local caller without a

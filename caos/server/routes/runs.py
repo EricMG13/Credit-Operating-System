@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +119,15 @@ class RunListItem(BaseModel):
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes (stored UTC); serialize with an
+        # explicit offset so clients don't parse UTC wall-clock as local time.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class EvidenceOut(BaseModel):
@@ -305,6 +314,55 @@ async def get_run(
     if not run:
         raise HTTPException(404, "Run not found")
     return await _summary(db, run)
+
+
+@router.get("/{run_id}/modules", response_model=List[ModuleDetail])
+async def get_modules(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """All module outputs for a run, with claims + evidence, in three queries.
+
+    Bulk read for the Deep-Dive open: the per-module endpoint below costs the
+    client one HTTP round trip (and the server ~3 queries) per module — 21
+    requests per page open. This returns the same ModuleDetail shape for every
+    produced module at once."""
+    if await db.get(Run, run_id) is None:
+        raise HTTPException(404, "Run not found")
+    rows = await _modules_for(db, run_id)
+    row_pks = [r.id for r in rows]
+    claims_by_module: dict[str, List[Claim]] = {pk: [] for pk in row_pks}
+    claim_pks: List[str] = []
+    if row_pks:
+        for c in (await db.execute(
+            select(Claim).where(Claim.module_output_id.in_(row_pks))
+        )).scalars():
+            claims_by_module[c.module_output_id].append(c)
+            claim_pks.append(c.id)
+    evidence_by_claim: dict[str, List[EvidenceItem]] = {pk: [] for pk in claim_pks}
+    if claim_pks:
+        for e in (await db.execute(
+            select(EvidenceItem).where(EvidenceItem.claim_pk.in_(claim_pks))
+        )).scalars():
+            evidence_by_claim[e.claim_pk].append(e)
+    return [
+        ModuleDetail(
+            module_id=row.module_id, module_name=row.module_name, owned_object=row.owned_object,
+            schema_family=row.schema_family, runtime_output=row.runtime_output, confidence=row.confidence,
+            qa_status=row.qa_status, committee_status=row.committee_status,
+            validation_status=row.validation_status, limitation_flags=row.limitation_flags,
+            downstream_consumers=row.downstream_consumers,
+            claims=[
+                ClaimOut(
+                    claim_id=c.claim_id, claim_text=c.claim_text,
+                    evidence=[EvidenceOut.model_validate(e) for e in evidence_by_claim[c.id]],
+                )
+                for c in claims_by_module[row.id]
+            ],
+        )
+        for row in rows
+    ]
 
 
 @router.get("/{run_id}/modules/{module_id}", response_model=ModuleDetail)

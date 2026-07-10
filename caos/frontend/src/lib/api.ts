@@ -340,6 +340,9 @@ export interface VaultMemoResult {
 export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
   api.post("/api/ingestion/upload/memo", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    // Same synchronous ingest pipeline (AV scan + parse) as the sibling uploads —
+    // don't leave this one on the 20s instance default.
+    timeout: 60_000,
   }).then((r) => r.data);
 
 // ─── Portfolios (managed CLO books; exposure + compliance computed server-side) ─
@@ -410,6 +413,11 @@ export const getRun = (runId: string): Promise<RunSummaryDTO> =>
 
 export const getModule = (runId: string, moduleId: string): Promise<ModuleDetailDTO> =>
   api.get(`/api/runs/${runId}/modules/${moduleId}`).then((r) => r.data);
+
+// Bulk read: every produced module (with claims + evidence) in one request —
+// the Deep-Dive open used to fan out one getModule per eligible module id.
+export const getModules = (runId: string): Promise<ModuleDetailDTO[]> =>
+  api.get(`/api/runs/${runId}/modules`).then((r) => r.data);
 
 export const getQA = (runId: string): Promise<QAReportDTO> =>
   api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
