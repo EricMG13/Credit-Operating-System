@@ -65,7 +65,7 @@ def validate_scenario(spec: ScenarioSpec) -> ScenarioSpec:
 
 
 # ── Demo (offline) translator ────────────────────────────────────────────────
-def _demo_translate(text: str) -> ScenarioSpec:
+def _demo_translate(text: str) -> ScenarioSpec:  # noqa: C901  # pre-existing keyword ladder; table-drive when reworked
     t = text.lower()
     s = ScenarioSpec(label=text.strip()[:60] or "Custom scenario")
     parts: list[str] = []

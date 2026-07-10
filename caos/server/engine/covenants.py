@@ -172,7 +172,7 @@ _CROSS_CHECK = re.compile(r"cross", re.I)
 _AB_CHECK = re.compile(r"add-back|add\s+back|addback|cost-sav|cost\s+sav|synerg", re.I)
 
 
-def derive_covenant_terms(
+def derive_covenant_terms(  # noqa: C901  # pre-existing multi-pattern extractor; split per-term helpers when reworked
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
