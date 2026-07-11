@@ -3,7 +3,7 @@
 # as does any fastapi that lifts the starlette cap to 1.x (0.135+). So this pin
 # also sets the floor at Python 3.10 (CI runs a 3.11+3.14 matrix; the deploy image
 # ships 3.14). There is no py3.9-compatible combination that clears all seven.
-fastapi==0.138.*
+fastapi==0.139.*
 uvicorn[standard]==0.49.*
 # 0.0.31+ required: multipart DoS (CVE-2024-53981 + GHSA unbounded headers /
 # quadratic querystring) and arbitrary-file-write advisories, all fixed by 0.0.31.
