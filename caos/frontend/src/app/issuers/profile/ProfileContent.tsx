@@ -789,9 +789,15 @@ export function Profile({
         ) : null
       }
       narrowContract={{
-        essentialControls: isOverlay && onClose ? (
-          <CloseButton onClick={onClose} title="Close (Esc)" />
-        ) : null,
+        // Overlay keeps its close affordance; the STANDALONE page keeps the
+        // concept nav — previously `null`, which stripped every navigation
+        // affordance from the header below 1024px (only the footer link bar
+        // survived). Fixed as part of the design-rebuild shell work.
+        essentialControls: isOverlay ? (
+          onClose ? <CloseButton onClick={onClose} title="Close (Esc)" /> : null
+        ) : (
+          <ConceptNav compact />
+        ),
       }}
     >
       <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">

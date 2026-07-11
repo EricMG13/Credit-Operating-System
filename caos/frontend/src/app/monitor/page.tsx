@@ -7,11 +7,11 @@
 // (CP-MON) is the primary column; Alert Routing (CP-MON-H) rides alongside.
 
 import { useState } from "react";
-import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
-import { ConceptNav } from "@/components/shared/ConceptNav";
-import { simAlertsToday, EMAIL_TILES, EMAIL_TOTAL, CRITICAL_ALERTS } from "@/lib/command/data";
+import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/data";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
@@ -44,56 +44,67 @@ function Monitor() {
   // the old build read "PAUSED" at completion, so the run ended by lying.
   const simState = running ? "SIM" : done ? "COMPLETE" : "PAUSED";
 
+  // The red number is an affordance: toggles the rail to criticals only.
+  // Rendered once — inline in the full contextual set at ≥1024px, or as a
+  // narrow essential below that — so the toggle is reachable at every width
+  // (the old hand-rolled wrap header existed to keep it and pause visible
+  // under ~1700px; the shared shell's MoreDrawer collapse now covers that).
+  const criticalFilterButton = (
+    <button
+      type="button"
+      onClick={() => setCriticalOnly((v) => !v)}
+      aria-pressed={criticalOnly}
+      title={criticalOnly ? "Show all routed alerts" : "Filter alert rail to critical"}
+      className={
+        "rounded border px-1.5 py-0.5 -my-0.5 transition-caos focus-ring hover:bg-caos-elevated/70 " +
+        (criticalOnly ? "caos-selected bg-caos-elevated border-caos-critical/60" : "border-transparent")
+      }
+    >
+      {headStat("Critical alerts", String(CRITICAL_ALERTS), "var(--caos-critical)", true)}
+    </button>
+  );
+
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* Sub-header. flex-wrap + min-h-10 (not a fixed h-10): the metrics/controls
-          cluster drops to a second line rather than clipping under overflow-hidden
-          when the viewport can't hold the full desk strip (< ~1700px on the old
-          single-row build hid the pause controls and the critical count). */}
-      <div className="shrink-0 border-b border-caos-border bg-caos-panel/60 flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-1.5 min-h-10">
-        {/* identity cluster — the long title truncates before the row wraps */}
-        <div className="flex items-center gap-5 min-w-0 shrink">
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap shrink-0">
-            ← Directory
-          </Link>
-          <div className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <div className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap shrink-0">CP-MON</span>
-          <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">Monitor — email intelligence &amp; alert routing</span>
-          {/* Honesty marker: this whole surface is a seeded simulation, not a live
-              feed — same convention as Command's "Sample portfolio — not live". */}
-          <span className="tabular text-caos-2xs uppercase tracking-wide text-caos-muted whitespace-nowrap border border-caos-border rounded px-1.5 py-0.5 shrink-0">
-            Illustrative sample — not live
-          </span>
-        </div>
-        <div className="flex-1 min-w-[1rem]" />
-        {/* metrics + controls — wraps as a unit; may wrap internally when tight.
-            All figures derive from single data sources (EMAIL_TOTAL / EMAIL_TILES
-            / CRITICAL_ALERTS) so they can't contradict the tiles below. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 shrink-0">
-          {headStat("Msgs today", String(EMAIL_TOTAL))}
-          {headStat("Unresolved", String(EMAIL_TILES.unresolved), "var(--caos-warning)")}
-          <div className="h-4 w-px bg-caos-border" />
-          {/* The red number is an affordance: toggles the rail to criticals only. */}
-          <button
-            type="button"
-            onClick={() => setCriticalOnly((v) => !v)}
-            aria-pressed={criticalOnly}
-            title={criticalOnly ? "Show all routed alerts" : "Filter alert rail to critical"}
-            className={
-              "rounded border px-1.5 py-0.5 -my-0.5 transition-caos focus-ring hover:bg-caos-elevated/70 " +
-              (criticalOnly ? "caos-selected bg-caos-elevated border-caos-critical/60" : "border-transparent")
-            }
-          >
-            {headStat("Critical alerts", String(CRITICAL_ALERTS), "var(--caos-critical)", true)}
-          </button>
+    <ResponsiveShell
+      identity={
+        <ShellIdentity
+          tag="CP-MON"
+          badges={
+            /* Honesty marker: this whole surface is a seeded simulation, not a
+               live feed — same convention as Command's "Sample portfolio — not
+               live". `badges` renders before the title so the title truncates
+               first and this chip never clips. */
+            <span
+              className="tabular text-caos-2xs uppercase tracking-wide text-caos-muted whitespace-nowrap border border-caos-border rounded px-1.5 py-0.5 shrink-0"
+              title="Illustrative sample — this whole surface replays a seeded simulation, not a live feed"
+            >
+              Sample — not live
+            </span>
+          }
+          title="Monitor — email intelligence & alert routing"
+        />
+      }
+      contextualControls={
+        <>
+          {/* Msgs-today and Unresolved are NOT repeated here — the EmailIntel
+              tiles directly below carry both ("Showing N of M today", the
+              UNRESOLVED tile), and the freed width keeps the identity row's
+              honesty chip un-clipped at 1440px. */}
+          {criticalFilterButton}
           {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
           <SimControls run={run} />
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
-        </div>
-      </div>
-
+        </>
+      }
+      narrowContract={{
+        essentialControls: (
+          <>
+            {criticalFilterButton}
+            <SimControls run={run} />
+          </>
+        ),
+      }}
+    >
       {/* workspace — intake stream is primary; alert routing rides alongside */}
       <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-2 p-2">
         <PanelShell
@@ -137,6 +148,6 @@ function Monitor() {
           <AlertFeed tick={tick} running={running} done={done} sevFilter={criticalOnly ? "critical" : null} />
         </PanelShell>
       </div>
-    </div>
+    </ResponsiveShell>
   );
 }

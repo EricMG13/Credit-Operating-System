@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
@@ -256,8 +257,10 @@ function ReportStudio() {
     <ResponsiveShell
       identity={
         <>
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-          <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
+          {/* Reports was the one surface with no concept nav or Directory
+              back-link at all — ShellIdentity closes that gap. */}
+          <ShellIdentity tag="CP-RENDER" />
+          <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap min-w-0 truncate">Report Studio — committee deliverables</span>
           {caveatKind === "reference" && eng.runId ? (
             // FE-5: buildReports incorporates eng.anchor when a live run exists on
             // the reference issuer, but the debate/recovery/covenant tabs and the

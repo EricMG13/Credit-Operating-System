@@ -11,7 +11,8 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
+import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -279,14 +280,17 @@ function Settings() {
 
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <PageSubHeader>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Settings</span>
-        <div className="flex-1" />
-        {cfg ? <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">{cfg.workspace.environment} · model {cfg.model}</span> : null}
-      </PageSubHeader>
-
+    <ResponsiveShell
+      identity={<ShellIdentity title="Settings" />}
+      contextualControls={
+        cfg ? (
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+            {cfg.workspace.environment} · model {cfg.model}
+          </span>
+        ) : undefined
+      }
+      narrowContract={{ essentialControls: null }}
+    >
       {/* body */}
       <div className="flex-1 min-h-0 overflow-auto p-2">
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
@@ -586,7 +590,7 @@ function Settings() {
           {tab === "portfolios" ? <PortfoliosPanel /> : null}
         </div>
       </div>
-    </div>
+    </ResponsiveShell>
   );
 }
 
