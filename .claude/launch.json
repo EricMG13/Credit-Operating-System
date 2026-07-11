@@ -18,7 +18,7 @@
     {
       "name": "qa-backend",
       "runtimeExecutable": "/bin/bash",
-      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/server' && PORT=8010 HOST=127.0.0.1 ENVIRONMENT=development DATABASE_URL='sqlite+aiosqlite:////Users/ericguei/Claude/Projects/Credit Operating System/caos/server/data/caos_qa.db' SESSION_SECRET='qa-fixed-secret-do-not-change' ANTHROPIC_API_KEY= EDGAR_USER_AGENT= VAULT_EXPORT_DIR= exec .venv/bin/python run.py"],
+      "runtimeArgs": ["-c", "cd '/Users/ericguei/Claude/Projects/Credit Operating System/caos/server' && PORT=8010 HOST=127.0.0.1 ENVIRONMENT=development DATABASE_URL='sqlite+aiosqlite:////Users/ericguei/Claude/Projects/Credit Operating System/caos/server/data/caos_qa.db' SESSION_SECRET='qa-fixed-secret-do-not-change' ANTHROPIC_API_KEY= OPENROUTER_API_KEY= GEMINI_API_KEY= EDGAR_USER_AGENT= VAULT_EXPORT_DIR= exec .venv/bin/python run.py"],
       "autoPort": false,
       "port": 8010
     },

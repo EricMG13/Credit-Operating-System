@@ -4,7 +4,7 @@
 // corruption under B's saved-model key). The hydrate effect guards this with a
 // `stale` flag set on cleanup — this test proves the guard actually works.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ModelPage from "./page";
 import { getSavedModel } from "@/lib/api";
 import type { SavedModelDTO } from "@/lib/api";
@@ -73,6 +73,49 @@ describe("Model Builder · restore race (SEC-H1)", () => {
       updated_at: "1999-01-01T00:00:00Z",
     });
     await defA.promise;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText(/SAVED/).textContent).toContain(new Date("2020-06-01T00:00:00Z").toLocaleString());
+    expect(screen.getByText(/SAVED/).textContent).not.toContain(new Date("1999-01-01T00:00:00Z").toLocaleString());
+  });
+
+  it("a RETRY left in-flight across an issuer switch never lands on the new issuer", async () => {
+    // The retry path must carry the same stale guard as the initial hydrate: a
+    // bespoke un-guarded refetch re-opened the H-1 race exactly when the backend
+    // is degraded (the only time RETRY exists).
+    const retryA = deferred<SavedModelDTO | null>();
+    const defB = deferred<SavedModelDTO | null>();
+    let aCalls = 0;
+    vi.mocked(getSavedModel).mockImplementation((id: string) => {
+      if (id === "issuer-a") {
+        aCalls += 1;
+        return aCalls === 1 ? Promise.reject(new Error("offline")) : retryA.promise;
+      }
+      return defB.promise;
+    });
+
+    currentIssuer = "issuer-a";
+    const { rerender } = render(<ModelPage />);
+    const retry = await screen.findByRole("alert", { name: /retry/i });
+    fireEvent.click(retry); // retry A — response deliberately left in-flight
+
+    // Analyst switches issuers while A's retry is still pending.
+    currentIssuer = "issuer-b";
+    rerender(<ModelPage />);
+    await screen.findByText(/issuer-b — cash-flow model/i);
+    defB.resolve({
+      issuer_id: "issuer-b", analyst_id: "an", payload: { overrides: {}, collapsedRows: [] },
+      updated_at: "2020-06-01T00:00:00Z",
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/SAVED/).textContent).toContain(new Date("2020-06-01T00:00:00Z").toLocaleString());
+    });
+
+    // A's stale retry resolves — must be a no-op on B's state.
+    retryA.resolve({
+      issuer_id: "issuer-a", analyst_id: "an", payload: { overrides: {}, collapsedRows: [] },
+      updated_at: "1999-01-01T00:00:00Z",
+    });
+    await retryA.promise;
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText(/SAVED/).textContent).toContain(new Date("2020-06-01T00:00:00Z").toLocaleString());
     expect(screen.getByText(/SAVED/).textContent).not.toContain(new Date("1999-01-01T00:00:00Z").toLocaleString());

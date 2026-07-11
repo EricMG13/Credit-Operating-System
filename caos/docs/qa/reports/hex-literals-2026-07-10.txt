@@ -1,0 +1,82 @@
+src/app/global-error.tsx:24:          background: "#0a0a0f",
+src/app/global-error.tsx:25:          color: "#e6e6ef",
+src/app/global-error.tsx:34:            border: "1px solid #34384a",
+src/app/global-error.tsx:36:            background: "#11131d",
+src/app/global-error.tsx:44:              color: "#ef4444",
+src/app/global-error.tsx:49:          <h1 style={{ fontSize: "1.125rem", margin: "0.5rem 0", color: "#e6e6ef" }}>
+src/app/global-error.tsx:52:          <p style={{ fontSize: "0.75rem", color: "#a1a1b5", margin: 0 }}>
+src/app/global-error.tsx:56:            <p style={{ fontSize: "0.75rem", color: "#a1a1b5", marginTop: "0.5rem" }}>
+src/app/global-error.tsx:68:              color: "#0a0a0f",
+src/app/global-error.tsx:69:              background: "#63a1ff",
+src/app/global-error.tsx:70:              border: "1px solid #63a1ff",
+src/app/issuers/page.tsx:436:                  <span role="gridcell" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+src/app/issuers/profile/ProfileContent.tsx:42:  revenue:           { title: "Revenue",       color: "#63a1ff", unit: (v) => (v >= 1000 ? "$" + (v / 1000).toFixed(1) + "bn" : "$" + Math.round(v) + "m") },
+src/app/issuers/profile/ProfileContent.tsx:43:  adj_ebitda:        { title: "Adj. EBITDA",   color: "#2dd4bf", unit: (v) => "$" + Math.round(v) + "m" },
+src/app/issuers/profile/ProfileContent.tsx:44:  ebitda_margin:     { title: "EBITDA margin", color: "#22c55e", unit: (v) => v.toFixed(1) + "%" },
+src/app/issuers/profile/ProfileContent.tsx:45:  net_leverage:      { title: "Net leverage",  color: "#f5a524", unit: (v) => v.toFixed(1) + "×" },
+src/app/issuers/profile/ProfileContent.tsx:46:  interest_coverage: { title: "Interest cov.", color: "#a855f7", unit: (v) => v.toFixed(1) + "×" },
+src/app/issuers/profile/ProfileContent.tsx:88:            <line x1={px(activeIdx)} y1={pt} x2={px(activeIdx)} y2={H - pb} stroke="#a1a1b5" strokeOpacity={0.5} />
+src/app/issuers/profile/ProfileContent.tsx:89:            <circle cx={px(activeIdx)} cy={py(cur.value)} r={3.2} fill={color} stroke="#11131d" strokeWidth={1.4} />
+src/app/issuers/profile/ProfileContent.tsx:94:        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(activeIdx) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
+src/app/layout.tsx:17:  themeColor: "#0a0a0f", // matches --caos-bg
+src/app/query/page.tsx:1212:            className="absolute inset-0 bg-[#050507]/60"
+src/app/reports/page.tsx:24:  { v: "#ffffff", label: "White" },
+src/app/reports/page.tsx:25:  { v: "#f7f5ee", label: "Warm" },
+src/app/reports/page.tsx:26:  { v: "#eef0f3", label: "Cool" },
+src/app/reports/page.tsx:422:        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
+src/components/command/views.tsx:288:            className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
+src/components/pipeline/views.tsx:91:          const stroke = upEdge ? "var(--caos-accent)" : downEdge ? "#a855f7" : "#4a4a60";
+src/components/query/GraphCanvas.tsx:13:  dep: { stroke: "#5f6f8f", width: 1.3 },
+src/components/query/GraphCanvas.tsx:179:            <path d="M0,0 L10,5 L0,10 z" fill="#5f6f8f" />
+src/components/query/GraphCanvas.tsx:18:  member: { stroke: "#4a4f66", width: 1 },
+src/components/query/GraphCanvas.tsx:299:        <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4} textAnchor="middle" fill="#aeb9d4" fontFamily="var(--font-mono)" fontSize={13} {...HALO}>
+src/components/query/GraphCanvas.tsx:33:  stroke: "#0a0a0f",
+src/components/query/GraphCanvas.tsx:350:      <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill={MODEL_HUE} stroke="#0a0a0f" strokeWidth={1} />
+src/components/query/GraphCanvas.tsx:351:      <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
+src/components/query/GraphCanvas.tsx:403:            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={13.5}
+src/components/query/GraphCanvas.tsx:411:            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={12.5}
+src/components/query/GraphCanvas.tsx:423:          fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>
+src/components/query/GraphCanvas.tsx:459:    else if (n.kind === "module") add("module", "#3a4a6a");
+src/components/query/ScatterCanvas.tsx:301:                    stroke="#0a0a0f"
+src/components/query/node-style.ts:13:export const MODEL_HUE = "#a78bfa";
+src/components/query/node-style.ts:21:const CATEGORICAL = [TRANCHE_HEX["1l"], CHART_HEX.accent, "#94a3b8", "#f472b6", "#34d399", "#22d3ee", "#818cf8"];
+src/components/reports/ReportDoc.tsx:323:            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+src/components/reports/ReportDoc.tsx:403:            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+src/lib/chart-colors.ts:13:  "1l": "#2dd4bf", "2l": "#4f8cff", unsec: "#f5a524", sub: "#a855f7", eq: "#64748b",
+src/lib/chart-colors.ts:18:  "1l": "#0d9488", "2l": "#2563eb", unsec: "#b45309", sub: "#7c3aed", eq: "#94a3b8",
+src/lib/chart-colors.ts:25:  accent: "#63a1ff", // --caos-accent / --tranche-2l (but note tranche-2l blue is #4f8cff)
+src/lib/chart-colors.ts:26:  teal: "#2dd4bf", // --tranche-1l — line/point accent
+src/lib/chart-colors.ts:27:  tealDeep: "#14b8a6",
+src/lib/chart-colors.ts:28:  success: "#22c55e", // --caos-success
+src/lib/chart-colors.ts:29:  warning: "#f5a524", // --caos-warning / --tranche-unsec
+src/lib/chart-colors.ts:30:  critical: "#ef4444", // --caos-critical
+src/lib/chart-colors.ts:31:  muted: "#a1a1b5", // --caos-muted
+src/lib/chart-colors.ts:32:  eq: "#64748b", // --tranche-eq
+src/lib/chart-colors.ts:33:  slate: "#5b6b85",
+src/lib/chart-colors.ts:34:  slateDeep: "#46506b",
+src/lib/command/rvdata.ts:129:  Industrials: "#38bdf8",
+src/lib/command/rvdata.ts:130:  "Consumer Discretionary": "#f87171",
+src/lib/command/rvdata.ts:131:  Energy: "#f5a524",
+src/lib/command/rvdata.ts:132:  Utilities: "#2dd4bf",
+src/lib/command/rvdata.ts:133:  Financials: "#a78bfa",
+src/lib/command/rvdata.ts:134:  "Real Estate": "#64748b",
+src/lib/command/rvdata.ts:135:  "Consumer Staples": "#4ade80",
+src/lib/command/rvdata.ts:136:  "Health Care": "#fb923c",
+src/lib/command/rvdata.ts:137:  "Information Technology": "#22d3ee",
+src/lib/command/rvdata.ts:138:  Media: "#f472b6",
+src/lib/command/rvdata.ts:139:  Entertainment: "#facc15",
+src/lib/command/rvdata.ts:140:  "Technology Hardware": "#818cf8",
+src/lib/command/rvdata.ts:141:  "IT Services": "#34d399",
+src/lib/command/rvdata.ts:142:  Software: "#60a5fa",
+src/lib/command/rvdata.ts:143:  Telecoms: "#c084fc",
+src/lib/command/rvdata.ts:144:  Materials: "#94a3b8",
+src/lib/command/rvdata.ts:145:  "Communication Services": "#e879f9",
+src/lib/command/rvdata.ts:381:  color: SECTOR_COLORS[name] ?? "#a1a1b5",
+src/lib/pipeline/sev.ts:13:  queued: "#52525e", clear: "var(--caos-success)", conditional: "var(--caos-warning)",
+src/lib/pipeline/sev.ts:7:  // high = the sanctioned bright-critical token; the old hardcoded #fb7185 was
+src/lib/pipeline/sev.ts:8:  // an undocumented near-twin of --caos-critical-bright (#f87171).
+src/lib/reports/builders.ts:255:          range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
+src/lib/reports/builders.ts:332:        scale: { color: { domain: ["Revenue", "Adj. EBITDA"], range: ["#16161e", "#b45309"] } },
+src/lib/reports/builders.ts:497:          range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
+src/lib/reports/builders.ts:521:          scale: { y: { domain: [0, 100] }, color: { domain: ["1L", "2L TL", "Sub"], range: ["#0d9488", "#2563eb", "#7c3aed"] } },
+src/lib/reports/builders.ts:73:const APPENDIX_PCT_BLUE = "#2f64b7";

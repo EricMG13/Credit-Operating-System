@@ -78,11 +78,17 @@ regression). `rerank_window` stays 20 (the latency/token bound);
 (§4C): no 5xx on the four expensive endpoints; NL-lane 429s are the 20/min
 limiter working and count as success.
 
-**LLM-lane timeout adherence** — `caos_llm_timeout_s=120` is set at client
-construction (`caos/server/llm.py`); under `MOCK_MODE=hang` a lane must free
-its slot at ~120 s, never pin; under `MOCK_MODE=429`/`529` the run completes
-*degraded loudly* (fault isolation: Blocked gate / return_exceptions /
-deterministic fallback), never aborts.
+**LLM-lane timeout adherence** — `caos_llm_timeout_s=120` is set as `timeout=`
+**and `max_retries=0`** at all 5 `AsyncAnthropic(...)` construction sites
+(`llm.py`, `engine/llm_client.py`, `nlquery.py` x2, `scenario.py`) — the
+`max_retries=0` was added 2026-07-10 (Finding 1: without it, the SDK's own
+default retry count stacked on top of the timeout, measured 209s not ~120s).
+Budget: under `MOCK_MODE=hang` a lane must free its slot at ~120s — re-verify
+this every audit, since a future edit to any of the 5 sites could drop
+`max_retries=0` again and silently reopen the gap. Under `MOCK_MODE=429`/`529`
+the lane must complete *degraded loudly* (fault isolation: Blocked gate /
+return_exceptions / deterministic fallback), never abort — confirmed working
+(14.5s, bounded backoff).
 
 **Data layer — N+1 and unbounded queries** — lenses from
 [REVIEW_MATRIX_PERF.md](../REVIEW_MATRIX_PERF.md):
@@ -131,7 +137,13 @@ DATABASE_URL="sqlite+aiosqlite:////tmp/caos_bench.db" \
 cd ../frontend && npm run build                                 # capture the First Load JS route table
 
 # B. Live latency — isolated QA stack ONLY (:8010, .venv311, caos_qa.db,
-#    FIXED SESSION_SECRET, ANTHROPIC_API_KEY unset)
+#    FIXED SESSION_SECRET, all 3 provider keys unset). Finding 3
+#    (2026-07-10): unsetting ANTHROPIC_API_KEY alone is NOT offline — the
+#    default hybrid model routes DeepSeek through OPENROUTER_API_KEY, and a
+#    real billed call fired via a live key during the original audit.
+#    FIXED: qa-backend's launch.json now blanks OPENROUTER_API_KEY and
+#    GEMINI_API_KEY too. If you hand-roll a server invocation instead of using
+#    that launch.json config, blank all 3 explicitly or this regresses.
 python3 caos/tests/perf/smoke.py --url http://127.0.0.1:8010/api/health
 python3 caos/tests/perf/smoke.py --url "http://127.0.0.1:8010/api/runs?limit=100" --p95-ms 500
 python3 caos/tests/perf/smoke.py --url "http://127.0.0.1:8010/api/issuers/?limit=200" --p95-ms 500
@@ -143,12 +155,24 @@ python3 caos/tests/perf/smoke.py --url https://<deploy-host>/api/health
 
 # C. Load (QA stack only; pip install -r caos/tests/stress/requirements.txt)
 BASE_URL=http://127.0.0.1:8010 python3 caos/tests/stress/seed_stress.py --issuers 300 --runs 5
-locust -f caos/tests/stress/locustfile.py --host http://127.0.0.1:8010 --headless -u 20 -r 5 -t 60s
+caos/server/.venv311/bin/locust -f caos/tests/stress/locustfile.py --host http://127.0.0.1:8010 --headless -u 20 -r 5 -t 60s
 
 # D. Fault injection — LLM timeout adherence (terminal A: the mock)
-MOCK_MODE=hang uvicorn mock_anthropic:app --port 8099 --app-dir caos/tests/stress
-# terminal B: QA server with ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test,
-# drive one run; slot must free at ~120 s. Repeat MOCK_MODE=429 → degraded-loudly, run completes.
+MOCK_MODE=hang caos/server/.venv311/bin/uvicorn mock_anthropic:app --port 8099 --app-dir caos/tests/stress
+# terminal B: QA server pointed at BOTH provider base URLs (Finding 2, fixed
+# 2026-07-10 — the mock now covers OpenRouter too, which is what the default
+# hybrid model actually routes LIGHT/fast-tier lanes, incl. chat, through):
+#   ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test
+#   OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test
+# then drive:
+curl -s -w "%{time_total}\n" http://127.0.0.1:8010/api/chat/issuer -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"what is the leverage"}]}' --max-time 150
+# slot must free at ~120s (Finding 1, fixed 2026-07-10 — re-verified 121.2s/120.3s,
+# was 209.1s before max_retries=0). To specifically exercise the Anthropic-only
+# path (e.g. testing a claude-* model tier), also set
+# MODEL_TIER_FAST=claude-haiku-4-5-20251001 for that one test process.
+# Repeat MOCK_MODE=429 → degraded-loudly, resolves fast (confirmed 14.5s).
 ```
 
 Keep smoke's n/concurrency/timeout at defaults across audits or the numbers
@@ -189,3 +213,21 @@ Known-accepted — verify still-scoped, do not re-flag:
 | `turbopackFileSystemCacheForDev: false` → slower cold dev starts | Crash guard (41–58 GB cache growth, write storms) |
 | `sync_analyst_memos` full vault rescan on mtime change inside GET | mtime-gated no-op in the common case; revisit when the vault is large |
 | SQLite (dev/QA) vs Postgres (prod) latency skew | Baselines tagged with DB engine; compare like-for-like only |
+
+## 7. Known findings — re-verify, don't re-derive
+
+Findings from the 2026-07-10 audit. All 3 were fixed and live-re-verified the
+same day — see [PERF_AUDIT_2026-07-10-FIXES.md](../perf/PERF_AUDIT_2026-07-10-FIXES.md).
+Confirm still fixed each run (a future change could reintroduce any of
+these); cite the finding, don't re-investigate from scratch:
+
+| Finding | Status as of 2026-07-10 |
+|---|---|
+| Finding 1 (HIGH) — LLM per-call timeout ~1.7–3x its documented ceiling (no `max_retries=` at any of 5 `AsyncAnthropic(...)` sites) | **FIXED** — `max_retries=0` added at all 5 sites; re-verified live at 121.2s/120.3s (2 runs), down from 209.1s |
+| Finding 2 (MED) — `mock_anthropic.py`'s "every lane hits this" claim was false under the default hybrid (OpenRouter-routed lanes never reached it) | **FIXED** — added `openrouter_base_url` config + `/chat/completions` mock route; re-verified live, default-routed chat now returns the mock's canned text (56ms) instead of a real DeepSeek call |
+| Finding 3 (MED, cost) — "offline load" (`ANTHROPIC_API_KEY` unset) still incurred real OpenRouter/Gemini spend | **FIXED** — `qa-backend` launch.json now blanks `OPENROUTER_API_KEY`/`GEMINI_API_KEY` too; re-verified via code read (`_has_provider_key` in `engine/presets.py` gates regen on all 3 keys — with all blank, spend is structurally impossible, not just unobserved) |
+
+§4D's `MODEL_TIER_FAST=claude-haiku-4-5-20251001` override and the dual
+`ANTHROPIC_BASE_URL`+`OPENROUTER_BASE_URL` mock-pointing above remain the
+correct procedure — Finding 2's fix makes the OpenRouter half work, it
+doesn't remove the need to point both.

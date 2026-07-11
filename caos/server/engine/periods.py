@@ -87,9 +87,13 @@ def is_finite_number(x: object) -> TypeGuard[float]:
 def safe_div(numerator: object, denominator: object) -> Optional[float]:
     """Finite-guarded division for CP-1 arithmetic. Returns
     numerator/denominator as a float only when BOTH operands are finite
-    (is_finite_number) AND the denominator is non-zero; otherwise None.
-    This is the structural form of the CLAUDE.md divide-guard: a caller
-    cannot divide a CP-1 figure without the NaN/inf/zero-denominator check."""
+    (is_finite_number), the denominator is non-zero, AND the result is
+    itself finite — a ~1e308-scale ratio overflows to inf even with finite
+    operands; otherwise None. This is the structural form of the CLAUDE.md
+    divide-guard: a caller cannot divide a CP-1 figure without the
+    NaN/inf/zero-denominator check, and may trust a non-None result to be
+    finite without re-checking."""
     if is_finite_number(numerator) and is_finite_number(denominator) and denominator != 0:
-        return float(numerator) / float(denominator)
+        result = float(numerator) / float(denominator)
+        return result if math.isfinite(result) else None
     return None

@@ -220,7 +220,9 @@ function ReportStudio() {
     setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
-  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId });
+  // phase included so a backend outage reads "could not load", not the confident
+  // "no run for this issuer" — this surface produces committee documents.
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -280,6 +282,15 @@ function ReportStudio() {
           ) : caveatKind === "loading" ? (
             <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
               checking for live run…
+            </span>
+          ) : caveatKind === "error" ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap"
+              style={{ color: "var(--caos-critical)" }}
+              role="note"
+              title="Could not load this issuer's live run — report state is unknown, not a confirmed no-run."
+            >
+              could not load live run
             </span>
           ) : caveatKind === "live" ? (
             <span

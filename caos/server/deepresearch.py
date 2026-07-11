@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import anthropic
+from anthropic.types import WebSearchTool20260209Param
 from pydantic import BaseModel, Field
 
 from config import get_settings
@@ -51,7 +52,7 @@ _EFFORT = "medium"
 # model=None means "use the configured anthropic_model".
 # ponytail: only Deep Research reads these today; chat/synth can adopt the same
 # brief.ai_mode knob if per-run power tuning is wanted there too.
-_AI_MODES = {
+_AI_MODES: Dict[str, Dict[str, Any]] = {
     "max": {"model": None, "effort": "high", "searches": 12},
     "standard": {"model": None, "effort": _EFFORT, "searches": _MAX_SEARCHES},
     "lite": {"model": settings.synth_executor_model, "effort": "low", "searches": 5},
@@ -247,7 +248,9 @@ async def run_deep_research(  # noqa: C901 — streaming continuation loop with 
     # trips it, widen per-call here, not the shared default: _get_client().with_options(timeout=…)
     client: anthropic.AsyncAnthropic = _get_client()
     messages: list = [{"role": "user", "content": prompt}]
-    tools = [{"type": "web_search_20260209", "name": "web_search", "max_uses": preset["searches"]}]
+    tools: List[WebSearchTool20260209Param] = [
+        {"type": "web_search_20260209", "name": "web_search", "max_uses": preset["searches"]}
+    ]
 
     text_parts: List[str] = []
     sources: List[Source] = []
@@ -275,20 +278,29 @@ async def run_deep_research(  # noqa: C901 — streaming continuation loop with 
         try:
             msg = await _final_message(model)
         except Exception as exc:  # noqa: BLE001 — only overload falls back; the rest re-raise
-            if model == fb_model or not llm_client.is_overloaded(exc):
+            if not llm_client.is_overloaded(exc):
                 raise
-            logger.warning("deep research overloaded on %s — falling back to %s", model, fb_model)
-            model = fb_model
-            try:
-                msg = await _final_message(model)
-            except Exception as exc2:  # noqa: BLE001 — BE4-2: double-overload degrades, doesn't fail the job
-                if not llm_client.is_overloaded(exc2):
-                    raise
+            if model != fb_model:
+                logger.warning("deep research overloaded on %s — falling back to %s", model, fb_model)
+                model = fb_model
+                try:
+                    msg = await _final_message(model)
+                except Exception as exc2:  # noqa: BLE001 — BE4-2: double-overload degrades, doesn't fail the job
+                    if not llm_client.is_overloaded(exc2):
+                        raise
+                    msg = None
+            else:
+                # BE4-2 cross-turn variant: `model` persists across loop turns, so an
+                # overload on a LATER turn arrives already-on-fallback. It must hit the
+                # same degrade contract as the within-turn double overload — raising
+                # here discarded every turn already gathered.
+                msg = None
+            if msg is None:
                 if not text_parts and not sources:
                     logger.warning("deep research overloaded again on fallback %s — degrading to demo", fb_model)
                     return ResearchResult(report=_demo_report(), demo=True, truncated=False)
                 logger.warning(
-                    "deep research overloaded again on fallback %s — composing %d turn(s) already gathered",
+                    "deep research overloaded again on fallback %s — composing %d gathered text block(s)",
                     fb_model, len(text_parts),
                 )
                 last_stop = "overloaded"
@@ -322,7 +334,11 @@ async def run_deep_research(  # noqa: C901 — streaming continuation loop with 
 
     # de-dup sources by URL, preserving first-seen order
     seen: set = set()
-    deduped = [s for s in sources if not (s.url in seen or seen.add(s.url))]
+    deduped = []
+    for s in sources:
+        if s.url not in seen:
+            seen.add(s.url)
+            deduped.append(s)
 
     report = _compose_report(text_parts, truncated)
 

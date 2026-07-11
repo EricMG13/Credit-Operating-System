@@ -231,7 +231,7 @@ def _robust_z(iv: float, peer_vals: List[float]) -> Optional[Tuple[float, float,
     if mad <= 0:
         return None if iv != med else (round(med, 2), 0.0, 0.0)
     z = safe_div(0.6745 * (iv - med), mad)
-    if z is None:  # unreachable: mad > 0 (checked above) and iv, med finite
+    if z is None:  # overflow-only: mad > 0 and iv, med finite, but the scaled spread can exceed float range
         return None
     return round(med, 2), round(mad, 2), round(z, 1)
 

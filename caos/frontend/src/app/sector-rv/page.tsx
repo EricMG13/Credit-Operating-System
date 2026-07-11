@@ -50,12 +50,25 @@ function SectorRvWorkspace() {
           <ConceptNav compact />
           <span className="h-4 w-px bg-caos-border shrink-0" />
           <span className="text-caos-md text-caos-muted truncate min-w-0">Loan universe</span>
-          <span
-            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted hidden lg:inline"
-            title="Sector RV uses the loaded market-data file with an exact-match portfolio overlay."
-          >
-            market-data + portfolio overlay
-          </span>
+          {portfolio.error ? (
+            // M-6 honesty: a failed portfolio fetch is NOT the same as "sample
+            // overlay by design" — say the overlay is degraded, not just generic.
+            <span
+              className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 hidden lg:inline"
+              style={{ color: "var(--caos-warning)" }}
+              role="note"
+              title="The portfolio fetch failed — overlay shows the static sample sleeve, not current holdings."
+            >
+              market-data + sample overlay (portfolio unavailable)
+            </span>
+          ) : (
+            <span
+              className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted hidden lg:inline"
+              title="Sector RV uses the loaded market-data file with an exact-match portfolio overlay."
+            >
+              market-data + portfolio overlay
+            </span>
+          )}
         </>
       }
       contextualControls={

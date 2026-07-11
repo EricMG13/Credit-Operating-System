@@ -70,9 +70,24 @@ grep -v "response_model" "$AUDIT_TMP/decorators.txt" > "$AUDIT_TMP/untyped.txt"
 # Caution: a few decorators span multiple lines (3 as of 2026-07-10), so
 # confirm each untyped.txt hit by reading the decorator before counting it.
 
-# 3. FE call inventory (path+verb) and DTO surface:
-grep -n "api\.\(get\|post\|put\|delete\|patch\)" caos/frontend/src/lib/api.ts \
-  > "$AUDIT_TMP/fe-calls.txt"
+# 3. FE call inventory (path+verb) and DTO surface. Axios calls routinely
+#    split across lines two different ways — `api\n  .post("/x", ...)` and
+#    `api.post(\n  "/x", ...)` — and a line-based grep misses both patterns
+#    in different ways (confirmed on 2026-07-10: a same-line grep dropped
+#    queryOverlay/queryAnswer/edgarVaultUrl — exactly the 130s LLM-lane
+#    calls). Use a DOTALL regex over the whole file instead of grep:
+python3 - caos/frontend/src/lib/api.ts <<'PYEOF' > "$AUDIT_TMP/fe-calls.txt"
+import re, sys
+src = open(sys.argv[1]).read()
+pat = re.compile(r'\bapi\s*\.\s*(get|post|put|delete|patch)\s*\(\s*[`"\']([^`"\']*)', re.DOTALL)
+seen = set()
+for m in pat.finditer(src):
+    verb, url = m.group(1).upper(), m.group(2)
+    if url.startswith("/api/"):
+        seen.add((src[:m.start()].count("\n") + 1, verb, url))
+for l, v, u in sorted(seen):
+    print(f"{l}: {v} {u}")
+PYEOF
 grep -n "^export \(interface\|type\)" \
   caos/frontend/src/lib/api.ts \
   caos/frontend/src/lib/engine/types.ts \
@@ -347,3 +362,7 @@ additionally get one row appended to `caos/docs/qa/REVIEW_MATRIX_SEAMS.md`
 | MCP wrapper has no test suite | thin wrapper; covered by mandatory static parity (P5) |
 | FEATURE_TRACKER.csv endpoint column free-text; "endpoint parity" doc claims are prose | tracker lags code by design; never treat tracker rows as contract evidence |
 | Single-process rate limiter + locks | deployment is single-process by design (documented deploy posture) |
+| `GET /api/issuers/{id}/cross-default`, `GET /api/sponsors/*` — no FE caller on this branch | PLANNED: FE consumer exists on unmerged `feat/covenant-frontend` (`3605c999`); `PRE_DEPLOYMENT_PLAN.md:126` tracks the merge. Re-check once that branch lands. |
+| `GET /api/issuers/{id}/research-report[/{id}]` — no FE caller | Backend-complete (module + executor + migration `0033` + tests), zero FE caller, no unwiring plan doc. Track as a pending Issuer Profile feature, not drift. |
+| `DELETE /api/auth/profile` — no FE caller | Tested self-service GDPR erasure (`test_gdpr_erase.py`), intentionally distinct from the `erase_analyst.py` operator CLI. No settings-page trigger yet — real gap, not a contract bug. |
+| `GET /api/issuers/{id}/documents` — no FE caller | Confirmed dead (pre-CAOS era route, stale `FEATURE_TRACKER.csv` "Pass" claim, no real caller, no plan doc). Candidate for deletion — flag, don't silently carry forward. |

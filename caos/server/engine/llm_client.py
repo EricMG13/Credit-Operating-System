@@ -33,7 +33,12 @@ logger = logging.getLogger("caos.llm")
 
 def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic:
     s = settings or get_settings()
-    return anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+    # max_retries=0: the SDK's own default (2) would stack on top of `timeout`,
+    # tripling worst-case pin time on a hung backend — this module's own
+    # is_overloaded-gated retry/fallback (below) is the single retry policy.
+    return anthropic.AsyncAnthropic(
+        api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s, max_retries=0
+    )
 
 
 def is_overloaded(exc: Exception) -> bool:

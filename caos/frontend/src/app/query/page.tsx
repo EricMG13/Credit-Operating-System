@@ -151,7 +151,15 @@ function QueryWorkspace() {
       const stored = localStorage.getItem("caos:query-history");
       if (stored) {
         const parsed: unknown = JSON.parse(stored);
-        if (Array.isArray(parsed)) setHistory(parsed);
+        // Element-shape check, not just Array.isArray: a hand-edited or
+        // schema-drifted entry ([null], {text: 42}) would otherwise crash the
+        // dropdown render / addToHistory on every visit until storage is cleared.
+        if (Array.isArray(parsed)) {
+          setHistory(parsed.filter((h): h is HistoryEntry =>
+            !!h && typeof h === "object"
+            && typeof (h as HistoryEntry).text === "string"
+            && typeof (h as HistoryEntry).capId === "string"));
+        }
       }
     } catch (e) {
       console.warn("Could not load history", e);

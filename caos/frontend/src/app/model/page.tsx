@@ -107,6 +107,7 @@ function ModelBuilder() {
   // True when a DB-saved model exists but the restore fetch failed (network/500):
   // the analyst is looking at the local draft and must be told, with a retry.
   const [restoreError, setRestoreError] = useState(false);
+  const [restoreNonce, setRestoreNonce] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -169,22 +170,14 @@ function ModelBuilder() {
     setHydrated(true);
     return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issuerId, ovKey, isReference]);
-  // Retry a failed DB-model restore. Runs post-hydration, so current state is the
-  // local draft — use it as the re-baseline fallback for any field the payload omits.
-  const retryRestore = () => {
-    setRestoreError(false);
-    getSavedModel(issuerId).then((saved) => {
-      const parsed = parseSavedPayload(saved);
-      if (!parsed) return;
-      const { o, a, c, updatedAt } = parsed;
-      if (o) setOverrides(o);
-      if (a) setAssumptions(a);
-      if (c) setCollapsedRows(c);
-      setSavedAt(updatedAt);
-      savedSnapshot.current = serializeSavable(a ?? assumptions, o ?? overrides, c ?? collapsedRows);
-    }).catch(() => setRestoreError(true));
-  };
+  }, [issuerId, ovKey, isReference, restoreNonce]);
+  // Retry a failed DB-model restore by re-running the guarded hydrate effect above —
+  // the retry then inherits the same SEC-H1 stale-flag. (A bespoke getSavedModel here
+  // had no stale guard, so a retry left in-flight across an issuer switch landed A's
+  // model on B's state and persisted it under B's keys — the exact H-1 race, on the
+  // retry path. The local draft the effect re-reads from storage equals current state:
+  // the persist effects below write through on every change once hydrated.)
+  const retryRestore = () => setRestoreNonce((n) => n + 1);
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);

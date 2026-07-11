@@ -26,7 +26,9 @@ _MARGIN_COMPRESSION_PP = 1.0
 def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
     """(YoY % change, prior period, latest period) for ``key`` across the ordered
     rows, or None when fewer than two periods carry the value."""
-    vals = [(r["period"], r[key]) for r in rows if isinstance(r.get(key), (int, float))]
+    # is_finite_number, not isinstance: a NaN row value passes isinstance (and
+    # `not NaN` is False), leaking a NaN delta into the payload trend rows.
+    vals = [(r["period"], r[key]) for r in rows if is_finite_number(r.get(key))]
     if len(vals) < 2:
         return None
     (pp, prev), (lp, last) = vals[-2], vals[-1]

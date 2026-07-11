@@ -110,8 +110,8 @@ export function EdgarImport({
             <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>
               vaulted {results.length}/{results.length + failed.length} — {failed.length} failed
             </span>
-            {failed.map((f) => (
-              <span key={f.url} className="tabular text-caos-xs text-caos-muted truncate" title={f.reason}>
+            {failed.map((f, i) => (
+              <span key={`${f.url}-${i}`} className="tabular text-caos-xs text-caos-muted truncate" title={f.reason}>
                 {f.url} — {f.reason}
               </span>
             ))}

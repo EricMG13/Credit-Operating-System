@@ -9,11 +9,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import ReportsPage from "./page";
 
 let mockRunId: string | null = null;
+let mockPhase: string | null = null; // overrides the derived phase when set
+let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(), // no ?issuer -> ATLF reference page
+  useSearchParams: () => new URLSearchParams(mockIssuer ? { issuer: mockIssuer } : undefined),
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -25,7 +27,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
     anchor: mockRunId ? { netLeverage: 4.2 } : null, downside: null, runId: mockRunId,
     committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: false,
-    phase: mockRunId ? "complete" : "none",
+    phase: mockPhase ?? (mockRunId ? "complete" : "none"),
   }),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -40,6 +42,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockRunId = null;
+  mockPhase = null;
+  mockIssuer = null;
 });
 
 describe("Report Studio · reference caveat (FE-5)", () => {
@@ -53,5 +57,23 @@ describe("Report Studio · reference caveat (FE-5)", () => {
     mockRunId = "run-123";
     render(<ReportsPage />);
     expect(await screen.findByText(/REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
+  });
+
+  it("a backend outage on a real issuer reads 'could not load', not the confident no-run claim", async () => {
+    // Committee surface: asserting "no run for this issuer" during an outage is
+    // a false claim about coverage — deepdive/model already distinguish these.
+    mockIssuer = "ISSX";
+    mockRunId = null;
+    mockPhase = "error";
+    render(<ReportsPage />);
+    expect(await screen.findByText(/could not load live run/)).toBeTruthy();
+    expect(screen.queryByText(/no run for this issuer/)).toBeNull();
+  });
+
+  it("a real issuer with genuinely no run still gets the honest no-run message (control)", async () => {
+    mockIssuer = "ISSX";
+    mockRunId = null;
+    render(<ReportsPage />);
+    expect(await screen.findByText(/no run for this issuer/)).toBeTruthy();
   });
 });

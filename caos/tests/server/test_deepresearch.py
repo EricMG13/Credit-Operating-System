@@ -210,6 +210,35 @@ async def test_double_overload_with_partial_progress_composes_truncated_report(m
     assert "Real gathered text." in result.report
 
 
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("seeded_db")  # turn 1's fallback success traces an llm call
+async def test_cross_turn_overload_on_fallback_composes_not_raises(monkeypatch):
+    """BE4-2 cross-turn variant: `model` persists across loop turns, so after an
+    earlier turn degraded to the fallback, a LATER turn's overload arrives at the
+    OUTER except with model == fb_model already. That must hit the same compose-
+    what-was-gathered contract — previously it re-raised and discarded every turn
+    already gathered, failing the job during exactly the sustained-overload
+    incident window BE4-2 targets."""
+    monkeypatch.setattr(deepresearch, "llm_configured", lambda: True)
+    calls = {
+        # Turn 1: primary overloads -> falls back; fallback succeeds and pauses.
+        "claude-opus-4-8": [_FakeStream(raise_exc=_Overload("primary overloaded turn 1"))],
+        "claude-sonnet-4-6": [
+            _FakeStream(msg=_msg("Gathered on fallback.", stop_reason="pause_turn")),
+            # Turn 2: the fallback itself overloads.
+            _FakeStream(raise_exc=_Overload("fallback overloaded turn 2")),
+        ],
+    }
+    monkeypatch.setattr(deepresearch, "_get_client", lambda: _FakeClient(calls))
+    monkeypatch.setattr(deepresearch.llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
+
+    result = await run_deep_research(ResearchBrief(subject="Atlas Forge"))
+
+    assert result.demo is False
+    assert result.truncated is True
+    assert "Gathered on fallback." in result.report
+
+
 # ── Endpoint (demo path — no ANTHROPIC_API_KEY in tests) ──────────────────────
 def _wait_research(c, job_id, timeout_s=10.0):
     """Poll GET /api/research/{id} until terminal (M-3 durable job)."""

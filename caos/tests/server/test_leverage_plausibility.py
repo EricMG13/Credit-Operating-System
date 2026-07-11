@@ -32,3 +32,11 @@ def test_missing_input_no_finding():
     )
     assert leverage_plausibility_finding(p) is None
     assert leverage_plausibility_finding(None) is None
+
+
+def test_overflowing_recomputed_leverage_still_fires():
+    # |nd / eb| past float range is maximal internal inconsistency — the MATERIAL
+    # finding must FIRE, not be silently suppressed by the overflow (None) path.
+    f = leverage_plausibility_finding(_cp1(5.0, 1e305, 1e-5))
+    assert f is not None
+    assert f.severity == "MATERIAL"

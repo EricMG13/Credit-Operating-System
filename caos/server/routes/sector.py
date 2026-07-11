@@ -313,7 +313,7 @@ def _all_seed_signals() -> list[SectorSignalOut]:
 
 
 def _seed_sectors() -> list[str]:
-    return sorted({row["sector"] for row in _SEED_ROWS})
+    return sorted({str(row["sector"]) for row in _SEED_ROWS})
 
 
 def _matches(
@@ -524,11 +524,11 @@ async def read_feeds(
     return [
         SectorFeed(
             sector=sector,
-            enabled=overrides.get(sector).enabled if sector in overrides else True,
-            notify_pref=overrides.get(sector).notify_pref if sector in overrides else "in_app",
-            provenance="profile" if sector in overrides else "seed",
+            enabled=row.enabled if row is not None else True,
+            notify_pref=row.notify_pref if row is not None else "in_app",
+            provenance="profile" if row is not None else "seed",
         )
-        for sector in sectors
+        for sector, row in ((s, overrides.get(s)) for s in sectors)
     ]
 
 

@@ -162,9 +162,12 @@ async def _llm_translate(text: str) -> ScenarioSpec:
 
     settings = get_settings()
     # Explicit timeout (SDK default is ~10 min) so a stuck translate can't pin the
-    # request lane open. See config.caos_llm_timeout_s.
+    # request lane open. See config.caos_llm_timeout_s. max_retries=0: the SDK's
+    # own default (2) would stack on top of the timeout — see PERF_AUDIT_2026-07-10
+    # Finding 1.
     client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
+        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s,
+        max_retries=0,
     )
     resp = await llm_client.create(
         client,

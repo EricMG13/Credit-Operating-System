@@ -110,6 +110,25 @@ describe("Query · history rehydrate (M-8 localStorage shape validation)", () =>
     expect(await openDropdownAndCheckRecent()).toBe(false);
   });
 
+  it("malformed ELEMENTS ([null], wrong-typed text) are filtered out — no crash, valid entries kept", async () => {
+    // Array.isArray alone let [null] / {text: 42} through: null crashed the
+    // Recent dropdown render (h.text on null) on every visit until storage was
+    // hand-cleared — a durable /query DoS. Valid entries must survive the filter.
+    localStorage.setItem(
+      HISTORY_KEY,
+      JSON.stringify([
+        null,
+        { text: 42, capId: "peer-set", capLabel: "Peer Set" },
+        { capId: "no-text", capLabel: "X" },
+        { text: "which issuers are most levered", capId: "peer-set", capLabel: "Peer Set" },
+      ]),
+    );
+
+    expect(() => render(<QueryPage />)).not.toThrow();
+    expect(await openDropdownAndCheckRecent()).toBe(true); // the one valid entry survives
+    expect(screen.getByText(/which issuers are most levered/)).toBeTruthy();
+  });
+
   it("a well-formed history array is still accepted and rendered (control case)", async () => {
     localStorage.setItem(
       HISTORY_KEY,

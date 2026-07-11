@@ -53,7 +53,10 @@ function CommandCenter() {
     essentialControls: (
       <div className="flex items-center gap-4 shrink-0 overflow-x-auto caos-no-scrollbar">
         {headStat("Issuers", String(PORTFOLIO.length))}
-        {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+        {/* M-6 honesty: a failed portfolio fetch must not read as a real 0/0 count */}
+        {portfolio.error
+          ? headStat("Live Coverage", "—", "var(--caos-warning)")
+          : headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
         {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
         <span className="flex items-baseline gap-1.5 whitespace-nowrap">
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts</span>
@@ -97,7 +100,9 @@ function CommandCenter() {
         <>
           {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
           {headStat("Issuers", String(PORTFOLIO.length))}
-          {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+          {portfolio.error
+            ? headStat("Live Coverage", "—", "var(--caos-warning)")
+            : headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
           {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
           {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
           {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
