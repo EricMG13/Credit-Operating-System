@@ -3,13 +3,13 @@
 # as does any fastapi that lifts the starlette cap to 1.x (0.135+). So this pin
 # also sets the floor at Python 3.10 (CI runs a 3.11+3.14 matrix; the deploy image
 # ships 3.14). There is no py3.9-compatible combination that clears all seven.
-fastapi==0.138.*
-uvicorn[standard]==0.49.*
+fastapi==0.139.*
+uvicorn[standard]==0.51.*
 # 0.0.31+ required: multipart DoS (CVE-2024-53981 + GHSA unbounded headers /
 # quadratic querystring) and arbitrary-file-write advisories, all fixed by 0.0.31.
 python-multipart==0.0.32
 sqlalchemy[asyncio]==2.0.*
-alembic==1.13.*
+alembic==1.18.*
 aiosqlite==0.22.*
 asyncpg==0.31.*; python_version >= "3.10"
 # pgvector SQLAlchemy types (database.SafeVector; mig 0030 HNSW embeddings). Pure
@@ -18,7 +18,7 @@ asyncpg==0.31.*; python_version >= "3.10"
 pgvector==0.4.*
 pydantic==2.*
 pydantic-settings==2.*
-anthropic>=0.115.1,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
+anthropic>=0.116.0,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
 google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported only when a gemini-* model is selected
 # The LLM re-rank (engine/rerank.py) reuses the same API providers above — no
 # extra dependency, no local model download (policy). One batched call per query.

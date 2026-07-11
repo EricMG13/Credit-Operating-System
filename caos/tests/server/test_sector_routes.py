@@ -58,3 +58,22 @@ def test_sector_feed_toggle_and_topic_ask():
         assert body["provenance"] == "seed"
         assert "Restricted to this sector signal" in body["retrieval_scope"]
         assert body["sources"]
+
+
+def test_sector_refresh_and_invalid_date_bounds():
+    with TestClient(app) as client:
+        refreshed = client.post(
+            "/api/sector/review/refresh",
+            json={"sector": "Industrials", "timeframe": "today"},
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        body = refreshed.json()
+        assert body["refresh_trigger"] == "ad_hoc_seed"
+        assert body["provenance"] == "seed"
+        assert body["signals"]
+
+        bad_date = client.get(
+            "/api/sector/signals",
+            params={"sector": "Industrials", "from": "not-a-date"},
+        )
+        assert bad_date.status_code == 422

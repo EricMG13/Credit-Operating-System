@@ -6,6 +6,7 @@ import { nodeStyle } from "./node-style";
 import { select } from "d3-selection";
 import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
 import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
+import "d3-transition";
 
 interface ScatterCanvasProps {
   graph: GraphResult;

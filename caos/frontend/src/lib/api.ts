@@ -223,7 +223,7 @@ export interface IssuerProfile {
   runs: ProfileRun[];
   metrics: ProfileMetric[];
   // Free-form roll-ups (nullable values) — Deep-Dive owns module detail.
-  signals: Record<string, number | string | null>;
+  signals: Record<string, number | string | boolean | null>;
   coverage: Record<string, unknown>;
   findings: Record<string, number>;
   business: BusinessFact[];           // CP-1A sourced facts
@@ -234,6 +234,76 @@ export interface IssuerProfile {
 }
 export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
   api.get(`/api/issuers/${id}/profile`).then((r) => r.data);
+
+// Cross-default domino map — which tranches get pulled in when one facility
+// defaults (CP-3B tranche register × CP-4C material-indebtedness threshold).
+// Read-model over the latest complete run; degrades to a note, never a guess.
+export interface CrossDefaultDomino {
+  code: string;
+  tranche: string;
+  amount_musd: number | null;
+  trips_cross_default: boolean | null; // null = unsized tranche or no threshold
+  pulls_in: string[];
+}
+export interface CrossDefaultMap {
+  issuer_id: string;
+  run_id: string | null;
+  threshold_musd: number | null;
+  dominoes: CrossDefaultDomino[];
+  note: string | null;
+}
+export const getCrossDefaultMap = (id: string): Promise<CrossDefaultMap> =>
+  api.get(`/api/issuers/${encodeURIComponent(id)}/cross-default`).then((r) => r.data);
+
+// Sponsor track record — CP-2D governance scores/flags rolled up across a
+// sponsor's covered names (analyst-entered Issuer.sponsor grouping).
+export interface SponsorSummary {
+  sponsor: string;
+  issuer_count: number;
+}
+export interface SponsorIssuerRow {
+  issuer_id: string;
+  name: string;
+  ticker: string | null;
+  run_id: string | null;
+  qa_status: string | null;
+  governance_risk_score: number | null;
+  flags: string[];
+  net_leverage: number | null;
+}
+export interface SponsorTrackRecord {
+  sponsor: string;
+  issuer_count: number;
+  avg_governance_risk_score: number | null;
+  flag_counts: Record<string, number>;
+  issuers: SponsorIssuerRow[];
+}
+export const getSponsors = (): Promise<SponsorSummary[]> =>
+  api.get("/api/sponsors/").then((r) => r.data);
+export const getSponsorTrackRecord = (name: string): Promise<SponsorTrackRecord> =>
+  api.get(`/api/sponsors/${encodeURIComponent(name)}`).then((r) => r.data);
+
+// Daily digest — deterministic coverage/ratings/activity roll-up (no LLM):
+// staleness watch, equal-weighted WARF over manual ratings, CCC-cliff watch,
+// 24h run activity. Backs the Command Center research lens.
+export interface DigestWatchRow {
+  issuer_id: string;
+  name: string;
+  detail: string | null;
+}
+export interface DailyDigest {
+  as_of: string;
+  coverage: Record<string, number>; // issuers / rated / unrated / with_complete_run
+  stale_threshold_days: number;
+  stale: DigestWatchRow[];
+  warf: number | null;
+  warf_band: string | null;
+  ccc_watch: DigestWatchRow[];
+  qa: Record<string, number>;
+  activity_24h: Record<string, number>;
+}
+export const getDigest = (): Promise<DailyDigest> =>
+  api.get("/api/digest/daily").then((r) => r.data);
 
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {

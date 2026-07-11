@@ -18,7 +18,7 @@ import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { isCleared } from "@/lib/pipeline/sev";
+import { isCleared, moduleLiveState } from "@/lib/pipeline/sev";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
@@ -255,10 +255,13 @@ function DeepDive() {
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
   // Launcher/gate display state. The ATLF sim narrates the reference deal only;
-  // a real issuer's module is "pass" when this run produced it and hollow-idle
-  // otherwise — never the reference sim's green theater. (critique: implied
-  // completion that is not this issuer's)
-  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : (live.liveOuts[id] ? "pass" : "idle"));
+  // a real issuer's module reflects THIS run's per-module qa_status via
+  // moduleLiveState — pass / warning (Restricted) / failed (Blocked) / hollow-idle
+  // (not produced). A Blocked module is persisted with output, so keying off
+  // liveOuts presence alone would light it a false green; qa_status is the honest
+  // signal. Never the reference sim's green theater. (critique: implied completion
+  // that is not this issuer's; identify failed modules)
+  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : moduleLiveState(live.liveStatus[id]));
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
@@ -270,6 +273,11 @@ function DeepDive() {
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
   // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
   const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
+  // A real issuer's open module that hit the engine's failure gate (qa_status
+  // Blocked). Distinct from "no output" (never produced) — the row exists, the
+  // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
+  // instead of an empty ModuleView under a ● LIVE badge.
+  const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
   // screen), and live output is never held behind replay theater — otherwise
@@ -423,13 +431,17 @@ function DeepDive() {
                   <span className="flex items-center gap-0.5">
                     {g.mods.map((id) => {
                       const st = modState(id);
-                      return isCleared(st)
+                      if (isCleared(st)) {
                         // glyph: cleared modules can be pass OR warning — shape carries the
                         // difference for colorblind analysts (the strip has no text per module)
-                        ? <Dot key={id} sev={st} pulse={st === "running"} glyph />
-                        // Padlock = sim-gated (reference replay); a real issuer's
-                        // missing module is hollow-idle "no output", not locked.
-                        : <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
+                        return <Dot key={id} sev={st} pulse={st === "running"} glyph />;
+                      }
+                      // A failed (Blocked) module is a ✕ ring in critical — never a
+                      // hollow-idle dot, or the strip would hide that it broke.
+                      if (st === "failed") return <Dot key={id} sev="blocked" glyph />;
+                      // Padlock = sim-gated (reference replay); a real issuer's
+                      // missing module is hollow-idle "no output", not locked.
+                      return <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
                     })}
                   </span>
                 ) : null}
@@ -460,8 +472,10 @@ function DeepDive() {
                         {/* Recess a pending module by dimming only the GLYPH, not
                             the whole chip — the label stays at full muted contrast
                             (AA), state is carried by the padlock/idle shape.
-                            (critique: locked-chip labels failed contrast) */}
-                        {!ok ? <span className="opacity-60"><StatusGlyph kind={isReference ? "locked" : "idle"} /></span> : <Dot sev={st} pulse={st === "running"} />}
+                            (critique: locked-chip labels failed contrast) A failed
+                            (Blocked) module shows a full-contrast ✕ ring in critical
+                            — the one non-cleared state that must not be dimmed away. */}
+                        {ok ? <Dot sev={st} pulse={st === "running"} /> : st === "failed" ? <Dot sev="blocked" glyph /> : <span className="opacity-60"><StatusGlyph kind={isReference ? "locked" : "idle"} /></span>}
                         <span className="hidden 2xl:inline">{name}</span>
                         <span className="2xl:hidden">{short}</span>
                       </button>
@@ -525,7 +539,11 @@ function DeepDive() {
               {/* Per-MODULE provenance, not run-scoped: light ● LIVE only when THIS
                   tab's data came from the live run. Missing issuer-scoped modules
                   show no-output, never a seeded ATLF table. (#5) */}
-              {moduleIsLive ? (
+              {moduleFailed ? (
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }} title="This module hit its failure gate (qa_status Blocked) and did not complete — no usable output.">
+                  ✕ FAILED
+                </span>
+              ) : moduleIsLive ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">
                   ● LIVE
                 </span>
@@ -537,7 +555,17 @@ function DeepDive() {
             </span>
           }
         >
-          {unlocked ? (
+          {moduleFailed ? (
+            // The module ran but hit its failure gate (Blocked) — show that plainly
+            // instead of an empty ModuleView, so a failed module is legible in the
+            // pane, not just the launcher strip. (identify failed modules)
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted text-center px-4">
+              <Dot sev="blocked" glyph />
+              <div className="tabular text-caos-xl" style={{ color: "var(--caos-critical)" }}>{tab} failed</div>
+              <div className="text-caos-md">this module hit its failure gate and produced no usable output</div>
+              <div className="text-caos-xs tabular">any downstream module that depends on {tab} is gated in turn</div>
+            </div>
+          ) : unlocked ? (
             // The bespoke debate/recovery/covenant tabs are the ATLF reference
             // *showcase*. For a real issuer with a live run for that module, render
             // its honest engine output via the generic ModuleView instead of the

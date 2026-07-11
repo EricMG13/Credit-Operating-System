@@ -34,6 +34,7 @@ describe("caosChatContext", () => {
         description: "E-44 citation page mismatch", affected_claim_id: null, required_remediation: null,
       }],
       liveOuts: { "CP-2": { kpis: [{ l: "Energy cost %", v: "12" }], sections: [] } },
+      liveStatus: { "CP-2": "Passed" },
       liveEvidence: {},
       loading: false,
       phase: "complete" as const,
