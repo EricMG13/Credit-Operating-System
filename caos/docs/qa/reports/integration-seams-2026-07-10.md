@@ -19,9 +19,9 @@
 | G7 LLM degrade matrix | **PASS** | Both venvs green (1298/1298 collected: 1296 passed + 2 skipped on py3.11, 1295 passed + 3 skipped on py3.9). 6 keyless-lane spot probes all matched the documented degrade contract exactly (§5). |
 | G8 MCP parity | **PASS** | All 4 EDGAR MCP tools map correctly to their routes — names, defaults, the `vault-url`/`vault-exhibit` alias pair (§6). |
 | G9 timeout ladder | **PASS** | `queryOverlay`/`queryAnswer` FE timeout 130s > server `CAOS_LLM_TIMEOUT_S` 120s ✓. MCP httpx 60s > EDGAR `edgar_timeout_s` 30s ✓. No PR-delta change to any timeout value. |
-| **G10 degradation honesty** | **FAIL** | 2 confirmed findings — new error/phase signals computed this PR but not wired to any visible UI in 4 of 5 consumer call sites (§7). |
+| **G10 degradation honesty** | **PASS** (resolved post-audit, see §7 addendum) | Originally 2 confirmed findings. Re-verified 2026-07-11 against current code: both are closed. Finding 1 fixed (landed with `// M-6 honesty` in `command/page.tsx` + `sector-rv/page.tsx`). Finding 2's `reports.tsx` half fixed (`eng.phase` → `deepDiveCaveatKind`, lines 225-295). Finding 2's `pipeline.tsx` half was a **false positive in this audit** — the page already had equivalent-or-stronger coverage via a sibling hook (`useLivePipelineStatus`) that this run's grep missed. |
 
-**Net: 9/10 PASS, 1 FAIL (2 confirmed findings).**
+**Net: 10/10 PASS.** (9/10 at time of original audit; the 1 FAIL resolved on 2026-07-11 re-verification — see §7 addendum for the correction and its root cause.)
 
 ## 2. P1 — Endpoint parity (full detail)
 
@@ -102,6 +102,18 @@ This PR added two new fail-open signals — `usePortfolio().error` (M-6) and `us
 **Failure scenario:** Same trigger — the run fetch inside `useLiveRun` throws, `phase` resolves to `"error"` (a real, reachable value per [useLatestRun.ts:63-65](../../../frontend/src/lib/engine/useLatestRun.ts): `"no backend / network error — surface as an error phase (not a silent noRun)"`). `deepdive/page.tsx:217` correctly threads `phase` into `deepDiveCaveatKind()`, which has a dedicated `"error"` render branch ([deepdive/page.tsx:334-338](../../../frontend/src/app/deepdive/page.tsx)) — verified end-to-end wired. **`pipeline/page.tsx` and `reports/page.tsx` never read `.phase` at all** — grepped every field access off `liveRun`/`live` in both files; the only fields read are `.liveEvidence`/`.runId` (for the already-fixed `EvidenceModal` gating). Both pages proceed exactly as if `runId` were null: the analyst sees the "no run yet, all figures are template" state with zero indication that a completed run actually exists and the fetch to retrieve it silently failed. The comment at [useLatestRun.ts:11](../../../frontend/src/lib/engine/useLatestRun.ts) names "the Pipeline page" by name as the intended beneficiary of this exact distinction — confirming this is a gap against the PR's own stated intent, not a hypothetical.
 
 **Both findings share one root cause and one fix shape:** the hooks were correctly extended; 3 of 5 view-layer consumers weren't updated to read the new field. A single follow-up (surface `error`/`phase==="error"` as a visible banner/caveat in `command/page.tsx`, `sector-rv/page.tsx`, `pipeline/page.tsx`, `reports/page.tsx`, mirroring the `deepdive` pattern) closes G10.
+
+### Addendum (2026-07-11) — both findings resolved; one was a false positive
+
+Re-read all 4 consumer files before starting the fix (per the playbook's own adversarial-verification standard) and found the situation had changed:
+
+- **Finding 1 — fixed.** `command/page.tsx:64-66,110-112` and `sector-rv/page.tsx:53-63` now branch on `portfolio.error` and render an explicit degraded label (`"—"` in warning color; `"market-data + sample overlay (portfolio unavailable)"`), each tagged `// M-6 honesty`. Landed in `d66e9271 fix(engine,query): safe_div output-inf edge cases, error-phase propagation, review-matrix mechanicals` during the gap between the original audit and this follow-up.
+- **Finding 2, `reports.tsx` half — fixed.** `reports/page.tsx:225` threads `eng.phase` (from `useModelEngine`, which wraps the same `useLatestRunStatus`/`RunPhase` machinery as `useLiveRun`) into `deepDiveCaveatKind`, with a dedicated `caveatKind === "error"` render branch at line 286 — same commit.
+- **Finding 2, `pipeline.tsx` half — was a false positive in the original audit, not a real gap.** The original check greped for `.phase`/`liveRun.phase` off the `useLiveRun(issuerId)` call at `pipeline/page.tsx:105` and found nothing, concluding the page ignores phase entirely. It missed a **separate, earlier-declared** binding in the same file: `const { value: live, phase, latest } = useLivePipelineStatus(issuerId)` at line 104 — a bare `phase` identifier, not a `.phase` member access, so the original grep pattern didn't match it. `useLivePipelineStatus` is itself `useLatestRunStatus` (`useLivePipeline.ts:78-80`) — the identical `RunPhase` mechanism. That `phase` drives `blockingState` (`pipeline/page.tsx:112-115`), which on `"error"` returns a dedicated `<PipelineRunState>` component (`pipeline/page.tsx:151,299-345`): a full-page `role="alert"` takeover, critical-colored, reading *"Run status unavailable — Couldn't reach the run service for this issuer. This is a connection or backend error — not a passing run."* This is gated by an early `return` before any demo-rendering JSX runs — not bypassable. **This is stronger coverage than the `deepdive` reference pattern this audit used as its baseline**, not weaker.
+
+**Root cause of the false positive:** the audit checked whether the specific hook instance named in the finding (`useLiveRun`) was read, but didn't check whether a *sibling* hook already in scope in the same file independently covered the same concern. Added to the playbook's evidence standard (§5) as a required check before reporting a "field never read" finding.
+
+**Net effect: G10 now PASSES with no further code changes required.**
 
 ## 8. Deep sweep (full-coverage follow-up)
 

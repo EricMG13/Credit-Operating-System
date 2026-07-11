@@ -347,6 +347,19 @@ each HIGH needs a demonstrated user-visible wrong read. Confirmed findings
 additionally get one row appended to `caos/docs/qa/REVIEW_MATRIX_SEAMS.md`
 (matching its existing table format). Do not re-report rows already there.
 
+**Before reporting a "field/phase never read" G10 finding, check sibling
+hooks in the same file, not just the one named in the hook you're tracing.**
+A 2026-07-11 false positive: `pipeline/page.tsx` was flagged for never
+reading `useLiveRun().phase` — true as stated, but the file separately
+destructures a bare `phase` from `useLivePipelineStatus` (same
+`useLatestRunStatus`/`RunPhase` machinery, different variable name) and
+already drives a full-page `role="alert"` error takeover from it — stronger
+coverage than the pattern the audit used as its baseline. A grep for
+`\.phase\b` misses a bare `phase` identifier from destructuring. Before
+concluding a signal is unconsumed, grep the whole file for the hook's
+*return type* (e.g. `RunPhase`) or its call site, not just one dotted-access
+spelling of the field name.
+
 ## 6. Accepted-risk register — do not report these
 
 | By-design seam | Rationale |
