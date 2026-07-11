@@ -1,7 +1,5 @@
 // AUTO-PORTED from the Credit OS design bundle (shared/deal-modules.js + deal-step-notes.js).
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
-/* eslint-disable */
-
 export interface StepNote { body: string; ev?: string[] }
 
 const BASE: Record<string, StepNote> = {

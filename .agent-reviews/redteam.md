@@ -227,6 +227,16 @@ Verifier method note (second follow-up pass): all three passes ran independently
 
 ## Resolved Objections
 
+## Outstanding Audit Remediation — Critic Pass (2026-07-11)
+
+Decision under review: close every item that `caos/docs/AUDIT.md` still presents as outstanding.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-11-57 | 2026-07-11 | Treat all four audit rows as immediate defects | `S-4` requires an entitlement policy and `A-1` spans multiple engine/data contracts, including Phase-2 market data. A quick implementation would invent access rules and relabel seeded output as live. | High | Resolved | Preserve both as explicit roadmap constraints. Close only defects independently verified in current code; do not claim Phase-2 architecture is implemented. |
+| RT-2026-07-11-58 | 2026-07-11 | Mark `PERF-2` resolved because dynamic imports exist | Source-level code splitting does not prove the shipped first-load payload improved; stale build artifacts can also mislead. | Medium | Resolved | Require a fresh production build and record its route-size evidence before changing the finding status. |
+| RT-2026-07-11-59 | 2026-07-11 | Remove `F-2` suppressions mechanically | Replacing `any` with broad assertions could preserve lint cleanliness while weakening useful type checks in the shared Model Builder/Reports engine. | Medium | Resolved | Use narrow structural input types for the three finalizers, retain strict compilation, and run model/scenario plus full frontend tests. Fixture-wide disables may be removed only after linting those files with inline config disabled. |
+
 - RT-2026-07-02-01: Discoverability gap fixed by linking this log from `AGENTS.md`.
 - RT-2026-07-02-02: Malformed impact/status evidence fixed by replacing the initial row with explicit `Impact` and `Status` columns.
 - RT-2026-07-02-03: Evidence-handling risk fixed by adding a no-secrets protocol rule.

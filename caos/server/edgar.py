@@ -127,10 +127,19 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
         raise EdgarError("EDGAR request failed — network error or timeout.") from exc
 
 
+def _reject_non_finite(tok: str) -> float:
+    # Stdlib json.loads accepts NaN/Infinity/-Infinity; refuse them so a non-finite
+    # literal can't enter an EDGAR-derived financial field (fail-closed at the seam).
+    raise ValueError(f"non-finite JSON literal {tok!r} rejected")
+
+
 def _get_json(url: str) -> dict:
     try:
-        return json.loads(_http_get(url).decode("utf-8", "replace"))
-    except json.JSONDecodeError as exc:
+        return json.loads(
+            _http_get(url).decode("utf-8", "replace"),
+            parse_constant=_reject_non_finite,
+        )
+    except ValueError as exc:  # JSONDecodeError (a ValueError) + the non-finite reject
         raise EdgarError(f"EDGAR returned non-JSON for {url}") from exc
 
 

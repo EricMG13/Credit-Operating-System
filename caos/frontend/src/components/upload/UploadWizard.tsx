@@ -60,6 +60,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // batch. A ref (not state) so the running loop reads the latest value without
   // a stale closure.
   const cancelRef = useRef(false);
+  const uploadingRef = useRef(false); // synchronous re-entrancy guard (uploading state lags a render)
   // Files skipped by the dropzone accept filter (.docx side letters, scanned
   // .tif, etc.) — surfaced as a dismissible warning so intake never silently
   // drops a source.
@@ -118,6 +119,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // outcomes that already succeeded so the result view stays complete.
   const runUpload = async (batch: File[], keep: FileOutcome[] = []) => {
     if (!selectedIssuer || batch.length === 0) return;
+    // Re-entrancy guard: a fast double-click fires runUpload twice before React
+    // re-renders `uploading`, so the state check can't stop the duplicate — a ref
+    // set synchronously here does. Reset in finally so a throw can't wedge uploads.
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     cancelRef.current = false;
     setUploading(true);
     setError("");
@@ -127,53 +133,56 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setStep("result");
 
     let vaultedAny = false;
-    for (let i = 0; i < batch.length; i++) {
-      if (cancelRef.current) break;
-      const file = batch[i];
-      setProgress({ index: i + 1, total: batch.length, name: file.name });
-      const formData = new FormData();
-      formData.append("issuer_id", selectedIssuer.id);
-      formData.append("run_mode", runMode);
-      formData.append("file", file);
-      let settled: FileOutcome;
-      try {
-        const res = isSpreadsheet(file.name)
-          ? await uploadPricingSheet(formData)
-          : await uploadDocument(formData);
-        settled = { name: file.name, result: res, file };
-        vaultedAny = true;
-      } catch (err) {
-        settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        if (cancelRef.current) break;
+        const file = batch[i];
+        setProgress({ index: i + 1, total: batch.length, name: file.name });
+        const formData = new FormData();
+        formData.append("issuer_id", selectedIssuer.id);
+        formData.append("run_mode", runMode);
+        formData.append("file", file);
+        let settled: FileOutcome;
+        try {
+          const res = isSpreadsheet(file.name)
+            ? await uploadPricingSheet(formData)
+            : await uploadDocument(formData);
+          settled = { name: file.name, result: res, file };
+          vaultedAny = true;
+        } catch (err) {
+          settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+        }
+        setOutcomes((prev) => [...prev, settled]);
       }
-      setOutcomes((prev) => [...prev, settled]);
-    }
 
-    // Actually queue the analysis run the completion copy promises. The wizard
-    // used to SAY "run queued" while no UI path ever called POST /api/runs —
-    // the platform's core loop dead-ended and every live surface stayed empty
-    // (audit 2026-07-10 FE-1). Truthful outcomes: queued (with the run id),
-    // already-active (409 dedup), or failed (message; the panel says how to
-    // proceed). runQueuedRef stops a failed-file RETRY from double-posting a
-    // run that the first pass already queued.
-    if (vaultedAny && !cancelRef.current && !runQueuedRef.current) {
-      setRunOutcome({ state: "queuing" });
-      try {
-        const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
-        runQueuedRef.current = true;
-        setRunOutcome({ state: "queued", runId: run.id });
-      } catch (err: unknown) {
-        const status = (err as { response?: { status?: number } })?.response?.status;
-        if (status === 409) {
-          runQueuedRef.current = true;  // one is already active — same end state
-          setRunOutcome({ state: "active" });
-        } else {
-          setRunOutcome({ state: "failed", message: toErrorMessage(err, "Run not started") });
+      // Actually queue the analysis run the completion copy promises. The wizard
+      // used to SAY "run queued" while no UI path ever called POST /api/runs —
+      // the platform's core loop dead-ended and every live surface stayed empty
+      // (audit 2026-07-10 FE-1). Truthful outcomes: queued (with the run id),
+      // already-active (409 dedup), or failed (message; the panel says how to
+      // proceed). runQueuedRef stops a failed-file RETRY from double-posting a
+      // run that the first pass already queued.
+      if (vaultedAny && !cancelRef.current && !runQueuedRef.current) {
+        setRunOutcome({ state: "queuing" });
+        try {
+          const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+          runQueuedRef.current = true;
+          setRunOutcome({ state: "queued", runId: run.id });
+        } catch (err: unknown) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 409) {
+            runQueuedRef.current = true;  // one is already active — same end state
+            setRunOutcome({ state: "active" });
+          } else {
+            setRunOutcome({ state: "failed", message: toErrorMessage(err, "Run not started") });
+          }
         }
       }
+    } finally {
+      setProgress(null);
+      setUploading(false);
+      uploadingRef.current = false;
     }
-
-    setProgress(null);
-    setUploading(false);
   };
 
   const handleUpload = () => runUpload(files);

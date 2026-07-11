@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -688,7 +689,23 @@ async def create_research_report(
         analyst_id=caller.id,
     )
     db.add(report)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent requests can both pass the `existing` check-then-insert
+        # above before either commits; the loser hits uq_issuer_run_report. Return
+        # the winner's row instead of 500ing — same recovery shape as
+        # routes/models.py's SavedModel concurrent-first-save fix.
+        await db.rollback()
+        winner = (await db.execute(
+            select(IssuerResearchReport).where(
+                IssuerResearchReport.issuer_id == issuer_id,
+                IssuerResearchReport.run_id == latest_complete.id,
+            )
+        )).scalars().first()
+        if winner is None:  # pragma: no cover — constraint violated but no row found is impossible
+            raise
+        return ResearchReportCreated(id=winner.id, status=winner.status)
 
     # Fire-and-forget: execution outlives the request.
     request.app.state.research_report_executor.enqueue(report.id)
