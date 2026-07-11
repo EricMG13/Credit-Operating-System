@@ -16,7 +16,7 @@ import math
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, sort_key
+from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
@@ -32,9 +32,13 @@ def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
     if len(vals) < 2:
         return None
     (pp, prev), (lp, last) = vals[-2], vals[-1]
-    if not prev:
+    # safe_div, not a raw divide: it also rejects prev == 0 and an OUTPUT that
+    # overflows float range (a denormal-scale prev makes the ratio inf with
+    # finite operands — "declined inf% YoY" in committee text otherwise).
+    pct = safe_div(100 * (last - prev), prev)
+    if pct is None:
         return None
-    return round(100 * (last - prev) / prev, 1), pp, lp
+    return round(pct, 1), pp, lp
 
 
 def compute_deltas(normalized_financials: dict) -> dict:
@@ -80,14 +84,10 @@ def compute_deltas(normalized_financials: dict) -> dict:
         if isinstance(adj_ebitda, (int, float)) and not isinstance(adj_ebitda, bool) and not math.isfinite(adj_ebitda):
             adj_ebitda = None
 
-        if (
-            is_finite_number(revenue)
-            and revenue
-            and is_finite_number(adj_ebitda)
-        ):
-            ebitda_margin = round(100 * adj_ebitda / revenue, 1)
-        else:
-            ebitda_margin = None
+        # safe_div (not raw /): guards revenue == 0/None AND an output that
+        # overflows float range with finite operands (denormal revenue).
+        m = safe_div(100 * adj_ebitda, revenue) if is_finite_number(adj_ebitda) else None
+        ebitda_margin = round(m, 1) if m is not None else None
 
         rows.append(
             {

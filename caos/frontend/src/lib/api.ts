@@ -801,5 +801,15 @@ export interface SavedModelDTO {
 }
 export const getSavedModel = (issuerId: string): Promise<SavedModelDTO | null> =>
   api.get(`/api/models/${issuerId}`).then((r) => r.data);
-export const saveModel = (issuerId: string, payload: Record<string, unknown>): Promise<SavedModelDTO> =>
-  api.put(`/api/models/${issuerId}`, { payload }).then((r) => r.data);
+// expectedUpdatedAt: the updated_at this client last saw. Pass it so a save
+// made stale by another tab (same analyst) rejects with 409 instead of
+// silently overwriting — see routes/models.py save_model's optimistic-
+// concurrency guard. Omit (undefined) to skip the check.
+export const saveModel = (
+  issuerId: string,
+  payload: Record<string, unknown>,
+  expectedUpdatedAt?: string | null,
+): Promise<SavedModelDTO> =>
+  api
+    .put(`/api/models/${issuerId}`, { payload, expected_updated_at: expectedUpdatedAt ?? undefined })
+    .then((r) => r.data);

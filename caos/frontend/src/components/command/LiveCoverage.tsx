@@ -12,17 +12,19 @@ import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 
-const fmtX = (v: number | undefined) =>
+// Exported: the IssuerStrip live variant formats the same run metrics.
+export const fmtX = (v: number | undefined) =>
   typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
 
 // Fragility / posture meaning never rides on colour alone — the word travels too.
-const FRAGILITY_COLOR: Record<string, string> = {
+// Exported: the IssuerStrip live variant renders the same fields with the same coding.
+export const FRAGILITY_COLOR: Record<string, string> = {
   HIGH: "var(--caos-critical)", MODERATE: "var(--caos-warning)", LOW: "var(--caos-success)",
 };
-const RV_COLOR: Record<string, string> = {
+export const RV_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", NEUTRAL: "var(--caos-muted)", UNDERWEIGHT: "var(--caos-critical)",
 };
-const QA_COLOR: Record<string, string> = {
+export const QA_COLOR: Record<string, string> = {
   Pass: "var(--caos-success)", "Ready with Limitations": "var(--caos-warning)",
   Blocked: "var(--caos-critical)",
 };
@@ -97,11 +99,14 @@ export function LiveCoverage({
           {visibleRows.map((r) => {
             const rv = r.rv_recommendation;
             const frag = r.downside_fragility;
-            const isSelected = selected === r.ticker;
+            // Select by ticker, falling back to issuer_id: a live row without a
+            // ticker was previously unselectable (silent dead-end on click).
+            const selectKey = r.ticker ?? r.issuer_id;
+            const isSelected = selected === selectKey;
 
             const handleClick = () => {
-              if (r.ticker && onSelect) {
-                onSelect(r.ticker);
+              if (onSelect) {
+                onSelect(selectKey);
               }
             };
 

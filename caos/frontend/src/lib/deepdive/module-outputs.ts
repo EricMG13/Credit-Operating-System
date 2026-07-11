@@ -1,7 +1,5 @@
 // AUTO-PORTED from the Credit OS design bundle (shared/deal-modules.js).
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
-/* eslint-disable */
-
 export interface OutFlag { sev: string; text: string; ev?: string[] }
 export type OutSection =
   | { type: "table"; title: string; cols: string[]; align?: number[]; rows: string[][] }

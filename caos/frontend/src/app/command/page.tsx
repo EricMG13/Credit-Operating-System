@@ -45,6 +45,13 @@ function CommandCenter() {
   const tick = run.sim.tick;
   const portfolio = usePortfolio();
 
+  // A Live Coverage selection resolves against the LIVE rows, never the seeded
+  // fixture — a live ticker matching a seeded code must not show sample figures
+  // attributed to the live issuer (and an unmatched one must not dead-end).
+  const liveSelected = selected
+    ? portfolio.rows.find((r) => (r.ticker ?? r.issuer_id) === selected) ?? null
+    : null;
+
   // "Still accruing" is "not done yet" — matches Monitor's identical read of
   // the same shared clock so the two pages never disagree (critique P1).
   const alertsToday = simAlertsToday(tick, !run.sim.done);
@@ -78,7 +85,7 @@ function CommandCenter() {
           <span className="h-4 w-px bg-caos-border shrink-0" />
           <span className="text-caos-md text-caos-muted truncate min-w-0">US HY sleeve</span>
           <span
-            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted hidden sm:inline"
+            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted"
             title="Sample US HY sleeve for the Phase-1 showcase — not live positions."
           >
             Sample portfolio — not live
@@ -194,7 +201,7 @@ function CommandCenter() {
         </div>
       </div>
 
-      {selected ? <IssuerStrip code={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <IssuerStrip code={selected} liveRow={liveSelected} onClose={() => setSelected(null)} /> : null}
     </ResponsiveShell>
   );
 }

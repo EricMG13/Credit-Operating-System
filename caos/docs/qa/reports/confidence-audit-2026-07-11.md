@@ -99,10 +99,12 @@ CP-5 finding functions all degrade to None on junk input (adjusted/earnings/metr
 
 | Item | Severity | Owner action |
 |---|---|---|
-| B-1/B-2/B-3 Command Center strip + seam + evidence gaps | MEDIUM | product fix (single cluster) |
-| E-2 off-host backup sync | MEDIUM (ops) | operator runbook or shipped sync |
-| D-3 destructive shared mutations | MED sign-off | product decision |
-| D-5 BE6-1 allowlist test | MED (carried) | add regression test before touching presets routing |
-| A-1/A-2 theoretical output-inf residue | LOW | mechanical safe_div conversion when convenient |
-| A-6 YoY label on non-annual series | LOW | product call |
-| 2026-07-10 fixes still uncommitted (484+/99− across 36 files, co-mingled with user WIP) | process | commit when WIP untangles |
+| B-1/B-2/B-3 Command Center strip + seam + evidence gaps | MEDIUM | ~~product fix~~ **FIXED 2026-07-11** (live-aware IssuerStrip + SAMPLE tag + deep-dive link; browser-verified desktop+mobile; `views.test.tsx` pins both variants) |
+| E-2 off-host backup sync | MEDIUM (ops) | **MITIGATED 2026-07-11** — opt-in `BACKUP_SYNC_CMD` hook in backup.sh/compose/.env.example (off by default; operator supplies target) |
+| D-3 destructive shared mutations | MED sign-off | **CLOSED 2026-07-11 — accepted by design.** User: keep team-shared. `portfolios.update_holdings`/`query.retract_link` stay open to any authenticated analyst; matches the single-team IDOR acceptance already on record. No code change. |
+| D-5 BE6-1 allowlist test | MED (carried) | **FIXED 2026-07-11** — 4 regression tests in `test_presets.py` (reject non-allowlisted pin / honor allowlisted / degrade keyless / null sentinels) |
+| A-1/A-2 theoretical output-inf residue | LOW | **FIXED 2026-07-11** — earnings via safe_div; covenants+textscan amount parses finite-gated at source; pinned in `test_nan_guards.py` |
+| A-6 YoY label on non-annual series | LOW | **CLOSED 2026-07-11 — accepted by design.** User: keep the "YoY" label. `earnings.py` compares the last two comparable periods regardless of cadence; CP-1 series are FY/LTM in practice so the label is usually right. No code change. |
+| E-4 doc-rot (A0 blockers, backup.sh pg16 comment) | LOW | **FIXED 2026-07-11** — A0-1..A0-5 marked resolved with verification note; comment corrected |
+| EvidenceModal `\|\|`/ternary precedence fragility | LOW | **FIXED 2026-07-11** — explicit parens + intent comment |
+| 2026-07-10 fixes still uncommitted (484+/99− across 36 files, co-mingled with user WIP) | process | commit when WIP untangles (2026-07-11 fixes now share the same tree) |

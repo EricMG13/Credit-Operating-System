@@ -99,7 +99,10 @@ def _amount_match(pattern: "re.Pattern", text: str) -> Optional[float]:
     amt = float(m.group(1).replace(",", ""))
     if m.group(2).lower() == "billion":
         amt *= 1000
-    return amt
+    # Finite + positive, mirroring the LLM path's amount_term gate: `[\d,]+` is
+    # unbounded, so a garbage 309+-digit run parses to inf and would otherwise
+    # flow raw into the pro-forma leverage divide.
+    return amt if is_finite_number(amt) and amt > 0 else None
 
 
 def _addback_cap(text: str) -> Optional[float]:
@@ -196,7 +199,9 @@ def derive_covenant_terms(
                 amt = float(m.group(1).replace(",", ""))
                 if m.group(2).lower() == "billion":
                     amt *= 1000  # normalise to $M
-                incremental = (amt, cid, True)
+                # Same finite/positive gate as _amount_match / amount_term.
+                if is_finite_number(amt) and amt > 0:
+                    incremental = (amt, cid, True)
         if leverage_cov is None and _LEV_CHECK.search(text):
             res = _maintenance_leverage_threshold(text)
             if res is not None:

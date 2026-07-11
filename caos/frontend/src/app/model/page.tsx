@@ -7,6 +7,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import axios from "axios";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
@@ -111,6 +112,11 @@ function ModelBuilder() {
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // True when a save was rejected because this issuer's model was saved
+  // elsewhere since it was last loaded here (another tab, same analyst) —
+  // distinct from saveError so the recovery affordance (reload) can differ
+  // from a generic failure (retry the same save).
+  const [saveConflict, setSaveConflict] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [armReset, setArmReset] = useState(false);
   const savedSnapshot = useRef<string | null>(null);
@@ -291,6 +297,7 @@ function ModelBuilder() {
   const saveCurrentModel = () => {
     setSaving(true);
     setSaveError(false);
+    setSaveConflict(false);
     return saveIssuerModel(issuerId, {
       version: 1,
       assumptions,
@@ -298,13 +305,16 @@ function ModelBuilder() {
       collapsedRows: [...collapsedRows],
       view: { showQuarters, showAssumptions, showScenarios },
       model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
-    })
+    }, savedAt)
       .then((r) => {
         setSavedAt(r.updated_at);
         // re-baseline the dirty flag to the just-saved state
         savedSnapshot.current = serializeSavable(assumptions, overrides, collapsedRows);
       })
-      .catch(() => setSaveError(true))
+      .catch((e) => {
+        if (axios.isAxiosError(e) && e.response?.status === 409) setSaveConflict(true);
+        else setSaveError(true);
+      })
       .finally(() => setSaving(false));
   };
 
@@ -426,6 +436,17 @@ function ModelBuilder() {
             >
               ⚠ LIVE RUN UNAVAILABLE
             </span>
+          ) : saveConflict ? (
+            <button
+              type="button"
+              onClick={() => { setSaveConflict(false); retryRestore(); }}
+              role="alert"
+              title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes."
+              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
+            >
+              ✗ SAVED ELSEWHERE · RELOAD
+            </button>
           ) : saveError ? (
             <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
               ✗ SAVE FAILED

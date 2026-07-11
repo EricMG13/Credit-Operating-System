@@ -440,3 +440,54 @@ def test_edgar_interest_coverage_requires_positive_interest():
     assert not (eb_ly and eb_ly > 0 and int0 and int0 > 0)
     int0 = 200.0
     assert (eb_ly and eb_ly > 0 and int0 and int0 > 0)
+
+
+# ── Output-inf residue: finite operands whose RATIO overflows float range ─────
+# (confidence-audit 2026-07-11 A-1/A-2/A-3: the safe_div output-finiteness
+# discipline applied to the earnings deltas and the document-amount parsers.)
+
+
+def test_compute_deltas_denormal_prior_revenue_degrades_not_inf():
+    """revenue 5e-324 → 1.0 is a +inf percent change with finite operands; the
+    YoY delta must degrade to None, never emit inf into committee text."""
+    from engine.earnings import compute_deltas
+
+    out = compute_deltas({"revenue": {"FY23": 5e-324, "FY24": 1.0},
+                          "adj_ebitda": {"FY23": 5e-324, "FY24": 1.0}})
+    s = out["summary"]
+    assert s["revenue_growth_pct"] is None
+    assert s["ebitda_growth_pct"] is None
+    for row in out["periods"]:
+        m = row["ebitda_margin"]
+        assert m is None or math.isfinite(m)
+
+
+def test_compute_deltas_denormal_revenue_margin_degrades_not_inf():
+    """EBITDA margin with a denormal revenue denominator overflows to inf with
+    finite operands; the row margin must be None."""
+    from engine.earnings import compute_deltas
+
+    out = compute_deltas({"revenue": {"FY24": 5e-324}, "adj_ebitda": {"FY24": 1.0}})
+    assert out["periods"][0]["ebitda_margin"] is None
+
+
+def test_textscan_amount_musd_rejects_overflowing_amount():
+    """`[\\d,]+` is unbounded — a 320-digit amount parses to inf and must be
+    dropped at the source, not handed to consumers as a quantum."""
+    import re
+
+    from engine.textscan import amount_musd
+
+    kw = re.compile(r"revolver", re.IGNORECASE)
+    garbage = "undrawn revolver of $" + "9" * 320 + " million available"
+    assert amount_musd(garbage, kw) is None
+    # sanity: a real amount still parses
+    assert amount_musd("undrawn revolver of $500 million", kw) == 500.0
+
+
+def test_covenants_amount_match_rejects_overflowing_amount():
+    from engine.covenants import _INCREMENTAL_AMT, _amount_match
+
+    garbage = "incremental facility of $" + "9" * 320 + " million"
+    assert _amount_match(_INCREMENTAL_AMT, garbage) is None
+    assert _amount_match(_INCREMENTAL_AMT, "incremental facility of $250 million") == 250.0
