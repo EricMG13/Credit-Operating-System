@@ -38,6 +38,13 @@ const LIVE_MODULES = [
 
 export interface LiveRunState {
   liveOuts: Record<string, ModuleOutput>;
+  // Per-produced-module qa_status (Passed / Restricted / Blocked / Not Reviewed),
+  // keyed by module_id. Carried alongside liveOuts because a *failed* module is
+  // persisted as a real row with output — so presence in liveOuts can't tell a
+  // failure from a pass. The deep-dive launcher reads this (via moduleLiveState)
+  // to light a Blocked module as failed instead of a false green. Empty when no
+  // live run exists.
+  liveStatus: Record<string, string>;
   // The run's own evidence, by E-xx id (see LiveEvidence). Drives live
   // click-to-source; empty when no live run exists.
   liveEvidence: Record<string, LiveEvidence>;
@@ -61,7 +68,7 @@ export interface LiveRunState {
 type LiveRunValue = Omit<LiveRunState, "phase">;
 
 const EMPTY: LiveRunValue = {
-  liveOuts: {}, liveEvidence: {}, runId: null, committeeStatus: null,
+  liveOuts: {}, liveStatus: {}, liveEvidence: {}, runId: null, committeeStatus: null,
   council: [], loading: false,
 };
 
@@ -78,9 +85,11 @@ export function useLiveRun(issuerId: string): LiveRunState {
       const all = await getModules(latest.id).catch(() => []);
       const details = all.filter((d) => eligible.has(d.module_id));
       const liveOuts: Record<string, ModuleOutput> = {};
+      const liveStatus: Record<string, string> = {};
       const liveEvidence: Record<string, LiveEvidence> = {};
       for (const detail of details) {
         liveOuts[detail.module_id] = adaptModule(detail);
+        liveStatus[detail.module_id] = detail.qa_status;
         for (const c of detail.claims || []) {
           for (const ev of c.evidence) {
             liveEvidence[ev.evidence_id] = { ...ev, module: detail.module_id, claim: c.claim_text };
@@ -110,7 +119,7 @@ export function useLiveRun(issuerId: string): LiveRunState {
         council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
       }
       return {
-        liveOuts, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
+        liveOuts, liveStatus, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
         council, loading: false,
       };
     },
