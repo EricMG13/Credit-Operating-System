@@ -63,10 +63,13 @@ CASES = [
      _out(5.68, [_scen(10, 6.31, -1.89), _scen(20, 7.1, -1.68), _scen(30, 8.11, -1.47)], 20, "MODERATE")),
     ("cov_zero", {"net_leverage_adj_ltm": 5.68, "interest_coverage_ltm": 0.0},
      _out(5.68, [_scen(10, 6.31, 0.0), _scen(20, 7.1, 0.0), _scen(30, 8.11, 0.0)], 20, "MODERATE")),
-    ("lev_negative", {"net_leverage_adj_ltm": -5.0, "interest_coverage_ltm": 2.0},
-     _out(-5.0, [_scen(10, -5.56, 1.8), _scen(20, -6.25, 1.6), _scen(30, -7.14, 1.4)], None, "LOW")),
-    ("lev_zero", {"net_leverage_adj_ltm": 0.0, "interest_coverage_ltm": 2.0},
-     _out(0.0, [_scen(10, 0.0, 1.8), _scen(20, 0.0, 1.6), _scen(30, 0.0, 1.4)], None, "LOW")),
+    # Non-positive leverage → None (Insufficient), NOT a scored pathway: the
+    # held-flat-debt algebra is meaningless for net-cash / negative-EBITDA
+    # issuers, and the old goldens pinned exactly the bug — a -5x issuer (the
+    # most distressed read) scored fragility LOW at High confidence, feeding
+    # CP-3D (audit 2026-07-10 ENG-13).
+    ("lev_negative", {"net_leverage_adj_ltm": -5.0, "interest_coverage_ltm": 2.0}, None),
+    ("lev_zero", {"net_leverage_adj_ltm": 0.0, "interest_coverage_ltm": 2.0}, None),
     ("lev_int", {"net_leverage_adj_ltm": 6, "interest_coverage_ltm": 2},
      _out(6.0, [_scen(10, 6.67, 1.8), _scen(20, 7.5, 1.6), _scen(30, 8.57, 1.4)], 20, "MODERATE")),
 

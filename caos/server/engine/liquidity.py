@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest_annual
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -64,7 +64,7 @@ def _interest_runway_months(
 
     Inputs (all in $mm, sourced from CP-1's canonical/normalized financials):
       - disclosed_liquidity : undrawn revolver + cash on hand, as quantified upstream.
-      - latest(adj_ebitda)  : most recent LTM adjusted EBITDA.
+      - latest_annual(adj_ebitda) : most recent annual-basis (LTM/FY) adjusted EBITDA.
       - interest_coverage_ltm : EBITDA / cash interest (the LTM coverage ratio).
 
     The math an analyst can re-derive by hand:
@@ -81,7 +81,7 @@ def _interest_runway_months(
         return None, None
 
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
-    ebitda, coverage = latest(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
+    ebitda, coverage = latest_annual(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
 
     if not (is_finite_number(ebitda) and is_finite_number(coverage) and coverage):
         return None, None

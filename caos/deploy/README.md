@@ -10,7 +10,8 @@ Caddy (TLS, :443)  →  oauth2-proxy (auth)  →  app (FastAPI + UI)  →  db (P
                                                    vault volume
 ```
 
-All four services are free / OSS. Only the Anthropic API carries usage cost
+All five services (db, app, oauth2-proxy, caddy, backup — plus the opt-in
+clamav profile) are free / OSS. Only the Anthropic API carries usage cost
 (and is optional — without a key, chat/synthesis fall back to demo replies).
 
 ## Prerequisites
@@ -26,8 +27,12 @@ All four services are free / OSS. Only the Anthropic API carries usage cost
 ```bash
 cd caos/deploy
 cp .env.example .env
-# Fill in: CAOS_DOMAIN, POSTGRES_PASSWORD, ANTHROPIC_API_KEY, EDGAR_USER_AGENT,
-# CAOS_EMAIL_DOMAIN, OAUTH2_PROXY_CLIENT_ID / _SECRET, and:
+# Fill in: CAOS_DOMAIN, POSTGRES_PASSWORD (URL-safe charset), ANTHROPIC_API_KEY,
+# EDGAR_USER_AGENT, CAOS_EMAIL_DOMAIN, OAUTH2_PROXY_CLIENT_ID / _SECRET, plus the
+# three app secrets production refuses to boot without:
+python -c "import secrets;print(secrets.token_urlsafe(32))"   # → EDGE_PROXY_SECRET
+python -c "import secrets;print(secrets.token_urlsafe(32))"   # → SESSION_SECRET
+# ANALYST_SIGNUP_CODE → pick a PRIVATE code (placeholders are refused at boot)
 openssl rand -base64 32      # → OAUTH2_PROXY_COOKIE_SECRET
 
 docker compose up -d --build
@@ -60,11 +65,18 @@ survives `docker compose restart app`, and EDGAR search returns pointers.
 | Update to a new build | `git pull && docker compose up -d --build` |
 | Restart the app only | `docker compose restart app` |
 | Tail logs | `docker compose logs -f app` |
-| **Back up the DB** | `docker compose exec db pg_dump -U caos caos > caos-$(date +%F).sql` |
-| Back up the vault | `docker run --rm -v caos_vault-data:/v -v "$PWD":/b alpine tar czf /b/vault-$(date +%F).tgz -C /v .` |
-| Stop everything | `docker compose down` (volumes persist) |
+| Inspect backups | `docker compose exec backup ls -lh /backups` |
+| Ad-hoc DB dump (same format as the service) | `docker compose exec db pg_dump -U caos -Fc caos > caos-$(date +%F).dump` |
+| Stop everything | `docker compose down` (volumes persist; `down -v` destroys DB, vault **and backups**) |
 
-Schedule the two backups (cron) — they are the only durable state.
+Backups are AUTOMATED: the `backup` service writes a daily `pg_dump -Fc`
+(pg_restore-able) + a vault tarball to the `backups` volume with rotation — no
+cron needed on the host. Copy `/backups` OFF the host (rsync / object storage)
+for host-loss protection; the restore drill lives in
+[LAUNCH_PHASE1](../docs/LAUNCH_PHASE1.md) Operations. (An earlier version of
+this table predated the backup service and taught a plain-SQL dump — that
+format needs `psql`, not `pg_restore`; prefer `-Fc` so drills and recovery use
+one path.)
 
 ## Security notes
 

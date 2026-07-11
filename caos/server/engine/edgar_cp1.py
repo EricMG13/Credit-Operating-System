@@ -51,7 +51,14 @@ _IMPAIRMENT = ("GoodwillAndIntangibleAssetImpairment", "GoodwillImpairmentLoss",
                "TangibleAssetImpairmentCharges")
 _INTEREST = ("InterestExpense", "InterestExpenseDebt", "InterestAndDebtExpense")
 _LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations", "LongTermDebt")
-_DEBT_CURRENT = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent", "DebtCurrent")
+# Broad current-debt concepts first (tie-break preserves prior behavior); the
+# narrow instrument tags (notes payable / CP / credit lines) are appended so a
+# filer that tags ONLY those no longer contributes a silent $0 current-debt leg
+# and an understated leverage (audit 2026-07-10 ENG-7). Composition is disclosed
+# via a limitation flag whenever a leg is absent or a narrow concept was used.
+_DEBT_CURRENT = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent", "DebtCurrent",
+                 "NotesPayableCurrent", "CommercialPaper", "LinesOfCreditCurrent")
+_DEBT_CURRENT_NARROW = ("NotesPayableCurrent", "CommercialPaper", "LinesOfCreditCurrent")
 _CASH = ("CashAndCashEquivalentsAtCarryingValue",
          "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
 # Balance-sheet concepts for the Altman Z'' distress score (all instant).
@@ -390,7 +397,37 @@ def _limitation_flags(impair: Dict[int, Tuple[float, str]], imp_c: Optional[str]
             "Net leverage not derived: reported net debt <= 0 or EBITDA <= 0 from XBRL tags "
             "(net cash, a loss year, or captive-finance debt not fully captured) — verify total "
             "debt against the filing.")
+    elif lev.leverage is None and not lev.total_debt:
+        # The no-recognized-debt-tags case previously produced a leverage-less CP-1
+        # with no stated reason (audit 2026-07-10 E2) — say why, explicitly.
+        limitations.append(
+            "Net leverage not derived: no recognized long-term-debt or current-debt XBRL "
+            "concepts found in the filing's facts — verify the capital structure against the "
+            "balance sheet.")
+    if "net_leverage_adj_ltm" in financials:
+        limitations.extend(_net_debt_composition_flags(lev))
     return limitations
+
+
+def _net_debt_composition_flags(lev: _LevFacts) -> List[str]:
+    """Composition caveats on an EMITTED leverage: a debt/cash leg whose concept
+    is entirely absent contributes $0 silently, understating leverage — the
+    non-conservative direction (audit 2026-07-10 ENG-7). Same caveat when the
+    current-debt leg came from a narrow instrument tag (notes payable / CP /
+    credit lines), which may not capture every current borrowing."""
+    missing = [name for name, c in
+               (("long-term debt", lev.ltd_c), ("current debt", lev.dc_c), ("cash", lev.cash_c))
+               if c is None]
+    if missing:
+        return [
+            f"Net debt treats {' and '.join(missing)} as $0 — no XBRL concept for that leg "
+            "was found in the filing's facts; verify net debt composition against the "
+            "balance sheet (leverage may be understated)."]
+    if lev.dc_c in _DEBT_CURRENT_NARROW:
+        return [
+            f"Current debt was read from the narrow us-gaap:{lev.dc_c} tag — verify it "
+            "captures all short-term borrowings (leverage may be understated)."]
+    return []
 
 
 def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Optional[ModulePayload]:

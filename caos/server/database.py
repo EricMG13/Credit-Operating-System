@@ -490,9 +490,12 @@ class MetricFact(Base):
     document_chunk_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("document_chunks.id")
     )
-    provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
-    # EBITDA/leverage basis: reported (EDGAR GAAP) | adjusted (covenant/modeled) |
-    # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
+    # run | fixture (genuine ATLF demo) | demo_fixture (fabricated — flagged,
+    # excluded from peer/graph reads) | derived (chunk-extracted) | seed.
+    provenance: Mapped[str] = mapped_column(String(16), default="seed")
+    # EBITDA/leverage basis: reported (EDGAR GAAP XBRL) | reported_disclosure
+    # (issuer-disclosed headline) | adjusted (covenant/modeled) | None where the
+    # metric is basis-agnostic (e.g. energy exposure, Altman Z). (#27)
     basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 

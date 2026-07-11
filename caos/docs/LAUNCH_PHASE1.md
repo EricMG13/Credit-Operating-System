@@ -91,9 +91,19 @@ cd caos/deploy
 cp .env.example .env
 openssl rand -base64 32        # → OAUTH2_PROXY_COOKIE_SECRET
 ```
-Set in `.env`: `CAOS_DOMAIN`, `POSTGRES_PASSWORD` (long random),
-`ANTHROPIC_API_KEY`, `EDGAR_USER_AGENT`, `CAOS_EMAIL_DOMAIN` (restricts sign-in
-to your Workspace), `OAUTH2_PROXY_CLIENT_ID` / `_SECRET`, and the cookie secret.
+Set in `.env`: `CAOS_DOMAIN`, `POSTGRES_PASSWORD` (long random, URL-safe
+charset — it is interpolated raw into `DATABASE_URL`), `ANTHROPIC_API_KEY`,
+`EDGAR_USER_AGENT`, `CAOS_EMAIL_DOMAIN` (restricts sign-in to your Workspace),
+`OAUTH2_PROXY_CLIENT_ID` / `_SECRET`, the cookie secret, **and the three app
+secrets production refuses to boot without** (this list previously omitted
+them — audit 2026-07-10 DEP-3):
+
+```bash
+python -c "import secrets;print(secrets.token_urlsafe(32))"  # → EDGE_PROXY_SECRET
+python -c "import secrets;print(secrets.token_urlsafe(32))"  # → SESSION_SECRET
+# ANALYST_SIGNUP_CODE → pick a PRIVATE code; boot refuses the public
+# defaults/placeholders ("131113", "change-me-private-code", empty).
+```
 **Never commit `.env`.**
 
 > **Why these matter:** `CAOS_DEMO_SEED=false` + `ENVIRONMENT=production`
@@ -160,8 +170,10 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   app. If sign-in succeeds but every page 401s, the header is **not** passing
   through — inject it at oauth2-proxy instead of Caddy. The secret is required, so
   disabling it is not an option; the passthrough must be fixed.
-- [ ] **Container hardening holds.** `docker compose ps` shows `app` and
-  `oauth2-proxy` **healthy** under their read-only rootfs. If `app` crash-loops on
+- [ ] **Container hardening holds.** `docker compose ps` shows `app` **healthy**
+  (it has a HEALTHCHECK) and `oauth2-proxy` **running/Up** (the upstream image
+  ships no healthcheck, so it never reads "healthy" — checking for that was
+  unsatisfiable as written; audit 2026-07-10 F8-doc). If `app` crash-loops on
   a write outside `/vault` or `/tmp`, add that path to its `tmpfs:` list in
   `docker-compose.yml`.
 - [ ] **Demo seed is OFF.** The issuer registry is **empty** on first load. App
@@ -222,6 +234,16 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 ## 7. Rollback / abort
 
 1. **Roll back code:** `git checkout <last-good-commit> && docker compose up -d --build`.
+   **Migration caveat (audit 2026-07-10 DEP-4):** schema self-applies FORWARD
+   only. If the bad deploy shipped a new Alembic migration, `alembic_version`
+   now names a revision the last-good image doesn't contain, and its boot-time
+   `upgrade head` fails ("Can't locate revision") — the app crash-loops. Before
+   starting the old image, downgrade the schema from the NEW image:
+   ```bash
+   docker compose run --rm app python -m alembic downgrade <last-good-revision>
+   # (or restore the pre-deploy pg_dump if the migration was destructive)
+   ```
+   then check out the last-good commit and `up -d --build`.
 2. **Config-only faults** (wrong DB URL, missing secret, EDGAR 503, OAuth
    redirect mismatch): fix `.env` / the OAuth client and
    `docker compose up -d` again. No data migration needed — schema self-applies.
@@ -230,7 +252,9 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
    (see [deploy/README](../deploy/README.md) Operations) — `pg_dump` + a vault
    tarball are the only durable state.
 4. **Full stop:** `docker compose down` (volumes persist) or
-   `docker compose down -v` (**destroys** DB + vault — intentional reset only).
+   `docker compose down -v` (**destroys** DB + vault **and the `backups`
+   volume** — copy `/backups` off-host first if you intend to restore after the
+   reset; intentional reset only).
 
 ---
 
@@ -248,7 +272,7 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 | PERF-1 | Performance | Single-process baseline checked by `caos/tests/perf/smoke.py` (p95 gate). Not load-characterised; sized for 3–5 analysts. |
 | FB-1 | User feedback loop | Pilot feedback via the team channel + GitHub issues, triaged weekly into the backlog. |
 | AB-1 | A/B testing | **N/A** for a single-team pilot — no traffic to split, no cohort metric. Add cohort flags only if a multi-cohort rollout becomes real. |
-| SCALE-1 | Scale-out | Single process by design; the Postgres `SKIP LOCKED` run worker (`test_async_runs.py`) already supports horizontal app replicas when load requires. |
+| SCALE-1 | Scale-out | Single process by design. The Postgres `SKIP LOCKED` run worker (`test_async_runs.py`) and the advisory-locked boot migration are replica-safe, **but two components are NOT yet** (audit 2026-07-10 DEP-5): the Deep-Research executor's boot sweep marks *other* replicas' running jobs failed (no worker scoping), and rate limits are per-process (multiply by replica count). Give research jobs the QueueWorker's claim/lease treatment before scaling past one app replica. |
 | — | On-host backups only | The `backup` service runs daily `pg_dump` + vault tarball with rotation (P7-1). **Copy `/backups` off-host** (rsync / object storage) for host-loss protection. |
 
 ---

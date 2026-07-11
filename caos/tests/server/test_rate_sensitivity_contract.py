@@ -30,7 +30,14 @@ import pytest
 
 from engine.macro import compute_rate_sensitivity
 
-_ASSUMPTION = "Assumes 100% floating-rate and unhedged (no hedge register ingested)."
+# Pins the NET-debt-basis disclosure: the spec formula (CP-2F REF-05) shocks
+# gross unhedged floating debt; CP-1 carries no gross figure, so the engine
+# shocks net debt and must SAY so — the old string claimed unqualified
+# conservatism, false for cash-heavy issuers (audit 2026-07-10 ENG-12).
+_ASSUMPTION = ("Shock applied to NET debt (cash netted — assumes cash income "
+               "reprices with the shock; understates the impact for cash-heavy "
+               "issuers vs the gross floating-rate base). Assumes 100% "
+               "floating-rate and unhedged (no hedge register ingested).")
 _NAN = float("nan")
 _INF = float("inf")
 

@@ -77,11 +77,12 @@ import asyncio
 async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch):
     """Proof the layer fan-out actually overlaps I/O, not just that it looks like it.
 
-    CP-1A (BusinessTransactionFactPack) and CP-4C (covenant capacity) both depend
-    only on CP-1, so they share a CP-X dependency layer. Replace each with a synth
-    that sleeps SLEEP seconds, then run the whole pipeline: if the layer runs them
-    concurrently the two sleeps overlap (total ≈ 1×SLEEP); if it regressed to serial
-    they'd sum (≈ 2×SLEEP)."""
+    CP-4 (legal review) and CP-4C (covenant capacity) both depend only on CP-1,
+    so they share a CP-X dependency layer (CP-1A moved to layer 0 when its
+    repudiated CP-1 edge was removed — corpus M2 / audit SPEC-2). Replace each
+    with a synth that sleeps SLEEP seconds, then run the whole pipeline: if the
+    layer runs them concurrently the two sleeps overlap (total ≈ 1×SLEEP); if it
+    regressed to serial they'd sum (≈ 2×SLEEP)."""
     from database import AsyncSessionLocal, Run
     from engine import bindings
     from engine.fixtures import REFERENCE_ISSUER_ID
@@ -91,14 +92,14 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
     spans = {}
     # These synthesizers now live behind the bindings dispatch seam (spec P1·C1);
     # patch them there, not on runner.
-    real_fp, real_cov = bindings.synthesize_fact_pack, bindings.synthesize_covenants
+    real_lr, real_cov = bindings.synthesize_legal_review, bindings.synthesize_covenants
 
-    async def slow_fp(retrieve):
+    async def slow_lr(retrieve):
         loop = asyncio.get_running_loop()
-        spans["CP-1A:start"] = loop.time()
+        spans["CP-4:start"] = loop.time()
         await asyncio.sleep(SLEEP)
-        result = await real_fp(retrieve)
-        spans["CP-1A:end"] = loop.time()
+        result = await real_lr(retrieve)
+        spans["CP-4:end"] = loop.time()
         return result
 
     async def slow_cov(cp1, retrieve):
@@ -109,7 +110,7 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
         spans["CP-4C:end"] = loop.time()
         return result
 
-    monkeypatch.setattr(bindings, "synthesize_fact_pack", slow_fp)
+    monkeypatch.setattr(bindings, "synthesize_legal_review", slow_lr)
     monkeypatch.setattr(bindings, "synthesize_covenants", slow_cov)
 
     async with AsyncSessionLocal() as s:
@@ -125,8 +126,8 @@ async def test_same_layer_modules_synthesize_concurrently(seeded_db, monkeypatch
     # Prove the two target synthesizers overlapped directly. Total pipeline
     # elapsed time includes unrelated serial session modules and fixture overhead,
     # so it is too noisy a proxy for same-layer fan-out.
-    assert {"CP-1A:start", "CP-1A:end", "CP-4C:start", "CP-4C:end"} <= spans.keys()
-    overlap = min(spans["CP-1A:end"], spans["CP-4C:end"]) - max(spans["CP-1A:start"], spans["CP-4C:start"])
+    assert {"CP-4:start", "CP-4:end", "CP-4C:start", "CP-4C:end"} <= spans.keys()
+    overlap = min(spans["CP-4:end"], spans["CP-4C:end"]) - max(spans["CP-4:start"], spans["CP-4C:start"])
     assert overlap > 0.8 * SLEEP, f"target synthesizers did not overlap enough: {overlap:.2f}s"
 
 
