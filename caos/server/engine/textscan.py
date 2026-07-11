@@ -12,8 +12,11 @@ import math
 import re
 from typing import Iterable, Iterator, Optional, Sequence, Tuple
 
-# "$1,234.5 million / billion / m / bn" → normalised to $M.
-_AMOUNT = re.compile(r"\$?\s?([\d,]+(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
+# "$1,234.5 million / billion / m / bn" → normalised to $M. Require a leading DIGIT
+# (\d[\d,]*) so a lone/leading comma can't match — "[\d,]+" would capture "," and
+# float("") then raised ValueError, losing a whole CP-2E/3B module to one malformed
+# sentence (the runner's per-module catch contains it, but it's still a lost module).
+_AMOUNT = re.compile(r"\$?\s?(\d[\d,]*(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
 
 # Clause terminators: an amount on the far side of one of these belongs to a
 # different sentence/tranche, so the keyword's clause stops here. A period is a
@@ -25,7 +28,14 @@ _CLAUSE_GAP = 200
 
 
 def _to_musd(a: "re.Match[str]") -> Optional[float]:
-    val = float(a.group(1).replace(",", ""))
+    # Defensive try/except (belt-and-suspenders behind the leading-digit _AMOUNT
+    # regex): never let a surprising capture raise into a caller with no try/except
+    # (liquidity/capstructure/sponsor) — return None so the caller records the
+    # qualitative hit with a null quantum instead of losing the module.
+    try:
+        val = float(a.group(1).replace(",", ""))
+    except ValueError:
+        return None
     out = round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
     # `[\d,]+` is unbounded: a garbage 309+-digit run parses to inf. Every current
     # consumer re-filters is_finite_number, but enforce the contract at the source
@@ -68,12 +78,16 @@ def amount_musd(text: str, keyword: re.Pattern) -> Optional[float]:
         left, right = _clause_bounds(text, km.start(), km.end())
         fwd = _AMOUNT.search(text, km.end(), right)
         if fwd:
-            return _to_musd(fwd)
+            v = _to_musd(fwd)
+            if v is not None:
+                return v
         prev = None
         for prev in _AMOUNT.finditer(text, left, km.start()):
             pass  # nearest amount before the keyword, still inside the clause
         if prev:
-            return _to_musd(prev)
+            v = _to_musd(prev)
+            if v is not None:
+                return v
     return None
 
 

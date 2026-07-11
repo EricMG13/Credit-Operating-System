@@ -18,6 +18,8 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
+import { liveQaItems } from "@/lib/command/qa";
+import { liveGaps } from "@/lib/command/gaps";
 import {
   GapsList, IssuerStrip,
   PortfolioTable, PostureSummary, QaQueue,
@@ -44,6 +46,11 @@ function CommandCenter() {
   const run = useSharedDayRun();
   const tick = run.sim.tick;
   const portfolio = usePortfolio();
+  // Prefer the live CP-5 gate queue (real run roll-ups) over the seeded finding
+  // list when a backend answered; offline, QaQueue falls back to the seed (A-1).
+  const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
+  // Live CP-0 source-gap board off the same portfolio fetch; seed fallback offline.
+  const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
 
   // A Live Coverage selection resolves against the LIVE rows, never the seeded
   // fixture — a live ticker matching a seeded code must not show sample figures
@@ -197,11 +204,11 @@ function CommandCenter() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
               <div>
                 <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">QA Queue · CP-5 open findings</h3>
-                <QaQueue />
+                <QaQueue items={liveQa} />
               </div>
               <div>
                 <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">Source Gaps · CP-0 gap log</h3>
-                <GapsList />
+                <GapsList items={liveGapsItems} />
               </div>
             </div>
           </PanelShell>

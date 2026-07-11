@@ -93,6 +93,11 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
 // ─── Portfolio board (cross-issuer latest-run posture) ──────────────────────
+export interface PortfolioGapDTO {
+  sev: string; // high | medium | low
+  doc: string; // the missing source, e.g. "No audited financials vaulted."
+}
+
 export interface PortfolioRowDTO {
   issuer_id: string;
   name: string;
@@ -106,6 +111,7 @@ export interface PortfolioRowDTO {
   rv_recommendation: string | null;
   rv_percentile: number | null;
   downside_fragility: "HIGH" | "MODERATE" | "LOW" | null;
+  gaps: PortfolioGapDTO[]; // CP-0 source-readiness gap log
 }
 export interface PortfolioDTO {
   rows: PortfolioRowDTO[];
@@ -121,6 +127,21 @@ export const getPortfolio = (): Promise<PortfolioDTO> =>
 export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
+
+// Clear all browser-local workspace state on logout. On a shared workstation the
+// next analyst must not inherit the prior one's chat transcripts (caos-chat-*),
+// Report Studio committee-deliverable edits (caos-e-*), model inputs (caos-d-*),
+// query history, or — critically — their model-mode / query-model tier (sent as
+// X-Model-Mode / X-Query-Model on every request, which would silently run the next
+// analyst's work at the wrong tier). Every app key is "caos"-prefixed by convention.
+export const clearWorkspaceStorage = () => {
+  if (typeof window === "undefined") return;
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("caos")) localStorage.removeItem(k);
+    }
+  } catch { /* private mode / quota — nothing to clear */ }
+};
 
 // Email + password account lane (alongside edge SSO). register creates the account
 // (gated by the shared invite code) and signs in; login authenticates an existing

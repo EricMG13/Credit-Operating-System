@@ -116,7 +116,7 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
     if cp1b is not None:
         rt = cp1b.runtime_output or {}
         eg = (rt.get("summary") or {}).get("ebitda_growth_pct")
-        if isinstance(eg, (int, float)) and eg > 0:
+        if is_finite_number(eg) and eg > 0:
             bull.append(Point(f"Adjusted EBITDA grew {eg:g}% YoY.", "CP-1B", 1))
         for sig in rt.get("monitoring_signals") or []:
             bear.append(Point(str(sig), "CP-1B", 2))
@@ -137,7 +137,7 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
         if rt.get("covenant_structure") == "cov-lite":
             bear.append(Point("Cov-lite structure — no maintenance covenant to trip early.", "CP-4C", 2))
         for calc in rt.get("calculations") or []:
-            if "headroom" in str(calc.get("name", "")).lower() and isinstance(calc.get("value"), (int, float)):
+            if "headroom" in str(calc.get("name", "")).lower() and is_finite_number(calc.get("value")):
                 hr = calc["value"]
                 if hr >= 1.0:
                     bull.append(Point(f"{hr:g} turns of covenant headroom.", "CP-4C", 1))

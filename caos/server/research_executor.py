@@ -28,13 +28,9 @@ from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research")
 
-# Bound concurrent multi-minute runs (cost guard). POST fires a background task per
-# job, so without this a sustained submission rate accumulates unbounded overlapping
-# opus web-search runs — the natural backpressure of the old synchronous call is
-# gone. Jobs past the cap queue on this semaphore rather than all run at once.
-# Lazy-init: on py3.9 asyncio.Semaphore() binds the loop at construction, which
-# fails at import time (no running loop). First call builds it in the app loop.
-# ponytail: per-process semaphore; if ever multi-replica, the cap is per replica.
+# Bound concurrent multi-minute runs (cost guard) on the in-process path. Lazy-init:
+# on py3.9 asyncio.Semaphore() binds the loop at construction, which fails at import
+# time (no running loop). First call builds it in the app loop.
 _sem: "asyncio.Semaphore | None" = None
 
 
@@ -49,20 +45,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-async def execute_research_by_id(job_id: str) -> None:
-    """Run one research job in its own session; mark it failed on any error.
-
-    Gated by the concurrency semaphore — acquired BEFORE opening the DB session so a
-    queued job doesn't hold a connection while it waits its turn."""
-    async with _semaphore():
-        await _run_research(job_id)
-
-
 async def _run_research(job_id: str) -> None:
+    """Run one research job in its own session; set running, then complete/failed.
+
+    Re-executes from the persisted brief, so it is safe to call on a re-claimed job."""
     async with AsyncSessionLocal() as session:
         job = await session.get(ResearchJob, job_id)
         if job is None:
-            logger.warning("execute_research_by_id: job %s vanished", job_id)
+            logger.warning("run_research: job %s vanished", job_id)
             return
         async def _save_progress(p: dict) -> None:
             # Persist the live counts so the polling GET can surface them. A fresh
@@ -72,6 +62,8 @@ async def _run_research(job_id: str) -> None:
             await session.commit()
 
         try:
+            job.status = "running"  # visible to the client's poll; idempotent on re-claim
+            await session.commit()
             result = await run_deep_research(
                 ResearchBrief(**(job.brief or {})), on_progress=_save_progress
             )
@@ -80,17 +72,25 @@ async def _run_research(job_id: str) -> None:
             job.demo = result.demo
             job.truncated = result.truncated
             job.status = "complete"
+            job.lease_expires_at = None
             job.completed_at = _now()
             await session.commit()
         except asyncio.CancelledError:
-            # Shutdown cancellation (BaseException, not Exception) — don't strand
-            # the job in 'running'; mark failed then re-raise so the task cancels.
+            # Shutdown cancellation (BaseException, not Exception) — don't strand the
+            # job in 'running'; mark failed then re-raise so the task cancels cleanly.
             logger.warning("research job %s cancelled during shutdown — marking failed", job_id)
             await _mark_failed(session, job_id, "worker shutdown during research")
             raise
         except Exception as e:  # noqa: BLE001 — last-resort guard so a job is never stranded
             logger.exception("research job %s failed", job_id)
             await _mark_failed(session, job_id, str(e)[:2000])
+
+
+async def execute_research_by_id(job_id: str) -> None:
+    """In-process entry: bound concurrent research with the semaphore, acquired BEFORE
+    opening the DB session so a queued job doesn't hold a connection while it waits."""
+    async with _semaphore():
+        await _run_research(job_id)
 
 
 async def _mark_failed(session, job_id: str, reason: str) -> None:
@@ -101,6 +101,7 @@ async def _mark_failed(session, job_id: str, reason: str) -> None:
         if job is not None:
             job.status = "failed"
             job.error = reason
+            job.lease_expires_at = None
             job.completed_at = _now()
             await session.commit()
     except Exception:  # noqa: BLE001
@@ -119,13 +120,14 @@ class ResearchExecutor(InProcessTaskExecutor):
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
-        # stranding a job in 'running' forever (a stream can't be resumed). This
-        # runs in lifespan before any request, with no in-flight tasks yet, so
-        # every 'running' row is provably a strand — sweep them to failed.
+        # stranding a job in 'running'/'queued' forever (a stream can't be resumed and
+        # SQLite has no reaper). start() runs in lifespan before any request, with no
+        # in-flight tasks yet, so every non-terminal row is provably a strand — sweep
+        # them to failed.
         async with AsyncSessionLocal() as session:
             await session.execute(
                 update(ResearchJob)
-                .where(ResearchJob.status == "running")
+                .where(ResearchJob.status.in_(("running", "queued")))
                 .values(status="failed", error="abandoned (process restart)", completed_at=_now())
             )
             await session.commit()

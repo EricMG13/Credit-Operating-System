@@ -9,9 +9,12 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { getIssuer } from "@/lib/api";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
@@ -152,6 +155,36 @@ function conceptFor(pathname: string): keyof typeof PROMPTS_BY_CONCEPT {
   return first in PROMPTS_BY_CONCEPT ? (first as keyof typeof PROMPTS_BY_CONCEPT) : "query";
 }
 
+// Issuer-scoped Ask: resolves the issuer from the route and grounds IssuerChat in
+// that issuer's OWN live run. For the reference deal it passes live=undefined so the
+// chat keeps the ATLF showcase fixtures; for a real issuer it passes the live run, so
+// the assistant answers from the issuer's own numbers (or the explicit "no run — don't
+// use Atlas Forge" branch in caosChatContext) instead of fabricating Atlas Forge's
+// figures. Split into its own component so useLiveRun is unconditional and only
+// mounts when the issuer-scoped Ask is actually open.
+function IssuerScopedAsk({ onClose }: { onClose: () => void }) {
+  const searchParams = useSearchParams();
+  const issuerId = searchParams?.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const live = useLiveRun(issuerId);
+  const [issuerName, setIssuerName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (isReference) { setIssuerName(undefined); return; }
+    let stale = false;
+    getIssuer(issuerId).then((d) => { if (!stale) setIssuerName(d.name); }).catch(() => {});
+    return () => { stale = true; };
+  }, [issuerId, isReference]);
+  return (
+    <IssuerChat
+      tab=""
+      onClose={onClose}
+      live={isReference ? undefined : live}
+      issuerName={issuerName}
+    />
+  );
+}
+
+
 // fallow-ignore-next-line complexity
 export function AskLauncher() {
   const { open, setOpen, toggle } = useAsk();
@@ -188,12 +221,11 @@ export function AskLauncher() {
   if (scope === "deepdive") return trigger;
   if (!open) return trigger;
 
-  // Model and other issuer-scoped concepts → the ATLF issuer Q&A slide-over.
-  // No specific module is in view from this generic launcher, so pass an empty
-  // tab: IssuerChat then omits the "currently viewing <module>" line instead of
-  // asserting a fabricated one (was hardcoded "M-118" on every route — N4).
+  // Model and other issuer-scoped concepts → the issuer Q&A slide-over, grounded in
+  // the CURRENT issuer's live run (never the ATLF fixture, unless this IS the
+  // reference deal). Only mounts when open, so useLiveRun fires only on demand. (F11)
   if (scope === "issuer") {
-    return <>{trigger}<IssuerChat tab="" onClose={() => setOpen(false)} /></>;
+    return <>{trigger}<IssuerScopedAsk onClose={() => setOpen(false)} /></>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.

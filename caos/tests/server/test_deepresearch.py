@@ -261,7 +261,9 @@ def test_research_endpoint_creates_job_and_polls_to_demo_report():
     with TestClient(app) as c:
         r = c.post("/api/research", json={"subject": "Enterprise Software", "mode": "sector"})
         assert r.status_code == 201, r.text  # durable: returns a job id, not the report
-        assert r.json()["status"] == "running"
+        # Created 'queued' now (the durable executor claims it) — the client polls
+        # through queued/running to a terminal status either way.
+        assert r.json()["status"] == "queued"
         body = _wait_research(c, r.json()["id"])
     assert body["status"] == "complete"
     assert body["demo"] is True

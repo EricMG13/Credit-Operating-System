@@ -93,6 +93,11 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
     eb = latest_annual(nf.get("adj_ebitda") or {})
+    # eb > 0 (not just truthy): the guard already rejects NaN/0, but a NEGATIVE LTM
+    # EBITDA (a loss year) would give a negative distressed EV (e.g. eb=-421 -> -2105),
+    # which is truthy, so the waterfall would run with remaining_ev<0 and assert a
+    # High-confidence "~0% expected recovery" across every tranche. A 5x multiple on
+    # negative EBITDA is meaningless — degrade to the seniority-only branch instead.
     return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
 
 

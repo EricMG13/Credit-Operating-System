@@ -12,7 +12,7 @@ import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import {
   ALERTS, EMAIL_TILES, EMAIL_TOTAL, EMAILS, FEED_LINKABLE_ISSUERS, GAPS, PORTFOLIO, QA_QUEUE,
-  type EmailRow,
+  type EmailRow, type QaQueueItem, type GapItem,
 } from "@/lib/command/data";
 import { cleanRating } from "@/lib/command/rvdata";
 import { FRAGILITY_COLOR, QA_COLOR, RV_COLOR, fmtX } from "@/components/command/LiveCoverage";
@@ -849,13 +849,17 @@ function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: 
   );
 }
 
-export function QaQueue() {
-  if (QA_QUEUE.length === 0) {
+// `items` is the live CP-5 gate queue (lib/command/qa.ts) when a backend is
+// present; absent, it falls back to the seeded per-finding list so the offline
+// demo is unchanged. An empty live array is a real "queue clear" state.
+export function QaQueue({ items }: { items?: QaQueueItem[] }) {
+  const queue = items ?? QA_QUEUE;
+  if (queue.length === 0) {
     return <EmptyNote tone="success" label="QA queue clear" body="No open CP-5 findings. New QA-gate failures land here for triage." />;
   }
   return (
     <div>
-      {QA_QUEUE.map((q) => (
+      {queue.map((q) => (
         <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
@@ -882,12 +886,15 @@ export function QaQueue() {
   );
 }
 
-export function GapsList() {
+// `items` is the live CP-0 source-gap log (lib/command/gaps.ts) when a backend
+// is present; absent, it falls back to the seeded list so the offline demo is
+// unchanged. An empty live array is a real "no open gaps" state.
+export function GapsList({ items }: { items?: GapItem[] }) {
   // Source gaps read worst-first: severity primary, most-recent request as the
   // tiebreak — so a high-severity gap never hides below a low one (the data
   // array isn't authored in order). Matches the QA-queue / alert-feed ordering.
   const rank: Record<string, number> = { high: 0, medium: 1, low: 2 };
-  const gaps = [...GAPS].sort(
+  const gaps = [...(items ?? GAPS)].sort(
     (a, b) =>
       (rank[a.sev] ?? 9) - (rank[b.sev] ?? 9) ||
       Date.parse(`${b.requested} 2026`) - Date.parse(`${a.requested} 2026`),

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import Issuer, Run, aware_utc, get_db
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers, tenancy_enabled
 # Rating scale lives in ratings.py (one source of truth, shared with the
 # rating-distribution query walk + the ingest extractor).
 from ratings import B3_IDX, FACTORS, MOODY, rating_index
@@ -92,7 +93,11 @@ async def daily_digest(
     now = datetime.now(timezone.utc)
 
     issuers = list((await db.execute(
-        select(Issuer).order_by(Issuer.name).limit(_ISSUER_SCAN_CAP)
+        # scope_issuers no-ops when tenancy is off; keeps this consistent with
+        # the runs query below, which is already conditionally scoped — without
+        # this, a tenancy-enabled caller would see other teams' issuers here
+        # (as "never run") even though their runs are correctly excluded there.
+        scope_issuers(select(Issuer), caller).order_by(Issuer.name).limit(_ISSUER_SCAN_CAP)
     )).scalars().all())
 
     # Latest complete run per issuer, one query (newest-first, first wins).
@@ -100,8 +105,11 @@ async def daily_digest(
     # sits beyond the newest 5000 completes drops off the digest rather than
     # letting the scan grow without bound.
     latest: Dict[str, Run] = {}
+    _complete = select(Run).where(Run.status == "complete")
+    if tenancy_enabled():
+        _complete = _complete.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     for r in (await db.execute(
-        select(Run).where(Run.status == "complete")
+        _complete
         .order_by(Run.created_at.desc()).limit(5000)
     )).scalars().all():
         latest.setdefault(r.issuer_id, r)
@@ -136,8 +144,11 @@ async def daily_digest(
     # 24h activity: bounded recent window, timestamps compared in Python so the
     # count is identical across SQLite (string dates) and Postgres.
     cutoff = now - timedelta(hours=24)
+    _recent = select(Run)
+    if tenancy_enabled():
+        _recent = _recent.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
     recent = (await db.execute(
-        select(Run).order_by(Run.created_at.desc()).limit(1000)
+        _recent.order_by(Run.created_at.desc()).limit(1000)
     )).scalars().all()
     def within_24h(ts: Optional[datetime]) -> bool:
         aware = aware_utc(ts)

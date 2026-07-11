@@ -26,6 +26,7 @@ import rate_limit
 from config import get_settings
 from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
+from tenancy import require_issuer
 
 router = APIRouter()
 
@@ -178,9 +179,8 @@ async def vault_exhibit(
     _edgar_rate_guard(caller)
     if body.run_mode.strip().lower() not in LEGAL_RUN_MODES:
         raise HTTPException(400, f"run_mode must be one of {sorted(LEGAL_RUN_MODES)}")
-    issuer = await db.get(Issuer, body.issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    # Gate on the issuer's team: no vaulting EDGAR exhibits into another team's issuer.
+    require_issuer(caller, await db.get(Issuer, body.issuer_id))
 
     try:
         content = await run_in_threadpool(edgar.fetch_exhibit, body.exhibit_url)

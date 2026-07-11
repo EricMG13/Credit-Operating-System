@@ -21,7 +21,7 @@ from sqlalchemy import ColumnElement
 
 from database import MetricFact
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest_annual, safe_div, sort_key
+from engine.periods import is_finite_number, latest, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -271,9 +271,14 @@ def extract_cost_facts(run_id: str, payload: ModulePayload, qa_status: str) -> L
     claim/evidence/chunk that asserts it. Empty if the module derived no value.
     """
     val = (payload.runtime_output or {}).get("energy_cost_pct")
-    # is_finite_number, not an is-None check: this was the one fact-projection
-    # path with a bare float() cast — a non-numeric or NaN/inf value would raise
-    # (or persist NaN) inside the fatal projection phase (BE5-3). Mirrors add().
+    # is_finite_number (not a bare `is None`): CP-2's runtime_output is LLM-authored
+    # and energy_cost_pct is NOT pinned in the CP-2 tool schema (synth pins only the
+    # 9 dimensions + credit_implication), so a live/replayed payload can carry a NaN
+    # float or a non-numeric string. float(val) on a NaN would land a non-finite value
+    # in the SHARED cross-issuer store (poisoning peer ranking + 500-ing the /query
+    # response), and a string would raise inside the runner's fact-projection block —
+    # which sits OUTSIDE per-module isolation, so it fails the whole run (BE5-3). Drop
+    # any non-finite value at the projection boundary, exactly like extract_facts.add().
     if not is_finite_number(val):
         return []
     claim_id = evidence_id = chunk = None
@@ -335,6 +340,50 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
             f"({nd:g} / {eb:g} = {recomputed:.2f}x) — the CP-1 figures are internally inconsistent."
         ),
         required_remediation="Reconcile the asserted leverage against net debt and adjusted EBITDA.",
+    )
+
+
+# The headline metrics a CP-1 must carry at least one of to be a real credit
+# foundation. `revenue`/`adj_ebitda` are period series (checked via latest());
+# leverage/coverage are LTM scalars.
+_CP1_HEADLINE_SERIES = ("revenue", "adj_ebitda", "free_cash_flow")
+_CP1_HEADLINE_SCALARS = ("net_leverage_adj_ltm", "interest_coverage_ltm", "net_debt_ltm")
+
+
+
+def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MATERIAL finding when a CP-1 asserts real confidence yet carries NO finite
+    headline metric — the numeric-completeness lane the CP-5 gate otherwise lacks.
+
+    The deterministic gate (gate.py) only maps finding severity; nothing checks that
+    CP-1 actually produced numbers, so a live-LLM CP-1 that passes schema validation
+    but leaves every metric null (or NaN-degraded-to-absent) rolls up Passed ->
+    Committee Ready and becomes exportable. Every legitimate producer (EDGAR emits at
+    least revenue; reported-disclosure emits net leverage; the fixture is full) carries
+    at least one finite headline metric, so this only fires on a genuinely empty-but-
+    confident CP-1 — never on a net-cash issuer (which still has revenue/EBITDA) or a
+    CP-1 that honestly reports ``Insufficient Information``.
+    """
+    if cp1 is None:
+        return None
+    # An honestly-insufficient CP-1 is already surfaced (confidence -> committee
+    # status "Insufficient Information"); don't double-flag it.
+    if cp1.confidence == "Insufficient Information":
+        return None
+    nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
+    has_series = any(is_finite_number(latest(nf.get(k) or {})) for k in _CP1_HEADLINE_SERIES)
+    has_scalar = any(is_finite_number(nf.get(k)) for k in _CP1_HEADLINE_SCALARS)
+    if has_series or has_scalar:
+        return None
+    return Finding(
+        finding_id="CP-1-INCOMPLETE", severity="MATERIAL", lane=6, module_id="CP-1",
+        description=(
+            f"CP-1 reports {cp1.confidence} confidence but its normalized_financials carry no "
+            "finite headline metric (revenue, adjusted EBITDA, net leverage, or coverage) — the "
+            "canonical foundation is empty, so downstream leverage/recovery/covenant reads have "
+            "no numbers to stand on and the run must not ship as committee-ready."
+        ),
+        required_remediation="Re-run CP-1 against usable source financials, or mark it Insufficient Information.",
     )
 
 

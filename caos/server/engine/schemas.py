@@ -97,6 +97,24 @@ class ModulePayload:
     ungrounded_headline_figures: List[str] = field(default_factory=list)
 
 
+def _has_non_finite(obj: object) -> bool:
+    """True if a runtime_output tree contains any non-finite float (NaN/±inf).
+
+    validate_payload otherwise never inspects numeric CONTENT, and the JSON column
+    serializes with ``json.dumps(allow_nan=True)`` — so a NaN would persist into
+    ``runtime_output`` as a bare ``NaN`` token and then 500 every API read of that
+    module (starlette renders with ``allow_nan=False``). Gate it here so a
+    NaN-carrying payload is recorded as a validation failure and blocked, never
+    stored. ``bool`` is an int subclass (not float), so flags are unaffected."""
+    if isinstance(obj, float):
+        return not is_finite_number(obj)
+    if isinstance(obj, dict):
+        return any(_has_non_finite(v) for v in obj.values())
+    if isinstance(obj, (list, tuple)):
+        return any(_has_non_finite(v) for v in obj)
+    return False
+
+
 def _claim_errors(claims: List[ClaimSpec]) -> List[str]:
     """Errors for the claims/evidence block of CP_MODULE_PAYLOAD_BASE.
 
@@ -138,6 +156,8 @@ def validate_payload(p: ModulePayload) -> List[str]:
         errors.append(f"schema_family {p.schema_family!r} is invalid")
     if not isinstance(p.runtime_output, dict):
         errors.append("runtime_output must be an object")
+    elif _has_non_finite(p.runtime_output):
+        errors.append("runtime_output contains a non-finite number (NaN/inf)")
     errors.extend(_claim_errors(p.claims))
     return errors
 

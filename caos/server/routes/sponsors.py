@@ -25,6 +25,7 @@ from engine.metrics import better_fact
 from database import Issuer, MetricFact, ModuleOutput, Run, get_db
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers
 
 router = APIRouter()
 
@@ -78,8 +79,9 @@ async def list_sponsors(
 ):
     _read_rate_guard(caller)
     rows = (await db.execute(
-        select(Issuer.sponsor, func.count())
-        .where(Issuer.sponsor.is_not(None))
+        scope_issuers(
+            select(Issuer.sponsor, func.count()).where(Issuer.sponsor.is_not(None)), caller
+        )
         .group_by(Issuer.sponsor)
         .order_by(func.count().desc(), Issuer.sponsor)
         .limit(_MAX_ISSUERS)
@@ -95,7 +97,7 @@ async def sponsor_track_record(
 ):
     _read_rate_guard(caller)
     issuers = list((await db.execute(
-        select(Issuer).where(Issuer.sponsor == sponsor)
+        scope_issuers(select(Issuer).where(Issuer.sponsor == sponsor), caller)
         .order_by(Issuer.name).limit(_MAX_ISSUERS)
     )).scalars().all())
     if not issuers:

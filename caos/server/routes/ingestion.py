@@ -26,6 +26,7 @@ import ratings
 import vault_export
 from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
+from tenancy import require_issuer, scope_issuers
 
 logger = logging.getLogger("caos.ingestion")
 router = APIRouter()
@@ -107,9 +108,9 @@ async def _vault_document(
     content: bytes,
     background_tasks: BackgroundTasks,
 ) -> IngestionResponse:
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    # Gate on the issuer's team: no uploading documents into another team's issuer
+    # (no-op when tenancy is off). Also covers the missing-issuer 404.
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
     # doesn't block the event loop — matching the extract_* calls in the callers.
@@ -324,7 +325,7 @@ async def upload_memo(  # noqa: C901
             422, "No text could be extracted — scanned/encrypted PDF? Upload a text-based copy."
         )
 
-    issuers = (await db.execute(select(Issuer))).scalars().all()
+    issuers = (await db.execute(scope_issuers(select(Issuer), caller))).scalars().all()
     text, linked = vault_export.autolink_issuers(text, [(i.name, i.ticker) for i in issuers])
 
     title = vault_export.memo_note_title(name)

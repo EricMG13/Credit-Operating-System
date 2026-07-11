@@ -213,7 +213,7 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
     from run_executor import InProcessExecutor
 
     async with AsyncSessionLocal() as s:
-        # A second issuer for the queued row — migrations/0034's active-run
+        # A second issuer for the queued row — migrations/0035's active-run
         # unique index (one active run per issuer) means two SIMULTANEOUSLY
         # active rows can't legitimately share an issuer; the sweep itself
         # doesn't care about issuer identity, only that both get failed.
@@ -236,6 +236,32 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
         assert r_done.status == "complete"  # terminal runs are untouched
 
 
+@pytest.mark.asyncio
+async def test_active_run_unique_index_blocks_racing_second(seeded_db):
+    """The partial unique index (migration 0021) is the multi-replica backstop behind
+    the in-process create_run lock: a second queued/running run for the same issuer
+    cannot be committed even by a direct insert (a racing replica that slipped past the
+    per-process lock). Uses a dedicated issuer so it doesn't pollute shared run state."""
+    from sqlalchemy.exc import IntegrityError
+
+    from database import AsyncSessionLocal, Issuer, Run
+
+    async with AsyncSessionLocal() as s:
+        s.add(Issuer(id="dedup-idx-iss", name="Dedup Idx Co"))
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="running"))
+        await s.commit()
+
+    async with AsyncSessionLocal() as s:
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="queued"))
+        with pytest.raises(IntegrityError):
+            await s.commit()
+
+    # A terminal run for the same issuer is allowed (the index predicate excludes it).
+    async with AsyncSessionLocal() as s:
+        s.add(Run(issuer_id="dedup-idx-iss", analyst_id="t", status="complete"))
+        await s.commit()
+
+
 # These exercise the SKIP LOCKED claim path and only run against Postgres.
 import os
 
@@ -249,12 +275,17 @@ requires_pg = pytest.mark.skipif(
 @requires_pg
 @pytest.mark.asyncio
 async def test_two_workers_claim_one_run_once(seeded_db):
-    from database import AsyncSessionLocal, Run
-    from engine.fixtures import REFERENCE_ISSUER_ID
+    from database import AsyncSessionLocal, Issuer, Run
     from run_executor import QueueWorker
 
+    # Dedicated issuer: the active-run partial unique index permits only one
+    # queued/running run per issuer, and this test intentionally leaves its run
+    # claimed (never drained). On Postgres the cross-test issuer cleanup is a
+    # no-op (it is SQLite-path-only), so sharing REFERENCE_ISSUER_ID would leave
+    # an active run that collides with the next pg test's insert.
     async with AsyncSessionLocal() as s:
-        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
+        s.add(Issuer(id="claim-race-iss", name="Claim Race Co"))
+        run = Run(issuer_id="claim-race-iss", analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
@@ -284,9 +315,12 @@ async def test_reaper_fails_exhausted_orphan(seeded_db):
     from run_executor import QueueWorker
     from datetime import datetime, timedelta, timezone
 
+    # Dedicated issuer (see test_two_workers_claim_one_run_once): the pg lane
+    # accumulates runs across tests, so this insert must not share an issuer with
+    # any other active run or it trips the active-run partial unique index.
     past = datetime.now(timezone.utc) - timedelta(hours=1)
     async with AsyncSessionLocal() as s:
-        # Dedicated issuer, not REFERENCE_ISSUER_ID: migrations/0034's active-run
+        # Dedicated issuer, not REFERENCE_ISSUER_ID: migrations/0035's active-run
         # unique index means a stray queued/running row left on the shared
         # reference issuer by another test (module-order dependent in the
         # shared Postgres test DB) would collide with this one on INSERT —

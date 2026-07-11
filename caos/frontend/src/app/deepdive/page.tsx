@@ -7,14 +7,14 @@
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays
 // the run and outputs unlock as their producing modules clear.
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
-import { buildReports } from "@/lib/reports/builders";
+import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
@@ -209,7 +209,16 @@ function DeepDive() {
   // in-panel ASK ATLF button and the shortcut drive the same chat.
   const { open: chatOpen, setOpen: setChatOpen } = useAsk();
   const run = useSimRun({ prefill: true, plan: SIM_PLAN });
-  const reports = useMemo(() => buildReports(), []);
+  // The tear-sheet report tree (builders.ts → model / ROWS / charts) is read only
+  // when an evidence link is opened, so defer its import + build out of the initial
+  // /deepdive bundle (PERF-2). Loads once, lazily, on the first evidence-modal open.
+  const [reports, setReports] = useState<Report[] | null>(null);
+  useEffect(() => {
+    if (!evModal || reports) return;
+    let cancelled = false;
+    void import("@/lib/reports/builders").then((m) => { if (!cancelled) setReports(m.buildReports()); });
+    return () => { cancelled = true; };
+  }, [evModal, reports]);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(issuerId);
@@ -564,7 +573,7 @@ function DeepDive() {
         <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
+      {evModal && reports ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).

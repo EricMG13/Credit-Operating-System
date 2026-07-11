@@ -18,8 +18,14 @@ from database import (
 from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
+from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
 
 router = APIRouter()
+
+# Authenticated write cap — issuer creation parses no documents but still spawns a
+# row, so bound it (duplicate-issuer spam / accidental double-submit). Reads stay
+# on their own generous page caps.
+_WRITE_MAX_PER_MINUTE = 30
 
 
 class IssuerCreate(BaseModel):
@@ -129,7 +135,7 @@ async def list_issuers(
                 Issuer.figi.ilike(like),
             )
         )
-    stmt = stmt.limit(limit).offset(offset)
+    stmt = scope_issuers(stmt, caller).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -141,10 +147,27 @@ async def create_issuer(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    if not rate_limit.hit(
+        f"issuer-create:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(429, "Issuer-create rate limit reached — try again in a minute.")
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
-    # Attribution from the verified identity, never the request body (IssuerCreate
-    # carries no created_by field, so a spoofed body value is dropped). SEAM4-4.
+    name = (data.get("name") or "").strip()
+    # Dedup on a case-insensitive name so a double-click or two analysts adding the
+    # same issuer don't fork coverage into duplicate rows that then split
+    # runs/metric_facts. There is no DB uniqueness on Issuer.name yet, so this
+    # app-level check covers the realistic double-submit; a unique index on
+    # lower(name) is the durable follow-up for true concurrency.
+    existing = (await db.execute(
+        scope_issuers(select(Issuer).where(func.lower(Issuer.name) == name.lower()), caller)
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(409, "An issuer with that name already exists.")
+    # Stamp the creator's team so tenancy scoping applies to this issuer and
+    # everything derived from it (None when tenancy is off → shared/global). Attribution
+    # (created_by) comes from the verified identity, never the request body. SEAM4-4.
+    data["team_id"] = new_issuer_team(caller)
     issuer = Issuer(**data, created_by=caller.id)
     db.add(issuer)
     await db.flush()
@@ -158,9 +181,7 @@ async def get_issuer(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
     return issuer
 
 
@@ -173,6 +194,10 @@ async def list_issuer_documents(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    # Gate on the issuer's team (documents inherit it); no-op behavior change when
+    # tenancy is off (the guard only runs when enabled).
+    if tenancy_enabled():
+        require_issuer(caller, await db.get(Issuer, issuer_id))
     result = await db.execute(
         select(Document)
         .where(Document.issuer_id == issuer_id)
@@ -377,9 +402,7 @@ async def get_issuer_profile(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
 
     # Recent runs newest-first (bounded — runs accumulate forever, P4). The first
     # is the latest run of any status; the first complete one backs signals/QA.
@@ -527,9 +550,7 @@ async def get_cross_default_map(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     run = (await db.execute(
         select(Run).where(Run.issuer_id == issuer_id, Run.status == "complete")
