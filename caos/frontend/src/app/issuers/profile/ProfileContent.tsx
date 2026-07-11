@@ -26,6 +26,7 @@ import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
+import { fmtPct, fmtUsdM } from "@/lib/format";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
@@ -632,15 +633,20 @@ export function Profile({
                 <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
                 <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
                 <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
-                {/* Covenant register (CP-4C extraction) — rendered only when extracted. */}
-                <SigText label="RP / builder basket" v={signals.rp_basket_musd != null ? fmt(Number(signals.rp_basket_musd), "$M") + " capacity" : null} />
-                <SigText label="Cross-default" v={signals.cross_default_musd != null ? `trips at ${fmt(Number(signals.cross_default_musd), "$M")}` : null} />
+                {/* Covenant register (CP-4C extraction) — rendered only when extracted.
+                    fmtUsdM/fmtPct are NaN/Infinity-safe (em dash instead of "NaN"),
+                    unlike the raw Number()+toFixed() every other row here avoids. */}
+                <SigText label="RP / builder basket" v={signals.rp_basket_musd != null ? fmtUsdM(Number(signals.rp_basket_musd)) + " capacity" : null} />
+                <SigText label="Cross-default" v={signals.cross_default_musd != null ? `trips at ${fmtUsdM(Number(signals.cross_default_musd))}` : null} />
                 <SigText
                   label="Add-back cap"
                   v={signals.addback_cap_pct != null
-                    ? `${(Number(signals.addback_cap_pct) * 100).toFixed(0)}% of EBITDA`
+                    // addback_cap_pct is a 0–1 ratio; addback_utilization_pct arrives
+                    // pre-scaled 0–100 (server: load/cap * 100), hence the /100 here
+                    // so both go through fmtPct's ratio contract consistently.
+                    ? `${fmtPct(Number(signals.addback_cap_pct), 0)} of EBITDA`
                       + (signals.addback_utilization_pct != null
-                        ? ` · ${Number(signals.addback_utilization_pct).toFixed(0)}% used${signals.addback_breach === true ? " · BREACH" : ""}`
+                        ? ` · ${fmtPct(Number(signals.addback_utilization_pct) / 100, 0)} used${signals.addback_breach === true ? " · BREACH" : ""}`
                         : "")
                     : null}
                   sev={signals.addback_breach === true ? "critical"
@@ -923,15 +929,30 @@ function SigBand({ label, v, extra, gated = false }: { label: string; v: unknown
 // the server's honest note renders instead — never a fabricated map.
 function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boolean }) {
   const [map, setMap] = useState<CrossDefaultMap | null>(null);
+  // Distinct from "no run yet" (hasRun=false, nothing fetched): a genuine fetch
+  // failure (500/timeout/etc) must render an explicit error, not collapse to
+  // the same silent nothing as "not applicable" — mirrors SponsorsView's
+  // track-record fetch (app/sponsors/page.tsx), which shows "Couldn't load…"
+  // on catch instead of vanishing.
+  const [error, setError] = useState(false);
   useEffect(() => {
     if (!hasRun) return;
     let stale = false;
+    setError(false);
     getCrossDefaultMap(issuerId)
       .then((d) => { if (!stale) setMap(d); })
-      .catch(() => {}); // no backend / 404 → panel simply doesn't render
+      .catch(() => { if (!stale) setError(true); });
     return () => { stale = true; };
   }, [issuerId, hasRun]);
-  if (!hasRun || !map) return null;
+  if (!hasRun) return null;
+  if (error) {
+    return (
+      <Panel title="Cross-default dominoes">
+        <div className="px-3 py-2.5"><Empty>Couldn’t load cross-default data.</Empty></div>
+      </Panel>
+    );
+  }
+  if (!map) return null;
   const computable = map.threshold_musd != null && map.dominoes.length > 0;
   return (
     <Panel
@@ -961,9 +982,6 @@ function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boo
           ))}
         </div>
       )}
-      {map.note && computable ? (
-        <div className="px-3 pb-2 tabular text-caos-2xs text-caos-muted">{map.note}</div>
-      ) : null}
     </Panel>
   );
 }
