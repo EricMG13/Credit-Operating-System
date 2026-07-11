@@ -383,6 +383,10 @@ class IssuerResearchReport(Base):
         DateTime(timezone=True), default=_utcnow
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Boot-sweep lease (see migrations/0038_background_job_leases). worker_id is
+    # audit trail only; lease_expires_at is what gates the reap.
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    worker_id: Mapped[Optional[str]] = mapped_column(String(64))
 
 
 class ModuleOutput(Base):
@@ -886,6 +890,9 @@ class PipelineRun(Base):
     draft: Mapped[dict] = mapped_column(JSON, default=dict)
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
+    # Boot-sweep lease (see migrations/0038_background_job_leases) — gates the
+    # reap so one replica's boot can't kill another replica's live cycle.
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

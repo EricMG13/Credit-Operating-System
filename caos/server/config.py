@@ -229,6 +229,14 @@ class Settings(BaseSettings):
     # on a semaphore rather than all buffer at once (mirrors caos_research_concurrency).
     caos_upload_concurrency: int = 2
     caos_run_poll_seconds: float = 1.0   # worker loop tick
+    # Boot-sweep lease for the 2 fire-and-forget executors (report/pipeline;
+    # research_jobs use the re-claiming caos_research_lease_seconds above
+    # instead). Generous ceiling, not a per-job-type tune: report synthesis is
+    # the longest profile (one multi-thousand-token LLM call), the autonomy
+    # cycle's Analyst stage is shorter. One shared knob is fine because it only
+    # gates a rare event (replica boot), not a hot loop — being too generous
+    # just delays reaping a truly-dead row, it never risks reaping a live one.
+    caos_background_job_lease_seconds: int = 1800
     # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
     # so convert at that call site.)
 

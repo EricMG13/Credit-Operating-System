@@ -129,6 +129,29 @@ async def test_execute_job_failure_marks_failed(seeded_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_lease_set_failure_still_marks_job_failed(seeded_db, monkeypatch):
+    """The lease-set commit must be INSIDE the try/except, not before it — a
+    commit failure there (DB blip, pool exhaustion) must still mark the job
+    failed, not strand it in 'running' with no error and no lease."""
+    real_get_settings = pipeline_executor.get_settings
+
+    class _BoomSettings:
+        def __getattr__(self, name):
+            if name == "caos_background_job_lease_seconds":
+                raise RuntimeError("synthetic lease-set failure")
+            return getattr(real_get_settings(), name)
+
+    monkeypatch.setattr(pipeline_executor, "get_settings", lambda: _BoomSettings())
+
+    jid = await _make_job()
+    await pipeline_executor.execute_job(jid)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(PipelineRun, jid)
+    assert row.status == "failed"
+    assert "synthetic lease-set failure" in (row.error or "")
+
+
+@pytest.mark.asyncio
 async def test_execute_job_non_running_is_noop(seeded_db, monkeypatch):
     called = {"run": False}
 
@@ -147,6 +170,8 @@ async def test_execute_job_non_running_is_noop(seeded_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_executor_start_sweeps_stranded_running(seeded_db):
+    """No lease was ever set on this job (mirrors a real crash before/just after
+    the lease-set commit, or a pre-migration row) — NULL lease is reapable."""
     stranded = await _make_job()
     done = await _make_job(status="complete")
     ex = pipeline_executor.PipelineExecutor()
@@ -157,6 +182,56 @@ async def test_executor_start_sweeps_stranded_running(seeded_db):
     assert r1.status == "failed"  # swept
     assert "abandoned" in (r1.error or "")
     assert r2.status == "complete"  # untouched
+
+
+@pytest.mark.asyncio
+async def test_executor_does_not_sweep_live_leased_running(seeded_db):
+    """Multi-replica safety: a 'running' cycle whose lease has NOT expired is
+    genuinely still running (on this replica or a live sibling) and must survive
+    start()'s boot sweep — only a lease-expired cycle is a provable strand."""
+    from datetime import datetime, timedelta, timezone
+
+    async with AsyncSessionLocal() as db:
+        row = PipelineRun(
+            kind="autonomy-cycle", status="running",
+            current_fingerprints={}, draft={}, summary={},
+            worker_id="sibling-replica:123",
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        db.add(row)
+        await db.commit()
+        live = row.id
+
+    await pipeline_executor.PipelineExecutor().start()
+
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(PipelineRun, live)).status == "running"
+
+
+@pytest.mark.asyncio
+async def test_executor_sweeps_expired_leased_running(seeded_db):
+    """A 'running' cycle whose lease HAS expired is a provable strand and must be
+    swept — exercises the SQL datetime comparison itself (not the NULL branch),
+    so a driver-level tz/format mismatch in `lease_expires_at < now` fails here."""
+    from datetime import datetime, timedelta, timezone
+
+    async with AsyncSessionLocal() as db:
+        row = PipelineRun(
+            kind="autonomy-cycle", status="running",
+            current_fingerprints={}, draft={}, summary={},
+            worker_id="dead-replica:456",
+            lease_expires_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        db.add(row)
+        await db.commit()
+        dead = row.id
+
+    await pipeline_executor.PipelineExecutor().start()
+
+    async with AsyncSessionLocal() as db:
+        swept = await db.get(PipelineRun, dead)
+    assert swept.status == "failed"
+    assert swept.lease_expires_at is None
 
 
 @pytest.mark.asyncio
