@@ -42,6 +42,7 @@ from pydantic import BaseModel, Field
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
+from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
 from engine.periods import is_finite_number, latest_annual, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
@@ -126,6 +127,15 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]
     if pct is None or not (0 < pct < 1):  # domain range — the schema only checks shape
         return None
     chunk_id, exact = safe_chunk_id(data.chunk_id, hits)  # reject fabricated/absent ids
+    # Previously accepted on sign/range alone — ground the magnitude against its
+    # own cited chunk (same all_grounded numeral-match the CP-1 grounding gate and
+    # covenants.py's amount_term use), not the whole pool, since the citation
+    # already claims to be the source. Sources almost always state an add-back
+    # load as a percent ("18% of Adjusted EBITDA"); try the fraction too in case
+    # of an unusual "0.18x EBITDA" phrasing.
+    chunk_text = next((h.text for h in hits if h.chunk_id == chunk_id), "")
+    if not (all_grounded(f"{pct * 100:.2f}", [chunk_text]) or all_grounded(f"{pct:.2f}", [chunk_text])):
+        return None
     return float(pct), list(data.categories), chunk_id, exact
 
 

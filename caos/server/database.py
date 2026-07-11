@@ -20,7 +20,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, update, Computed,
+    UniqueConstraint, delete, event, inspect, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
@@ -236,6 +236,20 @@ class Run(Base):
     """One execution of the module pipeline for an issuer (the shared envelope)."""
 
     __tablename__ = "runs"
+    __table_args__ = (
+        # DB-level backstop for the active-run dedup routes/runs.py enforces at
+        # the application layer (_CREATE_RUN_LOCK) — see migrations/0035. A
+        # per-process asyncio.Lock can't coordinate a race across multiple app
+        # replicas; this partial unique index can, at the database.
+        Index(
+            "uq_runs_issuer_active", "issuer_id", unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+        # Serves the worker claim poll (status filter + created_at order, every
+        # poll tick) and the status='complete' board scans (migrations/0034).
+        Index("ix_runs_status_created_at", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
@@ -268,10 +282,6 @@ class Run(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
     error: Mapped[Optional[str]] = mapped_column(Text)
-
-    # Serves the worker claim poll (status filter + created_at order, every
-    # poll tick) and the status='complete' board scans (migrations/0034).
-    __table_args__ = (Index("ix_runs_status_created_at", "status", "created_at"),)
 
 
 class ResearchJob(Base):

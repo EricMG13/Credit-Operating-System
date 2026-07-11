@@ -148,6 +148,12 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
         )
         resp = await gemini.call(model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
+        # Mark the run degraded so runner.py surfaces the "Degraded" banner — a
+        # non-Anthropic fallback must not silently pass as committee-ready (the
+        # Anthropic path below does the same at its fallback).
+        b = budget.current_budget()
+        if b is not None:
+            b.degraded = True
     await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 
@@ -185,6 +191,12 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
         )
         resp = await openrouter.call(lane=lane, model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
+        # Mark the run degraded so runner.py surfaces the "Degraded" banner — a
+        # non-Anthropic fallback must not silently pass as committee-ready (the
+        # Anthropic path below does the same at its fallback).
+        b = budget.current_budget()
+        if b is not None:
+            b.degraded = True
     await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 

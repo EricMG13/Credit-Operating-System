@@ -191,3 +191,33 @@ def test_empty_holdings_rejected(client):
     r = client.post("/api/portfolios/", data={"name": "Empty CLO"},
                     files={"holdings": ("h.xlsx", buf.getvalue(), _XLSX)})
     assert r.status_code == 422
+
+
+def test_portfolio_idor_single_team_is_intentional(client):
+    """Authorization is single-team by design (matches routes/runs.py's
+    test_runs_idor_single_team_read_is_intentional). A portfolio owned by a
+    DIFFERENT analyst is still fully readable AND writable (holdings replace,
+    the destructive path) by this caller — no per-caller filter. If you are
+    here because you added tenant scoping, update this test deliberately."""
+    import asyncio
+
+    from database import AsyncSessionLocal, Portfolio
+
+    pid = _create(client)
+
+    async def _reassign():
+        async with AsyncSessionLocal() as s:
+            prt = await s.get(Portfolio, pid)
+            prt.created_by = "someone-else@firm.com"
+            await s.commit()
+
+    asyncio.run(_reassign())
+
+    got = client.get(f"/api/portfolios/{pid}")
+    assert got.status_code == 200, got.text  # foreign-owned, still readable
+
+    single = [("SOLO", "Solo Co", "Utilities", "1L Sr. Secd", "B1 / B+", 300, 350, 100, 100, 500_000)]
+    replaced = client.post(f"/api/portfolios/{pid}/holdings",
+                           files={"holdings": ("h.xlsx", _holdings_xlsx(single), _XLSX)})
+    assert replaced.status_code == 200, replaced.text  # foreign-owned, still writable/replaceable
+    assert replaced.json()["n_positions"] == 1

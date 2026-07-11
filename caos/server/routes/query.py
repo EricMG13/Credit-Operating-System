@@ -447,12 +447,14 @@ async def retract_link(
 ):
     """Retract a ratified link — it stops being drawn on the next graph build.
 
-    Authorization — single-team model, BY DESIGN (same posture as routes/runs.py):
-    ratified links are shared desk work product, so ANY authenticated analyst may
-    retract any link (the row keeps ``analyst_id`` for attribution, not ownership).
-    Documented as a deliberate decision rather than an omission (audit 2026-07-10
-    C2/API-2); if the trust model ever widens to multiple teams, gate retraction
-    on the caller's team alongside the runs.py authorization work."""
+    Authorization — single-team model, BY DESIGN (same posture as routes/runs.py,
+    routes/portfolios.py): ratified links are shared desk work product, so ANY
+    authenticated analyst may retract any link (the row keeps ``analyst_id`` for
+    attribution, not ownership). Documented as a deliberate decision rather than
+    an omission (audit 2026-07-10 C2/API-2; pinned by
+    test_retract_link_idor_single_team_is_intentional); if the trust model ever
+    widens to multiple teams, gate retraction on the caller's team alongside the
+    runs.py authorization work."""
     if not rate_limit.hit(
         f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
     ):

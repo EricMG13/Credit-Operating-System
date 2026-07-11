@@ -207,6 +207,13 @@ class Settings(BaseSettings):
     caos_research_concurrency: int = 2
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
+
+    # Uploads are rate-limited per caller (20/min) but not concurrency-capped — each
+    # in-flight upload buffers the whole file (up to max_upload_mb) through read, AV
+    # scan, and parse. Without a ceiling, many callers uploading large files at once
+    # scales resident memory with the sum of their sizes. Uploads past the cap queue
+    # on a semaphore rather than all buffer at once (mirrors caos_research_concurrency).
+    caos_upload_concurrency: int = 2
     caos_run_poll_seconds: float = 1.0   # worker loop tick
     # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
     # so convert at that call site.)
@@ -280,3 +287,37 @@ def is_deployed(settings: "Settings | None" = None) -> bool:
     """
     s = settings or get_settings()
     return s.environment != "development"
+
+
+def require_sane_environment(settings: "Settings | None" = None) -> None:
+    """Belt-and-suspenders on the single is_deployed() predicate the whole auth gate
+    pivots on: if the operator has provisioned any production secret, ENVIRONMENT must
+    not be the dev sentinel — otherwise is_deployed() is False and the dev identity
+    fallback + public dev defaults silently re-activate on a real deployment. Raises
+    RuntimeError (fail-closed) on that contradiction."""
+    s = settings or get_settings()
+    if s.environment == "development" and (
+        s.edge_proxy_secret
+        or s.session_secret not in ("", "dev-insecure-session-secret")
+    ):
+        raise RuntimeError(
+            "ENVIRONMENT=development but a production secret (EDGE_PROXY_SECRET / "
+            "SESSION_SECRET) is set — refusing to boot with the dev identity fallback "
+            "and public dev defaults active. Set ENVIRONMENT to a non-dev value."
+        )
+
+
+def require_postgres_in_production(settings: "Settings | None" = None) -> None:
+    """Fail closed on a deployed boot pointed at SQLite: deploy/docker-compose.yml
+    hardcodes Postgres — the run executor's FOR UPDATE SKIP LOCKED lease/reap path
+    (run_executor.get_executor) only activates on Postgres, and SQLite's single-
+    writer lock has no app-level retry, so it degrades under concurrent runs to
+    'database is locked' rather than failing loudly at boot where the mistake is
+    actually made. Raises RuntimeError (fail-closed) when deployed on SQLite."""
+    s = settings or get_settings()
+    if is_deployed(s) and not s.database_url.startswith("postgresql"):
+        raise RuntimeError(
+            "DATABASE_URL must point at Postgres in production (deploy/docker-compose.yml "
+            "already does: postgresql+asyncpg://...) — SQLite has no multi-writer support "
+            "the async run executor relies on. Set DATABASE_URL to the Postgres DSN."
+        )

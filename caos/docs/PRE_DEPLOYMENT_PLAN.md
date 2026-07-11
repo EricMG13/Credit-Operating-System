@@ -169,32 +169,39 @@ undeclared, so a clean checkout of it (and `main` after its FF-merge) cannot
 boot / migrate / install. Root cause: commits landed ahead of ~41 uncommitted
 `.py` files. Each item below is verified by `git show`/`ls-tree`/`git status`.
 
-- [ ] **A0-1 (S) — server won't boot.** Committed `caos/server/main.py:28,31,306`
+> **Status 2026-07-11 (confidence audit E-4):** all five A0 items below are
+> RESOLVED in code — autonomy routes/executor and migrations 0031/0032 committed
+> (merged to main 2026-07-08), `pgvector` declared in requirements.txt + lock,
+> compose runs `pgvector/pgvector:pg18` and mig 0030 executes
+> `CREATE EXTENSION IF NOT EXISTS vector`, and both venv suites ran green on
+> 2026-07-10 (1298/1298 collected). Checkboxes ticked; text kept for history.
+
+- [x] **A0-1 (S) — server won't boot.** Committed `caos/server/main.py:28,31,306`
   imports `routes.autonomy` + `engine.pipeline_executor.PipelineExecutor`, starts
   the executor at boot, and includes the router — but `routes/autonomy.py` and
   `engine/pipeline_executor.py` are **untracked**. Clean checkout → `ImportError`
   at `import main` (server dead, suite can't collect). Fix: commit the C3 autonomy
   WIP coherently (or back out the main.py refs).
-- [ ] **A0-2 (S) — alembic chain hole.** Committed `0033_issuer_research_report`
+- [x] **A0-2 (S) — alembic chain hole.** Committed `0033_issuer_research_report`
   has `down_revision="0032"`, but `0031_pipeline_runs` + `0032_analyst_watchlist`
   are **untracked**. `alembic upgrade head` on a clean tree → revision 0032 not
   found. (`test_migrations.py` enforces single-head/`alembic check`/round-trip and
   **would** catch this on push — it passes locally only because the untracked
   files sit on disk.) Fix: commit 0031/0032 with A0-1.
-- [ ] **A0-3 (S) — pgvector imported, not declared.** Committed
+- [x] **A0-3 (S) — pgvector imported, not declared.** Committed
   `database.py:28` `from pgvector.sqlalchemy import Vector`, but `pgvector` is in
   **neither `requirements.txt` nor `requirements.lock`**. `pip install -r
   requirements.lock` → prod import crash. Same class as the google-genai lock bug;
   `check_lock_sync.py` (CI, ci.yml:125) checks txt↔lock consistency, not
   import↔lock, so it misses an entirely-absent dep. Fix: add pgvector to both;
   extend the guard to catch undeclared imports.
-- [ ] **A0-4 (S) — prod DB can't run the vector migration.** Mig `0030` builds an
+- [x] **A0-4 (S) — prod DB can't run the vector migration.** Mig `0030` builds an
   HNSW `vector_cosine_ops` index (needs the pgvector extension), but the deploy
   DB is stock `postgres:18-alpine` (no pgvector) and no migration runs
   `CREATE EXTENSION IF NOT EXISTS vector`. Fresh prod DB → migration fails. Fix:
   pgvector-enabled Postgres image (e.g. `pgvector/pgvector:pg18`) + a
   `CREATE EXTENSION` migration step.
-- [ ] **A0-5 (P1) — working tree red.** `.venv311` suite: **3 fails** — committed
+- [x] **A0-5 (P1) — working tree red.** `.venv311` suite: **3 fails** — committed
   `test_api::test_search_by_name_case_insensitive`, committed
   `test_vault_memo` (`'Acme' in ['acme']`), new `test_memochunks` — all from the
   uncommitted RAG/memo case-normalization WIP. Land or revert the WIP to green.

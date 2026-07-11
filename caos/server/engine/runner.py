@@ -39,7 +39,13 @@ from engine.council import get_reviewer
 from engine.covenants import addback_cap_finding, covlite_finding
 from engine.earnings import monitoring_finding
 from engine.peers import peer_outlier_finding
-from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
+from engine.metrics import (
+    cp1_grounding_finding,
+    extract_cost_facts,
+    extract_facts,
+    leverage_magnitude_finding,
+    leverage_plausibility_finding,
+)
 from engine.gate import (
     Finding,
     cap_committee_status_for_blocked_upstream,
@@ -365,7 +371,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # ── CP-5B: evidence lineage validation ───────────────────────────
         findings = validate_lineage(produced)
         # Deterministic per-module finding providers the CP-5 gate consumes
-        # alongside lineage findings. Table-driven: six copy-pasted blocks used
+        # alongside lineage findings. Table-driven: eight copy-pasted blocks used
         # to live here, and a pasted-wrong upstream key silently fed a check the
         # wrong module's payload (the finding just never fired). Declare the
         # (provider, module) pair once; the loop cannot drift.
@@ -376,6 +382,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             (monitoring_finding, "CP-1B"),
             (peer_outlier_finding, "CP-1C"),
             (leverage_plausibility_finding, "CP-1"),
+            (leverage_magnitude_finding, "CP-1"),
+            (cp1_grounding_finding, "CP-1"),
         )
         for provider, module_id in _FINDING_PROVIDERS:
             f = provider(upstream.get(module_id))

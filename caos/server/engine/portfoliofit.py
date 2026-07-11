@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 _FIT = {
@@ -53,10 +54,10 @@ def assess_fit(cp3_rt: dict, leverage: Optional[float]) -> Optional[dict]:
     sleeve, sizing = _FIT[rec]
 
     # Risk-budget overlay: leverage at or above 6.0x is a caution, independent of
-    # the sleeve fit. is-numeric AND >= 6.0 — a NaN is simply not >= 6.0, so a
-    # NaN/non-numeric leverage raises no flag and never crashes the size read.
+    # the sleeve fit. is_finite_number rejects NaN/inf/non-numeric explicitly (the
+    # CLAUDE.md convention), so such a leverage raises no flag and never crashes.
     flags = []
-    if isinstance(leverage, (int, float)) and leverage >= 6.0:
+    if is_finite_number(leverage) and leverage >= 6.0:
         flags.append(f"High leverage ({leverage:g}x) — counts against the risk budget.")
 
     return {
