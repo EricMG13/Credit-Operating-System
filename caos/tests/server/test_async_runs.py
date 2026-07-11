@@ -259,24 +259,42 @@ async def test_two_workers_claim_one_run_once(seeded_db):
         await s.commit()
         run_id = run.id
 
-    w1, w2 = QueueWorker(), QueueWorker()
-    id1 = await w1._claim_one()
-    id2 = await w2._claim_one()
-    claimed = [x for x in (id1, id2) if x == run_id]
-    assert len(claimed) == 1, "exactly one worker may claim the run"
+    try:
+        w1, w2 = QueueWorker(), QueueWorker()
+        id1 = await w1._claim_one()
+        id2 = await w2._claim_one()
+        claimed = [x for x in (id1, id2) if x == run_id]
+        assert len(claimed) == 1, "exactly one worker may claim the run"
+    finally:
+        # _claim_one leaves the run "running" (claimed, never executed) —
+        # migrations/0034's active-run unique index means that would otherwise
+        # permanently block every later test's active-run insert on the shared
+        # REFERENCE_ISSUER_ID (same posture as
+        # test_active_run_unique_index_fires_at_db_level's own finally above).
+        async with AsyncSessionLocal() as s:
+            row = await s.get(Run, run_id)
+            row.status = "failed"
+            await s.commit()
 
 
 @requires_pg
 @pytest.mark.asyncio
 async def test_reaper_fails_exhausted_orphan(seeded_db):
-    from database import AsyncSessionLocal, Run
-    from engine.fixtures import REFERENCE_ISSUER_ID
+    from database import AsyncSessionLocal, Issuer, Run
     from run_executor import QueueWorker
     from datetime import datetime, timedelta, timezone
 
     past = datetime.now(timezone.utc) - timedelta(hours=1)
     async with AsyncSessionLocal() as s:
-        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t",
+        # Dedicated issuer, not REFERENCE_ISSUER_ID: migrations/0034's active-run
+        # unique index means a stray queued/running row left on the shared
+        # reference issuer by another test (module-order dependent in the
+        # shared Postgres test DB) would collide with this one on INSERT —
+        # same posture as test_inprocess_start_sweeps_stranded_runs above.
+        issuer = Issuer(name="Reaper Orphan Test Co")
+        s.add(issuer)
+        await s.flush()
+        run = Run(issuer_id=issuer.id, analyst_id="t",
                   status="running", attempts=3, lease_expires_at=past)
         s.add(run)
         await s.commit()
