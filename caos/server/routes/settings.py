@@ -39,6 +39,12 @@ class AnalystSettings(BaseModel):
     model_lanes: dict = Field(default_factory=dict)
     email_intelligence: dict = Field(default_factory=dict)
     role_view: str = "analyst"
+    # Per-analyst UI state that has nowhere else to live: Deep-Dive module pins
+    # (workspace.deepdive_pins), recents (workspace.deepdive_recents), and
+    # standing-view affirmations (workspace.affirmations — personal
+    # annotations, NOT a governance action). Frontend caps each list; server
+    # only enforces the overall 100KB blob cap below.
+    workspace: dict = Field(default_factory=dict)
 
 
 @router.get("")
@@ -95,12 +101,14 @@ async def read_analyst_settings(
     analyst = await db.get(Analyst, caller.id)
     raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
     rv = raw.get("role_view")
+    workspace = raw.get("workspace")
     return AnalystSettings(
         model_lanes=raw.get("model_lanes") or {},
         email_intelligence=raw.get("email_intelligence") or {},
         # Old two-field blobs (and junk values) coerce to the analyst view —
         # a GET never 500s over a preference.
         role_view=rv if rv in _ROLE_VIEWS else "analyst",
+        workspace=workspace if isinstance(workspace, dict) else {},
     )
 
 

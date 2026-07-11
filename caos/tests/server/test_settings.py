@@ -47,8 +47,8 @@ def test_analyst_settings_roundtrip_with_profile_cookie():
         }
         r = c.put("/api/settings/analyst", json=body)
         assert r.status_code == 200, r.text
-        # An omitted role_view defaults to the analyst presentation view.
-        assert r.json() == {**body, "role_view": "analyst"}
+        # Omitted role_view/workspace default to the analyst view / empty dict.
+        assert r.json() == {**body, "role_view": "analyst", "workspace": {}}
 
         r2 = c.get("/api/settings/analyst")
         assert r2.status_code == 200
@@ -71,7 +71,7 @@ def test_role_view_roundtrip_validation_and_legacy_coercion():
         r = c.put("/api/settings/analyst", json=body)
         assert r.status_code == 200, r.text
         assert r.json()["role_view"] == "pm"
-        assert c.get("/api/settings/analyst").json() == body
+        assert c.get("/api/settings/analyst").json() == {**body, "workspace": {}}
 
         # Invalid value is rejected, and the stored preference is untouched.
         bad = {**body, "role_view": "admin"}
@@ -107,3 +107,42 @@ def test_role_view_junk_in_stored_blob_coerces_to_analyst():
         r = c.get("/api/settings/analyst")
         assert r.status_code == 200
         assert r.json()["role_view"] == "analyst"
+
+
+def test_workspace_field_roundtrips_and_junk_coerces_to_empty_dict():
+    """workspace holds Deep-Dive pins/recents/affirmations (Phase-2 P2-WP-0) —
+    a free dict, capped only by the overall 100KB blob limit. A non-dict value
+    already in the DB (legacy client, manual edit) reads back as {}, never a
+    500 or a leaked scalar."""
+    import asyncio
+
+    from main import app
+
+    with TestClient(app) as c:
+        login = c.post("/api/auth/profile", json={"code": "131113", "name": "Workspace Roundtrip"})
+        assert login.status_code in (200, 201), login.text
+        analyst_id = c.get("/api/settings").json()["analyst"]
+
+        body = {
+            "model_lanes": {},
+            "email_intelligence": {},
+            "role_view": "analyst",
+            "workspace": {"deepdive_pins": ["CP-3B", "CP-2F"], "affirmations": []},
+        }
+        r = c.put("/api/settings/analyst", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json()["workspace"] == body["workspace"]
+        assert c.get("/api/settings/analyst").json()["workspace"] == body["workspace"]
+
+        async def corrupt() -> None:
+            from database import Analyst, AsyncSessionLocal
+
+            async with AsyncSessionLocal() as db:
+                a = await db.get(Analyst, analyst_id)
+                a.settings = {**a.settings, "workspace": "not-a-dict"}
+                await db.commit()
+
+        asyncio.run(corrupt())
+        r2 = c.get("/api/settings/analyst")
+        assert r2.status_code == 200
+        assert r2.json()["workspace"] == {}

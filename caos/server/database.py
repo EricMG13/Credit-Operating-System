@@ -787,6 +787,34 @@ class AnalystQaFlag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AlertState(Base):
+    """Ack/assign for one Watchtower alert (Command's ranked changes + Monitor's
+    alert inbox share this — same row, same truth, both surfaces read it via
+    lib/alerts/inbox.ts on the frontend).
+
+    `alert_key` is deterministic from the autonomy draft — f"{run_id}:{issuer_id}:
+    {kind}:{metric}" — and unique: a second POST for the same key upserts rather
+    than duplicating. Cycle-scoped on purpose: a later cycle re-firing the same
+    anomaly kind/metric for an issuer is a genuinely NEW event (the Sentinel is
+    change-driven), so it correctly starts open again rather than inheriting a
+    stale ack. Plain strings (no FK) — audit record, not run state, same shape
+    as AnalystQaFlag above.
+    """
+    __tablename__ = "alert_states"
+    # Named to match migration 0038's unique index so `alembic check`
+    # reconciles; a bare `unique=True` reflects as an unnamed constraint and
+    # drifts (same pattern as Analyst.email above).
+    __table_args__ = (Index("uq_alert_states_alert_key", "alert_key", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    alert_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    assignee: Mapped[Optional[str]] = mapped_column(String(120))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 # ─── Portfolio posture (managed CLO: holdings + constraints) ─────────────────
 # A portfolio is a managed book (e.g. a CLO) built from an uploaded holdings file.
 # Exposure and constraint compliance are COMPUTED deterministically from positions
