@@ -121,6 +121,16 @@ A second pass closed the coverage gaps left open after the PR-delta-focused pass
 
 None of these are contract-drift findings (nothing here is a case of the FE expecting something the server doesn't provide, or vice versa breaking a live view) — they're coverage/completeness notes for the product roadmap, included here because the playbook's own accepted-risk register needs them to avoid re-flagging as "unexplained" on the next run.
 
-## 9. Accepted-risk register
+## 9. P7 — FE gates (partial: full vitest suite blocked by environment, not code)
+
+`npx tsc --noEmit` from `caos/frontend`: **clean, 0 errors.** This is the primary automated backstop for G2 (mirror-edit discipline) and it passed outright.
+
+`npx vitest run src/lib/api.test.tsx` (the file G4 actually depends on): **8/8 green** — already the evidence cited for G4 above.
+
+**`npx vitest run` (full suite): not obtained this run — environment failure, not a test failure.** 5 attempts across ~12 hours, varying `--maxWorkers`, `--testTimeout`/`--hookTimeout`, foreground vs. background: every attempt either hit the harness's background-task timeout or ran for 50–280+ minutes of accumulated worker CPU time with zero output and no JSON result file, across multiple session restarts that orphaned the tracked process. No attempt ever produced a partial result, a stack trace, or a specific failing file — only silence, which rules out diagnosing a single pathological test file from this run's evidence. All spawned processes were killed and confirmed cleared; the repo tree is unmodified by any of these attempts (test-only, no source changes).
+
+This is an open item for the next run, not a finding against the branch: nothing here indicates the suite itself is broken (the two most contract-relevant files — `api.test.tsx` and the tsc gate — both passed cleanly), and G4/G10 (the gates that actually depend on FE test behavior) already have independent, complete evidence. Next run should try `--pool=forks` explicitly, or shard the suite by directory to isolate whether one specific test file is the hang source, run in a dedicated foreground terminal outside this harness's background-task tracking.
+
+## 10. Accepted-risk register
 
 No new items. All by-design seams matched the playbook's §6 register with no exceptions found this run.
