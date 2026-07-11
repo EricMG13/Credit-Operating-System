@@ -9,7 +9,9 @@ Step-by-step instruction to stand CAOS up for the first real internal pilot —
 3–5 credit analysts doing live work, data that survives restarts. Databricks is
 no longer the target; this runs the same single-process app on any Linux host
 with Docker. Companion docs: [deploy/README](../deploy/README.md) ·
-[SECURITY](SECURITY.md) · [AUDIT](AUDIT.md).
+[SECURITY](SECURITY.md) · [AUDIT](AUDIT.md) ·
+[PRE_DEPLOYMENT_SKILLS_SHORTLIST](PRE_DEPLOYMENT_SKILLS_SHORTLIST.md) (which
+Claude Code skills to run before §1).
 
 > **Execution rule.** Do the steps in order. Every box in §5 (Post-deploy
 > verification) must pass before you hand the URL to an analyst. If any box
