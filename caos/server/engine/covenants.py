@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
+from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
 from engine.periods import is_finite_number, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
@@ -243,19 +244,42 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
         return None
     data, hits = res
 
+    def _chunk_text(cid: str) -> str:
+        return next((h.text for h in hits if h.chunk_id == cid), "")
+
     # Each term carries (value, chunk_id, exact); exact is False when the model
     # fabricated/omitted the id (safe_chunk_id substitutes the top hit) so the
     # caller can downgrade the citation instead of overstating provenance.
-    def amount_term(value: object, id_key: str) -> Optional[Tuple[float, str, bool]]:
+    #
+    # amount_term/cap_t previously clamped sign/range only — a hallucinated (or
+    # prompt-injected) magnitude that happened to be positive and in-range passed
+    # straight through with no check that the number actually appears in its own
+    # cited chunk. This grounds the accepted value against that SPECIFIC chunk's
+    # text (via the same all_grounded numeral-matching the CP-1 grounding gate
+    # uses), not the whole retrieved pool — the citation already claims to be the
+    # source, so checking exactly that chunk is the tighter, more meaningful test.
+    # Ungrounded degrades to None (not extracted), same contract as a missing term.
+    def amount_term(
+        value: object, id_key: str, *, is_dollar_amount: bool = False
+    ) -> Optional[Tuple[float, str, bool]]:
         if is_finite_number(value) and not isinstance(value, bool) and value > 0:
             cid, exact = safe_chunk_id(data.get(id_key), hits)
+            text = _chunk_text(cid)
+            grounded = all_grounded(f"{value:.2f}", [text])
+            if not grounded and is_dollar_amount:
+                # A source stated in $ billions surfaces only the pre-normalization
+                # numeral via numbers_in's raw regex scan (e.g. "$1.5 billion" -> 1.5,
+                # not the derive_covenant_terms-style x1000 -> 1500 this value is in).
+                grounded = all_grounded(f"{value / 1000:.2f}", [text])
+            if not grounded:
+                return None
             return (float(value), cid, exact)
         return None
 
     lev_cov = amount_term(data.get("leverage_covenant_x"), "leverage_chunk_id")
-    incr_t = amount_term(data.get("incremental_musd"), "incremental_chunk_id")
-    rp_t = amount_term(data.get("rp_basket_musd"), "rp_chunk_id")
-    xd_t = amount_term(data.get("cross_default_musd"), "cross_default_chunk_id")
+    incr_t = amount_term(data.get("incremental_musd"), "incremental_chunk_id", is_dollar_amount=True)
+    rp_t = amount_term(data.get("rp_basket_musd"), "rp_chunk_id", is_dollar_amount=True)
+    xd_t = amount_term(data.get("cross_default_musd"), "cross_default_chunk_id", is_dollar_amount=True)
 
     cap_t = None
     cap_raw = data.get("addback_cap_pct")
@@ -265,7 +289,11 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
             v /= 100.0  # model answered in percent despite the FRACTION ask
         if 0 < v < 1:
             cid, exact = safe_chunk_id(data.get("addback_cap_chunk_id"), hits)
-            cap_t = (v, cid, exact)
+            text = _chunk_text(cid)
+            # A cap is almost always stated as a percent ("capped at 25% of EBITDA"),
+            # occasionally as a bare multiple ("0.25x EBITDA") — try both forms.
+            if all_grounded(f"{v * 100:.2f}", [text]) or all_grounded(f"{v:.2f}", [text]):
+                cap_t = (v, cid, exact)
 
     out: Dict[str, object] = {
         "incremental_musd": incr_t,
