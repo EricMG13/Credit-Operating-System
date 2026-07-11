@@ -1,7 +1,7 @@
 "use client";
 
 // Global "Ask" launcher — one entry point to the conversational surface, scoped
-// by where the analyst is. ⌘K / Ctrl+K toggles it from anywhere (Esc closes).
+// by where the analyst is. Alt+K (or the ⌘K palette's Ask row) opens it; Esc closes.
 // On the issuer-scoped concepts (Deep-Dive, Model) it opens the ATLF issuer Q&A;
 // elsewhere it opens the cross-issuer NL query. Deep-Dive owns its own
 // evidence-synced chat (rendered inside its EvidenceSyncProvider) and only reads
@@ -237,7 +237,7 @@ export function AskLauncher() {
   const trigger = !open ? (
     <button
       onClick={toggle}
-      title="Ask CAOS (Alt+K / ⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
+      title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
       className="fixed bottom-3 right-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
       style={{ boxShadow: "var(--shadow-pop)" }}
     >

@@ -99,7 +99,10 @@ def test_role_view_junk_in_stored_blob_coerces_to_analyst():
                 a.settings = {"model_lanes": {}, "role_view": 42}
                 await db.commit()
 
-        asyncio.get_event_loop().run_until_complete(corrupt())
+        # asyncio.run (fresh loop) — get_event_loop() inherits whatever loop
+        # state earlier suite modules left behind and flakes under full-suite
+        # ordering; a new loop per call is deterministic (shared-DB suite).
+        asyncio.run(corrupt())
 
         r = c.get("/api/settings/analyst")
         assert r.status_code == 200
