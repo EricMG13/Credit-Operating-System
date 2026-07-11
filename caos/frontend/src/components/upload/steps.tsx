@@ -453,7 +453,13 @@ export function ResultStep({
           trigger. modeMeta is descriptive metadata on the vaulted documents
           today (not yet threaded into the engine route), so the run itself is
           always the full CP-X route regardless of the mode picked in step 2. */}
-      {!uploading && okCount > 0 && selectedIssuer ? (
+      {/* Gated on !runOutcome / "failed": runUpload's own auto-queue attempt
+          (FE-1, above) already fires a run for every vaulted batch — showing
+          this manual trigger too, unconditionally, would let the analyst
+          double-queue (and double-spend) a second run for the same documents.
+          It survives only as the retry path when the automatic attempt never
+          ran or failed. */}
+      {!uploading && okCount > 0 && selectedIssuer && (!runOutcome || runOutcome.state === "failed") ? (
         <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2.5">
           {runCreated ? (
             <>
@@ -480,6 +486,8 @@ export function ResultStep({
               </button>
               {runError ? (
                 <span role="alert" className="text-caos-md" style={{ color: "var(--caos-critical-bright)" }}>{runError}</span>
+              ) : runOutcome?.state === "failed" ? (
+                <span className="tabular text-caos-xs text-caos-muted">the automatic run attempt failed — retry above</span>
               ) : (
                 <span className="tabular text-caos-xs text-caos-muted">not started yet — vaulting a document doesn&apos;t queue a run</span>
               )}
