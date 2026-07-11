@@ -204,7 +204,7 @@ truth, tooling roots clean.
   returns ≥1. **Exit:** test lands and is green.
 - [x] **A2 (S)** ~~Merge `feat/query-route-fast-lane` → `main`~~ **DONE**
   (merged via PR #99).
-- [ ] **A3 (M)** *(Exec 2026-07-11: straight cherry-pick conflicts as predicted — PR #160 open with the full rebase + 3 fixes, drops the obsolete manual-rating fields, rebuilds profile/digest mounts against current layouts; a parallel partial rebase #162 was closed superseded. Merge #160 after #158, then delete the branch.)* `feat/covenant-frontend` orphan commit `3605c99` (frontend
+- [x] **A3 (M)** **DONE 2026-07-11** — landed as PR #160 (merge 67017f01): full rebase of `3605c99` + 3 fixes, obsolete manual-rating fields dropped, profile/digest mounts rebuilt against current layouts (parallel partial #162 closed superseded). Residual: delete `feat/covenant-frontend` (A6 list). `feat/covenant-frontend` orphan commit `3605c99` (frontend
   pages: `/sponsors`, dominoes, register rows, digest panel). The **backend**
   half already shipped independently (`routes/sponsors.py`, `routes/digest.py`,
   `covenant-register`/`sponsor-graph` Query walks registered in
@@ -216,7 +216,7 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
+- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen. Merged same evening: #155, #157, #160, #161 — close #135 as superseded; #150 verdict = rebase+rescope, do not merge as-is; #158 revert is the remaining unblock.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
   not the previously-tracked 2): **#85** alembic 1.13→1.18, **#88** fastapi
   0.138→0.139 (do not downgrade the 0.138 pin — an upgrade needs py3.11/
   starlette re-verify), **#133** playwright/test 1.60→1.61.1, **#134**
