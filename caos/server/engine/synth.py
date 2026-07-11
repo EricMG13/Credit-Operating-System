@@ -133,8 +133,10 @@ def _ground_cp1_headline_figures(payload: ModulePayload, hits: list) -> None:
     currency signal in the schema yet to suppress it. This check also does NOT
     ground net_debt_ltm or the leverage ratio itself (genuinely non-quotable,
     computed values), so a fabrication that keeps revenue/EBITDA correct while
-    inventing net_debt/leverage is not caught here — see leverage_plausibility_finding
-    for the (also incomplete — internal-consistency-only) leverage cross-check."""
+    inventing net_debt/leverage is not caught here — see
+    engine.metrics.leverage_magnitude_finding, the magnitude-only sanity-band
+    backstop that catches it independent of both this check and
+    leverage_plausibility_finding's internal-consistency-only cross-check."""
     if payload.module_id != "CP-1" or not hits:
         return
     nf = payload.runtime_output.get("normalized_financials") if isinstance(payload.runtime_output, dict) else None

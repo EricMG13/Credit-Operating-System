@@ -179,17 +179,17 @@ def test_fabricated_income_statement_surfaces_advisory_finding():
     assert committee_status_from(status, p.confidence) == "Committee Ready"
 
 
-def test_KNOWN_GAP_net_debt_leverage_fabrication_not_caught():
-    """Adversarially confirmed 2026-07-11: this check only grounds revenue/EBITDA
+def test_net_debt_leverage_fabrication_now_caught_by_leverage_magnitude_finding():
+    """Was test_KNOWN_GAP_net_debt_leverage_fabrication_not_caught — adversarially
+    confirmed 2026-07-11, closed same day. This check only grounds revenue/EBITDA
     (the quotable primitives), not net_debt_ltm or the leverage ratio (genuinely
     non-quotable, computed values) — so a fabrication that keeps revenue/EBITDA
     CORRECT while inventing an internally-consistent net_debt/leverage passes both
     this check AND leverage_plausibility_finding untouched. True leverage 3.0x,
     fabricated to 10.0x (2500/250 recomputes to exactly 10.0, so the internal-
-    consistency check doesn't fire either). Tracked as a follow-up (ground
-    net_debt's inputs — gross debt/cash — and/or add a magnitude/outlier bound to
-    leverage_plausibility_finding), not fixed by this diff. This test exists so
-    closing that follow-up has a regression signal to flip."""
+    consistency check doesn't fire either). Closed via
+    engine.metrics.leverage_magnitude_finding — a magnitude-only sanity band,
+    independent of internal consistency (see test_leverage_magnitude.py)."""
     p = ModulePayload(
         module_id="CP-1", module_name="x", owned_object="o", confidence="High",
         runtime_output={"normalized_financials": {
@@ -201,10 +201,15 @@ def test_KNOWN_GAP_net_debt_leverage_fabrication_not_caught():
     _ground_cp1_headline_figures(p, hits)
     assert p.ungrounded_headline_figures == []  # revenue/EBITDA ground cleanly — real figures
 
-    from engine.metrics import leverage_plausibility_finding
+    from engine.metrics import leverage_magnitude_finding, leverage_plausibility_finding
     assert leverage_plausibility_finding(p) is None  # 2500/250 = 10.0 = asserted — "consistent"
     assert cp1_grounding_finding(p) is None  # nothing ungrounded to report
 
-    # The fabricated 10.0x leverage reaches "Committee Ready" — the residual gap.
-    status = qa_status_from([])
+    magnitude = leverage_magnitude_finding(p)
+    assert magnitude is not None and magnitude.severity == "MINOR"  # gap now surfaced
+
+    # MINOR is advisory, not gating (same tradeoff as cp1_grounding_finding) — the
+    # fabrication is now visible in the evidence trail rather than silently invisible.
+    status = qa_status_from([magnitude])
+    assert status == "Passed"
     assert committee_status_from(status, p.confidence) == "Committee Ready"

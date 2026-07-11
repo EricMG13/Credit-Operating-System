@@ -43,6 +43,7 @@ from engine.metrics import (
     cp1_grounding_finding,
     extract_cost_facts,
     extract_facts,
+    leverage_magnitude_finding,
     leverage_plausibility_finding,
 )
 from engine.gate import (
@@ -373,6 +374,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
         if lev_plaus is not None:
             findings.append(lev_plaus)
+        lev_magnitude = leverage_magnitude_finding(upstream.get("CP-1"))
+        if lev_magnitude is not None:
+            findings.append(lev_magnitude)
         ungrounded = cp1_grounding_finding(upstream.get("CP-1"))
         if ungrounded is not None:
             findings.append(ungrounded)

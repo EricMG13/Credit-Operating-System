@@ -303,6 +303,53 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     )
 
 
+# ponytail: a flat absolute ceiling, not a peer-band — CP-1C peer infra isn't
+# reachable from this call site (peer_outlier_finding runs off a different
+# module). Swap for a peer-band once that's wired here. 8.0x is beyond where a
+# broadly-syndicated leveraged loan is underwritten at close; real distressed
+# names can still exceed it, which is exactly why this stays MINOR/advisory.
+_LEVERAGE_SANITY_CEILING = 8.0
+
+
+def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MINOR (advisory, non-gating) CP-5B finding when CP-1's asserted net
+    leverage falls outside a plausible sanity band, regardless of whether it is
+    internally self-consistent with net debt / adjusted EBITDA.
+
+    leverage_plausibility_finding only catches an asserted leverage that
+    disagrees with net_debt_ltm / adj_ebitda; it is silent when a fabrication
+    keeps those two internally consistent (e.g. true leverage 3.0x fabricated to
+    10.0x by also fabricating net_debt_ltm so 2500/250 recomputes to exactly
+    10.0x — adversarially confirmed 2026-07-11, see
+    test_cp1_grounding.py::test_net_debt_leverage_fabrication_now_caught_by_leverage_magnitude_finding).
+    This is a magnitude-only, defense-in-depth backstop: it does not care
+    whether the figures agree with each other, only whether the asserted number
+    itself is plausible for a leveraged-loan issuer.
+
+    DELIBERATELY MINOR, NOT MATERIAL: an absolute ceiling has a real
+    false-positive population — genuinely distressed issuers legitimately run
+    leverage past any fixed band — so this stays advisory (visible, queryable)
+    rather than gating, same tradeoff as cp1_grounding_finding's FX
+    false-positive. Checks ``abs(lev)`` so an implausible net-CASH position
+    (a large negative leverage) is caught symmetrically."""
+    if cp1 is None:
+        return None
+    nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
+    lev = nf.get("net_leverage_adj_ltm")
+    if not is_finite_number(lev) or abs(lev) <= _LEVERAGE_SANITY_CEILING:
+        return None
+    return Finding(
+        finding_id="CP-1-LEV-MAGNITUDE", severity="MINOR", lane=6, module_id="CP-1",
+        description=(
+            f"Asserted net leverage {lev:g}x falls outside the "
+            f"±{_LEVERAGE_SANITY_CEILING:g}x plausibility band for a leveraged-loan "
+            "issuer. Internally consistent with net debt / adjusted EBITDA, but the "
+            "magnitude itself warrants verification against the source documents."
+        ),
+        required_remediation="Verify the asserted net leverage magnitude against the issuer's actual filings/documents.",
+    )
+
+
 def cp1_grounding_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     """MINOR (advisory, non-gating) CP-5B finding when CP-1's headline revenue AND
     adjusted EBITDA both have no basis in the retrieved source documents — the
@@ -321,10 +368,10 @@ def cp1_grounding_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     positive with no currency signal in the schema yet to suppress it — so this
     finding is surfaced in the evidence trail (visible, queryable) without
     forcing "Restricted" on a genuinely correct run. Promote to MATERIAL once a
-    currency/basis signal exists to skip non-USD issuers. Also does not close the
-    original threat alone: a fabrication that keeps revenue/EBITDA correct while
-    inventing net_debt/leverage passes both this and leverage_plausibility_finding
-    untouched (tracked as a follow-up, not blocking this check).
+    currency/basis signal exists to skip non-USD issuers. Does not, alone, close
+    a fabrication that keeps revenue/EBITDA correct while inventing net_debt/
+    leverage — that passes both this and leverage_plausibility_finding untouched;
+    see leverage_magnitude_finding, the magnitude-only backstop that catches it.
 
     Set by engine.synth._ground_cp1_headline_figures at synthesis time; empty
     (never fires) for the deterministic EDGAR/reported/fixture paths and for any
