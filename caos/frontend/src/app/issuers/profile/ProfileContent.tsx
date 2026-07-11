@@ -20,6 +20,7 @@ const EMPTY_EARNINGS: EarningsSummary = {
 };
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
+import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
@@ -836,6 +837,10 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
   const [graph, setGraph] = useState<GraphResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped by the Log-a-note quick-capture so a freshly vaulted memo shows up
+  // without a page reload (the memo travels upload -> autolink -> memochunks,
+  // and the analyst-memos walk re-reads it here).
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     let stale = false;
@@ -851,13 +856,21 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
       })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [issuerId]);
+  }, [issuerId, refresh]);
 
   const notes = analystNotesFromGraph(graph);
   const linkHint = "[[" + issuerName + "]]" + (ticker ? " or [[" + ticker + "]]" : "");
 
   return (
-    <Panel title="Analyst notes" right={notes.length ? <span className="tabular text-caos-2xs text-caos-muted">{notes.length} linked</span> : null}>
+    <Panel
+      title="Analyst notes"
+      right={
+        <span className="flex items-center gap-2">
+          {notes.length ? <span className="tabular text-caos-2xs text-caos-muted">{notes.length} linked</span> : null}
+          <VaultMemoUpload issuer={{ name: issuerName, ticker }} onUploaded={() => setRefresh((r) => r + 1)} />
+        </span>
+      }
+    >
       <div className="px-3 py-2 flex flex-col gap-2">
         {loading ? (
           <Empty>Loading analyst notes...</Empty>
