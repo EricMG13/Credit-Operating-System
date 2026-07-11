@@ -17,7 +17,7 @@ import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EdgarImport } from "@/components/upload/EdgarImport";
 import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
-  type FileOutcome, type Step,
+  type FileOutcome, type RunQueueOutcome, type Step,
 } from "@/components/upload/steps";
 
 interface UploadWizardProps {
@@ -38,6 +38,12 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [uploading, setUploading] = useState(false);
   const [outcomes, setOutcomes] = useState<FileOutcome[]>([]);
   const [error, setError] = useState("");
+  // Truthful run-queue outcome for the completion panel (FE-1): the analysis
+  // run is actually POSTed after a successful batch; the panel reports what
+  // happened instead of asserting "run queued" unconditionally.
+  const [runOutcome, setRunOutcome] = useState<RunQueueOutcome | null>(null);
+  // Guards a failed-file retry from double-queuing (the loop re-runs runUpload).
+  const runQueuedRef = useRef(false);
 
   // Live per-file batch progress: which file (1-based) is in flight and its
   // name, so the primary action reads "UPLOADING 3/12 — filename…" instead of a
@@ -120,6 +126,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setOutcomes(keep);
     setStep("result");
 
+    let vaultedAny = false;
     for (let i = 0; i < batch.length; i++) {
       if (cancelRef.current) break;
       const file = batch[i];
@@ -134,10 +141,35 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           ? await uploadPricingSheet(formData)
           : await uploadDocument(formData);
         settled = { name: file.name, result: res, file };
+        vaultedAny = true;
       } catch (err) {
         settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
       }
       setOutcomes((prev) => [...prev, settled]);
+    }
+
+    // Actually queue the analysis run the completion copy promises. The wizard
+    // used to SAY "run queued" while no UI path ever called POST /api/runs —
+    // the platform's core loop dead-ended and every live surface stayed empty
+    // (audit 2026-07-10 FE-1). Truthful outcomes: queued (with the run id),
+    // already-active (409 dedup), or failed (message; the panel says how to
+    // proceed). runQueuedRef stops a failed-file RETRY from double-posting a
+    // run that the first pass already queued.
+    if (vaultedAny && !cancelRef.current && !runQueuedRef.current) {
+      setRunOutcome({ state: "queuing" });
+      try {
+        const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+        runQueuedRef.current = true;
+        setRunOutcome({ state: "queued", runId: run.id });
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 409) {
+          runQueuedRef.current = true;  // one is already active — same end state
+          setRunOutcome({ state: "active" });
+        } else {
+          setRunOutcome({ state: "failed", message: toErrorMessage(err, "Run not started") });
+        }
+      }
     }
 
     setProgress(null);
@@ -185,6 +217,8 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setRunCreated(null);
     setRunError("");
     cancelRef.current = false;
+    setRunOutcome(null);
+    runQueuedRef.current = false;
   };
 
   useEffect(() => {
@@ -308,6 +342,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           totalChunks={totalChunks}
           uploading={uploading}
           progress={progress}
+          runOutcome={runOutcome}
           onReset={reset}
           onRetryFailed={handleRetryFailed}
           runCreating={runCreating}

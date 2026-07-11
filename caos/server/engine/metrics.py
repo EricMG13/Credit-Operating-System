@@ -3,10 +3,11 @@
 ``METRIC_CATALOG`` is the closed vocabulary the NL→query translator and the UI
 both draw from — defining it *is* the "dictionary" cross-issuer query ranges
 over. ``extract_facts`` projects a completed run's CP-1 normalized_financials
-into structured, cited metric facts (the run-derived half of ``metric_facts``).
-Qualitative / not-yet-modeled metrics (gross_margin, fcf_conversion,
-energy_cost_pct) are seed-only illustrative values populated by seed_metrics —
-they are deliberately not faked from a run.
+into structured, cited metric facts (the run-derived half of ``metric_facts``)
+— including a computed fcf_conversion when CP-1 carries an FCF series — and
+``extract_cost_facts`` projects CP-2's evidence-grounded energy_cost_pct.
+gross_margin remains seed-only illustrative (populated by seed_metrics, never
+faked from a run).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from sqlalchemy import ColumnElement
 
 from database import MetricFact
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, safe_div, sort_key
+from engine.periods import is_finite_number, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -87,6 +88,34 @@ def headline_fact_predicates(keys: Iterable[str]) -> List[ColumnElement[bool]]:
     peer median or a cross-issuer answer."""
     return [MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)),
             MetricFact.qa_status != "Blocked"]
+
+
+# ── Provenance precedence (the ONE ranking every read-side collapse uses) ────
+# Minted values: run (QA-gated engine), fixture (genuine ATLF demo),
+# demo_fixture (fabricated — flagged, never authoritative), derived
+# (chunk-extracted), seed (illustrative). Read-side rule, pinned by
+# test_fact_collapse.py: run/fixture tier beats everything else, then newest
+# created_at within a tier. Five sites used to re-implement this with
+# divergent vocabularies (nlquery vs querygraph vs peers vs sponsors vs the
+# issuer profile), so the same issuer showed different numbers per surface.
+DERIVED_PROVENANCE = ("run", "fixture")
+
+
+def provenance_tier(provenance: Optional[str]) -> int:
+    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
+    return 1 if provenance in DERIVED_PROVENANCE else 0
+
+
+def better_fact(prev, fact) -> bool:
+    """True if ``fact`` should replace ``prev`` for one (issuer, metric):
+    run/fixture tier beats seed, then newest created_at within a tier; null
+    created_at keeps prev. The reference comparator for every fact collapse."""
+    if prev is None:
+        return True
+    pt, ft = provenance_tier(prev.provenance), provenance_tier(fact.provenance)
+    if ft != pt:
+        return ft > pt
+    return bool(fact.created_at and prev.created_at and fact.created_at > prev.created_at)
 
 
 def catalog_dicts() -> List[dict]:
@@ -166,6 +195,12 @@ def extract_facts(  # noqa: C901
         provenance = "fixture" if is_reference_issuer else "demo_fixture"
     else:
         provenance = "run"
+    # Money unit honours the payload's disclosed currency: a reported-disclosure
+    # CP-1 for a GBP/EUR filer (reported_cp1.py stores runtime_output["currency"])
+    # must not project £/€ magnitudes into the shared cross-issuer store labeled
+    # "$M" — a silent unit mismatch in every cross-issuer ranking. (#AA4)
+    cur = ro.get("currency")
+    money_unit = f"{cur}M" if isinstance(cur, str) and cur and cur != "$" else "$M"
     facts: List[dict] = []
 
     def add(metric_key: str, period: str, value, unit: str, headline: bool) -> None:
@@ -186,9 +221,9 @@ def extract_facts(  # noqa: C901
     rev_headline = _headline_period(list(rev.keys()))
     eb_headline = _headline_period(list(eb.keys()))
     for period, v in rev.items():
-        add("revenue", period, v, "$M", period == rev_headline)
+        add("revenue", period, v, money_unit, period == rev_headline)
     for period, v in eb.items():
-        add("adj_ebitda", period, v, "$M", period == eb_headline)
+        add("adj_ebitda", period, v, money_unit, period == eb_headline)
         rv = rev.get(period)
         # Both operands must be finite before the divide: a NaN rv is truthy, so a
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
@@ -206,7 +241,7 @@ def extract_facts(  # noqa: C901
     fcf = _as_dict(fin.get("free_cash_flow"))
     fcf_headline = _headline_period(list(fcf.keys()))
     for period, v in fcf.items():
-        add("fcf", period, v, "$M", period == fcf_headline)
+        add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
         # same null-leaf guard as ebitda_margin above: 100 * None raises
         m = safe_div(100 * v, rv) if is_finite_number(v) else None
@@ -271,7 +306,7 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     # malformed adj_ebitda series itself.
     nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    eb = latest(nf.get("adj_ebitda") or {})
+    eb = latest_annual(nf.get("adj_ebitda") or {})
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
             and is_finite_number(eb) and eb):
         return None
@@ -328,5 +363,11 @@ def derive_energy_cost_pct(
             continue
         m = _COST_PCT_RE.search(text)
         if m:
-            return float(m.group(1)), chunk_id, doc
+            v = float(m.group(1))
+            # Domain clamp (0, 100]: a matched percentage outside it is a mis-read
+            # ("0 percent of cost base" / a stray figure), not a cost share — its
+            # sibling extractors all range-guard, this one published a headline
+            # MetricFact unclamped (audit 2026-07-10 S1). Degrade, never guess.
+            if 0 < v <= 100:
+                return v, chunk_id, doc
     return None

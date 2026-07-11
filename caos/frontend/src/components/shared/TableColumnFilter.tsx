@@ -88,7 +88,16 @@ export function FilterHeader<T>({
     setMounted(true);
   }, []);
 
-  const opts = useMemo(() => Array.from(new Set(rows.map((r) => keyOf(getValue(r))))).sort(), [rows, getValue]);
+  // Numeric-aware order: the default lexicographic sort scrambled numeric
+  // columns ('1050' < '250' < '44' < '9'), and with >MAX_VISIBLE_OPTIONS values
+  // the visible slice kept a lexicographic prefix instead of the extremes.
+  const opts = useMemo(() => {
+    const uniq = Array.from(new Set(rows.map((r) => keyOf(getValue(r)))));
+    const allNumeric = uniq.every((v) => v === "—" || (v !== "" && !Number.isNaN(Number(v))));
+    return allNumeric
+      ? uniq.sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : Number(a) - Number(b)))
+      : uniq.sort();
+  }, [rows, getValue]);
   const active = selected !== undefined;
   const matches = opts.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
   const visible = matches.slice(0, MAX_VISIBLE_OPTIONS);

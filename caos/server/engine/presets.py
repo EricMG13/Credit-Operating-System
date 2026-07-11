@@ -152,11 +152,16 @@ def _tier_model(s, tier: str) -> str:
 
 
 def _has_provider_key(s, model: str) -> bool:
-    if model.startswith("gemini"):
-        return bool(s.gemini_api_key)
-    if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
-        return bool(s.openrouter_api_key)
-    return bool(s.anthropic_api_key)
+    # Routed through the single classifier (llm_client.provider_of) so this
+    # key-degradation check can never disagree with actual call routing — a new
+    # id shape is classified once, not per-copy.
+    from engine.llm_client import provider_of
+
+    return bool({
+        "gemini": s.gemini_api_key,
+        "openrouter": s.openrouter_api_key,
+        "anthropic": s.anthropic_api_key,
+    }[provider_of(model)])
 
 
 def _configured_fallback(s, tier: str) -> str:
@@ -220,7 +225,9 @@ def reviewer_model() -> str:
     # degraded one) — there the cross critic is Gemini, if a key is set, else it
     # degrades to same-model. For a Gemini- or OpenRouter/DeepSeek-heavy lane the
     # cross critic is Anthropic (Claude critiques the DeepSeek draft).
-    if heavy.startswith("claude") or heavy.startswith("anthropic"):
+    from engine.llm_client import provider_of
+
+    if provider_of(heavy) == "anthropic":
         return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
     return s.council_reviewer_model_anthropic if s.anthropic_api_key else heavy
 

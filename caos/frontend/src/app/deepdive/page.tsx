@@ -415,7 +415,9 @@ function DeepDive() {
                     {g.mods.map((id) => {
                       const st = modState(id);
                       return isCleared(st)
-                        ? <Dot key={id} sev={st} pulse={st === "running"} />
+                        // glyph: cleared modules can be pass OR warning — shape carries the
+                        // difference for colorblind analysts (the strip has no text per module)
+                        ? <Dot key={id} sev={st} pulse={st === "running"} glyph />
                         // Padlock = sim-gated (reference replay); a real issuer's
                         // missing module is hollow-idle "no output", not locked.
                         : <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;

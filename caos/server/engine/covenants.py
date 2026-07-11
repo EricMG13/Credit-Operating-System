@@ -41,23 +41,37 @@ _RETRIEVE_QUERY = (
     "excess of; EBITDA definition add-backs cost savings synergies cap percent"
 )
 # Incremental / incurrence debt capacity: the $-amount tied to the incremental
-# clause (same sentence), in millions or billions — NOT the first dollar figure
-# anywhere in the chunk, which used to grab a preceding fee/figure and cite it as
-# the basket (review review-2026-06-26 #1).
-# ponytail: keyword-then-amount, same sentence. A reverse-order "$250M incremental",
-# or a figure sitting between the keyword and the basket, degrades to None (an
-# honest "not parsed" + limitation flag) rather than a wrong number. Widen to a
-# two-sided proximity match if real agreements need it.
+# clause (same sentence), in millions or billions — anchored on a CEILING phrase
+# ("not to exceed" / "up to" / "aggregate principal amount of") between the
+# keyword and the figure. Keyword-then-first-amount alone returned an interposed
+# figure ("...subject to an arrangement fee of $2.5 million, in an aggregate
+# principal amount not to exceed $250 million" → basket $2.5M, cited as exact) —
+# the ceiling anchor binds to the basket quantum itself (audit 2026-07-10 ENG-10).
+# ponytail: a clause with no ceiling phrase ("RP basket: $50 million") degrades to
+# None (an honest "not parsed" + limitation flag) rather than a wrong number.
+# Ceiling verbs plus the level-setting connectors real clauses use ("capacity of
+# $612 million", "general basket of $150 million"). Deliberately NOT a bare "of":
+# that is what let "subject to an arrangement fee of $2.5 million" interpose.
+_CEILING = (
+    r"(?:(?:shall\s+)?not\s+to?\s+exceed|up\s+to|capped\s+at|"
+    r"maximum\s+(?:aggregate\s+)?(?:amount\s+)?of|"
+    r"(?:aggregate\s+(?:principal\s+)?amount|capacity|baskets?)\s+of)"
+)
+# Same-sentence gap that may cross a DECIMAL point ("$2.5 million" interposed
+# before the ceiling phrase) but never a sentence-ending period.
+_GAP = r"(?:[^.]|\.(?=\d))"
 _INCREMENTAL_AMT = re.compile(
-    r"(?:incremental|incurrence)[^.]{0,140}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
+    r"(?:incremental|incurrence)" + _GAP + r"{0,140}?" + _CEILING +
+    r"[^.]{0,40}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
     re.IGNORECASE,
 )
 
-# Restricted-payments / builder-basket capacity — same keyword-then-amount,
-# same-sentence convention (and the same known ceiling) as _INCREMENTAL_AMT.
+# Restricted-payments / builder-basket capacity — same keyword-then-ceiling-then-
+# amount, same-sentence convention as _INCREMENTAL_AMT.
 _RP_BASKET_AMT = re.compile(
     r"(?:restricted\s+payments?|builder\s+basket|available\s+amount|general\s+basket)"
-    r"[^.]{0,140}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
+    + _GAP + r"{0,140}?" + _CEILING +
+    r"[^.]{0,40}?\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(million|billion)",
     re.IGNORECASE,
 )
 
@@ -172,7 +186,7 @@ _CROSS_CHECK = re.compile(r"cross", re.I)
 _AB_CHECK = re.compile(r"add-back|add\s+back|addback|cost-sav|cost\s+sav|synerg", re.I)
 
 
-def derive_covenant_terms(
+def derive_covenant_terms(  # noqa: C901  # pre-existing multi-pattern extractor; split per-term helpers when reworked
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
     """Extract covenant terms from document chunks. ``chunks`` is ``(chunk_id,
@@ -253,6 +267,13 @@ async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
         return None
 
     lev_cov = amount_term(data.get("leverage_covenant_x"), "leverage_chunk_id")
+    # Domain-clamp the covenant threshold to the same 1.0-12.0x band the
+    # deterministic extractor enforces: a model misreading "5.75:1.00" as 575
+    # otherwise flows straight into headroom/cushion math ("569 turns of
+    # headroom") in committee-facing claims (audit 2026-07-10 ENG-11). Reject —
+    # never rescale — so a garbled read degrades to "not parsed", not a guess.
+    if lev_cov is not None and not (1.0 <= lev_cov[0] <= 12.0):
+        lev_cov = None
     incr_t = amount_term(data.get("incremental_musd"), "incremental_chunk_id")
     rp_t = amount_term(data.get("rp_basket_musd"), "rp_chunk_id")
     xd_t = amount_term(data.get("cross_default_musd"), "cross_default_chunk_id")
@@ -346,7 +367,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
                 claim_id="C-CAP1",
                 claim_text=f"The governing document provides ${amt:g}M of day-one incremental debt capacity.",
                 evidence=[EvidenceSpec("E-CAP1", "table_value",
-                                       "Directly Sourced" if incr_exact else "Inferred",
+                                       "Directly Sourced" if incr_exact else "Analyst Inference",
                                        "Incremental capacity (governing document)",
                                        "High" if incr_exact else "Medium", resolved_chunk_id=cid)],
             ))
@@ -357,16 +378,28 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
     # basis) — comparing the two understates headroom, so label by basis and flag the
     # mismatch rather than silently calling everything a "total leverage covenant".
     cov_basis = terms.get("leverage_covenant_basis")
-    cov_label = {"senior_secured": "senior secured", "first_lien": "first-lien"}.get(cov_basis, "total")
+    # None (no basis qualifier in the matched text) is NOT the same as an explicit
+    # "total": defaulting the label to "total" asserted an unverified basis as fact
+    # in the committee-facing C-CAP2 claim. Unknown renders unqualified ("leverage
+    # covenant") and is flagged as a limitation below.
+    cov_label = {
+        "senior_secured": "senior secured",
+        "first_lien": "first-lien",
+        "total": "total",
+    }.get(cov_basis, "")
+    cov_prefix = f"{cov_label} " if cov_label else ""
     covenant_structure = "maintenance" if lev_cov else "cov-lite"
     if lev_cov:
         thr, cid, cov_exact = lev_cov
         # Explicit finiteness on BOTH operands (not just `lev is not None`): cp1_leverage
         # now returns None for a NaN lev, but gate here too so a non-finite thr (or a
         # future lev source that skips that gate) degrades to the sourced-threshold /
-        # no-headroom branch below instead of emitting a NaN headroom/cushion. Guard
-        # thr != 0 so the cushion divide can't blow up.
-        if is_finite_number(lev) and is_finite_number(thr) and thr != 0:
+        # no-headroom branch below instead of emitting a NaN headroom/cushion. Both
+        # operands must also be POSITIVE: a net-cash issuer's negative lev yields an
+        # arithmetically faithful but meaningless ">100% EBITDA decline to a breach"
+        # cushion in committee text (audit 2026-07-10 V3), and a thr<=0 blows the
+        # divide — degrade to the sourced-threshold branch in both cases.
+        if is_finite_number(lev) and lev > 0 and is_finite_number(thr) and thr > 0:
             headroom = round(thr - lev, 2)
             cushion = round((1 - lev / thr) * 100, 1)
             calcs.append({
@@ -379,7 +412,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
                 claim_text=(
-                    f"The {cov_label} leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
+                    f"The {cov_prefix}leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
                     f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA decline to a breach, net debt flat)."
                 ),
                 evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
@@ -392,12 +425,18 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
                     f"total/consolidated ({lev:g}x): the covenant tests a narrower (secured) debt "
                     "basis, so the computed headroom is conservative (overstates breach risk)."
                 )
+            elif cov_basis is None:
+                limitations.append(
+                    f"The matched covenant text ({thr:g}x) states no leverage basis "
+                    "(total vs senior secured / first-lien): headroom is computed against CP-1's "
+                    "total net leverage and may be misstated if the covenant tests a narrower basis."
+                )
         else:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
-                claim_text=f"The agreement sets a maximum {cov_label} leverage covenant of {thr:g}x (financial maintenance).",
+                claim_text=f"The agreement sets a maximum {cov_prefix}leverage covenant of {thr:g}x (financial maintenance).",
                 evidence=[EvidenceSpec("E-CAP2", "table_value",
-                                       "Directly Sourced" if cov_exact else "Inferred",
+                                       "Directly Sourced" if cov_exact else "Analyst Inference",
                                        "Financial maintenance covenant threshold (governing document)",
                                        "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
             ))
@@ -418,7 +457,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             claim_id="C-CAP3",
             claim_text=f"The restricted payments / builder basket provides ${amt:g}M of capacity.",
             evidence=[EvidenceSpec("E-CAP3", "table_value",
-                                   "Directly Sourced" if rp_exact else "Inferred",
+                                   "Directly Sourced" if rp_exact else "Analyst Inference",
                                    "Restricted payments basket (governing document)",
                                    "High" if rp_exact else "Medium", resolved_chunk_id=cid)],
         ))
@@ -431,7 +470,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             claim_text=(f"Cross-default trips on a default of other indebtedness above ${amt:g}M "
                         "(material-indebtedness threshold)."),
             evidence=[EvidenceSpec("E-CAP4", "table_value",
-                                   "Directly Sourced" if xd_exact else "Inferred",
+                                   "Directly Sourced" if xd_exact else "Analyst Inference",
                                    "Cross-default threshold (governing document)",
                                    "High" if xd_exact else "Medium", resolved_chunk_id=cid)],
         ))
@@ -481,7 +520,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
                 claim_id="C-CAP5",
                 claim_text=f"The EBITDA definition caps add-backs at {cap_pct * 100:g}% of EBITDA.",
                 evidence=[EvidenceSpec("E-CAP5", "table_value",
-                                       "Directly Sourced" if cap_exact else "Inferred",
+                                       "Directly Sourced" if cap_exact else "Analyst Inference",
                                        "EBITDA add-back cap (governing document)",
                                        "High" if cap_exact else "Medium", resolved_chunk_id=cid)],
             ))

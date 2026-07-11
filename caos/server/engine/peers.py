@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact
 from engine.gate import Finding
-from engine.metrics import CATALOG_BY_KEY, headline_fact_predicates
+from engine.metrics import CATALOG_BY_KEY, better_fact, headline_fact_predicates
 from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -85,11 +85,10 @@ async def _peer_facts(
     for fact, _iss in rows:
         key = (fact.issuer_id, fact.metric_key)
         cur = best.get(key)
-        better = (cur is None
-                  or (fact.provenance == "run" and cur.provenance != "run")
-                  or (fact.provenance == cur.provenance and fact.created_at and cur.created_at
-                      and fact.created_at > cur.created_at))
-        if better:
+        # Canonical collapse (engine.metrics.better_fact): run/fixture tier over
+        # seed, then recency — the old run-only rule let stale seed rows beat a
+        # fresh keyless run's fixture facts here while NL query ranked them above.
+        if better_fact(cur, fact):
             best[key] = fact
     out: Dict[str, List[Tuple[str, float]]] = {k: [] for k in keys}
     for (iid, mk), fact in best.items():

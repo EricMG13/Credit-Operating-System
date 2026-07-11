@@ -269,6 +269,10 @@ class Run(Base):
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
     error: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Serves the worker claim poll (status filter + created_at order, every
+    # poll tick) and the status='complete' board scans (migrations/0034).
+    __table_args__ = (Index("ix_runs_status_created_at", "status", "created_at"),)
+
 
 class ResearchJob(Base):
     """A durable Deep Research run (M-3).
@@ -459,9 +463,12 @@ class MetricFact(Base):
     document_chunk_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("document_chunks.id")
     )
-    provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
-    # EBITDA/leverage basis: reported (EDGAR GAAP) | adjusted (covenant/modeled) |
-    # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
+    # run | fixture (genuine ATLF demo) | demo_fixture (fabricated — flagged,
+    # excluded from peer/graph reads) | derived (chunk-extracted) | seed.
+    provenance: Mapped[str] = mapped_column(String(16), default="seed")
+    # EBITDA/leverage basis: reported (EDGAR GAAP XBRL) | reported_disclosure
+    # (issuer-disclosed headline) | adjusted (covenant/modeled) | None where the
+    # metric is basis-agnostic (e.g. energy exposure, Altman Z). (#27)
     basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -957,6 +964,13 @@ async def erase_analyst_data(
     research = await session.execute(
         delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
     )
+    # SavedModel rows are the analyst's PRIVATE Model Builder state (per-analyst
+    # overrides/assumptions, not shared work product) keyed on their uuid — a
+    # re-registration mints a fresh uuid, so undeleted rows would orphan forever
+    # while still holding the subject's personal work. Delete, don't anonymize.
+    models = await session.execute(
+        delete(SavedModel).where(SavedModel.analyst_id.in_(keys))
+    )
     runs = await session.execute(
         update(Run).where(Run.analyst_id.in_(keys)).values(analyst_id=None)
     )
@@ -970,6 +984,7 @@ async def erase_analyst_data(
     await session.commit()
     return {
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
         "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]

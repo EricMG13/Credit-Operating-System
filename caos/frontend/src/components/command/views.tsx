@@ -181,8 +181,6 @@ export function PortfolioTable({
 
   const visibleItems = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
 
-  const [colPreset, setColPreset] = useState<"full" | "credit" | "market" | "custom">("credit");
-
   const presetKeys = {
     full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
     // lev/snrLev/totalLev/cov aren't populated in this sample sleeve (all rows
@@ -224,6 +222,17 @@ export function PortfolioTable({
   ] as const;
 
   const [visibleCols, setVisibleCols] = useState<string[]>(() => [...presetKeys.credit]);
+  // Derived, not stored: keeping a separate colPreset state drifted (uncheck +
+  // re-check a column restores the preset's exact column set, but the stored
+  // preset stayed "custom", so the Lens highlight lied). Order-insensitive —
+  // preset clicks apply presetKeys order, checkbox re-checks ALL_COLS order.
+  const matchPreset = (keys: readonly string[]) =>
+    keys.length === visibleCols.length && keys.every((k) => visibleCols.includes(k));
+  const colPreset: "full" | "credit" | "market" | "custom" =
+    matchPreset(presetKeys.full) ? "full"
+    : matchPreset(presetKeys.credit) ? "credit"
+    : matchPreset(presetKeys.market) ? "market"
+    : "custom";
   const [customizerOpen, setCustomizerOpen] = useState(false);
 
   useEffect(() => {
@@ -378,7 +387,6 @@ export function PortfolioTable({
                 key={preset}
                 type="button"
                 onClick={() => {
-                  setColPreset(preset);
                   setVisibleCols([...presetKeys[preset]]);
                 }}
                 className={
@@ -429,7 +437,6 @@ export function PortfolioTable({
                         type="checkbox"
                         checked={checked}
                         onChange={(e) => {
-                          setColPreset("custom");
                           if (e.target.checked) {
                             setVisibleCols(prev => {
                               const next = [...prev, c.key];

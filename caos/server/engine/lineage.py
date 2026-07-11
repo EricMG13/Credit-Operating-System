@@ -33,7 +33,15 @@ _LINEAGE_SEVERITY = {
     # "Directly Sourced" / "Calculated" -> no finding
 }
 
-_SOURCED_TYPES = {"sourced_fact", "quoted_text", "table_value"}
+# Every extraction type that ASSERTS a document source. This set does double
+# duty: the runner suppresses BM25 auto-anchoring for these on the live path
+# (so the "unresolved sourced citation" lane below can fire), and the lane
+# itself gates on it. "documentary_fact" belongs here — leaving it out let a
+# live model choose that type + "Directly Sourced" and get its evidence
+# auto-anchored to the best claim-TEXT match, passing CP-5B with no finding:
+# the model's choice of extraction_type decided whether the anti-fabrication
+# check applied (audit 2026-07-10 QA-2).
+_SOURCED_TYPES = {"sourced_fact", "quoted_text", "table_value", "documentary_fact"}
 
 
 def validate_lineage(payloads: Sequence[ModulePayload]) -> List[Finding]:

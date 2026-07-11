@@ -132,10 +132,6 @@ function ModelBuilder() {
   const ovKey = "caos-d-overrides:" + issuerId;
 
   useEffect(() => {
-    // Guards the getSavedModel response below: fast issuer A->B switching must
-    // not let A's late-arriving restore land on B's state / persist under B's
-    // ovKey (SEC-H1 — mirrors the deepdive getIssuer stale-flag).
-    let stale = false;
     // locals track what was actually loaded so the dirty-baseline snapshot below
     // reflects restored state, not the stale render closure.
     let lo: Overrides = {};
@@ -155,6 +151,10 @@ function ModelBuilder() {
     // baseline dirty at local-storage state; refined below if a DB model restores
     savedSnapshot.current = serializeSavable(la, lo, lc);
     setRestoreError(false);
+    // Stale guard: the component stays mounted across ?issuer=A → B (search-param
+    // change only), so a slow response for A must not clobber B's state — SAVE
+    // MODEL would then persist A's overrides into B's record.
+    let stale = false;
     getSavedModel(issuerId).then((saved) => {
       if (stale) return;
       const parsed = parseSavedPayload(saved);

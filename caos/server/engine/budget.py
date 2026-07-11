@@ -118,7 +118,15 @@ async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
     Best-effort: a malformed response must never break the call path, so usage
     extraction is read leniently and the whole trace is guarded.
     """
-    record_usage(resp)
+    # Guard billing separately from tracing: record_usage sat OUTSIDE the guard,
+    # so a provider emitting a non-int-coercible usage field crashed the live
+    # inference path the docstring promises never breaks (audit 2026-07-10 B1).
+    # Its own try (not the shared one below) so a trace-formatting error can
+    # never skip billing, and vice versa.
+    try:
+        record_usage(resp)
+    except Exception:  # noqa: BLE001 — billing is best-effort on malformed usage
+        _trace_logger.warning("record_usage failed on a malformed response", exc_info=True)
     try:
         usage = getattr(resp, "usage", None)
         in_tokens = _input_tokens(usage) if usage is not None else 0

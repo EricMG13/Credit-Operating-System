@@ -910,7 +910,9 @@ function SigText({ label, v, sev }: { label: string; v: string | null; sev?: str
 }
 
 function RunRow({ r, href }: { r: ProfileRun; href: string }) {
-  const date = r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : "—";
+  // Local calendar date, not the UTC slice: a run kicked off at 21:00 ET showed
+  // the NEXT day's date to the analyst (audit 2026-07-10 F14).
+  const date = r.created_at ? new Date(r.created_at).toLocaleDateString("en-CA") : "—";
   // One truncating labeled cell (QA · IC, analyst in the tooltip) instead of the
   // former six fixed columns, which overflowed the ~500px panel into a scrollbar
   // and read as a stutter ("Blocked Blocked") with the analyst id clipped.

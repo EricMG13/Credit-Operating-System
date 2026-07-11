@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest_annual
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import scan
 
@@ -45,8 +45,14 @@ def _finite(x):
 def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
     """Stress a borrower's cash interest burden against a rise in the base rate.
 
-    Credit read (conservative): treat ALL net debt as floating-rate and unhedged,
-    so a base-rate move (SOFR / EURIBOR) flows straight through to cash interest.
+    Credit read: treat all NET debt as floating-rate and unhedged, so a base-rate
+    move (SOFR / EURIBOR) flows straight through to cash interest. The NET base is
+    a data constraint, not the spec's formula — CP-2F REF-05 shocks *unhedged
+    floating-rate (gross) debt*, but CP-1 carries no gross-debt figure. Netting
+    cash implicitly assumes cash income reprices one-for-one with the shock; for
+    a cash-heavy issuer the shock on gross floating debt is LARGER than this
+    figure, so the old "conservative" label overstated itself (audit 2026-07-10
+    ENG-12) — the assumption string and claim now disclose the net basis.
     Output is the incremental annual interest and the resulting stressed interest
     coverage at each shock; returns None when CP-1 gives us no net debt to stress.
 
@@ -70,7 +76,7 @@ def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
     # Stress inputs from CP-1: net debt ($M, signed) and latest adjusted EBITDA ($M).
     # _finite() collapses NaN/inf to None so non-finite values hit the reject paths.
     net_debt = _finite(nf.get("net_debt_ltm"))
-    eb = _finite(latest(nf.get("adj_ebitda") or {}))
+    eb = _finite(latest_annual(nf.get("adj_ebitda") or {}))
     # No net debt or no usable EBITDA (missing, non-numeric, NaN/inf, or 0 -> coverage
     # undefined): nothing to stress, so caller treats this as "rate sensitivity not computed".
     if not isinstance(net_debt, (int, float)) or not isinstance(eb, (int, float)) or not eb:
@@ -102,7 +108,10 @@ def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
         # is None — coverage 0 is a real disclosed read, but it can't back out an interest figure.
         "base_interest_coverage": cov if isinstance(cov, (int, float)) else None,
         "scenarios": scenarios,
-        "assumption": "Assumes 100% floating-rate and unhedged (no hedge register ingested).",
+        "assumption": ("Shock applied to NET debt (cash netted — assumes cash income "
+                       "reprices with the shock; understates the impact for cash-heavy "
+                       "issuers vs the gross floating-rate base). Assumes 100% "
+                       "floating-rate and unhedged (no hedge register ingested)."),
     }
 
 

@@ -44,7 +44,12 @@ def hit(key: str, *, max_attempts: int, window_seconds: int) -> bool:
             # window may reset early under spray (favours the sprayer slightly),
             # which beats unbounded growth. S6.
             overflow = len(_windows) - _SWEEP_THRESHOLD
-            for k, _ in sorted(_windows.items(), key=lambda kv: kv[1][0])[:overflow]:
+            # Never evict the aggregate backstop keys ("login:*"): created at
+            # window start, they sort OLDEST and would be evicted first under
+            # exactly the distinct-key spray (spoofed X-Forwarded-For) the global
+            # login cap exists to stop — resetting the attacker's budget.
+            evictable = [(k, v) for k, v in _windows.items() if not k.endswith(":*")]
+            for k, _ in sorted(evictable, key=lambda kv: kv[1][0])[:overflow]:
                 del _windows[k]
         start, count = _windows[key]
         if now - start >= window_seconds:

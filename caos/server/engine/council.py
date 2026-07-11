@@ -81,6 +81,13 @@ class FixtureReviewer:
 
     name = "fixture"
 
+    def __init__(self) -> None:
+        # Execution disclosure consumed by runner._persist_cp5c (QA-4).
+        self.last_review_meta: dict = {
+            "requested_seats": 0, "executed_seats": 0, "failed_seats": 0,
+            "skipped_reason": "council_disabled",
+        }
+
     async def review(self, produced: Sequence[ModulePayload]) -> List[Finding]:
         return []
 
@@ -91,6 +98,14 @@ class LiveReviewer:
     def __init__(self) -> None:
         self._settings = get_settings()
         self._client = None
+        # Execution disclosure for the CP-5C process record: an enabled council
+        # whose fan-out never ran (budget exhausted) or whose seats all failed
+        # must not be indistinguishable from "reviewed and clean"
+        # (audit 2026-07-10 QA-4). review() overwrites this per run.
+        self.last_review_meta: dict = {
+            "requested_seats": 0, "executed_seats": 0, "failed_seats": 0,
+            "skipped_reason": "not_run",
+        }
 
     def _get_client(self):
         if self._client is None:
@@ -98,14 +113,21 @@ class LiveReviewer:
         return self._client
 
     async def review(self, produced: Sequence[ModulePayload]) -> List[Finding]:
-        if not produced:
-            return []
         seats = list(SEATS[: max(0, self._settings.council_seats)])
+        self.last_review_meta = {
+            "requested_seats": len(seats), "executed_seats": 0, "failed_seats": 0,
+            "skipped_reason": None,
+        }
+        if not produced:
+            self.last_review_meta["skipped_reason"] = "no_payloads"
+            return []
         if not seats:
+            self.last_review_meta["skipped_reason"] = "no_seats_configured"
             return []
         # Council runs after the analytical modules, which may have spent the
         # per-run token budget — skip the fan-out rather than overspend.
         if not budget.llm_allowed():
+            self.last_review_meta["skipped_reason"] = "token_budget_exhausted"
             return []
         # Concurrent fan-out, one call per seat (mirrors query_models_parallel).
         # return_exceptions so one seat failing never blocks the gate.
@@ -117,8 +139,12 @@ class LiveReviewer:
         for seat, batch in zip(seats, batches):
             if isinstance(batch, Exception):
                 logger.warning("council seat %s failed: %s", seat.name, batch)
+                self.last_review_meta["failed_seats"] += 1
                 continue
+            self.last_review_meta["executed_seats"] += 1
             findings.extend(batch)
+        if self.last_review_meta["executed_seats"] == 0:
+            self.last_review_meta["skipped_reason"] = "all_seats_failed"
         merged = _merge(_attribute(findings, produced))
         if self._settings.council_peer_round and merged:
             merged = await self._peer_round(merged, produced, seats)
