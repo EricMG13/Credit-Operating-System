@@ -8,7 +8,7 @@
 # Base images pinned by digest for reproducibility (#24); the tag is kept for
 # readability. Refresh the digest deliberately when bumping the base for CVEs:
 #   docker buildx imagetools inspect node:26-slim --format '{{.Manifest.Digest}}'
-FROM node:26-slim@sha256:a1d9d671994fc2d26e297ac56b4b1522a8bc7fa71c43b14cd1b1fe6c5116f7dc AS frontend
+FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09 AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
