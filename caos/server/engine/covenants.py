@@ -240,7 +240,7 @@ def derive_covenant_terms(  # noqa: C901  # pre-existing multi-pattern extractor
             "cross_default_musd": cross_default, "addback_cap_pct": addback_cap}
 
 
-async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:
+async def _llm_covenant_terms(retrieve) -> Optional[Dict[str, object]]:  # noqa: C901
     """Claude reads the agreement chunks and returns the covenant terms. Defensive:
     any failure → None (caller falls back to the deterministic path)."""
     system = (

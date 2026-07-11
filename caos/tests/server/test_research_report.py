@@ -613,7 +613,7 @@ def test_create_report_201_and_poll_after_run(client):
 
 
 @pytest.mark.asyncio
-async def test_create_report_recovers_from_concurrent_insert_conflict(monkeypatch):
+async def test_create_report_recovers_from_concurrent_insert_conflict(monkeypatch):  # noqa: C901
     """#17: two near-simultaneous POSTs for the same issuer+run both pass the
     'existing running/complete?' check-then-insert before either commits — the
     loser hits uq_issuer_run_report. Unit-tested against a fake session (matches
