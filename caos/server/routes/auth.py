@@ -175,7 +175,7 @@ def _recovery_ok(words: list[str], hashes: list[str]) -> bool:
 @router.post("/profile", response_model=MeResponse, status_code=201)
 async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO bind/adopt + credential revoke + cookie); extracting would fragment the auth path
     body: ProfileCreate, request: Request, response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     settings = get_settings()
     sso_email = request.headers.get("x-forwarded-email")
@@ -240,7 +240,7 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
 @router.post("/register", response_model=MeResponse, status_code=201)
 async def register(
     body: RegisterRequest, request: Request, response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Email + password self-registration, gated by the shared invite code. Creates
     an Analyst with a PBKDF2 password hash and mints the profile cookie. Independent
@@ -316,7 +316,7 @@ async def register(
 @router.post("/login", response_model=MeResponse)
 async def login(
     body: LoginRequest, request: Request, response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Email + password sign-in for a registered account. Mints the profile cookie
     on success; 401 otherwise."""
@@ -345,7 +345,7 @@ async def login(
 @router.post("/recover", response_model=MeResponse)
 async def recover_login(
     body: RecoveryRequest, request: Request, response: Response,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     _throttle(request)
     email = sanitize_field(body.email).strip().lower()
@@ -365,7 +365,7 @@ async def recover_login(
 
 
 @router.post("/logout", status_code=204)
-async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db, scope="function")):
     # Revoke + clear. Bumping the analyst's token_version invalidates every existing
     # token for them — this device and any other — on its next request (the version
     # is signed into the cookie and re-checked in identity.get_identity). Read the
@@ -388,7 +388,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 async def delete_profile(
     response: Response,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Self-service GDPR erasure (right to be forgotten).
 

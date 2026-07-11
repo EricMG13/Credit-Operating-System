@@ -944,7 +944,17 @@ async def init_db() -> None:
 
 
 async def get_db():
-    """FastAPI dependency: yields an async session, commits on success."""
+    """FastAPI dependency: yields an async session, commits on success.
+
+    Always inject as ``Depends(get_db, scope="function")``. FastAPI >=0.115's
+    default yield-dependency scope ("request") runs this commit AFTER the
+    response is already sent to the client — a client that immediately acts on
+    a just-created row (e.g. POST /api/issuers/ then POST /api/runs with the
+    returned id) can then read a pre-commit snapshot and get a false 404. Bit
+    us in caos/tests/frontend/e2e/bootstrap_flow.spec.ts under CI-level
+    scheduling delay (unreproducible on a fast idle machine). scope="function"
+    restores commit-before-response.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

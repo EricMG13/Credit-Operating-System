@@ -84,7 +84,7 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
 @router.get("/analyst", response_model=AnalystSettings)
 async def read_analyst_settings(
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     analyst = await db.get(Analyst, caller.id)
     raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
@@ -98,7 +98,7 @@ async def read_analyst_settings(
 async def write_analyst_settings(
     body: AnalystSettings,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(f"settings:{caller.id}", max_attempts=_WRITES_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Settings rate limit reached — try again in a minute.")

@@ -66,7 +66,7 @@ class SavedModelOut(BaseModel):
 async def get_saved_model(
     issuer_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     row = (await db.execute(
         select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)
@@ -84,7 +84,7 @@ async def save_model(
     issuer_id: str,
     body: SavedModelBody,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(f"models:{caller.id}", max_attempts=_SAVES_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Save rate limit reached — try again in a minute.")

@@ -169,7 +169,7 @@ async def filing_exhibits(
 async def vault_exhibit(
     body: VaultExhibitRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Fetch an EDGAR exhibit and vault it through the standard ingest path,
