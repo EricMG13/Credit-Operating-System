@@ -7,6 +7,10 @@ supersedes the 2026-06-14 pass).
 F-1 / F-2 / A-1 rows refreshed against shipped code through the pre-production
 security-audit + P4-2 BM25-index + Command-governance-boards merges (NaN
 guards, run dedup, durable research, opt-in tenancy, the CP-5 completeness lane).
+**Re-reconciled 2026-07-11 (same day, later pass):** TypeScript bumped to 7.0.2
+(#141) and 8 dependabot PRs merged (alembic, fastapi, uvicorn-adjacent tooling,
+mypy, anthropic SDK, tailwindcss, playwright, actions/checkout, node docker
+digest) — see "Known frontend toolchain break" below for what TS7 changed.
 **Scope:** `caos/` — FastAPI server (~6.8k LOC Python, 51 files), Next.js frontend
 (~14.7k LOC TS/TSX, 87 files), config, CI, tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
@@ -18,14 +22,30 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot
 
-Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · production static export ✓
-(17 pages). The full Vitest run reaches every displayed test file without a
-reported failure but the process itself has an open-handle hang after
-completion (documented, unresolved harness gap — not a code defect; every
-individual test file passes deterministically in isolation). Server: **1378
-pytest ✓ / 2 skipped** (2 Postgres-only worker/reaper/claim tests skipped on
-the SQLite default suite, run green against `pgvector/pgvector:pg18` in the
-CI Postgres step).
+> ⚠️ **Known frontend toolchain break (since #141, 2026-07-11):** TypeScript
+> 7.0.2 breaks two independent things this stack currently has no fix for —
+> (1) `eslint-config-next`'s bundled `@typescript-eslint` crashes outright
+> (`Cannot read properties of undefined (reading 'Cjs')`); confirmed no newer
+> `@typescript-eslint` exists yet that supports TS7 (latest published, 8.63.0,
+> still declares `typescript: '>=4.8.4 <6.1.0'`). (2) Next's build-time `@/*`
+> path-alias resolution fails under TS7 (`Module not found` on every aliased
+> import), breaking `npm run build`, the E2E job, and the Docker image build.
+> `tsc --noEmit` itself and `vitest run` are unaffected — only lint and any
+> step that runs a production `next build` are down. This was a deliberate,
+> informed merge (the alternative — TS 5.9 — has its own unresolved gaps);
+> revisit once `eslint-config-next`/Next ship TS7 support.
+
+Frontend: eslint **✗ broken** (see above) · `tsc --noEmit` (strict) ✓ ·
+production static export **✗ broken** (see above — was ✓ prior to #141). The
+full Vitest run reaches every displayed test file without a reported failure
+but the process itself has an open-handle hang after completion (documented,
+unresolved harness gap — not a code defect; every individual test file passes
+deterministically in isolation). Server: **1393 pytest ✓ / 2 skipped** (2
+Postgres-only worker/reaper/claim tests skipped on the SQLite default suite,
+run green against `pgvector/pgvector:pg18` in the CI Postgres step) — up from
+1378 after today's dependabot batch; migration-chain guards (single-head,
+schema-match, upgrade/downgrade round-trip) re-verified green against the
+bumped alembic (1.18.5).
 CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
 vitest + build on the frontend job, pytest on the server job, and a Docker image
 build — so the tests and the deploy image are gated. No committed secrets/DB/vault
