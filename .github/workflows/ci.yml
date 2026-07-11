@@ -107,7 +107,10 @@ jobs:
       - name: Worker tests (Postgres)
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
-        run: python -m pytest caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q
+        run: |
+          python -m pytest caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q
+          # E4 secret-log hygiene needs the deployed posture, which requires Postgres.
+          python -m pytest caos/tests/server/test_secret_log_hygiene.py -q
 
   lock:
     name: Lock — requirements.lock in sync
