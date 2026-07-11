@@ -11,6 +11,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/data";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
@@ -70,16 +71,15 @@ function Monitor() {
         <ShellIdentity
           tag="CP-MON"
           badges={
-            /* Honesty marker: this whole surface is a seeded simulation, not a
-               live feed — same convention as Command's "Sample portfolio — not
-               live". `badges` renders before the title so the title truncates
-               first and this chip never clips. */
-            <span
-              className="tabular text-caos-2xs uppercase tracking-wide text-caos-muted whitespace-nowrap border border-caos-border rounded px-1.5 py-0.5 shrink-0"
-              title="Illustrative sample — this whole surface replays a seeded simulation, not a live feed"
-            >
-              Sample — not live
-            </span>
+            /* Honesty marker in the shared grammar: this whole surface replays
+               a seeded simulation, not a live feed. `badges` renders before
+               the title so the title truncates first and this never clips. */
+            <ProvenanceChip
+              prov={{
+                origin: "DEMO",
+                detail: "Illustrative sample — this whole surface replays a seeded simulation, not a live feed.",
+              }}
+            />
           }
           title="Monitor — email intelligence & alert routing"
         />

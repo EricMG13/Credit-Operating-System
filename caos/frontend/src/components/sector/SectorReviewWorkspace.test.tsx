@@ -110,7 +110,8 @@ describe("SectorReviewWorkspace", () => {
     expect(await screen.findByText("Q2 order books soften")).toBeTruthy();
     expect(screen.getByText("Earnings / 1")).toBeTruthy();
     expect(screen.getByText("ATLF / held")).toBeTruthy();
-    expect(screen.getAllByText("Seed / demo").length).toBeGreaterThan(0);
+    // Seeded provenance now renders through the shared grammar chip (DEMO).
+    expect(screen.getAllByText("DEMO").length).toBeGreaterThan(0);
     expect(screen.getByText("seed / seed")).toBeTruthy();
   });
 

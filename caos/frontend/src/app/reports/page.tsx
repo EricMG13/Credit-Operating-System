@@ -9,6 +9,8 @@ import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { fromReportCaveat } from "@/lib/provenance";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
@@ -268,19 +270,25 @@ function ReportStudio() {
             // lib/deepdive/caveat.ts) — say both halves precisely instead of the
             // blanket "not a live issuer run" claim.
             <span
-              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              className="flex items-center gap-1.5 min-w-0"
               role="note"
               title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
             >
-              REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run
+              <ProvenanceChip prov={fromReportCaveat("reference", true)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+                bespoke tabs stay fixture, other figures reflect the live run
+              </span>
             </span>
           ) : caveatKind === "reference" ? (
             <span
-              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              className="flex items-center gap-1.5 min-w-0"
               role="note"
               title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run."
             >
-              REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
+              <ProvenanceChip prov={fromReportCaveat("reference", false)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+                Atlas Forge fixture, not a live issuer run
+              </span>
             </span>
           ) : caveatKind === "loading" ? (
             <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
@@ -297,11 +305,13 @@ function ReportStudio() {
             </span>
           ) : caveatKind === "live" ? (
             <span
-              className="tabular text-caos-xs whitespace-nowrap"
-              style={{ color: "var(--caos-warning)" }}
+              className="flex items-center gap-1.5 min-w-0"
               title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
             >
-              live engine output · report renderer not wired
+              <ProvenanceChip prov={fromReportCaveat("live", true)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate" style={{ color: "var(--caos-warning)" }}>
+                report renderer not wired
+              </span>
             </span>
           ) : (
             <span

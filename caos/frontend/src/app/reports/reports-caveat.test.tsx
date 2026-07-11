@@ -54,13 +54,16 @@ describe("Report Studio · reference caveat (FE-5)", () => {
   it("shows the blanket 'not a live issuer run' message when no run backs the reference issuer", async () => {
     mockRunId = null;
     render(<ReportsPage />);
-    expect(await screen.findByText(/REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run/)).toBeTruthy();
+    // Origin now carried by the shared grammar chip + precise prose beside it.
+    expect(await screen.findByText("REFERENCE")).toBeTruthy();
+    expect(await screen.findByText(/Atlas Forge fixture, not a live issuer run/)).toBeTruthy();
   });
 
   it("shows the hybrid message when a live run backs the reference issuer", async () => {
     mockRunId = "run-123";
     render(<ReportsPage />);
-    expect(await screen.findByText(/REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
+    expect(await screen.findByText("REFERENCE")).toBeTruthy();
+    expect(await screen.findByText(/bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
   });
 
   it("a backend outage on a real issuer reads 'could not load', not the confident no-run claim", async () => {
