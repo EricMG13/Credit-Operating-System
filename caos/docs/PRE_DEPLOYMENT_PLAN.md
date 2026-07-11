@@ -369,7 +369,7 @@ empty state. Monitor gets a real alert seam. Market data gets a real
 connector. **Largest phase — carries both L-sized outstanding-item builds in
 full.** C3-seam and C5 each get their own implementation plan at pickup.
 
-- [ ] **C1 (S)** Mock inventory: grep every route/component for seeded/
+- [ ] **C1 (S)** *(Exec 2026-07-12: PR #166 open — MOCK_LEDGER.md delivered; 0 silent-mock rows, all seed consumers visibly labeled; burndown mapped to C2/C3-seam/C4/C5; 2 MED watch-items. L9's grep list = the ledger's seed-module import table.)* Mock inventory: grep every route/component for seeded/
   sample/sim imports; classify each hit live / labeled-sample / silent-mock.
   Deliverable: `caos/docs/qa/MOCK_LEDGER.md` (file:line burndown list — does
   not exist today, S4 Ev-9). Silent-mock = CRIT, labeled-sample = MED.
@@ -598,7 +598,7 @@ silently with 0 chunks.
   **Verify:** new migration + `pytest caos/tests/server/test_audit_log.py`
   (new) asserting a row on every mutating route class. **Exit:** 100% of
   mutating routes tested to write an audit row.
-- [ ] **E4 (S)** Secrets runbook. Boot guards for `SESSION_SECRET`/
+- [ ] **E4 (S)** *(Exec 2026-07-12: PR #166 open — SECRETS.md runbook + test_secret_log_hygiene.py: deployed-posture sentinel scan, mutation-verified, PG-gated + wired into the CI Postgres step. Booting it exercised 3 fail-closed guards — all held.)* Secrets runbook. Boot guards for `SESSION_SECRET`/
   `EDGE_PROXY_SECRET`/`ANALYST_SIGNUP_CODE`/demo-seed are tested
   (`test_audit_p0_fixes.py:133-148`); no runbook document exists, no
   "never in logs" grep test exists. Inventory (add Bloomberg credentials once
@@ -616,7 +616,7 @@ silently with 0 chunks.
   edge-secret checks (LAUNCH_PHASE1 §5) re-verify. CRIT/HIGH fixed, MED/LOW
   to the accepted-risk register. **Verify:** `/security-review` run recorded
   with 0 open CRIT/HIGH. **Exit:** same, plus register published.
-- [ ] **E6 (S)** License/SBOM report. Confirmed absent (S4 Ev-9).
+- [ ] **E6 (S)** *(Exec 2026-07-12: PR #166 open — SBOM.md from requirements.lock pins + frontend license-checker; no copyleft/unknown in shipped paths; 3 accepted flags documented.)* License/SBOM report. Confirmed absent (S4 Ev-9).
   `pip-licenses` + `license-checker` (both free) → `caos/docs/reference/
   SBOM.md`; flag anything non-permissive. **Verify:** file exists,
   non-empty. **Exit:** SBOM published, no unflagged non-permissive licenses.
