@@ -7,6 +7,7 @@ import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
 import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
+import { CommandPalette } from "@/components/shared/CommandPalette";
 import { RouteHeading } from "@/components/shared/RouteHeading";
 
 export const metadata: Metadata = {
@@ -30,6 +31,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <IssuerProfileOverlayProvider>
           <AskProvider>
             <ConceptHotkeys />
+            {/* ⌘K/Ctrl+K global palette; Alt+K stays direct-to-Ask. */}
+            <CommandPalette />
             {/* Skip link — first focusable; visible only on keyboard focus (WCAG 2.4.1). */}
             <a
               href="#main-content"
