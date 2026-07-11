@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import (
     Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
+from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
 
@@ -22,11 +24,14 @@ router = APIRouter()
 
 class IssuerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    sub_sector: Optional[str] = None
-    country: Optional[str] = None
+    # Bounds mirror the DB columns (String(32)/String(128), database.py): an
+    # unbounded field raises DataError → 500 on Postgres and silently persists
+    # oversized junk on SQLite (which ignores VARCHAR lengths).
+    ticker: Optional[str] = Field(default=None, max_length=32)
+    sector: Optional[str] = Field(default=None, max_length=128)
+    industry: Optional[str] = Field(default=None, max_length=128)
+    sub_sector: Optional[str] = Field(default=None, max_length=128)
+    country: Optional[str] = Field(default=None, max_length=128)
     figi: Optional[str] = Field(default=None, max_length=32)
     sponsor: Optional[str] = Field(default=None, max_length=255)
     # Agency ratings are no longer a create-time input — they're collected from
@@ -108,7 +113,7 @@ async def list_issuers(
     # since the UI lists the whole desk's coverage.
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     stmt = select(Issuer).order_by(Issuer.name)
@@ -133,7 +138,7 @@ async def list_issuers(
 @router.post("/", response_model=IssuerResponse, status_code=201)
 async def create_issuer(
     body: IssuerCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     data = body.model_dump()
@@ -150,7 +155,7 @@ async def create_issuer(
 @router.get("/{issuer_id}", response_model=IssuerResponse)
 async def get_issuer(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     issuer = await db.get(Issuer, issuer_id)
@@ -165,7 +170,7 @@ async def list_issuer_documents(
     # Bounded page: a heavily-documented issuer's doc list grows unbounded. P4.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     result = await db.execute(
@@ -199,6 +204,16 @@ class RunBrief(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes; stored values are UTC. Serialize with
+        # an explicit offset, else `new Date()` client-side parses the UTC wall
+        # clock as LOCAL time and run dates shift by up to a day.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class MetricFactOut(BaseModel):
@@ -359,7 +374,7 @@ def _strengths_weaknesses(  # noqa: C901
 @router.get("/{issuer_id}/profile", response_model=IssuerProfileResponse)
 async def get_issuer_profile(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     issuer = await db.get(Issuer, issuer_id)
@@ -425,8 +440,13 @@ async def get_issuer_profile(
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
+    best_fact_by_key: Dict[str, MetricFact] = {}
     for f in facts:
-        if f.headline and (f.metric_key not in headline_vals or f.provenance == "run"):
+        # Canonical collapse (engine.metrics.better_fact: run/fixture tier, then
+        # recency) — the old run-only rule let stale seed values shadow a fresh
+        # fixture fact on the profile while NL query ranked the fixture above.
+        if f.headline and better_fact(best_fact_by_key.get(f.metric_key), f):
+            best_fact_by_key[f.metric_key] = f
             headline_vals[f.metric_key] = f.value
     strengths, weaknesses = _strengths_weaknesses(signals, headline_vals)
 
@@ -504,7 +524,7 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
 @router.get("/{issuer_id}/cross-default", response_model=CrossDefaultMapResponse)
 async def get_cross_default_map(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     issuer = await db.get(Issuer, issuer_id)
@@ -581,6 +601,14 @@ class ResearchReportOut(BaseModel):
     completed_at: Optional[datetime] = None
     is_stale: bool = False
 
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # Same naive-UTC → aware conversion as RunBrief (SQLite drops tzinfo).
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
 
 def _report_out(report: IssuerResearchReport, is_stale: bool = False) -> ResearchReportOut:
     return ResearchReportOut(
@@ -613,7 +641,7 @@ async def create_research_report(
     brief: ResearchReportBrief = ResearchReportBrief(),
     request: Request = None,  # type: ignore[assignment]  # FastAPI injects by type; default is dead code but keeps the optional-param shape consistent
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     issuer = await db.get(Issuer, issuer_id)
     if not issuer:
@@ -661,7 +689,23 @@ async def create_research_report(
         analyst_id=caller.id,
     )
     db.add(report)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent requests can both pass the `existing` check-then-insert
+        # above before either commits; the loser hits uq_issuer_run_report. Return
+        # the winner's row instead of 500ing — same recovery shape as
+        # routes/models.py's SavedModel concurrent-first-save fix.
+        await db.rollback()
+        winner = (await db.execute(
+            select(IssuerResearchReport).where(
+                IssuerResearchReport.issuer_id == issuer_id,
+                IssuerResearchReport.run_id == latest_complete.id,
+            )
+        )).scalars().first()
+        if winner is None:  # pragma: no cover — constraint violated but no row found is impossible
+            raise
+        return ResearchReportCreated(id=winner.id, status=winner.status)
 
     # Fire-and-forget: execution outlives the request.
     request.app.state.research_report_executor.enqueue(report.id)
@@ -675,7 +719,7 @@ async def create_research_report(
 async def get_latest_research_report(
     issuer_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Return the latest research report for this issuer, or 404 if none.
     Sets is_stale when the report's run_id != latest complete run_id."""
@@ -717,7 +761,7 @@ async def get_research_report(
     issuer_id: str,
     report_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Poll a specific research report job by id."""
     issuer = await db.get(Issuer, issuer_id)

@@ -214,7 +214,7 @@ function DeepDive() {
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(issuerId);
   // Honesty caveat for the sub-header: reference deal · resolving · live · no-run.
-  const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId });
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId, phase: live.phase });
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
@@ -331,6 +331,10 @@ function DeepDive() {
             </span>
           ) : caveatKind === "loading" ? (
             <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
+          ) : caveatKind === "error" ? (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }} role="note" title={`Could not load ${code}'s live run — showing the last known state, not a confirmed no-run.`}>
+              could not load live run
+            </span>
           ) : caveatKind === "live" ? (
             <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
               live engine output · missing panes show no output
@@ -411,7 +415,9 @@ function DeepDive() {
                     {g.mods.map((id) => {
                       const st = modState(id);
                       return isCleared(st)
-                        ? <Dot key={id} sev={st} pulse={st === "running"} />
+                        // glyph: cleared modules can be pass OR warning — shape carries the
+                        // difference for colorblind analysts (the strip has no text per module)
+                        ? <Dot key={id} sev={st} pulse={st === "running"} glyph />
                         // Padlock = sim-gated (reference replay); a real issuer's
                         // missing module is hollow-idle "no output", not locked.
                         : <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;

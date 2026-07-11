@@ -12,11 +12,10 @@ watch, not a defect that should block committee export.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, sort_key
+from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
@@ -26,13 +25,21 @@ _MARGIN_COMPRESSION_PP = 1.0
 def _yoy(rows: List[dict], key: str) -> Optional[Tuple[float, str, str]]:
     """(YoY % change, prior period, latest period) for ``key`` across the ordered
     rows, or None when fewer than two periods carry the value."""
-    vals = [(r["period"], r[key]) for r in rows if isinstance(r.get(key), (int, float))]
+    # is_finite_number, not isinstance: a NaN row value passes isinstance (and
+    # `not NaN` is False), leaking a NaN delta into the payload trend rows.
+    vals = [(r["period"], r[key]) for r in rows if is_finite_number(r.get(key))]
     if len(vals) < 2:
         return None
     (pp, prev), (lp, last) = vals[-2], vals[-1]
-    if not prev:
+    # Divide by |prior| so the sign of the change survives a negative base: a
+    # loss that halves (-100 -> -50) must read +50% (improving), not -50%.
+    # safe_div, not a raw divide: it also rejects prev == 0 and an OUTPUT that
+    # overflows float range (a denormal-scale prior makes the ratio inf with
+    # finite operands — "declined inf% YoY" in committee text otherwise).
+    pct = safe_div(100 * (last - prev), abs(prev))
+    if pct is None:
         return None
-    return round(100 * (last - prev) / prev, 1), pp, lp
+    return round(pct, 1), pp, lp
 
 
 def compute_deltas(normalized_financials: dict) -> dict:
@@ -73,19 +80,15 @@ def compute_deltas(normalized_financials: dict) -> dict:
         adj_ebitda = adj_ebitda_by_period.get(period)
 
         # Drop a non-finite float/int to None, keeping other types (like "n/a" strings) untouched.
-        if isinstance(revenue, (int, float)) and not isinstance(revenue, bool) and not math.isfinite(revenue):
+        if isinstance(revenue, (int, float)) and not is_finite_number(revenue):
             revenue = None
-        if isinstance(adj_ebitda, (int, float)) and not isinstance(adj_ebitda, bool) and not math.isfinite(adj_ebitda):
+        if isinstance(adj_ebitda, (int, float)) and not is_finite_number(adj_ebitda):
             adj_ebitda = None
 
-        if (
-            is_finite_number(revenue)
-            and revenue
-            and is_finite_number(adj_ebitda)
-        ):
-            ebitda_margin = round(100 * adj_ebitda / revenue, 1)
-        else:
-            ebitda_margin = None
+        # safe_div (not raw /): guards revenue == 0/None AND an output that
+        # overflows float range with finite operands (denormal revenue).
+        m = safe_div(100 * adj_ebitda, revenue) if is_finite_number(adj_ebitda) else None
+        ebitda_margin = round(m, 1) if m is not None else None
 
         rows.append(
             {

@@ -20,7 +20,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, update, Computed,
+    UniqueConstraint, delete, event, inspect, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
@@ -236,6 +236,20 @@ class Run(Base):
     """One execution of the module pipeline for an issuer (the shared envelope)."""
 
     __tablename__ = "runs"
+    __table_args__ = (
+        # DB-level backstop for the active-run dedup routes/runs.py enforces at
+        # the application layer (_CREATE_RUN_LOCK) — see migrations/0035. A
+        # per-process asyncio.Lock can't coordinate a race across multiple app
+        # replicas; this partial unique index can, at the database.
+        Index(
+            "uq_runs_issuer_active", "issuer_id", unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
+        ),
+        # Serves the worker claim poll (status filter + created_at order, every
+        # poll tick) and the status='complete' board scans (migrations/0034).
+        Index("ix_runs_status_created_at", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
@@ -459,9 +473,12 @@ class MetricFact(Base):
     document_chunk_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("document_chunks.id")
     )
-    provenance: Mapped[str] = mapped_column(String(16), default="seed")  # run|seed
-    # EBITDA/leverage basis: reported (EDGAR GAAP) | adjusted (covenant/modeled) |
-    # None where the metric is basis-agnostic (e.g. energy exposure, Altman Z).
+    # run | fixture (genuine ATLF demo) | demo_fixture (fabricated — flagged,
+    # excluded from peer/graph reads) | derived (chunk-extracted) | seed.
+    provenance: Mapped[str] = mapped_column(String(16), default="seed")
+    # EBITDA/leverage basis: reported (EDGAR GAAP XBRL) | reported_disclosure
+    # (issuer-disclosed headline) | adjusted (covenant/modeled) | None where the
+    # metric is basis-agnostic (e.g. energy exposure, Altman Z). (#27)
     basis: Mapped[Optional[str]] = mapped_column(String(24))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -927,7 +944,17 @@ async def init_db() -> None:
 
 
 async def get_db():
-    """FastAPI dependency: yields an async session, commits on success."""
+    """FastAPI dependency: yields an async session, commits on success.
+
+    Always inject as ``Depends(get_db, scope="function")``. FastAPI >=0.115's
+    default yield-dependency scope ("request") runs this commit AFTER the
+    response is already sent to the client — a client that immediately acts on
+    a just-created row (e.g. POST /api/issuers/ then POST /api/runs with the
+    returned id) can then read a pre-commit snapshot and get a false 404. Bit
+    us in caos/tests/frontend/e2e/bootstrap_flow.spec.ts under CI-level
+    scheduling delay (unreproducible on a fast idle machine). scope="function"
+    restores commit-before-response.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -957,6 +984,13 @@ async def erase_analyst_data(
     research = await session.execute(
         delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
     )
+    # SavedModel rows are the analyst's PRIVATE Model Builder state (per-analyst
+    # overrides/assumptions, not shared work product) keyed on their uuid — a
+    # re-registration mints a fresh uuid, so undeleted rows would orphan forever
+    # while still holding the subject's personal work. Delete, don't anonymize.
+    models = await session.execute(
+        delete(SavedModel).where(SavedModel.analyst_id.in_(keys))
+    )
     runs = await session.execute(
         update(Run).where(Run.analyst_id.in_(keys)).values(analyst_id=None)
     )
@@ -970,6 +1004,7 @@ async def erase_analyst_data(
     await session.commit()
     return {
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
         "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]

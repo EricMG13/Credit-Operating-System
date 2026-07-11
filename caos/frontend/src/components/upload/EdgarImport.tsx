@@ -28,20 +28,27 @@ export function EdgarImport({
   const [url, setUrl] = useState("");
   const [vaulting, setVaulting] = useState(false);
   const [results, setResults] = useState<EdgarVaultResult[]>([]);
+  // M-12: which URLs were dropped from a partial batch (some succeeded, some
+  // didn't) — previously invisible, so 2 silent failures out of 5 URLs looked
+  // identical to a clean 5/5.
+  const [failed, setFailed] = useState<{ url: string; reason: string }[]>([]);
   const [error, setError] = useState("");
   const [notConfigured, setNotConfigured] = useState(false);
 
   const vault = async () => {
+    if (vaulting) return; // guard against double-submit (would fire duplicate vault uploads)
     const u = url.trim();
     if (!u) return;
     setVaulting(true);
     setError("");
     setNotConfigured(false);
     setResults([]);
+    setFailed([]);
     try {
       const res = await edgarVaultUrls(issuer.id, u, runMode);
-      setResults(res);
-      res.forEach((r) => onVaulted?.(r));
+      setResults(res.ok);
+      setFailed(res.failed);
+      res.ok.forEach((r) => onVaulted?.(r));
     } catch (err) {
       const { status, detail } = errInfo(err);
       if (status === 503) setNotConfigured(true);
@@ -97,6 +104,19 @@ export function EdgarImport({
             <span className="tabular text-caos-xs text-caos-muted">{result.chunks_created} ch</span>
           </div>
         ))}
+
+        {failed.length ? (
+          <div role="alert" className="rounded border px-3 py-2 flex flex-col gap-1" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)" }}>
+            <span className="tabular text-caos-md" style={{ color: "var(--caos-warning)" }}>
+              vaulted {results.length}/{results.length + failed.length} — {failed.length} failed
+            </span>
+            {failed.map((f, i) => (
+              <span key={`${f.url}-${i}`} className="tabular text-caos-xs text-caos-muted truncate" title={f.reason}>
+                {f.url} — {f.reason}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <div className="tabular text-caos-2xs text-caos-muted leading-snug">
           Public issuer URLs and private drag/drop files can be used together for {issuer.name}.

@@ -6,10 +6,13 @@ unchanged book is never regenerated). Keyless → no LLM, panel degrades."""
 from __future__ import annotations
 
 import asyncio
+import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
+from database import AsyncSessionLocal, Issuer, MetricFact, Run
 from engine import queryinsights
 from engine.queryinsights import PackEntry
 
@@ -78,6 +81,49 @@ def test_deterministic_cards_from_pack():
     kinds = {c["headline"] for c in cards}
     assert "Acme leverage" in kinds and "Coverage" in kinds
     assert all(c["evidence"] for c in cards)
+
+
+# ── _delta_entries (DB read) ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_delta_entries_blocked_fact_excluded(seeded_db):
+    """A gate-Blocked headline fact must never feed a Desk Brief delta —
+    defense-in-depth behind the runner write-skip (same posture as
+    metricengine._headline_facts_by_issuer / metricfactlane / peers._peer_facts).
+    """
+    async with AsyncSessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        issuer_id = str(uuid.uuid4())
+        db.add(Issuer(id=issuer_id, name="Acme", industry="Chemicals"))
+        await db.flush()
+
+        prior_run = str(uuid.uuid4())
+        db.add(Run(id=prior_run, issuer_id=issuer_id, status="complete",
+                    qa_status="Passed", created_at=now - timedelta(days=10),
+                    model_id="m", prompt_version="v"))
+        await db.flush()
+        db.add(MetricFact(issuer_id=issuer_id, run_id=prior_run, metric_key="net_leverage",
+                           period="LTM", value=4.2, unit="x", headline=True,
+                           qa_status="Passed", provenance="run",
+                           created_at=now - timedelta(days=10)))
+
+        # Latest run carries a Blocked headline fact — must not become "the latest".
+        blocked_run = str(uuid.uuid4())
+        db.add(Run(id=blocked_run, issuer_id=issuer_id, status="complete",
+                    qa_status="Blocked", created_at=now - timedelta(days=1),
+                    model_id="m", prompt_version="v"))
+        await db.flush()
+        db.add(MetricFact(issuer_id=issuer_id, run_id=blocked_run, metric_key="net_leverage",
+                           period="LTM", value=4.6, unit="x", headline=True,
+                           qa_status="Blocked", provenance="run",
+                           created_at=now - timedelta(days=1)))
+        await db.commit()
+
+        entries = await queryinsights._delta_entries(db, issuer_ids=[issuer_id])
+
+    # The Blocked fact is excluded → only the prior run's value remains → no
+    # pair to diff → no delta card (not a "4.2x -> 4.6x" move citing a Blocked figure).
+    assert entries == []
 
 
 # ── End-to-end over a real session ───────────────────────────────────────────

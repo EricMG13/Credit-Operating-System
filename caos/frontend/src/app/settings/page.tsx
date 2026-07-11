@@ -497,7 +497,14 @@ function Settings() {
               <div className="p-3 flex flex-col gap-3">
                 <div className="flex items-center justify-between rounded border border-caos-border bg-caos-bg px-3 py-2">
                   <span className="tabular text-caos-md text-caos-text">Outlook connection</span>
-                  <span className="tabular text-caos-xs text-caos-muted">Not connected</span>
+                  {/* Read the persisted flag — this was a hardcoded "Not connected"
+                      that ignored the fetched setting (audit 2026-07-10 F16). */}
+                  <span
+                    className="tabular text-caos-xs"
+                    style={{ color: analystSettings.email_intelligence?.outlook_connected ? "var(--caos-success)" : "var(--caos-muted)" }}
+                  >
+                    {analystSettings.email_intelligence?.outlook_connected ? "Connected" : "Not connected"}
+                  </span>
                 </div>
                 <label className="flex flex-col gap-1">
                   <span className={labelCls}>Approved sender emails/domains — one per line</span>

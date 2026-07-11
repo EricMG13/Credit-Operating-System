@@ -38,6 +38,8 @@ import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@
 import { synthesize } from "@/lib/query/synthesis";
 import { MODEL_HUE } from "@/components/query/node-style";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import Link from "next/link";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 export default function QueryPage() {
   return (
@@ -147,7 +149,18 @@ function QueryWorkspace() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem("caos:query-history");
-      if (stored) setHistory(JSON.parse(stored));
+      if (stored) {
+        const parsed: unknown = JSON.parse(stored);
+        // Element-shape check, not just Array.isArray: a hand-edited or
+        // schema-drifted entry ([null], {text: 42}) would otherwise crash the
+        // dropdown render / addToHistory on every visit until storage is cleared.
+        if (Array.isArray(parsed)) {
+          setHistory(parsed.filter((h): h is HistoryEntry =>
+            !!h && typeof h === "object"
+            && typeof (h as HistoryEntry).text === "string"
+            && typeof (h as HistoryEntry).capId === "string"));
+        }
+      }
     } catch (e) {
       console.warn("Could not load history", e);
     }
@@ -372,8 +385,12 @@ function QueryWorkspace() {
     if (!caps?.availability?.model_lane) return;
     didAutoOverlay.current = true;
     setOverlayBusy(true);
+    // Seq guard (same contract as queryGraph): the overlay lane runs 30–130s, so a
+    // late resolution after the analyst ran a different question must not attach
+    // the OLD graph's overlay to the new graph. run() clears overlay + bumps seq.
+    const seq = runSeq.current;
     queryOverlay(graph.capability_id)
-      .then((o) => setOverlay((cur) => cur ?? o)) // never clobber a manual toggle
+      .then((o) => { if (seq === runSeq.current) setOverlay((cur) => cur ?? o); }) // never clobber a manual toggle
       .catch(() => { /* ambient — silent, the deterministic graph is untouched */ })
       .finally(() => setOverlayBusy(false));
   }, [graph, caps]);
@@ -733,6 +750,12 @@ function QueryWorkspace() {
     <ResponsiveShell
       identity={
         <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
           <QueryMark />
           <div className="min-w-0">
             <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
@@ -1048,8 +1071,13 @@ function QueryWorkspace() {
                         return;
                       }
                       setOverlayBusy(true);
+                      // Seq guard: this lane runs up to 130s — if the analyst runs a
+                      // different question meanwhile (run() clears overlay + bumps
+                      // seq), the late overlay must not attach to the new graph.
+                      const seq = runSeq.current;
                       queryOverlay(activeId)
                         .then((o) => {
+                          if (seq !== runSeq.current) return;
                           setOverlay(o);
                           notify("Model overlay ready", `${o.edges.length} proposed link${o.edges.length === 1 ? "" : "s"}${o.cached ? " (cached)" : ""}`);
                         })

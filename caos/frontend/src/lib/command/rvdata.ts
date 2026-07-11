@@ -16,6 +16,12 @@ export const RV_THRESHOLDS = {
   rich: -150,
 } as const;
 
+// Source feed carries Bloomberg's raw "#N/A N/A" per-agency placeholder
+// (composite ratings like "#N/A N/A / BB-" when one agency has no rating).
+// Swap it for the app's own "—" convention at display time rather than
+// leaking the source system's error token.
+export const cleanRating = (rating: string): string => rating.replace(/#N\/A(\s+N\/A)?/g, "—");
+
 export type RVStaleness = {
   label: "CURRENT (0–90d)" | "POTENTIALLY STALE (91–180d)" | "STALE (>180d)" | "UNKNOWN";
   tone: "success" | "warning" | "critical";
@@ -308,7 +314,7 @@ export function buildRVRows(holdings?: Map<string, RVHolding>): RVRow[] {
       loanType: r.loanType,
       figi,
       rank: r.ranking,
-      rating: r.ratings,
+      rating: cleanRating(r.ratings),
       bucket,
       size: r.size!,
       margin: r.margin!,

@@ -42,7 +42,14 @@ def _intra_year_rank(period: str) -> float:
     current figure in leveraged credit; flip the +0.5 if a desk prefers closed FY.)"""
     p = period or ""
     m = re.search(r"Q\s*([1-4])", p, re.I)
-    base = float(m.group(1)) if m else 4.0
+    if m:
+        base = float(m.group(1))
+    else:
+        # Half-year labels (European convention): H1 runs through Q2, H2 through
+        # year-end. Without this "H1 2025" ranked 4.0 — ABOVE "Q3 2025" — so a
+        # half-year interim outranked a later quarter (audit 2026-07-10 ENG-18).
+        h = re.search(r"\bH\s*([12])\b", p, re.I)
+        base = (2.0 if h.group(1) == "1" else 4.0) if h else 4.0
     return base + (0.5 if p.upper().startswith("LTM") else 0.0)
 
 
@@ -51,7 +58,14 @@ def sort_key(period: str) -> tuple:
     ``key=`` for max()/sorted() so two same-year labels order by quarter (and an LTM
     stub above the full year it trails) instead of tying on year and keeping whichever
     happened to come first."""
-    return year(period), _intra_year_rank(period)
+    y = year(period)
+    # A year-less LTM label ("LTM") is the live trailing period — rank it most
+    # recent, matching metrics._headline_period. year() gave it -1, so latest()
+    # treated it as the OLDEST entry while the headline logic preferred it: two
+    # different "most recent" semantics in one engine (audit 2026-07-10 ENG-18/B3).
+    if y < 0 and (period or "").upper().startswith("LTM"):
+        y = 9999
+    return y, _intra_year_rank(period)
 
 
 def latest(series: dict) -> Optional[float]:
@@ -64,6 +78,39 @@ def latest(series: dict) -> Optional[float]:
     if not isinstance(series, dict):
         return None
     valid = {p: v for p, v in series.items() if isinstance(v, (int, float))}
+    return valid[max(valid, key=sort_key)] if valid else None
+
+
+_ANNUAL_TOKEN = re.compile(r"LTM|FY|ANNUALIS|ANNUALIZ", re.IGNORECASE)
+_SUB_ANNUAL_TOKEN = re.compile(r"\bQ\s*[1-4]|\bH\s*[12]\b", re.IGNORECASE)
+
+
+def is_annual_label(period: str) -> bool:
+    """True when a period label denotes a FULL-YEAR basis figure: LTM / FY /
+    annualised, or a bare calendar year ("2024"). A bare quarter or half-year
+    ("Q1", "H1 2025") is sub-annual; an unlabeled period ("Reported") is
+    unverified and treated as NOT annual."""
+    p = period or ""
+    if _ANNUAL_TOKEN.search(p):
+        return True
+    return year(p) > 0 and not _SUB_ANNUAL_TOKEN.search(p)
+
+
+def latest_annual(series: dict) -> Optional[float]:
+    """Numeric value at the most-recent ANNUAL-basis period, or None.
+
+    For consumers whose math assumes a full-year figure (distressed-EV multiples
+    "5x LTM EBITDA", interest backed out of an LTM coverage ratio, rate-shock
+    bases): a reported-disclosure CP-1 can carry a single QUARTERLY EBITDA
+    ("Q1" → £963M), and ``latest()`` would hand it over as if it were the LTM
+    figure — a silent ~4x understatement of EV and every recovery percentage
+    downstream (audit 2026-07-10 ENG-6). Degrading to None (the callers' existing
+    missing-EBITDA path, with its limitation flag) beats fabricating an
+    annualisation."""
+    if not isinstance(series, dict):
+        return None
+    valid = {p: v for p, v in series.items()
+             if isinstance(v, (int, float)) and is_annual_label(p)}
     return valid[max(valid, key=sort_key)] if valid else None
 
 
@@ -87,9 +134,13 @@ def is_finite_number(x: object) -> TypeGuard[float]:
 def safe_div(numerator: object, denominator: object) -> Optional[float]:
     """Finite-guarded division for CP-1 arithmetic. Returns
     numerator/denominator as a float only when BOTH operands are finite
-    (is_finite_number) AND the denominator is non-zero; otherwise None.
-    This is the structural form of the CLAUDE.md divide-guard: a caller
-    cannot divide a CP-1 figure without the NaN/inf/zero-denominator check."""
+    (is_finite_number), the denominator is non-zero, AND the result is
+    itself finite — a ~1e308-scale ratio overflows to inf even with finite
+    operands; otherwise None. This is the structural form of the CLAUDE.md
+    divide-guard: a caller cannot divide a CP-1 figure without the
+    NaN/inf/zero-denominator check, and may trust a non-None result to be
+    finite without re-checking."""
     if is_finite_number(numerator) and is_finite_number(denominator) and denominator != 0:
-        return float(numerator) / float(denominator)
+        result = float(numerator) / float(denominator)
+        return result if math.isfinite(result) else None
     return None

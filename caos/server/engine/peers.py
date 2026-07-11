@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact
 from engine.gate import Finding
-from engine.metrics import CATALOG_BY_KEY
+from engine.metrics import CATALOG_BY_KEY, better_fact, headline_fact_predicates
 from engine.periods import is_finite_number, safe_div, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -70,15 +70,12 @@ async def _peer_facts(
     stmt = (
         select(MetricFact, Issuer)
         .join(Issuer, MetricFact.issuer_id == Issuer.id)
-        .where(MetricFact.headline.is_(True), MetricFact.metric_key.in_(keys),
+        .where(*headline_fact_predicates(keys),
                MetricFact.issuer_id != issuer.id,
                # #10: never benchmark against fabricated figures — the ATLF fixture
                # persisted for another keyless-run issuer (provenance demo_fixture)
                # must not enter a real issuer's peer medians/percentiles (SEAM2-2).
-               MetricFact.provenance != "demo_fixture",
-               # A gate-Blocked (QA-failed) fact must never enter a real peer's
-               # medians/percentiles — defense-in-depth behind the runner write-skip.
-               MetricFact.qa_status != "Blocked")
+               MetricFact.provenance != "demo_fixture")
     )
     if same_industry and issuer.industry:
         stmt = stmt.where(Issuer.industry == issuer.industry)
@@ -88,11 +85,10 @@ async def _peer_facts(
     for fact, _iss in rows:
         key = (fact.issuer_id, fact.metric_key)
         cur = best.get(key)
-        better = (cur is None
-                  or (fact.provenance == "run" and cur.provenance != "run")
-                  or (fact.provenance == cur.provenance and fact.created_at and cur.created_at
-                      and fact.created_at > cur.created_at))
-        if better:
+        # Canonical collapse (engine.metrics.better_fact): run/fixture tier over
+        # seed, then recency — the old run-only rule let stale seed rows beat a
+        # fresh keyless run's fixture facts here while NL query ranked them above.
+        if better_fact(cur, fact):
             best[key] = fact
     out: Dict[str, List[Tuple[str, float]]] = {k: [] for k in keys}
     for (iid, mk), fact in best.items():

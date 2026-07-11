@@ -38,7 +38,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact
-from engine.periods import is_finite_number
+from engine.periods import is_finite_number, safe_div
 
 logger = logging.getLogger("caos.anomaly")
 
@@ -86,7 +86,9 @@ def _robust_z(value: float, peer_vals: Sequence[float]) -> Optional[Tuple[float,
     mad = median(devs)
     if mad <= 0:
         return (round(med, 2), 0.0) if value == med else None
-    z = 0.6745 * (value - med) / mad
+    z = safe_div(0.6745 * (value - med), mad)
+    if z is None:  # finite operands can still overflow to ±inf — no signal beats a bad one
+        return None
     return (round(med, 2), round(z, 1))
 
 

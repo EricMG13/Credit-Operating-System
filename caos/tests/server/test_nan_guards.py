@@ -135,6 +135,27 @@ def test_extract_facts_drops_nan_values():
     assert not any(mk == "ebitda_margin" for mk, _ in keys)
 
 
+def test_extract_facts_tolerates_null_leaves():
+    # The live CP-1 tool schema permits null leaves (the prompt instructs "set any
+    # metric the sources do not disclose to null"). 100 * None must not TypeError
+    # the projection phase and fail the whole run after synthesis + QA succeeded.
+    from engine.metrics import extract_facts
+
+    payload = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {
+            "revenue": {"FY24": 1000.0, "FY25": None},
+            "adj_ebitda": {"FY24": 392.0, "FY25": None},
+            "free_cash_flow": {"FY25": None},
+        }})
+    facts = extract_facts("r1", payload, "Passed")
+    keys = {(f["metric_key"], f["period"]) for f in facts}
+    assert ("ebitda_margin", "FY24") in keys   # finite pair still computed
+    assert ("adj_ebitda", "FY25") not in keys  # null leaf dropped, not crashed
+    assert ("fcf_conversion", "FY25") not in keys
+    assert all(math.isfinite(f["value"]) for f in facts)
+
+
 def test_leverage_plausibility_unaffected_by_nan():
     # Item 4 also asks: leverage_plausibility_finding still behaves. A NaN input must
     # not fire it (its is_finite_number guard already rejects non-finite operands).
@@ -419,3 +440,57 @@ def test_edgar_interest_coverage_requires_positive_interest():
     assert not (eb_ly and eb_ly > 0 and int0 and int0 > 0)
     int0 = 200.0
     assert (eb_ly and eb_ly > 0 and int0 and int0 > 0)
+
+
+# ── Output-inf residue: finite operands whose RATIO overflows float range ─────
+# (confidence-audit 2026-07-11 A-1/A-2/A-3: the safe_div output-finiteness
+# discipline applied to the earnings deltas and the document-amount parsers.)
+
+
+def test_compute_deltas_denormal_prior_revenue_degrades_not_inf():
+    """revenue 5e-324 → 1.0 is a +inf percent change with finite operands; the
+    YoY delta must degrade to None, never emit inf into committee text."""
+    from engine.earnings import compute_deltas
+
+    out = compute_deltas({"revenue": {"FY23": 5e-324, "FY24": 1.0},
+                          "adj_ebitda": {"FY23": 5e-324, "FY24": 1.0}})
+    s = out["summary"]
+    assert s["revenue_growth_pct"] is None
+    assert s["ebitda_growth_pct"] is None
+    for row in out["periods"]:
+        m = row["ebitda_margin"]
+        assert m is None or math.isfinite(m)
+
+
+def test_compute_deltas_denormal_revenue_margin_degrades_not_inf():
+    """EBITDA margin with a denormal revenue denominator overflows to inf with
+    finite operands; the row margin must be None."""
+    from engine.earnings import compute_deltas
+
+    out = compute_deltas({"revenue": {"FY24": 5e-324}, "adj_ebitda": {"FY24": 1.0}})
+    assert out["periods"][0]["ebitda_margin"] is None
+
+
+def test_textscan_amount_musd_rejects_overflowing_amount():
+    """`[\\d,]+` is unbounded — a 320-digit amount parses to inf and must be
+    dropped at the source, not handed to consumers as a quantum."""
+    import re
+
+    from engine.textscan import amount_musd
+
+    kw = re.compile(r"revolver", re.IGNORECASE)
+    garbage = "undrawn revolver of $" + "9" * 320 + " million available"
+    assert amount_musd(garbage, kw) is None
+    # sanity: a real amount still parses
+    assert amount_musd("undrawn revolver of $500 million", kw) == 500.0
+
+
+def test_covenants_amount_match_rejects_overflowing_amount():
+    from engine.covenants import _INCREMENTAL_AMT, _amount_match
+
+    garbage = "incremental facility not to exceed $" + "9" * 320 + " million"
+    assert _amount_match(_INCREMENTAL_AMT, garbage) is None
+    # sanity: a real ceiling-anchored amount still parses (a bare "of" with no
+    # ceiling phrase is deliberately rejected — audit 2026-07-10 ENG-10 — so the
+    # control string must use one of the allowed ceiling phrases too).
+    assert _amount_match(_INCREMENTAL_AMT, "incremental facility not to exceed $250 million") == 250.0

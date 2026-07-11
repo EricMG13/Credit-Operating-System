@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Set, Optional, Sequence, TypeVar
+from typing import List, Dict, Sequence, Set, Optional, TypeVar
 import tiktoken
 from sqlalchemy import select
 
@@ -7,9 +7,13 @@ from config import get_settings
 from database import DocumentChunk, DocumentChunkEmbedding
 from retrieval import Hit, cosine_similarity
 
-H = TypeVar("H", bound=Hit)
-
 logger = logging.getLogger("caos.packer")
+
+# Generic over Hit's subtypes (e.g. CorpusHit) — pack_context only ever filters
+# and reorders the input list (never constructs a bare Hit()), so the caller's
+# more specific element type survives the round trip instead of widening to
+# List[Hit] and tripping mypy's list invariance on reassignment/re-filtering.
+T = TypeVar("T", bound=Hit)
 
 
 def get_token_count(text: str, encoding) -> int:
@@ -22,12 +26,12 @@ def get_token_count(text: str, encoding) -> int:
 
 async def pack_context(  # noqa: C901
     db,
-    hits: Sequence[H],
+    hits: Sequence[T],
     query_vector: Optional[List[float]],
     token_budget: int = 6000,
     lambda_mmr: float = 0.5,
     max_chunks_per_doc: int = 3,
-) -> List[H]:
+) -> List[T]:
     """Packs retrieved hits into a token-budgeted context using MMR and diversity constraints.
     
     If query_vector and chunk vectors are available, uses vector cosine similarity for MMR.
@@ -73,7 +77,7 @@ async def pack_context(  # noqa: C901
     token_counts = {h.chunk_id: get_token_count(h.text, encoding) for h in hits}
 
     # 2. Run MMR selection loop
-    selected: List[H] = []
+    selected: List[T] = []
     selected_ids: Set[str] = set()
     doc_counts: Dict[str, int] = {}
     total_tokens = 0

@@ -3,7 +3,7 @@
 // Shared status atoms for the Pipeline Visualizer (port of design bundle shared/ui.jsx).
 
 import { type SimRun } from "@/lib/pipeline/sim";
-import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
+import { sevSurface, sevVar } from "@/lib/pipeline/sev";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 
 // Severity → the StatusGlyph kind that draws its shape, so a status can be read
@@ -22,7 +22,7 @@ const SEV_GLYPH: Record<string, "critical" | "warning" | "success" | "running" |
 // of status, so meaning is never color-alone (Blueprint a11y).
 export function Dot({ sev, pulse, glyph }: { sev?: string; pulse?: boolean; glyph?: boolean }) {
   const s = sev || "idle";
-  const color = SEV_COLOR[s] || "var(--caos-idle)";
+  const color = sevVar(s);
   if (glyph) {
     const kind = SEV_GLYPH[s] ?? "idle";
     return (

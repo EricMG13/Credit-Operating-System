@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -57,6 +59,47 @@ def _create_run_lock() -> asyncio.Lock:
     if _CREATE_RUN_LOCK is None:
         _CREATE_RUN_LOCK = asyncio.Lock()
     return _CREATE_RUN_LOCK
+
+
+# Idempotency (#17): the active-run 409 above only dedupes WHILE a run is
+# active — a client retrying create_run after the network dropped the response
+# but the request already committed (or after a genuinely fast run already
+# reached a terminal state) sees no active run and creates a real duplicate.
+# An optional client-supplied Idempotency-Key dedupes those retries for a short
+# window. In-process dict, mutations only ever happen inside _create_run_lock()
+# (single event loop → no extra lock needed); bounded like rate_limit.py's
+# _windows so a client spraying random keys can't grow this unboundedly.
+# ponytail: per-process, matches _CREATE_RUN_LOCK's own multi-replica caveat.
+_IDEMPOTENCY_TTL_SECONDS = 600
+_IDEMPOTENCY_MAX_ENTRIES = 4096
+_idempotency_cache: "dict[tuple[str, str], tuple[str, float]]" = {}
+
+
+def _idempotency_lookup(caller_id: str, key: Optional[str]) -> Optional[str]:
+    if not key:
+        return None
+    entry = _idempotency_cache.get((caller_id, key))
+    if entry is None:
+        return None
+    run_id, inserted_at = entry
+    if time.monotonic() - inserted_at >= _IDEMPOTENCY_TTL_SECONDS:
+        del _idempotency_cache[(caller_id, key)]
+        return None
+    return run_id
+
+
+def _idempotency_store(caller_id: str, key: Optional[str], run_id: str) -> None:
+    if not key:
+        return
+    now = time.monotonic()
+    if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:
+        expired = [k for k, (_, t) in _idempotency_cache.items() if now - t >= _IDEMPOTENCY_TTL_SECONDS]
+        for k in expired:
+            del _idempotency_cache[k]
+        if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:  # still full: evict oldest
+            oldest = min(_idempotency_cache, key=lambda k: _idempotency_cache[k][1])
+            del _idempotency_cache[oldest]
+    _idempotency_cache[(caller_id, key)] = (run_id, now)
 
 
 _RUNS_MAX_PER_MINUTE = 12
@@ -119,6 +162,15 @@ class RunListItem(BaseModel):
     created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes (stored UTC); serialize with an
+        # explicit offset so clients don't parse UTC wall-clock as local time.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class EvidenceOut(BaseModel):
@@ -208,8 +260,9 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
 async def create_run(
     body: RunCreate,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     if not rate_limit.hit(f"runs:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
@@ -223,6 +276,15 @@ async def create_run(
     # runs' facts → last-writer-wins). Re-runs once the prior one is terminal are
     # allowed. The lock makes the check→insert atomic against a concurrent POST.
     async with _create_run_lock():
+        # A client retrying the SAME logical request (network drop after commit,
+        # or the prior run already reached a terminal state) — the active-run
+        # check below can't catch this since nothing may be active anymore.
+        cached_run_id = _idempotency_lookup(caller.id, idempotency_key)
+        if cached_run_id is not None:
+            cached_run = await db.get(Run, cached_run_id)
+            if cached_run is not None:
+                return await _summary(db, cached_run)
+
         settings = get_settings()
 
         # 1. Per-analyst active limit check
@@ -267,7 +329,18 @@ async def create_run(
             model_mode=presets.current_mode(),
         )
         db.add(run)
-        await db.commit()  # persist the queued run so the executor can see it
+        try:
+            await db.commit()  # persist the queued run so the executor can see it
+        except IntegrityError:
+            # Belt-and-suspenders: the SELECT-then-INSERT above is already
+            # serialized by _create_run_lock() within THIS process, but the DB-
+            # level uq_runs_issuer_active partial unique index (migration 0034)
+            # also backstops a race across multiple app replicas, where a
+            # per-process lock can't coordinate. Same 409 the in-process check
+            # above already gives — not a 500.
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
+        _idempotency_store(caller.id, idempotency_key, run.id)
 
     await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
@@ -280,7 +353,7 @@ async def list_runs(
     # SELECT is a memory/latency/exfil-volume DoS as the table grows. P4.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Runs newest-first, optionally filtered to one issuer (read-only)."""
@@ -298,7 +371,7 @@ async def list_runs(
 @router.get("/{run_id}", response_model=RunSummary)
 async def get_run(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     run = await db.get(Run, run_id)
@@ -307,11 +380,60 @@ async def get_run(
     return await _summary(db, run)
 
 
+@router.get("/{run_id}/modules", response_model=List[ModuleDetail])
+async def get_modules(
+    run_id: str,
+    db: AsyncSession = Depends(get_db),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """All module outputs for a run, with claims + evidence, in three queries.
+
+    Bulk read for the Deep-Dive open: the per-module endpoint below costs the
+    client one HTTP round trip (and the server ~3 queries) per module — 21
+    requests per page open. This returns the same ModuleDetail shape for every
+    produced module at once."""
+    if await db.get(Run, run_id) is None:
+        raise HTTPException(404, "Run not found")
+    rows = await _modules_for(db, run_id)
+    row_pks = [r.id for r in rows]
+    claims_by_module: dict[str, List[Claim]] = {pk: [] for pk in row_pks}
+    claim_pks: List[str] = []
+    if row_pks:
+        for c in (await db.execute(
+            select(Claim).where(Claim.module_output_id.in_(row_pks))
+        )).scalars():
+            claims_by_module[c.module_output_id].append(c)
+            claim_pks.append(c.id)
+    evidence_by_claim: dict[str, List[EvidenceItem]] = {pk: [] for pk in claim_pks}
+    if claim_pks:
+        for e in (await db.execute(
+            select(EvidenceItem).where(EvidenceItem.claim_pk.in_(claim_pks))
+        )).scalars():
+            evidence_by_claim[e.claim_pk].append(e)
+    return [
+        ModuleDetail(
+            module_id=row.module_id, module_name=row.module_name, owned_object=row.owned_object,
+            schema_family=row.schema_family, runtime_output=row.runtime_output, confidence=row.confidence,
+            qa_status=row.qa_status, committee_status=row.committee_status,
+            validation_status=row.validation_status, limitation_flags=row.limitation_flags,
+            downstream_consumers=row.downstream_consumers,
+            claims=[
+                ClaimOut(
+                    claim_id=c.claim_id, claim_text=c.claim_text,
+                    evidence=[EvidenceOut.model_validate(e) for e in evidence_by_claim[c.id]],
+                )
+                for c in claims_by_module[row.id]
+            ],
+        )
+        for row in rows
+    ]
+
+
 @router.get("/{run_id}/modules/{module_id}", response_model=ModuleDetail)
 async def get_module(
     run_id: str,
     module_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     row = (
@@ -355,7 +477,7 @@ async def get_module(
 @router.get("/{run_id}/qa", response_model=QAReport)
 async def get_qa(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     run = await db.get(Run, run_id)
@@ -377,7 +499,7 @@ async def get_qa(
 @router.post("/{run_id}/report")
 async def export_committee_report(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Render the committee report — refused unless the run is Committee Ready.
@@ -423,7 +545,7 @@ async def export_committee_report(
 @router.post("/{run_id}/vault")
 async def export_to_vault(
     run_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Write this run to the Obsidian-style vault as Markdown (hub + spoke).
@@ -433,6 +555,11 @@ async def export_to_vault(
     stamped into the note's frontmatter, so a draft exports labelled as a draft.
     Returns 503 when no vault dir is configured (VAULT_EXPORT_DIR unset), 500 when
     the configured dir can't be written.
+
+    Authorization: single-team, by design — see this module's docstring. Any
+    authenticated analyst may export any run to disk (not scoped to
+    ``caller.id``); ``test_runs_idor_single_team_read_is_intentional`` pins it,
+    including this write path specifically.
     """
     if not rate_limit.hit(f"vault:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Vault export rate limit reached — try again in a minute.")

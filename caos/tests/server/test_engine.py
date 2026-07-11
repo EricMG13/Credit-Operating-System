@@ -80,13 +80,28 @@ def test_dependency_layers_respects_deps_and_groups_independents():
             if d in layer_of:
                 assert layer_of[d] < layer_of[m], f"{m} must run after its dep {d}"
 
-    # CP-1A and CP-1B both depend only on CP-1, so they land in the same layer —
+    # Soft `after` edges order the layering exactly like depends_on: a module
+    # never shares a layer with (or precedes) an in-set after-edge either.
+    from engine.registry import REGISTRY as _REG
+    for m in routed:
+        for d in getattr(_REG[m], "after", ()):
+            if d in layer_of:
+                assert layer_of[d] < layer_of[m], f"{m} must run after its soft edge {d}"
+
+    # CP-1B and CP-4C both depend only on CP-1, so they land in the same layer —
     # i.e. independent modules are grouped, which is what lets them run concurrently.
-    assert layer_of["CP-1A"] == layer_of["CP-1B"]
-    assert layer_of["CP-1"] < layer_of["CP-1A"]
-    # CP-1A (BusinessTransactionFactPack) and CP-4C (covenant capacity) both depend
-    # only on CP-1, so they share a layer — the concrete pair the fan-out overlaps.
-    assert layer_of["CP-1A"] == layer_of["CP-4C"]
+    assert layer_of["CP-1B"] == layer_of["CP-4C"]
+    assert layer_of["CP-1"] < layer_of["CP-1B"]
+    # CP-1A is dep-free (corpus M2: "CP-1 NOT downstream" — audit SPEC-2), so it
+    # lands in the FIRST layer, no longer gated behind CP-1.
+    assert layer_of["CP-1A"] == 0
+    # SPEC-1: CP-2 (the corpus L2 hub) is scheduled after ALL its soft feeds, so
+    # live CP-2's upstream dict actually carries CP-1A/1B/1C at synth time.
+    for feed in ("CP-1A", "CP-1B", "CP-1C"):
+        assert layer_of[feed] < layer_of["CP-2"], f"CP-2 must run after {feed}"
+    # SPEC-2/3: CP-2B is ordered after (not gated on) CP-2; CP-3B after CP-1.
+    assert layer_of["CP-2"] < layer_of["CP-2B"]
+    assert layer_of["CP-3"] < layer_of["CP-3B"]
 
 
 def test_dependency_layers_degraded_routing_and_edges():

@@ -18,6 +18,7 @@ from config import get_settings
 from database import AsyncSessionLocal, Run, engine
 from engine import budget
 from engine.runner import execute_run
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.executor")
 
@@ -33,15 +34,23 @@ async def execute_run_by_id(run_id: str) -> None:
         if run is None:
             logger.warning("execute_run_by_id: run %s vanished", run_id)
             return
+        committed = False
         try:
             await execute_run(session, run)
             await session.commit()
+            committed = True
             await _maybe_export_to_vault(session, run_id)
         except asyncio.CancelledError:
             # Shutdown cancellation. CancelledError is BaseException, not Exception,
             # so the guard below would miss it and strand the run in 'running'
             # (fatal on SQLite/InProcessExecutor, which has no reaper). Mark it
-            # failed, then re-raise so the task still cancels cleanly.
+            # failed, then re-raise so the task still cancels cleanly. But a
+            # cancellation AFTER the commit — during the best-effort vault export,
+            # whose `except Exception` cannot catch CancelledError — must NOT
+            # rewrite the already-persisted COMPLETE run to failed.
+            if committed:
+                logger.warning("run %s cancelled after commit (vault export interrupted) — run unaffected", run_id)
+                raise
             logger.warning("run %s cancelled during shutdown — marking failed", run_id)
             await _mark_run_failed(session, run_id, "worker shutdown during execution")
             raise
@@ -95,7 +104,7 @@ async def _mark_run_failed(session, run_id: str, reason: str) -> None:
         logger.exception("could not mark run %s failed", run_id)
 
 
-class InProcessExecutor:
+class InProcessExecutor(InProcessTaskExecutor):
     """SQLite/local: one fire-and-forget asyncio task per enqueued run.
 
     Task references are retained in `_tasks` so the loop can't GC them
@@ -106,7 +115,7 @@ class InProcessExecutor:
     name = "in_process"
 
     def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
+        super().__init__()
         self._sem: asyncio.Semaphore | None = None
 
     async def start(self) -> None:  # no background loop needed
@@ -126,24 +135,12 @@ class InProcessExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            # Await so each task's cancellation handler (mark-failed) commits
-            # before the event loop tears down.
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     async def enqueue(self, run_id: str) -> None:
         async def _run_with_sem():
             assert self._sem is not None
             async with self._sem:
                 await execute_run_by_id(run_id)
-        task = asyncio.create_task(_run_with_sem())
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(_run_with_sem())
 
 
 class QueueWorker:
@@ -168,6 +165,12 @@ class QueueWorker:
         self._settings = get_settings()
         self._worker_id = f"{socket.gethostname()}:{id(self)}"
         self._inflight: set[asyncio.Task] = set()
+        # Run ids currently executing on THIS worker. _claim_one excludes them:
+        # a run whose wall clock legitimately exceeds the lease must not be
+        # re-claimed by its own worker and executed twice concurrently (double
+        # LLM spend, then a uq_run_module IntegrityError flipping the first
+        # attempt's committed result to 'failed').
+        self._inflight_ids: set[str] = set()
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -204,29 +207,50 @@ class QueueWorker:
             )
             await s.commit()
 
+    async def _heartbeat(self) -> None:
+        """Extend the lease on this worker's live runs each poll tick, so a run
+        whose wall clock legitimately exceeds the fixed lease window is not
+        re-claimed (by any worker) and executed twice concurrently."""
+        if not self._inflight_ids:
+            return
+        lease = timedelta(seconds=self._settings.caos_run_lease_seconds)
+        async with AsyncSessionLocal() as s:
+            await s.execute(
+                update(Run)
+                .where(
+                    Run.id.in_(tuple(self._inflight_ids)),
+                    Run.worker_id == self._worker_id,
+                    Run.status == "running",
+                )
+                .values(lease_expires_at=_now() + lease)
+            )
+            await s.commit()
+
     async def _claim_one(self) -> str | None:
         max_attempts = self._settings.caos_run_max_attempts
         lease = timedelta(seconds=self._settings.caos_run_lease_seconds)
         async with AsyncSessionLocal() as s:
             async with s.begin():
-                row = (
-                    await s.execute(
-                        select(Run)
-                        .where(
-                            or_(
-                                Run.status == "queued",
-                                and_(
-                                    Run.status == "running",
-                                    Run.lease_expires_at < _now(),
-                                    Run.attempts < max_attempts,
-                                ),
-                            )
+                stmt = (
+                    select(Run)
+                    .where(
+                        or_(
+                            Run.status == "queued",
+                            and_(
+                                Run.status == "running",
+                                Run.lease_expires_at < _now(),
+                                Run.attempts < max_attempts,
+                            ),
                         )
-                        .order_by(Run.created_at)
-                        .limit(1)
-                        .with_for_update(skip_locked=True)
                     )
-                ).scalar_one_or_none()
+                    .order_by(Run.created_at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+                if self._inflight_ids:
+                    # Never re-claim a run this worker is still executing.
+                    stmt = stmt.where(Run.id.notin_(tuple(self._inflight_ids)))
+                row = (await s.execute(stmt)).scalar_one_or_none()
                 if row is None:
                     return None
                 row.status = "running"
@@ -242,6 +266,7 @@ class QueueWorker:
         fails = 0
         while not self._stop.is_set():
             try:
+                await self._heartbeat()
                 await self._reap_orphans()
                 while len(self._inflight) < cap:
                     run_id = await self._claim_one()
@@ -249,7 +274,11 @@ class QueueWorker:
                         break
                     task = asyncio.create_task(execute_run_by_id(run_id))
                     self._inflight.add(task)
+                    self._inflight_ids.add(run_id)
                     task.add_done_callback(self._inflight.discard)
+                    task.add_done_callback(
+                        lambda _t, rid=run_id: self._inflight_ids.discard(rid)
+                    )
                 fails = 0
             except Exception:  # noqa: BLE001 — never let the loop die
                 fails += 1

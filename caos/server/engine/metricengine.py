@@ -47,7 +47,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact, Run
-from engine.metrics import CATALOG_BY_KEY
+from engine.metrics import CATALOG_BY_KEY, headline_fact_predicates
 from engine.periods import is_finite_number, safe_div
 
 logger = logging.getLogger("caos.metricengine")
@@ -105,14 +105,9 @@ async def _headline_facts_by_issuer(
         .join(Run, Run.id == MetricFact.run_id)
         .join(Issuer, Issuer.id == MetricFact.issuer_id)
         .where(
-            MetricFact.headline.is_(True),
-            MetricFact.metric_key.in_(list(_KPI_KEYS)),
+            *headline_fact_predicates(_KPI_KEYS),
             MetricFact.provenance == "run",
             Run.status == "complete",
-            # A gate-Blocked fact must never feed a deterministic derivative —
-            # defense-in-depth behind the runner write-skip (same posture as
-            # peers._peer_facts).
-            MetricFact.qa_status != "Blocked",
         )
         .order_by(MetricFact.issuer_id, MetricFact.metric_key, Run.created_at.desc())
         .limit(_SCAN_CAP)
@@ -182,11 +177,9 @@ async def _peer_values(
             select(MetricFact, Issuer)
             .join(Issuer, MetricFact.issuer_id == Issuer.id)
             .where(
-                MetricFact.headline.is_(True),
-                MetricFact.metric_key == key,
+                *headline_fact_predicates([key]),
                 MetricFact.issuer_id != issuer_id,
                 MetricFact.provenance != "demo_fixture",
-                MetricFact.qa_status != "Blocked",
             )
         )
         if same_industry and issuer.industry:
@@ -214,9 +207,7 @@ async def _peer_values(
         select(MetricFact)
         .where(
             MetricFact.issuer_id == issuer_id,
-            MetricFact.metric_key == key,
-            MetricFact.headline.is_(True),
-            MetricFact.qa_status != "Blocked",
+            *headline_fact_predicates([key]),
         )
         .order_by(MetricFact.created_at.desc())
         .limit(1)
@@ -240,7 +231,7 @@ def _robust_z(iv: float, peer_vals: List[float]) -> Optional[Tuple[float, float,
     if mad <= 0:
         return None if iv != med else (round(med, 2), 0.0, 0.0)
     z = safe_div(0.6745 * (iv - med), mad)
-    if z is None:  # unreachable: mad > 0 (checked above) and iv, med finite
+    if z is None:  # overflow-only: mad > 0 and iv, med finite, but the scaled spread can exceed float range
         return None
     return round(med, 2), round(mad, 2), round(z, 1)
 

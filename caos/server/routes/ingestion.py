@@ -54,6 +54,26 @@ def _upload_rate_guard(caller: CallerIdentity) -> None:
         )
 
 
+# Bound concurrent read+scan+parse work (memory guard): each upload buffers the
+# whole file (up to max_upload_mb) through ingest.read_capped, AV scan, and
+# parse — the rate limit above caps requests/minute per caller, not simultaneous
+# in-flight uploads server-wide, so many callers uploading large files at once
+# scales resident memory with the sum of their sizes. Uploads past the cap queue
+# on this semaphore rather than all buffer at once (mirrors research_executor._sem).
+# Lazy-init: on py3.9 asyncio.Semaphore() binds the loop at construction, which
+# fails at import time (no running loop). First call builds it in the app loop.
+# ponytail: per-process semaphore; if ever multi-replica, the cap is per replica.
+_upload_sem: "asyncio.Semaphore | None" = None
+
+
+def _upload_semaphore() -> "asyncio.Semaphore":
+    global _upload_sem
+    if _upload_sem is None:
+        from config import get_settings
+        _upload_sem = asyncio.Semaphore(max(1, get_settings().caos_upload_concurrency))
+    return _upload_sem
+
+
 class IngestionResponse(BaseModel):
     document_id: str
     issuer_id: str
@@ -159,21 +179,22 @@ async def upload_document(
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
-    content = await ingest.read_capped(file)
-    ingest.sniff_pdf(content)
-    await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
-    # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
-    # large upload doesn't block the event loop for every other request.
-    text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
+    async with _upload_semaphore():
+        content = await ingest.read_capped(file)
+        ingest.sniff_pdf(content)
+        await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
+        # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
+        # large upload doesn't block the event loop for every other request.
+        text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
 
 
-async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:
+async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:  # noqa: C901
     """Pull agency ratings off a structured (xlsx) upload and write them onto
     matching *existing* issuers — matched by FIGI, then ticker, then exact name.
 
@@ -226,20 +247,21 @@ async def upload_pricing_sheet(
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
-    content = await ingest.read_capped(file)
-    # Scan BEFORE any parse: sniff_xlsx opens the ZIP central directory (openpyxl/
-    # zipfile read attacker-controlled bytes), so the scan must precede it to match
-    # SECURITY.md's "scanned before it is parsed". No-op unless CLAMAV_HOST is set.
-    await avscan.scan(content)
-    ingest.sniff_xlsx(content)
-    # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
-    # upload_document) so a large workbook doesn't stall the single event loop.
-    text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
+    async with _upload_semaphore():
+        content = await ingest.read_capped(file)
+        # Scan BEFORE any parse: sniff_xlsx opens the ZIP central directory (openpyxl/
+        # zipfile read attacker-controlled bytes), so the scan must precede it to match
+        # SECURITY.md's "scanned before it is parsed". No-op unless CLAMAV_HOST is set.
+        await avscan.scan(content)
+        ingest.sniff_xlsx(content)
+        # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
+        # upload_document) so a large workbook doesn't stall the single event loop.
+        text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
     resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
 
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
@@ -256,11 +278,11 @@ class MemoUploadResponse(BaseModel):
 
 
 @router.post("/upload/memo", response_model=MemoUploadResponse)
-async def upload_memo(
+async def upload_memo(  # noqa: C901
     background_tasks: BackgroundTasks,
     memo_type: str = Form("memo"),
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Analyst-authored commentary (market/research notes) into the Obsidian
@@ -288,14 +310,15 @@ async def upload_memo(
             400, f"Unsupported memo format {ext or '(none)'} — use one of {sorted(_MEMO_EXTS)}"
         )
 
-    content = await ingest.read_capped(file)
-    await avscan.scan(content)  # scan before parse; no-op unless CLAMAV_HOST is set
-    if ext == ".pdf":
-        ingest.sniff_pdf(content)
-        # markitdown/pypdf is synchronous and CPU-bound — off-thread it (see upload_document).
-        text = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
-    else:
-        text = content.decode("utf-8", "replace")
+    async with _upload_semaphore():
+        content = await ingest.read_capped(file)
+        await avscan.scan(content)  # scan before parse; no-op unless CLAMAV_HOST is set
+        if ext == ".pdf":
+            ingest.sniff_pdf(content)
+            # markitdown/pypdf is synchronous and CPU-bound — off-thread it (see upload_document).
+            text = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
+        else:
+            text = content.decode("utf-8", "replace")
     if not text.strip():
         raise HTTPException(
             422, "No text could be extracted — scanned/encrypted PDF? Upload a text-based copy."

@@ -274,7 +274,7 @@ function CrossSectorHeatmap({ rowsList, filtersActive, filterCount }: { rowsList
                         title={val === null ? "No comp peers" : `${label}bp median across ${n} loans`}
                       >
                         {label}
-                        {n > 0 && <span className="text-[9px] text-caos-muted opacity-60 ml-0.5">({n})</span>}
+                        {n > 0 && <span className="text-[9px] text-caos-muted ml-0.5">({n})</span>}
                       </td>
                     );
                   })}
@@ -288,7 +288,7 @@ function CrossSectorHeatmap({ rowsList, filtersActive, filterCount }: { rowsList
   );
 }
 
-const td = "px-2 py-[3px] tabular whitespace-nowrap";
+const td = "px-2 py-[5px] tabular whitespace-nowrap";
 const loanKey = (r: RVRow) => `${r.figi}|${r.company}|${r.maturity ?? "na"}|${r.loanType}|${r.size}|${r.margin}`;
 
 type SortConfig = { col: string | null; asc: boolean };
@@ -515,7 +515,7 @@ function PeerTable({
                     }}
                     onFocus={() => onHover(r.figi)}
                     onBlur={() => onHover(null)}
-                    className="w-full text-left focus-ring rounded px-1 -mx-1 -my-px outline-none cursor-pointer"
+                    className="w-full text-left focus-ring rounded px-1 -mx-1 outline-none cursor-pointer"
                   >
                     {r.company}
                   </button>

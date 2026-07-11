@@ -9,14 +9,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import { createIssuer, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
+import { createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
+import type { RunSummaryDTO } from "@/lib/engine/types";
 import { Dot } from "@/components/pipeline/atoms";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EdgarImport } from "@/components/upload/EdgarImport";
 import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
-  type FileOutcome, type Step,
+  type FileOutcome, type RunQueueOutcome, type Step,
 } from "@/components/upload/steps";
 
 interface UploadWizardProps {
@@ -37,15 +38,29 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [uploading, setUploading] = useState(false);
   const [outcomes, setOutcomes] = useState<FileOutcome[]>([]);
   const [error, setError] = useState("");
+  // Truthful run-queue outcome for the completion panel (FE-1): the analysis
+  // run is actually POSTed after a successful batch; the panel reports what
+  // happened instead of asserting "run queued" unconditionally.
+  const [runOutcome, setRunOutcome] = useState<RunQueueOutcome | null>(null);
+  // Guards a failed-file retry from double-queuing (the loop re-runs runUpload).
+  const runQueuedRef = useRef(false);
 
   // Live per-file batch progress: which file (1-based) is in flight and its
   // name, so the primary action reads "UPLOADING 3/12 — filename…" instead of a
   // single opaque spinner across a minutes-long batch.
   const [progress, setProgress] = useState<{ index: number; total: number; name: string } | null>(null);
+  // Run-creation (FE-2): the wizard vaults documents but never kicked off an
+  // analytical run — POST /api/runs existed as API-client-only, unused by any
+  // page. This is the missing trigger: explicit action on the result step, not
+  // automatic, so an analyst can stage more documents before spending a run.
+  const [runCreating, setRunCreating] = useState(false);
+  const [runCreated, setRunCreated] = useState<RunSummaryDTO | null>(null);
+  const [runError, setRunError] = useState("");
   // A cancel flag checked between iterations lets an analyst abort a stalled
   // batch. A ref (not state) so the running loop reads the latest value without
   // a stale closure.
   const cancelRef = useRef(false);
+  const uploadingRef = useRef(false); // synchronous re-entrancy guard (uploading state lags a render)
   // Files skipped by the dropzone accept filter (.docx side letters, scanned
   // .tif, etc.) — surfaced as a dismissible warning so intake never silently
   // drops a source.
@@ -104,6 +119,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // outcomes that already succeeded so the result view stays complete.
   const runUpload = async (batch: File[], keep: FileOutcome[] = []) => {
     if (!selectedIssuer || batch.length === 0) return;
+    // Re-entrancy guard: a fast double-click fires runUpload twice before React
+    // re-renders `uploading`, so the state check can't stop the duplicate — a ref
+    // set synchronously here does. Reset in finally so a throw can't wedge uploads.
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     cancelRef.current = false;
     setUploading(true);
     setError("");
@@ -112,28 +132,57 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setOutcomes(keep);
     setStep("result");
 
-    for (let i = 0; i < batch.length; i++) {
-      if (cancelRef.current) break;
-      const file = batch[i];
-      setProgress({ index: i + 1, total: batch.length, name: file.name });
-      const formData = new FormData();
-      formData.append("issuer_id", selectedIssuer.id);
-      formData.append("run_mode", runMode);
-      formData.append("file", file);
-      let settled: FileOutcome;
-      try {
-        const res = isSpreadsheet(file.name)
-          ? await uploadPricingSheet(formData)
-          : await uploadDocument(formData);
-        settled = { name: file.name, result: res, file };
-      } catch (err) {
-        settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+    let vaultedAny = false;
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        if (cancelRef.current) break;
+        const file = batch[i];
+        setProgress({ index: i + 1, total: batch.length, name: file.name });
+        const formData = new FormData();
+        formData.append("issuer_id", selectedIssuer.id);
+        formData.append("run_mode", runMode);
+        formData.append("file", file);
+        let settled: FileOutcome;
+        try {
+          const res = isSpreadsheet(file.name)
+            ? await uploadPricingSheet(formData)
+            : await uploadDocument(formData);
+          settled = { name: file.name, result: res, file };
+          vaultedAny = true;
+        } catch (err) {
+          settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+        }
+        setOutcomes((prev) => [...prev, settled]);
       }
-      setOutcomes((prev) => [...prev, settled]);
-    }
 
-    setProgress(null);
-    setUploading(false);
+      // Actually queue the analysis run the completion copy promises. The wizard
+      // used to SAY "run queued" while no UI path ever called POST /api/runs —
+      // the platform's core loop dead-ended and every live surface stayed empty
+      // (audit 2026-07-10 FE-1). Truthful outcomes: queued (with the run id),
+      // already-active (409 dedup), or failed (message; the panel says how to
+      // proceed). runQueuedRef stops a failed-file RETRY from double-posting a
+      // run that the first pass already queued.
+      if (vaultedAny && !cancelRef.current && !runQueuedRef.current) {
+        setRunOutcome({ state: "queuing" });
+        try {
+          const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+          runQueuedRef.current = true;
+          setRunOutcome({ state: "queued", runId: run.id });
+        } catch (err: unknown) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 409) {
+            runQueuedRef.current = true;  // one is already active — same end state
+            setRunOutcome({ state: "active" });
+          } else {
+            setRunOutcome({ state: "failed", message: toErrorMessage(err, "Run not started") });
+          }
+        }
+      }
+    } finally {
+      setProgress(null);
+      setUploading(false);
+      uploadingRef.current = false;
+    }
   };
 
   const handleUpload = () => runUpload(files);
@@ -150,6 +199,20 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     cancelRef.current = true;
   };
 
+  const handleCreateRun = async () => {
+    if (!selectedIssuer) return;
+    setRunCreating(true);
+    setRunError("");
+    try {
+      const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+      setRunCreated(run);
+    } catch (err) {
+      setRunError(toErrorMessage(err, "Could not create the run"));
+    } finally {
+      setRunCreating(false);
+    }
+  };
+
   const reset = () => {
     setStep("issuer");
     setSelectedIssuer(null);
@@ -159,7 +222,12 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setError("");
     setProgress(null);
     setRejected([]);
+    setRunCreating(false);
+    setRunCreated(null);
+    setRunError("");
     cancelRef.current = false;
+    setRunOutcome(null);
+    runQueuedRef.current = false;
   };
 
   useEffect(() => {
@@ -189,7 +257,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-2">
       <FirstRunHint id="upload-intake">
-        Drop <span className="text-white font-medium">all</span> of an issuer&apos;s deal documents at once — CP-0 classifies and dates each on ingest. Pick a run mode and the engine routes the matching modules.
+        Drop <span className="text-white font-medium">all</span>{" "}of an issuer&apos;s deal documents at once — CP-0 classifies and dates each on ingest. Pick a run mode and the engine routes the matching modules.
       </FirstRunHint>
       <StepStrip step={step} selectedIssuer={selectedIssuer} modeMeta={modeMeta} filesCount={files.length} />
 
@@ -283,8 +351,13 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           totalChunks={totalChunks}
           uploading={uploading}
           progress={progress}
+          runOutcome={runOutcome}
           onReset={reset}
           onRetryFailed={handleRetryFailed}
+          runCreating={runCreating}
+          runCreated={runCreated}
+          runError={runError}
+          onCreateRun={handleCreateRun}
         />
       ) : null}
     </div>

@@ -33,3 +33,10 @@ def test_bool_accepted_as_int():
 
 def test_scaled_numerator_preserves_arithmetic():
     assert safe_div(100 * 3, 4) == 75.0
+
+
+def test_overflow_result_degrades_to_none():
+    # Finite operands whose ratio exceeds float range must degrade to None,
+    # not hand callers an inf that "passed" the guard.
+    assert safe_div(1e305, 1e-5) is None
+    assert safe_div(-1e305, 1e-5) is None

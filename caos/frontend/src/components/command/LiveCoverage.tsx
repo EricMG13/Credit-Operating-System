@@ -11,19 +11,28 @@ import type { PortfolioRowDTO } from "@/lib/api";
 import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
+import { fmtMult } from "@/lib/format";
 
-const fmtX = (v: number | undefined) =>
-  typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
+// Shared formatter (lib/format.fmtMult): same 1-dp + "x" + em-dash fallback;
+// the local copy could drift from every other multiple on the desk. Exported:
+// the IssuerStrip live variant formats the same run metrics.
+export const fmtX = (v: number | undefined) =>
+  typeof v === "number" && Number.isFinite(v) ? fmtMult(v) : "—";
 
 // Fragility / posture meaning never rides on colour alone — the word travels too.
-const FRAGILITY_COLOR: Record<string, string> = {
+// Exported: the IssuerStrip live variant renders the same fields with the same coding.
+export const FRAGILITY_COLOR: Record<string, string> = {
   HIGH: "var(--caos-critical)", MODERATE: "var(--caos-warning)", LOW: "var(--caos-success)",
 };
-const RV_COLOR: Record<string, string> = {
+export const RV_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", NEUTRAL: "var(--caos-muted)", UNDERWEIGHT: "var(--caos-critical)",
 };
-const QA_COLOR: Record<string, string> = {
-  Pass: "var(--caos-success)", "Ready with Limitations": "var(--caos-warning)",
+// Keys are the server's qa_status vocabulary (engine/gate.py: "Not Reviewed" /
+// "Passed" / "Restricted" / "Blocked") — the previous keys ("Pass", "Ready with
+// Limitations") never matched, so a Restricted run rendered the same muted grey
+// as a Passed one on this clearance surface.
+export const QA_COLOR: Record<string, string> = {
+  Passed: "var(--caos-success)", Restricted: "var(--caos-warning)",
   Blocked: "var(--caos-critical)",
 };
 
@@ -85,6 +94,7 @@ export function LiveCoverage({
             getValue={vals[key]}
             selected={filters[key]}
             onChange={setFilter}
+            asHeaderCell
             className={th + ([2, 3].includes(i) ? " text-right" : "")}
           >
             {h}
@@ -96,11 +106,14 @@ export function LiveCoverage({
           {visibleRows.map((r) => {
             const rv = r.rv_recommendation;
             const frag = r.downside_fragility;
-            const isSelected = selected === r.ticker;
+            // Select by ticker, falling back to issuer_id: a live row without a
+            // ticker was previously unselectable (silent dead-end on click).
+            const selectKey = r.ticker ?? r.issuer_id;
+            const isSelected = selected === selectKey;
 
             const handleClick = () => {
-              if (r.ticker && onSelect) {
-                onSelect(r.ticker);
+              if (onSelect) {
+                onSelect(selectKey);
               }
             };
 

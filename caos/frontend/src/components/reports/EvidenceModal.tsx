@@ -236,7 +236,9 @@ export function EvidenceModal({
   // Prefer the run's own evidence. Fall back to the seeded demo map ONLY for the
   // reference deal; for a live run a missing id is unresolved, never the seeded
   // ATLF excerpt (cross-issuer "verified" leak).
-  const ev = liveEv || isLiveRun ? undefined : EVIDENCE[id];
+  // Parenthesized on purpose: when liveEv exists the early return below renders it;
+  // `ev` only matters for the seeded-vs-unresolved split on non-live lookups.
+  const ev = (liveEv || isLiveRun) ? undefined : EVIDENCE[id];
   const [chunkText, setChunkText] = useState<string | null>(null);
   const [chunkErr, setChunkErr] = useState(false);
   const chunkId = liveEv?.document_chunk_id ?? null;

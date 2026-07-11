@@ -49,7 +49,7 @@ async def create_research(
     brief: ResearchBrief,
     request: Request,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(
         f"research:{caller.id}", max_attempts=_RESEARCH_MAX_PER_MINUTE, window_seconds=60
@@ -72,7 +72,7 @@ async def create_research(
 async def get_research(
     job_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     job = await db.get(ResearchJob, job_id)
     # 404 (not 403) when missing OR not the caller's own job — never leak the

@@ -81,10 +81,14 @@ CASES = [
     ("mixed_nonnumeric", _nf({"FY23": "n/a", "FY24": 120.0}, {"FY23": 20.0, "FY24": 30.0}),
      _out([_row("FY23", "n/a", 20.0, None), _row("FY24", 120.0, 30.0, 25.0)],
           _sum(None, 50.0, None, "FY24", "FY23"), [])),
+    # FIX: YoY divides by |prior| so the sign survives a negative base — a
+    # worsening -100 → -120 is a 20% DECLINE (and fires the decline signal),
+    # not the +20% "growth" the signed divide used to report.
     ("negative_revenue", _nf({"FY23": -100.0, "FY24": -120.0}, {"FY23": 20.0, "FY24": 30.0}),
      _out([_row("FY23", -100.0, 20.0, -20.0), _row("FY24", -120.0, 30.0, -25.0)],
-          _sum(20.0, 50.0, -5.0, "FY24", "FY23"),
-          ["EBITDA margin compressed 5pp YoY."])),
+          _sum(-20.0, 50.0, -5.0, "FY24", "FY23"),
+          ["Revenue declined 20% YoY (FY23→FY24).",
+           "EBITDA margin compressed 5pp YoY."])),
     ("rounding_margin", _nf({"FY23": 300.0, "FY24": 700.0}, {"FY23": 100.0, "FY24": 200.0}),
      _out([_row("FY23", 300.0, 100.0, 33.3), _row("FY24", 700.0, 200.0, 28.6)],
           _sum(133.3, 100.0, -4.7, "FY24", "FY23"),

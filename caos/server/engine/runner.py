@@ -39,7 +39,13 @@ from engine.council import get_reviewer
 from engine.covenants import addback_cap_finding, covlite_finding
 from engine.earnings import monitoring_finding
 from engine.peers import peer_outlier_finding
-from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
+from engine.metrics import (
+    cp1_grounding_finding,
+    extract_cost_facts,
+    extract_facts,
+    leverage_magnitude_finding,
+    leverage_plausibility_finding,
+)
 from engine.gate import (
     Finding,
     cap_committee_status_for_blocked_upstream,
@@ -79,7 +85,10 @@ def _stamp_prompt_version(synthesizer_name: str) -> str:
 # serially within their layer while the pure (retrieve-only) modules fan out.
 # CP-0 reads the issuer's vaulted docs; CP-1 may vault EDGAR XBRL; CP-1C reads
 # the metric store for peers; CP-3C reads the bound portfolio's positions.
-_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C", "CP-3C"}
+# Derived from the registry (ModuleSpec.session_bound), not hardcoded: a new
+# session-using synthesizer declares the flag where the module is declared, so
+# it can never be silently fanned out concurrently on the shared AsyncSession.
+_SESSION_SYNTH = {m.module_id for m in REGISTRY.values() if m.session_bound}
 
 
 def _now() -> datetime:
@@ -98,9 +107,15 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
     layers: List[List[str]] = []
     remaining = list(module_ids)
     while remaining:
+        # Layering honors BOTH edge kinds: depends_on (hard, also input-gated)
+        # and after (soft ordering only) — so a module scheduled ``after`` its
+        # corpus feeds actually sees them in ``upstream`` at synth time, without
+        # the input gate blocking it when a soft feed is Blocked (SPEC-1/2).
         layer = [
             m for m in remaining
-            if all(d in placed for d in REGISTRY[m].depends_on if d in in_set)
+            if all(d in placed
+                   for d in (*REGISTRY[m].depends_on, *getattr(REGISTRY[m], "after", ()))
+                   if d in in_set)
         ]
         if not layer:
             # The registry is asserted to be a DAG; an empty layer with modules
@@ -211,6 +226,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
     upstream: Dict[str, ModulePayload] = {}
     module_status: Dict[str, str] = {}
     output_rows: Dict[str, ModuleOutput] = {}
+    # CRITICAL lane-7 GATE findings from structurally Blocked modules — folded
+    # into the CP-5 clearance payload so it can never read PASSED/CRITICAL:0
+    # while a module (and the run roll-up) is Blocked (audit 2026-07-10 QA-6).
+    structural_findings: List[Finding] = []
     plan: Optional[RoutePlan] = None
 
     sem = asyncio.Semaphore(max(1, settings.synth_concurrency))
@@ -258,20 +277,22 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         concurrent synthesis."""
         if isinstance(result, SynthesisError):
             logger.warning("synthesis failed for %s: %s", module_id, result)
-            output_rows[module_id] = _persist_blocked(
+            output_rows[module_id], gate_f = _persist_blocked(
                 session, run.id, module_id, f"Synthesis failed: {result}"
             )
+            structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
             return
         payload = result
         errors = validate_payload(payload)
         if errors:
             logger.warning("payload validation failed for %s: %s", module_id, errors)
-            output_rows[module_id] = _persist_blocked(
+            output_rows[module_id], gate_f = _persist_blocked(
                 session, run.id, module_id,
                 "Payload failed schema validation: " + "; ".join(errors),
                 validation_status="Blocked",
             )
+            structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
             return
         # CP-X limitation propagation: carry CP-0 source-gap flags onto the module.
@@ -296,7 +317,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         for module_id in layer:
             reason = _block_reason(module_id)
             if reason is not None:
-                output_rows[module_id] = _persist_blocked(session, run.id, module_id, reason)
+                output_rows[module_id], gate_f = _persist_blocked(session, run.id, module_id, reason)
+                structural_findings.append(gate_f)
                 module_status[module_id] = "Blocked"
             else:
                 runnable.append(module_id)
@@ -348,26 +370,25 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 
         # ── CP-5B: evidence lineage validation ───────────────────────────
         findings = validate_lineage(produced)
-        # CP-1's embedded reported-vs-adjusted reconciliation → an informational
-        # finding the deterministic CP-5 gate consumes alongside lineage findings.
-        recon = reconciliation_finding(upstream.get("CP-1"))
-        if recon is not None:
-            findings.append(recon)
-        covlite = covlite_finding(upstream.get("CP-4C"))
-        if covlite is not None:
-            findings.append(covlite)
-        addback_cap = addback_cap_finding(upstream.get("CP-4C"))
-        if addback_cap is not None:
-            findings.append(addback_cap)
-        monitor = monitoring_finding(upstream.get("CP-1B"))
-        if monitor is not None:
-            findings.append(monitor)
-        peer = peer_outlier_finding(upstream.get("CP-1C"))
-        if peer is not None:
-            findings.append(peer)
-        lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
-        if lev_plaus is not None:
-            findings.append(lev_plaus)
+        # Deterministic per-module finding providers the CP-5 gate consumes
+        # alongside lineage findings. Table-driven: eight copy-pasted blocks used
+        # to live here, and a pasted-wrong upstream key silently fed a check the
+        # wrong module's payload (the finding just never fired). Declare the
+        # (provider, module) pair once; the loop cannot drift.
+        _FINDING_PROVIDERS = (
+            (reconciliation_finding, "CP-1"),      # reported-vs-adjusted recon
+            (covlite_finding, "CP-4C"),
+            (addback_cap_finding, "CP-4C"),
+            (monitoring_finding, "CP-1B"),
+            (peer_outlier_finding, "CP-1C"),
+            (leverage_plausibility_finding, "CP-1"),
+            (leverage_magnitude_finding, "CP-1"),
+            (cp1_grounding_finding, "CP-1"),
+        )
+        for provider, module_id in _FINDING_PROVIDERS:
+            f = provider(upstream.get(module_id))
+            if f is not None:
+                findings.append(f)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
@@ -392,7 +413,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # and flags reasoning the lineage pass cannot see. It only *produces*
         # findings; the deterministic CP-5 gate below still decides status. No-op
         # (no token cost) unless council_enabled and a key are set.
-        council = await get_reviewer().review(produced)
+        reviewer = get_reviewer()
+        council = await reviewer.review(produced)
         for f in council:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
@@ -401,7 +423,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
                 required_remediation=f.required_remediation,
             ))
         findings = findings + council  # the CP-5 gate consumes lineage + council
-        await _persist_cp5c(session, run.id, produced, council)
+        await _persist_cp5c(
+            session, run.id, produced, council,
+            review_meta=getattr(reviewer, "last_review_meta", None),
+        )
 
         # ── CP-5: the deterministic gate ──────────────────────────────────
         for mid in analytical_ids:
@@ -423,7 +448,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # bites the post-gate case.
         _apply_blocked_upstream_cascade(analytical_ids, module_status, output_rows)
 
-        await _persist_cp5(session, run.id, findings, module_status)
+        await _persist_cp5(session, run.id, findings + structural_findings, module_status)
 
         # ── Project structured metric facts (run-derived, for cross-issuer NL query) ──
         # A gate-Blocked CP-1/CP-2 (CP-5 emitted an unresolved CRITICAL — e.g. an
@@ -490,8 +515,15 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 def _persist_blocked(
     session: AsyncSession, run_id: str, module_id: str, reason: str,
     *, validation_status: str = "Not Executed",
-) -> ModuleOutput:
-    """Record a module that could not run, plus a CRITICAL structural finding."""
+) -> Tuple[ModuleOutput, Finding]:
+    """Record a module that could not run, plus a CRITICAL structural finding.
+
+    Returns the Finding too so execute_run can fold it into the CP-5 clearance
+    payload: these GATE findings used to be written straight to the QAFinding
+    table and never reach the ``findings`` list CP-5 counts — a run with a
+    structurally Blocked module could persist a CP-5 payload reading
+    ``clearance: PASSED, CRITICAL: 0`` while run.qa_status was Blocked
+    (audit 2026-07-10 QA-6)."""
     row = ModuleOutput(
         run_id=run_id, module_id=module_id, module_name=module_id,
         owned_object="", runtime_output={"blocked_reason": reason},
@@ -500,12 +532,17 @@ def _persist_blocked(
         limitation_flags=[reason],
     )
     session.add(row)
-    session.add(QAFinding(
-        run_id=run_id, module_id=module_id, finding_id=f"{module_id}-GATE",
-        severity="CRITICAL", lane=7, description=reason,
+    finding = Finding(
+        finding_id=f"{module_id}-GATE", severity="CRITICAL", lane=7,
+        module_id=module_id, description=reason,
         required_remediation="Resolve the upstream or schema failure and re-run the module.",
+    )
+    session.add(QAFinding(
+        run_id=run_id, module_id=finding.module_id, finding_id=finding.finding_id,
+        severity=finding.severity, lane=finding.lane, description=finding.description,
+        required_remediation=finding.required_remediation,
     ))
-    return row
+    return row, finding
 
 
 async def _persist_output(
@@ -520,10 +557,17 @@ async def _persist_output(
     )
     session.add(row)
     await session.flush()  # assign row.id for claim FK
-    for c in payload.claims:
-        claim = Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
-        session.add(claim)
+    # Two flushes per module, not one per claim: add every Claim, flush once to
+    # materialize all their PKs, then add the EvidenceItems — the old per-claim
+    # flush cost a serial DB round trip per claim across every module of every run.
+    claims = [
+        Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
+        for c in payload.claims
+    ]
+    session.add_all(claims)
+    if claims:
         await session.flush()
+    for c, claim in zip(payload.claims, claims):
         for e in c.evidence:
             session.add(EvidenceItem(
                 claim_pk=claim.id, evidence_id=e.evidence_id,
@@ -600,19 +644,28 @@ async def _persist_cp5b(
 
 
 async def _persist_cp5c(
-    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding]
+    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding],
+    *, review_meta: Optional[Dict] = None,
 ) -> None:
     """Record the committee review as an auditable module output (show your work).
 
-    Always Passed/Committee Ready as a *process* record — it attests the review
-    ran; the findings it raised gate the analytical modules, not this row. When
-    the council is disabled this records a clean, zero-seat pass.
+    Always Passed/Committee Ready as a *process* record — it attests what the
+    review DID; the findings it raised gate the analytical modules, not this
+    row. When the council is disabled this records a clean, zero-seat pass.
+
+    ``review_meta`` (from the reviewer's ``last_review_meta``) discloses actual
+    execution: an ENABLED council whose fan-out was skipped (token budget
+    exhausted) or whose seats all failed used to persist ``enabled: true,
+    findings: all-zero`` — indistinguishable from "reviewed and clean"
+    (audit 2026-07-10 QA-4). The record now carries executed/requested seat
+    counts and a skip reason, so "not assessed" never reads as "passed".
     """
     counts = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
     for f in findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
     settings = get_settings()
     seats = min(max(0, settings.council_seats), 4) if settings.council_enabled else 0
+    meta = review_meta or {}
     session.add(ModuleOutput(
         run_id=run_id, module_id="CP-5C", module_name="SemanticCommitteeReview",
         owned_object="committee_review", confidence="High",
@@ -620,6 +673,12 @@ async def _persist_cp5c(
         runtime_output={
             "enabled": bool(settings.council_enabled),
             "seats": seats,
+            "review_execution": {
+                "requested_seats": meta.get("requested_seats", seats),
+                "executed_seats": meta.get("executed_seats", 0),
+                "failed_seats": meta.get("failed_seats", 0),
+                "skipped_reason": meta.get("skipped_reason"),
+            },
             "peer_round": bool(settings.council_enabled and settings.council_peer_round),
             "modules_reviewed": [p.module_id for p in produced],
             "findings_by_severity": counts,

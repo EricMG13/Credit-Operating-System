@@ -24,6 +24,7 @@ from sqlalchemy import update
 from config import get_settings
 from database import AsyncSessionLocal, ResearchJob
 from deepresearch import ResearchBrief, run_deep_research
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research")
 
@@ -106,7 +107,7 @@ async def _mark_failed(session, job_id: str, reason: str) -> None:
         logger.exception("could not mark research job %s failed", job_id)
 
 
-class ResearchExecutor:
+class ResearchExecutor(InProcessTaskExecutor):
     """In-process background tasks for deep-research jobs (mirrors InProcessExecutor).
 
     ponytail: in-process + sweep-on-boot — sound for one app container. If ever
@@ -115,9 +116,6 @@ class ResearchExecutor:
     """
 
     name = "research_in_process"
-
-    def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
@@ -132,17 +130,5 @@ class ResearchExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            # Await so each task's cancel handler (mark-failed) commits before
-            # the event loop tears down.
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     def enqueue(self, job_id: str) -> None:
-        task = asyncio.create_task(execute_research_by_id(job_id))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(execute_research_by_id(job_id))

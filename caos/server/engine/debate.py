@@ -33,6 +33,7 @@ from typing import Dict, List, Optional, Tuple
 from config import get_settings
 from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
+from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.engine")
@@ -84,7 +85,10 @@ def _leverage(cp1: Optional[ModulePayload]) -> Optional[float]:
         return None
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     lev = nf.get("net_leverage_adj_ltm")
-    return float(lev) if isinstance(lev, (int, float)) else None
+    # is_finite_number, not bare isinstance (CLAUDE.md engine convention): a NaN
+    # passes isinstance, fails every band comparison below, and would land in the
+    # else branch as a bullish "manageable at nanx net" committee point.
+    return float(lev) if is_finite_number(lev) else None
 
 
 def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]:  # noqa: C901
@@ -322,7 +326,7 @@ class LiveDebater:
             return _prose(advocate, points)
 
 
-def get_debater():
+def get_debater() -> "FixtureDebater | LiveDebater":
     """Live only when the debate is enabled and a key is set; else deterministic."""
     s = get_settings()
     if s.debate_enabled and s.anthropic_api_key:
@@ -366,10 +370,19 @@ async def synthesize_debate(module_id: str, upstream: Dict[str, ModulePayload]) 
         headline = verdict["sizing_posture"]
 
     debater = get_debater()
+    # return_exceptions so one side failing never blocks the other / the module
+    # (mirrors council.py's fan-out fault isolation).
     bull_narr, bear_narr = await asyncio.gather(
         debater.narrate(spec.bull, _LENS[spec.bull], bull, upstream),
         debater.narrate(spec.bear, _LENS[spec.bear], bear, upstream),
+        return_exceptions=True,
     )
+    if isinstance(bull_narr, Exception):
+        logger.warning("debate narration (%s) failed: %s", spec.bull, bull_narr)
+        bull_narr = _prose(spec.bull, bull)
+    if isinstance(bear_narr, Exception):
+        logger.warning("debate narration (%s) failed: %s", spec.bear, bear_narr)
+        bear_narr = _prose(spec.bear, bear)
 
     runtime_output = {
         "participants": {"bull": spec.bull, "bear": spec.bear, "chair": spec.chair},

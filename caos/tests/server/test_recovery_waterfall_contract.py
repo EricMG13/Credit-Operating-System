@@ -37,6 +37,9 @@ import pytest
 
 from engine.capstructure import recovery_waterfall
 
+_NAN = float("nan")
+_INF = float("inf")
+
 
 def _t(code, rank, amt):
     return {"code": code, "seniority_rank": rank, "amount_musd": amt, "extra": "keepme"}
@@ -131,6 +134,19 @@ CASES = [
      [_t("RCF", 0, 200.0), _t("1L", 1, -100.0), _t("2L", 3, 200.0)], 1000.0,
      [_row("RCF", 0, 200.0, 200.0, 100.0),
       _row("1L", 1, -100.0, None, None),
+      _row("2L", 3, 200.0, None, None)]),
+    # --- is_finite_number(claim) hardening: NaN/inf must degrade exactly like the
+    # None/negative cases above, cascading the break to every junior rank, NOT
+    # slip through a bare isinstance/truthiness check and poison the divide.
+    ("pari_nan_member_breaks_rank",
+     [_t("1L", 0, 500.0), _t("SSN", 0, _NAN), _t("2L", 1, 200.0)], 1000.0,
+     [_row("1L", 0, 500.0, None, None),
+      _row("SSN", 0, None, None, None),
+      _row("2L", 1, 200.0, None, None)]),
+    ("inf_amount_breaks",
+     [_t("RCF", 0, 200.0), _t("1L", 1, _INF), _t("2L", 3, 200.0)], 1000.0,
+     [_row("RCF", 0, 200.0, 200.0, 100.0),
+      _row("1L", 1, None, None, None),
       _row("2L", 3, 200.0, None, None)]),
     ("empty", [], 1000.0, []),
     # ROUNDING half-even, the killer case: 250/800 = 31.25 -> round = 31.2.
