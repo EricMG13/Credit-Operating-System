@@ -313,7 +313,7 @@ def _all_seed_signals() -> list[SectorSignalOut]:
 
 
 def _seed_sectors() -> list[str]:
-    return sorted({row["sector"] for row in _SEED_ROWS})
+    return sorted({str(row["sector"]) for row in _SEED_ROWS})
 
 
 def _matches(
@@ -452,9 +452,10 @@ def _sections_for(sector: str, signals: list[SectorSignalOut]) -> list[SectorRev
             title=title,
             posture="watch" if count else "quiet",
             summary=(
-                f"{count} seed-backed signal{'s' if count != 1 else ''} currently frame the {sector} daily brief."
+                f"{count} seed-backed signal{'s' if count != 1 else ''} currently "
+                f"{'frame' if count != 1 else 'frames'} the {sector} daily brief."
                 if section_id in {"market", "issuer", "actions"}
-                else "No live CP-SR synthesis yet; section awaits source-backed payload generation."
+                else "No sector synthesis yet — this section fills once source-backed signals are available."
             ),
             signal_ids=by_category.get(section_id, []),
         )
@@ -523,11 +524,11 @@ async def read_feeds(
     return [
         SectorFeed(
             sector=sector,
-            enabled=overrides.get(sector).enabled if sector in overrides else True,
-            notify_pref=overrides.get(sector).notify_pref if sector in overrides else "in_app",
-            provenance="profile" if sector in overrides else "seed",
+            enabled=row.enabled if row is not None else True,
+            notify_pref=row.notify_pref if row is not None else "in_app",
+            provenance="profile" if row is not None else "seed",
         )
-        for sector in sectors
+        for sector, row in ((s, overrides.get(s)) for s in sectors)
     ]
 
 

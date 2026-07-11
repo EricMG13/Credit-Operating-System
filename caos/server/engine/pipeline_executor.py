@@ -28,6 +28,7 @@ from sqlalchemy import select, update
 
 from database import AsyncSessionLocal, PipelineRun, engine as db_engine
 from engine import autonomy
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.pipeline_executor")
 
@@ -134,16 +135,13 @@ async def execute_job(job_id: str) -> None:
             await _mark_failed(db, job_id, str(e)[:2000])
 
 
-class PipelineExecutor:
+class PipelineExecutor(InProcessTaskExecutor):
     """In-process background tasks for autonomy-cycle jobs (mirrors
     ResearchExecutor). ponytail: in-process + sweep-on-boot — sound for one app
     container. The ``claim_next_job`` SKIP LOCKED path is the multi-worker-safe
     upgrade; this in-process executor is the single-worker default that stays."""
 
     name = "autonomy_in_process"
-
-    def __init__(self) -> None:
-        self._tasks: set = set()
 
     async def start(self) -> None:
         """Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
@@ -158,18 +156,8 @@ class PipelineExecutor:
             )
             await db.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     def enqueue(self, job_id: str) -> None:
         """Spawn a background task for one job. The task claims-via-execute (the
         row is already 'running' from enqueue_cycle; execute_job guards on
         status=='running' so a swept-to-failed row is a no-op)."""
-        task = asyncio.create_task(execute_job(job_id))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(execute_job(job_id))

@@ -9,6 +9,11 @@ import { describe, it, expect } from "vitest";
 import RouteError from "./error";
 import GlobalError from "./global-error";
 import NotFound from "./not-found";
+import DeepdiveError from "./deepdive/error";
+import ModelError from "./model/error";
+import CommandError from "./command/error";
+import QueryError from "./query/error";
+import ReportsError from "./reports/error";
 
 const noop = () => {};
 const err: Error & { digest?: string } = Object.assign(new Error("boom"), { digest: "abc123" });
@@ -20,6 +25,24 @@ describe("error surfaces", () => {
     expect(html).toContain("Retry");
     expect(html).toContain("Something broke");
     expect(html).toContain("abc123"); // digest surfaced when present
+  });
+
+  // M-10: deepdive/model/command/query/reports each got their own error.tsx (the
+  // rest of the workspace chrome stays mounted when only one segment errors,
+  // instead of every route falling back to the shared root boundary). Byte-
+  // identical to the root boundary by design — same one-assert-per-surface check.
+  it.each([
+    ["deepdive", DeepdiveError],
+    ["model", ModelError],
+    ["command", CommandError],
+    ["query", QueryError],
+    ["reports", ReportsError],
+  ])("%s/error.tsx: alert role, retry, digest ref", (_name, Component) => {
+    const html = renderToStaticMarkup(<Component error={err} reset={noop} />);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Retry");
+    expect(html).toContain("Something broke");
+    expect(html).toContain("abc123");
   });
 
   it("root error boundary: own html/body, try again", () => {

@@ -12,10 +12,14 @@ faked from a run).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from sqlalchemy import ColumnElement
+
+from database import MetricFact
 from engine.gate import Finding
 from engine.periods import is_finite_number, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
@@ -66,6 +70,24 @@ METRIC_CATALOG: List[MetricDef] = [
 ]
 
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
+
+
+def headline_fact_predicates(keys: Iterable[str]) -> List[ColumnElement[bool]]:
+    """The three predicates that define "a valid, non-Blocked headline fact" in the
+    ``MetricFact`` store: headline, in the requested ``keys`` set, and not QA-Blocked.
+    ``keys`` need only be iterable — callers pass tuples, lists, or (as in
+    ``queryinsights._delta_entries``) a dict keyed by metric key.
+
+    The store's structurally-different readers (``peers._peer_facts``,
+    ``metricengine._headline_facts_by_issuer``, ``metricfactlane._raw_facts``,
+    ``queryinsights._delta_entries``) each spread ``*headline_fact_predicates(keys)``
+    into their own ``select(...).where(...)`` and keep every other predicate (columns,
+    joins, provenance policy, complete-run join, cap, order) their own — so this guard
+    has one tested home instead of four restatements. It is defense-in-depth behind the
+    runner's Blocked-CP-1 write-skip: a QA-Blocked or wrong-key figure can never enter a
+    peer median or a cross-issuer answer."""
+    return [MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)),
+            MetricFact.qa_status != "Blocked"]
 
 
 # ── Provenance precedence (the ONE ranking every read-side collapse uses) ────
@@ -207,7 +229,10 @@ def extract_facts(  # noqa: C901
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
         # (add() would then drop it, but compute it cleanly here regardless). safe_div
         # concentrates that guard; scale the numerator so arithmetic order is unchanged.
-        m = safe_div(100 * v, rv)
+        # v needs its own guard BEFORE the scaling: the live CP-1 schema permits null
+        # leaves ("set undisclosed metrics to null"), and 100 * None raises TypeError
+        # before safe_div ever sees it — killing the whole run at projection.
+        m = safe_div(100 * v, rv) if is_finite_number(v) else None
         if m is not None:
             add("ebitda_margin", period, round(m, 1), "%", period == eb_headline)
 
@@ -218,7 +243,8 @@ def extract_facts(  # noqa: C901
     for period, v in fcf.items():
         add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
-        m = safe_div(100 * v, rv)
+        # same null-leaf guard as ebitda_margin above: 100 * None raises
+        m = safe_div(100 * v, rv) if is_finite_number(v) else None
         if m is not None:
             add("fcf_conversion", period, round(m, 1), "%", period == fcf_headline)
 
@@ -285,14 +311,22 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
             and is_finite_number(eb) and eb):
         return None
     recomputed = safe_div(nd, eb)
-    if recomputed is None:  # unreachable: the guard above proved nd, eb finite and non-zero
-        return None
+    if recomputed is None:
+        # The guard above proved nd, eb finite and non-zero, so None here means
+        # |nd / eb| overflowed float range — maximally inconsistent with any finite
+        # asserted leverage. Fall through with inf so the MATERIAL finding FIRES
+        # (the pre-safe_div behavior) instead of silently suppressing the check
+        # exactly when the CP-1 figures are most absurd.
+        recomputed = math.inf
     # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
     # leverage, and dividing by the signed lev would make the ratio negative —
     # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
     # vs the recomputed value) would silently escape this MATERIAL cross-check.
+    # A None deviation means the numerator overflowed (recomputed is inf or the
+    # spread exceeds float range) — that is maximal deviation, so fall through
+    # and fire rather than treating None as "within band".
     deviation = safe_div(abs(recomputed - lev), abs(lev))
-    if deviation is None or deviation <= 0.05:
+    if deviation is not None and deviation <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",

@@ -42,7 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, MetricFact, Run
-from engine.metrics import CATALOG_BY_KEY, MetricDef
+from engine.metrics import CATALOG_BY_KEY, MetricDef, headline_fact_predicates
 from engine.metricengine import MetricFactEntry
 from engine.periods import is_finite_number
 
@@ -70,7 +70,9 @@ _SYNONYMS: Dict[str, Tuple[str, ...]] = {
 }
 
 
-def _match_metric_keys(query: str) -> Dict[str, int]:
+def _match_metric_keys(query: str) -> Dict[str, int]:  # noqa: C901 — pre-existing
+    # (unchanged since origin/main); flat synonym/label/key scan, splitting would
+    # scatter the scoring rule across files for one small function
     """Map a natural-language query to matched metric keys → match score.
 
     The score is the count of distinct synonyms (word-boundary, case-insensitive)
@@ -125,11 +127,9 @@ async def _raw_facts(
         .join(Run, Run.id == MetricFact.run_id)
         .join(Issuer, Issuer.id == MetricFact.issuer_id)
         .where(
-            MetricFact.headline.is_(True),
-            MetricFact.metric_key.in_(list(keys)),
+            *headline_fact_predicates(keys),
             MetricFact.provenance == "run",
             Run.status == "complete",
-            MetricFact.qa_status != "Blocked",
         )
         .order_by(MetricFact.issuer_id, MetricFact.metric_key, Run.created_at.desc())
         .limit(_SCAN_CAP)

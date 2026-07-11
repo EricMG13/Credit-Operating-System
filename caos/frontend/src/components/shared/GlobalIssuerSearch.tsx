@@ -49,7 +49,13 @@ export function GlobalIssuerSearch() {
 
   const hasText = q.trim().length > 0;
   return (
-    <div className="group relative w-12 focus-within:w-64 hover:w-64 shrink-0 transition-[width] duration-150 motion-reduce:transition-none">
+    <div className="group relative w-12 opacity-0 hover:opacity-100 focus-within:opacity-100 focus-within:w-64 hover:w-64 shrink-0 transition-[width,opacity] duration-150 motion-reduce:transition-none">
+      {/* Invisible at rest, not merely faded — this floats over a different
+          bottom-of-page content shape on every route (Command's QA drawer,
+          Query's walk launcher, Pipeline's event log) and no single fixed
+          offset clears all of them. Fully transparent means it can never
+          visually occlude anything; hover/focus-within still reveal it, and
+          the global Alt+S listener works regardless of visibility. */}
       <input
         ref={ref}
         value={q}
@@ -62,11 +68,11 @@ export function GlobalIssuerSearch() {
         }}
         placeholder="Issuer search"
         aria-label="Global issuer search"
-        title="Issuer search · Space+S"
+        title="Issuer search · Alt+S"
         className="w-full h-9 rounded-full border border-caos-accent/60 bg-caos-panel pl-3 pr-12 tabular text-caos-md text-caos-text placeholder:text-transparent group-hover:placeholder:text-caos-muted focus:placeholder:text-caos-muted outline-none transition-caos focus:border-caos-accent"
       />
       <span className="pointer-events-none absolute right-2 top-1.5 tabular text-caos-2xs px-1 rounded border border-caos-border text-caos-muted">
-        {hasText ? "RET" : "SP+S"}
+        {hasText ? "RET" : "ALT+S"}
       </span>
       {open && error && rows.length === 0 ? (
         <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border bg-caos-panel shadow-lg overflow-hidden" style={{ borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)" }}>

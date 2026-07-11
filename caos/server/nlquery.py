@@ -235,7 +235,8 @@ async def _llm_translate(question: str) -> QuerySpec:
 
     settings = get_settings()
     # Shared cached client (llm_client.anthropic_client): per-call construction
-    # re-paid TLS setup on every request and leaked unclosed httpx transports.
+    # re-paid TLS setup on every request and leaked unclosed httpx transports;
+    # the client itself carries max_retries=0 (PERF_AUDIT_2026-07-10 Finding 1).
     client = llm_client.anthropic_client(settings)
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "
@@ -299,7 +300,8 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, 
 
     settings = get_settings()
     # Shared cached client (llm_client.anthropic_client): per-call construction
-    # re-paid TLS setup on every request and leaked unclosed httpx transports.
+    # re-paid TLS setup on every request and leaked unclosed httpx transports;
+    # the client itself carries max_retries=0 (PERF_AUDIT_2026-07-10 Finding 1).
     client = llm_client.anthropic_client(settings)
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "

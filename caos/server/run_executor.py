@@ -18,6 +18,7 @@ from config import get_settings
 from database import AsyncSessionLocal, Run, engine
 from engine import budget
 from engine.runner import execute_run
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.executor")
 
@@ -103,7 +104,7 @@ async def _mark_run_failed(session, run_id: str, reason: str) -> None:
         logger.exception("could not mark run %s failed", run_id)
 
 
-class InProcessExecutor:
+class InProcessExecutor(InProcessTaskExecutor):
     """SQLite/local: one fire-and-forget asyncio task per enqueued run.
 
     Task references are retained in `_tasks` so the loop can't GC them
@@ -114,7 +115,7 @@ class InProcessExecutor:
     name = "in_process"
 
     def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
+        super().__init__()
         self._sem: asyncio.Semaphore | None = None
 
     async def start(self) -> None:  # no background loop needed
@@ -134,24 +135,12 @@ class InProcessExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            # Await so each task's cancellation handler (mark-failed) commits
-            # before the event loop tears down.
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     async def enqueue(self, run_id: str) -> None:
         async def _run_with_sem():
             assert self._sem is not None
             async with self._sem:
                 await execute_run_by_id(run_id)
-        task = asyncio.create_task(_run_with_sem())
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(_run_with_sem())
 
 
 class QueueWorker:

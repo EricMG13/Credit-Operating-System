@@ -28,7 +28,7 @@ from config import get_settings
 from engine import budget
 from engine.gate import Finding
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import is_finite_number
+from engine.periods import is_finite_number, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -332,7 +332,9 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
     # Leverage lets us *compute* capacity/headroom; without it we still surface the
     # covenant terms as directly-sourced facts (e.g. the EDGAR CP-1 path, which does
     # not yet derive leverage — see #27 — should not hide a real covenant).
-    ebitda = (nd / lev) if (is_finite_number(lev) and lev and is_finite_number(nd) and nd) else None
+    # safe_div (not raw /): an overflowing |nd / lev| otherwise hands the
+    # pro-forma calc an inf EBITDA, which renders as a garbage 0.0x pf leverage.
+    ebitda = safe_div(nd, lev) if (is_finite_number(lev) and lev and is_finite_number(nd) and nd) else None
     calcs: List[dict] = []
     claims: List[ClaimSpec] = []
     limitations: List[str] = []

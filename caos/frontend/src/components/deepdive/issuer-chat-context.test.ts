@@ -36,6 +36,7 @@ describe("caosChatContext", () => {
       liveOuts: { "CP-2": { kpis: [{ l: "Energy cost %", v: "12" }], sections: [] } },
       liveEvidence: {},
       loading: false,
+      phase: "complete" as const,
     };
     const ctx = caosChatContext("CP-2", null, live, "Beacon Street Media");
     expect(ctx).toContain("run abcd1234-ef56-7890");

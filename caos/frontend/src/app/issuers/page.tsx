@@ -206,23 +206,26 @@ function IssuersDirectory() {
             >
               C
             </span>
-            <span className="text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
+            {/* Wordmark + version are decorative brand chrome — lowest priority for
+                horizontal space next to the 7-item full-label ConceptNav; drop
+                them before the functional coverage-summary stat ever squeezes. */}
+            <span className="hidden 2xl:inline text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
               CREDIT OS
             </span>
-            <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
+            <span className="hidden 2xl:inline tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
               v2.2
             </span>
           </span>
           <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap">
+          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap shrink-0">
             Issuer Register
           </span>
-          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0">
             {summaryLabel}
           </span>
           {!loading && demo ? (
             <span
-              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden sm:inline"
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden 2xl:inline"
               style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
               title="No live coverage yet — these are sample issuers, not real coverage"
             >
@@ -395,6 +398,7 @@ function IssuersDirectory() {
                      sortable={SORTABLE.has(FILTER_KEYS[i])}
                      sortState={sort}
                      onSort={cycleSort}
+                     asHeaderCell
                      className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
                    >
                      {h}

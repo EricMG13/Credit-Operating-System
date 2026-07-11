@@ -71,7 +71,7 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
   if (layout === "summary") {
     return (
       <div className="p-3 flex flex-col gap-3">
-        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
+        <div className="bg-caos-bg px-3 py-2.5">
           <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · thesis</div>
           <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
         </div>
@@ -85,7 +85,7 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
   }
   return (
     <div className="p-3 flex flex-col gap-3">
-      <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5">
+      <div className="bg-caos-bg px-3 py-2.5">
         <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · Pre-debate thesis map</div>
         <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
       </div>
@@ -225,7 +225,7 @@ export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvide
           label="Instrument preference"
           sub="Recovery delta acceptable at 6.0x stress; position sized through downside convexity."
         />
-        <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 text-caos-lg text-caos-text/90 leading-relaxed">
+        <div className="bg-caos-bg px-3 py-2.5 text-caos-lg text-caos-text/90 leading-relaxed">
           CP-3B keeps the 2L as the preferred instrument: severe-case recovery is thin, but the carry and entry discount compensate when sized below the max sleeve.
         </div>
       </div>
@@ -346,7 +346,7 @@ export function CovenantsTab({ onOpenEvidence, layout = "report" }: { onOpenEvid
           <StatCard key={c.l} value={c.v} label={c.l} sub={c.sub} sev={c.sev} />
         ))}
       </div>
-      <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 flex items-center gap-2">
+      <div className="bg-caos-bg px-3 py-2 flex items-center gap-2">
         <span className="text-caos-xl" style={{ color: "var(--caos-warning)" }} aria-hidden="true">⌖</span>
         <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">CP-4C-10 nearest pressure point</span>
         <span className="text-caos-lg text-caos-text">{CAPACITY.nearest}</span>
@@ -460,7 +460,7 @@ export function ModuleView({
     : null;
   const rest = lead ? secs.slice(0, -1) : secs;
   const kpiBlock = isLive && out.kpis.length > 0 && out.kpis.every((k) => !k.v || k.v === "—") ? (
-    <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">
+    <div className="bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">
       Engine ran and produced this module, but no populated headline figures are
       available — thin source data for this issuer. Any produced sections appear below.
     </div>
@@ -485,7 +485,7 @@ export function ModuleView({
     </div>
   ) : null;
   const liveFixtureNote = (
-    <div className="rounded border border-caos-border bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
+    <div className="bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
       Charts, step detail, and the workflow register are not yet wired for live
       runs — the figures above are this issuer&apos;s live engine output.
     </div>
@@ -533,7 +533,7 @@ export function ModuleView({
           the module's identity — provenance is the ● LIVE badge in the panel
           header, produced-ness is the output itself. (critique: two state
           machines disagreeing under ● LIVE) */}
-      <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 flex items-start gap-3">
+      <div className="bg-caos-bg px-3 py-2.5 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {!isLive ? <Dot sev={st} /> : null}

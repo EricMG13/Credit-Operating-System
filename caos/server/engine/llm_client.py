@@ -45,7 +45,12 @@ def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic
     cache_key = (anthropic.AsyncAnthropic, s.anthropic_api_key, s.caos_llm_timeout_s)
     client = _client_cache.get(cache_key)
     if client is None:
-        client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+        # max_retries=0: the SDK's own default (2) would stack on top of `timeout`,
+        # tripling worst-case pin time on a hung backend — this module's own
+        # is_overloaded-gated retry/fallback (below) is the single retry policy.
+        client = anthropic.AsyncAnthropic(
+            api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s, max_retries=0
+        )
         # Bound the cache: monkeypatched classes make transient keys; never let
         # them accumulate past a handful of live entries.
         if len(_client_cache) > 8:

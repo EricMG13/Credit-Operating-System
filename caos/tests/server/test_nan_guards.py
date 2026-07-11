@@ -135,6 +135,27 @@ def test_extract_facts_drops_nan_values():
     assert not any(mk == "ebitda_margin" for mk, _ in keys)
 
 
+def test_extract_facts_tolerates_null_leaves():
+    # The live CP-1 tool schema permits null leaves (the prompt instructs "set any
+    # metric the sources do not disclose to null"). 100 * None must not TypeError
+    # the projection phase and fail the whole run after synthesis + QA succeeded.
+    from engine.metrics import extract_facts
+
+    payload = ModulePayload(
+        module_id="CP-1", module_name="X", owned_object="o",
+        runtime_output={"normalized_financials": {
+            "revenue": {"FY24": 1000.0, "FY25": None},
+            "adj_ebitda": {"FY24": 392.0, "FY25": None},
+            "free_cash_flow": {"FY25": None},
+        }})
+    facts = extract_facts("r1", payload, "Passed")
+    keys = {(f["metric_key"], f["period"]) for f in facts}
+    assert ("ebitda_margin", "FY24") in keys   # finite pair still computed
+    assert ("adj_ebitda", "FY25") not in keys  # null leaf dropped, not crashed
+    assert ("fcf_conversion", "FY25") not in keys
+    assert all(math.isfinite(f["value"]) for f in facts)
+
+
 def test_leverage_plausibility_unaffected_by_nan():
     # Item 4 also asks: leverage_plausibility_finding still behaves. A NaN input must
     # not fire it (its is_finite_number guard already rejects non-finite operands).

@@ -411,7 +411,7 @@ export function SectorReviewWorkspace() {
               ) : null}
               {review?.staleness_flag === "seed" ? (
                 <div className="rounded border border-caos-warning/50 bg-caos-warning/10 p-2 text-caos-sm text-caos-warning">
-                  Seed fixture only. CP-SR remains pending until live and deterministic offline synthesis emit schema-valid sector_review payloads.
+                  Seed data only — this sector review is pending a live synthesis run.
                 </div>
               ) : null}
             </div>

@@ -19,9 +19,14 @@ export const api = axios.create({
 // ran at. SSR has no localStorage, so this only attaches in the browser.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    config.headers.set("X-Model-Mode", loadMode());
-    const qm = localStorage.getItem("caos_query_model");
-    if (qm) config.headers.set("X-Query-Model", qm);
+    try {
+      config.headers.set("X-Model-Mode", loadMode());
+      const qm = localStorage.getItem("caos_query_model");
+      if (qm) config.headers.set("X-Query-Model", qm);
+    } catch {
+      // private-mode Safari / storage disabled or blocked — degrade to no
+      // mode/query-model header rather than breaking every request's interceptor.
+    }
   }
   return config;
 });
@@ -398,10 +403,9 @@ import type {
   RunSummaryDTO,
 } from "@/lib/engine/types";
 
-// API-client surface for POST /api/runs — kept ahead of its UI consumer.
-// portfolioId is optional: omit to let the server auto-bind the book that holds
-// the issuer (CP-3C concentration); pass one to evaluate against a specific book.
-// fallow-ignore-next-line unused-export
+// API-client surface for POST /api/runs, used by UploadWizard. portfolioId is
+// optional: omit to let the server auto-bind the book that holds the issuer
+// (CP-3C concentration); pass one to evaluate against a specific book.
 export const createRun = (issuerId: string, asOfDate?: string, portfolioId?: string): Promise<RunSummaryDTO> =>
   api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId }).then((r) => r.data);
 
@@ -590,19 +594,27 @@ export const edgarVaultUrl = (
   api
     .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
-export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> => {
+export interface EdgarVaultBatchResult {
+  ok: EdgarVaultResult[];
+  // M-12: which URLs failed and why — previously dropped silently whenever at
+  // least one URL succeeded, so a partial batch looked identical to a full one.
+  failed: { url: string; reason: string }[];
+}
+export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultBatchResult> => {
   const list = urls.split(",").map((u) => u.trim()).filter(Boolean);
-  if (!list.length) return [];
+  if (!list.length) return { ok: [], failed: [] };
   const settled = await Promise.allSettled(list.map((u) => edgarVaultUrl(issuerId, u, runMode)));
   const ok = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
-  // ponytail: partial failures are dropped, not surfaced per-URL. Throw only when
-  // every URL failed, so an all-fail 503 (not-configured) still reaches the caller's
-  // catch instead of one bad URL sinking the whole batch of successes.
+  // Throw only when every URL failed, so an all-fail 503 (not-configured) still
+  // reaches the caller's catch instead of one bad URL sinking the whole batch.
   if (!ok.length) {
     const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
     throw firstErr ? firstErr.reason : new Error("EDGAR URL vaulting failed.");
   }
-  return ok;
+  const failed = settled.flatMap((s, i) =>
+    s.status === "rejected" ? [{ url: list[i], reason: toErrorMessage(s.reason, "vaulting failed") }] : [],
+  );
+  return { ok, failed };
 };
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────
@@ -746,10 +758,14 @@ export const getResearchStatus = async (id: string): Promise<ResearchStatus> => 
   let job: ResearchJob;
   try {
     job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
-  } catch {
-    // 404 (gone/foreign) or any transport blip on a one-shot probe — treat as
-    // "not available"; the caller quietly drops the stale id rather than erroring.
-    return { state: "gone" };
+  } catch (e) {
+    // Mirror _pollResearch: only an actual 404 means the job is genuinely gone
+    // (server restart lost it, or a foreign id). Any other failure (network
+    // blip, 5xx, timeout) is NOT the same as "gone" — misreporting a transient
+    // failure as permanently deleted would be a real correctness bug, so
+    // rethrow and let the caller treat it as an unknown/transient error.
+    if (axios.isAxiosError(e) && e.response?.status === 404) return { state: "gone" };
+    throw e;
   }
   if (job.status === "complete")
     return {

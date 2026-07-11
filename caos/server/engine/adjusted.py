@@ -170,12 +170,17 @@ async def reconcile_adjusted_ebitda(
         ebitda = float(disclosed)
     elif lev != 0:
         ebitda = safe_div(nd, lev)  # reconstruct from leverage only when adj_ebitda is absent
+        if ebitda is None:
+            return None  # |nd / lev| past float range — no meaningful reconstruction
     else:
         return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
-    if ebitda_excl <= 0:
-        return None  # add-backs claim >= 100% of EBITDA — no meaningful excl leverage
-    lev_excl = round(safe_div(nd, ebitda_excl), 2)
+    if not (is_finite_number(ebitda_excl) and ebitda_excl > 0):
+        return None  # add-backs claim >= 100% of EBITDA (or pct is junk) — no meaningful excl leverage
+    lev_excl = safe_div(nd, ebitda_excl)
+    if lev_excl is None:
+        return None  # pct → 1 drove ebitda_excl → 0⁺ and the ratio past float range
+    lev_excl = round(lev_excl, 2)
     gap = round(lev_excl - lev, 2)
 
     recon = {

@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # the model_tier_* defaults below (any slash-id routes to OpenRouter); there are
     # no separate per-model fields. z-ai/glm-5.2 is reachable too — point a tier at it.
     openrouter_api_key: str = ""
+    # Override for fault-injection / offline testing (caos/tests/stress/
+    # mock_anthropic.py) — mirrors how the Anthropic SDK reads ANTHROPIC_BASE_URL.
+    # No trailing slash; engine/openrouter.py appends /chat/completions.
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # Per-request LLM call timeout (seconds). The Anthropic SDK's default request
     # timeout is ~10 minutes, so a stuck inference would otherwise pin a request

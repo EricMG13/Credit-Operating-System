@@ -92,6 +92,7 @@ export function LiveCoverage({
             getValue={vals[key]}
             selected={filters[key]}
             onChange={setFilter}
+            asHeaderCell
             className={th + ([2, 3].includes(i) ? " text-right" : "")}
           >
             {h}

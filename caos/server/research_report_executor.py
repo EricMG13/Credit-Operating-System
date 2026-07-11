@@ -30,6 +30,7 @@ from research_report import (
     synthesize_research_report,
     validate_report_figures,
 )
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research_report")
 
@@ -49,6 +50,18 @@ def _semaphore() -> "asyncio.Semaphore":
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _ratings_for(issuer: Issuer) -> list[tuple[str, str]]:
+    """(agency, rating) pairs for whichever of S&P/Moody's/Fitch the issuer has."""
+    ratings = []
+    if issuer.rating_sp:
+        ratings.append(("S&P", issuer.rating_sp))
+    if issuer.rating_moody:
+        ratings.append(("Moody's", issuer.rating_moody))
+    if issuer.rating_fitch:
+        ratings.append(("Fitch", issuer.rating_fitch))
+    return ratings
 
 
 async def execute_report_by_id(report_id: str) -> None:
@@ -103,13 +116,7 @@ async def _run_report(report_id: str) -> None:
             digest = build_module_digest(mods)
 
             # Collect issuer context
-            ratings = []
-            if issuer.rating_sp:
-                ratings.append(("S&P", issuer.rating_sp))
-            if issuer.rating_moody:
-                ratings.append(("Moody's", issuer.rating_moody))
-            if issuer.rating_fitch:
-                ratings.append(("Fitch", issuer.rating_fitch))
+            ratings = _ratings_for(issuer)
 
             # Synthesize
             result: ResearchReportResult = await synthesize_research_report(
@@ -185,7 +192,7 @@ async def _mark_failed(session, report_id: str, reason: str) -> None:
         logger.exception("could not mark research report %s failed", report_id)
 
 
-class ResearchReportExecutor:
+class ResearchReportExecutor(InProcessTaskExecutor):
     """In-process background tasks for issuer research report jobs.
 
     ponytail: in-process + sweep-on-boot — sound for one app container. If ever
@@ -194,9 +201,6 @@ class ResearchReportExecutor:
     """
 
     name = "research_report_in_process"
-
-    def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
@@ -213,15 +217,5 @@ class ResearchReportExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     def enqueue(self, report_id: str) -> None:
-        task = asyncio.create_task(execute_report_by_id(report_id))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(execute_report_by_id(report_id))

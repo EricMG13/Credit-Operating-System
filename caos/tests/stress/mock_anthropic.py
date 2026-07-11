@@ -1,13 +1,17 @@
-"""Mock Anthropic Messages API for stress / fault injection — no tokens, no network.
+"""Mock Anthropic + OpenRouter APIs for stress / fault injection — no tokens, no network.
 
 Point the app at it:
-    ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test ...
+    ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test \
+    OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test ...
 The anthropic SDK (0.109 / 0.111) reads ``ANTHROPIC_BASE_URL`` when ``base_url``
-isn't passed, so every lane (engine synth, chat, nlquery, scenario, deepresearch)
-hits this instead of the real API — no prod-code change needed.
+isn't passed; ``engine/openrouter.py`` reads ``OPENROUTER_BASE_URL`` the same
+way (config.openrouter_base_url). Together every lane (engine synth, chat,
+nlquery, scenario, deepresearch — Anthropic *or* the DeepSeek-hybrid-default
+OpenRouter path) hits this instead of the real API — no prod-code change
+needed. (Gemini lanes are separate, engine/gemini.py — not covered here.)
 
 MOCK_MODE (read per request, so a supervisor can flip it between scenarios):
-  ok    canned Message — JSON, or SSE when the caller sets ``stream: true``  [default]
+  ok    canned reply — JSON, or SSE when the caller sets ``stream: true``  [default]
   429   rate-limit   → exercises the no-backoff path (S-ENG-02 / S-EXT-02)
   529   overloaded   → same
   hang  sleep ~forever → exercises the no-timeout path (S-ENG-03 / S-API-05 / S-EXT-01)
@@ -78,6 +82,33 @@ async def messages(req: Request):
     if body.get("stream"):
         return StreamingResponse(_sse(), media_type="text/event-stream")
     return JSONResponse(_message())
+
+
+def _chat_completion() -> dict:
+    """OpenAI chat-completions shape — what engine/openrouter.py._normalize_response expects."""
+    return {
+        "id": "chatcmpl-mock",
+        "choices": [{
+            "message": {"role": "assistant", "content": _TEXT},
+            "finish_reason": "stop",
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+
+
+@app.post("/chat/completions")
+async def chat_completions(req: Request):
+    """OpenRouter-compatible route (engine/openrouter.py posts to
+    ``{OPENROUTER_BASE_URL}/chat/completions``) — same MOCK_MODE dispatch as
+    ``/v1/messages`` above, OpenAI response shape instead of Anthropic's."""
+    mode = _mode()
+    if mode == "hang":
+        await asyncio.sleep(86_400)  # holds the caller's slot until it gives up
+    if mode in ("429", "529"):
+        code = int(mode)
+        return JSONResponse({"error": {"message": f"mock {code}"}}, status_code=code)
+    await req.json()
+    return JSONResponse(_chat_completion())
 
 
 @app.get("/healthz")

@@ -161,7 +161,7 @@ async def call(*, lane: str, model: str, system: Any = None, messages: Optional[
     
     async with httpx.AsyncClient(timeout=s.caos_llm_timeout_s) as client:
         response = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            f"{s.openrouter_base_url}/chat/completions",
             json=payload,
             headers=headers,
         )
