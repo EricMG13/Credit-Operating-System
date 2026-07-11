@@ -10,7 +10,7 @@ import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { COVERAGE, GAPS, PORTFOLIO, QA_QUEUE, simAlertsToday } from "@/lib/command/data";
+import { COVERAGE, PORTFOLIO, simAlertsToday } from "@/lib/command/data";
 import { ATLF_COVERAGE_ROW, worstStatus } from "@/lib/command/coverage";
 import { PORTFOLIO_AVG_DM_LABEL } from "@/lib/command/stats";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
@@ -28,6 +28,7 @@ import {
 } from "@/components/command/views";
 import { NlQuery } from "@/components/command/NlQuery";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
@@ -95,13 +96,16 @@ function CommandCenter() {
           <span className="h-4 w-px bg-caos-border shrink-0" />
           <ConceptNav compact />
           <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-md text-caos-muted truncate min-w-0">US HY sleeve</span>
+          {/* Honesty chip BEFORE the truncating sleeve label so squeeze eats
+              the label text, never the not-live marker (same rule as
+              ShellIdentity badges). */}
           <span
             className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted"
             title="Sample US HY sleeve for the Phase-1 showcase — not live positions."
           >
-            Sample portfolio — not live
+            Sample — not live
           </span>
+          <span className="text-caos-md text-caos-muted truncate min-w-0 hidden 2xl:inline">US HY sleeve</span>
         </>
       }
       primaryAction={
@@ -117,14 +121,20 @@ function CommandCenter() {
       }
       contextualControls={
         <>
-          {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
-          {headStat("Issuers", String(PORTFOLIO.length))}
+          {/* Seeded sample-sleeve stat — visible on wide desks only; the DM
+              column in the table below carries it everywhere else. */}
+          <span className="hidden 2xl:flex">{headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}</span>
           {portfolio.error
             ? headStat("Live Coverage", "—", "var(--caos-warning)")
             : headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
-          {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
-          {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
-          {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
+          {/* Deliberately NOT repeated here (frees the width that kept the
+              active concept chip and the not-live marker clipped at 1440px):
+              - Issuers count → visible as "382 positions" on the Coverage
+                panel and the posture bar;
+              - Refreshes-due (a seeded fixture stat) → live staleness now
+                lives in the DecisionHeader's Evidence-health cell;
+              - QA-findings / source-gaps → DecisionHeader Required-action
+                cell + the QA panel below. */}
           <SimControls run={run} />
           <span className="flex items-center gap-1.5" title="Demo replay clock, not a live feed — matches Monitor and Sector RV">
             <Dot sev={run.sim.done ? "ok" : "running"} pulse={run.playing && !run.sim.done} glyph={run.sim.done} />
@@ -132,11 +142,49 @@ function CommandCenter() {
               {run.playing && !run.sim.done ? "SIM" : run.sim.done ? "COMPLETE" : "PAUSED"}
             </span>
           </span>
-          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
+          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
         </>
       }
       narrowContract={narrowContract}
     >
+      {/* Decision header — cells populate from the LIVE digest + portfolio
+          roll-ups only; offline they state "— no data" rather than promoting
+          seeded sample counts into a decision strip (mock-vs-live seam). */}
+      <DecisionHeader
+        whatChanged={
+          digestLive && digest
+            ? [
+                Object.entries(digest.activity_24h || {})
+                  .filter(([, v]) => typeof v === "number" && v > 0)
+                  .slice(0, 3)
+                  .map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`)
+                  .join(" · ") || "no engine activity",
+                "in 24h",
+              ].join(" ")
+            : undefined
+        }
+        whyItMatters={
+          digestLive && digest && digest.warf != null
+            ? `WARF ${digest.warf}${digest.warf_band ? ` (${digest.warf_band})` : ""} · CCC watch ${digest.ccc_watch.length}`
+            : undefined
+        }
+        requiredAction={
+          portfolio.live
+            ? `${(liveQa ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`
+            : undefined
+        }
+        evidenceHealth={
+          digestLive && digest
+            ? {
+                origin: "LIVE" as const,
+                freshness: digest.stale.length > 0 ? ("STALE" as const) : ("CURRENT" as const),
+                detail: `${digest.stale.length} stale of ${digest.coverage?.issuers ?? 0} covered · threshold ${digest.stale_threshold_days}d`,
+                asOf: new Date(digest.as_of).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              }
+            : undefined
+        }
+      />
+
       {/* workspace */}
       <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
