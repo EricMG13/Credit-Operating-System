@@ -125,4 +125,28 @@ describe("SectorReviewWorkspace", () => {
     expect(await screen.findByText("Seed-context answer.")).toBeTruthy();
     expect(screen.getByText(/Restricted to this sector signal/)).toBeTruthy();
   });
+
+  it("refreshes the briefing through the refresh API and re-renders", async () => {
+    render(<SectorReviewWorkspace />);
+
+    const [refreshButton] = await screen.findAllByRole("button", { name: "Refresh" });
+    fireEvent.click(refreshButton);
+
+    await waitFor(() =>
+      expect(api.refreshSectorReview).toHaveBeenCalledWith(
+        expect.objectContaining({ sector: "Industrials", timeframe: "today" }),
+      ),
+    );
+    expect((await screen.findAllByText("Q2 order books soften")).length).toBeGreaterThan(0);
+  });
+
+  it("shows bounded date controls only when Custom timeframe is selected", async () => {
+    render(<SectorReviewWorkspace />);
+    await screen.findAllByRole("heading", { name: "Industrials" });
+
+    expect(screen.queryByLabelText("Sector Review start date")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Custom" })[0]);
+    expect(await screen.findByLabelText("Sector Review start date")).toBeTruthy();
+    expect(screen.getByLabelText("Sector Review end date")).toBeTruthy();
+  });
 });
