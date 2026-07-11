@@ -883,9 +883,13 @@ export interface WorkspaceSettings {
 export const getSettings = (): Promise<WorkspaceSettings> =>
   api.get("/api/settings").then((r) => r.data);
 
+export type RoleView = "analyst" | "pm" | "qa";
+
 export interface AnalystSettings {
   model_lanes: Record<string, string>;
   email_intelligence: { outlook_connected?: boolean; approved_senders?: string[] };
+  /** Presentation preference only — never authorization (server coerces unknown values to "analyst"). */
+  role_view?: RoleView;
 }
 export const getAnalystSettings = (): Promise<AnalystSettings> =>
   api.get("/api/settings/analyst").then((r) => r.data);

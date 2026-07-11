@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -328,6 +329,18 @@ function Settings() {
           {/* Models tab */}
           {tab === "models" ? (
           <div id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models" className="flex flex-col gap-2">
+          {/* Role view — mirrors the header selector; same provider state. */}
+          <Panel title="Role view · saved to your analyst profile">
+            <div className="p-3 flex flex-col gap-3">
+              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+                Workspace presentation preference — chooses which composition analytical surfaces
+                open with (Analyst working density, PM posture-first, QA governance-first). It is
+                not access control: every view reads the same underlying data.
+              </p>
+              <RoleViewSwitch />
+            </div>
+          </Panel>
+
           {/* Model mode */}
           <Panel title="Model mode · saved in this browser">
             <div className="p-3 flex flex-col gap-3">

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/shared/AuthProvider";
+import { RoleViewProvider } from "@/components/shared/RoleViewProvider";
 import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
 import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className="font-sans bg-caos-bg text-caos-text min-h-screen"
       >
         <AuthProvider>
+          <RoleViewProvider>
           <NotificationProvider>
           <IssuerProfileOverlayProvider>
           <AskProvider>
@@ -48,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </AskProvider>
           </IssuerProfileOverlayProvider>
           </NotificationProvider>
+          </RoleViewProvider>
         </AuthProvider>
       </body>
     </html>

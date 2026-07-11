@@ -14,6 +14,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnalystBadge } from "./AnalystBadge";
+import { RoleViewSwitch } from "./RoleViewSwitch";
 import { NAV_GROUPS, routeMatches } from "@/lib/nav";
 
 type Icon = (props: { className?: string }) => React.ReactElement;
@@ -160,6 +161,9 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         <Gear className={settingsActive ? "text-caos-bg" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
+      {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation only. */}
+      <span className="h-4 w-px bg-caos-border mx-0.5" />
+      <RoleViewSwitch />
       {/* Signed-in analyst initials — to the right of the nav on every page. */}
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <AnalystBadge />
