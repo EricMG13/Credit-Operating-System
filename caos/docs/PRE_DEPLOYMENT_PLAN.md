@@ -295,7 +295,7 @@ filings at the API layer, both lanes, before any UI work sits on top of it.
 *(= DEVELOPMENT_PHASES Phase 1 remainder — 0/5 boxes checked there as of this
 grounding, including the #25/#26/#27 engine-fault closure boxes.)*
 
-- [ ] **B1 (M)** Full-chain golden test: each golden issuer (VSAT, FUN, VMO2)
+- [ ] **B1 (M)** *(Exec 2026-07-11 late: PR #163 open — golden/test_golden_e2e.py runs the full chain offline on all 3 goldens, keyless EDGAR + reported lanes AND a keyed mock-LLM lane; `golden_e2e` marker registered in a new repo-root pytest.ini; .github/workflows/nightly.yml created with schedule+workflow_dispatch running `-m golden_e2e` (loop L5). Also freezes that CP-2 is the only LLM-bound module offline. Suite 1397/2 in-tree.)* Full-chain golden test: each golden issuer (VSAT, FUN, VMO2)
   **keyless** (EDGAR/reported lane) and **keyed** (LLM synth) end-to-end via
   `TestClient` — upload → chunk → 19-module DAG → CP-5 gate — asserting
   output matches frozen goldens. **The `-m golden_e2e` marker does not exist
@@ -305,7 +305,7 @@ grounding, including the #25/#26/#27 engine-fault closure boxes.)*
   list — none exists yet either) and the full-chain test. **Verify:** `pytest
   -m golden_e2e -q` passes on all 3 issuers × both lanes. **Exit:** marker
   registered, test green, wired into CI (loop doc L5 work item).
-- [ ] **B2 (M)** Provenance chain audit, golden-run-wide: for every claim in
+- [ ] **B2 (M)** *(Exec 2026-07-11: the no-dangling-citation floor landed inside PR #163 — `_assert_provenance_resolves_run_wide` sweeps every claim across every produced module on all 4 golden runs. Residual for B2 proper: lineage-class-aware sweep beyond chunk-existence.)* Provenance chain audit, golden-run-wide: for every claim in
   a golden run, assert `claim → evidence → chunk` resolves with no dangling
   citation ids, across the whole run rather than per-module (today's coverage
   is per-module/per-run: `test_engine.py:350`, `test_evidence_resolution.py`,
@@ -524,7 +524,7 @@ lane) is done and moved to §1's working table.**
   binary confirmed present in the shipped image.
 - [x] **D2 (—)** ~~RAG answer lane in Query~~ **DONE.** Committed and wired
   end-to-end — see §1 working table for anchors. No further action.
-- [ ] **D3 (S)** Upload robustness matrix. 0-chunk warning
+- [ ] **D3 (S)** *(Exec 2026-07-11 late: PR #164 open — table-driven adversarial matrix: 0-byte/non-PDF/lying-extension 400s, oversized 413 mid-read, corrupt + password-protected PDFs degrade with the explicit 0-chunk warning, pricing-sheet rejects non-workbook + zip-bomb-ish containers pre-expansion. Suite 1402/2 in-tree.)* Upload robustness matrix. 0-chunk warning
   (`test_api.py:210,232`) and upload concurrency bounds
   (`test_upload_concurrency.py:25-78`) are tested; the full adversarial
   matrix (corrupt PDF, password-protected, 0-byte, 200MB, wrong-extension,
