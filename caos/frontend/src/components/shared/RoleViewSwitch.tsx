@@ -32,7 +32,7 @@ export function RoleViewSwitch() {
             title={o.hint}
             onClick={() => setRoleView(o.value)}
             className={
-              "tabular text-caos-2xs uppercase tracking-wider px-1.5 min-h-8 transition-caos focus-ring " +
+              "tabular text-caos-2xs uppercase tracking-wider px-1.5 min-h-8 min-w-8 transition-caos focus-ring " +
               (active
                 ? "bg-caos-elevated text-caos-accent font-semibold"
                 : "text-caos-muted hover:text-caos-text")
