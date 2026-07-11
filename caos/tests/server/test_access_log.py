@@ -15,11 +15,25 @@ def test_principal_prefers_email_then_user_then_local_dev():
     assert principal({}) == "local-dev"  # un-proxied local dev, never empty
 
 
-def test_client_source_takes_first_xff_hop_else_socket_peer():
-    # Edge proxy prepends the real client; chained proxies append — first hop wins.
-    assert client_source({"x-forwarded-for": "203.0.113.7, 10.0.0.1"}, "10.0.0.1") == "203.0.113.7"
+def test_client_source_takes_last_xff_hop_else_socket_peer():
+    # Caddy (the sole edge hop) APPENDS its view of the immediate peer rather
+    # than replacing X-Forwarded-For — so the last hop is Caddy's own honest
+    # value; an external caller hitting Caddy directly can prepend anything
+    # before it. Last hop wins, not first.
+    assert client_source({"x-forwarded-for": "203.0.113.7, 10.0.0.1"}, "10.0.0.1") == "10.0.0.1"
     assert client_source({}, "198.51.100.4") == "198.51.100.4"  # direct, no XFF
     assert client_source({}, None) == "?"  # no peer (e.g. test client)
+
+
+def test_client_source_ignores_attacker_prepended_xff_hop():
+    # An off-Caddy attacker cannot rotate a fake source to defeat the
+    # per-source login throttle or forge the audit log's source field — only
+    # Caddy's own appended (last) hop is trusted, no matter how many fake
+    # values an attacker chains in front of it.
+    real_as_seen_by_caddy = "198.51.100.9"
+    for spoofed_chain in ("1.2.3.4", "1.2.3.4, 5.6.7.8", "1.2.3.4, 5.6.7.8, 9.9.9.9"):
+        xff = f"{spoofed_chain}, {real_as_seen_by_caddy}"
+        assert client_source({"x-forwarded-for": xff}, None) == real_as_seen_by_caddy
 
 
 def test_sanitize_field_strips_crlf_and_caps_length():

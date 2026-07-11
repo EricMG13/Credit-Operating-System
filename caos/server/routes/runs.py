@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -57,6 +59,47 @@ def _create_run_lock() -> asyncio.Lock:
     if _CREATE_RUN_LOCK is None:
         _CREATE_RUN_LOCK = asyncio.Lock()
     return _CREATE_RUN_LOCK
+
+
+# Idempotency (#17): the active-run 409 above only dedupes WHILE a run is
+# active — a client retrying create_run after the network dropped the response
+# but the request already committed (or after a genuinely fast run already
+# reached a terminal state) sees no active run and creates a real duplicate.
+# An optional client-supplied Idempotency-Key dedupes those retries for a short
+# window. In-process dict, mutations only ever happen inside _create_run_lock()
+# (single event loop → no extra lock needed); bounded like rate_limit.py's
+# _windows so a client spraying random keys can't grow this unboundedly.
+# ponytail: per-process, matches _CREATE_RUN_LOCK's own multi-replica caveat.
+_IDEMPOTENCY_TTL_SECONDS = 600
+_IDEMPOTENCY_MAX_ENTRIES = 4096
+_idempotency_cache: "dict[tuple[str, str], tuple[str, float]]" = {}
+
+
+def _idempotency_lookup(caller_id: str, key: Optional[str]) -> Optional[str]:
+    if not key:
+        return None
+    entry = _idempotency_cache.get((caller_id, key))
+    if entry is None:
+        return None
+    run_id, inserted_at = entry
+    if time.monotonic() - inserted_at >= _IDEMPOTENCY_TTL_SECONDS:
+        del _idempotency_cache[(caller_id, key)]
+        return None
+    return run_id
+
+
+def _idempotency_store(caller_id: str, key: Optional[str], run_id: str) -> None:
+    if not key:
+        return
+    now = time.monotonic()
+    if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:
+        expired = [k for k, (_, t) in _idempotency_cache.items() if now - t >= _IDEMPOTENCY_TTL_SECONDS]
+        for k in expired:
+            del _idempotency_cache[k]
+        if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:  # still full: evict oldest
+            oldest = min(_idempotency_cache, key=lambda k: _idempotency_cache[k][1])
+            del _idempotency_cache[oldest]
+    _idempotency_cache[(caller_id, key)] = (run_id, now)
 
 
 _RUNS_MAX_PER_MINUTE = 12
@@ -210,6 +253,7 @@ async def create_run(
     request: Request,
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     if not rate_limit.hit(f"runs:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
@@ -223,6 +267,15 @@ async def create_run(
     # runs' facts → last-writer-wins). Re-runs once the prior one is terminal are
     # allowed. The lock makes the check→insert atomic against a concurrent POST.
     async with _create_run_lock():
+        # A client retrying the SAME logical request (network drop after commit,
+        # or the prior run already reached a terminal state) — the active-run
+        # check below can't catch this since nothing may be active anymore.
+        cached_run_id = _idempotency_lookup(caller.id, idempotency_key)
+        if cached_run_id is not None:
+            cached_run = await db.get(Run, cached_run_id)
+            if cached_run is not None:
+                return await _summary(db, cached_run)
+
         settings = get_settings()
 
         # 1. Per-analyst active limit check
@@ -267,7 +320,18 @@ async def create_run(
             model_mode=presets.current_mode(),
         )
         db.add(run)
-        await db.commit()  # persist the queued run so the executor can see it
+        try:
+            await db.commit()  # persist the queued run so the executor can see it
+        except IntegrityError:
+            # Belt-and-suspenders: the SELECT-then-INSERT above is already
+            # serialized by _create_run_lock() within THIS process, but the DB-
+            # level uq_runs_issuer_active partial unique index (migration 0034)
+            # also backstops a race across multiple app replicas, where a
+            # per-process lock can't coordinate. Same 409 the in-process check
+            # above already gives — not a 500.
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
+        _idempotency_store(caller.id, idempotency_key, run.id)
 
     await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
@@ -433,6 +497,11 @@ async def export_to_vault(
     stamped into the note's frontmatter, so a draft exports labelled as a draft.
     Returns 503 when no vault dir is configured (VAULT_EXPORT_DIR unset), 500 when
     the configured dir can't be written.
+
+    Authorization: single-team, by design — see this module's docstring. Any
+    authenticated analyst may export any run to disk (not scoped to
+    ``caller.id``); ``test_runs_idor_single_team_read_is_intentional`` pins it,
+    including this write path specifically.
     """
     if not rate_limit.hit(f"vault:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Vault export rate limit reached — try again in a minute.")

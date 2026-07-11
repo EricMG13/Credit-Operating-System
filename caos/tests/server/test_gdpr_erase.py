@@ -20,13 +20,16 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         s.add(Issuer(id="gdpr-issuer", name="GDPR Co"))
         s.add(Analyst(id=subj_id, name="Erase Me", email=subj_email))
         s.add(Analyst(id=other_id, name="Keep Me", email=other_email))
-        # Subject's data
-        s.add(Run(id="gdpr-run", issuer_id="gdpr-issuer", analyst_id=subj_id))
+        # Subject's data. status="complete" on both runs — erasure/anonymization
+        # is status-agnostic, and migrations/0034's active-run unique index
+        # allows only one queued/running run per issuer at a time, which two
+        # sibling runs for the SAME issuer (the point of this test) would trip.
+        s.add(Run(id="gdpr-run", issuer_id="gdpr-issuer", analyst_id=subj_id, status="complete"))
         s.add(ResearchJob(id="gdpr-job", status="complete", analyst_id=subj_id))
         s.add(Document(id="gdpr-doc", issuer_id="gdpr-issuer", doc_type="10-K",
                        file_name="f.pdf", storage_key="k", uploaded_by=subj_email))
         # Bystander's data — must survive untouched
-        s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id))
+        s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id, status="complete"))
         s.add(ResearchJob(id="gdpr-job-other", status="complete", analyst_id=other_id))
         await s.commit()
 

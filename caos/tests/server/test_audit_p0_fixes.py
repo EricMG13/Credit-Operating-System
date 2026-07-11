@@ -154,6 +154,25 @@ def test_require_sane_environment_rejects_dev_with_prod_secret():
         environment="production", edge_proxy_secret="x", session_secret="y"))
 
 
+# ── #10: DB-scheme boot guard refuses a deployed boot on SQLite ───────────────
+def test_require_postgres_in_production_rejects_sqlite_when_deployed():
+    """config.require_postgres_in_production: deploy/docker-compose.yml hardcodes
+    Postgres — a deployed boot on SQLite (no multi-writer support the async run
+    executor relies on) must fail closed instead of surfacing later as sporadic
+    'database is locked' errors under concurrent runs."""
+    from config import require_postgres_in_production
+
+    with pytest.raises(RuntimeError):  # deployed + SQLite
+        require_postgres_in_production(SimpleNamespace(
+            environment="production", database_url="sqlite+aiosqlite:///./caos.db"))
+    # deployed + Postgres → allowed
+    require_postgres_in_production(SimpleNamespace(
+        environment="production", database_url="postgresql+asyncpg://caos:x@db:5432/caos"))
+    # local dev on SQLite → not this guard's concern (is_deployed() is False)
+    require_postgres_in_production(SimpleNamespace(
+        environment="development", database_url="sqlite+aiosqlite:///./caos.db"))
+
+
 # ── #15: extract_json always prepends the untrusted-input rule ────────────────
 @pytest.mark.asyncio
 async def test_extract_json_prepends_untrusted_rule(monkeypatch):

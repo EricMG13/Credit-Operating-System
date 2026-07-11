@@ -445,7 +445,12 @@ async def retract_link(
     db: AsyncSession = Depends(get_db),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    """Retract a ratified link — it stops being drawn on the next graph build."""
+    """Retract a ratified link — it stops being drawn on the next graph build.
+
+    Authorization: single-team, by design (matches routes/runs.py, routes/portfolios.py).
+    Any authenticated analyst may retract any link, not only the one who ratified
+    it — deliberate for one coverage team sharing a graph, not an oversight.
+    test_retract_link_idor_single_team_is_intentional pins it."""
     if not rate_limit.hit(
         f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
     ):
