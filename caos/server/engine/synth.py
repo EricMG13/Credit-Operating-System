@@ -39,7 +39,9 @@ from typing import Awaitable, Callable, Dict, List, Optional, Tuple, Protocol
 from config import SERVER_DIR, get_settings
 from engine import budget, llm_client, presets
 from engine.fixtures import atlf_payload
+from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, loads_finite, wrap_untrusted
+from engine.periods import is_finite_number, latest
 from engine.schemas import (
     CONFIDENCE,
     EXTRACTION_TYPES,
@@ -86,6 +88,64 @@ def prompt_corpus_fingerprint() -> str:
 _RETRIEVAL_FOCUS = {
     "CP-1": "revenue EBITDA net debt leverage interest coverage margin cash flow financial statements",
 }
+
+# CP-1 headline figures checked for a source-document basis (see
+# ModulePayload.ungrounded_headline_figures). Deliberately NOT net_leverage_adj_ltm
+# or net_debt_ltm: those are typically computed/adjusted, not stated verbatim in a
+# filing, so grounding them against raw chunk text would fail-close on legitimate
+# derived values (all_grounded is built for a literally-restated figure). Revenue
+# and adjusted EBITDA are the closest thing to a quotable headline number a real
+# filing/credit-agreement/management presentation states directly.
+_GROUNDED_CP1_FIELDS = ("revenue", "adj_ebitda")
+
+
+def _most_recent_disclosed_value(series: object) -> Optional[float]:
+    """``latest()``, but prefer the most recent NON-LTM-labeled period when one
+    exists. ``periods.sort_key`` ranks an LTM label above the FY it trails —
+    the correct domain choice for ``latest()`` everywhere else, since LTM is the
+    headline current figure in leveraged credit — but LTM is a computed trailing
+    roll-forward, essentially never printed verbatim in a source document. Grounding
+    an LTM figure against raw chunk text is therefore a structural false positive.
+    Falls back to ``latest()`` (LTM included) only when no non-LTM period is
+    disclosed at all."""
+    if isinstance(series, dict):
+        non_ltm = {p: v for p, v in series.items() if not str(p).upper().startswith("LTM")}
+        if non_ltm:
+            return latest(non_ltm)
+    return latest(series)
+
+
+def _ground_cp1_headline_figures(payload: ModulePayload, hits: list) -> None:
+    """Flag CP-1 headline figures with no basis in the retrieved documents.
+
+    leverage_plausibility_finding (engine/metrics.py) catches an internally
+    INCONSISTENT leverage figure — but a live model can hallucinate (or an
+    injected filing can steer) a self-consistent, fabricated income statement
+    that sails through that check untouched. This is the complementary check:
+    does the model's stated revenue/EBITDA appear anywhere in what was actually
+    retrieved? Skipped when no documents were retrieved (nothing to ground
+    against) or this isn't CP-1.
+
+    KNOWN LIMITATIONS (v1, see cp1_grounding_finding's MINOR severity): a non-USD
+    issuer's FX-converted figures legitimately won't round-match the native-
+    currency source text — CP-1's own normalization methodology mandates the
+    conversion, so this is a real, population-level false-positive source with no
+    currency signal in the schema yet to suppress it. This check also does NOT
+    ground net_debt_ltm or the leverage ratio itself (genuinely non-quotable,
+    computed values), so a fabrication that keeps revenue/EBITDA correct while
+    inventing net_debt/leverage is not caught here — see leverage_plausibility_finding
+    for the (also incomplete — internal-consistency-only) leverage cross-check."""
+    if payload.module_id != "CP-1" or not hits:
+        return
+    nf = payload.runtime_output.get("normalized_financials") if isinstance(payload.runtime_output, dict) else None
+    nf = nf if isinstance(nf, dict) else {}
+    pool = [h.text for h in hits]
+    for field_name in _GROUNDED_CP1_FIELDS:
+        value = _most_recent_disclosed_value(nf.get(field_name) or {})
+        if not is_finite_number(value):
+            continue
+        if not all_grounded(f"{value:.2f}", pool):
+            payload.ungrounded_headline_figures.append(field_name)
 
 # A full CP-1 spread (multi-period financials + KPI register + claims) does not
 # fit in 4096 output tokens — it truncated, and the one-shot repair re-truncates
@@ -484,6 +544,7 @@ class LiveSynthesizer:
         resp = await self._call(system, [{"role": "user", "content": user}], tool, module_id)
         payload, error = _extract_payload(module_id, resp)
         if error is None:
+            _ground_cp1_headline_figures(payload, hits)
             return payload
 
         # One-shot repair: feed the error back and try once more — but only if the
@@ -502,6 +563,7 @@ class LiveSynthesizer:
         payload, error2 = _extract_payload(module_id, resp2)
         if error2 is not None:
             raise SynthesisError(f"{module_id}: payload still invalid after one repair ({error2})")
+        _ground_cp1_headline_figures(payload, hits)
         return payload
 
 

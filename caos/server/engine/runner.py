@@ -39,7 +39,12 @@ from engine.council import get_reviewer
 from engine.covenants import addback_cap_finding, covlite_finding
 from engine.earnings import monitoring_finding
 from engine.peers import peer_outlier_finding
-from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
+from engine.metrics import (
+    cp1_grounding_finding,
+    extract_cost_facts,
+    extract_facts,
+    leverage_plausibility_finding,
+)
 from engine.gate import (
     Finding,
     cap_committee_status_for_blocked_upstream,
@@ -368,6 +373,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
         if lev_plaus is not None:
             findings.append(lev_plaus)
+        ungrounded = cp1_grounding_finding(upstream.get("CP-1"))
+        if ungrounded is not None:
+            findings.append(ungrounded)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
