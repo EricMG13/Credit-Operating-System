@@ -11,6 +11,10 @@ import ReportsPage from "./page";
 let mockRunId: string | null = null;
 let mockPhase: string | null = null; // overrides the derived phase when set
 let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
+// Module-level, not inline in the mock factory: the real hook's anchor is
+// reference-stable across renders, and page.tsx's useMemo (line 98) depends on
+// that — an inline literal here recreates on every render and infinite-loops it.
+const LIVE_ANCHOR = { netLeverage: 4.2 };
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
@@ -25,7 +29,7 @@ vi.mock("@/lib/engine/useLiveRun", () => ({
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
-    anchor: mockRunId ? { netLeverage: 4.2 } : null, downside: null, runId: mockRunId,
+    anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, runId: mockRunId,
     committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: false,
     phase: mockPhase ?? (mockRunId ? "complete" : "none"),
   }),
