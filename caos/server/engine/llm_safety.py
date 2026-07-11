@@ -134,7 +134,9 @@ async def extract_json(
         model=presets.model_for(presets.EXTRACT),
         effort=presets.effort_for(presets.EXTRACT),
         max_tokens=max_tokens,
-        system=system,
+        # Prepend UNTRUSTED_RULE unconditionally so a new extractor can never ship
+        # without the "data, not instructions" rule (defense-in-depth vs injection).
+        system=f"{UNTRUSTED_RULE}\n\n{system}",
         messages=[{"role": "user", "content": f"SOURCE CHUNKS:\n{wrap_untrusted(grounding)}"}],
     )
     text = next((b.text for b in resp.content if b.type == "text"), "")

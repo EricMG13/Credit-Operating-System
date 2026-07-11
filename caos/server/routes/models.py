@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Issuer, SavedModel, get_db
@@ -53,15 +54,27 @@ async def save_model(
 ):
     if await db.get(Issuer, issuer_id) is None:
         raise HTTPException(404, "Issuer not found")
+    now = datetime.now(timezone.utc)
     row = (await db.execute(
         select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)
     )).scalar_one_or_none()
-    now = datetime.now(timezone.utc)
     if row is None:
-        row = SavedModel(issuer_id=issuer_id, analyst_id=caller.id, payload=body.payload, updated_at=now)
-        db.add(row)
+        db.add(SavedModel(issuer_id=issuer_id, analyst_id=caller.id, payload=body.payload, updated_at=now))
+        try:
+            await db.commit()
+        except IntegrityError:
+            # A concurrent first-save won the insert between our SELECT and commit;
+            # roll back and update the now-existing row (last-write-wins) instead of
+            # 500-ing on uq_saved_model_issuer_analyst.
+            await db.rollback()
+            row = (await db.execute(
+                select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)
+            )).scalar_one()
+            row.payload = body.payload
+            row.updated_at = now
+            await db.commit()
     else:
         row.payload = body.payload
         row.updated_at = now
-    await db.commit()
+        await db.commit()
     return SavedModelOut(issuer_id=issuer_id, analyst_id=caller.id, payload=body.payload, updated_at=now)

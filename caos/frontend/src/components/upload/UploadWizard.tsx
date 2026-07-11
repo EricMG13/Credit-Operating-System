@@ -54,6 +54,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // batch. A ref (not state) so the running loop reads the latest value without
   // a stale closure.
   const cancelRef = useRef(false);
+  const uploadingRef = useRef(false); // synchronous re-entrancy guard (uploading state lags a render)
   // Files skipped by the dropzone accept filter (.docx side letters, scanned
   // .tif, etc.) — surfaced as a dismissible warning so intake never silently
   // drops a source.
@@ -112,6 +113,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   // outcomes that already succeeded so the result view stays complete.
   const runUpload = async (batch: File[], keep: FileOutcome[] = []) => {
     if (!selectedIssuer || batch.length === 0) return;
+    // Re-entrancy guard: a fast double-click fires runUpload twice before React
+    // re-renders `uploading`, so the state check can't stop the duplicate — a ref
+    // set synchronously here does. Reset in finally so a throw can't wedge uploads.
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     cancelRef.current = false;
     setUploading(true);
     setError("");
@@ -120,28 +126,31 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setOutcomes(keep);
     setStep("result");
 
-    for (let i = 0; i < batch.length; i++) {
-      if (cancelRef.current) break;
-      const file = batch[i];
-      setProgress({ index: i + 1, total: batch.length, name: file.name });
-      const formData = new FormData();
-      formData.append("issuer_id", selectedIssuer.id);
-      formData.append("run_mode", runMode);
-      formData.append("file", file);
-      let settled: FileOutcome;
-      try {
-        const res = isSpreadsheet(file.name)
-          ? await uploadPricingSheet(formData)
-          : await uploadDocument(formData);
-        settled = { name: file.name, result: res, file };
-      } catch (err) {
-        settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        if (cancelRef.current) break;
+        const file = batch[i];
+        setProgress({ index: i + 1, total: batch.length, name: file.name });
+        const formData = new FormData();
+        formData.append("issuer_id", selectedIssuer.id);
+        formData.append("run_mode", runMode);
+        formData.append("file", file);
+        let settled: FileOutcome;
+        try {
+          const res = isSpreadsheet(file.name)
+            ? await uploadPricingSheet(formData)
+            : await uploadDocument(formData);
+          settled = { name: file.name, result: res, file };
+        } catch (err) {
+          settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
+        }
+        setOutcomes((prev) => [...prev, settled]);
       }
-      setOutcomes((prev) => [...prev, settled]);
+    } finally {
+      setProgress(null);
+      setUploading(false);
+      uploadingRef.current = false;
     }
-
-    setProgress(null);
-    setUploading(false);
   };
 
   const handleUpload = () => runUpload(files);

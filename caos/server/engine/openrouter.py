@@ -105,8 +105,12 @@ def _normalize_response(data: dict) -> _Response:
         for tc in tool_calls:
             func = tc.get("function", {})
             name = func.get("name", "")
+            # Fail-closed parse: stdlib json accepts NaN/Infinity, which would land a
+            # non-finite number in a CP-1 tool-argument and poison a downstream divide.
+            # loads_finite rejects those; a reject (or any malformed args) degrades to {}.
+            from engine.llm_safety import loads_finite
             try:
-                args = json.loads(func.get("arguments", "{}"))
+                args = loads_finite(func.get("arguments", "{}"))
             except Exception:
                 args = {}
             blocks.append(_ToolUseBlock(name, args))

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import scan
 
@@ -79,7 +79,8 @@ def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
     # Back base cash interest out of reported coverage: interest = EBITDA / coverage.
     # Requires coverage to be numeric, finite AND non-zero (else the division is undefined).
     cov = _finite(nf.get("interest_coverage_ltm"))
-    base_interest = round(eb / cov, 1) if isinstance(cov, (int, float)) and cov else None
+    _bi = safe_div(eb, cov)  # None on non-finite/zero cov or overflow (denormal cov)
+    base_interest = round(_bi, 1) if _bi is not None else None
 
     scenarios = []
     for bps in _SHOCKS_BPS:
@@ -89,7 +90,8 @@ def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
         # Both fall through to None when base interest was not derivable (no coverage input).
         # Note: stressed coverage divides by the ROUNDED stressed interest so the two reconcile.
         new_interest = round(base_interest + add, 1) if base_interest else None
-        new_cov = round(eb / new_interest, 2) if new_interest else None
+        _nc = safe_div(eb, new_interest)  # None on non-finite/zero interest or overflow
+        new_cov = round(_nc, 2) if _nc is not None else None
         scenarios.append({"rate_shock_bps": bps, "incremental_interest_musd": add,
                           "stressed_interest_coverage": new_cov})
 

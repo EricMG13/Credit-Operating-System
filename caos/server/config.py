@@ -280,3 +280,21 @@ def is_deployed(settings: "Settings | None" = None) -> bool:
     """
     s = settings or get_settings()
     return s.environment != "development"
+
+
+def require_sane_environment(settings: "Settings | None" = None) -> None:
+    """Belt-and-suspenders on the single is_deployed() predicate the whole auth gate
+    pivots on: if the operator has provisioned any production secret, ENVIRONMENT must
+    not be the dev sentinel — otherwise is_deployed() is False and the dev identity
+    fallback + public dev defaults silently re-activate on a real deployment. Raises
+    RuntimeError (fail-closed) on that contradiction."""
+    s = settings or get_settings()
+    if s.environment == "development" and (
+        s.edge_proxy_secret
+        or s.session_secret not in ("", "dev-insecure-session-secret")
+    ):
+        raise RuntimeError(
+            "ENVIRONMENT=development but a production secret (EDGE_PROXY_SECRET / "
+            "SESSION_SECRET) is set — refusing to boot with the dev identity fallback "
+            "and public dev defaults active. Set ENVIRONMENT to a non-dev value."
+        )
