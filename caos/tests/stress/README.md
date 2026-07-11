@@ -42,8 +42,12 @@ locust -f caos/tests/stress/locustfile.py --host http://127.0.0.1:8010
 ```bash
 # terminal A — the mock (flip MOCK_MODE to ok | 429 | 529 | hang):
 MOCK_MODE=hang uvicorn mock_anthropic:app --port 8099 --app-dir caos/tests/stress
-# terminal B — QA server pointed at it:
-ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test  <start QA server on :8010>
+# terminal B — QA server pointed at it. Point BOTH provider base URLs at the
+# mock — the default hybrid model routes LIGHT/fast-tier lanes (incl. chat)
+# through OpenRouter, not Anthropic, so ANTHROPIC_BASE_URL alone misses them
+# (PERF_AUDIT_2026-07-10 Finding 2):
+ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test \
+OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test  <start QA server on :8010>
 # then drive a run and watch: does a slot hang ~forever (no timeout)? does a
 # 429 storm mark the run *degraded* loudly, or silently gate? (S-ENG-02/03)
 ```

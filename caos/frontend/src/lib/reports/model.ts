@@ -123,11 +123,17 @@ const DAYS_H = { dso: 52, dsi: 78, dpo: 45 };
 
 export const OV_FIELDS = ["rev", "adj", "ab", "int", "tax", "wc", "capex", "diss", "div"] as const;
 
-type Ctx = Record<string, unknown> & Partial<ModelCol>;
+type Ctx = Partial<ModelCol> & {
+  capexPct?: number;
+  daPct?: number;
+  gpmF?: number;
+};
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-function finishFlows(c: any) {
+function finishFlows(input: Ctx) {
+  const c = input as Ctx & Required<Pick<ModelCol,
+    "rev" | "gp" | "adj" | "ab" | "int" | "leases" | "tax" | "oth" |
+    "wc" | "capex" | "acq" | "diss" | "div" | "othf"
+  >>;
   c.cogs = c.rev - c.gp;
   c.ebitda = c.adj - c.ab;
   // D&A is 4.6% of sales unless a forecast column sets its own assumption (daPct).
@@ -138,14 +144,17 @@ function finishFlows(c: any) {
   c.cfo = c.ffo + c.wc;
   c.fcf = c.cfo - c.capex;
   c.ncf = c.fcf + c.acq + c.diss + c.div + c.othf;
-  return c;
+  return input;
 }
 
 // The annual credit KPIs, derived from the column's debt stack + adj. EBITDA.
 // Used by finishBalances (build) and the quarterly rolling-LTM pass — NOT by
 // applyAnchor: on an anchored column these ratios would mix live figures with
 // the seeded stack (finding 4.3), so applyAnchor sets its KPIs explicitly.
-function deriveCreditKpis(c: any) {
+function deriveCreditKpis(input: Partial<ModelCol>) {
+  const c = input as Partial<ModelCol> & Required<Pick<ModelCol,
+    "rcf" | "tlb" | "ssn" | "cash" | "adj" | "tdebt" | "ndebt" | "int" | "fcf"
+  >>;
   // Guard each denominator so a degenerate column (adj ≤ 0 under deep margin
   // stress, no debt, zero interest) degrades to null rather than leaking
   // NaN/±Infinity into the grid — which `?.toFixed() ?? "—"` would print as
@@ -158,7 +167,12 @@ function deriveCreditKpis(c: any) {
   c.fcfdebt = div(c.fcf, c.tdebt);
 }
 
-function finishBalances(c: any) {
+function finishBalances(input: Ctx) {
+  const c = input as Ctx & Required<Pick<ModelCol,
+    "rcf" | "tlb" | "ssn" | "sub" | "cash" | "gp" | "rev" | "adj" |
+    "cogs" | "kind" | "ebit" | "int" | "tax" | "opex" | "da" | "capex" |
+    "ab" | "days"
+  >>;
   c.secured = c.rcf + c.tlb + c.ssn;
   c.tdebt = c.secured + c.sub;
   c.ndebt = c.tdebt - c.cash;
@@ -184,7 +198,7 @@ function finishBalances(c: any) {
   // pass their own per-account amounts, reflecting analyst acceptance).
   if (!c.abAccts) c.abAccts = ADDBACKS.map((a) => c.ab * a.w);
   if (!c.ov) c.ov = {};
-  return c as ModelCol;
+  return input as ModelCol;
 }
 
 // Ground an annual anchor column (LTM / PF) in a live CP-1 run: re-base its

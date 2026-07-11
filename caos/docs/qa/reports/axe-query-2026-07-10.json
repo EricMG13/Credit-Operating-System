@@ -1,0 +1,19 @@
+{
+  "base": "http://localhost:3010",
+  "total_nodes": 0,
+  "byImpact": {},
+  "states": {
+    "query-base": {
+      "violations": []
+    },
+    "command-dropdown": {
+      "violations": []
+    },
+    "model-overlay": {
+      "violations": []
+    },
+    "evidence-slideover": {
+      "violations": []
+    }
+  }
+}

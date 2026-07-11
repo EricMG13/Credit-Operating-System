@@ -205,3 +205,54 @@ def test_run_without_header_defaults_to_balanced():
         run_id = made["id"]
 
     assert _persisted_mode(run_id) == presets.DEFAULT_MODE
+
+
+# ── BE6-1: X-Query-Model allowlist (resolved_query_model gate) ────────────────
+# The header value is caller input; the gate must degrade anything outside the
+# configured tier universe (or without a provider key) to the Light lane.
+
+
+def test_resolved_query_model_rejects_non_allowlisted_pin(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "x")
+    presets.set_query_model("claude-totally-madeup-9000")
+    try:
+        assert presets.resolved_query_model() == presets.model_for(presets.LIGHT)
+    finally:
+        presets.set_query_model(None)
+
+
+def test_resolved_query_model_honors_allowlisted_pin_with_key(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "x")
+    pin = next(m for m in sorted(presets._allowed_query_models(s))
+               if presets._has_provider_key(s, m))
+    presets.set_query_model(pin)
+    try:
+        assert presets.resolved_query_model() == pin
+    finally:
+        presets.set_query_model(None)
+
+
+def test_resolved_query_model_degrades_allowlisted_pin_without_key(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "")
+    monkeypatch.setattr(s, "openrouter_api_key", "")
+    monkeypatch.setattr(s, "gemini_api_key", "")
+    pin = sorted(presets._allowed_query_models(s))[0]
+    presets.set_query_model(pin)
+    try:
+        assert presets.resolved_query_model() == presets.model_for(presets.LIGHT)
+    finally:
+        presets.set_query_model(None)
+
+
+def test_resolved_query_model_null_sentinels_fall_back(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "anthropic_api_key", "x")
+    for sentinel in (None, "", "null", "undefined"):
+        presets.set_query_model(sentinel)
+        try:
+            assert presets.resolved_query_model() == presets.model_for(presets.LIGHT)
+        finally:
+            presets.set_query_model(None)

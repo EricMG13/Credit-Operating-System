@@ -35,7 +35,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +57,7 @@ from database import (
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
+from engine.metrics import headline_fact_predicates
 
 logger = logging.getLogger("caos")
 
@@ -115,8 +116,9 @@ async def _delta_entries(db: AsyncSession, issuer_ids: Optional[Sequence[str]] =
         .join(Run, Run.id == MetricFact.run_id)
         .join(Issuer, Issuer.id == MetricFact.issuer_id)
         .where(
-            MetricFact.headline.is_(True),
-            MetricFact.metric_key.in_(list(_DELTAS)),
+            # Adds ``qa_status != "Blocked"`` (via the shared predicate) that this lane
+            # omitted — defense-in-depth behind the runner's Blocked-CP-1 write-skip.
+            *headline_fact_predicates(_DELTAS),
             MetricFact.provenance == "run",
             Run.status == "complete",
             *([] if issuer_ids is None else [MetricFact.issuer_id.in_(list(issuer_ids))]),
@@ -474,8 +476,9 @@ async def _regenerate(db: AsyncSession, analyst_id: Optional[str]) -> dict:
     _scope_key, persist_analyst_id, issuer_ids, fp = await _resolve_scope(db, analyst_id)
     pack = await build_pack(db, issuer_ids or None)
     model: Optional[str] = None
+    payload: Dict[str, Any]
     if not pack:
-        payload: dict[str, Any] = {"cards": [], "degraded": True,
+        payload = {"cards": [], "degraded": True,
                    "generated_reason": "No coverage data yet.", "data_fingerprint": fp}
     else:
         cards, model, degraded = await _generate(db, pack)

@@ -220,7 +220,9 @@ function ReportStudio() {
     setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
-  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId });
+  // phase included so a backend outage reads "could not load", not the confident
+  // "no run for this issuer" — this surface produces committee documents.
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -256,7 +258,20 @@ function ReportStudio() {
         <>
           <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
           <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
-          {caveatKind === "reference" ? (
+          {caveatKind === "reference" && eng.runId ? (
+            // FE-5: buildReports incorporates eng.anchor when a live run exists on
+            // the reference issuer, but the debate/recovery/covenant tabs and the
+            // DEAL narrative stay ATLF fixtures regardless (same rationale as
+            // lib/deepdive/caveat.ts) — say both halves precisely instead of the
+            // blanket "not a live issuer run" claim.
+            <span
+              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              role="note"
+              title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
+            >
+              REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run
+            </span>
+          ) : caveatKind === "reference" ? (
             <span
               className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
               role="note"
@@ -267,6 +282,15 @@ function ReportStudio() {
           ) : caveatKind === "loading" ? (
             <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
               checking for live run…
+            </span>
+          ) : caveatKind === "error" ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap"
+              style={{ color: "var(--caos-critical)" }}
+              role="note"
+              title="Could not load this issuer's live run — report state is unknown, not a confirmed no-run."
+            >
+              could not load live run
             </span>
           ) : caveatKind === "live" ? (
             <span
@@ -327,7 +351,7 @@ function ReportStudio() {
                 aria-pressed={paper === p.v}
                 aria-label={"Paper tone " + p.label}
                 title={"Paper tone — " + p.label + " · preview only"}
-                className={"focus-ring w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
+                className={"focus-ring w-6 h-6 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
                 style={{ background: p.v }}
               />
             ))}

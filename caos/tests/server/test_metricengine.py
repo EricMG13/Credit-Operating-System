@@ -16,6 +16,7 @@ from sqlalchemy import select
 from database import AsyncSessionLocal, Issuer, MetricFact, Run
 from engine.metricengine import (
     _delta_entries,
+    _peer_values,
     _robust_z,
     build_metric_facts,
 )
@@ -236,3 +237,57 @@ async def test_build_metric_facts_blocked_facts_excluded(seeded_db):
     # The Blocked latest run is excluded → only the prior run remains → no delta.
     deltas = [e for e in entries if e.id.endswith(":delta")]
     assert deltas == []
+
+
+@pytest.mark.asyncio
+async def test_peer_values_excludes_blocked_facts(seeded_db):
+    """_peer_values feeds the peer robust-z computation — both of its reads (peer
+    values and the issuer's own headline fact) must exclude qa_status='Blocked'
+    facts, same defense-in-depth posture as peers._peer_facts
+    (test_peers.test_peer_facts_exclude_gate_blocked_rows). Isolated by a unique
+    industry so no other seeded issuer in the shared test DB leaks in as a peer."""
+    async with AsyncSessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        industry = "ZZ-PeerValues-Blocked-Test"
+        scoped = Issuer(id=str(uuid.uuid4()), name="Scoped Co", industry=industry)
+        clean_peer = Issuer(id=str(uuid.uuid4()), name="Clean Peer Co", industry=industry)
+        blocked_peer = Issuer(id=str(uuid.uuid4()), name="Blocked Peer Co", industry=industry)
+        db.add_all([scoped, clean_peer, blocked_peer])
+        await db.flush()
+
+        run_scoped, run_clean, run_blocked = (
+            str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()))
+        db.add_all([
+            Run(id=run_scoped, issuer_id=scoped.id, status="complete", qa_status="Blocked",
+                created_at=now, model_id="m", prompt_version="v"),
+            Run(id=run_clean, issuer_id=clean_peer.id, status="complete", qa_status="Passed",
+                created_at=now, model_id="m", prompt_version="v"),
+            Run(id=run_blocked, issuer_id=blocked_peer.id, status="complete", qa_status="Blocked",
+                created_at=now, model_id="m", prompt_version="v"),
+        ])
+        await db.flush()
+
+        db.add_all([
+            # Scoped issuer's ONLY own headline fact for this key is Blocked.
+            MetricFact(issuer_id=scoped.id, run_id=run_scoped, metric_key="net_leverage",
+                       period="LTM", value=5.5, unit="x", headline=True,
+                       qa_status="Blocked", provenance="run", created_at=now),
+            # A QA-passed peer at 3.0 — must feed the peer set.
+            MetricFact(issuer_id=clean_peer.id, run_id=run_clean, metric_key="net_leverage",
+                       period="LTM", value=3.0, unit="x", headline=True,
+                       qa_status="Passed", provenance="run", created_at=now),
+            # A gate-Blocked peer at 9.9 — must never feed a peer median/z-score.
+            MetricFact(issuer_id=blocked_peer.id, run_id=run_blocked, metric_key="net_leverage",
+                       period="LTM", value=9.9, unit="x", headline=True,
+                       qa_status="Blocked", provenance="run", created_at=now),
+        ])
+        await db.commit()
+
+        peer_vals, own = await _peer_values(db, scoped.id, "net_leverage")
+
+    assert 3.0 in peer_vals, "QA-passed peer should feed the peer set"
+    assert 9.9 not in peer_vals, "gate-Blocked peer must be excluded from peer values"
+    # _peer_values' `own` query filters `MetricFact.qa_status != "Blocked"` same as
+    # the peer read; the scoped issuer's only net_leverage headline fact is
+    # Blocked, so that query matches no rows and `.scalars().first()` returns None.
+    assert own is None

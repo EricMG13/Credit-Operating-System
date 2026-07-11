@@ -5,8 +5,10 @@
 # in docker-compose.yml (image postgres:18-alpine — has pg_dump, tar, sh;
 # pg_dump major matches the pgvector:pg18 db).
 #
-# ON-HOST DURABILITY ONLY. For real protection against host loss, copy /backups
-# OFF the host (rsync / object storage) — see LAUNCH_PHASE1 Operations.
+# ON-HOST DURABILITY ONLY unless BACKUP_SYNC_CMD is set. For real protection
+# against host loss, copy /backups OFF the host: set BACKUP_SYNC_CMD to any
+# shell command (rsync / rclone / aws s3 sync ...) and it runs after each cycle
+# — see LAUNCH_PHASE1 Operations.
 #
 # Restore — DRILL into a SCRATCH target, never the live DB/vault (verify quarterly,
 # see LAUNCH_PHASE1 Operations):
@@ -49,6 +51,16 @@ run_once() {
   else
     echo "[backup] vault tarball FAILED/empty — keeping existing, no rotation" >&2
     rm -f "$vault_file"
+  fi
+
+  # Off-host copy hook (audit 2026-07-11 E-2): host loss must not equal backup
+  # loss. Off by default; failure is logged but never blocks the local cycle.
+  if [ -n "${BACKUP_SYNC_CMD:-}" ]; then
+    if sh -c "$BACKUP_SYNC_CMD"; then
+      echo "[backup] off-host sync ok"
+    else
+      echo "[backup] off-host sync FAILED (local backups unaffected)" >&2
+    fi
   fi
 }
 

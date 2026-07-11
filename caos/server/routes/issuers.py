@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -118,7 +119,7 @@ async def list_issuers(
     # since the UI lists the whole desk's coverage.
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     stmt = select(Issuer).order_by(Issuer.name)
@@ -143,7 +144,7 @@ async def list_issuers(
 @router.post("/", response_model=IssuerResponse, status_code=201)
 async def create_issuer(
     body: IssuerCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     if not rate_limit.hit(
@@ -177,7 +178,7 @@ async def create_issuer(
 @router.get("/{issuer_id}", response_model=IssuerResponse)
 async def get_issuer(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
@@ -190,7 +191,7 @@ async def list_issuer_documents(
     # Bounded page: a heavily-documented issuer's doc list grows unbounded. P4.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     # Gate on the issuer's team (documents inherit it); no-op behavior change when
@@ -398,7 +399,7 @@ def _strengths_weaknesses(  # noqa: C901
 @router.get("/{issuer_id}/profile", response_model=IssuerProfileResponse)
 async def get_issuer_profile(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
@@ -546,7 +547,7 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
 @router.get("/{issuer_id}/cross-default", response_model=CrossDefaultMapResponse)
 async def get_cross_default_map(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     require_issuer(caller, await db.get(Issuer, issuer_id))
@@ -661,7 +662,7 @@ async def create_research_report(
     brief: ResearchReportBrief = ResearchReportBrief(),
     request: Request = None,  # type: ignore[assignment]  # FastAPI injects by type; default is dead code but keeps the optional-param shape consistent
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     issuer = await db.get(Issuer, issuer_id)
     if not issuer:
@@ -709,7 +710,23 @@ async def create_research_report(
         analyst_id=caller.id,
     )
     db.add(report)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent requests can both pass the `existing` check-then-insert
+        # above before either commits; the loser hits uq_issuer_run_report. Return
+        # the winner's row instead of 500ing — same recovery shape as
+        # routes/models.py's SavedModel concurrent-first-save fix.
+        await db.rollback()
+        winner = (await db.execute(
+            select(IssuerResearchReport).where(
+                IssuerResearchReport.issuer_id == issuer_id,
+                IssuerResearchReport.run_id == latest_complete.id,
+            )
+        )).scalars().first()
+        if winner is None:  # pragma: no cover — constraint violated but no row found is impossible
+            raise
+        return ResearchReportCreated(id=winner.id, status=winner.status)
 
     # Fire-and-forget: execution outlives the request.
     request.app.state.research_report_executor.enqueue(report.id)
@@ -723,7 +740,7 @@ async def create_research_report(
 async def get_latest_research_report(
     issuer_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Return the latest research report for this issuer, or 404 if none.
     Sets is_stale when the report's run_id != latest complete run_id."""
@@ -765,7 +782,7 @@ async def get_research_report(
     issuer_id: str,
     report_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Poll a specific research report job by id."""
     issuer = await db.get(Issuer, issuer_id)

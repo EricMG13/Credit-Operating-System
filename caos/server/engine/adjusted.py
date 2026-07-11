@@ -42,6 +42,7 @@ from pydantic import BaseModel, Field
 from config import get_settings
 from engine import budget
 from engine.gate import Finding
+from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
 from engine.periods import is_finite_number, latest_annual, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
@@ -126,6 +127,15 @@ async def _llm_addbacks(retrieve) -> Optional[Tuple[float, List[str], str, bool]
     if pct is None or not (0 < pct < 1):  # domain range — the schema only checks shape
         return None
     chunk_id, exact = safe_chunk_id(data.chunk_id, hits)  # reject fabricated/absent ids
+    # Previously accepted on sign/range alone — ground the magnitude against its
+    # own cited chunk (same all_grounded numeral-match the CP-1 grounding gate and
+    # covenants.py's amount_term use), not the whole pool, since the citation
+    # already claims to be the source. Sources almost always state an add-back
+    # load as a percent ("18% of Adjusted EBITDA"); try the fraction too in case
+    # of an unusual "0.18x EBITDA" phrasing.
+    chunk_text = next((h.text for h in hits if h.chunk_id == chunk_id), "")
+    if not (all_grounded(f"{pct * 100:.2f}", [chunk_text]) or all_grounded(f"{pct:.2f}", [chunk_text])):
+        return None
     return float(pct), list(data.categories), chunk_id, exact
 
 
@@ -170,12 +180,17 @@ async def reconcile_adjusted_ebitda(
         ebitda = float(disclosed)
     elif lev != 0:
         ebitda = safe_div(nd, lev)  # reconstruct from leverage only when adj_ebitda is absent
+        if ebitda is None:
+            return None  # |nd / lev| past float range — no meaningful reconstruction
     else:
         return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
-    if ebitda_excl <= 0:
-        return None  # add-backs claim >= 100% of EBITDA — no meaningful excl leverage
-    lev_excl = round(safe_div(nd, ebitda_excl), 2)
+    if not (is_finite_number(ebitda_excl) and ebitda_excl > 0):
+        return None  # add-backs claim >= 100% of EBITDA (or pct is junk) — no meaningful excl leverage
+    lev_excl = safe_div(nd, ebitda_excl)
+    if lev_excl is None:
+        return None  # pct → 1 drove ebitda_excl → 0⁺ and the ratio past float range
+    lev_excl = round(lev_excl, 2)
     gap = round(lev_excl - lev, 2)
 
     recon = {

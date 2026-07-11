@@ -45,7 +45,12 @@ def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic
     cache_key = (anthropic.AsyncAnthropic, s.anthropic_api_key, s.caos_llm_timeout_s)
     client = _client_cache.get(cache_key)
     if client is None:
-        client = anthropic.AsyncAnthropic(api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s)
+        # max_retries=0: the SDK's own default (2) would stack on top of `timeout`,
+        # tripling worst-case pin time on a hung backend — this module's own
+        # is_overloaded-gated retry/fallback (below) is the single retry policy.
+        client = anthropic.AsyncAnthropic(
+            api_key=s.anthropic_api_key, timeout=s.caos_llm_timeout_s, max_retries=0
+        )
         # Bound the cache: monkeypatched classes make transient keys; never let
         # them accumulate past a handful of live entries.
         if len(_client_cache) > 8:
@@ -143,6 +148,12 @@ async def _create_gemini(*, lane: str, model: str, fallback_model: Optional[str]
         )
         resp = await gemini.call(model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
+        # Mark the run degraded so runner.py surfaces the "Degraded" banner — a
+        # non-Anthropic fallback must not silently pass as committee-ready (the
+        # Anthropic path below does the same at its fallback).
+        b = budget.current_budget()
+        if b is not None:
+            b.degraded = True
     await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 
@@ -180,6 +191,12 @@ async def _create_openrouter(*, lane: str, model: str, fallback_model: Optional[
         )
         resp = await openrouter.call(lane=lane, model=fb, **call_kwargs)
         used_model, did_fallback = fb, True
+        # Mark the run degraded so runner.py surfaces the "Degraded" banner — a
+        # non-Anthropic fallback must not silently pass as committee-ready (the
+        # Anthropic path below does the same at its fallback).
+        b = budget.current_budget()
+        if b is not None:
+            b.degraded = True
     await _trace(resp, lane=lane, model=used_model, t0=t0, fallback=did_fallback, kwargs=kwargs)
     return resp
 

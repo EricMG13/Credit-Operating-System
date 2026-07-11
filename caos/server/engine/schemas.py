@@ -86,6 +86,15 @@ class ModulePayload:
     # EDGAR/disclosure synthesis). Not persisted; read at fact-projection time so
     # fixture numbers don't masquerade as a real run in the cross-issuer store. (#04)
     is_fixture: bool = False
+    # CP-1 only, set by the live synthesizer: headline normalized_financials keys
+    # (e.g. "revenue", "adj_ebitda") whose latest-period value does not round-match
+    # any retrieved source chunk. Not persisted; read by runner.py's
+    # cp1_grounding_finding to raise a CP-5B finding when the model's income
+    # statement has no basis in the actual documents — leverage_plausibility_finding
+    # only catches an internally INCONSISTENT figure, not a consistently fabricated
+    # one, so this is the complementary check. Empty for every deterministic path
+    # (EDGAR/reported/fixture never populate it).
+    ungrounded_headline_figures: List[str] = field(default_factory=list)
 
 
 def _has_non_finite(obj: object) -> bool:

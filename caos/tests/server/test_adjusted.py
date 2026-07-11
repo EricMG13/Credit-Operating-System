@@ -169,7 +169,7 @@ async def test_llm_addbacks_maps_validated_model(monkeypatch):
         model = schema.model_validate(
             {"addback_pct": 0.18, "categories": ["synergies", "run-rate"], "chunk_id": "c1"}
         )
-        return model, [SimpleNamespace(chunk_id="c1")]
+        return model, [SimpleNamespace(chunk_id="c1", text="add-backs capped at 18% of Adjusted EBITDA")]
 
     monkeypatch.setattr(adj, "extract_json", fake_extract)
     pct, cats, chunk_id, exact = await adj._llm_addbacks(lambda q, k=6: [])
@@ -184,7 +184,40 @@ async def test_llm_addbacks_rejects_out_of_range_pct(monkeypatch):
     import engine.adjusted as adj
 
     async def fake_extract(retrieve, *, query, k, system, schema=None):
-        return schema.model_validate({"addback_pct": 1.5}), [SimpleNamespace(chunk_id="c1")]
+        return schema.model_validate({"addback_pct": 1.5}), [SimpleNamespace(chunk_id="c1", text="")]
 
     monkeypatch.setattr(adj, "extract_json", fake_extract)
     assert await adj._llm_addbacks(lambda q, k=6: []) is None
+
+
+@pytest.mark.asyncio
+async def test_llm_addbacks_rejects_ungrounded_pct(monkeypatch):
+    """A sign/range-valid pct with NO basis in its own cited chunk (hallucinated
+    or prompt-injected) must degrade to None, not pass through on range alone —
+    the gap the previous sign/range-only clamp left open."""
+    import engine.adjusted as adj
+
+    async def fake_extract(retrieve, *, query, k, system, schema=None):
+        model = schema.model_validate(
+            {"addback_pct": 0.40, "categories": ["synergies"], "chunk_id": "c1"}
+        )
+        # Chunk says nothing about a 40% add-back load.
+        return model, [SimpleNamespace(chunk_id="c1", text="The credit agreement matures in 2031.")]
+
+    monkeypatch.setattr(adj, "extract_json", fake_extract)
+    assert await adj._llm_addbacks(lambda q, k=6: []) is None
+
+
+@pytest.mark.asyncio
+async def test_llm_addbacks_grounds_fraction_form_too(monkeypatch):
+    """An unusual '0.18x EBITDA' phrasing (fraction, not percent) still grounds —
+    both forms are tried."""
+    import engine.adjusted as adj
+
+    async def fake_extract(retrieve, *, query, k, system, schema=None):
+        model = schema.model_validate({"addback_pct": 0.18, "chunk_id": "c1"})
+        return model, [SimpleNamespace(chunk_id="c1", text="add-backs of 0.18x Adjusted EBITDA")]
+
+    monkeypatch.setattr(adj, "extract_json", fake_extract)
+    pct, _, chunk_id, _ = await adj._llm_addbacks(lambda q, k=6: [])
+    assert pct == 0.18 and chunk_id == "c1"

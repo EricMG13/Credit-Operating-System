@@ -76,3 +76,31 @@ def test_accept_draw_retract_roundtrip(client):
 
 def test_retract_unknown_is_404(client):
     assert client.delete("/api/query/links/nope").status_code == 404
+
+
+def test_retract_link_idor_single_team_is_intentional(client):
+    """Authorization is single-team by design (matches routes/runs.py,
+    routes/portfolios.py). A link ratified by a DIFFERENT analyst is still
+    retractable by this caller — no per-caller filter. If you are here because
+    you added tenant scoping, update this test deliberately."""
+    import asyncio
+
+    from database import AsyncSessionLocal, QueryAcceptedLink
+
+    graph = client.post("/api/query/graph", json={"capability_id": "peer-set"}).json()
+    a, b = _two_unlinked_issuers(graph)
+    link = client.post("/api/query/links", json={
+        "source_issuer_id": a, "target_issuer_id": b, "capability_id": "peer-set",
+    }).json()
+
+    async def _reassign():
+        async with AsyncSessionLocal() as s:
+            row = await s.get(QueryAcceptedLink, link["id"])
+            row.analyst_id = "someone-else@firm.com"
+            await s.commit()
+
+    asyncio.run(_reassign())
+
+    resp = client.delete(f"/api/query/links/{link['id']}")
+    assert resp.status_code == 200, resp.text  # foreign-ratified link, still retractable
+    assert resp.json()["deleted"] == link["id"]

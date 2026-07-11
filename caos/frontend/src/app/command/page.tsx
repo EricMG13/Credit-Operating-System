@@ -13,9 +13,8 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { COVERAGE, GAPS, PORTFOLIO, QA_QUEUE, simAlertsToday } from "@/lib/command/data";
 import { ATLF_COVERAGE_ROW, worstStatus } from "@/lib/command/coverage";
 import { PORTFOLIO_AVG_DM_LABEL } from "@/lib/command/stats";
-import { SIM_PLAN } from "@/lib/pipeline/data";
-import { useSimRun } from "@/lib/pipeline/sim";
-import { SimControls } from "@/components/pipeline/atoms";
+import { useSharedDayRun } from "@/lib/pipeline/sim";
+import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
@@ -44,8 +43,7 @@ function CommandCenter() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
 
-  const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
-  const live = run.playing && !run.sim.done;
+  const run = useSharedDayRun();
   const tick = run.sim.tick;
   const portfolio = usePortfolio();
   // Prefer the live CP-5 gate queue (real run roll-ups) over the seeded finding
@@ -54,13 +52,25 @@ function CommandCenter() {
   // Live CP-0 source-gap board off the same portfolio fetch; seed fallback offline.
   const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
 
-  const alertsToday = simAlertsToday(tick, live || run.sim.done);
+  // A Live Coverage selection resolves against the LIVE rows, never the seeded
+  // fixture — a live ticker matching a seeded code must not show sample figures
+  // attributed to the live issuer (and an unmatched one must not dead-end).
+  const liveSelected = selected
+    ? portfolio.rows.find((r) => (r.ticker ?? r.issuer_id) === selected) ?? null
+    : null;
+
+  // "Still accruing" is "not done yet" — matches Monitor's identical read of
+  // the same shared clock so the two pages never disagree (critique P1).
+  const alertsToday = simAlertsToday(tick, !run.sim.done);
 
   const narrowContract: NarrowContract = {
     essentialControls: (
       <div className="flex items-center gap-4 shrink-0 overflow-x-auto caos-no-scrollbar">
         {headStat("Issuers", String(PORTFOLIO.length))}
-        {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+        {/* M-6 honesty: a failed portfolio fetch must not read as a real 0/0 count */}
+        {portfolio.error
+          ? headStat("Live Coverage", "—", "var(--caos-warning)")
+          : headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
         {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
         <span className="flex items-baseline gap-1.5 whitespace-nowrap">
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts</span>
@@ -82,7 +92,7 @@ function CommandCenter() {
           <span className="h-4 w-px bg-caos-border shrink-0" />
           <span className="text-caos-md text-caos-muted truncate min-w-0">US HY sleeve</span>
           <span
-            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted hidden sm:inline"
+            className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted"
             title="Sample US HY sleeve for the Phase-1 showcase — not live positions."
           >
             Sample portfolio — not live
@@ -104,11 +114,19 @@ function CommandCenter() {
         <>
           {headStat("Avg 3Y DM", PORTFOLIO_AVG_DM_LABEL)}
           {headStat("Issuers", String(PORTFOLIO.length))}
-          {headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
+          {portfolio.error
+            ? headStat("Live Coverage", "—", "var(--caos-warning)")
+            : headStat("Live Coverage", `${portfolio.coveredCount}/${portfolio.issuerCount}`, "var(--caos-success)")}
           {headStat("Refreshes Due", String(REFRESHES_DUE), "var(--caos-warning)", REFRESHES_DUE > 0)}
           {headStat("QA Findings", String(QA_QUEUE.length), "var(--caos-warning)", QA_QUEUE.length > 0)}
           {headStat("Source Gaps", String(GAPS.length), "var(--caos-critical)", GAPS.length > 0)}
           <SimControls run={run} />
+          <span className="flex items-center gap-1.5" title="Demo replay clock, not a live feed — matches Monitor and Sector RV">
+            <Dot sev={run.sim.done ? "ok" : "running"} pulse={run.playing && !run.sim.done} glyph={run.sim.done} />
+            <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">
+              {run.playing && !run.sim.done ? "SIM" : run.sim.done ? "COMPLETE" : "PAUSED"}
+            </span>
+          </span>
           <span className="tabular text-caos-md text-caos-muted whitespace-nowrap">{run.clock} ET</span>
         </>
       }
@@ -173,10 +191,13 @@ function CommandCenter() {
             </div>
           </div>
 
-          {/* Consolidated QA Findings & Source Gaps at the bottom */}
+          {/* Consolidated QA Findings & Source Gaps at the bottom. mb-9 keeps this
+              panel's title bar clear of the floating Ask launcher (fixed
+              bottom-3 right-3), which otherwise sits on top of it at this
+              collapsed height (critique P2). */}
           <PanelShell
             title="QA Findings & Source Gaps · CP-5 / CP-0"
-            className="flex-none min-h-0"
+            className="flex-none min-h-0 mb-9"
             collapsible
             defaultCollapsed={true}
           >
@@ -194,7 +215,7 @@ function CommandCenter() {
         </div>
       </div>
 
-      {selected ? <IssuerStrip code={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <IssuerStrip code={selected} liveRow={liveSelected} onClose={() => setSelected(null)} /> : null}
     </ResponsiveShell>
   );
 }

@@ -1,35 +1,30 @@
-"""Durable Deep Research execution (M-3 + redeploy durability).
+"""Durable Deep Research execution (M-3).
 
-Deep research is a multi-minute, web-grounded LLM call. It is a pure function of its
-persisted ``ResearchJob.brief`` (``run_deep_research(ResearchBrief(**brief))``), so it
-is re-executable — which is what lets a job survive a redeploy.
+Deep research is a multi-minute web-grounded LLM call. Running it inside the POST
+request held the HTTP connection open for the whole run, so a dropped client/proxy
+connection lost the work and its token spend. Instead the POST persists a
+``ResearchJob`` and spawns a background task here; the client polls
+``GET /api/research/{id}``. A dropped connection no longer aborts execution — the
+result lands in the DB and the client re-polls.
 
-Two executors, picked by DB dialect (mirroring [run_executor.py]):
-
-  * ``InProcessResearchExecutor`` (SQLite / local): fire-and-forget asyncio task per
-    job, bounded by a concurrency semaphore; ``start()`` sweeps jobs stranded by a
-    hard crash. Single-process — no cross-restart durability (documented, dev only).
-  * ``ResearchQueueWorker`` (Postgres): claims ``queued`` and truly-orphaned
-    ``running`` jobs via ``FOR UPDATE SKIP LOCKED``, re-executes them from the brief,
-    and reaps attempts-exhausted orphans — so a redeploy / replica death re-claims an
-    in-flight job instead of losing it and its token spend.
-
-A streamed run can't resume mid-flight, so a re-claim RE-EXECUTES the whole brief
-(bounded by ``caos_research_max_attempts``); the client polls ``GET /api/research/{id}``
-throughout.
+In-process tasks + sweep-on-boot, mirroring ``InProcessExecutor`` in
+[run_executor.py]: the app is a single container behind Caddy/oauth2-proxy, the
+same single-process assumption ``rate_limit.py`` makes. A streamed research run
+can't be resumed mid-flight, so a process restart marks stranded ``running`` jobs
+failed and the analyst re-submits — no zombie ``running`` that never completes.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import socket
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import update
 
 from config import get_settings
-from database import AsyncSessionLocal, ResearchJob, engine
+from database import AsyncSessionLocal, ResearchJob
 from deepresearch import ResearchBrief, run_deep_research
+from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research")
 
@@ -113,21 +108,22 @@ async def _mark_failed(session, job_id: str, reason: str) -> None:
         logger.exception("could not mark research job %s failed", job_id)
 
 
-class InProcessResearchExecutor:
-    """SQLite/local: one fire-and-forget task per enqueued job (mirrors
-    run_executor.InProcessExecutor)."""
+class ResearchExecutor(InProcessTaskExecutor):
+    """In-process background tasks for deep-research jobs (mirrors InProcessExecutor).
+
+    ponytail: in-process + sweep-on-boot — sound for one app container. If ever
+    scaled to multiple replicas, give research jobs the QueueWorker's claim/lease
+    treatment so one replica can't sweep another replica's in-flight job.
+    """
 
     name = "research_in_process"
-
-    def __init__(self) -> None:
-        self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
         # stranding a job in 'running'/'queued' forever (a stream can't be resumed and
         # SQLite has no reaper). start() runs in lifespan before any request, with no
         # in-flight tasks yet, so every non-terminal row is provably a strand — sweep
-        # them to failed. (Postgres uses the ResearchQueueWorker's re-claim instead.)
+        # them to failed.
         async with AsyncSessionLocal() as session:
             await session.execute(
                 update(ResearchJob)
@@ -136,129 +132,5 @@ class InProcessResearchExecutor:
             )
             await session.commit()
 
-    async def stop(self) -> None:
-        tasks = list(self._tasks)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks.clear()
-
     def enqueue(self, job_id: str) -> None:
-        task = asyncio.create_task(execute_research_by_id(job_id))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-
-
-class ResearchQueueWorker:
-    """Postgres: claim queued (and truly-orphaned) jobs via FOR UPDATE SKIP LOCKED,
-    execute up to `concurrency` at once, and reap attempts-exhausted orphans. Mirrors
-    run_executor.QueueWorker; multi-worker claim safety relies on Postgres row locking
-    (a no-op on SQLite, which is why SQLite uses the in-process executor instead)."""
-
-    name = "research_queue_worker"
-
-    def __init__(self) -> None:
-        self._settings = get_settings()
-        self._worker_id = f"{socket.gethostname()}:{id(self)}"
-        self._inflight: set[asyncio.Task] = set()
-        self._loop_task: asyncio.Task | None = None
-        self._stop = asyncio.Event()
-
-    async def start(self) -> None:
-        self._stop.clear()
-        self._loop_task = asyncio.create_task(self._run_loop())
-
-    async def stop(self) -> None:
-        self._stop.set()
-        if self._loop_task:
-            await self._loop_task
-        tasks = list(self._inflight)
-        for t in tasks:
-            t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-    def enqueue(self, job_id: str) -> None:
-        # The row already exists as 'queued'; the loop will pick it up. No-op.
-        return None
-
-    async def _reap_orphans(self) -> None:
-        async with AsyncSessionLocal() as s:
-            await s.execute(
-                update(ResearchJob)
-                .where(
-                    ResearchJob.status == "running",
-                    ResearchJob.lease_expires_at < _now(),
-                    ResearchJob.attempts >= self._settings.caos_research_max_attempts,
-                )
-                .values(status="failed", error="abandoned after max attempts", lease_expires_at=None)
-            )
-            await s.commit()
-
-    async def _claim_one(self) -> str | None:
-        max_attempts = self._settings.caos_research_max_attempts
-        lease = timedelta(seconds=self._settings.caos_research_lease_seconds)
-        async with AsyncSessionLocal() as s:
-            async with s.begin():
-                row = (
-                    await s.execute(
-                        select(ResearchJob)
-                        .where(
-                            or_(
-                                ResearchJob.status == "queued",
-                                and_(
-                                    ResearchJob.status == "running",
-                                    ResearchJob.lease_expires_at < _now(),
-                                    ResearchJob.attempts < max_attempts,
-                                ),
-                            )
-                        )
-                        .order_by(ResearchJob.created_at)
-                        .limit(1)
-                        .with_for_update(skip_locked=True)
-                    )
-                ).scalar_one_or_none()
-                if row is None:
-                    return None
-                row.status = "running"
-                row.attempts += 1
-                row.claimed_at = _now()
-                row.lease_expires_at = _now() + lease
-                row.worker_id = self._worker_id
-                return row.id
-
-    async def _run_loop(self) -> None:
-        poll = self._settings.caos_research_poll_seconds
-        cap = max(1, self._settings.caos_research_concurrency)
-        fails = 0
-        while not self._stop.is_set():
-            try:
-                await self._reap_orphans()
-                while len(self._inflight) < cap:
-                    job_id = await self._claim_one()
-                    if job_id is None:
-                        break
-                    task = asyncio.create_task(_run_research(job_id))
-                    self._inflight.add(task)
-                    task.add_done_callback(self._inflight.discard)
-                fails = 0
-            except Exception:  # noqa: BLE001 — never let the loop die
-                fails += 1
-                if fails >= 3:
-                    logger.error(
-                        "research worker loop failing repeatedly (%d ticks) — queue stalled", fails
-                    )
-                else:
-                    logger.exception("research worker loop tick failed")
-            try:
-                await asyncio.wait_for(self._stop.wait(), timeout=poll)
-            except asyncio.TimeoutError:
-                pass
-
-
-def get_research_executor():
-    """Pick the executor by DB dialect: in-process on SQLite, queue on Postgres."""
-    if engine.dialect.name == "postgresql":
-        return ResearchQueueWorker()
-    return InProcessResearchExecutor()
+        self._spawn(execute_research_by_id(job_id))

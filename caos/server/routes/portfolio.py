@@ -94,7 +94,7 @@ def _portfolio_gaps(cp0_output: dict) -> List[PortfolioGap]:
 @router.get("", response_model=PortfolioResponse)
 @router.get("/", response_model=PortfolioResponse)
 async def get_portfolio(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     identity: CallerIdentity = Depends(get_identity),
 ) -> PortfolioResponse:
     """Latest-complete-run posture across the coverage universe."""

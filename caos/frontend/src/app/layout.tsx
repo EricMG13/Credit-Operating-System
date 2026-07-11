@@ -37,7 +37,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </a>
             {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
             <main id="main-content"><RouteHeading />{children}</main>
-            <div className="fixed bottom-16 left-3 z-overlay hidden lg:block">
+            {/* bottom-24 (not bottom-16): the collapsed 48x36 hit-area otherwise
+                overlaps bottom-row content on routes with dense bottom chrome
+                (Query's walk launcher, Command's QA panel) — critique P2. */}
+            <div className="fixed bottom-24 left-3 z-overlay hidden lg:block">
               <GlobalIssuerSearch />
             </div>
             <AskLauncher />

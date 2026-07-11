@@ -244,17 +244,19 @@ class Run(Base):
     """One execution of the module pipeline for an issuer (the shared envelope)."""
 
     __tablename__ = "runs"
-    # At most one active (queued|running) run per issuer — the multi-replica dedup
-    # backstop behind create_run's in-process lock (migration 0035). Partial unique
-    # index so a fresh run is allowed once the prior one is terminal. Plus the
-    # composite index serving the worker claim poll (status filter + created_at
-    # order) and the status='complete' board scans (migration 0034).
     __table_args__ = (
+        # DB-level backstop for the active-run dedup routes/runs.py enforces at
+        # the application layer (_CREATE_RUN_LOCK) — see migrations/0035. A
+        # per-process asyncio.Lock can't coordinate a race across multiple app
+        # replicas; this partial unique index can, at the database. Partial so a
+        # fresh run is allowed once the prior one is terminal.
         Index(
-            "uq_runs_active_per_issuer", "issuer_id", unique=True,
-            sqlite_where=text("status IN ('queued', 'running')"),
+            "uq_runs_issuer_active", "issuer_id", unique=True,
             postgresql_where=text("status IN ('queued', 'running')"),
+            sqlite_where=text("status IN ('queued', 'running')"),
         ),
+        # Serves the worker claim poll (status filter + created_at order, every
+        # poll tick) and the status='complete' board scans (migrations/0034).
         Index("ix_runs_status_created_at", "status", "created_at"),
     )
 
@@ -961,7 +963,17 @@ async def init_db() -> None:
 
 
 async def get_db():
-    """FastAPI dependency: yields an async session, commits on success."""
+    """FastAPI dependency: yields an async session, commits on success.
+
+    Always inject as ``Depends(get_db, scope="function")``. FastAPI >=0.115's
+    default yield-dependency scope ("request") runs this commit AFTER the
+    response is already sent to the client — a client that immediately acts on
+    a just-created row (e.g. POST /api/issuers/ then POST /api/runs with the
+    returned id) can then read a pre-commit snapshot and get a false 404. Bit
+    us in caos/tests/frontend/e2e/bootstrap_flow.spec.ts under CI-level
+    scheduling delay (unreproducible on a fast idle machine). scope="function"
+    restores commit-before-response.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session

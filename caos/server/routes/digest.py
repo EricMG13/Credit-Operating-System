@@ -30,6 +30,10 @@ from tenancy import scope_issuers, tenancy_enabled
 # rating-distribution query walk + the ingest extractor).
 from ratings import B3_IDX, FACTORS, MOODY, rating_index
 
+# Issuer-scan cap shared by the query LIMIT and the BE6-3 truncated flag —
+# a single constant so the flag can't silently drift from the cap.
+_ISSUER_SCAN_CAP = 2000
+
 router = APIRouter()
 
 _READ_MAX_PER_MINUTE = 60
@@ -82,14 +86,18 @@ def _read_rate_guard(caller: CallerIdentity) -> None:
 @router.get("/daily", response_model=DigestResponse)
 async def daily_digest(
     days: int = Query(30, ge=1, le=365, description="Staleness threshold in days."),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)
     now = datetime.now(timezone.utc)
 
     issuers = list((await db.execute(
-        scope_issuers(select(Issuer), caller).order_by(Issuer.name).limit(2000)
+        # scope_issuers no-ops when tenancy is off; keeps this consistent with
+        # the runs query below, which is already conditionally scoped — without
+        # this, a tenancy-enabled caller would see other teams' issuers here
+        # (as "never run") even though their runs are correctly excluded there.
+        scope_issuers(select(Issuer), caller).order_by(Issuer.name).limit(_ISSUER_SCAN_CAP)
     )).scalars().all())
 
     # Latest complete run per issuer, one query (newest-first, first wins).
@@ -126,7 +134,7 @@ async def daily_digest(
         WatchRow(issuer_id=i.id, name=i.name,
                  detail=i.rating_moody or i.rating_sp or i.rating_fitch)
         for i in issuers
-        if indices[i.id] is not None and indices[i.id] >= B3_IDX
+        if (ix := indices[i.id]) is not None and ix >= B3_IDX
     ][:_MAX_LIST]
 
     qa: Dict[str, int] = {}
@@ -157,6 +165,9 @@ async def daily_digest(
         as_of=now,
         coverage={
             "issuers": len(issuers),
+            # BE6-3: the issuer scan is capped (query-path P4 discipline); flag it so a
+            # consumer never reads "issuers" as the true book size past the cap.
+            "truncated": 1 if len(issuers) >= _ISSUER_SCAN_CAP else 0,
             "rated": rated,
             "unrated": len(issuers) - rated,
             "with_complete_run": sum(1 for i in issuers if i.id in latest),

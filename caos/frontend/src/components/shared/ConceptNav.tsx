@@ -35,6 +35,9 @@ const svg = (children: React.ReactNode): Icon =>
   };
 
 const ICONS: Record<string, Icon> = {
+  directory: svg(<>
+    <path d="M1.6 3.4h4.2l1 1.4h5.6v6.8H1.6z" />
+  </>),
   command: svg(<>
     <rect x="1.6" y="1.6" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="1.6" width="4.3" height="4.3" rx="1" />
     <rect x="1.6" y="8.1" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="8.1" width="4.3" height="4.3" rx="1" />
@@ -71,13 +74,15 @@ const ICONS: Record<string, Icon> = {
 type ConceptSection = { href: string; icon: string; label: string } | { sep: true };
 
 const SECTIONS: ConceptSection[] = [
+  { href: "/issuers", icon: "directory", label: "Directory" },
+  { sep: true },
   { href: "/command", icon: "command", label: "Command" },
   { href: "/monitor", icon: "monitor", label: "Monitor" },
   { sep: true },
   { href: "/research", icon: "research", label: "Research" },
   { href: "/query", icon: "query", label: "Query" },
   { href: "/sector", icon: "sector", label: "Sector Review" },
-  { href: "/sector-rv", icon: "sector-rv", label: "Sector RV" },
+  { href: "/sector-rv", icon: "sector-rv", label: "RV Screener" },
   { sep: true },
   { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
   { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
@@ -89,10 +94,15 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
   const Gear = ICONS.settings;
   const settingsActive = pathname.startsWith("/settings");
+  // The Directory chip is self-referential (and the widest full-label entry)
+  // on /issuers itself, the one page rendering the non-compact nav — drop it
+  // there rather than let the header overflow; every other page (compact
+  // mode, icon-only when inactive) keeps it as the "back to Directory" link.
+  const sections = compact ? SECTIONS : SECTIONS.slice(2);
   return (
     <span className="flex items-center gap-1 shrink-0">
       <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold ALT + ← / → to switch concepts">
-        {SECTIONS.map((s, idx) => {
+        {sections.map((s, idx) => {
           if ("sep" in s) return <span key={"sep-" + idx} className="h-4 w-px bg-caos-border mx-0.5" />;
           const active = pathname === s.href || pathname.startsWith(s.href + "/");
           const Glyph = ICONS[s.icon];
@@ -102,6 +112,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
               href={s.href}
               title={s.label}
               aria-label={s.label}
+              aria-current={active ? "page" : undefined}
               className={
                 "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
                 (active
@@ -125,6 +136,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         href="/settings"
         title="Settings"
         aria-label="Settings"
+        aria-current={settingsActive ? "page" : undefined}
         className={
           "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
           (settingsActive

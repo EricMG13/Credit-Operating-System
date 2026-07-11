@@ -145,9 +145,10 @@ services:
 
   backup:
     # P7-1: daily pg_dump of Postgres + a tarball of the document vault, with
-    # rotation, to the `backups` volume. On-host only — copy /backups off-host
-    # (rsync / object storage) for real durability. Override cadence/retention
-    # via BACKUP_INTERVAL_SECONDS / BACKUP_KEEP in .env.
+    # rotation, to the `backups` volume. On-host only unless BACKUP_SYNC_CMD is
+    # set (off-host copy hook, e.g. rsync / rclone / aws s3 sync — runs after
+    # each cycle). Override cadence/retention via BACKUP_INTERVAL_SECONDS /
+    # BACKUP_KEEP in .env.
     image: postgres:18-alpine
     restart: unless-stopped
     depends_on:
@@ -161,6 +162,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # Optional off-host copy hook, runs after each backup cycle (empty = off).
+      BACKUP_SYNC_CMD: ${BACKUP_SYNC_CMD:-}
     entrypoint: ["/bin/sh", "/backup.sh"]
     volumes:
       - ./backup.sh:/backup.sh:ro

@@ -64,3 +64,18 @@ def test_normal_reconciliation_unchanged(monkeypatch):
     assert recon["ebitda_excl_addbacks"] == 80.0
     assert recon["leverage_excl_addbacks"] == 6.25
     assert recon["leverage_gap_turns"] == 1.25
+
+
+def test_overflowing_reconstruction_returns_none(monkeypatch):
+    # |nd / lev| past float range -> the reconstructed EBITDA is meaningless;
+    # must return None, not round(None) TypeError nor an inf-poisoned recon.
+    _stub_addbacks(monkeypatch, (0.15, ["synergies"], "c0", True))
+    cp1 = _cp1(1e-5, 1e304)  # no disclosed adj_ebitda -> reconstruct nd/lev -> overflow
+    assert asyncio.run(adj.reconcile_adjusted_ebitda(cp1, _retrieve)) is None
+
+
+def test_near_full_addback_overflow_returns_none(monkeypatch):
+    # pct -> 1 drives ebitda_excl -> 0+ and nd / ebitda_excl past float range.
+    _stub_addbacks(monkeypatch, (1 - 1e-9, ["all"], "c0", True))
+    cp1 = _cp1(5.0, 1e304, ebitda=100.0)
+    assert asyncio.run(adj.reconcile_adjusted_ebitda(cp1, _retrieve)) is None

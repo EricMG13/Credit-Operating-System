@@ -74,7 +74,7 @@ class SponsorTrackRecordResponse(BaseModel):
 @router.get("", response_model=List[SponsorSummary], include_in_schema=False)
 @router.get("/", response_model=List[SponsorSummary])
 async def list_sponsors(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)
@@ -92,7 +92,7 @@ async def list_sponsors(
 @router.get("/{sponsor}", response_model=SponsorTrackRecordResponse)
 async def sponsor_track_record(
     sponsor: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)

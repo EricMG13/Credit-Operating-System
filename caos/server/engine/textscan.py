@@ -8,6 +8,7 @@ scan-and-dedupe loop lives here.
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Iterable, Iterator, Optional, Sequence, Tuple
 
@@ -35,7 +36,11 @@ def _to_musd(a: "re.Match[str]") -> Optional[float]:
         val = float(a.group(1).replace(",", ""))
     except ValueError:
         return None
-    return round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
+    out = round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
+    # `[\d,]+` is unbounded: a garbage 309+-digit run parses to inf. Every current
+    # consumer re-filters is_finite_number, but enforce the contract at the source
+    # so a future consumer can't inherit an inf quantum.
+    return out if math.isfinite(out) else None
 
 
 def _clause_bounds(text: str, kstart: int, kend: int) -> Tuple[int, int]:

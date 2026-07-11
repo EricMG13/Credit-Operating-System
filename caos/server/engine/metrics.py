@@ -12,10 +12,14 @@ faked from a run).
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
+from sqlalchemy import ColumnElement
+
+from database import MetricFact
 from engine.gate import Finding
 from engine.periods import is_finite_number, latest, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
@@ -66,6 +70,24 @@ METRIC_CATALOG: List[MetricDef] = [
 ]
 
 CATALOG_BY_KEY: Dict[str, MetricDef] = {m.key: m for m in METRIC_CATALOG}
+
+
+def headline_fact_predicates(keys: Iterable[str]) -> List[ColumnElement[bool]]:
+    """The three predicates that define "a valid, non-Blocked headline fact" in the
+    ``MetricFact`` store: headline, in the requested ``keys`` set, and not QA-Blocked.
+    ``keys`` need only be iterable — callers pass tuples, lists, or (as in
+    ``queryinsights._delta_entries``) a dict keyed by metric key.
+
+    The store's structurally-different readers (``peers._peer_facts``,
+    ``metricengine._headline_facts_by_issuer``, ``metricfactlane._raw_facts``,
+    ``queryinsights._delta_entries``) each spread ``*headline_fact_predicates(keys)``
+    into their own ``select(...).where(...)`` and keep every other predicate (columns,
+    joins, provenance policy, complete-run join, cap, order) their own — so this guard
+    has one tested home instead of four restatements. It is defense-in-depth behind the
+    runner's Blocked-CP-1 write-skip: a QA-Blocked or wrong-key figure can never enter a
+    peer median or a cross-issuer answer."""
+    return [MetricFact.headline.is_(True), MetricFact.metric_key.in_(list(keys)),
+            MetricFact.qa_status != "Blocked"]
 
 
 # ── Provenance precedence (the ONE ranking every read-side collapse uses) ────
@@ -207,7 +229,10 @@ def extract_facts(  # noqa: C901
         # bare `isinstance(rv,..) and rv` would let NaN through and poison the margin
         # (add() would then drop it, but compute it cleanly here regardless). safe_div
         # concentrates that guard; scale the numerator so arithmetic order is unchanged.
-        m = safe_div(100 * v, rv)
+        # v needs its own guard BEFORE the scaling: the live CP-1 schema permits null
+        # leaves ("set undisclosed metrics to null"), and 100 * None raises TypeError
+        # before safe_div ever sees it — killing the whole run at projection.
+        m = safe_div(100 * v, rv) if is_finite_number(v) else None
         if m is not None:
             add("ebitda_margin", period, round(m, 1), "%", period == eb_headline)
 
@@ -218,7 +243,8 @@ def extract_facts(  # noqa: C901
     for period, v in fcf.items():
         add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
-        m = safe_div(100 * v, rv)
+        # same null-leaf guard as ebitda_margin above: 100 * None raises
+        m = safe_div(100 * v, rv) if is_finite_number(v) else None
         if m is not None:
             add("fcf_conversion", period, round(m, 1), "%", period == fcf_headline)
 
@@ -290,14 +316,22 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
             and is_finite_number(eb) and eb):
         return None
     recomputed = safe_div(nd, eb)
-    if recomputed is None:  # unreachable: the guard above proved nd, eb finite and non-zero
-        return None
+    if recomputed is None:
+        # The guard above proved nd, eb finite and non-zero, so None here means
+        # |nd / eb| overflowed float range — maximally inconsistent with any finite
+        # asserted leverage. Fall through with inf so the MATERIAL finding FIRES
+        # (the pre-safe_div behavior) instead of silently suppressing the check
+        # exactly when the CP-1 figures are most absurd.
+        recomputed = math.inf
     # Relative deviation against abs(lev): a net-cash issuer has NEGATIVE net
     # leverage, and dividing by the signed lev would make the ratio negative —
     # always <= 0.05 — so EVERY negative asserted leverage (and any sign-flip
     # vs the recomputed value) would silently escape this MATERIAL cross-check.
+    # A None deviation means the numerator overflowed (recomputed is inf or the
+    # spread exceeds float range) — that is maximal deviation, so fall through
+    # and fire rather than treating None as "within band".
     deviation = safe_div(abs(recomputed - lev), abs(lev))
-    if deviation is None or deviation <= 0.05:
+    if deviation is not None and deviation <= 0.05:
         return None
     return Finding(
         finding_id="CP-1-LEV-PLAUS", severity="MATERIAL", lane=6, module_id="CP-1",
@@ -314,6 +348,7 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
 # leverage/coverage are LTM scalars.
 _CP1_HEADLINE_SERIES = ("revenue", "adj_ebitda", "free_cash_flow")
 _CP1_HEADLINE_SCALARS = ("net_leverage_adj_ltm", "interest_coverage_ltm", "net_debt_ltm")
+
 
 
 def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
@@ -349,6 +384,94 @@ def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
             "no numbers to stand on and the run must not ship as committee-ready."
         ),
         required_remediation="Re-run CP-1 against usable source financials, or mark it Insufficient Information.",
+    )
+
+
+# ponytail: a flat absolute ceiling, not a peer-band — CP-1C peer infra isn't
+# reachable from this call site (peer_outlier_finding runs off a different
+# module). Swap for a peer-band once that's wired here. 8.0x is beyond where a
+# broadly-syndicated leveraged loan is underwritten at close; real distressed
+# names can still exceed it, which is exactly why this stays MINOR/advisory.
+_LEVERAGE_SANITY_CEILING = 8.0
+
+
+def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MINOR (advisory, non-gating) CP-5B finding when CP-1's asserted net
+    leverage falls outside a plausible sanity band, regardless of whether it is
+    internally self-consistent with net debt / adjusted EBITDA.
+
+    leverage_plausibility_finding only catches an asserted leverage that
+    disagrees with net_debt_ltm / adj_ebitda; it is silent when a fabrication
+    keeps those two internally consistent (e.g. true leverage 3.0x fabricated to
+    10.0x by also fabricating net_debt_ltm so 2500/250 recomputes to exactly
+    10.0x — adversarially confirmed 2026-07-11, see
+    test_cp1_grounding.py::test_net_debt_leverage_fabrication_now_caught_by_leverage_magnitude_finding).
+    This is a magnitude-only, defense-in-depth backstop: it does not care
+    whether the figures agree with each other, only whether the asserted number
+    itself is plausible for a leveraged-loan issuer.
+
+    DELIBERATELY MINOR, NOT MATERIAL: an absolute ceiling has a real
+    false-positive population — genuinely distressed issuers legitimately run
+    leverage past any fixed band — so this stays advisory (visible, queryable)
+    rather than gating, same tradeoff as cp1_grounding_finding's FX
+    false-positive. Checks ``abs(lev)`` so an implausible net-CASH position
+    (a large negative leverage) is caught symmetrically."""
+    if cp1 is None:
+        return None
+    nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
+    lev = nf.get("net_leverage_adj_ltm")
+    if not is_finite_number(lev) or abs(lev) <= _LEVERAGE_SANITY_CEILING:
+        return None
+    return Finding(
+        finding_id="CP-1-LEV-MAGNITUDE", severity="MINOR", lane=6, module_id="CP-1",
+        description=(
+            f"Asserted net leverage {lev:g}x falls outside the "
+            f"±{_LEVERAGE_SANITY_CEILING:g}x plausibility band for a leveraged-loan "
+            "issuer. Internally consistent with net debt / adjusted EBITDA, but the "
+            "magnitude itself warrants verification against the source documents."
+        ),
+        required_remediation="Verify the asserted net leverage magnitude against the issuer's actual filings/documents.",
+    )
+
+
+def cp1_grounding_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
+    """MINOR (advisory, non-gating) CP-5B finding when CP-1's headline revenue AND
+    adjusted EBITDA both have no basis in the retrieved source documents — the
+    complementary check to leverage_plausibility_finding, which only catches an
+    internally INCONSISTENT figure. A live model can hallucinate (or an injected
+    filing can steer) a self-consistent but fabricated income statement that
+    passes that check untouched; this surfaces it by requiring the underlying
+    figures to round-match something the model actually retrieved. Fires only
+    when BOTH figures are ungrounded — a single miss is tolerated (a legitimate
+    currency/period-convention mismatch on one figure alone should not restrict
+    the module).
+
+    DELIBERATELY MINOR, NOT MATERIAL, for v1 (adversarially reviewed
+    2026-07-11): a non-USD issuer's FX-converted figures legitimately fail to
+    round-match native-currency source text — a real, population-level false-
+    positive with no currency signal in the schema yet to suppress it — so this
+    finding is surfaced in the evidence trail (visible, queryable) without
+    forcing "Restricted" on a genuinely correct run. Promote to MATERIAL once a
+    currency/basis signal exists to skip non-USD issuers. Does not, alone, close
+    a fabrication that keeps revenue/EBITDA correct while inventing net_debt/
+    leverage — that passes both this and leverage_plausibility_finding untouched;
+    see leverage_magnitude_finding, the magnitude-only backstop that catches it.
+
+    Set by engine.synth._ground_cp1_headline_figures at synthesis time; empty
+    (never fires) for the deterministic EDGAR/reported/fixture paths and for any
+    live run where no documents were retrieved."""
+    if cp1 is None or len(cp1.ungrounded_headline_figures) < 2:
+        return None
+    fields = ", ".join(cp1.ungrounded_headline_figures)
+    return Finding(
+        finding_id="CP-1-UNGROUNDED", severity="MINOR", lane=6, module_id="CP-1",
+        description=(
+            f"CP-1 headline figures ({fields}) do not round-match any retrieved "
+            "source chunk — the income statement has no apparent basis in the "
+            "ingested documents. (Advisory: not gating in v1 — see function "
+            "docstring for the FX false-positive limitation.)"
+        ),
+        required_remediation="Verify the normalized financials against the issuer's actual filings/documents.",
     )
 
 

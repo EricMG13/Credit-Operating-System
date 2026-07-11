@@ -118,7 +118,7 @@ _LOCAL_DEV = CallerIdentity(
 
 
 async def get_identity(
-    request: Request, db: AsyncSession = Depends(get_db)
+    request: Request, db: AsyncSession = Depends(get_db, scope="function")
 ) -> CallerIdentity:
     """FastAPI dependency: resolve the caller.
 

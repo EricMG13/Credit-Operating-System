@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -609,6 +610,66 @@ def test_create_report_201_and_poll_after_run(client):
     assert "Bottom Line" in (status["markdown"] or "")  # demo report starts with Bottom Line
     assert status["tokens_used"] == 0  # demo uses no tokens
     assert status["is_stale"] is False  # report is for the latest run
+
+
+@pytest.mark.asyncio
+async def test_create_report_recovers_from_concurrent_insert_conflict(monkeypatch):  # noqa: C901
+    """#17: two near-simultaneous POSTs for the same issuer+run both pass the
+    'existing running/complete?' check-then-insert before either commits — the
+    loser hits uq_issuer_run_report. Unit-tested against a fake session (matches
+    the SavedModel concurrent-first-save test's style) rather than a real DB:
+    db.commit() raises IntegrityError once, then a re-query finds the winner's
+    row. Must return 201 with the winner's row, not 500."""
+    import routes.issuers as issuers_route
+    from sqlalchemy.exc import IntegrityError
+
+    monkeypatch.setattr(issuers_route.rate_limit, "hit", lambda *a, **k: True)
+
+    issuer = SimpleNamespace(id="iss-1")
+    run = SimpleNamespace(id="run-1", created_at=None)
+    winner = SimpleNamespace(id="winner-report", status="failed")
+
+    class _Result:
+        def __init__(self, row):
+            self._row = row
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._row
+
+    class _DB:
+        def __init__(self):
+            self.select_calls = 0
+            self.commit_calls = 0
+
+        async def get(self, model, pk):
+            return issuer  # Issuer lookup
+
+        async def execute(self, stmt):
+            self.select_calls += 1
+            if self.select_calls == 1:
+                return _Result(run)      # latest_complete Run lookup
+            if self.select_calls == 2:
+                return _Result(None)     # "existing" check: nothing running/complete yet
+            return _Result(winner)       # post-conflict re-query finds the winner
+
+        def add(self, obj):
+            pass
+
+        async def commit(self):
+            self.commit_calls += 1
+            if self.commit_calls == 1:
+                raise IntegrityError("insert", {}, Exception("uq_issuer_run_report"))
+
+        async def rollback(self):
+            pass
+
+    out = await issuers_route.create_research_report(
+        "iss-1", caller=SimpleNamespace(id="a1"), db=_DB(),
+    )
+    assert out.id == "winner-report" and out.status == "failed"
 
 
 def test_get_latest_report_404_when_none(client):

@@ -1,0 +1,74 @@
+{
+  "base": "http://localhost:3010",
+  "tags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa"
+  ],
+  "total_nodes": 0,
+  "byImpact": {},
+  "routes": {
+    "/": {
+      "url": "/issuers",
+      "violations": []
+    },
+    "/command": {
+      "url": "/command",
+      "violations": []
+    },
+    "/deepdive": {
+      "url": "/deepdive",
+      "violations": []
+    },
+    "/issuers": {
+      "url": "/issuers",
+      "violations": []
+    },
+    "/issuers/profile": {
+      "url": "/issuers/profile",
+      "violations": []
+    },
+    "/model": {
+      "url": "/model",
+      "violations": []
+    },
+    "/monitor": {
+      "url": "/monitor",
+      "violations": []
+    },
+    "/pipeline": {
+      "url": "/pipeline",
+      "violations": []
+    },
+    "/query": {
+      "url": "/query",
+      "violations": []
+    },
+    "/reports": {
+      "url": "/reports",
+      "violations": []
+    },
+    "/research": {
+      "url": "/research",
+      "violations": []
+    },
+    "/sector": {
+      "url": "/sector",
+      "violations": []
+    },
+    "/sector-rv": {
+      "url": "/sector-rv",
+      "violations": []
+    },
+    "/settings": {
+      "url": "/settings",
+      "violations": []
+    },
+    "/upload": {
+      "url": "/upload",
+      "violations": []
+    }
+  }
+}

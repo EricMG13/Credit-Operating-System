@@ -25,3 +25,11 @@ one-verb design skills subsumed by the `impeccable` umbrella (+ the one-time
 `teach-impeccable`), and the regex-based `a11y-audit` (superseded by the
 mandated axe-core runner). Retained the security / code-review / duplicate-detection
 clusters pending a routing decision — see the audit report §5.
+
+## 2026-07-10 — commit — OPEN
+
+Hard rule 3 hardcodes the trailer `Co-Authored-By: Claude Opus 4.8`, but the
+harness now mandates the current model's trailer (`Claude Fable 5` this
+session). Stale constant misattributes authorship whenever the model changes.
+Change the rule to "trailer names the current model, per the harness git
+guidance" instead of a pinned model string.

@@ -12,8 +12,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { simAlertsToday, EMAIL_TILES, EMAIL_TOTAL, CRITICAL_ALERTS } from "@/lib/command/data";
-import { SIM_PLAN } from "@/lib/pipeline/data";
-import { useSimRun } from "@/lib/pipeline/sim";
+import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { AlertFeed, EmailIntel } from "@/components/command/views";
@@ -27,7 +26,7 @@ export default function MonitorPage() {
 }
 
 function Monitor() {
-  const run = useSimRun({ autoplay: true, plan: SIM_PLAN });
+  const run = useSharedDayRun();
   const running = run.playing && !run.sim.done; // actively stepping (pulse)
   const done = run.sim.done; // replay finished (static, honest end state)
   const tick = run.sim.tick;

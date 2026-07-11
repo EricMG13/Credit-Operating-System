@@ -21,12 +21,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from access_log import access_event, client_source, principal
-from config import get_settings, is_deployed
+from config import get_settings, is_deployed, require_postgres_in_production, require_sane_environment
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
 from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
-from research_executor import get_research_executor
+from research_executor import ResearchExecutor
 from research_report_executor import ResearchReportExecutor
 from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
@@ -41,6 +41,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
+    # Refuse a real deployment left on the dev ENVIRONMENT sentinel (which would
+    # silently re-enable the dev identity fallback + public defaults). See config.
+    require_sane_environment(settings)
     # Fail-closed boot guards key on is_deployed (any ENVIRONMENT != "development",
     # typo/unset included), not the exact string "production" — a mistyped or
     # dropped env value must NOT silently disable the secret / signup-code guards.
@@ -90,6 +93,7 @@ async def lifespan(app: FastAPI):
             "demo issuers + the ATLF reference deal into the production database. "
             "Leave it unset (default off) for a non-demo deployment."
         )
+    require_postgres_in_production(settings)
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
@@ -101,7 +105,7 @@ async def lifespan(app: FastAPI):
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
     # Durable Deep Research (M-3): background jobs the client polls, swept on boot.
-    app.state.research_executor = get_research_executor()
+    app.state.research_executor = ResearchExecutor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
     # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows

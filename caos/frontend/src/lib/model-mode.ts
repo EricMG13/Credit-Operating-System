@@ -18,8 +18,12 @@ const KEY = "caos.model.mode";
 
 export function loadMode(): ModelMode {
   if (typeof window === "undefined") return DEFAULT_MODE;
-  const v = localStorage.getItem(KEY);
-  return MODEL_MODES.some((m) => m.value === v) ? (v as ModelMode) : DEFAULT_MODE;
+  try {
+    const v = localStorage.getItem(KEY);
+    return MODEL_MODES.some((m) => m.value === v) ? (v as ModelMode) : DEFAULT_MODE;
+  } catch {
+    return DEFAULT_MODE; // private mode / storage blocked — degrade to the default mode
+  }
 }
 
 export function saveMode(m: ModelMode): void {

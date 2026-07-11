@@ -11,6 +11,7 @@ import { TextInput } from "@/components/shared/TextInput";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
 import type { Issuer } from "@/types/issuers";
+import type { RunSummaryDTO } from "@/lib/engine/types";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 
 type Dropzone = ReturnType<typeof useDropzone>;
@@ -383,6 +384,7 @@ export function FileStep({
 export function ResultStep({
   outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks,
   uploading, progress, runOutcome, onReset, onRetryFailed,
+  runCreating, runCreated, runError, onCreateRun,
 }: {
   outcomes: FileOutcome[];
   selectedIssuer: Issuer | null;
@@ -395,6 +397,12 @@ export function ResultStep({
   runOutcome: RunQueueOutcome | null;
   onReset: () => void;
   onRetryFailed: () => void;
+  // Run-creation (FE-2): explicit action, not automatic — the analyst decides
+  // when to spend a run rather than one firing per upload batch.
+  runCreating: boolean;
+  runCreated: RunSummaryDTO | null;
+  runError: string;
+  onCreateRun: () => void;
 }) {
   const { openProfile } = useIssuerProfileOverlay();
   // A vaulted doc that produced 0 chunks has no extractable text (scanned /
@@ -439,9 +447,54 @@ export function ResultStep({
           ) : null}
           {failCount ? <span style={{ color: "var(--caos-critical)" }}> · {failCount} failed</span> : null}
           {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
-          <span className="text-caos-muted"> — return to the issuer register to review coverage</span>
         </div>
       )}
+      {/* Vaulting a document never starts a run by itself — this is the explicit
+          trigger. modeMeta is descriptive metadata on the vaulted documents
+          today (not yet threaded into the engine route), so the run itself is
+          always the full CP-X route regardless of the mode picked in step 2. */}
+      {/* Gated on !runOutcome / "failed": runUpload's own auto-queue attempt
+          (FE-1, above) already fires a run for every vaulted batch — showing
+          this manual trigger too, unconditionally, would let the analyst
+          double-queue (and double-spend) a second run for the same documents.
+          It survives only as the retry path when the automatic attempt never
+          ran or failed. */}
+      {!uploading && okCount > 0 && selectedIssuer && (!runOutcome || runOutcome.state === "failed") ? (
+        <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2.5">
+          {runCreated ? (
+            <>
+              <Dot sev={runCreated.status === "failed" ? "critical" : "ok"} />
+              <span className="tabular text-caos-md text-caos-text">
+                RUN {runCreated.status.toUpperCase()} · {runCreated.id.slice(0, 8)}
+              </span>
+              <Link
+                href={`/pipeline?issuer=${selectedIssuer.id}`}
+                className="focus-ring ml-auto no-underline tabular text-caos-md px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+              >
+                VIEW IN PIPELINE →
+              </Link>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onCreateRun}
+                disabled={runCreating}
+                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40 flex items-center gap-1.5"
+              >
+                {runCreating ? <Dot sev="running" pulse /> : null}
+                {runCreating ? "QUEUING RUN…" : `RUN ${modeMeta?.label.toUpperCase() ?? ""}`}
+              </button>
+              {runError ? (
+                <span role="alert" className="text-caos-md" style={{ color: "var(--caos-critical-bright)" }}>{runError}</span>
+              ) : runOutcome?.state === "failed" ? (
+                <span className="tabular text-caos-xs text-caos-muted">the automatic run attempt failed — retry above</span>
+              ) : (
+                <span className="tabular text-caos-xs text-caos-muted">not started yet — vaulting a document doesn&apos;t queue a run</span>
+              )}
+            </>
+          )}
+        </div>
+      ) : null}
       <div className="text-caos-md">
         {outcomes.map((o) => {
           const noText = !!o.result && o.result.chunks_created === 0;

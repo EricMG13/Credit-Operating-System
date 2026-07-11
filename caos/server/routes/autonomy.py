@@ -69,7 +69,7 @@ def _is_stale(row) -> bool:
 @router.get("/draft")
 async def get_autonomy_draft(
     request: Request,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
     force: bool = False,
 ):
