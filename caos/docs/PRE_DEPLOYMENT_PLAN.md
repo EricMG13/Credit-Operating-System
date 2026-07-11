@@ -532,7 +532,7 @@ lane) is done and moved to §1's working table.**
   cases, each rejected/degraded with an explicit analyst-visible reason
   (never a silent 0-chunk success). **Exit:** test green, wired per-PR (loop
   doc L10).
-- [ ] **D4 (S)** "Log a note" quick-capture on Issuer Profile writing a
+- [ ] **D4 (S)** *(Exec 2026-07-12: gap confirmed REAL — the profile notes panel was read-only, the only memo write lived in Query. PR #165 open: VaultMemoUpload issuer mode (LOG NOTE textarea → composed .md with issuer mention → existing upload/autolink/memochunks path, no new store/schema), mounted on AnalystNotesPanel w/ immediate re-read + covering vitest case. Residual: the manual keyed POST /api/query/answer citation check at pickup of a live stack.)* "Log a note" quick-capture on Issuer Profile writing a
   tagged memo into the vault (expansion 4.9). Partially covered: vault memo
   upload exists (`components/query/VaultMemoUpload.tsx`, `engine/
   memochunks.py`, Query walk `analyst-memos`); confirm the specific
