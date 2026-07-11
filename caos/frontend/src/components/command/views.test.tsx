@@ -46,6 +46,7 @@ describe("IssuerStrip live/seeded seam", () => {
     sector: "Tech", run_id: "run-1", qa_status: "Pass", committee_status: "Ready",
     as_of: "2026-07-10", metrics: { net_leverage: 4.2, interest_coverage: 3.1 },
     rv_recommendation: "NEUTRAL", rv_percentile: 55, downside_fragility: "MODERATE",
+    gaps: [],
   };
 
   it("renders live run metrics + deep-dive link for a live selection, even on a seeded-key collision", () => {
