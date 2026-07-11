@@ -52,6 +52,15 @@ export interface FileOutcome {
   file?: File;
 }
 
+// What actually happened when the wizard queued the analysis run (FE-1): the
+// completion copy reports this instead of asserting "run queued" whether or
+// not any run was created.
+export type RunQueueOutcome =
+  | { state: "queuing" }
+  | { state: "queued"; runId: string }
+  | { state: "active" }                       // 409 — one already in progress
+  | { state: "failed"; message: string };
+
 export const isSpreadsheet = (name: string) => /\.(xlsx|xls)$/i.test(name);
 
 /* ---------- step progress strip ---------- */
@@ -373,7 +382,7 @@ export function FileStep({
 /* ---------- step 3: result ---------- */
 export function ResultStep({
   outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks,
-  uploading, progress, onReset, onRetryFailed,
+  uploading, progress, runOutcome, onReset, onRetryFailed,
 }: {
   outcomes: FileOutcome[];
   selectedIssuer: Issuer | null;
@@ -383,6 +392,7 @@ export function ResultStep({
   totalChunks: number;
   uploading: boolean;
   progress: { index: number; total: number; name: string } | null;
+  runOutcome: RunQueueOutcome | null;
   onReset: () => void;
   onRetryFailed: () => void;
 }) {
@@ -415,8 +425,18 @@ export function ResultStep({
         </div>
       ) : (
         <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
-          {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name} ·{" "}
-          {modeMeta?.label} ({modeMeta?.code}) run queued
+          {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name}
+          {/* Truthful run status (FE-1): report what POST /api/runs actually
+              returned — never assert "run queued" when nothing was queued. */}
+          {runOutcome?.state === "queued" ? (
+            <> · {modeMeta?.label} ({modeMeta?.code}) run queued · RUN #{runOutcome.runId.slice(0, 8)}</>
+          ) : runOutcome?.state === "queuing" ? (
+            <> · queuing {modeMeta?.label} ({modeMeta?.code}) run…</>
+          ) : runOutcome?.state === "active" ? (
+            <> · a run for this issuer is already in progress — new documents are picked up on the next run</>
+          ) : runOutcome?.state === "failed" ? (
+            <span style={{ color: "var(--caos-warning)" }}> · run not started ({runOutcome.message}) — start one from Pipeline</span>
+          ) : null}
           {failCount ? <span style={{ color: "var(--caos-critical)" }}> · {failCount} failed</span> : null}
           {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
           <span className="text-caos-muted"> — return to the issuer register to review coverage</span>

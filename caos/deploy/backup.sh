@@ -2,7 +2,8 @@
 # CAOS Phase-1 backup loop (P7-1). Daily pg_dump of the Postgres DB (custom
 # format, restorable with pg_restore) + a gzip tarball of the document vault,
 # written to the `backups` volume with rotation. Started by the `backup` service
-# in docker-compose.yml (image postgres:16-alpine — has pg_dump, tar, sh).
+# in docker-compose.yml (image postgres:18-alpine — has pg_dump, tar, sh;
+# pg_dump major matches the pgvector:pg18 db).
 #
 # ON-HOST DURABILITY ONLY. For real protection against host loss, copy /backups
 # OFF the host (rsync / object storage) — see LAUNCH_PHASE1 Operations.

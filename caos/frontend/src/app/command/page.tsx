@@ -85,7 +85,7 @@ function CommandCenter() {
       primaryAction={
         <Link
           href="/monitor"
-          title="Open Monitor — live CP-MON email intelligence & alert routing"
+          title="Open Monitor — CP-MON email intelligence & alert routing (demo replay; CP-MON is spec-only, not an executing module)"
           className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
         >
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts today</span>
@@ -123,7 +123,14 @@ function CommandCenter() {
                 right={
                   <div className="flex items-center gap-3">
                     <span className="tabular text-caos-xs text-caos-muted">
-                      {activeTab === "positions" ? `${PORTFOLIO.length} positions` : `${portfolio.coveredCount} of ${portfolio.issuerCount} covered`}
+                      {activeTab === "positions"
+                        ? `${PORTFOLIO.length} positions`
+                        : `${portfolio.coveredCount} of ${portfolio.issuerCount} covered` +
+                          // Honest staleness stamp (FE-3): the board refreshes on an
+                          // interval, and the as-of makes the snapshot age visible.
+                          (portfolio.fetchedAt
+                            ? ` · as of ${portfolio.fetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                            : "")}
                     </span>
                     <div className="flex bg-caos-bg border border-caos-border/80 rounded p-[2px] gap-0.5">
                       {([

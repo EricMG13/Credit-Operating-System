@@ -40,7 +40,13 @@ def _sc(pct, metric=None, label=None, iv=None, pm=None):
 
 def _out(scorecard, composite, rec, n, scope="peers"):
     return {"scorecard": scorecard, "composite_percentile": composite,
-            "recommendation": rec, "metrics_scored": n, "peer_scope": scope}
+            "recommendation": rec,
+            # SPEC-5 (audit 2026-07-10): the payload must disclose that the lean
+            # is fundamentals-only — corpus CP-3 forbids an RV call without
+            # dated market evidence, and no market feed exists (Phase-2).
+            "rv_basis": "fundamentals_only",
+            "market_evidence": "none (no market data feed — corpus RV = Unclear)",
+            "metrics_scored": n, "peer_scope": scope}
 
 
 CASES = [

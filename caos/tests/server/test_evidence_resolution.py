@@ -42,8 +42,21 @@ async def test_live_leaves_ungrounded_sourced_unresolved_and_lineage_flags_minor
 
 
 @pytest.mark.asyncio
+async def test_live_suppresses_documentary_fact_too():
+    """documentary_fact ASSERTS a document source, so the live path must leave an
+    ungrounded one unresolved for the CP-5B lane — the old contract auto-anchored
+    it, letting the model's choice of extraction_type decide whether the
+    anti-fabrication check applied (audit 2026-07-10 QA-2)."""
+    p = _payload("documentary_fact")
+    await runner._resolve_evidence(p, _retrieve, suppress_sourced=True)
+    assert p.claims[0].evidence[0].resolved_chunk_id is None
+    findings = validate_lineage([p])
+    assert any(f.severity == "MINOR" and "E-1" in f.description for f in findings)
+
+
+@pytest.mark.asyncio
 async def test_live_still_resolves_non_sourced():
-    p = _payload("documentary_fact")  # not a sourced type
+    p = _payload("analyst_inference")  # genuinely non-sourced — back-fill is fine
     await runner._resolve_evidence(p, _retrieve, suppress_sourced=True)
     assert p.claims[0].evidence[0].resolved_chunk_id == "chunk-x"
 

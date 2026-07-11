@@ -225,7 +225,13 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
         if analyst is None:
             analyst = Analyst(name=name)
             db.add(analyst)
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:  # two concurrent creates with the same name
+                # Same 409 the SSO branch returns — the bare commit surfaced a
+                # 500 on this race (audit 2026-07-10 C4).
+                await db.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, "That display name is taken — pick another.")
 
     _set_cookie(response, analyst)
     return _profile_response(analyst)

@@ -3,10 +3,11 @@
 ``METRIC_CATALOG`` is the closed vocabulary the NL→query translator and the UI
 both draw from — defining it *is* the "dictionary" cross-issuer query ranges
 over. ``extract_facts`` projects a completed run's CP-1 normalized_financials
-into structured, cited metric facts (the run-derived half of ``metric_facts``).
-Qualitative / not-yet-modeled metrics (gross_margin, fcf_conversion,
-energy_cost_pct) are seed-only illustrative values populated by seed_metrics —
-they are deliberately not faked from a run.
+into structured, cited metric facts (the run-derived half of ``metric_facts``)
+— including a computed fcf_conversion when CP-1 carries an FCF series — and
+``extract_cost_facts`` projects CP-2's evidence-grounded energy_cost_pct.
+gross_margin remains seed-only illustrative (populated by seed_metrics, never
+faked from a run).
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, safe_div, sort_key
+from engine.periods import is_finite_number, latest_annual, safe_div, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -279,7 +280,7 @@ def leverage_plausibility_finding(cp1: Optional[ModulePayload]) -> Optional[Find
     # malformed adj_ebitda series itself.
     nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev, nd = nf.get("net_leverage_adj_ltm"), nf.get("net_debt_ltm")
-    eb = latest(nf.get("adj_ebitda") or {})
+    eb = latest_annual(nf.get("adj_ebitda") or {})
     if not (is_finite_number(lev) and lev and is_finite_number(nd) and nd
             and is_finite_number(eb) and eb):
         return None
@@ -328,5 +329,11 @@ def derive_energy_cost_pct(
             continue
         m = _COST_PCT_RE.search(text)
         if m:
-            return float(m.group(1)), chunk_id, doc
+            v = float(m.group(1))
+            # Domain clamp (0, 100]: a matched percentage outside it is a mis-read
+            # ("0 percent of cost base" / a stray figure), not a cost share — its
+            # sibling extractors all range-guard, this one published a headline
+            # MetricFact unclamped (audit 2026-07-10 S1). Degrade, never guess.
+            if 0 < v <= 100:
+                return v, chunk_id, doc
     return None
