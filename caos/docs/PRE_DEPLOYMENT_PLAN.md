@@ -195,7 +195,7 @@ full, not just their remainders.
 **Objective:** one trunk, zero known open findings, trackers telling the
 truth, tooling roots clean.
 
-- [ ] **A1 (S)** Querygraph node-count regression test. Cap exists
+- [ ] **A1 (S)** *(Exec 2026-07-11: PR #154 open — reviewed, single-file test w/ exact-slice oracle; merge after #158 unbreaks CI.)* Querygraph node-count regression test. Cap exists
   (`querygraph.py:866 _GATE_NODE_CAP=300`, used at `:886`; sibling
   `_WIKI_RUN_CAP=300` at `:1246`) but zero tests assert the bound (S4 Ev-11).
   Build the graph against a seeded 100-run history and assert node count
@@ -204,7 +204,7 @@ truth, tooling roots clean.
   returns ≥1. **Exit:** test lands and is green.
 - [x] **A2 (S)** ~~Merge `feat/query-route-fast-lane` → `main`~~ **DONE**
   (merged via PR #99).
-- [ ] **A3 (M)** `feat/covenant-frontend` orphan commit `3605c99` (frontend
+- [ ] **A3 (M)** *(Exec 2026-07-11: straight cherry-pick conflicts as predicted — PR #160 open with the full rebase + 3 fixes, drops the obsolete manual-rating fields, rebuilds profile/digest mounts against current layouts; a parallel partial rebase #162 was closed superseded. Merge #160 after #158, then delete the branch.)* `feat/covenant-frontend` orphan commit `3605c99` (frontend
   pages: `/sponsors`, dominoes, register rows, digest panel). The **backend**
   half already shipped independently (`routes/sponsors.py`, `routes/digest.py`,
   `covenant-register`/`sponsor-graph` Query walks registered in
@@ -216,7 +216,7 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M)** PR triage, current as of 2026-07-11 (**12** open dependabot,
+- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
   not the previously-tracked 2): **#85** alembic 1.13→1.18, **#88** fastapi
   0.138→0.139 (do not downgrade the 0.138 pin — an upgrade needs py3.11/
   starlette re-verify), **#133** playwright/test 1.60→1.61.1, **#134**
@@ -234,7 +234,7 @@ truth, tooling roots clean.
   non-draft, review for merge. **Verify:** `mcp__github__list_pull_requests`
   state=open count. **Exit:** every PR above has a recorded
   merge/close/defer decision; 0 PRs older than 14 days without one (L14).
-- [ ] **A6 (S)** Remote branch hygiene: **18 branches fully merged into
+- [ ] **A6 (S)** *(Exec 2026-07-11: all 27 remote branches classified; 18 verified merge-base-ancestor with the ready-to-run delete command, and per-orphan dispositions (4 verified superseded incl. the re-synced security brief), recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md`. Deletion itself left to the owner.)* Remote branch hygiene: **18 branches fully merged into
   `main`** (safe to delete — includes `fix/vmo2-followups`,
   `feat/command-center-layout-and-sector-rv-cleanup`,
   `feat/query-route-fast-lane`, `feat/fold-profile-rv`, the merged `claude/*`
@@ -248,7 +248,7 @@ truth, tooling roots clean.
   grounding — "43 local branches, 10 worktrees" — describe the developer's
   own machine and are not verifiable from a fresh clone; re-check locally at
   pickup, do not carry the stale number forward.)*
-- [ ] **A6b (S) — new.** Skills-root hygiene: 8 dangling symlinks in
+- [x] **A6b (S) — new.** **DONE 2026-07-11** — all 8 dangling links removed (verify command returns empty); `outstanding` skill now cites `.venv311` + the ~1393/2 baseline. (Local `.claude/skills` is untracked, so there is nothing to merge.) Skills-root hygiene: 8 dangling symlinks in
   `.claude/skills/` whose `.agents/skills/` targets were removed by the
   2026-07-08 skills audit (`error-model-validation-architect`,
   `openrouter-typescript-sdk`, `implement-feature`, `critique`,
@@ -266,7 +266,7 @@ truth, tooling roots clean.
   2 skipped," deploy-ready, no P0/P1. (Superseded by this session's own
   1393/2 run, which adds the `stress`+`cohort` dirs AUDIT.md's `server`-only
   count doesn't include.)
-- [ ] **A7b (S) — new.** Adjudicate the 9 `FEATURE_TRACKER.csv` rows still
+- [ ] **A7b (S) — new.** *(Exec 2026-07-11: PR #159 open — all 9 rows verified against shipped code (sector routes + workspace tests, 2 coverage gaps closed to make it honest) and flipped to Pass; tracker 355/355 terminal.)* Adjudicate the 9 `FEATURE_TRACKER.csv` rows still
   marked `Pending Verification` (all Command "Sector Review":
   command-29/30/31/47/48/49/50/51/57). CP-SR is registered
   `implemented=False` by design (spec-only, honestly routed "Not
@@ -319,7 +319,7 @@ grounding, including the #25/#26/#27 engine-fault closure boxes.)*
   `test_metricengine.py`, `test_recovery_waterfall_contract.py`,
   `test_audit_p0_fixes.py`, others). No further action required; keep as a
   standing invariant (CLAUDE.md engine-conventions).
-- [ ] **B4 (S)** CP-5 gate honesty re-check: inject one known-bad figure into
+- [ ] **B4 (S)** *(Exec 2026-07-11: PR #159 open — `test_cp5_gate_honesty.py` green on `.venv311`: pristine golden passes clean; injected bad figure → CP-1-LEV-PLAUS MATERIAL/Restricted; dropped evidence → CRITICAL/Blocked.)* CP-5 gate honesty re-check: inject one known-bad figure into
   a golden fixture copy; assert the gate raises a finding and the run aborts.
   No such test exists today (adjacent harnesses — `test_grounding.py`,
   `test_tier2_findings_contract.py`, `golden/test_golden_query_gates.py` —
