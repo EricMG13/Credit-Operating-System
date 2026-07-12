@@ -25,6 +25,8 @@ import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
 import { loadLayout, saveLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
+import { ModuleFinder } from "@/components/deepdive/ModuleFinder";
+import { StandingViewStrip } from "@/components/deepdive/StandingViewStrip";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
@@ -415,6 +417,7 @@ function DeepDive() {
         className="h-9 bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto caos-no-scrollbar"
       >
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline" title="Alt + , / .  cycles the open module">Module outputs</span>
+        <ModuleFinder onSelect={setTab} activeId={tab} />
         {/* fallow-ignore-next-line complexity */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
@@ -524,6 +527,15 @@ function DeepDive() {
         <span className="tabular text-caos-accent">E-xx</span> chip to open its cited source.{" "}
         <span className="text-caos-muted">Hold <span className="tabular text-caos-text">Alt</span> — <span className="tabular text-caos-text">,</span>/<span className="tabular text-caos-text">.</span> cycle modules, <span className="tabular text-caos-text">C</span> collapse panes, <span className="tabular text-caos-text">K</span> ask.</span>
       </FirstRunHint>
+
+      {/* Decision-first opener: the standing view leads, above the module
+          panes (P2-WP-5). "Revise" deep-links into the module tab below. */}
+      <StandingViewStrip
+        isReference={isReference}
+        issuerId={issuerId}
+        runId={live.runId}
+        onRevise={(id) => setTab(id)}
+      />
 
       {/* three-pane workspace */}
       <div
