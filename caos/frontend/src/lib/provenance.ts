@@ -52,6 +52,30 @@ export function fromModelEngine(eng: {
   return { origin: "DEMO", detail: "No completed run found — seeded demo model (offline fallback)." };
 }
 
+/** Deep Research job result → grammar. The narrative is always an LLM
+ *  synthesis of the cited web sources — never a literal reported figure — so
+ *  method is MODELLED even when the run is genuinely live; only origin and
+ *  freshness move. Demo fixtures carry UNKNOWN freshness rather than a
+ *  fabricated CURRENT (a static fixture has no real "as of" moment). */
+export function fromResearchResult(result: { demo: boolean; truncated?: boolean }): Provenance {
+  if (result.demo) {
+    return {
+      origin: "DEMO",
+      method: "MODELLED",
+      freshness: "UNKNOWN",
+      detail: "Seeded demo narrative — not a live web-research run.",
+    };
+  }
+  return {
+    origin: "LIVE",
+    method: "MODELLED",
+    freshness: "CURRENT",
+    detail: result.truncated
+      ? "Live web research — narrative truncated by the output limit. Verify against cited sources."
+      : "Live web research — AI-synthesized narrative. Verify against cited sources.",
+  };
+}
+
 /** Report Studio caveat variants → grammar. loading/error/noRun return null —
  *  origin is UNKNOWN there and the page's precise prose carries the state;
  *  a guessed chip would be a relabel. */

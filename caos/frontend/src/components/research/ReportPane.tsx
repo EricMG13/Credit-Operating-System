@@ -10,7 +10,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Panel } from "@/components/shared/Panel";
 import { labelCls } from "@/components/shared/styles";
-import { MODEL_HUE } from "@/components/query/node-style";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { AuthorityBlock } from "@/components/shared/AuthorityBlock";
+import { fromResearchResult } from "@/lib/provenance";
 import type { ResearchResult, ResearchProgress } from "@/lib/api";
 
 // react-markdown + remark-gfm (~40 kB) only render once a run resolves, so they
@@ -194,6 +196,10 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         <span className="rdoc-brand"><span className="rdoc-mark">C</span>Deep Credit Research</span>
         <span className="rdoc-meta">{mode === "sector" ? "Sector" : "Issuer"} · {fileDate()}</span>
       </header>
+      {/* Printed authority block — the same structured Origin/Method/Freshness
+          grammar Report Studio's IC memo carries, so an exported research
+          tear-sheet states its own evidence basis on its face (G2). */}
+      <AuthorityBlock prov={fromResearchResult(result)} />
       {/* On-sheet integrity notice — an amputated narrative must announce itself on
           the paper, not just in the app chrome, so it survives PDF export and a
           reader can't mistake it for a finished committee document (H1). */}
@@ -312,22 +318,10 @@ export function ReportPane({
 }) {
   const badge = (
     <span className="flex items-center gap-2">
-      {result?.demo ? (
-        <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>DEMO</span>
-      ) : result ? (
-        <>
-          <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>● LIVE</span>
-          {/* Model-provenance marker (matrix 8.2) — same hue class as the Query
-              overlay's "Model commentary"; the narrative is LLM-synthesized. */}
-          <span
-            className="tabular text-caos-3xs uppercase tracking-wider px-1.5 py-px rounded border"
-            style={{ color: MODEL_HUE, borderColor: `${MODEL_HUE}88`, backgroundColor: `${MODEL_HUE}15` }}
-            title="Report narrative is LLM-synthesized from the cited sources"
-          >
-            AI-synthesized
-          </span>
-        </>
-      ) : null}
+      {/* One provenance grammar (lib/provenance.ts) — replaces the old bespoke
+          DEMO / ●LIVE / "AI-synthesized" chip cluster with the same
+          Origin/Freshness/Method vocabulary every other surface uses. */}
+      {result ? <ProvenanceChip prov={fromResearchResult(result)} /> : null}
       {/* Truncation is an integrity signal, not decoration — a report cut off at
           the output limit must never file as complete (H1). Glyph + word carry it,
           not hue alone (a11y: status never by color only). */}
