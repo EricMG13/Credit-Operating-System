@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import Sequence
 
 # Modules that are auditors / infrastructure, not committee-pack content.
-_NON_CONTENT = {"CP-5", "CP-5B", "CP-X"}
+# CP-5C (the committee-review process record) belongs here too — its omission
+# put a QA-process section inside the committee pack (audit 2026-07-10 QA-6/B9).
+_NON_CONTENT = {"CP-5", "CP-5B", "CP-5C", "CP-X"}
 
 
 def committee_export_allowed(committee_status: str) -> bool:

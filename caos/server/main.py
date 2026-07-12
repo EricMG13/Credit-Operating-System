@@ -6,9 +6,9 @@ terminates TLS and authenticates the caller; on top of that, analysts hold a
 code-gated in-app profile (routes/auth.py) that supplies the app-level identity.
 Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 """
-
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -21,12 +21,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from access_log import access_event, client_source, principal
-from config import get_settings, is_deployed
+from config import get_settings, is_deployed, require_postgres_in_production, require_sane_environment
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, settings as settings_routes, sponsors
-from research_executor import ResearchExecutor
+from routes import auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
+from research_executor import get_research_executor
+from research_report_executor import get_report_executor
+from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
 
@@ -39,6 +41,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
+    # Refuse a real deployment left on the dev ENVIRONMENT sentinel (which would
+    # silently re-enable the dev identity fallback + public defaults). See config.
+    require_sane_environment(settings)
     # Fail-closed boot guards key on is_deployed (any ENVIRONMENT != "development",
     # typo/unset included), not the exact string "production" — a mistyped or
     # dropped env value must NOT silently disable the secret / signup-code guards.
@@ -63,15 +68,20 @@ async def lifespan(app: FastAPI):
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if is_deployed(settings) and settings.analyst_signup_code in ("", "131113"):
+    if is_deployed(settings) and settings.analyst_signup_code in (
+        "", "131113", "change-me-private-code",
+    ):
         # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
         # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
         # would ship a known self-registration gate by omission. Refuse to start
         # without a private one — same posture as the SESSION_SECRET guard above.
+        # The deny-list includes the historical .env.example placeholder: a deploy
+        # that shipped `cp .env.example .env` unedited booted cleanly with a
+        # repo-public signup code (audit 2026-07-10 DEP-3).
         raise RuntimeError(
             "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
-            "in-source default (131113) is public and would leave analyst profile "
-            "self-registration open. Set ANALYST_SIGNUP_CODE."
+            "in-source defaults/placeholders are public and would leave analyst "
+            "profile self-registration open. Set ANALYST_SIGNUP_CODE."
         )
     if is_deployed(settings) and settings.caos_demo_seed:
         # Fail closed (was warn-only): demo seeding ships fictional issuers + the
@@ -83,6 +93,7 @@ async def lifespan(app: FastAPI):
             "demo issuers + the ATLF reference deal into the production database. "
             "Leave it unset (default off) for a non-demo deployment."
         )
+    require_postgres_in_production(settings)
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
@@ -94,10 +105,34 @@ async def lifespan(app: FastAPI):
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
     # Durable Deep Research (M-3): background jobs the client polls, swept on boot.
-    app.state.research_executor = ResearchExecutor()
+    app.state.research_executor = get_research_executor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
+    # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows
+    # the autonomy route enqueues, runs the Sentinel→Analyst→Reporter cycle off
+    # the request thread. Sweeps stranded 'running' rows to 'failed' on boot.
+    app.state.pipeline_executor = PipelineExecutor()
+    await app.state.pipeline_executor.start()
+    logger.info("CAOS pipeline executor started (%s)", app.state.pipeline_executor.name)
+    # Durable Issuer Research Report synthesis: background jobs the client polls,
+    # swept on boot. Mirrors ResearchExecutor.
+    app.state.research_report_executor = get_report_executor()
+    await app.state.research_report_executor.start()
+    logger.info("CAOS research report executor started (%s)", app.state.research_report_executor.name)
+
+    async def run_warmup():
+        try:
+            from engine.embeddings import warmup_embeddings_task
+            async with AsyncSessionLocal() as session:
+                await warmup_embeddings_task(session)
+        except Exception:
+            logger.exception("Failed to run embeddings warmup task")
+
+    asyncio.create_task(run_warmup())
+
     yield
+    await app.state.pipeline_executor.stop()
+    await app.state.research_report_executor.stop()
     await app.state.research_executor.stop()
     await app.state.executor.stop()
     logger.info("CAOS shutting down")
@@ -207,8 +242,13 @@ async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-unt
         if not hmac.compare_digest(
             presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
         ):
+            # This response short-circuits BEFORE the security_headers middleware
+            # (registered earlier = wrapped inner), so stamp the headers here too —
+            # otherwise the 401 ships without CSP/nosniff/HSTS.
             return JSONResponse(
-                {"detail": "Request did not carry a valid edge credential."}, status_code=401
+                {"detail": "Request did not carry a valid edge credential."},
+                status_code=401,
+                headers=dict(_SECURITY_HEADERS),
             )
     return await call_next(request)
 
@@ -275,7 +315,9 @@ app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
+app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
+app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 
 
 # Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that

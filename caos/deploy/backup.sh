@@ -2,13 +2,20 @@
 # CAOS Phase-1 backup loop (P7-1). Daily pg_dump of the Postgres DB (custom
 # format, restorable with pg_restore) + a gzip tarball of the document vault,
 # written to the `backups` volume with rotation. Started by the `backup` service
-# in docker-compose.yml (image postgres:16-alpine — has pg_dump, tar, sh).
+# in docker-compose.yml (image postgres:18-alpine — has pg_dump, tar, sh;
+# pg_dump major matches the pgvector:pg18 db).
 #
-# ON-HOST DURABILITY ONLY. For real protection against host loss, copy /backups
-# OFF the host (rsync / object storage) — see LAUNCH_PHASE1 Operations.
+# ON-HOST DURABILITY ONLY unless BACKUP_SYNC_CMD is set. For real protection
+# against host loss, copy /backups OFF the host: set BACKUP_SYNC_CMD to any
+# shell command (rsync / rclone / aws s3 sync ...) and it runs after each cycle
+# — see LAUNCH_PHASE1 Operations.
 #
 # Restore — DRILL into a SCRATCH target, never the live DB/vault (verify quarterly,
-# see LAUNCH_PHASE1 Operations):
+# see LAUNCH_PHASE1 Operations). Scripted (G1): restore_drill.sh runs the drill
+# below end to end and asserts real content came back (table count +
+# alembic_version present, vault files > 0), not just "the commands exited 0":
+#   docker compose exec backup sh /restore_drill.sh
+# The manual steps it automates, for reference / manual troubleshooting:
 #   db    : createdb -h db -U caos caos_restore_test
 #           pg_restore -h db -U caos -d caos_restore_test /backups/caos-db-<ts>.dump
 #           dropdb -h db -U caos caos_restore_test   # after verifying row counts
@@ -48,6 +55,16 @@ run_once() {
   else
     echo "[backup] vault tarball FAILED/empty — keeping existing, no rotation" >&2
     rm -f "$vault_file"
+  fi
+
+  # Off-host copy hook (audit 2026-07-11 E-2): host loss must not equal backup
+  # loss. Off by default; failure is logged but never blocks the local cycle.
+  if [ -n "${BACKUP_SYNC_CMD:-}" ]; then
+    if sh -c "$BACKUP_SYNC_CMD"; then
+      echo "[backup] off-host sync ok"
+    else
+      echo "[backup] off-host sync FAILED (local backups unaffected)" >&2
+    fi
   fi
 }
 

@@ -65,10 +65,9 @@ context by leaving home.
   └─▶ /deepdive
 
 ConceptNav (shown in every concept header):
-  A /command   ── 3 views behind a header toggle:
-                    • PORTFOLIO  : NlQuery + Portfolio Posture (CP-3C) + Sector Board (CP-SR)   ┐ + right column:
-                    • RESEARCH   : Coverage Matrix (L1–L6) + QA Queue (CP-5) + Source Gaps (CP-0)┘   CP-MON Email Intel + Alert Routing (live)
-                    • SECTOR RV  : full-width SectorRV  (hides the CP-MON column entirely)
+  A /command   ── Posture Summary + NL Query + full-width Coverage (sample sleeve/live coverage)
+  A2 /sector   ── standalone Sector Review (CP-SR daily intelligence; seed/demo until API-backed)
+  A3 /sector-rv── standalone Sector RV
   B /pipeline  ── DAG / swimlanes + inspector + lineage + event log         (one job ✓)
   C /deepdive  ── SourceRail · module analysis (Debate/Recovery/Covenants + generic) · DecisionRail · Ask-ATLF slide-over   (one job, dense ✓)
   D /model     ── sheet grid + Scenario & Sensitivity panel                 (one job ✓)
@@ -183,32 +182,25 @@ user building a mental model from the nav never sees where data enters.
 **Recommendation:** fold into Pipeline as the L0 intake step; at minimum, stop
 leaving it out of the nav.
 
-### IA-4 · Sector RV — conditional promotion  — *Med / Med*
+### IA-4 · Sector Review / Sector RV — standalone split  — *Med / Med*
 
-**What it is.** `SectorRV` (+ `SectorReview` detail, + the `SectorBoard` in the
-PORTFOLIO view) — sector relative-value across the loan universe. It's the third
-Command toggle and the *most* self-contained: full-width, and it hides the CP-MON
-column, i.e. it shares nothing with the other two views except the header.
+**What it is.** `/sector` owns CP-SR daily intelligence and `/sector-rv` owns
+relative-value tables. Command keeps posture, NL Query, and Coverage. Sector
+Review no longer lives as a Command panel or modal.
 
-**Why it's a clean cut — but maybe not now.** Mechanically it's the easiest to
-extract (no shared layout). Conceptually it straddles: sector RV is partly a
-PM "where's the value across the book" job (belongs near posture) and partly its
-own analytical surface (wants room). Sector content is currently *scattered* —
-SectorRV (rv view), SectorBoard (cio view), SectorReview (detail) — which is
-itself a smell.
+**Why it's a clean cut.** The daily intelligence job needs feed settings,
+timeframes, source chips, issuer chips, and topic ASK. Sector RV needs dense
+market tables. Keeping either inside Command overloads the PM/CIO posture page
+with work that belongs to a deeper sector workflow.
 
 **Tradeoffs.**
-- *For:* a real "Relative Value / Markets" home could consolidate the three
-  scattered sector surfaces; removes the awkward "third view that behaves nothing
-  like the other two."
-- *Against:* if RV stays this size, a whole concept for one screen is
-  over-investment; it competes with portfolio posture for the PM's attention and
-  arguably belongs beside it.
+- *For:* the split gives CP-SR and Sector RV enough room for their own controls
+  and source/provenance language without stealing Command's posture scan.
+- *Against:* shared nav is more crowded and must be smoke-tested whenever concept
+  chrome changes.
 
-**Recommendation:** **conditional.** If RV is on a roadmap to deepen (curve
-trades, dispersion, screening), promote it and pull SectorBoard/SectorReview into
-it. If not, leave it as a Command view but stop calling it a co-equal of the
-other two — it's a different beast.
+**Recommendation:** keep the standalone split. Cross-link back to Command only
+when analyst usage proves a specific workflow need.
 
 ### IA-5 · Research / Coverage + QA — keep as a lens (for now)  — *Med / Med*
 
@@ -271,16 +263,15 @@ Home/Directory  ·  A Command (Portfolio + Research lenses)  ·  B Pipeline (inc
 ·  C Deep-Dive  ·  D Model  ·  E Report   ·  NEW: Monitor (CP-MON)
                                             ⌘K Ask — global, context-scoped (NlQuery ⊕ Ask ATLF)
 ```
-- Splits out **Monitor** (IA-1), folds **Intake** into Pipeline (IA-3), turns
-  **Ask** into a global launcher (IA-2). Command keeps Portfolio + Research as a
-  persona toggle; Sector RV stays a Command view pending IA-4.
-- Net top-level count goes 5 → 6 concepts. The A–E lettering needs a rethink
-  (six items; consider dropping letters for icons+labels, or A–F).
+- Splits out **Monitor** (IA-1), **Sector Review**, and **Sector RV**, folds
+  **Intake** into Pipeline (IA-3), and turns **Ask** into a global launcher
+  (IA-2). Command keeps the posture/coverage job.
+- Net top-level count moves beyond the original A–E model; icon+label concept
+  chips are the durable pattern.
 
-**Bold (only if RV and Governance are on the roadmap):**
-add **Relative Value** (IA-4, absorbing SectorBoard/SectorReview) and **Coverage
-& Governance** (IA-5). That's 8 destinations — only justified if those personas
-and surfaces are genuinely being built out; otherwise it's nav for nav's sake.
+**Bold (only if Governance is on the roadmap):**
+add **Coverage & Governance** (IA-5). That's justified only if the QA persona
+gets a real workflow, not just a renamed table.
 
 ---
 

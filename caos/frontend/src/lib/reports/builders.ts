@@ -62,13 +62,16 @@ export interface Report {
 
 /* ---------- formatting ---------- */
 const fm = (v: number | null | undefined): string => {
-  if (v == null || Number.isNaN(v)) return "";
+  // Number.isFinite (not just isNaN): a divide-by-zero Infinity must render
+  // blank in the committee paper, exactly as model-format's fmt() renders it
+  // blank in the grid — not "∞"/"Infinity%". (#R1)
+  if (v == null || !Number.isFinite(v)) return "";
   const r = Math.round(v);
   if (r === 0) return "–";
   const s = Math.abs(r).toLocaleString("en-US");
   return r < 0 ? "(" + s + ")" : s;
 };
-const fp = (v: number | null | undefined): string => (v == null || Number.isNaN(v) ? "" : (v * 100).toFixed(1) + "%");
+const fp = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : (v * 100).toFixed(1) + "%");
 const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
 const APPENDIX_PCT_BLUE = "#2f64b7";
 

@@ -52,8 +52,14 @@ function adaptCp0(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   if (docMap.length) {
     sections.push({
       type: "table", title: "CP-0 · Document map & quality",
-      cols: ["Doc", "Name", "Type", "Grade"], align: [0, 0, 0, 0],
-      rows: docMap.map((d) => [d.doc, d.name, d.type, d.grade]),
+      // The fixture emits a per-doc `grade`; a LIVE run (readiness.py) emits the
+      // engine's `categories` classification instead — fall through so the column
+      // isn't permanently blank on real issuers. (mock↔live seam)
+      cols: ["Doc", "Name", "Type", "Grade / Categories"], align: [0, 0, 0, 0],
+      rows: docMap.map((d) => {
+        const cats = (d as Record<string, unknown>).categories;
+        return [d.doc, d.name, d.type, d.grade ?? (Array.isArray(cats) ? cats.join(", ") : "—")];
+      }),
     });
   }
   if (gaps.length) {
@@ -82,9 +88,11 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   const sections: OutSection[] = [];
   const rev = (fin.revenue as Record<string, unknown>) || {};
   const eb = (fin.adj_ebitda as Record<string, unknown>) || {};
-  // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy in the same keys the
-  // fixture/LLM use for covenant-adjusted figures — don't label it 'Adj.'. (#15)
-  const reported = rt.basis === "reported_gaap_xbrl";
+  // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy — and the issuer-
+  // disclosed lane (reported_cp1.py, basis "reported_disclosure") carries figures
+  // "taken as reported — not covenant-adjusted" — in the same keys the fixture/
+  // LLM use for covenant-adjusted figures. Neither may be labeled 'Adj.'. (#15)
+  const reported = rt.basis === "reported_gaap_xbrl" || rt.basis === "reported_disclosure";
   const ebLabel = reported ? "EBITDA (reported proxy)" : "Adj. EBITDA";
   const levLabel = reported ? "Net leverage (reported)" : "Net leverage (adj.)";
   // Currency symbol from the engine (reported-disclosure CP-1 carries £/€/$ for a
@@ -236,12 +244,41 @@ function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> &
   return { kpis, sections: sections.slice(0, 10) };
 }
 
+// CP-4C covenant register: the extracted terms in desk order, breach flagged in
+// text as well as color. Absent terms are dropped (cov-lite runs extract little)
+// rather than rendered as a row of dashes; sections stay generic (calculations
+// table, add-back audit KV, claims).
+function adaptCp4c(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
+  const fin = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const musd = (v: unknown): string | null => {
+    const x = fin(v);
+    return x == null ? null : "$" + x.toLocaleString("en-US") + "M";
+  };
+  const audit = (rt.addback_audit as Record<string, unknown>) || {};
+  const util = fin(audit.utilization_pct);
+  const breach = audit.breach === true;
+  const cap = fin(rt.addback_cap_pct);
+  const capV = cap == null ? null
+    : (cap * 100).toFixed(0) + "% of EBITDA" + (util != null ? ` · ${util.toFixed(0)}% used${breach ? " · BREACH" : ""}` : "");
+  const kpis = [
+    { l: "Structure", v: rt.covenant_structure ? String(rt.covenant_structure) : null },
+    { l: "Net leverage", v: fin(rt.current_net_leverage) != null ? fin(rt.current_net_leverage)!.toFixed(2) + "×" : null },
+    { l: "Leverage covenant", v: fin(rt.leverage_covenant_x) != null ? fin(rt.leverage_covenant_x)!.toFixed(2) + "×" : null },
+    { l: "RP / builder basket", v: musd(rt.rp_basket_musd) },
+    { l: "Cross-default trips at", v: musd(rt.cross_default_musd) },
+    { l: "Add-back cap", v: capV, sev: breach ? "critical" : util != null && util >= 80 ? "warning" : undefined },
+  ].filter((k): k is { l: string; v: string; sev?: string } => k.v != null);
+  return { kpis, sections: adaptGeneric(rt).sections };
+}
+
 /** Map a canonical module payload into the existing ModuleOutput shape. */
 export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
   const rt = detail.runtime_output || {};
   const base =
     detail.module_id === "CP-0" ? adaptCp0(rt) :
     detail.module_id === "CP-1" ? adaptCp1(rt) :
+    detail.module_id === "CP-4C" ? adaptCp4c(rt) :
     adaptGeneric(rt);
 
   const sections = [...base.sections];

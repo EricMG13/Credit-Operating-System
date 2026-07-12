@@ -19,9 +19,14 @@ export const api = axios.create({
 // ran at. SSR has no localStorage, so this only attaches in the browser.
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    config.headers.set("X-Model-Mode", loadMode());
-    const qm = localStorage.getItem("caos_query_model");
-    if (qm) config.headers.set("X-Query-Model", qm);
+    try {
+      config.headers.set("X-Model-Mode", loadMode());
+      const qm = localStorage.getItem("caos_query_model");
+      if (qm) config.headers.set("X-Query-Model", qm);
+    } catch {
+      // private-mode Safari / storage disabled or blocked — degrade to no
+      // mode/query-model header rather than breaking every request's interceptor.
+    }
   }
   return config;
 });
@@ -88,6 +93,11 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 export const getMe = () => api.get("/api/auth/me", { timeout: 8000 }).then((r) => r.data);
 
 // ─── Portfolio board (cross-issuer latest-run posture) ──────────────────────
+export interface PortfolioGapDTO {
+  sev: string; // high | medium | low
+  doc: string; // the missing source, e.g. "No audited financials vaulted."
+}
+
 export interface PortfolioRowDTO {
   issuer_id: string;
   name: string;
@@ -101,6 +111,7 @@ export interface PortfolioRowDTO {
   rv_recommendation: string | null;
   rv_percentile: number | null;
   downside_fragility: "HIGH" | "MODERATE" | "LOW" | null;
+  gaps: PortfolioGapDTO[]; // CP-0 source-readiness gap log
 }
 export interface PortfolioDTO {
   rows: PortfolioRowDTO[];
@@ -116,6 +127,21 @@ export const getPortfolio = (): Promise<PortfolioDTO> =>
 export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
+
+// Clear all browser-local workspace state on logout. On a shared workstation the
+// next analyst must not inherit the prior one's chat transcripts (caos-chat-*),
+// Report Studio committee-deliverable edits (caos-e-*), model inputs (caos-d-*),
+// query history, or — critically — their model-mode / query-model tier (sent as
+// X-Model-Mode / X-Query-Model on every request, which would silently run the next
+// analyst's work at the wrong tier). Every app key is "caos"-prefixed by convention.
+export const clearWorkspaceStorage = () => {
+  if (typeof window === "undefined") return;
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("caos")) localStorage.removeItem(k);
+    }
+  } catch { /* private mode / quota — nothing to clear */ }
+};
 
 // Email + password account lane (alongside edge SSO). register creates the account
 // (gated by the shared invite code) and signs in; login authenticates an existing
@@ -197,7 +223,7 @@ export interface IssuerProfile {
   runs: ProfileRun[];
   metrics: ProfileMetric[];
   // Free-form roll-ups (nullable values) — Deep-Dive owns module detail.
-  signals: Record<string, number | string | null>;
+  signals: Record<string, number | string | boolean | null>;
   coverage: Record<string, unknown>;
   findings: Record<string, number>;
   business: BusinessFact[];           // CP-1A sourced facts
@@ -209,6 +235,76 @@ export interface IssuerProfile {
 export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
   api.get(`/api/issuers/${id}/profile`).then((r) => r.data);
 
+// Cross-default domino map — which tranches get pulled in when one facility
+// defaults (CP-3B tranche register × CP-4C material-indebtedness threshold).
+// Read-model over the latest complete run; degrades to a note, never a guess.
+export interface CrossDefaultDomino {
+  code: string;
+  tranche: string;
+  amount_musd: number | null;
+  trips_cross_default: boolean | null; // null = unsized tranche or no threshold
+  pulls_in: string[];
+}
+export interface CrossDefaultMap {
+  issuer_id: string;
+  run_id: string | null;
+  threshold_musd: number | null;
+  dominoes: CrossDefaultDomino[];
+  note: string | null;
+}
+export const getCrossDefaultMap = (id: string): Promise<CrossDefaultMap> =>
+  api.get(`/api/issuers/${encodeURIComponent(id)}/cross-default`).then((r) => r.data);
+
+// Sponsor track record — CP-2D governance scores/flags rolled up across a
+// sponsor's covered names (analyst-entered Issuer.sponsor grouping).
+export interface SponsorSummary {
+  sponsor: string;
+  issuer_count: number;
+}
+export interface SponsorIssuerRow {
+  issuer_id: string;
+  name: string;
+  ticker: string | null;
+  run_id: string | null;
+  qa_status: string | null;
+  governance_risk_score: number | null;
+  flags: string[];
+  net_leverage: number | null;
+}
+export interface SponsorTrackRecord {
+  sponsor: string;
+  issuer_count: number;
+  avg_governance_risk_score: number | null;
+  flag_counts: Record<string, number>;
+  issuers: SponsorIssuerRow[];
+}
+export const getSponsors = (): Promise<SponsorSummary[]> =>
+  api.get("/api/sponsors/").then((r) => r.data);
+export const getSponsorTrackRecord = (name: string): Promise<SponsorTrackRecord> =>
+  api.get(`/api/sponsors/${encodeURIComponent(name)}`).then((r) => r.data);
+
+// Daily digest — deterministic coverage/ratings/activity roll-up (no LLM):
+// staleness watch, equal-weighted WARF over manual ratings, CCC-cliff watch,
+// 24h run activity. Backs the Command Center research lens.
+export interface DigestWatchRow {
+  issuer_id: string;
+  name: string;
+  detail: string | null;
+}
+export interface DailyDigest {
+  as_of: string;
+  coverage: Record<string, number>; // issuers / rated / unrated / with_complete_run
+  stale_threshold_days: number;
+  stale: DigestWatchRow[];
+  warf: number | null;
+  warf_band: string | null;
+  ccc_watch: DigestWatchRow[];
+  qa: Record<string, number>;
+  activity_24h: Record<string, number>;
+}
+export const getDigest = (): Promise<DailyDigest> =>
+  api.get("/api/digest/daily").then((r) => r.data);
+
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -216,6 +312,101 @@ export interface ChatMessage {
 }
 export const askIssuer = (messages: ChatMessage[]): Promise<string> =>
   api.post("/api/chat/issuer", { messages }).then((r) => r.data.reply);
+
+// ─── Sector Review ────────────────────────────────────────────────────────
+export interface SectorFeed {
+  sector: string;
+  enabled: boolean;
+  notify_pref: string;
+  provenance: string;
+}
+export interface SectorSource {
+  source_type: string;
+  ref: string;
+  title: string;
+  url?: string | null;
+  tier: string;
+  provenance: string;
+}
+export interface SectorIssuer {
+  issuer_id?: string | null;
+  name: string;
+  ticker?: string | null;
+  exposure: string;
+}
+export interface SectorSignal {
+  id: string;
+  sector: string;
+  signal_date: string;
+  category: string;
+  severity: string;
+  headline: string;
+  summary: string;
+  materiality_score: number;
+  issuers: SectorIssuer[];
+  sources: SectorSource[];
+  provenance: string;
+  staleness_flag: string;
+  confidence: string;
+}
+export interface SectorReviewSection {
+  id: string;
+  title: string;
+  posture: string;
+  summary: string;
+  signal_ids: string[];
+}
+export interface SectorReview {
+  sector: string;
+  timeframe: string;
+  as_of: string;
+  posture: string;
+  confidence: string;
+  staleness_flag: string;
+  provenance: string;
+  module_status: string;
+  refresh_trigger: string;
+  sections: SectorReviewSection[];
+  signals: SectorSignal[];
+}
+export interface SectorAskResponse {
+  signal_id: string;
+  answer: string;
+  financial_impact_summary: string;
+  affected_issuers: SectorIssuer[];
+  recommended_actions: string[];
+  sources: SectorSource[];
+  provenance: string;
+  retrieval_scope: string;
+}
+export const getSectorFeeds = (): Promise<SectorFeed[]> =>
+  api.get("/api/sector/feeds").then((r) => r.data);
+export const updateSectorFeeds = (feeds: SectorFeed[]): Promise<SectorFeed[]> =>
+  api.put("/api/sector/feeds", { feeds }).then((r) => r.data);
+export const getSectorSignals = (params: {
+  sector?: string;
+  from?: string;
+  to?: string;
+  q?: string;
+  category?: string;
+  severity?: string;
+  limit?: number;
+}): Promise<SectorSignal[]> =>
+  api.get("/api/sector/signals", { params }).then((r) => r.data);
+export const getSectorReview = (params: {
+  sector: string;
+  timeframe?: string;
+  as_of?: string;
+}): Promise<SectorReview> =>
+  api.get("/api/sector/review", { params }).then((r) => r.data);
+export const refreshSectorReview = (data: {
+  sector: string;
+  timeframe?: string;
+  as_of?: string;
+}): Promise<SectorReview> =>
+  api.post("/api/sector/review/refresh", data).then((r) => r.data);
+export const askSectorTopic = (signal_id: string, question: string): Promise<SectorAskResponse> =>
+  api.post("/api/sector/ask", { signal_id, question }).then((r) => r.data);
 
 // ─── Ingestion ────────────────────────────────────────────────────────────
 // The server parses, virus-scans, and chunks the file inside the request, so a
@@ -245,6 +436,9 @@ export interface VaultMemoResult {
 export const uploadVaultMemo = (formData: FormData): Promise<VaultMemoResult> =>
   api.post("/api/ingestion/upload/memo", formData, {
     headers: { "Content-Type": "multipart/form-data" },
+    // Same synchronous ingest pipeline (AV scan + parse) as the sibling uploads —
+    // don't leave this one on the 20s instance default.
+    timeout: 60_000,
   }).then((r) => r.data);
 
 // ─── Portfolios (managed CLO books; exposure + compliance computed server-side) ─
@@ -300,10 +494,9 @@ import type {
   RunSummaryDTO,
 } from "@/lib/engine/types";
 
-// API-client surface for POST /api/runs — kept ahead of its UI consumer.
-// portfolioId is optional: omit to let the server auto-bind the book that holds
-// the issuer (CP-3C concentration); pass one to evaluate against a specific book.
-// fallow-ignore-next-line unused-export
+// API-client surface for POST /api/runs, used by UploadWizard. portfolioId is
+// optional: omit to let the server auto-bind the book that holds the issuer
+// (CP-3C concentration); pass one to evaluate against a specific book.
 export const createRun = (issuerId: string, asOfDate?: string, portfolioId?: string): Promise<RunSummaryDTO> =>
   api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId }).then((r) => r.data);
 
@@ -315,6 +508,11 @@ export const getRun = (runId: string): Promise<RunSummaryDTO> =>
 
 export const getModule = (runId: string, moduleId: string): Promise<ModuleDetailDTO> =>
   api.get(`/api/runs/${runId}/modules/${moduleId}`).then((r) => r.data);
+
+// Bulk read: every produced module (with claims + evidence) in one request —
+// the Deep-Dive open used to fan out one getModule per eligible module id.
+export const getModules = (runId: string): Promise<ModuleDetailDTO[]> =>
+  api.get(`/api/runs/${runId}/modules`).then((r) => r.data);
 
 export const getQA = (runId: string): Promise<QAReportDTO> =>
   api.get(`/api/runs/${runId}/qa`).then((r) => r.data);
@@ -435,6 +633,14 @@ export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =
 export const queryInsights = (force = false): Promise<InsightBrief> =>
   api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
 
+// The analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
+// Non-empty → a per-analyst brief (cache row keyed by analyst_id); empty → the
+// shared book-level brief. PUT replaces the full set idempotently.
+export const getWatchlist = (): Promise<{ issuer_ids: string[] }> =>
+  api.get("/api/query/watchlist").then((r) => r.data);
+export const saveWatchlist = (issuer_ids: string[]): Promise<{ issuer_ids: string[] }> =>
+  api.put("/api/query/watchlist", { issuer_ids }).then((r) => r.data);
+
 // A grounded AI answer beside a walk — cited prose written from vault chunks (+
 // the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,
 // cache hits instant), so it outlives the 20s default timeout.
@@ -479,19 +685,27 @@ export const edgarVaultUrl = (
   api
     .post("/api/edgar/vault-url", { issuer_id: issuerId, exhibit_url: exhibitUrl, run_mode: runMode })
     .then((r) => r.data);
-export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultResult[]> => {
+export interface EdgarVaultBatchResult {
+  ok: EdgarVaultResult[];
+  // M-12: which URLs failed and why — previously dropped silently whenever at
+  // least one URL succeeded, so a partial batch looked identical to a full one.
+  failed: { url: string; reason: string }[];
+}
+export const edgarVaultUrls = async (issuerId: string, urls: string, runMode = "legal"): Promise<EdgarVaultBatchResult> => {
   const list = urls.split(",").map((u) => u.trim()).filter(Boolean);
-  if (!list.length) return [];
+  if (!list.length) return { ok: [], failed: [] };
   const settled = await Promise.allSettled(list.map((u) => edgarVaultUrl(issuerId, u, runMode)));
   const ok = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
-  // ponytail: partial failures are dropped, not surfaced per-URL. Throw only when
-  // every URL failed, so an all-fail 503 (not-configured) still reaches the caller's
-  // catch instead of one bad URL sinking the whole batch of successes.
+  // Throw only when every URL failed, so an all-fail 503 (not-configured) still
+  // reaches the caller's catch instead of one bad URL sinking the whole batch.
   if (!ok.length) {
     const firstErr = settled.find((s) => s.status === "rejected") as PromiseRejectedResult | undefined;
     throw firstErr ? firstErr.reason : new Error("EDGAR URL vaulting failed.");
   }
-  return ok;
+  const failed = settled.flatMap((s, i) =>
+    s.status === "rejected" ? [{ url: list[i], reason: toErrorMessage(s.reason, "vaulting failed") }] : [],
+  );
+  return { ok, failed };
 };
 
 // ─── Deep Research (autonomous web research, credit lens) ─────────────────────
@@ -635,10 +849,14 @@ export const getResearchStatus = async (id: string): Promise<ResearchStatus> => 
   let job: ResearchJob;
   try {
     job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
-  } catch {
-    // 404 (gone/foreign) or any transport blip on a one-shot probe — treat as
-    // "not available"; the caller quietly drops the stale id rather than erroring.
-    return { state: "gone" };
+  } catch (e) {
+    // Mirror _pollResearch: only an actual 404 means the job is genuinely gone
+    // (server restart lost it, or a foreign id). Any other failure (network
+    // blip, 5xx, timeout) is NOT the same as "gone" — misreporting a transient
+    // failure as permanently deleted would be a real correctness bug, so
+    // rethrow and let the caller treat it as an unknown/transient error.
+    if (axios.isAxiosError(e) && e.response?.status === 404) return { state: "gone" };
+    throw e;
   }
   if (job.status === "complete")
     return {
@@ -682,5 +900,15 @@ export interface SavedModelDTO {
 }
 export const getSavedModel = (issuerId: string): Promise<SavedModelDTO | null> =>
   api.get(`/api/models/${issuerId}`).then((r) => r.data);
-export const saveModel = (issuerId: string, payload: Record<string, unknown>): Promise<SavedModelDTO> =>
-  api.put(`/api/models/${issuerId}`, { payload }).then((r) => r.data);
+// expectedUpdatedAt: the updated_at this client last saw. Pass it so a save
+// made stale by another tab (same analyst) rejects with 409 instead of
+// silently overwriting — see routes/models.py save_model's optimistic-
+// concurrency guard. Omit (undefined) to skip the check.
+export const saveModel = (
+  issuerId: string,
+  payload: Record<string, unknown>,
+  expectedUpdatedAt?: string | null,
+): Promise<SavedModelDTO> =>
+  api
+    .put(`/api/models/${issuerId}`, { payload, expected_updated_at: expectedUpdatedAt ?? undefined })
+    .then((r) => r.data);

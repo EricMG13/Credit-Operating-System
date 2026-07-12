@@ -21,9 +21,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+from engine.metrics import better_fact
 from database import Issuer, MetricFact, ModuleOutput, Run, get_db
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers
 
 router = APIRouter()
 
@@ -72,13 +74,14 @@ class SponsorTrackRecordResponse(BaseModel):
 @router.get("", response_model=List[SponsorSummary], include_in_schema=False)
 @router.get("/", response_model=List[SponsorSummary])
 async def list_sponsors(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)
     rows = (await db.execute(
-        select(Issuer.sponsor, func.count())
-        .where(Issuer.sponsor.is_not(None))
+        scope_issuers(
+            select(Issuer.sponsor, func.count()).where(Issuer.sponsor.is_not(None)), caller
+        )
         .group_by(Issuer.sponsor)
         .order_by(func.count().desc(), Issuer.sponsor)
         .limit(_MAX_ISSUERS)
@@ -89,12 +92,12 @@ async def list_sponsors(
 @router.get("/{sponsor}", response_model=SponsorTrackRecordResponse)
 async def sponsor_track_record(
     sponsor: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_rate_guard(caller)
     issuers = list((await db.execute(
-        select(Issuer).where(Issuer.sponsor == sponsor)
+        scope_issuers(select(Issuer).where(Issuer.sponsor == sponsor), caller)
         .order_by(Issuer.name).limit(_MAX_ISSUERS)
     )).scalars().all())
     if not issuers:
@@ -121,13 +124,17 @@ async def sponsor_track_record(
 
     # Headline net leverage per issuer; run-provenance preferred over seed.
     leverage: Dict[str, float] = {}
+    best: Dict[str, MetricFact] = {}
     for f in (await db.execute(
         select(MetricFact).where(
             MetricFact.issuer_id.in_(ids),
             MetricFact.metric_key == "net_leverage",
             MetricFact.headline.is_(True))
     )).scalars().all():
-        if f.issuer_id not in leverage or f.provenance == "run":
+        # Canonical collapse (run/fixture tier, then recency) — the old run-only
+        # rule kept stale seed leverage over a fresh fixture fact on this surface.
+        if better_fact(best.get(f.issuer_id), f):
+            best[f.issuer_id] = f
             leverage[f.issuer_id] = f.value
 
     rows: List[SponsorIssuerRow] = []

@@ -50,6 +50,17 @@ client could reach directly (both verified in [LAUNCH_PHASE1](LAUNCH_PHASE1.md)
 §5). **If CAOS is ever exposed on a path that bypasses the proxy, header-based
 identity becomes spoofable (impersonation) — never publish the app port.**
 
+**Edge-origin proof (`EDGE_PROXY_SECRET` / `X-Edge-Authorization`).** Network
+isolation is additionally *enforced*, not just assumed: Caddy strips any
+client-supplied `X-Edge-Authorization` and injects the shared
+`EDGE_PROXY_SECRET` on every proxied request ([Caddyfile](../deploy/Caddyfile));
+an app-level middleware ([main.py](../server/main.py)) rejects every deployed
+`/api/*` request (except `/api/health`) whose header does not match
+(constant-time compare). Production **refuses to start** without the secret. So
+a rogue container on the internal network hitting `app:8000` directly with
+forged identity headers is denied even though it is "inside" the network. This
+section is the reference the Caddyfile / compose / config comments cite.
+
 ## 2. Authorization
 
 **Single-team model — by design (S-4).** Every authenticated analyst can read
@@ -113,17 +124,20 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
 
 ## 6. Dependencies
 
-`npm audit` advisories are confined to the **dev/build toolchain** (vitest →
-vite → esbuild); `npm ls --omit=dev` confirms none ship in the production static
-export, and the project runs tests headlessly (no exposed dev server). Tracked
-in [AUDIT.md](AUDIT.md) D-1.
+`npm audit --audit-level=high` on the current lockfile returns 0 vulnerabilities
+at every severity (last checked 2026-07-10). Historically, advisories here were
+confined to the **dev/build toolchain** (vitest → vite → esbuild); `npm ls
+--omit=dev` confirms none ship in the production static export, and the project
+runs tests headlessly (no exposed dev server). Tracked in [AUDIT.md](AUDIT.md) D-1
+(now Resolved).
 
 ## 7. Demo seed
 
 `CAOS_DEMO_SEED` seeds 3 demo issuers + the ATLF reference deal on boot —
-idempotent (skipped once the registry is non-empty), and the app logs a WARNING
-when it runs in production. The self-hosted stack fixes it **`false`**; set it
-`false` for any real (non-demo) deployment.
+idempotent (skipped once the registry is non-empty). In any deployed context the
+app **refuses to boot** with the seed enabled ([main.py](../server/main.py)
+fail-closed guard — it no longer merely warns). The self-hosted stack fixes it
+**`false`**; leave it unset for any real (non-demo) deployment.
 
 ## 8. Threat-model boundaries (explicit non-goals today)
 

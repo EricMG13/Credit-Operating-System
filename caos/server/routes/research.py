@@ -49,7 +49,7 @@ async def create_research(
     brief: ResearchBrief,
     request: Request,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(
         f"research:{caller.id}", max_attempts=_RESEARCH_MAX_PER_MINUTE, window_seconds=60
@@ -59,11 +59,14 @@ async def create_research(
             detail="Deep-research rate limit reached — try again in a minute.",
         )
 
-    job = ResearchJob(status="running", analyst_id=caller.id, brief=brief.model_dump())
+    # Created 'queued' (model default): the durable executor claims + executes it, so
+    # a redeploy re-claims from `brief` instead of losing the job. On SQLite the
+    # in-process executor picks it up via enqueue; on Postgres the QueueWorker loop does.
+    job = ResearchJob(analyst_id=caller.id, brief=brief.model_dump())
     db.add(job)
     await db.commit()
-    # Fire-and-forget: execution outlives the request, so a dropped connection
-    # doesn't lose the run. The client polls GET below.
+    # Execution outlives the request, so a dropped connection doesn't lose the run.
+    # The client polls GET below.
     request.app.state.research_executor.enqueue(job.id)
     return ResearchJobCreated(id=job.id, status=job.status)
 
@@ -72,7 +75,7 @@ async def create_research(
 async def get_research(
     job_id: str,
     caller: CallerIdentity = Depends(get_identity),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     job = await db.get(ResearchJob, job_id)
     # 404 (not 403) when missing OR not the caller's own job — never leak the

@@ -21,9 +21,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import timezone
+
 import rate_limit
 from database import Issuer, MetricFact, ModuleOutput, Run, get_db
 from identity import CallerIdentity, get_identity
+from tenancy import scope_issuers
 
 router = APIRouter()
 
@@ -43,6 +46,11 @@ def _read_rate_guard(caller: CallerIdentity) -> None:
         )
 
 
+class PortfolioGap(BaseModel):
+    sev: str   # high | medium | low (mapped from the CP-0 gap severity)
+    doc: str   # the missing source, e.g. "No audited financials vaulted."
+
+
 class PortfolioRow(BaseModel):
     issuer_id: str
     name: str
@@ -56,6 +64,7 @@ class PortfolioRow(BaseModel):
     rv_recommendation: Optional[str] = None   # CP-3: OVERWEIGHT / NEUTRAL / UNDERWEIGHT
     rv_percentile: Optional[float] = None     # CP-3 composite percentile
     downside_fragility: Optional[str] = None  # CP-2B: HIGH / MODERATE / LOW
+    gaps: List[PortfolioGap] = []             # CP-0 source-readiness gap log
 
 
 class PortfolioResponse(BaseModel):
@@ -64,16 +73,36 @@ class PortfolioResponse(BaseModel):
     covered_count: int   # issuers with >=1 complete run (i.e. len(rows))
 
 
+# CP-0 gap-log severity ("warning"/"critical") → the board's high/medium/low.
+_GAP_SEV = {"critical": "high", "warning": "medium"}
+
+
+def _portfolio_gaps(cp0_output: dict) -> List[PortfolioGap]:
+    """Map a run's CP-0 source-readiness gap log to portfolio gap rows. Best-effort
+    over a possibly-degraded payload: skips malformed / textless entries."""
+    out: List[PortfolioGap] = []
+    for g in (cp0_output.get("gap_log") or []):
+        if not isinstance(g, dict):
+            continue
+        text = g.get("text")
+        if not text:
+            continue
+        out.append(PortfolioGap(sev=_GAP_SEV.get(str(g.get("severity")), "low"), doc=str(text)))
+    return out
+
+
 @router.get("", response_model=PortfolioResponse)
 @router.get("/", response_model=PortfolioResponse)
 async def get_portfolio(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     identity: CallerIdentity = Depends(get_identity),
 ) -> PortfolioResponse:
     """Latest-complete-run posture across the coverage universe."""
     _read_rate_guard(identity)
 
-    issuers = (await db.execute(select(Issuer).limit(2000))).scalars().all()
+    # Rows are built only for issuers in this list, so scoping it to the caller's team
+    # scopes the whole board (runs/facts inherit the issuer's team). No-op when off.
+    issuers = (await db.execute(scope_issuers(select(Issuer), identity).limit(2000))).scalars().all()
 
     # Latest complete run per issuer, DB-side. Run is append-only (never pruned),
     # so the old "scan every complete run newest-first, keep first-seen" fold
@@ -121,22 +150,25 @@ async def get_portfolio(
     for rid, mkey, val in facts:
         by_run_metric.setdefault(rid, {})[mkey] = val
 
-    # CP-3 RV recommendation + CP-2B fragility for those runs.
+    # CP-3 RV recommendation + CP-2B fragility + CP-0 source-readiness gaps.
     mods = (
         await db.execute(
             select(ModuleOutput.run_id, ModuleOutput.module_id, ModuleOutput.runtime_output).where(
                 ModuleOutput.run_id.in_(run_ids),
-                ModuleOutput.module_id.in_(("CP-3", "CP-2B")),
+                ModuleOutput.module_id.in_(("CP-3", "CP-2B", "CP-0")),
             )
         )
     ).all()
     cp3: Dict[str, dict] = {}
     cp2b: Dict[str, dict] = {}
+    cp0: Dict[str, dict] = {}
     for rid, mid, output in mods:
         if mid == "CP-3":
             cp3[rid] = output or {}
-        else:
+        elif mid == "CP-2B":
             cp2b[rid] = output or {}
+        else:
+            cp0[rid] = output or {}
 
     rows: List[PortfolioRow] = []
     for iss in issuers:
@@ -149,11 +181,15 @@ async def get_portfolio(
             PortfolioRow(
                 issuer_id=iss.id, name=iss.name, ticker=iss.ticker, sector=iss.industry,
                 run_id=run.id, qa_status=run.qa_status, committee_status=run.committee_status,
-                as_of=run.created_at.isoformat() if run.created_at else None,
+                # Stamp UTC on the (SQLite-naive) timestamp so the client's
+                # Date parse doesn't shift the as-of date by the local offset.
+                as_of=(run.created_at.replace(tzinfo=run.created_at.tzinfo or timezone.utc)
+                       .isoformat() if run.created_at else None),
                 metrics=by_run_metric.get(run.id, {}),
                 rv_recommendation=ro3.get("recommendation"),
                 rv_percentile=ro3.get("composite_percentile"),
                 downside_fragility=ro2b.get("fragility"),
+                gaps=_portfolio_gaps(cp0.get(run.id, {})),
             )
         )
     rows.sort(key=lambda r: r.name.lower())  # stable, name-ordered

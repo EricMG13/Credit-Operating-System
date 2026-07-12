@@ -7,6 +7,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { edgarVaultUrls } from "@/lib/api";
+import type { EdgarVaultResult } from "@/lib/api";
 import { EdgarImport } from "./EdgarImport";
 import type { Issuer } from "@/types/issuers";
 
@@ -25,10 +26,13 @@ describe("EdgarImport", () => {
   });
 
   it("vaults a pasted EDGAR URL, threading the run mode", async () => {
-    vi.mocked(edgarVaultUrls).mockResolvedValue([{
-      document_id: "d1", storage_key: "k", doc_type: "EDGAR Exhibit", run_mode: "legal",
-      chunks_created: 7, provenance: "primary · vaulted", message: "ok",
-    }]);
+    vi.mocked(edgarVaultUrls).mockResolvedValue({
+      ok: [{
+        document_id: "d1", storage_key: "k", doc_type: "EDGAR Exhibit", run_mode: "legal",
+        chunks_created: 7, provenance: "primary · vaulted", message: "ok",
+      }],
+      failed: [],
+    });
 
     render(<EdgarImport issuer={issuer} runMode="legal" />);
     fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/ex10,u/10k" } });
@@ -37,11 +41,51 @@ describe("EdgarImport", () => {
     expect(await screen.findByText(/7 ch/)).toBeTruthy();   // vaulted confirmation
   });
 
+  it("surfaces which URLs failed on a partial batch, not just the successes (M-12)", async () => {
+    vi.mocked(edgarVaultUrls).mockResolvedValue({
+      ok: [{
+        document_id: "d1", storage_key: "k", doc_type: "EDGAR Exhibit", run_mode: "legal",
+        chunks_created: 3, provenance: "primary · vaulted", message: "ok",
+      }],
+      failed: [{ url: "u/bad", reason: "404 not found" }],
+    });
+
+    render(<EdgarImport issuer={issuer} runMode="legal" />);
+    fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/ex10,u/bad" } });
+    fireEvent.click(screen.getByText("VAULT URL"));
+    expect(await screen.findByText(/vaulted 1\/2 — 1 failed/)).toBeTruthy();
+    expect(await screen.findByText(/u\/bad — 404 not found/)).toBeTruthy();
+  });
+
   it("shows the not-configured guidance on a 503", async () => {
     vi.mocked(edgarVaultUrls).mockRejectedValue({ response: { status: 503 } });
     render(<EdgarImport issuer={issuer} runMode="legal" />);
     fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/ex10" } });
     fireEvent.click(screen.getByText("VAULT URL"));
     expect(await screen.findByText(/not configured/i, { exact: false })).toBeTruthy();
+  });
+
+  it("does not double-vault on a fast double-invoke via Enter before the first call resolves (M-14)", async () => {
+    let resolveVault: (r: { ok: EdgarVaultResult[]; failed: { url: string; reason: string }[] }) => void;
+    vi.mocked(edgarVaultUrls).mockReturnValue(
+      new Promise((resolve) => {
+        resolveVault = resolve;
+      })
+    );
+
+    render(<EdgarImport issuer={issuer} runMode="legal" />);
+    const input = screen.getByLabelText("Public EDGAR document URLs");
+    fireEvent.change(input, { target: { value: "u/ex10" } });
+    // The Enter-key trigger calls vault() directly and isn't gated by the
+    // button's `disabled` attribute, so it's the path that actually exercises
+    // re-entrancy: fire it twice back-to-back before the first call resolves.
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(edgarVaultUrls).toHaveBeenCalledTimes(1));
+
+    resolveVault!({ ok: [], failed: [] });
+    await waitFor(() => expect(screen.getByText("VAULT URL")).toBeTruthy());
+    expect(edgarVaultUrls).toHaveBeenCalledTimes(1);
   });
 });

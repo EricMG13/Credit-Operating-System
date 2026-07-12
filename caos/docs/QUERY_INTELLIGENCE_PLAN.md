@@ -238,6 +238,33 @@ pixel-identically; zero new LLM failure mode can abort a run or a page.
    desk). Per-analyst scoping (watchlists) is a Phase-2 personalization.
 4. **pgvector embeddings** — documented upgrade behind `retrieve_corpus`
    (vision-gap #4); BM25 is sufficient at Phase-1 corpus scale.
-5. **Analyst memos in retrieval** — memos are vault-only today (not chunked
-   into `document_chunks`), so Q2 answers won't cite them until the recorded
-   follow-up (chunk memos at upload) lands; small, independent item.
+5. **Analyst memos in retrieval** — memos are vault-only in the committed tree
+   today (not chunked into `document_chunks`), so Q2 answers won't cite them
+   until the recorded follow-up (chunk memos at upload) lands. Chunking is
+   IN-FLIGHT as parallel WIP (`engine/memochunks.py` untracked, `routes/ingestion.py`
+   already calls `chunk_memo_into_corpus`); see `HANDOFF_NEXT_PHASE.md` for
+   status. Small, independent item.
+
+---
+
+## 8. Phase-1 retrieval remainders (shipped 2026-07-07)
+
+The dropped-claim-rate health alarm (Phase 4) names "fix for a rising drop rate
+is better retrieval" — the Phase-1 retrieval remainders close the recall and
+precision gaps the alarm points at. All three lanes fuse into the existing RRF
+pipeline (`retrieve_corpus`) without changing the FTS/ANN ranking itself.
+
+| Lane | Status | What shipped |
+| --- | --- | --- |
+| Graph-expansion retrieval lane | **SHIPPED 2026-07-07** | `engine/graphexpansion.py` — n-hop `QueryAcceptedLink` traversal widening a scoped retrieval's issuer set BEFORE the FTS/ANN `WHERE issuer_id IN (...)`. Opt-in via `retrieve_corpus(expand_graph=True)`; `queryanswer._generate` passes `expand_graph=bool(issuer_ids)` so scoped questions also retrieve analyst-ratified graph peers' chunks (the recall fix for cross-issuer exposure questions). Unscoped stays whole-corpus (no-op). **1-hop is the production default**; n-hop BFS is implemented (visited-set bounded, cycle-safe) and opt-in via `hops>1`. 2-hop is MEASURED — see the 2-hop row below. No new dependency, no schema — `query_accepted_links` already exists. Tests: `tests/server/test_graphexpansion.py` (empty-input degradation, both-direction traversal, seed exclusion, dedup/sort, n-hop chain traversal, cycle safety, 1-hop production-default gate, unscoped `None` passthrough, end-to-end `retrieve_corpus` widening proof). |
+| Metric-fact SQL retrieval lane | **SHIPPED 2026-07-07** | `engine/metricfactlane.py` — topic-relevant raw `MetricFact` rows rendered as `MetricFactEntry`s with closed `numbers` sets (value + period year), fused into the `facts_note` alongside the Metric Engine's derivatives. Query→metric-key lexicon (synonyms + catalog labels + key, word-boundary, case-insensitive). `dedup_against_derivatives` skips a raw fact whose (issuer, key, value) a delta/peer-z derivative already states, keeping the facts_note lean. Wired into `queryanswer._generate` as step 4b (additive, fault-isolated — any failure degrades to Metric Engine facts alone). ON by default (the plan's "numbers always come from the metric-fact SQL lane"). Complementary to the Metric Engine (derivatives) — not a replacement. Tests: `tests/server/test_metricfactlane.py` (lexicon matching, topic-filtered SQL retrieval, scoped/unscoped, latest-per-(issuer,key), Blocked-excluded, NaN guard, period-year grounding, dedup vs derivatives) + `test_query_answer.py` SQL-lane integration tests (raw fact citable via `fact_ids`, no-op on no topic match). |
+| LLM re-rank lane | **SHIPPED 2026-07-07** (re-architected same-day to API-based) | `engine/rerank.py` — one batched LLM call through the shared `engine/llm_client.create` seam on a tier-system model (`RERANK_MODEL_TIER`, default `cheap`); **no local model download** (no-downloads policy). Fault-isolated (any failure → RRF-only passthrough). Wired into `retrieve_corpus` after RRF fusion; gated by `RERANK_ENABLED` (off by default) + a provider-key gate. Score clamped to [0,1] keeps MMR scale-consistent. The precision half of the drop-rate alarm fix. Tests: `tests/server/test_rerank.py` (gate, no-key passthrough, fault isolation, truncation, clamp, JSON parsing, tier-model selection, UNTRUSTED wrapping, opt-out, wiring) + `tests/server/bench/test_rerank_precision.py` (precision@K non-regression vs RRF on golden-derived seed labels); `test_llm_safety.py` registers the new call site. `sentence-transformers` dependency removed. |
+| 2-hop graph expansion measurement | **MEASURED 2026-07-07** (opt-in, not enabled) | The n-hop traversal in `engine/graphexpansion.py` supports `hops>1`, but `retrieve_corpus` keeps `hops=1` as the production default (pinned by a gate test). The synthetic contagion-chain measurement (`caos/docs/GRAPH_EXPANSION_2HOP_MEASUREMENT.md`) shows 2-hop lifts recall ONLY for genuinely-2-hop questions (0.00→1.00) while adding 0.50 dilution to the common 1-hop case (zero recall gain, irrelevant peer chunks enter the pack). **Decision: 2-hop stays opt-in, NOT the default** — the real-data measurement on production cross-issuer queries is the open enable gate. Harness: `tests/server/bench/test_graphexpansion_recall.py` + `tests/server/bench/run_graphexpansion_measurement.py`; extend `LABELS` for real pairs. |
+
+**Open follow-on:** the real-data 2-hop measurement on production cross-issuer
+queries (the actual enable gate for wiring `hops=2` into `retrieve_corpus`'s
+default scope). Until that measurement exists, 2-hop stays opt-in.
+
+Red-team critic pass: RT-2026-07-07-01..21 in `.agent-reviews/redteam.md`
+(graph-expansion 01..05, metric-fact 06..07, re-rank 08..12, 2-hop measurement
+17..21).

@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { logout } from "@/lib/api";
+import { clearWorkspaceStorage, logout } from "@/lib/api";
 import { initials } from "@/lib/format";
 
 export function AnalystBadge() {
@@ -21,6 +21,7 @@ export function AnalystBadge() {
     setBusy(true);
     try {
       await logout();
+      clearWorkspaceStorage(); // don't leak this analyst's workspace state to the next login
       await refresh(); // re-resolve → RequireAuth shows the login landing (unmounts this)
     } catch {
       // Logout failed (network/timeout): the cookie is still valid, so reset busy

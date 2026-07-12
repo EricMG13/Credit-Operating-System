@@ -1,7 +1,5 @@
 // AUTO-PORTED from the Credit OS design bundle (shared/deal-modules.js).
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
-/* eslint-disable */
-
 // [code, required output, status, note?]  status: ok | warning | gap
 export type StepRow = (string | undefined)[];
 export const STEP_STATUS_TEXT: Record<string, string> = { ok: "produced", warning: "produced w/ limitation", gap: "gap logged" };

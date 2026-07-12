@@ -1,0 +1,38 @@
+# Nightly + on-demand regression sweep (PRE_DEPLOYMENT_QA_LOOPS.md §5).
+#
+# Jobs land here incrementally, one per master-plan item that creates its
+# prerequisite (never speculatively): golden-e2e (B1, this file's first job),
+# corpus_run (B5), full concept-link/e2e sweep (C6), weekly stress smoke (E1).
+# H2 reuses the workflow_dispatch trigger for its archived pre-deployment
+# full-regression run.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-e2e:
+    name: Golden E2E — full chain, both lanes (L5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install server deps
+        run: pip install -r caos/server/requirements.txt pytest pytest-asyncio httpx
+      - name: Run the golden_e2e marker suite
+        env:
+          # Belt-and-braces: the conftest force-blanks these, but a scheduled
+          # run must never be able to spend tokens even if that changes.
+          ANTHROPIC_API_KEY: ""
+          GEMINI_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+        run: python -m pytest -m golden_e2e -q caos/tests/server/golden

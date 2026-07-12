@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { getCrossDefaultMap, getIssuerProfile, queryGraph, type BusinessFact, type CrossDefaultMap, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -20,12 +20,15 @@ const EMPTY_EARNINGS: EarningsSummary = {
 };
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
+import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
+import { fmtPct, fmtUsdM } from "@/lib/format";
+import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -430,7 +433,9 @@ export function Profile({
   const recGated = latest_run?.committee_status === "Blocked";
 
   const ratings = [
-    { ag: "S&P", v: issuer.rating_sp }, { ag: "Moody’s", v: issuer.rating_moody }, { ag: "Fitch", v: issuer.rating_fitch },
+    { ag: "S&P", short: "S&P", v: issuer.rating_sp },
+    { ag: "Moody’s", short: "Mdy", v: issuer.rating_moody },
+    { ag: "Fitch", short: "Fitch", v: issuer.rating_fitch },
   ].filter((r) => r.v);
   const factsByCode = (codes: string[]) => business.filter((f) => codes.includes(f.code));
   const sponsorLedger = Array.isArray((sponsor as { ledger?: unknown }).ledger)
@@ -623,21 +628,44 @@ export function Profile({
             )}
           </Panel>
 
-          <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
-            <div className="px-3 py-2 flex flex-col gap-2">
-              <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
-              <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
-              <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
-              <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months]} latest={!!latest_run} />
-              <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col gap-2">
-                <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
-                {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
-                  <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
-                ) : null}
-                <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
+          <div className="flex flex-col gap-3">
+            <Panel title="Structure & coverage" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
+              <div className="px-3 py-2 flex flex-col gap-2">
+                <SigText label="Covenant headroom" v={signals.covenant_headroom_turns != null ? `${Number(signals.covenant_headroom_turns).toFixed(1)}× to breach` : null} />
+                <SigText label="Covenant structure" v={signals.covenant_structure as string | null} />
+                <SigText label="Liquidity runway" v={signals.runway_months != null ? `${signals.runway_months} mo` : null} />
+                {/* Covenant register (CP-4C extraction) — rendered only when extracted.
+                    fmtUsdM/fmtPct are NaN/Infinity-safe (em dash instead of "NaN"),
+                    unlike the raw Number()+toFixed() every other row here avoids. */}
+                <SigText label="RP / builder basket" v={signals.rp_basket_musd != null ? fmtUsdM(Number(signals.rp_basket_musd)) + " capacity" : null} />
+                <SigText label="Cross-default" v={signals.cross_default_musd != null ? `trips at ${fmtUsdM(Number(signals.cross_default_musd))}` : null} />
+                <SigText
+                  label="Add-back cap"
+                  v={signals.addback_cap_pct != null
+                    // addback_cap_pct is a 0–1 ratio; addback_utilization_pct arrives
+                    // pre-scaled 0–100 (server: load/cap * 100), hence the /100 here
+                    // so both go through fmtPct's ratio contract consistently.
+                    ? `${fmtPct(Number(signals.addback_cap_pct), 0)} of EBITDA`
+                      + (signals.addback_utilization_pct != null
+                        ? ` · ${fmtPct(Number(signals.addback_utilization_pct) / 100, 0)} used${signals.addback_breach === true ? " · BREACH" : ""}`
+                        : "")
+                    : null}
+                  sev={signals.addback_breach === true ? "critical"
+                    : signals.addback_utilization_pct != null && Number(signals.addback_utilization_pct) >= 80 ? "warning" : undefined}
+                />
+                <EmptyIfBlank ok={[signals.covenant_headroom_turns, signals.covenant_structure, signals.runway_months, signals.rp_basket_musd, signals.cross_default_musd, signals.addback_cap_pct]} latest={!!latest_run} />
+                <div className="pt-1.5 mt-0.5 border-t border-caos-border/40 flex flex-col gap-2">
+                  <SigText label="Source readiness" v={coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}% · ${Number(coverage.documents) || 0} doc${Number(coverage.documents) === 1 ? "" : "s"}` : null} />
+                  {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? (
+                    <SigText label="Source gaps" v={(coverage.categories_missing as string[]).slice(0, 2).join(", ")} sev="warning" />
+                  ) : null}
+                  <SigText label="Open QA findings" v={totalFindings ? `${findings.CRITICAL} crit · ${findings.MATERIAL} mat` : "none"} sev={findings.CRITICAL || findings.MATERIAL ? "warning" : undefined} />
+                </div>
               </div>
-            </div>
-          </Panel>
+            </Panel>
+
+            <CrossDefaultPanel issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
+          </div>
         </div>
 
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
@@ -649,7 +677,7 @@ export function Profile({
             <div className="px-3 py-4 flex flex-col items-center justify-center gap-2 text-center min-h-[120px]">
               <span style={{ color: "var(--caos-muted)" }}><StatusGlyph kind="idle" size={16} /></span>
               <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[360px] leading-relaxed">
-                No loan mark or discount-margin series server-side. Structured market data lands Phase-2 (<span className="tabular text-caos-text/70">market_quotes</span>).
+                No loan mark or discount-margin series for this issuer yet — structured market data is a future phase.
               </p>
             </div>
           </Panel>
@@ -698,30 +726,24 @@ export function Profile({
   );
 
   return (
-    <div className={`${isOverlay ? "h-full" : "h-screen"} flex flex-col bg-caos-bg text-caos-text`}>
-      {/* consolidated sub-header */}
-      <div className="h-12 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        {!isOverlay ? (
-          <>
-            <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
-              <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-              <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
-            </Link>
-            <div className="h-4 w-px bg-caos-border shrink-0" />
-          </>
-        ) : (
-          <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
-            Issuer Profile
-          </span>
-        )}
-        
-        {/* Consolidated Ticker & Metadata in Header */}
-        {/* Identity shrinks (name truncates first) before actions ever clip. */}
-        <div className="flex items-center gap-2 overflow-hidden mr-2 min-w-0">
-          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 16 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
-          {/* The issuer name is the page's content heading (h2 under the route's
-              sr-only h1) so assistive tech can jump straight to *whose* profile
-              this is — a plain span left the only heading as "Issuers". */}
+    <ResponsiveShell
+      heightClass={isOverlay ? "h-full" : "h-screen"}
+      identity={
+        <>
+          {!isOverlay ? (
+            <>
+              <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
+                <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
+                <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
+              </Link>
+              <span className="h-4 w-px bg-caos-border shrink-0" />
+            </>
+          ) : (
+            <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
+              Issuer Profile
+            </span>
+          )}
+          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 14 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
           <h2 className="text-caos-text font-medium leading-none truncate min-w-[64px] m-0" style={{ fontSize: 14 }} title={issuer.name} aria-label={`${issuer.ticker ? issuer.ticker.toUpperCase() + " " : ""}${issuer.name} — issuer profile`}>{issuer.name}</h2>
           <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
             {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
@@ -730,7 +752,7 @@ export function Profile({
             <span className="flex items-center gap-1 shrink-0">
               {ratings.map((r) => (
                 <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
-                  <span className="text-caos-muted">{r.ag.substring(0, 3)}</span> <span className="text-caos-text font-semibold">{r.v}</span>
+                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
                 </span>
               ))}
             </span>
@@ -753,37 +775,26 @@ export function Profile({
           ) : (
             <Tag sev="low">no run</Tag>
           )}
-        </div>
-
-        <div className="flex-1" />
-        {!isOverlay && (
-          <>
-            {/* Full labelled nav only when the row has room (≥1450px). Between
-                1100 and 1450 a compact (icon + active-label) nav keeps every
-                concept reachable instead of vanishing; below 1100 it yields to
-                the identity row (brand link + bottom function bar still route). */}
-            <span className="hidden min-[1450px]:flex items-center gap-3 shrink-0">
-              <ConceptNav />
-              <div className="h-4 w-px bg-caos-border shrink-0" />
-            </span>
-            <span className="hidden min-[1100px]:flex min-[1450px]:hidden items-center gap-3 shrink-0">
-              <ConceptNav compact />
-              <div className="h-4 w-px bg-caos-border shrink-0" />
-            </span>
-          </>
-        )}
-
+        </>
+      }
+      primaryAction={
         <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
           OPEN DEEP-DIVE →
         </Link>
-        {isOverlay && onClose && (
-          <>
-            <div className="h-4 w-px bg-caos-border shrink-0" />
-            <CloseButton onClick={onClose} title="Close (Esc)" />
-          </>
-        )}
-      </div>
-
+      }
+      contextualControls={
+        !isOverlay ? (
+          <ConceptNav compact />
+        ) : onClose ? (
+          <CloseButton onClick={onClose} title="Close (Esc)" />
+        ) : null
+      }
+      narrowContract={{
+        essentialControls: isOverlay && onClose ? (
+          <CloseButton onClick={onClose} title="Close (Esc)" />
+        ) : null,
+      }}
+    >
       <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
         {body}
       </div>
@@ -802,7 +813,7 @@ export function Profile({
           </Link>
         ))}
       </div>
-    </div>
+    </ResponsiveShell>
   );
 }
 
@@ -826,6 +837,10 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
   const [graph, setGraph] = useState<GraphResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped by the Log-a-note quick-capture so a freshly vaulted memo shows up
+  // without a page reload (the memo travels upload -> autolink -> memochunks,
+  // and the analyst-memos walk re-reads it here).
+  const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     let stale = false;
@@ -841,13 +856,21 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
       })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
-  }, [issuerId]);
+  }, [issuerId, refresh]);
 
   const notes = analystNotesFromGraph(graph);
   const linkHint = "[[" + issuerName + "]]" + (ticker ? " or [[" + ticker + "]]" : "");
 
   return (
-    <Panel title="Analyst notes" right={notes.length ? <span className="tabular text-caos-2xs text-caos-muted">{notes.length} linked</span> : null}>
+    <Panel
+      title="Analyst notes"
+      right={
+        <span className="flex items-center gap-2">
+          {notes.length ? <span className="tabular text-caos-2xs text-caos-muted">{notes.length} linked</span> : null}
+          <VaultMemoUpload issuer={{ name: issuerName, ticker }} onUploaded={() => setRefresh((r) => r + 1)} />
+        </span>
+      }
+    >
       <div className="px-3 py-2 flex flex-col gap-2">
         {loading ? (
           <Empty>Loading analyst notes...</Empty>
@@ -913,6 +936,69 @@ function SigBand({ label, v, extra, gated = false }: { label: string; v: unknown
   );
 }
 
+// Cross-default dominoes — which tranches a single facility default pulls in
+// (CP-3B tranche register × the CP-4C material-indebtedness threshold). Fetched
+// lazily off the profile read; when the run extracted no threshold or tranches
+// the server's honest note renders instead — never a fabricated map.
+function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boolean }) {
+  const [map, setMap] = useState<CrossDefaultMap | null>(null);
+  // Distinct from "no run yet" (hasRun=false, nothing fetched): a genuine fetch
+  // failure (500/timeout/etc) must render an explicit error, not collapse to
+  // the same silent nothing as "not applicable" — mirrors SponsorsView's
+  // track-record fetch (app/sponsors/page.tsx), which shows "Couldn't load…"
+  // on catch instead of vanishing.
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    if (!hasRun) return;
+    let stale = false;
+    setError(false);
+    getCrossDefaultMap(issuerId)
+      .then((d) => { if (!stale) setMap(d); })
+      .catch(() => { if (!stale) setError(true); });
+    return () => { stale = true; };
+  }, [issuerId, hasRun]);
+  if (!hasRun) return null;
+  if (error) {
+    return (
+      <Panel title="Cross-default dominoes">
+        <div className="px-3 py-2.5"><Empty>Couldn’t load cross-default data.</Empty></div>
+      </Panel>
+    );
+  }
+  if (!map) return null;
+  const computable = map.threshold_musd != null && map.dominoes.length > 0;
+  return (
+    <Panel
+      title="Cross-default dominoes"
+      right={map.threshold_musd != null
+        ? <span className="tabular text-caos-2xs text-caos-muted">trips ≥ {fmt(map.threshold_musd, "$M")}</span>
+        : undefined}
+    >
+      {!computable ? (
+        <div className="px-3 py-2.5"><Empty>{map.note || "No domino map for this run."}</Empty></div>
+      ) : (
+        <div className="text-caos-md divide-y divide-caos-border/30">
+          {map.dominoes.map((d) => (
+            <div key={d.code} className="px-3 py-1.5 flex items-baseline gap-2">
+              <span className="tabular text-caos-sm text-caos-accent w-14 shrink-0">{d.code}</span>
+              <span className="text-caos-text text-caos-md truncate flex-1">{d.tranche}</span>
+              <span className="tabular text-caos-sm text-caos-muted">{d.amount_musd != null ? fmt(d.amount_musd, "$M") : "unsized"}</span>
+              <span
+                className="tabular text-caos-xs w-28 text-right shrink-0"
+                style={{ color: d.trips_cross_default === true ? "var(--caos-critical)" : "var(--caos-muted)" }}
+              >
+                {d.trips_cross_default === true
+                  ? `▸ pulls in ${d.pulls_in.length} tranche${d.pulls_in.length === 1 ? "" : "s"}`
+                  : d.trips_cross_default === false ? "below threshold" : "not computable"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function SigText({ label, v, sev }: { label: string; v: string | null; sev?: string }) {
   if (v == null) return null;
   return (
@@ -924,7 +1010,9 @@ function SigText({ label, v, sev }: { label: string; v: string | null; sev?: str
 }
 
 function RunRow({ r, href }: { r: ProfileRun; href: string }) {
-  const date = r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : "—";
+  // Local calendar date, not the UTC slice: a run kicked off at 21:00 ET showed
+  // the NEXT day's date to the analyst (audit 2026-07-10 F14).
+  const date = r.created_at ? new Date(r.created_at).toLocaleDateString("en-CA") : "—";
   // One truncating labeled cell (QA · IC, analyst in the tooltip) instead of the
   // former six fixed columns, which overflowed the ~500px panel into a scrollbar
   // and read as a stutter ("Blocked Blocked") with the analyst id clipped.

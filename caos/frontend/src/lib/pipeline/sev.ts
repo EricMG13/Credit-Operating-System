@@ -19,6 +19,26 @@ export const SEV_COLOR: Record<string, string> = {
 export const isCleared = (state?: string): boolean =>
   state === "pass" || state === "warning";
 
+/** A live run's per-module `qa_status` → the deep-dive launcher state token.
+ *  The engine persists a *failed* module as a real row with `qa_status="Blocked"`
+ *  (runner._persist_blocked), so presence-of-output alone can't tell a failure
+ *  from a clean pass — it would read Blocked as a false green. This maps the
+ *  authoritative status instead:
+ *    - undefined  → "idle"    (module not produced in this run at all)
+ *    - "Blocked"  → "failed"  (ran but hit the per-module failure gate)
+ *    - "Restricted" → "warning" (committee-usable with concerns; downstream still clears)
+ *    - anything else defined ("Passed" / "Not Reviewed") → "pass"
+ *  "failed" is deliberately NOT in isCleared(), so a failed module never unlocks
+ *  its pane as if it had produced usable output. */
+export const moduleLiveState = (
+  qaStatus: string | undefined,
+): "idle" | "failed" | "warning" | "pass" => {
+  if (qaStatus === undefined) return "idle";
+  if (qaStatus === "Blocked") return "failed";
+  if (qaStatus === "Restricted") return "warning";
+  return "pass";
+};
+
 /** CSS color for a severity/state token (falls back to idle). */
 export const sevVar = (sev: string): string => SEV_COLOR[sev] || "var(--caos-idle)";
 

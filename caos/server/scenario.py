@@ -65,7 +65,7 @@ def validate_scenario(spec: ScenarioSpec) -> ScenarioSpec:
 
 
 # ── Demo (offline) translator ────────────────────────────────────────────────
-def _demo_translate(text: str) -> ScenarioSpec:
+def _demo_translate(text: str) -> ScenarioSpec:  # noqa: C901  # pre-existing keyword ladder; table-drive when reworked
     t = text.lower()
     s = ScenarioSpec(label=text.strip()[:60] or "Custom scenario")
     parts: list[str] = []
@@ -158,14 +158,12 @@ _SYSTEM = (
 
 
 async def _llm_translate(text: str) -> ScenarioSpec:
-    import anthropic
 
     settings = get_settings()
-    # Explicit timeout (SDK default is ~10 min) so a stuck translate can't pin the
-    # request lane open. See config.caos_llm_timeout_s.
-    client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
-    )
+    # Shared cached client (llm_client.anthropic_client): per-call construction
+    # re-paid TLS setup on every request and leaked unclosed httpx transports;
+    # the client itself carries max_retries=0 (PERF_AUDIT_2026-07-10 Finding 1).
+    client = llm_client.anthropic_client(settings)
     resp = await llm_client.create(
         client,
         lane="scenario:translate",

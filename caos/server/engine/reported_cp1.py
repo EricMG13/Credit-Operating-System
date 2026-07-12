@@ -42,12 +42,19 @@ _LEVERAGE_PATTERNS = (
     # Connector ("of"/"was"/"at") is OPTIONAL, and the metric→number gap may be a
     # bare space, a colon, or "ratio" — real releases write "net leverage 5.68x",
     # "net leverage: 5.68x", "net leverage ratio 5.68x", not only "leverage of N".
-    re.compile(r"(?:consolidated\s+)?(?:net\s+)?leverage(?:\s+ratio)?(?:\s+(?:of|was|at))?"
+    # Lookbehinds reject an explicitly NON-net basis: "gross leverage was 6.8x"
+    # appearing before the net figure was otherwise published AS net leverage
+    # (audit 2026-07-10 ENG-5). An unqualified "leverage ratio 5.68x" still matches.
+    re.compile(r"(?<!gross\s)(?<!secured\s)(?<!senior\s)(?<!lien\s)"
+               r"(?:consolidated\s+)?(?:net\s+)?leverage(?:\s+ratio)?(?:\s+(?:of|was|at))?"
                r"[\s:=]+(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
     re.compile(r"(\d+(?:\.\d+)?)\s*x\s+(?:consolidated\s+)?(?:net\s+)?leverage", re.IGNORECASE),
 )
 # A disclosed amount: currency + number (+ scale). period token captured if nearby.
-_AMOUNT = r"([£$€])\s?([\d,]+(?:\.\d+)?)\s*(billion|million|bn\b|m\b)?"
+# "thousand"/"k" are recognized scales — UK/IFRS statutory accounts state
+# "£963,400 thousand"; without the token the raw figure passed through as if
+# already in millions, a 10^3 mis-scale (audit 2026-07-10 ENG-4).
+_AMOUNT = r"([£$€])\s?([\d,]+(?:\.\d+)?)\s*(billion|million|thousand|bn\b|m\b|k\b)?"
 _EBITDA_AMOUNT = re.compile(r"adjusted\s+ebitda[^.\n]{0,40}?" + _AMOUNT, re.IGNORECASE)
 _TOTAL_REVENUE_AMOUNT = re.compile(r"total\s+revenue[^.\n]{0,80}?" + _AMOUNT, re.IGNORECASE)
 _REVENUE_AMOUNT = re.compile(r"(?:total\s+(?:service\s+)?)?revenue[^.\n]{0,40}?" + _AMOUNT, re.IGNORECASE)
@@ -107,10 +114,13 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
     if not m:
         return None
     cur, num_g, scale = m.group(1), m.group(2), (m.group(3) or "").lower()
-    # "revenue increased from £392m to £415m": the metric-anchored match lands on the
-    # PRIOR value (£392m, right after 'from'); the actual is the '... to £B' figure.
-    # Re-point to the next amount when this one is a 'from' comparative. (reported-scan)
-    if re.search(r"\bfrom\s*$", text[max(0, m.start(1) - 6): m.start(1)], re.IGNORECASE):
+    # "revenue increased from £392m to £415m" / "grew by £12.3m to £963.4m": the
+    # metric-anchored match lands on the PRIOR value or the CHANGE (right after
+    # 'from'/'by'); the actual level is the '... to £B' figure. Re-point to the next
+    # amount when this one is a from/by comparative — without the 'by' case the
+    # delta was published as the level, understating EBITDA/revenue 10-60x and
+    # silently collapsing the CP-3B recovery EV (audit 2026-07-10 ENG-2).
+    if re.search(r"\b(?:from|by)\s*$", text[max(0, m.start(1) - 6): m.start(1)], re.IGNORECASE):
         nxt = _AMOUNT_RE.search(text, m.end())
         if nxt and nxt.start() - m.end() <= 12 and \
                 re.search(r"\bto\s*$", text[max(0, nxt.start() - 5): nxt.start()], re.IGNORECASE):
@@ -122,6 +132,16 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
         return None
     if scale.startswith("b"):
         val *= 1000.0  # billion → million
+    elif scale in ("thousand", "k"):
+        val /= 1000.0  # thousands → million
+    elif not scale and val >= 1e7:
+        # No million/bn token AND a magnitude no in-millions figure reaches: this
+        # is an amount written in full units ("£1,562,300,000"), which must not
+        # pass through as if already in millions — a 10^6 mis-scale that would
+        # poison leverage, EV and reconciliation downstream. Smaller scale-less
+        # amounts stay as-is: they are "in millions" table rows ("Total Revenue
+        # £ 2,390.1", golden-pinned for VMO2).
+        val /= 1e6  # full units → millions
     period_m = _PERIOD.search(text[max(0, m.start() - 40): m.end() + 10])
     period = (period_m.group(1).upper() if period_m else "Reported")
     return round(val, 1), cur, period

@@ -16,4 +16,13 @@ paths = [
   '''Modular OS/.*''',
   '''\.agents/skills/.*''',
   '''\.claude/skills/.*''',
+  # pip-compile dependency lock: hundreds of sha256 wheel hashes. A hex digest
+  # that happens to begin "eaaa…" (or similar) false-positives vendor-token rules
+  # (e.g. square-access-token = EAAA + 60 alnum). These are package hashes, not
+  # secrets — the same high-entropy-noise rationale as the built static bundle.
+  '''caos/server/requirements\.lock''',
+  # E4 secret-log-hygiene test: sentinel values are DELIBERATELY secret-shaped
+  # (hex-ish suffixes) so the test proves a real leak would be caught — that's
+  # the point of the file, not an accident. Never real credentials (SECRETS.md).
+  '''caos/tests/server/test_secret_log_hygiene\.py''',
 ]

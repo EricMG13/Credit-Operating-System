@@ -7,7 +7,18 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-const CONCEPTS = ["/command", "/pipeline", "/deepdive", "/model", "/reports", "/monitor", "/research", "/query"];
+const CONCEPTS = [
+  "/command",
+  "/pipeline",
+  "/deepdive",
+  "/model",
+  "/reports",
+  "/monitor",
+  "/research",
+  "/query",
+  "/sector-rv",
+  "/sector",
+];
 
 function isEditable(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
@@ -53,7 +64,8 @@ export function ConceptHotkeys() {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       const dir = e.key === "ArrowRight" ? 1 : -1;
-      const cur = CONCEPTS.findIndex((c) => (pathRef.current || "").startsWith(c));
+      const path = pathRef.current || "";
+      const cur = CONCEPTS.findIndex((c) => path === c || path.startsWith(c + "/"));
       const next =
         cur === -1
           ? dir === 1

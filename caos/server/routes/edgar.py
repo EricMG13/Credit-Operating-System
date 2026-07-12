@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,8 +24,9 @@ import edgar
 import ingest
 import rate_limit
 from config import get_settings
-from database import Document, DocumentChunk, Issuer, get_db
+from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
+from tenancy import require_issuer
 
 router = APIRouter()
 
@@ -168,7 +169,8 @@ async def filing_exhibits(
 @router.post("/vault-exhibit", response_model=VaultExhibitResponse)
 async def vault_exhibit(
     body: VaultExhibitRequest,
-    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Fetch an EDGAR exhibit and vault it through the standard ingest path,
@@ -177,9 +179,8 @@ async def vault_exhibit(
     _edgar_rate_guard(caller)
     if body.run_mode.strip().lower() not in LEGAL_RUN_MODES:
         raise HTTPException(400, f"run_mode must be one of {sorted(LEGAL_RUN_MODES)}")
-    issuer = await db.get(Issuer, body.issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    # Gate on the issuer's team: no vaulting EDGAR exhibits into another team's issuer.
+    require_issuer(caller, await db.get(Issuer, body.issuer_id))
 
     try:
         content = await run_in_threadpool(edgar.fetch_exhibit, body.exhibit_url)
@@ -210,9 +211,27 @@ async def vault_exhibit(
     )
     db.add(doc)
     await db.flush()
-    for i, chunk in enumerate(chunks):
-        db.add(DocumentChunk(document_id=doc.id, seq=i, text=chunk))
+    if chunks:
+        import hashlib
+        from database import LineageEdge
+        for i, chunk in enumerate(chunks):
+            chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+            db_chunk = DocumentChunk(document_id=doc.id, seq=i, text=chunk, chunk_hash=chash)
+            db.add(db_chunk)
+            db.add(LineageEdge(
+                artifact_id=f"chunk:{db_chunk.id}",
+                parent_id=f"doc:{doc.id}",
+                transform="chunking",
+                transform_version="1.0"
+            ))
     await db.refresh(doc)
+    if chunks:
+        from engine.embeddings import embed_chunks_for_document
+        async def run_embed_task():
+            async with AsyncSessionLocal() as session:
+                await embed_chunks_for_document(session, doc.id)
+                await session.commit()
+        background_tasks.add_task(run_embed_task)
 
     return VaultExhibitResponse(
         document_id=doc.id,

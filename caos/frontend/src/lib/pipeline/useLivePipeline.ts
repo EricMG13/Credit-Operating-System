@@ -85,7 +85,10 @@ export function buildLiveSnapshot(run: RunSummaryDTO, cpx: ModuleDetailDTO | nul
       deps: (depsById.get(id) ?? []).filter((d) => statusById.has(d)),
       dur: 1,
       outcome,
-      event: `${id} ${m.module_name} — ${m.committee_status} · ${m.confidence}`,
+      // committee_status collapses to the confidence label verbatim when gated
+      // on Insufficient Information (server gate.py) — omit the redundant
+      // repeat rather than stutter "Insufficient Information · Insufficient Information".
+      event: `${id} ${m.module_name} — ${m.committee_status}` + (m.confidence !== m.committee_status ? ` · ${m.confidence}` : ""),
     };
   });
 

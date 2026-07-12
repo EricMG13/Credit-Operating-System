@@ -1,7 +1,5 @@
 // AUTO-PORTED from the Credit OS design bundle (shared/step-outputs-l1/l2/l3/l456.js).
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
-/* eslint-disable */
-
 import { PEER_CREDIT_METRIC_ROWS } from "./module-outputs";
 import type { OutSection, OutFlag } from "./module-outputs";
 

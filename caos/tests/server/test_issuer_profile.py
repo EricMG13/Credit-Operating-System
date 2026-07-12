@@ -74,6 +74,8 @@ def test_profile_after_run_populates(client):
     # Signals/coverage keys are always present after a complete run; values may be
     # None where a given module didn't surface them — the roll-up never errors.
     assert "recommendation" in body["signals"]
+    assert "rp_basket_musd" in body["signals"]      # covenant register (CP-4C)
+    assert "addback_utilization_pct" in body["signals"]
     assert "readiness_score" in body["coverage"]
 
     # New sections: business facts (CP-1A), sponsor (CP-2D), derived S/W — present
@@ -119,6 +121,33 @@ def test_issuer_created_by_stamped_from_identity_not_body(client):
         assert created["created_by"] == me["id"] != "spoofed-id"
     finally:
         client.post("/api/auth/logout")  # restore local-dev identity for later tests
+
+
+def test_profile_signals_covenant_register():
+    """CP-4C register terms flow into the signals roll-up; absent keys stay None."""
+    from routes.issuers import _profile_signals
+
+    class _M:
+        def __init__(self, rt):
+            self.runtime_output = rt
+
+    sig = _profile_signals({"CP-4C": _M({
+        "covenant_structure": "cov-lite",
+        "rp_basket_musd": 150.0,
+        "cross_default_musd": 50.0,
+        "addback_cap_pct": 0.25,
+        "addback_audit": {"utilization_pct": 112.0, "breach": True},
+    })})
+    assert sig["rp_basket_musd"] == 150.0
+    assert sig["cross_default_musd"] == 50.0
+    assert sig["addback_cap_pct"] == 0.25
+    assert sig["addback_utilization_pct"] == 112.0
+    assert sig["addback_breach"] is True
+
+    empty = _profile_signals({})
+    assert empty["rp_basket_musd"] is None
+    assert empty["addback_utilization_pct"] is None
+    assert empty["addback_breach"] is None
 
 
 def test_strengths_weaknesses_rules():

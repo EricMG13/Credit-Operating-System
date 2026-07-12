@@ -37,7 +37,7 @@ Blocks Committee Use | Restricts Committee Use | Blocks CP-DB / Database Ingesti
 ## 8 Audit Lanes
 1. Unsupported Claim | 2. Calculation | 3. Legal / Covenant | 4. Market / RV | 5. Cross-Module Consistency | 6. Evidence Trace | 7. Schema | 8. Export
 
-> **As shipped (CAOS engine).** Deterministic, always-on coverage = the severity gate (`engine/gate.py`) + claim→source lineage (`engine/lineage.py`, CP-5B) + per-module finding gates, covering lanes **2 (Calculation), 5 (Cross-Module Consistency), 6 (Evidence Trace)**. Lanes **1, 3, 4, 7, 8** (Unsupported Claim / Legal-Covenant / Market-RV / Schema / Export) run only under the **opt-in LLM council** (`engine/council.py`), which **requires an API key** and is off by default — with no key those lanes are *not assessed*, not *passed*.
+> **As shipped (CAOS engine).** Deterministic, always-on coverage = the severity gate (`engine/gate.py`) + claim→source lineage (`engine/lineage.py`, CP-5B) + per-module finding gates, emitting findings in lanes **1 (orphan claims), 2 (Calculation), 3 (Legal/Covenant), 6 (Evidence Trace), 7 (Schema)**. The **opt-in LLM council** (`engine/council.py`, API key required, off by default) adds lanes **2, 3, 4, 5**. **No deterministic lane-5 sweep exists** (only the leverage plausibility spot-check) and **lane 8 (Export) is assessed by nothing under any configuration** — treat unexercised lanes as *not assessed*, not *passed* (audit 2026-07-10 QA-5).
 
 ## Severity Escalation Triggers
 - **→ Critical:** Changes credit conclusion, investment recommendation, legal meaning, recovery ranking, economics, leverage, liquidity, FCF, maturity, refinancing, or contains fabricated/materially misleading claim.

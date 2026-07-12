@@ -9,8 +9,12 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
+import { useLiveRun } from "@/lib/engine/useLiveRun";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { getIssuer } from "@/lib/api";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { queryCapabilities, queryGraph } from "@/lib/api";
@@ -93,32 +97,39 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
     { id: "trace-source", text: "Trace the IC verdict to its sources", sub: "provenance walk" },
     ANALYST_MEMO_PROMPT,
   ],
+  "sector-rv": [
+    { id: "peer-set", text: "Map RV tails to closest credit peers", sub: "issuer graph · CP-1C" },
+    { id: "scatter", text: "Plot RV names against leverage and coverage", sub: "cross-issuer scatter" },
+    { id: "distribution", text: "Rank downside pressure in this sector", sub: "distribution" },
+    { id: "trace-source", text: "Trace RV conclusions to evidence", sub: "provenance walk" },
+    { id: "debate-digest", text: "Digest the relative-value debate", sub: "research synthesis" },
+  ],
 };
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname() || "";
   useEffect(() => {
-    // fallow-ignore-next-line complexity
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-        e.preventDefault();
-        if (pathname.startsWith("/query")) {
-          window.dispatchEvent(new Event("caos:query-focus"));
-        } else {
-          setOpen((v) => !v);
-        }
-      } else if (e.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    const onAskToggle = () => {
+    // One toggle for both entry points (⌘K and the header Ask button): the same
+    // gesture must do the same thing — on /query it focuses the query bar, else
+    // it toggles the modal. Two inline copies of this branch had already begun
+    // to drift-proof one path at a time.
+    const fire = () => {
       if (pathname.startsWith("/query")) {
         window.dispatchEvent(new Event("caos:query-focus"));
       } else {
         setOpen((v) => !v);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        fire();
+      } else if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    const onAskToggle = () => fire();
     window.addEventListener("keydown", onKey);
     window.addEventListener("caos:ask-toggle", onAskToggle);
     return () => {
@@ -143,6 +154,36 @@ function conceptFor(pathname: string): keyof typeof PROMPTS_BY_CONCEPT {
   const first = pathname.split("/").filter(Boolean)[0] || "command";
   return first in PROMPTS_BY_CONCEPT ? (first as keyof typeof PROMPTS_BY_CONCEPT) : "query";
 }
+
+// Issuer-scoped Ask: resolves the issuer from the route and grounds IssuerChat in
+// that issuer's OWN live run. For the reference deal it passes live=undefined so the
+// chat keeps the ATLF showcase fixtures; for a real issuer it passes the live run, so
+// the assistant answers from the issuer's own numbers (or the explicit "no run — don't
+// use Atlas Forge" branch in caosChatContext) instead of fabricating Atlas Forge's
+// figures. Split into its own component so useLiveRun is unconditional and only
+// mounts when the issuer-scoped Ask is actually open.
+function IssuerScopedAsk({ onClose }: { onClose: () => void }) {
+  const searchParams = useSearchParams();
+  const issuerId = searchParams?.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const live = useLiveRun(issuerId);
+  const [issuerName, setIssuerName] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (isReference) { setIssuerName(undefined); return; }
+    let stale = false;
+    getIssuer(issuerId).then((d) => { if (!stale) setIssuerName(d.name); }).catch(() => {});
+    return () => { stale = true; };
+  }, [issuerId, isReference]);
+  return (
+    <IssuerChat
+      tab=""
+      onClose={onClose}
+      live={isReference ? undefined : live}
+      issuerName={issuerName}
+    />
+  );
+}
+
 
 // fallow-ignore-next-line complexity
 export function AskLauncher() {
@@ -180,12 +221,11 @@ export function AskLauncher() {
   if (scope === "deepdive") return trigger;
   if (!open) return trigger;
 
-  // Model and other issuer-scoped concepts → the ATLF issuer Q&A slide-over.
-  // No specific module is in view from this generic launcher, so pass an empty
-  // tab: IssuerChat then omits the "currently viewing <module>" line instead of
-  // asserting a fabricated one (was hardcoded "M-118" on every route — N4).
+  // Model and other issuer-scoped concepts → the issuer Q&A slide-over, grounded in
+  // the CURRENT issuer's live run (never the ATLF fixture, unless this IS the
+  // reference deal). Only mounts when open, so useLiveRun fires only on demand. (F11)
   if (scope === "issuer") {
-    return <>{trigger}<IssuerChat tab="" onClose={() => setOpen(false)} /></>;
+    return <>{trigger}<IssuerScopedAsk onClose={() => setOpen(false)} /></>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.
@@ -292,17 +332,14 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex justify-end bg-black/60 transition-opacity duration-200"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} align="end" className="transition-opacity duration-200">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Ask with Query"
         onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full transition-all duration-300 flex flex-col overflow-hidden shadow-2xl ${
+        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full transition-all duration-300 flex flex-col overflow-hidden ${
           hasQueried
             ? "max-w-4xl"
             : "max-w-md p-4 gap-3.5"
@@ -623,7 +660,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       </div>
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
-    </div>
+    </ModalBackdrop>
   );
 }
 

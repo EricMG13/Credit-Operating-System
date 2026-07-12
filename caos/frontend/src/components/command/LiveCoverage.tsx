@@ -11,19 +11,28 @@ import type { PortfolioRowDTO } from "@/lib/api";
 import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
+import { fmtMult } from "@/lib/format";
 
-const fmtX = (v: number | undefined) =>
-  typeof v === "number" && Number.isFinite(v) ? v.toFixed(1) + "x" : "—";
+// Shared formatter (lib/format.fmtMult): same 1-dp + "x" + em-dash fallback;
+// the local copy could drift from every other multiple on the desk. Exported:
+// the IssuerStrip live variant formats the same run metrics.
+export const fmtX = (v: number | undefined) =>
+  typeof v === "number" && Number.isFinite(v) ? fmtMult(v) : "—";
 
 // Fragility / posture meaning never rides on colour alone — the word travels too.
-const FRAGILITY_COLOR: Record<string, string> = {
+// Exported: the IssuerStrip live variant renders the same fields with the same coding.
+export const FRAGILITY_COLOR: Record<string, string> = {
   HIGH: "var(--caos-critical)", MODERATE: "var(--caos-warning)", LOW: "var(--caos-success)",
 };
-const RV_COLOR: Record<string, string> = {
+export const RV_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", NEUTRAL: "var(--caos-muted)", UNDERWEIGHT: "var(--caos-critical)",
 };
-const QA_COLOR: Record<string, string> = {
-  Pass: "var(--caos-success)", "Ready with Limitations": "var(--caos-warning)",
+// Keys are the server's qa_status vocabulary (engine/gate.py: "Not Reviewed" /
+// "Passed" / "Restricted" / "Blocked") — the previous keys ("Pass", "Ready with
+// Limitations") never matched, so a Restricted run rendered the same muted grey
+// as a Passed one on this clearance surface.
+export const QA_COLOR: Record<string, string> = {
+  Passed: "var(--caos-success)", Restricted: "var(--caos-warning)",
   Blocked: "var(--caos-critical)",
 };
 
@@ -73,10 +82,9 @@ export function LiveCoverage({
     ["Issuer", "issuer"], ["Sector", "sector"], ["NetLev", "netlev"], ["IntCov", "intcov"],
     ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
   ] as const;
-
   return (
-    <div className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
-      <div className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
+    <div role="grid" className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
+      <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
         {heads.map(([h, key], i) => (
           <FilterHeader
             key={key}
@@ -86,6 +94,7 @@ export function LiveCoverage({
             getValue={vals[key]}
             selected={filters[key]}
             onChange={setFilter}
+            asHeaderCell
             className={th + ([2, 3].includes(i) ? " text-right" : "")}
           >
             {h}
@@ -97,11 +106,14 @@ export function LiveCoverage({
           {visibleRows.map((r) => {
             const rv = r.rv_recommendation;
             const frag = r.downside_fragility;
-            const isSelected = selected === r.ticker;
+            // Select by ticker, falling back to issuer_id: a live row without a
+            // ticker was previously unselectable (silent dead-end on click).
+            const selectKey = r.ticker ?? r.issuer_id;
+            const isSelected = selected === selectKey;
 
             const handleClick = () => {
-              if (r.ticker && onSelect) {
-                onSelect(r.ticker);
+              if (onSelect) {
+                onSelect(selectKey);
               }
             };
 
@@ -115,11 +127,11 @@ export function LiveCoverage({
             return (
               <div
                 key={r.issuer_id}
-                role="button"
+                role="row"
                 tabIndex={0}
                 onClick={handleClick}
                 onKeyDown={handleKeyDown}
-                aria-pressed={isSelected}
+                aria-selected={isSelected}
                 aria-label={`${r.ticker || ""} ${r.name || ""} details`}
                 className={
                   COLS +
@@ -129,20 +141,21 @@ export function LiveCoverage({
                     : "hover:bg-caos-panel/30 text-caos-text")
                 }
               >
-                <span className="flex items-center gap-1.5 min-w-0">
+                <span role="gridcell" className="flex items-center gap-1.5 min-w-0">
                   <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
                   <span className="text-caos-text truncate text-caos-md">{r.name}</span>
                 </span>
-                <span className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
-                <span className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
-                <span className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
-                <span className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
+                <span role="gridcell" className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
+                <span role="gridcell" className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>
+                <span role="gridcell" className="tabular text-right">{fmtX(r.metrics.interest_coverage)}</span>
+                <span role="gridcell" className="tabular text-caos-xs tracking-wide" style={{ color: rv ? RV_COLOR[rv] ?? "var(--caos-text)" : "var(--caos-muted)" }}>
                   {rv ?? "—"}{typeof r.rv_percentile === "number" ? ` · p${Math.round(r.rv_percentile)}` : ""}
                 </span>
-                <span className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
+                <span role="gridcell" className="tabular text-caos-xs tracking-wide" style={{ color: frag ? FRAGILITY_COLOR[frag] : "var(--caos-muted)" }}>
                   {frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—"}
                 </span>
                 <span
+                  role="gridcell"
                   className="tabular text-caos-2xs px-1 py-px rounded border whitespace-nowrap justify-self-start"
                   style={{ color: QA_COLOR[r.qa_status] ?? "var(--caos-muted)", borderColor: QA_COLOR[r.qa_status] ?? "var(--caos-border)" }}
                   title={`Committee: ${r.committee_status}`}

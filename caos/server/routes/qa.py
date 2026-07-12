@@ -49,7 +49,7 @@ class QaFlagOut(BaseModel):
 @router.post("/flags", response_model=QaFlagOut, status_code=201)
 async def create_flag(
     body: QaFlagCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     if not rate_limit.hit(f"qa-flags:{caller.id}", max_attempts=_FLAGS_MAX_PER_MINUTE, window_seconds=60):
@@ -74,7 +74,7 @@ async def list_flags(
     step_ref: Optional[str] = Query(default=None, max_length=120),
     issuer_id: Optional[str] = Query(default=None, max_length=36),
     run_id: Optional[str] = Query(default=None, max_length=36),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     _caller: CallerIdentity = Depends(get_identity),
 ):
     q = select(AnalystQaFlag).order_by(AnalystQaFlag.created_at.desc()).limit(_LIST_CAP)

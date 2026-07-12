@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     analyst_signup_code: str = "131113"
     session_secret: str = "dev-insecure-session-secret"
 
+    # Multi-team tenancy (identity.py / tenancy.py). OFF by default: the platform is a
+    # single shared coverage desk (every analyst sees every issuer/run/portfolio),
+    # safe because the edge SSO admits one team. Set CAOS_TENANCY_ENABLED=true only
+    # when the deployment admits MORE THAN ONE team; every issuer-derived read/write is
+    # then scoped to the caller's Analyst.team_id (issuers with a NULL team_id stay
+    # shared/global). Assign teams by setting Analyst.team_id / Issuer.team_id.
+    caos_tenancy_enabled: bool = False
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
@@ -70,6 +78,10 @@ class Settings(BaseSettings):
     # the model_tier_* defaults below (any slash-id routes to OpenRouter); there are
     # no separate per-model fields. z-ai/glm-5.2 is reachable too — point a tier at it.
     openrouter_api_key: str = ""
+    # Override for fault-injection / offline testing (caos/tests/stress/
+    # mock_anthropic.py) — mirrors how the Anthropic SDK reads ANTHROPIC_BASE_URL.
+    # No trailing slash; engine/openrouter.py appends /chat/completions.
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # Per-request LLM call timeout (seconds). The Anthropic SDK's default request
     # timeout is ~10 minutes, so a stuck inference would otherwise pin a request
@@ -101,6 +113,34 @@ class Settings(BaseSettings):
     model_tier_fast: str = "deepseek/deepseek-v4-flash"   # LITE heavy; BALANCED/MAX light; MAX extract
     model_tier_strong: str = "deepseek/deepseek-v4-pro"   # BALANCED heavy
     model_tier_top: str = "claude-opus-4-8"               # MAX heavy
+
+    embedding_model: str = "text-embedding-004"
+    embedding_dim: int = 768
+
+    # LLM re-rank (engine/rerank.py) — the precision half of the dropped-claim-rate
+    # alarm fix. Re-ranks the top-`rerank_window` retrieved chunks AFTER RRF fusion,
+    # BEFORE context packing, so irrelevant chunks stop outranking relevant ones in
+    # the pack. Policy: NO local model downloads — the re-rank runs as one batched
+    # LLM call through the same API seam as every other engine lane
+    # (engine/llm_client.create), on a model picked by the tier system below. Off
+    # by default: it costs tokens per query and needs a provider key. Any failure
+    # (setting off, no key, API error, malformed JSON, score-count mismatch)
+    # degrades to passthrough, so the query lane never crashes on a reranker
+    # hiccup. Env: RERANK_ENABLED, RERANK_MODEL_TIER, RERANK_WINDOW.
+    rerank_enabled: bool = False
+    # Which model tier the re-rank LLM runs on (cheap|fast|strong|top) — resolved
+    # to a concrete model id by engine/presets.rerank_model(), with the same
+    # provider-key fallback as the per-mode lanes. The re-rank is a retrieval
+    # step (relevance scoring), not a reasoning lane, so it does NOT ride the
+    # analyst's mode table — it pins a tier. Default "cheap" (DeepSeek-v4-flash /
+    # Haiku): relevance scoring is a light task and the window is small (~20).
+    # Raise to "strong"/"top" for harder judgments at linear token cost.
+    rerank_model_tier: str = "cheap"
+    # How many of the RRF-fused hits to feed the re-rank LLM (latency + token
+    # bound). The LLM re-scores these and we keep the top `k` passed by the
+    # caller. 20 = one batched call over a small pack; raising it lifts recall
+    # at linear token cost.
+    rerank_window: int = 20
 
     # CP-5C semantic committee review (engine/council.py). An ensemble of
     # adversarial reviewer "seats" that emit CP-5 findings the deterministic
@@ -166,13 +206,35 @@ class Settings(BaseSettings):
 
     # Async run executor.
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
+    caos_run_queue_limit: int = 20       # max runs in queued/running status before rejecting
+    caos_run_per_analyst_limit: int = 3   # max concurrent/queued runs allowed per analyst
     # Max durable Deep Research jobs running at once (research_executor.py). POST
     # returns immediately and fires a background task, so without a ceiling a
     # sustained submission rate would accumulate unbounded multi-minute web-search
     # runs; jobs past the cap queue on a semaphore rather than fan out.
     caos_research_concurrency: int = 2
+    # Durable research lease/recovery (research_executor.py QueueWorker on Postgres),
+    # mirroring the run lease. Generous window — deep research runs several minutes; a
+    # streamed run can't resume mid-flight, so a re-claim RE-EXECUTES from the brief.
+    caos_research_lease_seconds: int = 1800
+    caos_research_max_attempts: int = 2      # re-claims before an orphan is reaped to failed
+    caos_research_poll_seconds: float = 2.0  # worker loop tick
+    # Durable Issuer Research Report lease/recovery (research_report_executor.py
+    # QueueWorker on Postgres), mirroring the research-job lease. Report synthesis is
+    # one LLM call (minutes), not the multi-turn deep-research budget — shorter lease.
+    # Concurrency cap reuses caos_research_concurrency (both are LLM-synthesis jobs).
+    caos_report_lease_seconds: int = 600
+    caos_report_max_attempts: int = 3
+    caos_report_poll_seconds: float = 2.0    # worker loop tick
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
+
+    # Uploads are rate-limited per caller (20/min) but not concurrency-capped — each
+    # in-flight upload buffers the whole file (up to max_upload_mb) through read, AV
+    # scan, and parse. Without a ceiling, many callers uploading large files at once
+    # scales resident memory with the sum of their sizes. Uploads past the cap queue
+    # on a semaphore rather than all buffer at once (mirrors caos_research_concurrency).
+    caos_upload_concurrency: int = 2
     caos_run_poll_seconds: float = 1.0   # worker loop tick
     # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
     # so convert at that call site.)
@@ -246,3 +308,37 @@ def is_deployed(settings: "Settings | None" = None) -> bool:
     """
     s = settings or get_settings()
     return s.environment != "development"
+
+
+def require_sane_environment(settings: "Settings | None" = None) -> None:
+    """Belt-and-suspenders on the single is_deployed() predicate the whole auth gate
+    pivots on: if the operator has provisioned any production secret, ENVIRONMENT must
+    not be the dev sentinel — otherwise is_deployed() is False and the dev identity
+    fallback + public dev defaults silently re-activate on a real deployment. Raises
+    RuntimeError (fail-closed) on that contradiction."""
+    s = settings or get_settings()
+    if s.environment == "development" and (
+        s.edge_proxy_secret
+        or s.session_secret not in ("", "dev-insecure-session-secret")
+    ):
+        raise RuntimeError(
+            "ENVIRONMENT=development but a production secret (EDGE_PROXY_SECRET / "
+            "SESSION_SECRET) is set — refusing to boot with the dev identity fallback "
+            "and public dev defaults active. Set ENVIRONMENT to a non-dev value."
+        )
+
+
+def require_postgres_in_production(settings: "Settings | None" = None) -> None:
+    """Fail closed on a deployed boot pointed at SQLite: deploy/docker-compose.yml
+    hardcodes Postgres — the run executor's FOR UPDATE SKIP LOCKED lease/reap path
+    (run_executor.get_executor) only activates on Postgres, and SQLite's single-
+    writer lock has no app-level retry, so it degrades under concurrent runs to
+    'database is locked' rather than failing loudly at boot where the mistake is
+    actually made. Raises RuntimeError (fail-closed) when deployed on SQLite."""
+    s = settings or get_settings()
+    if is_deployed(s) and not s.database_url.startswith("postgresql"):
+        raise RuntimeError(
+            "DATABASE_URL must point at Postgres in production (deploy/docker-compose.yml "
+            "already does: postgresql+asyncpg://...) — SQLite has no multi-writer support "
+            "the async run executor relies on. Set DATABASE_URL to the Postgres DSN."
+        )

@@ -6,9 +6,10 @@
 // the page. toErrorMessage is the mandatory parse — this pins that a
 // 422-shaped axios error renders as a string.
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
+import { AxiosError } from "axios";
 
-import { toErrorMessage } from "./api";
+import { api, toErrorMessage, getResearchStatus, edgarVaultUrls } from "./api";
 
 const err422 = {
   response: {
@@ -45,5 +46,98 @@ describe("toErrorMessage", () => {
     expect(toErrorMessage(undefined, "fallback")).toBe("fallback");
     // dict without a usable .message still degrades to the fallback, never an object
     expect(toErrorMessage({ response: { data: { detail: { code: 7 } } } }, "fallback")).toBe("fallback");
+  });
+});
+
+// M-11 regression: getResearchStatus must mirror _pollResearch's 404-only
+// "gone" check. Before the fix, a bare `catch { return {state:'gone'} }`
+// misreported ANY failure (network blip, 500, timeout) as a permanently
+// deleted job — a real correctness bug since "gone" drives a different UI
+// path (silently drop the stale id) than a transient/unknown failure should.
+describe("getResearchStatus (M-11)", () => {
+  const origAdapter = api.defaults.adapter;
+  afterEach(() => {
+    api.defaults.adapter = origAdapter;
+  });
+
+  const rejectWith = (status: number | undefined) => (config: unknown) =>
+    Promise.reject(
+      new AxiosError(
+        "boom",
+        status === undefined ? "ERR_NETWORK" : "ERR_BAD_REQUEST",
+        config as never,
+        null,
+        status === undefined
+          ? undefined
+          : ({ status, statusText: "err", headers: {}, config: config as never, data: null } as never),
+      ),
+    );
+
+  it("returns state:'gone' on an actual 404", async () => {
+    api.defaults.adapter = rejectWith(404) as never;
+    await expect(getResearchStatus("job-1")).resolves.toEqual({ state: "gone" });
+  });
+
+  it("does NOT return state:'gone' on a 500 — surfaces it as an error instead", async () => {
+    api.defaults.adapter = rejectWith(500) as never;
+    const result = await getResearchStatus("job-1").catch((e) => ({ threw: true, e }));
+    expect(result).not.toEqual({ state: "gone" });
+    expect((result as { threw?: boolean }).threw).toBe(true);
+  });
+
+  it("does NOT return state:'gone' on a network error with no response — surfaces it as an error instead", async () => {
+    api.defaults.adapter = rejectWith(undefined) as never;
+    const result = await getResearchStatus("job-1").catch((e) => ({ threw: true, e }));
+    expect(result).not.toEqual({ state: "gone" });
+    expect((result as { threw?: boolean }).threw).toBe(true);
+  });
+});
+
+// M-12 regression: a partial batch (some URLs succeed, some don't) used to
+// silently drop which ones failed — the caller could only see the successes,
+// with zero signal that 2 of 5 pasted URLs never made it in.
+describe("edgarVaultUrls (M-12)", () => {
+  const origAdapter = api.defaults.adapter;
+  afterEach(() => {
+    api.defaults.adapter = origAdapter;
+  });
+
+  const byUrl = (behavior: Record<string, "ok" | number>) => (config: { data?: string }) => {
+    const body = JSON.parse(config.data || "{}") as { exhibit_url: string };
+    const outcome = behavior[body.exhibit_url];
+    if (outcome === "ok") {
+      return Promise.resolve({
+        data: {
+          document_id: `d-${body.exhibit_url}`, storage_key: "k", doc_type: "EDGAR Exhibit",
+          run_mode: "legal", chunks_created: 1, provenance: "primary · vaulted", message: "ok",
+        },
+        status: 200, statusText: "OK", headers: {}, config: config as never,
+      });
+    }
+    return Promise.reject(
+      new AxiosError("boom", "ERR_BAD_REQUEST", config as never, null,
+        { status: outcome as number, statusText: "err", headers: {}, config: config as never, data: null } as never),
+    );
+  };
+
+  it("all URLs succeed: ok has all, failed is empty", async () => {
+    api.defaults.adapter = byUrl({ "u/a": "ok", "u/b": "ok" }) as never;
+    const res = await edgarVaultUrls("i1", "u/a,u/b");
+    expect(res.ok.length).toBe(2);
+    expect(res.failed).toEqual([]);
+  });
+
+  it("partial failure: ok has the successes, failed names the rest with a reason", async () => {
+    api.defaults.adapter = byUrl({ "u/a": "ok", "u/b": 404 }) as never;
+    const res = await edgarVaultUrls("i1", "u/a,u/b");
+    expect(res.ok.length).toBe(1);
+    expect(res.failed).toHaveLength(1);
+    expect(res.failed[0].url).toBe("u/b");
+    expect(res.failed[0].reason).toBeTruthy();
+  });
+
+  it("all URLs fail: still throws (unchanged all-fail behavior)", async () => {
+    api.defaults.adapter = byUrl({ "u/a": 503, "u/b": 503 }) as never;
+    await expect(edgarVaultUrls("i1", "u/a,u/b")).rejects.toBeTruthy();
   });
 });

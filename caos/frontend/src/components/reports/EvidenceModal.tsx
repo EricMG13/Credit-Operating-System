@@ -7,6 +7,7 @@
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { CloseButton } from "@/components/shared/CloseButton";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { DOCS, DEBATE } from "@/lib/reports/deal";
 import { MODULE_OUTPUTS } from "@/lib/deepdive/module-outputs";
@@ -119,7 +120,7 @@ function EvShell({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -137,7 +138,7 @@ function EvShell({
         </div>
         {children}
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -235,7 +236,9 @@ export function EvidenceModal({
   // Prefer the run's own evidence. Fall back to the seeded demo map ONLY for the
   // reference deal; for a live run a missing id is unresolved, never the seeded
   // ATLF excerpt (cross-issuer "verified" leak).
-  const ev = liveEv || isLiveRun ? undefined : EVIDENCE[id];
+  // Parenthesized on purpose: when liveEv exists the early return below renders it;
+  // `ev` only matters for the seeded-vs-unresolved split on non-live lookups.
+  const ev = (liveEv || isLiveRun) ? undefined : EVIDENCE[id];
   const [chunkText, setChunkText] = useState<string | null>(null);
   const [chunkErr, setChunkErr] = useState(false);
   const chunkId = liveEv?.document_chunk_id ?? null;
@@ -258,7 +261,7 @@ export function EvidenceModal({
   const cites = findCitations(id, reports);
   const confColor = ev.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)";
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center p-6" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose} padded>
       <div
         ref={panelRef}
         role="dialog"
@@ -371,6 +374,6 @@ export function EvidenceModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

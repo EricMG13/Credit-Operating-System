@@ -37,10 +37,34 @@ export const DEFAULT_PREFS: ResearchPrefs = {
 
 const KEY = "caos.research.prefs";
 
+const AI_MODES: readonly AiMode[] = ["max", "standard", "lite"];
+const MODES: readonly ResearchPrefs["mode"][] = ["sector", "issuer"];
+
+// Per-field validation against DEFAULT_PREFS's shape — a malformed, stale-schema,
+// or hand-edited localStorage value must never inject a wrong-typed field into the
+// merged prefs (downstream code trusts this shape without re-checking it). Any
+// field that's missing or the wrong type falls back to its own default rather than
+// failing the whole load.
+function sanitizePrefs(raw: unknown): ResearchPrefs {
+  const r = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    ai_mode: AI_MODES.includes(r.ai_mode as AiMode) ? (r.ai_mode as AiMode) : DEFAULT_PREFS.ai_mode,
+    mode: MODES.includes(r.mode as ResearchPrefs["mode"])
+      ? (r.mode as ResearchPrefs["mode"])
+      : DEFAULT_PREFS.mode,
+    audience: typeof r.audience === "string" ? r.audience : DEFAULT_PREFS.audience,
+    decision: typeof r.decision === "string" ? r.decision : DEFAULT_PREFS.decision,
+    timeframe: typeof r.timeframe === "string" ? r.timeframe : DEFAULT_PREFS.timeframe,
+    criteria: typeof r.criteria === "string" ? r.criteria : DEFAULT_PREFS.criteria,
+  };
+}
+
 export function loadPrefs(): ResearchPrefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
-    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+    const stored = localStorage.getItem(KEY);
+    if (!stored) return DEFAULT_PREFS;
+    return sanitizePrefs(JSON.parse(stored));
   } catch {
     return DEFAULT_PREFS;
   }

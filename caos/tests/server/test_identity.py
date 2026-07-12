@@ -226,7 +226,7 @@ async def test_profile_cookie_ignored_when_sso_principal_differs(monkeypatch):
     from types import SimpleNamespace
 
     ident = _prod_settings(monkeypatch, edge_proxy_secret="s3cr3t", session_secret="sek")
-    alice = SimpleNamespace(id="alice-id", name="Alice", email="alice@firm.com", token_version=0)
+    alice = SimpleNamespace(id="alice-id", name="Alice", email="alice@firm.com", token_version=0, team_id=None)
     token = ident.make_session_token(
         {"id": "alice-id", "name": "Alice", "email": "alice@firm.com", "v": 0, "exp": int(time.time()) + 60}, "sek")
     db = _FakeDB(alice)

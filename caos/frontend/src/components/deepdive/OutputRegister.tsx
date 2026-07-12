@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { FlagToQa } from "@/components/shared/FlagToQa";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { MODULE_STEPS, STEP_STATUS_TEXT, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -90,37 +91,92 @@ export function OutputRegister({
   );
 }
 
+type StepCard = {
+  s: StepRow;
+  data: (typeof STEP_OUTPUTS)[string] | undefined;
+  narr: (typeof STEP_NOTES)[string] | undefined;
+};
+type RenderCard =
+  | { kind: "single"; card: StepCard }
+  | { kind: "group"; key: string; title: string; sev: string; cards: StepCard[] };
+
+function stepSev(s: StepRow): string {
+  return s[2] === "gap" ? "critical" : (s[2] || "ok");
+}
+
+function cardPrefix(c: StepCard): string {
+  const title = c.data?.sections[0]?.title || c.s[1] || "Untitled step";
+  return title.split("·")[0].trim() || title;
+}
+
+function reportCards(cards: StepCard[]): RenderCard[] {
+  const groups = new Map<string, StepCard[]>();
+  cards.forEach((card) => {
+    const key = stepSev(card.s) + ":" + cardPrefix(card);
+    groups.set(key, [...(groups.get(key) || []), card]);
+  });
+  const out: RenderCard[] = [];
+  groups.forEach((group, key) => {
+    if (group.length >= 3) {
+      out.push({ kind: "group", key, title: cardPrefix(group[0]), sev: stepSev(group[0].s), cards: group });
+    } else {
+      group.forEach((card) => out.push({ kind: "single", card }));
+    }
+  });
+  return out;
+}
+
 /* ---------- inline workflow-step outputs ----------
    Surfaces the per-step analytical output that the register otherwise gates
-   behind a modal. Both modes pack newspaper-style — cards flow top→bottom and
-   pack tight, so empty space only ever appears at the bottom of the last column.
-   The only difference is the column count:
-     base  — capped at 4 columns (column-count), each stretched to fill; fewer on
-             narrow panes.
-     dense — as many ~360px columns as the pane fits (maximum density).
-   Each card clips its own overflow (overflow-x-auto + min-w-0) so a wide table
-   scrolls inside the card instead of spilling across columns. */
-export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: string; onOpenEvidence: (id: string) => void; mode?: "base" | "dense" }) {
+   behind a modal. Summary/report cap at 4 columns and consolidate repeated
+   same-prefix/status cards; summary keeps only the narrative step summary.
+   Dense keeps every card unconsolidated. */
+export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: string; onOpenEvidence: (id: string) => void; mode?: "summary" | "report" | "dense" }) {
   const steps = MODULE_STEPS[id];
   if (!steps) return null;
   const cards = steps
     .map((s) => ({ s, data: STEP_OUTPUTS[id + ":" + s[1]], narr: STEP_NOTES[id + ":" + s[1]] }))
     .filter((c) => c.data || c.narr);
   if (!cards.length) return null;
+  const isSummary = mode === "summary";
   // column-width is a minimum; multicol stretches the columns to fill the pane.
-  // base also sets column-count to cap at 4 even on an ultrawide display.
-  const containerStyle: React.CSSProperties = mode === "base"
+  // report also sets column-count to cap at 4 even on an ultrawide display.
+  const containerStyle: React.CSSProperties = mode !== "dense"
     ? { columns: "280px 4", columnGap: 8 }
     : { columns: "360px", columnGap: 8 };
   const cardCls = "rounded border border-caos-border bg-caos-panel/40 p-2 flex flex-col gap-2 overflow-x-auto min-w-0 break-inside-avoid mb-2";
+  const visibleCards = mode !== "dense" ? reportCards(cards) : cards.map((card) => ({ kind: "single" as const, card }));
   return (
     <div className="flex flex-col gap-2">
       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-0.5">
-        {id} workflow step outputs · detailed output for {cards.length} of {steps.length} steps
+        {isSummary
+          ? `${id} workflow step summary · ${cards.length} of ${steps.length} steps with notes`
+          : `${id} workflow step outputs · detailed output for ${cards.length} of ${steps.length} steps`}
       </div>
       <div style={containerStyle}>
-        {cards.map(({ s, data, narr }, i) => {
-          const sev = s[2] === "gap" ? "critical" : (s[2] as string);
+        {visibleCards.map((item, i) => {
+          if (item.kind === "group") {
+            return (
+              <div key={item.key} className={cardCls}>
+                <div className="flex items-center gap-2 px-0.5">
+                  <Dot sev={item.sev} />
+                  <span className="text-caos-md font-semibold text-caos-text leading-snug">{item.title}</span>
+                  <span className="tabular text-caos-2xs text-caos-muted ml-auto">{item.cards.length} steps consolidated</span>
+                </div>
+                <div className="text-caos-md text-caos-text/90 leading-relaxed px-0.5 flex flex-col gap-1">
+                  {item.cards.map(({ s, narr }, j) => (
+                    <div key={j}>
+                      <span className="tabular text-caos-2xs text-caos-muted mr-1">{s[0] !== "—" ? s[0] : String(j + 1).padStart(2, "0")}</span>
+                      {narr ? narr.body : s[1]}
+                      {narr?.ev && narr.ev.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          }
+          const { s, data, narr } = item.card;
+          const sev = stepSev(s);
           return (
             <div key={i} className={cardCls}>
               <div className="flex items-center gap-2 px-0.5">
@@ -134,7 +190,7 @@ export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: str
                   {narr.ev && narr.ev.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</span> : null}
                 </div>
               ) : null}
-              {data ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : null}
+              {data && !isSummary ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : null}
             </div>
           );
         })}
@@ -182,7 +238,7 @@ export function StepOutputModal({
   const sevKey = status === "gap" ? "critical" : status;
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <div
         ref={panelRef}
         role="dialog"
@@ -261,6 +317,6 @@ export function StepOutputModal({
           </div>
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

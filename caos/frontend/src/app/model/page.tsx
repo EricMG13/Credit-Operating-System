@@ -7,9 +7,9 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import axios from "axios";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
@@ -26,6 +26,9 @@ import { buildReports } from "@/lib/reports/builders";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import Link from "next/link";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 
@@ -105,9 +108,15 @@ function ModelBuilder() {
   // True when a DB-saved model exists but the restore fetch failed (network/500):
   // the analyst is looking at the local draft and must be told, with a retry.
   const [restoreError, setRestoreError] = useState(false);
+  const [restoreNonce, setRestoreNonce] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // True when a save was rejected because this issuer's model was saved
+  // elsewhere since it was last loaded here (another tab, same analyst) —
+  // distinct from saveError so the recovery affordance (reload) can differ
+  // from a generic failure (retry the same save).
+  const [saveConflict, setSaveConflict] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [armReset, setArmReset] = useState(false);
   const savedSnapshot = useRef<string | null>(null);
@@ -129,6 +138,10 @@ function ModelBuilder() {
   const ovKey = "caos-d-overrides:" + issuerId;
 
   useEffect(() => {
+    // Cancel-safe: a slow getSavedModel for the PRIOR issuer must not land on the
+    // new issuer's grid (and then get persisted under it) when the analyst navigates
+    // A -> B mid-fetch. (audit F1)
+    let stale = false;
     // locals track what was actually loaded so the dirty-baseline snapshot below
     // reflects restored state, not the stale render closure.
     let lo: Overrides = {};
@@ -149,6 +162,7 @@ function ModelBuilder() {
     savedSnapshot.current = serializeSavable(la, lo, lc);
     setRestoreError(false);
     getSavedModel(issuerId).then((saved) => {
+      if (stale) return;
       const parsed = parseSavedPayload(saved);
       if (!parsed) return;
       const { o, a, c, updatedAt } = parsed;
@@ -158,25 +172,18 @@ function ModelBuilder() {
       setSavedAt(updatedAt);
       // re-baseline the dirty flag at the just-restored DB state
       savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-    }).catch(() => setRestoreError(true));
+    }).catch(() => { if (!stale) setRestoreError(true); });
     setHydrated(true);
+    return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issuerId, ovKey, isReference]);
-  // Retry a failed DB-model restore. Runs post-hydration, so current state is the
-  // local draft — use it as the re-baseline fallback for any field the payload omits.
-  const retryRestore = () => {
-    setRestoreError(false);
-    getSavedModel(issuerId).then((saved) => {
-      const parsed = parseSavedPayload(saved);
-      if (!parsed) return;
-      const { o, a, c, updatedAt } = parsed;
-      if (o) setOverrides(o);
-      if (a) setAssumptions(a);
-      if (c) setCollapsedRows(c);
-      setSavedAt(updatedAt);
-      savedSnapshot.current = serializeSavable(a ?? assumptions, o ?? overrides, c ?? collapsedRows);
-    }).catch(() => setRestoreError(true));
-  };
+  }, [issuerId, ovKey, isReference, restoreNonce]);
+  // Retry a failed DB-model restore by re-running the guarded hydrate effect above —
+  // the retry then inherits the same SEC-H1 stale-flag. (A bespoke getSavedModel here
+  // had no stale guard, so a retry left in-flight across an issuer switch landed A's
+  // model on B's state and persisted it under B's keys — the exact H-1 race, on the
+  // retry path. The local draft the effect re-reads from storage equals current state:
+  // the persist effects below write through on every change once hydrated.)
+  const retryRestore = () => setRestoreNonce((n) => n + 1);
   // persist only after restore — writing earlier clobbers stored state with defaults
   useEffect(() => { if (hydrated) try { localStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);
@@ -290,6 +297,7 @@ function ModelBuilder() {
   const saveCurrentModel = () => {
     setSaving(true);
     setSaveError(false);
+    setSaveConflict(false);
     return saveIssuerModel(issuerId, {
       version: 1,
       assumptions,
@@ -297,13 +305,16 @@ function ModelBuilder() {
       collapsedRows: [...collapsedRows],
       view: { showQuarters, showAssumptions, showScenarios },
       model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
-    })
+    }, savedAt)
       .then((r) => {
         setSavedAt(r.updated_at);
         // re-baseline the dirty flag to the just-saved state
         savedSnapshot.current = serializeSavable(assumptions, overrides, collapsedRows);
       })
-      .catch(() => setSaveError(true))
+      .catch((e) => {
+        if (axios.isAxiosError(e) && e.response?.status === 409) setSaveConflict(true);
+        else setSaveError(true);
+      })
       .finally(() => setSaving(false));
   };
 
@@ -347,131 +358,200 @@ function ModelBuilder() {
       return { ...a, [yk]: years };
     });
 
-  return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header — the dense action cluster is wrapped in a single flex-1
-          scroll container so a narrow viewport scrolls the header internally
-          instead of panning the whole page and pushing SAVE/EXPORT off-canvas. */}
-      <PageSubHeader gap="gap-3">
-        <div className="flex-1 min-w-0 flex items-center gap-3 overflow-x-auto">
-        {isReference ? (
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
-        ) : eng.runId ? (
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
-        ) : null}
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
-        <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0 hidden lg:inline">
-          dbl-click a quarterly / PF input to override
-        </span>
-        <span className="flex-1"></span>
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
         <button
           onClick={() => setShowQuarters(!showQuarters)}
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          QUARTERS
+          QTRS
         </button>
         <button
           onClick={() => setShowAssumptions(!showAssumptions)}
-          title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
+          title="Toggle the Assumptions panel"
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          ASSUMPTIONS
+          ASMP
         </button>
         <button
           onClick={() => setShowScenarios(!showScenarios)}
-          title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
+          title="Toggle the Scenario & Sensitivity panel"
           className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
             (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
           }
         >
-          SCENARIOS
+          SCEN
         </button>
-        {ovCount ? (
+      </>
+    ),
+  };
+
+  return (
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          {isReference ? (
+            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
+          ) : eng.runId ? (
+            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
+          ) : null}
+          <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
+          <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
+          {/* Save status — paired with the provenance badge since both describe model state */}
+          {restoreError ? (
+            <button
+              type="button"
+              onClick={retryRestore}
+              role="alert"
+              title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
+              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            >
+              ⚠ SAVED MODEL UNAVAILABLE · RETRY
+            </button>
+          ) : !isReference && eng.phase === "error" ? (
+            // M-5: eng (useModelEngine) collapsed a genuine backend error into the
+            // same empty state as "no run yet" before the phase field existed —
+            // surface it distinctly, same posture as restoreError above (no retry
+            // action here: useModelEngine has no on-demand refetch to wire).
+            <span
+              role="alert"
+              title="Could not load this issuer's live run — showing the local/seeded model, not a confirmed no-run."
+              className="tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            >
+              ⚠ LIVE RUN UNAVAILABLE
+            </span>
+          ) : saveConflict ? (
+            <button
+              type="button"
+              onClick={() => { setSaveConflict(false); retryRestore(); }}
+              role="alert"
+              title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes."
+              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+              style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
+            >
+              ✗ SAVED ELSEWHERE · RELOAD
+            </button>
+          ) : saveError ? (
+            <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
+              ✗ SAVE FAILED
+            </span>
+          ) : dirty ? (
+            <span
+              className="tabular text-caos-2xs whitespace-nowrap"
+              title="You have edits not yet saved to the database. Report Studio reads the last saved version."
+              style={{ color: "var(--caos-warning)" }}
+            >
+              ● UNSAVED
+            </span>
+          ) : savedAt ? (
+            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
+          ) : null}
+        </>
+      }
+      primaryAction={
+        <>
           <button
-            onClick={() => {
-              if (armReset) {
-                if (armTimer.current) window.clearTimeout(armTimer.current);
-                setArmReset(false);
-                resetAll();
-              } else {
-                setArmReset(true);
-                if (armTimer.current) window.clearTimeout(armTimer.current);
-                armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
-              }
-            }}
-            title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
-            aria-pressed={armReset}
-            className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated"
-            style={
-              armReset
-                ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
-                : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
+            onClick={saveCurrentModel}
+            disabled={!hasIssuerModel || saving}
+            title="Save this issuer model to the database; Report Builder reads the saved version only"
+            className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+          >
+            {saving ? "SAVING..." : "SAVE MODEL"}
+          </button>
+          <button
+            onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
+            disabled={!hasIssuerModel}
+            title="Export the model grid (CSV — opens in Excel)"
+            className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+          >
+            ▦ EXPORT MODEL
+          </button>
+        </>
+      }
+      contextualControls={
+        <>
+          <button
+            onClick={() => setShowQuarters(!showQuarters)}
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
             }
           >
-            {armReset
-              ? <>▲ CONFIRM RESET?</>
-              : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
+            QUARTERS
           </button>
-        ) : null}
-        <button
-          onClick={saveCurrentModel}
-          disabled={!hasIssuerModel || saving}
-          title="Save this issuer model to the database; Report Builder reads the saved version only"
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-success text-caos-success hover:bg-caos-success hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
-        >
-          {saving ? "SAVING..." : "SAVE MODEL"}
-        </button>
-        {restoreError ? (
           <button
-            type="button"
-            onClick={retryRestore}
-            role="alert"
-            title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
-            className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+            onClick={() => setShowAssumptions(!showAssumptions)}
+            title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
           >
-            ⚠ SAVED MODEL UNAVAILABLE — local draft · RETRY
+            ASSUMPTIONS
           </button>
-        ) : saveError ? (
-          <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
-            ✗ SAVE FAILED — model not stored; Report Studio reads the last saved version
-          </span>
-        ) : dirty ? (
-          <span
-            className="tabular text-caos-2xs whitespace-nowrap"
-            title="You have edits not yet saved to the database. Report Studio reads the last saved version."
-            style={{ color: "var(--caos-warning)" }}
+          <button
+            onClick={() => setShowScenarios(!showScenarios)}
+            title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
+            className={
+              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
+              (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
           >
-            ● UNSAVED{savedAt ? ` · saved ${new Date(savedAt).toLocaleString()}` : ""}
+            SCENARIOS
+          </button>
+          {ovCount ? (
+            <button
+              onClick={() => {
+                if (armReset) {
+                  if (armTimer.current) window.clearTimeout(armTimer.current);
+                  setArmReset(false);
+                  resetAll();
+                } else {
+                  setArmReset(true);
+                  if (armTimer.current) window.clearTimeout(armTimer.current);
+                  armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
+                }
+              }}
+              title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
+              aria-pressed={armReset}
+              className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
+              style={
+                armReset
+                  ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
+                  : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
+              }
+            >
+              {armReset
+                ? <>▲ CONFIRM RESET?</>
+                : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
+            </button>
+          ) : null}
+          <span
+            className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
+            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+          >
+            forecast cells unaudited — CP-5 scope is actuals only
           </span>
-        ) : savedAt ? (
-          <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
-        ) : null}
-        <button
-          onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
-          disabled={!hasIssuerModel}
-          title="Export the model grid (CSV — opens in Excel)"
-          className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40"
-        >
-          ▦ EXPORT MODEL
-        </button>
-        <span
-          className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
-          style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-        >
-          forecast cells unaudited — CP-5 scope is actuals only
-        </span>
-        </div>
-      </PageSubHeader>
-
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* workspace */}
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2">
         {hasIssuerModel ? (
@@ -576,7 +656,7 @@ function ModelBuilder() {
       {/* isLiveRun: a live issuer's E-xx id must hit the explicit unresolved
           panel, never shadow-resolve to the seeded ATLF excerpt as "VERIFIED". */}
       {evModal ? <EvidenceModal id={evModal} reports={reports} isLiveRun={!isReference} onClose={() => setEvModal(null)} /> : null}
-    </div>
+    </ResponsiveShell>
   );
 }
 

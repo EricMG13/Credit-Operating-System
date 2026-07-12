@@ -242,9 +242,17 @@ async def overlay(
     ghash = _graph_hash(graph)
 
     if not force:
+        # Cache key includes the ISSUER: the graph hash covers only node/edge
+        # structure, and two issuers whose runs routed the same module set hash
+        # identically — issuer B's request then returned issuer A's cached
+        # commentary and chunk citations as B's exhibit (audit 2026-07-10 G4).
+        # `== issuer_id` compiles to IS NULL for the portfolio-level (issuer-less)
+        # capabilities, so those still share one cache row.
         row = (await db.execute(
             select(QueryOverlay)
-            .where(QueryOverlay.capability_id == capability_id, QueryOverlay.graph_hash == ghash)
+            .where(QueryOverlay.capability_id == capability_id,
+                   QueryOverlay.graph_hash == ghash,
+                   QueryOverlay.issuer_id == issuer_id)
             .order_by(QueryOverlay.created_at.desc())
         )).scalars().first()
         if row is not None:

@@ -16,6 +16,16 @@ type Primitive = string | number | boolean | null | undefined;
 const keyOf = (v: Primitive) => (v == null || v === "" ? "—" : String(v));
 const MAX_VISIBLE_OPTIONS = 100;
 
+// The funnel glyph used by every filter-trigger variant below (icon-only,
+// label+icon combined, and sortable-column-adjacent).
+function FunnelIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 3h8M3.5 6h5M5 9h2" />
+    </svg>
+  );
+}
+
 export function useColumnFilters<T>(
   rows: T[],
   filters: FilterState,
@@ -42,6 +52,7 @@ export function FilterHeader<T>({
   sortable = false,
   sortState = null,
   onSort,
+  asHeaderCell = false,
   children,
 }: {
   label: string;
@@ -58,6 +69,12 @@ export function FilterHeader<T>({
   sortable?: boolean;
   sortState?: SortState;
   onSort?: (col: string) => void;
+  // Set when this header renders as a direct child of a role="row"/"grid"
+  // container instead of a real <th> — gives the returned element
+  // role="columnheader" (and, when sortable, moves aria-sort onto that same
+  // element) so it satisfies aria-required-children on the row and
+  // aria-sort's required-context rule.
+  asHeaderCell?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -65,17 +82,28 @@ export function FilterHeader<T>({
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [q, setQ] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
-  
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const opts = useMemo(() => Array.from(new Set(rows.map((r) => keyOf(getValue(r))))).sort(), [rows, getValue]);
+  // Numeric-aware order: the default lexicographic sort scrambled numeric
+  // columns ('1050' < '250' < '44' < '9'), and with >MAX_VISIBLE_OPTIONS values
+  // the visible slice kept a lexicographic prefix instead of the extremes.
+  const opts = useMemo(() => {
+    const uniq = Array.from(new Set(rows.map((r) => keyOf(getValue(r)))));
+    const allNumeric = uniq.every((v) => v === "—" || (v !== "" && !Number.isNaN(Number(v))));
+    return allNumeric
+      ? uniq.sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : Number(a) - Number(b)))
+      : uniq.sort();
+  }, [rows, getValue]);
   const active = selected !== undefined;
   const matches = opts.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
   const visible = matches.slice(0, MAX_VISIBLE_OPTIONS);
 
   const openAt = (el: HTMLElement) => {
+    triggerRef.current = el;
     const r = el.getBoundingClientRect();
     setPos({
       x: Math.max(8, Math.min(r.left, window.innerWidth - 264)),
@@ -85,8 +113,30 @@ export function FilterHeader<T>({
   };
 
   useEffect(() => {
+    if (!open) triggerRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(false); return; }
+      if (e.key === "Tab") {
+        const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable || focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const activeEl = document.activeElement;
+        if (e.shiftKey && activeEl === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && activeEl === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     const onPointer = (e: PointerEvent) => {
       if (panelRef.current?.contains(e.target as Node)) return;
       setOpen(false);
@@ -103,6 +153,7 @@ export function FilterHeader<T>({
     <div
       ref={panelRef}
       role="dialog"
+      aria-modal="true"
       aria-label={`Filter ${label}`}
       className="fixed z-overlay w-64 rounded border border-caos-border bg-caos-panel p-2 shadow-lg"
       style={{ left: pos.x, top: pos.y, boxShadow: "var(--shadow-pop)" }}
@@ -185,9 +236,7 @@ export function FilterHeader<T>({
           : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
       }
     >
-      <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2 3h8M3.5 6h5M5 9h2" />
-      </svg>
+      <FunnelIcon />
     </button>
   );
 
@@ -200,8 +249,7 @@ export function FilterHeader<T>({
     return (
       <>
         <span
-          role="columnheader"
-          aria-sort={ariaSort}
+          {...(asHeaderCell ? { role: "columnheader", "aria-sort": ariaSort } : {})}
           className="inline-flex items-center gap-1.5 min-w-0"
         >
           <button
@@ -232,39 +280,40 @@ export function FilterHeader<T>({
   }
 
   if (!iconOnly) {
-    return (
-      <>
-        <button
-          type="button"
-          aria-label={`Filter ${label}`}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          title={`Filter ${label}`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openAt(e.currentTarget);
-          }}
+    const trigger = (
+      <button
+        type="button"
+        aria-label={`Filter ${label}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={`Filter ${label}`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openAt(e.currentTarget);
+        }}
+        className={
+          "inline-flex items-center gap-1.5 hover:text-caos-text transition-caos focus-ring " +
+          className +
+          (active ? " text-caos-accent" : " text-caos-muted")
+        }
+      >
+        <span>{children}</span>
+        <span
           className={
-            "inline-flex items-center gap-1.5 hover:text-caos-text transition-caos focus-ring " +
-            className +
-            (active ? " text-caos-accent" : " text-caos-muted")
+            "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos " +
+            (active
+              ? "border-caos-accent text-caos-accent bg-caos-elevated"
+              : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
           }
         >
-          <span>{children}</span>
-          <span
-            className={
-              "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos " +
-              (active
-                ? "border-caos-accent text-caos-accent bg-caos-elevated"
-                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-            }
-          >
-            <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2 3h8M3.5 6h5M5 9h2" />
-            </svg>
-          </span>
-        </button>
+          <FunnelIcon />
+        </span>
+      </button>
+    );
+    return (
+      <>
+        {asHeaderCell ? <span role="columnheader" className="contents">{trigger}</span> : trigger}
         {dialogNode}
       </>
     );
@@ -298,9 +347,7 @@ export function FilterHeader<T>({
               : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
           }
         >
-          <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M2 3h8M3.5 6h5M5 9h2" />
-          </svg>
+          <FunnelIcon />
         </button>
       </span>
       {dialogNode}
