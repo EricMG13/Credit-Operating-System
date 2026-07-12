@@ -225,7 +225,7 @@ def extract_text(content: bytes, filename: str = "download.bin") -> str:
     return text.strip()
 
 
-def chunk_text(text: str) -> List[str]:
+def chunk_text(text: str) -> List[str]:  # noqa: C901 - pre-existing tokenizer complexity
     text = text.strip()
     if not text:
         return []
