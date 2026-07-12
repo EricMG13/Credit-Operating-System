@@ -106,6 +106,41 @@ test.describe("Query — walk to committee exhibit", () => {
     expect(download.suggestedFilename()).toMatch(/\.csv$/);
   });
 
+  // C7: head-to-head issuer comparison. Opens the walk from the "Position the
+  // credit" rail group, picks two distinct issuers via the inline pickers, and
+  // asserts a fresh synthesis + table render — the walk answers a real query
+  // end-to-end (the plan's C7 exit bar).
+  test("head-to-head: pick two issuers and compare", async ({ page }) => {
+    await page.goto("/query/");
+    await waitForFirstAnswer(page);
+
+    await page.getByRole("tab", { name: /Position the credit/ }).click();
+    const walkBtn = page.getByRole("button", { name: "How do these two names compare head-to-head?" });
+    if ((await walkBtn.count()) === 0) {
+      test.skip(true, "head-to-head walk not runnable offline — no headline metric facts seeded.");
+      return;
+    }
+    await walkBtn.click();
+    await waitForFirstAnswer(page);
+
+    const issuerA = page.getByRole("textbox", { name: "Issuer A" });
+    const issuerB = page.getByRole("textbox", { name: "Issuer B" });
+    await expect(issuerA).toBeVisible({ timeout: 15000 });
+
+    await issuerA.fill("Atlas");
+    await page.getByRole("button", { name: /Atlas/ }).first().click();
+    await issuerB.fill("Acme");
+    await page.getByRole("button", { name: /Acme/ }).first().click();
+
+    await page.getByRole("button", { name: "Compare", exact: true }).click();
+    await waitForFirstAnswer(page);
+
+    const title = page.getByRole("heading", { level: 2 });
+    await expect(title).toBeVisible({ timeout: 15000 });
+    expect(((await title.textContent()) ?? "").trim()).toMatch(/ vs /);
+    await expect(page.getByText(/^Query failed —/)).toHaveCount(0);
+  });
+
   // E2E-4c: ratifying a model-overlay link. Needs a model lane that produces
   // overlay edges AND at least one ratifiable proposal whose endpoints are in
   // the current graph. Reachable offline only when demo-fallback synthesizes an
