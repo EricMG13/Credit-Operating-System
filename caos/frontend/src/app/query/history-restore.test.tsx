@@ -16,7 +16,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock("@/components/shared/Notifications", () => ({ useNotify: () => () => {} }));
+// Module-level, not inline in the factory: page.tsx's run() is a useCallback
+// keyed on [notify], and the real useNotify() returns a stable reference
+// (Notifications.tsx wraps it in useCallback/useMemo). An inline arrow here
+// returns a NEW function every call, so run() — and the useEffect keyed on
+// [run] that loads capabilities — recreates every render, infinite-looping.
+const NOOP_NOTIFY = () => {};
+vi.mock("@/components/shared/Notifications", () => ({ useNotify: () => NOOP_NOTIFY }));
 
 // Stub every heavy child so the page renders offline + deterministically —
 // only the command bar / Recent dropdown is under test here.
