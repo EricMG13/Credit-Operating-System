@@ -14,9 +14,11 @@ import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { FormulaBar, Manifest, Sheet, type CellRef } from "@/components/model/ModelSheet";
 import { ScenarioPanel } from "@/components/model/ScenarioPanel";
 import { AssumptionsPanel } from "@/components/model/AssumptionsPanel";
+import { ModelHistoryControls } from "@/components/model/ModelHistoryControls";
+import { useModelHistory } from "@/lib/model/useModelHistory";
 import { CollapseButton } from "@/components/shared/CollapseButton";
 import { exportModel } from "@/components/model/export";
-import { OV_SIGN, ovField, parseNum } from "@/components/model/model-format";
+import { OV_SIGN, ovField, parseNum, type PasteResult } from "@/components/model/model-format";
 import { ROWS } from "@/components/model/rows";
 import { buildModel, type Model, type Overrides } from "@/lib/reports/model";
 import {
@@ -103,7 +105,10 @@ function ModelBuilder() {
   const [showAssumptions, setShowAssumptions] = useState(true);
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [hlCells, setHlCells] = useState<Set<string> | null>(null);
-  const [overrides, setOverrides] = useState<Overrides>({});
+  const history = useModelHistory(issuerId);
+  const { overrides, setOverrides, replaceOverrides, undo, redo, canUndo, canRedo, checkpoints, checkpoint, restoreCheckpoint, deleteCheckpoint } = history;
+  const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const pasteNoticeTimer = useRef<number | null>(null);
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -132,7 +137,42 @@ function ModelBuilder() {
   useEffect(() => () => {
     if (editErrTimer.current) window.clearTimeout(editErrTimer.current);
     if (armTimer.current) window.clearTimeout(armTimer.current);
+    if (pasteNoticeTimer.current) window.clearTimeout(pasteNoticeTimer.current);
   }, []);
+
+  // ⌘Z / ⌘⇧Z (or Ctrl+Z / Ctrl+Y) undo/redo the override grid — G3. Skipped
+  // while a text field has focus (the Assumptions sliders' number inputs, a
+  // Deep-Dive-style search box, or an open CellInput) so the browser's own
+  // native input-undo isn't fought; the CellInput editor closes on blur before
+  // any of this could double-fire on the same keystroke in practice, but the
+  // guard is cheap insurance regardless.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
+  const flashPasteNotice = (text: string) => {
+    setPasteNotice(text);
+    if (pasteNoticeTimer.current) window.clearTimeout(pasteNoticeTimer.current);
+    pasteNoticeTimer.current = window.setTimeout(() => setPasteNotice(null), 3500);
+  };
+  const onPasteCells = (result: PasteResult) => {
+    if (result.applied > 0) setOverrides((o) => ({ ...o, ...result.patch }));
+    const parts = [
+      result.applied > 0 ? `pasted ${result.applied} cell${result.applied === 1 ? "" : "s"}` : null,
+      result.skippedNotEditable > 0 ? `${result.skippedNotEditable} not editable` : null,
+      result.invalid.length > 0 ? `${result.invalid.length} invalid value${result.invalid.length === 1 ? "" : "s"} discarded` : null,
+    ].filter(Boolean);
+    if (parts.length === 0) return; // nothing landed and nothing to report — a no-op paste
+    flashPasteNotice(parts.join(" · "));
+  };
 
   // Overrides localStorage key is per-issuer so a live issuer never inherits the
   // reference demo's fabricated overrides (cross-issuer contamination). Legacy
@@ -156,7 +196,7 @@ function ModelBuilder() {
         if (legacy != null) raw = legacy; // reference issuer inherits old demo state
       }
       const o = JSON.parse(raw || "{}");
-      if (o && typeof o === "object") { lo = o; setOverrides(o); }
+      if (o && typeof o === "object") { lo = o; replaceOverrides(o); }
       la = loadAssumptions(issuerId);
       setAssumptions(la);
     } catch { /* first visit */ }
@@ -168,7 +208,7 @@ function ModelBuilder() {
       const parsed = parseSavedPayload(saved);
       if (!parsed) return;
       const { o, a, c, updatedAt } = parsed;
-      if (o) setOverrides(o);
+      if (o) replaceOverrides(o);
       if (a) setAssumptions(a);
       if (c) setCollapsedRows(c);
       setSavedAt(updatedAt);
@@ -488,6 +528,17 @@ function ModelBuilder() {
       }
       contextualControls={
         <>
+          <ModelHistoryControls
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+            checkpoints={checkpoints}
+            onCheckpoint={checkpoint}
+            onRestore={restoreCheckpoint}
+            onDelete={deleteCheckpoint}
+          />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
           <button
             onClick={() => setShowQuarters(!showQuarters)}
             className={
@@ -579,6 +630,15 @@ function ModelBuilder() {
                 ✗ &ldquo;{editError}&rdquo; is not a valid number — override discarded
               </div>
             ) : null}
+            {pasteNotice ? (
+              <div
+                role="status"
+                className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start"
+                style={{ color: "var(--caos-accent)", borderColor: "color-mix(in srgb, var(--caos-accent) 40%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 8%, transparent)" }}
+              >
+                {pasteNotice}
+              </div>
+            ) : null}
             <div className="flex-1 min-h-0 flex gap-2">
               {showAssumptions ? (
                 <AssumptionsPanel
@@ -606,6 +666,7 @@ function ModelBuilder() {
                   editing={editing}
                   onEdit={setEditing}
                   onCommit={commitEdit}
+                  onPasteCells={onPasteCells}
                   collapsedRows={collapsedRows}
                   onToggleRow={(row) => setCollapsedRows((cur) => {
                     const next = new Set(cur);

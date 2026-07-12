@@ -10,7 +10,7 @@ import type { Model, ModelCol } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { ROWS, SRC } from "./rows";
-import { CW, fmt, GROUPS_META, isEditable, LBL, ovField } from "./model-format";
+import { buildPastePatch, CW, fmt, GROUPS_META, isEditable, LBL, ovField, type PasteResult } from "./model-format";
 import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressLevel, KPI_DISTRESS_GLYPH } from "./cell-style";
 
 export interface CellRef {
@@ -80,7 +80,7 @@ function hiddenRows(collapsedRows: Set<string> | undefined): Set<string> {
 }
 
 export function Sheet({
-  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow,
+  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow, onPasteCells,
 }: {
   model: Model;
   showQ: boolean;
@@ -94,6 +94,14 @@ export function Sheet({
   onCommit: (value: string | null) => void;
   collapsedRows?: Set<string>;
   onToggleRow?: (row: string) => void;
+  /** Multi-cell paste (G3): a TSV/CSV clipboard block, anchored at the
+   *  selected cell — Ctrl/Cmd+V while a cell is selected but not being
+   *  edited (an actively-open CellInput keeps native single-field paste).
+   *  Sheet computes the patch (it owns the visible row/col order); the
+   *  caller applies `result.patch` as ONE history step and may report
+   *  `applied`/`skippedNotEditable`/`invalid` back to the analyst. Omit to
+   *  leave paste unhandled (falls through to the browser default). */
+  onPasteCells?: (result: PasteResult) => void;
   /** Reference (seeded Atlas Forge demo) vs live issuer. Accepted for prop
    *  symmetry with FormulaBar/Manifest; the Sheet grid itself carries no
    *  ATLF-specific lineage, so it is not read in the body. Default false. */
@@ -119,16 +127,19 @@ export function Sheet({
 
   const hlGroup = hl && SRC[hl] ? SRC[hl].colGroup : undefined;
   const hidden = hiddenRows(collapsedRows);
+  // Same visible-row order keyboard nav (handleKeyDown) and multi-cell paste
+  // both walk — a paste block must never disagree with where arrow keys land.
+  const rowIds = useMemo(
+    () => ROWS.filter((row) => row.id && !hidden.has(row.id)).map((r) => r.id!),
+    [hidden],
+  );
+  const colKeys = useMemo(() => colDefs.map((c) => c.key), [colDefs]);
 
   const labelColor = (c: ColDef) =>
     c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
-
-    const selectableRows = ROWS.filter((row) => row.id && !hidden.has(row.id));
-    const rowIds = selectableRows.map((r) => r.id!);
-    const colKeys = colDefs.map((c) => c.key);
 
     if (!sel || rowIds.length === 0 || colKeys.length === 0) return;
 
@@ -295,6 +306,16 @@ export function Sheet({
       aria-label="Model worksheet"
       aria-activedescendant={selectedCellId}
       onKeyDown={handleKeyDown}
+      onPaste={(e) => {
+        // An actively-open CellInput is a real <input> the native paste event
+        // bubbles from — let the browser's own single-field paste handle that
+        // (it also owns Ctrl+Z there, which grid-level undo must not fight).
+        if (editing || !sel || !onPasteCells) return;
+        e.preventDefault();
+        const text = e.clipboardData.getData("text/plain");
+        if (!text) return;
+        onPasteCells(buildPastePatch(rowIds, colKeys, sel, text));
+      }}
       className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring"
     >
       <div style={{ width: "max-content", minWidth: "100%" }}>
