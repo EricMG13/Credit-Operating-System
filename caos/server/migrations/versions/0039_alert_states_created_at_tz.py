@@ -31,7 +31,8 @@ def upgrade() -> None:
             "USING created_at AT TIME ZONE 'UTC'"
         )
     else:
-        op.alter_column("alert_states", "created_at", type_=sa.DateTime(timezone=True))
+        with op.batch_alter_table("alert_states", schema=None) as batch_op:
+            batch_op.alter_column("created_at", existing_type=sa.DateTime(), type_=sa.DateTime(timezone=True))
 
 
 def downgrade() -> None:
@@ -43,4 +44,5 @@ def downgrade() -> None:
             "USING created_at AT TIME ZONE 'UTC'"
         )
     else:
-        op.alter_column("alert_states", "created_at", type_=sa.DateTime())
+        with op.batch_alter_table("alert_states", schema=None) as batch_op:
+            batch_op.alter_column("created_at", existing_type=sa.DateTime(timezone=True), type_=sa.DateTime())
