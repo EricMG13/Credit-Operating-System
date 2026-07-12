@@ -3,14 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ConceptNav } from "@/components/shared/ConceptNav";
-import { IssuerLink } from "@/components/shared/IssuerLink";
 import { Panel } from "@/components/shared/Panel";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
-import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
-import { fromSeedFlag } from "@/lib/provenance";
+import { BatchBar } from "@/components/shared/BatchBar";
+import { SignalSlideOver } from "./SignalSlideOver";
+import { downloadSignalsCsv } from "./signalsCsv";
+import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge, fmtAsOf } from "./shared";
 import {
   askSectorTopic,
+  createQaFlag,
   getSectorFeeds,
   getSectorReview,
   getSectorSignals,
@@ -21,7 +23,6 @@ import {
   type SectorFeed,
   type SectorReview,
   type SectorSignal,
-  type SectorSource,
 } from "@/lib/api";
 
 const TIMEFRAMES = [
@@ -32,66 +33,10 @@ const TIMEFRAMES = [
   ["custom", "Custom"],
 ] as const;
 
-const CATEGORY_LABEL: Record<string, string> = {
-  earnings: "Earnings",
-  liquidity: "Liquidity",
-  rating: "Rating",
-  macro: "Macro",
-  technical: "Technical",
-  covenant: "Covenant",
-};
-
-const SEVERITY_COLOR: Record<string, string> = {
-  critical: "var(--caos-critical)",
-  high: "var(--caos-warning)",
-  medium: "var(--caos-accent)",
-  low: "var(--caos-muted)",
-};
-
-const SEVERITY_GLYPH: Record<string, "critical" | "warning" | "idle"> = {
-  critical: "critical",
-  high: "warning",
-  medium: "warning",
-  low: "idle",
-};
-
-const fmtAsOf = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZoneName: "short",
-});
-
-function SourceChip({ source }: { source: SectorSource }) {
-  const label = `${source.source_type} / ${source.tier}`;
-  const klass = "inline-flex items-center gap-1 rounded border border-caos-border px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider text-caos-muted";
-  if (source.url) {
-    return (
-      <a href={source.url} className={klass + " hover:border-caos-accent hover:text-caos-text transition-caos"} title={source.title}>
-        {label}
-      </a>
-    );
-  }
-  return (
-    <span className={klass} title={`${source.title} (${source.ref})`}>
-      {label}
-    </span>
-  );
-}
-
-function ProvenanceBadge({ value }: { value: string }) {
-  // Shared grammar for the known flags; unknown vocabulary keeps the old
-  // warning badge verbatim rather than being guessed into an origin.
-  const prov = fromSeedFlag(value);
-  if (prov) return <ProvenanceChip prov={prov} />;
-  return (
-    <span className="inline-flex items-center gap-1 rounded border border-caos-warning/50 bg-caos-warning/10 px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider text-caos-warning">
-      <StatusGlyph kind="warning" size={8} />
-      {value}
-    </span>
-  );
-}
+// Batch "Flag to QA" / "Export CSV" cap — matches the server's per-caller QA
+// flag rate limit (server/routes/qa.py: 30 requests / 60s), disclosed next to
+// the batch bar so a partial "18/20 succeeded" outcome isn't a surprise.
+const BATCH_CAP = 20;
 
 function groupSignals(signals: SectorSignal[]) {
   const grouped = new Map<string, SectorSignal[]>();
@@ -120,6 +65,8 @@ export function SectorReviewWorkspace() {
   const [askQuestion, setAskQuestion] = useState("");
   const [askAnswer, setAskAnswer] = useState<SectorAskResponse | null>(null);
   const [askLoading, setAskLoading] = useState(false);
+  const [selectedSignalId, setSelectedSignalId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,6 +126,15 @@ export function SectorReviewWorkspace() {
   const grouped = useMemo(() => groupSignals(visibleSignals), [visibleSignals]);
   const categories = useMemo(() => Array.from(new Set((review?.signals || signals).map((s) => s.category))).sort(), [review, signals]);
   const severities = useMemo(() => Array.from(new Set((review?.signals || signals).map((s) => s.severity))).sort(), [review, signals]);
+  const activeSignal = useMemo(() => signals.find((s) => s.id === selectedSignalId) || null, [signals, selectedSignalId]);
+
+  // A refresh/filter change can drop signals that were mid-batch-selection or
+  // open in the slide-over — prune rather than let selection/detail point at
+  // a row no longer on screen.
+  useEffect(() => {
+    setSelected((prev) => prev.filter((id) => signals.some((s) => s.id === id)));
+    setSelectedSignalId((prev) => (prev && signals.some((s) => s.id === prev) ? prev : null));
+  }, [signals]);
 
   const toggleFeed = async (feed: SectorFeed) => {
     const next = feeds.map((row) =>
@@ -229,6 +185,36 @@ export function SectorReviewWorkspace() {
     } finally {
       setAskLoading(false);
     }
+  };
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= BATCH_CAP ? prev : [...prev, id],
+    );
+
+  // BatchBar's per-item run(id) contract — one POST /api/qa/flags per
+  // selected signal, so a partial failure (30/min cap hit mid-batch) reports
+  // as "N/M succeeded" rather than a fake blanket success.
+  const flagSelectedSignal = async (id: string) => {
+    const target = signals.find((s) => s.id === id);
+    await createQaFlag({
+      module_id: "SECTOR",
+      step_ref: id,
+      issuer_id: target?.issuers.find((i) => i.issuer_id)?.issuer_id || undefined,
+    });
+  };
+
+  // Pure client-side export — no server call, no per-item semantics, so this
+  // stays a plain button next to BatchBar rather than one of its actions.
+  const exportSelectedCsv = () => {
+    downloadSignalsCsv(selectedSector || "Sector Review", signals.filter((s) => selected.includes(s.id)));
+  };
+
+  const openAskFromSlideOver = (target: SectorSignal) => {
+    setSelectedSignalId(null);
+    setAskSignal(target);
+    setAskQuestion(`What is the credit impact of ${target.headline}?`);
+    setAskAnswer(null);
   };
 
   const narrowContract: NarrowContract = {
@@ -424,8 +410,30 @@ export function SectorReviewWorkspace() {
           </Panel>
 
           <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px] gap-2 min-h-0">
-            <Panel title="Daily Signal Cards" className="min-h-0">
+            <Panel title="Daily Signals" className="min-h-0">
               <div className="p-2 flex flex-col gap-3">
+                {selected.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded border border-caos-border bg-caos-bg p-2">
+                    <BatchBar
+                      selected={selected}
+                      onClear={() => setSelected([])}
+                      itemLabel="signal"
+                      actions={[
+                        { id: "flag-qa", label: `Flag to QA (${selected.length})`, run: flagSelectedSignal },
+                      ]}
+                    />
+                    <button
+                      type="button"
+                      onClick={exportSelectedCsv}
+                      className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target"
+                    >
+                      Export CSV
+                    </button>
+                    <span className="tabular text-caos-2xs text-caos-muted">
+                      Batch capped at {BATCH_CAP} signals · QA flags rate-limited to 30/min
+                    </span>
+                  </div>
+                ) : null}
                 {loading ? (
                   <div className="rounded border border-caos-border bg-caos-bg p-3 text-caos-sm text-caos-muted">
                     Loading Sector Review.
@@ -435,57 +443,55 @@ export function SectorReviewWorkspace() {
                     <h3 className="px-1 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
                       {CATEGORY_LABEL[group] || group} / {rows.length}
                     </h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                      {rows.map((signal) => (
-                        <article key={signal.id} className="rounded-md border border-caos-border bg-caos-bg p-3 flex flex-col gap-2">
-                          <div className="flex items-start gap-2">
-                            <span
-                              className="mt-0.5 inline-flex items-center gap-1 rounded border border-caos-border px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider"
-                              style={{ color: SEVERITY_COLOR[signal.severity] || "var(--caos-muted)" }}
-                            >
-                              <StatusGlyph kind={SEVERITY_GLYPH[signal.severity] || "idle"} size={8} />
-                              {signal.severity}
-                            </span>
-                            <h4 className="m-0 flex-1 text-caos-md font-semibold leading-snug text-caos-text">{signal.headline}</h4>
-                          </div>
-                          <p className="m-0 text-caos-sm leading-relaxed text-caos-muted">{signal.summary}</p>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {signal.issuers.map((issuer) => (
-                              <IssuerLink
-                                key={`${signal.id}-${issuer.name}`}
-                                query={issuer.name}
-                                className="rounded border border-caos-border px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider text-caos-accent hover:text-caos-text hover:border-caos-accent transition-caos"
-                              >
-                                {issuer.ticker || issuer.name} / {issuer.exposure}
-                              </IssuerLink>
-                            ))}
-                            {signal.sources.map((source) => (
-                              <SourceChip key={`${signal.id}-${source.ref}`} source={source} />
-                            ))}
-                            <ProvenanceBadge value={signal.provenance} />
-                          </div>
-                          <div className="flex items-center gap-3 pt-1 border-t border-caos-border/60">
-                            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-                              Score {Math.round(signal.materiality_score * 100)}
-                            </span>
-                            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-                              {fmtAsOf.format(new Date(signal.signal_date))}
-                            </span>
-                            <span className="flex-1" />
+                    <div className="flex flex-col gap-1">
+                      {rows.map((signal) => {
+                        const isSelected = selected.includes(signal.id);
+                        const atCap = !isSelected && selected.length >= BATCH_CAP;
+                        return (
+                          <div
+                            key={signal.id}
+                            className="flex items-center gap-2 rounded border border-caos-border bg-caos-bg px-2 py-1.5"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(signal.id)}
+                              disabled={atCap}
+                              aria-label={`Select ${signal.headline}`}
+                              title={atCap ? `Batch is capped at ${BATCH_CAP} signals` : undefined}
+                              className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target disabled:opacity-40"
+                            />
                             <button
                               type="button"
-                              onClick={() => {
-                                setAskSignal(signal);
-                                setAskQuestion(`What is the credit impact of ${signal.headline}?`);
-                                setAskAnswer(null);
-                              }}
-                              className="rounded border border-caos-border px-2 py-1 tabular text-caos-2xs uppercase tracking-wider text-caos-muted hover:border-caos-accent hover:text-caos-text transition-caos focus-ring"
+                              onClick={() => setSelectedSignalId(signal.id)}
+                              className="flex-1 min-w-0 flex items-center gap-3 text-left rounded py-0.5 focus-ring caos-target"
                             >
-                              Ask Topic
+                              <span
+                                className="inline-flex items-center gap-1 rounded border border-caos-border px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider shrink-0 w-[74px]"
+                                style={{ color: SEVERITY_COLOR[signal.severity] || "var(--caos-muted)" }}
+                              >
+                                <StatusGlyph kind={SEVERITY_GLYPH[signal.severity] || "idle"} size={8} />
+                                {signal.severity}
+                              </span>
+                              <span className="text-caos-sm font-medium text-caos-text truncate flex-1 min-w-0">
+                                {signal.headline}
+                              </span>
+                              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0 w-32 truncate text-right">
+                                {signal.issuers[0] ? (signal.issuers[0].ticker || signal.issuers[0].name) : "—"}
+                                {signal.issuers.length > 1 ? ` +${signal.issuers.length - 1}` : ""}
+                              </span>
+                              <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-12 text-right">
+                                <span className="sr-only">Materiality score </span>
+                                {Math.round(signal.materiality_score * 100)}
+                              </span>
+                              <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-24 text-right">
+                                <span className="sr-only">Signal date </span>
+                                {fmtAsOf.format(new Date(signal.signal_date))}
+                              </span>
                             </button>
                           </div>
-                        </article>
-                      ))}
+                        );
+                      })}
                     </div>
                   </section>
                 )) : (
@@ -573,6 +579,14 @@ export function SectorReviewWorkspace() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {activeSignal ? (
+        <SignalSlideOver
+          signal={activeSignal}
+          onClose={() => setSelectedSignalId(null)}
+          onAskTopic={openAskFromSlideOver}
+        />
       ) : null}
     </ResponsiveShell>
   );
