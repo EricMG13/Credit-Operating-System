@@ -590,7 +590,7 @@ silently with 0 chunks.
   green — includes the forged-role/cookie-tamper cases. **Exit:** role model
   enforced server-side on 100% of mutating routes; documented in the
   accepted-risk register + H3 admin guide.
-- [ ] **E3 (M)** Audit trail: append-only `audit_log` table (who/what/when/
+- [ ] **E3 (M)** *(Exec 2026-07-12: PR #169 open — audit_log table (migration 0038) + audit.py write helper wired into every route mutating firm/shared state; GDPR erase extends its anonymize-not-delete pattern to audit_log; caught + fixed a real flush-outside-try 500-vs-409 bug in 4 routes along the way. Full suite 1417/2, one unrelated pre-existing test_retention.py failure at full-suite scale flagged as its own follow-up, not this PR's bug.)* Audit trail: append-only `audit_log` table (who/what/when/
   before→after) on every mutating route — issuer CRUD, uploads, deletes,
   rating edits, watch-rule changes, GDPR delete. Confirmed absent (no
   `audit_log` in `database.py`'s full table list). Runs already stamp

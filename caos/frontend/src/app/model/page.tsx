@@ -29,6 +29,8 @@ import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 import Link from "next/link";
 import { ConceptNav } from "@/components/shared/ConceptNav";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { fromModelEngine } from "@/lib/provenance";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 
@@ -699,12 +701,9 @@ function ModelProvenance({ eng, model, allowSeededFallback }: { eng: ModelEngine
       );
     }
     return (
-      <span
-        className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"
-        title="No completed run found — grid uses the seeded demo model (offline fallback)."
-      >
-        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
-        SEEDED · demo RUN #2641
+      <span className="flex items-center gap-1.5 whitespace-nowrap">
+        <ProvenanceChip prov={fromModelEngine(eng)} />
+        <span className="tabular text-caos-xs text-caos-muted">RUN #2641</span>
       </span>
     );
   }
@@ -723,12 +722,13 @@ function ModelProvenance({ eng, model, allowSeededFallback }: { eng: ModelEngine
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
       <span
-        className="flex items-center gap-1.5 tabular text-caos-xs"
-        style={{ color: "var(--caos-success)" }}
+        className="flex items-center gap-1.5"
         title={`Anchored to live CP-1 from run ${eng.runId} · committee: ${eng.committeeStatus ?? "—"}`}
       >
-        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} />
-        CP-1 LIVE · RUN {eng.runId?.slice(0, 8) ?? "—"}
+        <ProvenanceChip prov={fromModelEngine(eng)} />
+        <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>
+          CP-1 · RUN {eng.runId?.slice(0, 8) ?? "—"}
+        </span>
       </span>
       <span
         className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"

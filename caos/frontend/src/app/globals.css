@@ -454,3 +454,11 @@ button.rd-revert-dot:focus-visible {
   outline: 2px solid var(--caos-warning);
   outline-offset: 1px;
 }
+
+/* Touch target floor for critical actions (WCAG 2.5.8): pointer-coarse devices
+   get a 44px minimum hit area; desktop keeps the dense 32px chrome. */
+@media (pointer: coarse) {
+  .caos-target {
+    min-height: 44px;
+  }
+}

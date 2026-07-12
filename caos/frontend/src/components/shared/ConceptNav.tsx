@@ -1,16 +1,21 @@
 "use client";
 
-// Concept switcher — the seven concept links, shown in every sub-header so users
-// can jump between concepts from anywhere. `compact` (dense concept-page headers)
-// labels only the active chip (you-are-here); the rest are icon + tooltip.
-// the directory always shows labels. Glyphs are small inline SVGs (stroke = currentColor) — no
-// icon-font dependency, consistent with the terminal chrome. The five-concept
-// scheme grew a sixth (Monitor) and a seventh (Research), so chips key off an
-// icon, not an A–E letter.
+// Concept switcher — every concept link, shown in every sub-header so users
+// can jump between concepts from anywhere. Concepts render in workflow groups
+// (Intake / Analyze / Decide / Publish / Monitor) from the shared registry in
+// lib/nav.ts — the same registry drives the Alt+←/→ cycle order, so the nav
+// and the hotkeys can never drift. `compact` (dense concept-page headers)
+// labels only the active chip and its group (you-are-here); the rest are
+// icon + tooltip, and inactive group labels collapse to separators so the
+// 40px strip survives 1280px next to dense page headers. The directory always
+// shows full labels. Glyphs are small inline SVGs (stroke = currentColor) — no
+// icon-font dependency, consistent with the terminal chrome.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnalystBadge } from "./AnalystBadge";
+import { RoleViewSwitch } from "./RoleViewSwitch";
+import { NAV_GROUPS, routeMatches } from "@/lib/nav";
 
 type Icon = (props: { className?: string }) => React.ReactElement;
 
@@ -65,68 +70,77 @@ const ICONS: Record<string, Icon> = {
   "sector-rv": svg(<>
     <path d="M1.5 12.5h11M3.5 12.5v-4M7 12.5v-8M10.5 12.5v-6" />
   </>),
+  upload: svg(<>
+    <path d="M7 9.6V2.4M4.4 5 7 2.4 9.6 5" />
+    <path d="M2 9.6v2.2a.8.8 0 0 0 .8.8h8.4a.8.8 0 0 0 .8-.8V9.6" />
+  </>),
   settings: svg(<>
     <circle cx="7" cy="7" r="2.1" />
     <path d="M7 1.5v1.6M7 10.9v1.6M12.5 7h-1.6M3.1 7H1.5M10.9 3.1 9.8 4.2M4.2 9.8l-1.1 1.1M10.9 10.9 9.8 9.8M4.2 4.2 3.1 3.1" />
   </>),
 };
 
-type ConceptSection = { href: string; icon: string; label: string } | { sep: true };
-
-const SECTIONS: ConceptSection[] = [
-  { href: "/issuers", icon: "directory", label: "Directory" },
-  { sep: true },
-  { href: "/command", icon: "command", label: "Command" },
-  { href: "/monitor", icon: "monitor", label: "Monitor" },
-  { sep: true },
-  { href: "/research", icon: "research", label: "Research" },
-  { href: "/query", icon: "query", label: "Query" },
-  { href: "/sector", icon: "sector", label: "Sector Review" },
-  { href: "/sector-rv", icon: "sector-rv", label: "RV Screener" },
-  { sep: true },
-  { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
-  { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
-  { href: "/model", icon: "model", label: "Model" },
-  { href: "/reports", icon: "report", label: "Report" },
-];
-
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
   const Gear = ICONS.settings;
   const settingsActive = pathname.startsWith("/settings");
-  // The Directory chip is self-referential (and the widest full-label entry)
-  // on /issuers itself, the one page rendering the non-compact nav — drop it
-  // there rather than let the header overflow; every other page (compact
-  // mode, icon-only when inactive) keeps it as the "back to Directory" link.
-  const sections = compact ? SECTIONS : SECTIONS.slice(2);
   return (
     <span className="flex items-center gap-1 shrink-0">
-      <nav aria-label="Concepts" className="flex items-center gap-1" title="Tip: hold ALT + ← / → to switch concepts">
-        {sections.map((s, idx) => {
-          if ("sep" in s) return <span key={"sep-" + idx} className="h-4 w-px bg-caos-border mx-0.5" />;
-          const active = pathname === s.href || pathname.startsWith(s.href + "/");
-          const Glyph = ICONS[s.icon];
+      <nav
+        id="concept-nav"
+        aria-label="Concepts"
+        className="flex items-center gap-1"
+        title="Tip: hold ALT + ← / → to switch concepts"
+      >
+        {NAV_GROUPS.map((g, gIdx) => {
+          const groupActive = g.items.some((i) => routeMatches(pathname, i.href));
+          // Group labels carry the workflow stage. In compact mode only the
+          // active group is labeled (you-are-here); inactive groups collapse
+          // to a separator so dense page headers still fit at 1280px (RT-60).
+          const showGroupLabel = !compact || groupActive;
           return (
-            <Link
-              key={s.href}
-              href={s.href}
-              title={s.label}
-              aria-label={s.label}
-              aria-current={active ? "page" : undefined}
-              className={
-                "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
-                (active
-                  ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
-                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-              }
-            >
-              <Glyph className={active ? "text-caos-bg" : ""} />
-              {/* Labels: always in the directory (non-compact). The dense concept
-                  headers are too tight for 7 full labels (they'd push the live
-                  KPIs off-screen), so there we label only the active chip
-                  (you-are-here); the rest are icon + tooltip. */}
-              <span className={compact ? (active ? "inline" : "hidden") : "inline"}>{s.label}</span>
-            </Link>
+            <span key={g.id} className="flex items-center gap-1">
+              {gIdx > 0 && <span className="h-4 w-px bg-caos-border mx-0.5" aria-hidden="true" />}
+              {showGroupLabel && (
+                <span
+                  className="text-caos-2xs uppercase tracking-widest text-caos-muted select-none pl-0.5 pr-0.5"
+                  aria-hidden="true"
+                  title={g.label}
+                >
+                  {g.label}
+                </span>
+              )}
+              {g.items.map((s) => {
+                // The Directory chip is self-referential (and a wide full-label
+                // entry) on /issuers itself, the one page rendering the
+                // non-compact nav — drop it there rather than overflow the
+                // header; every other page keeps it as the back-link.
+                if (!compact && s.href === "/issuers") return null;
+                const active = routeMatches(pathname, s.href);
+                const Glyph = ICONS[s.icon];
+                return (
+                  <Link
+                    key={s.href}
+                    href={s.href}
+                    title={s.label + " — " + g.label}
+                    aria-label={s.label}
+                    aria-current={active ? "page" : undefined}
+                    className={
+                      "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring " +
+                      (active
+                        ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
+                        : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+                    }
+                  >
+                    <Glyph className={active ? "text-caos-bg" : ""} />
+                    {/* Labels: always in the directory (non-compact). Dense
+                        concept headers label only the active chip; the rest
+                        are icon + tooltip. */}
+                    <span className={compact ? (active ? "inline" : "hidden") : "inline"}>{s.label}</span>
+                  </Link>
+                );
+              })}
+            </span>
           );
         })}
       </nav>
@@ -138,7 +152,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         aria-label="Settings"
         aria-current={settingsActive ? "page" : undefined}
         className={
-          "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 rounded border transition-caos whitespace-nowrap " +
+          "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring " +
           (settingsActive
             ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
             : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
@@ -147,6 +161,9 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         <Gear className={settingsActive ? "text-caos-bg" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
+      {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation only. */}
+      <span className="h-4 w-px bg-caos-border mx-0.5" />
+      <RoleViewSwitch />
       {/* Signed-in analyst initials — to the right of the nav on every page. */}
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <AnalystBadge />
