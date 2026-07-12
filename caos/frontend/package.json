@@ -16,13 +16,13 @@
     "d3-selection": "^3.0.0",
     "d3-transition": "^3.0.1",
     "d3-zoom": "^3.0.0",
+    "exceljs": "^4.4.0",
     "next": "^16.2.10",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-dropzone": "^14.2.3",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "xlsx": "^0.18.5"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

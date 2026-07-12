@@ -1,14 +1,14 @@
 // C9 — committee-pack .xlsx export. buildWorkbook() is the pure, testable
 // core (no DOM/download side effect); exportModel() just hands its output to
-// XLSX.writeFile. The SheetJS output was separately hand-verified once
-// against openpyxl (a genuinely different parser) to catch anything a
-// SheetJS-only round trip would tolerate but Excel/openpyxl would not — see
+// a Blob download. The ExcelJS output was separately hand-verified once
+// against openpyxl (a genuinely different parser) to catch anything an
+// ExcelJS-only round trip would tolerate but Excel/openpyxl would not — see
 // the PR description for that one-time cross-tool check; this suite is the
-// ongoing CI-enforced regression guard using SheetJS on both ends, which is
+// ongoing CI-enforced regression guard using ExcelJS on both ends, which is
 // what the Frontend CI job can actually run.
 
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { buildWorkbook } from "./export";
 import { buildModel } from "@/lib/reports/model";
 import { DEFAULT_ASSUMPTIONS } from "@/lib/reports/assumptions";
@@ -29,31 +29,43 @@ function build(overrides = {}, metrics: ProfileMetric[] = [metric()]) {
   });
 }
 
-// SheetJS reads its own write output back in-memory — a genuine byte
-// serialize/deserialize round trip (write via XLSX.write, re-parse via
-// XLSX.read), not merely inspecting the WorkSheet objects still in memory.
-function roundTrip(wb: XLSX.WorkBook): XLSX.WorkBook {
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
-  return XLSX.read(buf, { type: "buffer" });
+// A genuine byte serialize/deserialize round trip (write via xlsx.writeBuffer,
+// re-parse via a fresh Workbook's xlsx.load) — not merely inspecting the
+// Worksheet objects still in memory.
+async function roundTrip(wb: ExcelJS.Workbook): Promise<ExcelJS.Workbook> {
+  const buf = await wb.xlsx.writeBuffer();
+  const out = new ExcelJS.Workbook();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Buffer<ArrayBufferLike> vs Buffer generic mismatch across @types/node versions; runtime shape is identical.
+  await out.xlsx.load(buf as any);
+  return out;
 }
+
+function sheetRows(ws: ExcelJS.Worksheet): unknown[][] {
+  const rows: unknown[][] = [];
+  ws.eachRow({ includeEmpty: true }, (row) => {
+    rows.push((row.values as unknown[]).slice(1)); // ExcelJS's row.values is 1-indexed (index 0 unused)
+  });
+  return rows;
+}
+
+const sheetNames = (wb: ExcelJS.Workbook) => wb.worksheets.map((ws) => ws.name);
 
 describe("buildWorkbook", () => {
   it("produces all five sheets in order", () => {
-    const wb = build();
-    expect(wb.SheetNames).toEqual(["Model", "Scenarios", "Assumptions", "Headline Facts", "Overrides"]);
+    expect(sheetNames(build())).toEqual(["Model", "Scenarios", "Assumptions", "Headline Facts", "Overrides"]);
   });
 
-  it("round-trips through a real xlsx byte serialize/deserialize", () => {
-    const wb = roundTrip(build());
-    expect(wb.SheetNames).toEqual(["Model", "Scenarios", "Assumptions", "Headline Facts", "Overrides"]);
-    const model = XLSX.utils.sheet_to_json(wb.Sheets["Model"], { header: 1 }) as unknown[][];
-    expect(model.length).toBeGreaterThan(10);
+  it("round-trips through a real xlsx byte serialize/deserialize", async () => {
+    const wb = await roundTrip(build());
+    expect(sheetNames(wb)).toEqual(["Model", "Scenarios", "Assumptions", "Headline Facts", "Overrides"]);
+    const rows = sheetRows(wb.getWorksheet("Model")!);
+    expect(rows.length).toBeGreaterThan(10);
   });
 
-  it("stamps every sheet's first row with ORIGIN/METHOD/RUN/AS OF", () => {
-    const wb = roundTrip(build());
-    for (const name of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1 }) as unknown[][];
+  it("stamps every sheet's first row with ORIGIN/METHOD/RUN/AS OF", async () => {
+    const wb = await roundTrip(build());
+    for (const ws of wb.worksheets) {
+      const rows = sheetRows(ws);
       const stamp = String(rows[0][0]);
       expect(stamp).toContain("ORIGIN: LIVE");
       expect(stamp).toContain("METHOD: REPORTED");
@@ -63,65 +75,62 @@ describe("buildWorkbook", () => {
   });
 
   it("Model sheet carries real numeric cells with money/percent/multiple number formats", () => {
-    const wb = build();
-    const ws = wb.Sheets["Model"];
-    const range = XLSX.utils.decode_range(ws["!ref"] as string);
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
-    const levRow = rows.findIndex((r) => String(r[0]).includes("Total Net Leverage"));
-    expect(levRow).toBeGreaterThan(0);
+    const ws = build().getWorksheet("Model")!;
+    let levRow: ExcelJS.Row | null = null;
+    ws.eachRow((row) => { if (row.getCell(1).value === "Total Net Leverage") levRow = row; });
+    expect(levRow).toBeTruthy();
     // Some columns are legitimately blank for a given row (an early historical
-    // period with no derivable ratio) — find the first populated cell in the
-    // row rather than assuming column 1 is non-empty.
-    const numericCell = Array.from({ length: range.e.c }, (_, i) => i + 1)
-      .map((c) => ws[XLSX.utils.encode_cell({ r: levRow, c })])
-      .find((cell) => typeof cell?.v === "number");
+    // period with no derivable ratio) — find the first populated cell.
+    let numericCell: ExcelJS.Cell | null = null;
+    for (let c = 2; c <= (levRow as unknown as ExcelJS.Row).cellCount; c++) {
+      const cell = (levRow as unknown as ExcelJS.Row).getCell(c);
+      if (typeof cell.value === "number") { numericCell = cell; break; }
+    }
     expect(numericCell).toBeTruthy();
-    expect(numericCell?.z).toBe('0.00"x"');
+    expect(numericCell?.numFmt).toBe('0.00"x"');
   });
 
-  it("Headline Facts sheet lists only headline=true metrics", () => {
-    const wb = roundTrip(build({}, [metric(), metric({ metric_key: "interest_coverage", headline: false, value: 3.1 })]));
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Headline Facts"], { header: 1 }) as unknown[][];
+  it("Headline Facts sheet lists only headline=true metrics", async () => {
+    const wb = await roundTrip(build({}, [metric(), metric({ metric_key: "interest_coverage", headline: false, value: 3.1 })]));
+    const rows = sheetRows(wb.getWorksheet("Headline Facts")!);
     // Row 0=stamp, 1=blank, 2=header, 3+=data rows.
     const keys = rows.slice(3).map((r) => r[0]);
     expect(keys).toContain("net_leverage");
     expect(keys).not.toContain("interest_coverage");
   });
 
-  it("Headline Facts sheet states absence honestly when there are no headline metrics", () => {
-    const wb = roundTrip(build({}, []));
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Headline Facts"], { header: 1 }) as unknown[][];
-    // Row 0=stamp, 1=blank, 2=header, 3=the absence message.
+  it("Headline Facts sheet states absence honestly when there are no headline metrics", async () => {
+    const wb = await roundTrip(build({}, []));
+    const rows = sheetRows(wb.getWorksheet("Headline Facts")!);
     expect(String(rows[3][0])).toMatch(/no headline metric_facts/i);
   });
 
-  it("Overrides sheet lists manual overrides by period/account/value", () => {
-    const wb = roundTrip(build({ "b0:rev": 2500 }));
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Overrides"], { header: 1 }) as unknown[][];
+  it("Overrides sheet lists manual overrides by period/account/value", async () => {
+    const wb = await roundTrip(build({ "b0:rev": 2500 }));
+    const rows = sheetRows(wb.getWorksheet("Overrides")!);
     const dataRow = rows.find((r) => r[1] === "Revenues");
     expect(dataRow).toBeTruthy();
     expect(dataRow?.[2]).toBe(2500);
   });
 
-  it("Overrides sheet states absence honestly with no overrides", () => {
-    const wb = roundTrip(build({}));
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Overrides"], { header: 1 }) as unknown[][];
-    // Row 0=stamp, 1=blank, 2=header, 3=the absence message.
+  it("Overrides sheet states absence honestly with no overrides", async () => {
+    const wb = await roundTrip(build({}));
+    const rows = sheetRows(wb.getWorksheet("Overrides")!);
     expect(String(rows[3][0])).toMatch(/no manual overrides/i);
   });
 
-  it("Assumptions sheet carries base and downside columns for every driver", () => {
-    const wb = roundTrip(build());
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Assumptions"], { header: 1 }) as unknown[][];
+  it("Assumptions sheet carries base and downside columns for every driver", async () => {
+    const wb = await roundTrip(build());
+    const rows = sheetRows(wb.getWorksheet("Assumptions")!);
     const sofr = rows.find((r) => String(r[0]).includes("SOFR"));
     expect(sofr).toBeTruthy();
-    expect(sofr?.[1]).toBeCloseTo(0.043, 5);
-    expect(sofr?.[2]).toBeCloseTo(0.043, 5);
+    expect(sofr?.[1] as number).toBeCloseTo(0.043, 5);
+    expect(sofr?.[2] as number).toBeCloseTo(0.043, 5);
   });
 
-  it("Scenarios sheet carries best/base/worst projections for every forecast year", () => {
-    const wb = roundTrip(build());
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets["Scenarios"], { header: 1 }) as unknown[][];
+  it("Scenarios sheet carries best/base/worst projections for every forecast year", async () => {
+    const wb = await roundTrip(build());
+    const rows = sheetRows(wb.getWorksheet("Scenarios")!);
     // Row 0=stamp, 1=blank, 2=header.
     const header = rows[2] as string[];
     expect(header).toEqual(expect.arrayContaining([
@@ -138,8 +147,8 @@ describe("buildWorkbook", () => {
     const wb = buildWorkbook(model, true, {}, { header: "=cmd|'/c calc'!A1", subheader: "x" }, {
       prov, runId: null, assumptions: DEFAULT_ASSUMPTIONS, metrics: [],
     });
-    const ws = wb.Sheets["Model"];
-    const headerCell = ws[XLSX.utils.encode_cell({ r: 2, c: 0 })];
-    expect(String(headerCell.v).startsWith("'")).toBe(true);
+    const ws = wb.getWorksheet("Model")!;
+    const headerCell = ws.getRow(3).getCell(1);
+    expect(String(headerCell.value).startsWith("'")).toBe(true);
   });
 });

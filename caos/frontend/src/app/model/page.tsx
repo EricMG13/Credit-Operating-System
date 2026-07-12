@@ -255,14 +255,15 @@ function ModelBuilder() {
   // C9: committee-pack .xlsx. Headline metric_facts come from the issuer
   // profile (server-owned data — the one piece that must cross the network);
   // the model grid/scenarios/assumptions are already in memory, so the export
-  // itself stays synchronous. A failed profile fetch degrades to an empty
-  // Headline Facts sheet rather than blocking the export.
+  // itself is async (ExcelJS's writeBuffer is Promise-based). A failed
+  // profile fetch degrades to an empty Headline Facts sheet rather than
+  // blocking the export.
   const [exporting, setExporting] = useState(false);
   const handleExport = async () => {
     setExporting(true);
     try {
       const profile = await getIssuerProfile(issuerId).catch(() => null);
-      exportModel(model, showQuarters, overrides, exportMeta, {
+      await exportModel(model, showQuarters, overrides, exportMeta, {
         prov: fromModelEngine(eng), runId: eng.runId, assumptions, metrics: profile?.metrics ?? [],
       });
     } finally {
