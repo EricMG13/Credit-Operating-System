@@ -357,9 +357,12 @@ class IssuerResearchReport(Base):
     run_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("runs.id"), index=True
     )
+    # queued|running|complete|failed. Created 'queued' (was 'running'): the durable
+    # executor claims it, so a redeploy re-claims + re-executes rather than losing
+    # an in-flight synthesis (migration 0038, mirrors ResearchJob/migration 0036).
     status: Mapped[str] = mapped_column(
-        String(16), default="running"
-    )  # running|complete|failed
+        String(16), default="queued"
+    )
     # The structured payload (forced tool-call output), JSON-validated.
     payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     # The rendered Markdown sections (denormalized for cheap GET + future export).
@@ -383,9 +386,12 @@ class IssuerResearchReport(Base):
         DateTime(timezone=True), default=_utcnow
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    # Boot-sweep lease (see migrations/0038_background_job_leases). worker_id is
-    # audit trail only; lease_expires_at is what gates the reap.
+    # Async executor lease/recovery — mirrors ResearchJob (migration 0038). A report
+    # is a pure function of its (run_id, issuer_id, digest), so a Postgres worker
+    # re-claims and re-executes an orphan instead of losing the synthesis.
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
 
 

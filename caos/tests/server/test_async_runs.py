@@ -263,13 +263,7 @@ async def test_active_run_unique_index_blocks_racing_second(seeded_db):
 
 
 # These exercise the SKIP LOCKED claim path and only run against Postgres.
-import os
-
-requires_pg = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
-    reason="worker claim/lease requires Postgres (SKIP LOCKED) — run in the CI server "
-           "job's Postgres step, or locally via DATABASE_URL=postgresql+asyncpg://...",
-)
+from conftest import requires_pg
 
 
 @requires_pg

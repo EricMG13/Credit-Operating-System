@@ -700,7 +700,7 @@ def test_create_report_201_and_poll_after_run(client):
     create = client.post(f"/api/issuers/{iid}/research-report")
     assert create.status_code == 201, create.text
     job = create.json()
-    assert job["status"] == "running"
+    assert job["status"] == "queued"  # durable executor claims it (mirrors ResearchJob)
     assert job["id"]
 
     # Poll until complete (demo mode — no API key, so it completes instantly)
@@ -922,3 +922,114 @@ def test_report_payload_has_expected_structure(client):
     assert isinstance(status["validation"], dict) or status["validation"] is None
     assert isinstance(status["tokens_used"], int)
     assert status["is_stale"] is False
+
+
+# ── Durable executor: settings, lease columns, QueueWorker (Postgres only) ───
+
+def test_report_executor_settings_defaults():
+    from config import Settings
+
+    s = Settings()
+    assert s.caos_report_lease_seconds == 600
+    assert s.caos_report_max_attempts == 3
+
+
+def test_report_model_has_lease_columns():
+    from database import IssuerResearchReport
+
+    cols = IssuerResearchReport.__table__.columns
+    for name in ("claimed_at", "lease_expires_at", "attempts", "worker_id"):
+        assert name in cols, f"IssuerResearchReport is missing column {name}"
+    assert cols["attempts"].default.arg == 0
+    assert cols["status"].default.arg == "queued"
+
+
+from conftest import requires_pg
+
+
+@pytest.mark.asyncio
+async def test_report_inprocess_start_sweeps_stranded_reports(seeded_db):
+    """Hard-crash recovery: a report left 'queued'/'running' by a SIGKILL (no
+    stop()) must be swept to 'failed' on the next start() — SQLite has no reaper."""
+    from database import AsyncSessionLocal, Issuer, IssuerResearchReport, Run
+    from research_report_executor import ResearchReportExecutor
+
+    async with AsyncSessionLocal() as s:
+        # uq_issuer_run_report is (issuer_id, run_id) — distinct runs so the two
+        # stranded rows don't collide with each other.
+        issuer = Issuer(name="Report Sweep Test Co")
+        s.add(issuer)
+        await s.flush()
+        run_a = Run(issuer_id=issuer.id, analyst_id="t", status="complete")
+        run_b = Run(issuer_id=issuer.id, analyst_id="t", status="complete")
+        s.add_all([run_a, run_b])
+        await s.flush()
+        stranded_running = IssuerResearchReport(issuer_id=issuer.id, run_id=run_a.id, analyst_id="t", status="running")
+        stranded_queued = IssuerResearchReport(issuer_id=issuer.id, run_id=run_b.id, analyst_id="t", status="queued")
+        s.add_all([stranded_running, stranded_queued])
+        await s.commit()
+        ids = (stranded_running.id, stranded_queued.id)
+
+    await ResearchReportExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        r_running, r_queued = [await s.get(IssuerResearchReport, i) for i in ids]
+        assert r_running.status == "failed" and "process restart" in (r_running.error or "")
+        assert r_queued.status == "failed" and "process restart" in (r_queued.error or "")
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_two_report_workers_claim_one_report_once(seeded_db):
+    from database import AsyncSessionLocal, Issuer, IssuerResearchReport, Run
+    from research_report_executor import ReportQueueWorker
+
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="Report Claim Race Co")
+        s.add(issuer)
+        await s.flush()
+        run = Run(issuer_id=issuer.id, analyst_id="t", status="complete")
+        s.add(run)
+        await s.flush()
+        report = IssuerResearchReport(issuer_id=issuer.id, run_id=run.id, analyst_id="t")
+        s.add(report)
+        await s.commit()
+        report_id = report.id
+
+    w1, w2 = ReportQueueWorker(), ReportQueueWorker()
+    id1 = await w1._claim_one()
+    id2 = await w2._claim_one()
+    claimed = [x for x in (id1, id2) if x == report_id]
+    assert len(claimed) == 1, "exactly one worker may claim the report"
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_report_reaper_fails_exhausted_orphan(seeded_db):
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, Issuer, IssuerResearchReport, Run
+    from research_report_executor import ReportQueueWorker
+
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="Report Reaper Orphan Co")
+        s.add(issuer)
+        await s.flush()
+        run = Run(issuer_id=issuer.id, analyst_id="t", status="complete")
+        s.add(run)
+        await s.flush()
+        report = IssuerResearchReport(
+            issuer_id=issuer.id, run_id=run.id, analyst_id="t",
+            status="running", attempts=3, lease_expires_at=past,
+        )
+        s.add(report)
+        await s.commit()
+        report_id = report.id
+
+    await ReportQueueWorker()._reap_orphans()
+
+    async with AsyncSessionLocal() as s:
+        report = await s.get(IssuerResearchReport, report_id)
+        assert report.status == "failed"
+        assert "max attempts" in (report.error or "")

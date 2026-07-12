@@ -10,8 +10,14 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/components/shared/ConceptNav", () => ({
-  ConceptNav: () => <nav aria-label="Concepts">ConceptNav</nav>,
+// Mock next/navigation (not the shared ConceptNav component) so ConceptNav
+// renders for real — a vi.mock keyed on a shared component's module path
+// leaked across worker-shared test files once before (see vitest.config.ts's
+// react-dom/server comment); ShellIdentity now imports ConceptNav too, so the
+// same path-mock started intermittently breaking unrelated full-suite runs
+// with "ShellIdentity is not defined".
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/command",
 }));
 
 vi.mock("@/components/shared/IssuerLink", () => ({
@@ -117,5 +123,29 @@ describe("SectorReviewWorkspace", () => {
     await waitFor(() => expect(api.askSectorTopic).toHaveBeenCalledWith(signal.id, expect.stringContaining("Q2 order books soften")));
     expect(await screen.findByText("Seed-context answer.")).toBeTruthy();
     expect(screen.getByText(/Restricted to this sector signal/)).toBeTruthy();
+  });
+
+  it("refreshes the briefing through the refresh API and re-renders", async () => {
+    render(<SectorReviewWorkspace />);
+
+    const [refreshButton] = await screen.findAllByRole("button", { name: "Refresh" });
+    fireEvent.click(refreshButton);
+
+    await waitFor(() =>
+      expect(api.refreshSectorReview).toHaveBeenCalledWith(
+        expect.objectContaining({ sector: "Industrials", timeframe: "today" }),
+      ),
+    );
+    expect((await screen.findAllByText("Q2 order books soften")).length).toBeGreaterThan(0);
+  });
+
+  it("shows bounded date controls only when Custom timeframe is selected", async () => {
+    render(<SectorReviewWorkspace />);
+    await screen.findAllByRole("heading", { name: "Industrials" });
+
+    expect(screen.queryByLabelText("Sector Review start date")).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Custom" })[0]);
+    expect(await screen.findByLabelText("Sector Review start date")).toBeTruthy();
+    expect(screen.getByLabelText("Sector Review end date")).toBeTruthy();
   });
 });

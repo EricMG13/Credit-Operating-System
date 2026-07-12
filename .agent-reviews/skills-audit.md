@@ -33,9 +33,12 @@ skills. Summary of actions taken (all recoverable via git history):
   `teach-impeccable`, and `a11y-audit`.
 - **§5 — resolved (second pass).**
   - `a11y-audit` deleted (regex-based, superseded by the mandated axe runner).
-  - `security-best-practices` **deleted** — zero inbound refs, overlaps the
-    broader `owasp-security` (kept: OWASP Top 10:2025 + ASVS 5.0 + LLM/Agentic
-    coverage, directly relevant to CAOS as an agent platform).
+  - `security-best-practices` — briefly deleted as redundant with
+    `owasp-security`, then **restored on review**: the two are complementary, not
+    duplicative. `owasp-security` owns standards + the LLM/Agentic surface;
+    `security-best-practices` ships framework-exact hardening refs matching the
+    CAOS stack (FastAPI + Next.js + React). Both kept; now documented in
+    `_VENDORED.md`.
   - `code-reviewer` **kept** — one of only **two** live routing targets the
     `senior-security` hub still has (see finding below); deleting it would further
     gut an already-thin router.
@@ -48,7 +51,8 @@ skills. Summary of actions taken (all recoverable via git history):
     (only `adversarial-reviewer` + `code-reviewer` exist). Added an "Installed in
     CAOS" caveat so agents don't chase missing skills.
 
-  `.agents/skills/` final count: **53 → 27**.
+  `.agents/skills/` final count: **53 → 28** (after `security-best-practices`
+  was restored).
 
 ---
 

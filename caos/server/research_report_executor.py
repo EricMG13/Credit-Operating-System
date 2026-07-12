@@ -23,10 +23,10 @@ import os
 import socket
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select, update
 
 from config import get_settings
-from database import AsyncSessionLocal, IssuerResearchReport, Issuer, ModuleOutput, Run
+from database import AsyncSessionLocal, IssuerResearchReport, Issuer, ModuleOutput, Run, engine
 from research_report import (
     ResearchReportResult,
     build_module_digest,
@@ -104,6 +104,7 @@ async def _run_report(report_id: str) -> None:
             report.lease_expires_at = _now() + timedelta(
                 seconds=get_settings().caos_background_job_lease_seconds
             )
+            report.status = "running"  # visible to the client's poll; idempotent on re-claim
             await session.commit()
 
             # Load the run + issuer
@@ -182,6 +183,7 @@ async def _run_report(report_id: str) -> None:
             report.demo = result.demo
             report.truncated = result.truncated
             report.status = "complete"
+            report.lease_expires_at = None
             report.completed_at = _now()
             await session.commit()
 
@@ -204,6 +206,7 @@ async def _mark_failed(session, report_id: str, reason: str) -> None:
         if report is not None:
             report.status = "failed"
             report.error = reason
+            report.lease_expires_at = None
             report.completed_at = _now()
             await session.commit()
     except Exception:  # noqa: BLE001
@@ -216,31 +219,38 @@ class ResearchReportExecutor(InProcessTaskExecutor):
     Multi-replica safe: enqueue() still spawns same-process (mirrors
     ResearchExecutor), but start()'s boot sweep is lease-expiry gated like
     QueueWorker._reap_orphans, so one replica can't kill another replica's
-    still-live report on a rolling redeploy.
+    still-live report on a rolling redeploy. On Postgres,
+    ``get_report_executor`` picks ``ReportQueueWorker`` instead so one worker
+    process dying doesn't strand a report until the next full restart.
     """
 
     name = "research_report_in_process"
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
-        # stranding a report in 'running' forever. Gated on lease_expires_at
-        # (not unconditional) so a rolling multi-replica redeploy can't kill a
-        # report still live on a sibling. A NULL lease is reapable (legacy rows,
-        # or a crash before the lease-set commit) — see
+        # stranding a report in 'running'/'queued' forever. Running rows are
+        # gated on lease_expires_at (not unconditional) so a rolling
+        # multi-replica redeploy can't kill a report still live on a sibling. A
+        # NULL lease is reapable (legacy rows, or a crash before the lease-set commit) — see
         # migrations/0038_background_job_leases and redteam RT-2026-07-11-03.
         async with AsyncSessionLocal() as session:
             await session.execute(
                 update(IssuerResearchReport)
                 .where(
-                    IssuerResearchReport.status == "running",
                     or_(
-                        IssuerResearchReport.lease_expires_at.is_(None),
-                        IssuerResearchReport.lease_expires_at < _now(),
+                        IssuerResearchReport.status == "queued",
+                        and_(
+                            IssuerResearchReport.status == "running",
+                            or_(
+                                IssuerResearchReport.lease_expires_at.is_(None),
+                                IssuerResearchReport.lease_expires_at < _now(),
+                            ),
+                        ),
                     ),
                 )
                 .values(
                     status="failed",
-                    error="abandoned (lease expired)",
+                    error="abandoned (process restart)",
                     completed_at=_now(),
                     lease_expires_at=None,
                 )
@@ -249,3 +259,153 @@ class ResearchReportExecutor(InProcessTaskExecutor):
 
     def enqueue(self, report_id: str) -> None:
         self._spawn(execute_report_by_id(report_id))
+
+
+class ReportQueueWorker:
+    """Postgres: claim queued (and truly-orphaned) research-report jobs via FOR
+    UPDATE SKIP LOCKED, execute up to `concurrency` at once, and reap
+    attempts-exhausted orphans. Mirrors ``run_executor.QueueWorker`` /
+    ``research_executor.ResearchQueueWorker`` — see the former for the full
+    state-machine diagram and the multi-worker claim-safety rationale (Postgres
+    row locking; do not run multiple workers against SQLite). Concurrency cap
+    reuses ``caos_research_concurrency`` (mirrors ``_semaphore()`` above).
+    """
+
+    name = "report_queue_worker"
+
+    def __init__(self) -> None:
+        self._settings = get_settings()
+        self._worker_id = f"{socket.gethostname()}:{id(self)}"
+        self._inflight: set[asyncio.Task] = set()
+        # A report this worker is still executing must never be re-claimed by
+        # itself even if its wall clock legitimately exceeds the lease.
+        self._inflight_ids: set[str] = set()
+        self._loop_task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+
+    async def start(self) -> None:
+        self._stop.clear()
+        self._loop_task = asyncio.create_task(self._run_loop())
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._loop_task:
+            await self._loop_task
+        tasks = list(self._inflight)
+        for t in tasks:
+            t.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def enqueue(self, report_id: str) -> None:
+        # The row already exists as 'queued'; the loop will pick it up. No-op.
+        # NOT async: routes/issuers.py calls this without awaiting (matching
+        # ResearchReportExecutor.enqueue's sync signature — the two are
+        # interchangeable behind get_report_executor()'s dialect switch).
+        return None
+
+    async def _reap_orphans(self) -> None:
+        async with AsyncSessionLocal() as s:
+            await s.execute(
+                update(IssuerResearchReport)
+                .where(
+                    IssuerResearchReport.status == "running",
+                    IssuerResearchReport.lease_expires_at < _now(),
+                    IssuerResearchReport.attempts >= self._settings.caos_report_max_attempts,
+                )
+                .values(status="failed", error="abandoned after max attempts", lease_expires_at=None)
+            )
+            await s.commit()
+
+    async def _heartbeat(self) -> None:
+        """Extend the lease on this worker's live reports each poll tick, so a
+        report whose wall clock legitimately exceeds the fixed lease window is
+        not re-claimed (by any worker) and executed twice concurrently."""
+        if not self._inflight_ids:
+            return
+        lease = timedelta(seconds=self._settings.caos_report_lease_seconds)
+        async with AsyncSessionLocal() as s:
+            await s.execute(
+                update(IssuerResearchReport)
+                .where(
+                    IssuerResearchReport.id.in_(tuple(self._inflight_ids)),
+                    IssuerResearchReport.worker_id == self._worker_id,
+                    IssuerResearchReport.status == "running",
+                )
+                .values(lease_expires_at=_now() + lease)
+            )
+            await s.commit()
+
+    async def _claim_one(self) -> str | None:
+        max_attempts = self._settings.caos_report_max_attempts
+        lease = timedelta(seconds=self._settings.caos_report_lease_seconds)
+        async with AsyncSessionLocal() as s:
+            async with s.begin():
+                stmt = (
+                    select(IssuerResearchReport)
+                    .where(
+                        or_(
+                            IssuerResearchReport.status == "queued",
+                            and_(
+                                IssuerResearchReport.status == "running",
+                                IssuerResearchReport.lease_expires_at < _now(),
+                                IssuerResearchReport.attempts < max_attempts,
+                            ),
+                        )
+                    )
+                    .order_by(IssuerResearchReport.created_at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+                if self._inflight_ids:
+                    stmt = stmt.where(IssuerResearchReport.id.notin_(tuple(self._inflight_ids)))
+                row = (await s.execute(stmt)).scalar_one_or_none()
+                if row is None:
+                    return None
+                row.status = "running"
+                row.attempts += 1
+                row.claimed_at = _now()
+                row.lease_expires_at = _now() + lease
+                row.worker_id = self._worker_id
+                return row.id
+
+    async def _run_loop(self) -> None:
+        poll = self._settings.caos_report_poll_seconds
+        cap = self._settings.caos_research_concurrency
+        fails = 0
+        while not self._stop.is_set():
+            try:
+                await self._heartbeat()
+                await self._reap_orphans()
+                while len(self._inflight) < cap:
+                    report_id = await self._claim_one()
+                    if report_id is None:
+                        break
+                    task = asyncio.create_task(_run_report(report_id))
+                    self._inflight.add(task)
+                    self._inflight_ids.add(report_id)
+                    task.add_done_callback(self._inflight.discard)
+                    task.add_done_callback(
+                        lambda _t, rid=report_id: self._inflight_ids.discard(rid)
+                    )
+                fails = 0
+            except Exception:  # noqa: BLE001 — never let the loop die
+                fails += 1
+                if fails >= 3:
+                    logger.error(
+                        "report worker loop failing repeatedly (%d consecutive ticks) — queue stalled",
+                        fails,
+                    )
+                else:
+                    logger.exception("report worker loop tick failed")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=poll)
+            except asyncio.TimeoutError:
+                pass
+
+
+def get_report_executor():
+    """Pick the executor by DB dialect: in-process on SQLite, queue on Postgres."""
+    if engine.dialect.name == "postgresql":
+        return ReportQueueWorker()
+    return ResearchReportExecutor()
