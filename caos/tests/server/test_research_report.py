@@ -549,6 +549,118 @@ class TestValidateActionBias:
         assert payload["bottom_line"]["gated"] is False  # unchanged
 
 
+# ── Background execution: sweep-on-boot (mirrors test_research_jobs.py) ─────
+
+
+@pytest.mark.asyncio
+async def test_report_executor_sweeps_stranded_reports(seeded_db):
+    """Hard-crash recovery: a report left 'running' by a restart must be swept to
+    'failed' on the next start(); terminal reports untouched. No lease was ever
+    set (mirrors a real crash before/just after the lease-set commit, or a
+    pre-migration row) — NULL lease is reapable."""
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report_executor import ResearchReportExecutor
+
+    async with AsyncSessionLocal() as s:
+        stranded = IssuerResearchReport(status="running", issuer_id="i1", run_id="r1", analyst_id="t")
+        done = IssuerResearchReport(status="complete", issuer_id="i1", run_id="r2", analyst_id="t")
+        s.add_all([stranded, done])
+        await s.commit()
+        sid, did = stranded.id, done.id
+
+    await ResearchReportExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        assert (await s.get(IssuerResearchReport, sid)).status == "failed"
+        assert (await s.get(IssuerResearchReport, did)).status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_report_executor_does_not_sweep_live_leased_report(seeded_db):
+    """Multi-replica safety: a 'running' report whose lease has NOT expired is
+    genuinely still running (on this replica or a live sibling) and must survive
+    start()'s boot sweep — only a lease-expired report is a provable strand."""
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report_executor import ResearchReportExecutor
+
+    async with AsyncSessionLocal() as s:
+        live = IssuerResearchReport(
+            status="running", issuer_id="i2", run_id="r1", analyst_id="t",
+            worker_id="sibling-replica:123",
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        s.add(live)
+        await s.commit()
+        lid = live.id
+
+    await ResearchReportExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        assert (await s.get(IssuerResearchReport, lid)).status == "running"
+
+
+@pytest.mark.asyncio
+async def test_report_executor_sweeps_expired_leased_report(seeded_db):
+    """A 'running' report whose lease HAS expired is a provable strand and must be
+    swept — exercises the SQL datetime comparison itself (not the NULL branch),
+    so a driver-level tz/format mismatch in `lease_expires_at < now` fails here."""
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report_executor import ResearchReportExecutor
+
+    async with AsyncSessionLocal() as s:
+        dead = IssuerResearchReport(
+            status="running", issuer_id="i4", run_id="r1", analyst_id="t",
+            worker_id="dead-replica:456",
+            lease_expires_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        s.add(dead)
+        await s.commit()
+        did = dead.id
+
+    await ResearchReportExecutor().start()
+
+    async with AsyncSessionLocal() as s:
+        swept = await s.get(IssuerResearchReport, did)
+    assert swept.status == "failed"
+    assert swept.lease_expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_lease_set_failure_still_marks_report_failed(seeded_db, monkeypatch):
+    """The lease-set commit must be INSIDE the try/except, not before it — a
+    commit failure there (DB blip, pool exhaustion) must still mark the report
+    failed, not strand it in 'running' with no error and no lease."""
+    from database import AsyncSessionLocal, IssuerResearchReport
+    import research_report_executor
+
+    real_get_settings = research_report_executor.get_settings
+
+    class _BoomSettings:
+        def __getattr__(self, name):
+            if name == "caos_background_job_lease_seconds":
+                raise RuntimeError("synthetic lease-set failure")
+            return getattr(real_get_settings(), name)
+
+    monkeypatch.setattr(research_report_executor, "get_settings", lambda: _BoomSettings())
+
+    async with AsyncSessionLocal() as s:
+        report = IssuerResearchReport(status="running", issuer_id="i3", run_id="r1", analyst_id="t")
+        s.add(report)
+        await s.commit()
+        rid = report.id
+
+    await research_report_executor.execute_report_by_id(rid)
+
+    async with AsyncSessionLocal() as s:
+        report = await s.get(IssuerResearchReport, rid)
+        assert report.status == "failed"
+        assert "synthetic lease-set failure" in (report.error or "")
+
+
 # ── Endpoint tests (HTTP, DB) ────────────────────────────────────────────────
 
 
