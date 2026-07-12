@@ -67,6 +67,7 @@ survives `docker compose restart app`, and EDGAR search returns pointers.
 | Tail logs | `docker compose logs -f app` |
 | Inspect backups | `docker compose exec backup ls -lh /backups` |
 | Ad-hoc DB dump (same format as the service) | `docker compose exec db pg_dump -U caos -Fc caos > caos-$(date +%F).dump` |
+| Restore drill (scratch targets, safe to run anytime — G1) | `docker compose exec backup sh /restore_drill.sh` |
 | Stop everything | `docker compose down` (volumes persist; `down -v` destroys DB, vault **and backups**) |
 
 Backups are AUTOMATED: the `backup` service writes a daily `pg_dump -Fc`

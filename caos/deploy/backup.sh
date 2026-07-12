@@ -11,7 +11,11 @@
 # — see LAUNCH_PHASE1 Operations.
 #
 # Restore — DRILL into a SCRATCH target, never the live DB/vault (verify quarterly,
-# see LAUNCH_PHASE1 Operations):
+# see LAUNCH_PHASE1 Operations). Scripted (G1): restore_drill.sh runs the drill
+# below end to end and asserts real content came back (table count +
+# alembic_version present, vault files > 0), not just "the commands exited 0":
+#   docker compose exec backup sh /restore_drill.sh
+# The manual steps it automates, for reference / manual troubleshooting:
 #   db    : createdb -h db -U caos caos_restore_test
 #           pg_restore -h db -U caos -d caos_restore_test /backups/caos-db-<ts>.dump
 #           dropdb -h db -U caos caos_restore_test   # after verifying row counts
