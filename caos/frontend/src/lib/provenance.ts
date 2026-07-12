@@ -1,0 +1,77 @@
+// One provenance grammar for every surface — three orthogonal axes:
+//
+//   Origin:    LIVE / REFERENCE / DEMO   (where the figures come from)
+//   Freshness: CURRENT / STALE / UNKNOWN (how old they are)
+//   Method:    REPORTED / DERIVED / MODELLED (how they were produced)
+//
+// Replaces the per-surface vocabularies (Research's DEMO/●LIVE chips, Query's
+// AI-Generated/Deterministic, Model's CP-1 LIVE/SEEDED, Sector Review's
+// Seed/demo badge) so an analyst reads ONE grammar everywhere.
+//
+// Mapping rule (RT-2026-07-11-65, red-team signed): legacy copy saying
+// demo/sample/illustrative → DEMO; curated reference fixtures/templates →
+// REFERENCE; LIVE strictly requires a genuine live run id / engine flag and is
+// NEVER inferred. An omitted axis renders nothing — absence of freshness must
+// not read as CURRENT.
+
+export type ProvOrigin = "LIVE" | "REFERENCE" | "DEMO";
+export type ProvFreshness = "CURRENT" | "STALE" | "UNKNOWN";
+export type ProvMethod = "REPORTED" | "DERIVED" | "MODELLED";
+
+export interface Provenance {
+  origin: ProvOrigin;
+  freshness?: ProvFreshness;
+  method?: ProvMethod;
+  /** The precise sentence behind the chip — surfaces as the tooltip. */
+  detail?: string;
+  /** Display-ready as-of stamp, appended to the tooltip. */
+  asOf?: string;
+}
+
+/** Sector Review / digest style "seed" | "live" flags. Unknown vocabulary
+ *  returns null so callers keep their bespoke rendering instead of guessing. */
+export function fromSeedFlag(v: string | null | undefined): Provenance | null {
+  if (v === "seed") return { origin: "DEMO", detail: "Seeded demo fixture — not live output." };
+  if (v === "live") return { origin: "LIVE" };
+  return null;
+}
+
+/** Model Builder engine state → grammar. LIVE only with a real anchored run. */
+export function fromModelEngine(eng: {
+  live: boolean;
+  anchor: unknown;
+  runId?: string | null;
+}): Provenance {
+  if (eng.live && eng.anchor) {
+    return {
+      origin: "LIVE",
+      method: "REPORTED",
+      detail: `Anchored to live CP-1${eng.runId ? ` from run ${eng.runId}` : ""}.`,
+    };
+  }
+  return { origin: "DEMO", detail: "No completed run found — seeded demo model (offline fallback)." };
+}
+
+/** Report Studio caveat variants → grammar. loading/error/noRun return null —
+ *  origin is UNKNOWN there and the page's precise prose carries the state;
+ *  a guessed chip would be a relabel. */
+export function fromReportCaveat(
+  kind: "reference" | "loading" | "error" | "live" | "noRun",
+  liveRunBacked: boolean,
+): Provenance | null {
+  if (kind === "reference") {
+    return {
+      origin: "REFERENCE",
+      detail: liveRunBacked
+        ? "Reference template — bespoke tabs stay the Atlas Forge fixture; other figures reflect the live run."
+        : "Atlas Forge reference template — not a live issuer run.",
+    };
+  }
+  if (kind === "live") {
+    return {
+      origin: "LIVE",
+      detail: "Live engine modules reflect this issuer; CP-RENDER is not wired to issuer-specific report pages yet.",
+    };
+  }
+  return null;
+}

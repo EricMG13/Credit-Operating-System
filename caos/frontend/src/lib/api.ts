@@ -883,9 +883,15 @@ export interface WorkspaceSettings {
 export const getSettings = (): Promise<WorkspaceSettings> =>
   api.get("/api/settings").then((r) => r.data);
 
+export type RoleView = "analyst" | "pm" | "qa";
+
 export interface AnalystSettings {
   model_lanes: Record<string, string>;
   email_intelligence: { outlook_connected?: boolean; approved_senders?: string[] };
+  /** Presentation preference only — never authorization (server coerces unknown values to "analyst"). */
+  role_view?: RoleView;
+  /** Deep-Dive pins/recents, standing-view affirmations. */
+  workspace?: Record<string, unknown>;
 }
 export const getAnalystSettings = (): Promise<AnalystSettings> =>
   api.get("/api/settings/analyst").then((r) => r.data);
@@ -912,3 +918,73 @@ export const saveModel = (
   api
     .put(`/api/models/${issuerId}`, { payload, expected_updated_at: expectedUpdatedAt ?? undefined })
     .then((r) => r.data);
+
+// ─── Autonomy draft (Watchtower — Sentinel→Anomaly→Analyst→Reporter DAG) ───
+export interface AutonomyClaim {
+  text: string;
+  claim_type: string;
+  anomaly_kind: string;
+  anomaly_severity: number;
+  chunk_ids: string[];
+  fact_ids: string[];
+  model: string | null;
+}
+export interface AutonomyBullet {
+  kind: string;
+  severity: number;
+  metric: string | null;
+  direction: string | null;
+  chunk_id: string | null;
+  context: Record<string, unknown>;
+}
+export interface AutonomyExhibitRow {
+  id: string;
+  label: string;
+  text: string;
+  numbers: number[];
+}
+export interface AutonomySection {
+  issuer_id: string | null;
+  issuer_name: string;
+  max_severity: number;
+  claims: AutonomyClaim[];
+  deterministic_bullets: AutonomyBullet[];
+  exhibit: AutonomyExhibitRow[];
+}
+export interface AutonomyDraft {
+  status: string;
+  ai_generated: boolean;
+  ratified: boolean;
+  export_allowed: boolean;
+  marking: string;
+  generated_at?: string;
+  sections: AutonomySection[];
+  summary: { n_sections: number; n_claims: number; n_deterministic_bullets: number; n_anomalies: number };
+  refreshing: boolean;
+  error?: string;
+}
+// force=true skips the staleness check server-side and enqueues a fresh cycle
+// (explicit "refresh" affordance — never fired automatically on an interval).
+export const getAutonomyDraft = (force = false): Promise<AutonomyDraft> =>
+  api.get("/api/autonomy/draft", { params: force ? { force: true } : {} }).then((r) => r.data);
+
+// ─── Alert states (Watchtower ack/assign — Command + Monitor share these) ──
+export interface AlertStateDTO {
+  id: string;
+  alert_key: string;
+  state: "open" | "ack";
+  assignee: string | null;
+  note: string | null;
+  analyst_id: string | null;
+  created_at: string | null;
+}
+export const setAlertState = (
+  alertKey: string,
+  state: "open" | "ack",
+  opts?: { assignee?: string; note?: string },
+): Promise<AlertStateDTO> =>
+  api
+    .post("/api/alerts/state", { alert_key: alertKey, state, assignee: opts?.assignee, note: opts?.note })
+    .then((r) => r.data);
+export const getAlertStates = (alertKey?: string): Promise<AlertStateDTO[]> =>
+  api.get("/api/alerts/state", { params: alertKey ? { alert_key: alertKey } : {} }).then((r) => r.data);

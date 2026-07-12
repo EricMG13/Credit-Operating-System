@@ -42,10 +42,12 @@ test.describe("Model Builder", () => {
     // "No issuer-specific model output" empty state).
     await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
 
-    // ModelProvenance: either a live CP-1 anchor ("CP-1 LIVE · RUN …") or the
-    // seeded fallback ("SEEDED · demo RUN #2641"). Either proves the grid is
-    // sourced. Scope to .first() — "CP-1" also appears in row labels.
-    await expect(page.getByText(/CP-1 LIVE|SEEDED · demo RUN/).first()).toBeVisible({
+    // ProvenanceChip (lib/provenance.ts fromModelEngine, RT-2026-07-11-65):
+    // origin renders as a bare "LIVE" or "DEMO" chip — the old per-surface
+    // "CP-1 LIVE" / "SEEDED · demo RUN" copy was unified away. Either origin
+    // proves the grid is sourced. Anchored regex avoids matching "LIVE"/"DEMO"
+    // as a substring elsewhere on the page.
+    await expect(page.getByText(/^(LIVE|DEMO)$/).first()).toBeVisible({
       timeout: 15000,
     });
   });

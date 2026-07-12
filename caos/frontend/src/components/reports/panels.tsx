@@ -251,12 +251,10 @@ export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report;
             </div>
           ))}
         </div>
-        <button
-          onClick={() => window.print()}
-          className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos flex items-center justify-center gap-2 tabular text-caos-md"
-        >
-          ⎙ PRINT / SAVE PDF
-        </button>
+        {/* Print/export is the ONE shell-level primary action (header "⎙ EXPORT
+            PDF") — this panel used to duplicate it with its own button
+            (P2-WP-8); the metadata above is the panel's job, not a second
+            trigger for the same action. */}
         {runId ? <ExportToVaultButton runId={runId} /> : null}
         {rep.watermark ? (
           <div className="flex items-start gap-2">

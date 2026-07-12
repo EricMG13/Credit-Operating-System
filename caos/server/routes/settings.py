@@ -30,9 +30,21 @@ _MAX_SETTINGS_BYTES = 100_000
 _WRITES_PER_MINUTE = 30
 
 
+# Presentation-only role views. Never authorization — nothing server-side
+# branches on this; it is a rendering hint the frontend persists per analyst.
+_ROLE_VIEWS = ("analyst", "pm", "qa")
+
+
 class AnalystSettings(BaseModel):
     model_lanes: dict = Field(default_factory=dict)
     email_intelligence: dict = Field(default_factory=dict)
+    role_view: str = "analyst"
+    # Per-analyst UI state that has nowhere else to live: Deep-Dive module pins
+    # (workspace.deepdive_pins), recents (workspace.deepdive_recents), and
+    # standing-view affirmations (workspace.affirmations — personal
+    # annotations, NOT a governance action). Frontend caps each list; server
+    # only enforces the overall 100KB blob cap below.
+    workspace: dict = Field(default_factory=dict)
 
 
 @router.get("")
@@ -88,9 +100,15 @@ async def read_analyst_settings(
 ):
     analyst = await db.get(Analyst, caller.id)
     raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
+    rv = raw.get("role_view")
+    workspace = raw.get("workspace")
     return AnalystSettings(
         model_lanes=raw.get("model_lanes") or {},
         email_intelligence=raw.get("email_intelligence") or {},
+        # Old two-field blobs (and junk values) coerce to the analyst view —
+        # a GET never 500s over a preference.
+        role_view=rv if rv in _ROLE_VIEWS else "analyst",
+        workspace=workspace if isinstance(workspace, dict) else {},
     )
 
 
@@ -102,6 +120,11 @@ async def write_analyst_settings(
 ):
     if not rate_limit.hit(f"settings:{caller.id}", max_attempts=_WRITES_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Settings rate limit reached — try again in a minute.")
+    if body.role_view not in _ROLE_VIEWS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "role_view must be one of: analyst, pm, qa.",
+        )
     if len(json.dumps(body.model_dump())) > _MAX_SETTINGS_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
     analyst = await db.get(Analyst, caller.id)
