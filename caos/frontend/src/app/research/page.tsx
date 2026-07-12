@@ -9,7 +9,8 @@
 import { useEffect, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
+import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { labelCls } from "@/components/shared/styles";
@@ -314,12 +315,10 @@ function Research() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <PageSubHeader>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Deep Research — sector &amp; issuer credit intelligence</span>
-      </PageSubHeader>
-
+    <ResponsiveShell
+      identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
+      narrowContract={{ essentialControls: null }}
+    >
       {/* workspace — brief (left) drives the report (right) */}
       <div className="flex-1 min-h-0 grid grid-cols-[400px_minmax(0,1fr)] gap-2 p-2">
         <Panel title="Research brief">
@@ -432,6 +431,6 @@ function Research() {
           }}
         />
       </div>
-    </div>
+    </ResponsiveShell>
   );
 }

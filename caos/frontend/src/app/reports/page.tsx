@@ -8,6 +8,9 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { fromReportCaveat } from "@/lib/provenance";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
@@ -33,12 +36,14 @@ function PrintPortal({
   showSources,
   edits,
   hideAddbacks,
+  authority,
 }: {
   rep: ReturnType<typeof buildReports>[number];
   omit: Record<number, boolean>;
   showSources: boolean;
   edits: Record<string, string>;
   hideAddbacks?: boolean;
+  authority?: Parameters<typeof ReportDoc>[0]["authority"];
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -49,7 +54,10 @@ function PrintPortal({
     return () => d.remove();
   }, []);
   if (!el) return null;
-  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} />, el);
+  return createPortal(
+    <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} authority={authority} />,
+    el,
+  );
 }
 
 export default function ReportsPage() {
@@ -224,6 +232,17 @@ function ReportStudio() {
   // "no run for this issuer" — this surface produces committee documents.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
 
+  // Printed authority block (P2-WP-8) — same caveat state and FE-5
+  // live-run-backed distinction the on-screen header already uses (266-311
+  // below), so the deliverable's own masthead never overstates or
+  // understates what actually backs it.
+  const authority = {
+    caveatKind,
+    liveRunBacked: caveatKind === "reference" && !!eng.runId,
+    runId: eng.runId,
+    qaNote: caveatKind === "reference" ? "QA: CP-5 CONDITIONAL — QA-117" : eng.committeeStatus ? `COMMITTEE: ${eng.committeeStatus}` : null,
+  };
+
   const narrowContract: NarrowContract = {
     essentialControls: (
       <>
@@ -256,8 +275,10 @@ function ReportStudio() {
     <ResponsiveShell
       identity={
         <>
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-          <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
+          {/* Reports was the one surface with no concept nav or Directory
+              back-link at all — ShellIdentity closes that gap. */}
+          <ShellIdentity tag="CP-RENDER" />
+          <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap min-w-0 truncate">Report Studio — committee deliverables</span>
           {caveatKind === "reference" && eng.runId ? (
             // FE-5: buildReports incorporates eng.anchor when a live run exists on
             // the reference issuer, but the debate/recovery/covenant tabs and the
@@ -265,19 +286,25 @@ function ReportStudio() {
             // lib/deepdive/caveat.ts) — say both halves precisely instead of the
             // blanket "not a live issuer run" claim.
             <span
-              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              className="flex items-center gap-1.5 min-w-0"
               role="note"
               title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
             >
-              REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run
+              <ProvenanceChip prov={fromReportCaveat("reference", true)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+                bespoke tabs stay fixture, other figures reflect the live run
+              </span>
             </span>
           ) : caveatKind === "reference" ? (
             <span
-              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              className="flex items-center gap-1.5 min-w-0"
               role="note"
               title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run."
             >
-              REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
+              <ProvenanceChip prov={fromReportCaveat("reference", false)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+                Atlas Forge fixture, not a live issuer run
+              </span>
             </span>
           ) : caveatKind === "loading" ? (
             <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
@@ -294,11 +321,13 @@ function ReportStudio() {
             </span>
           ) : caveatKind === "live" ? (
             <span
-              className="tabular text-caos-xs whitespace-nowrap"
-              style={{ color: "var(--caos-warning)" }}
+              className="flex items-center gap-1.5 min-w-0"
               title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
             >
-              live engine output · report renderer not wired
+              <ProvenanceChip prov={fromReportCaveat("live", true)!} />
+              <span className="tabular text-caos-xs whitespace-nowrap truncate" style={{ color: "var(--caos-warning)" }}>
+                report renderer not wired
+              </span>
             </span>
           ) : (
             <span
@@ -442,6 +471,7 @@ function ReportStudio() {
                 onEdit={editMode ? applyEdit : undefined}
                 onOpenEvidence={setEvModal}
                 hideAddbacks={hideAddbacks && rep.id === "model"}
+                authority={authority}
               />
             </div> : (
               <div className="min-h-[420px] flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -471,12 +501,12 @@ function ReportStudio() {
             </button>
           ) : null}
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
-          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} />
+          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} />
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
-      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} /> : null}
+      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
     </ResponsiveShell>
   );
 }

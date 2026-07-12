@@ -29,6 +29,9 @@ import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, lat
 import { issuerSector } from "@/lib/issuers";
 import { fmtPct, fmtUsdM } from "@/lib/format";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { useRoleView } from "@/components/shared/RoleViewProvider";
+import { PmStrip } from "@/components/issuers/PmStrip";
+import { ProfileSectionNav, type ProfileSection } from "@/components/issuers/ProfileSectionNav";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -442,6 +445,11 @@ export function Profile({
     ? ((sponsor as { ledger: { flag: string; chunk_id?: string }[] }).ledger) : [];
 
   const [gran, setGran] = useState<"FY" | "Q">("FY");
+  const { roleView } = useRoleView();
+  // Callback ref (not useRef) — ProfileSectionNav needs the element itself to
+  // set up its IntersectionObserver, and a plain ref stays null through the
+  // render that creates it.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
   // Snapshot + trend series come straight from the engine's metric facts. We do
   // NOT synthesize senior/total leverage from net leverage — a fabricated figure
@@ -507,8 +515,35 @@ export function Profile({
   // signals — a callout with warning chrome must never fire on a clean read.
   const watchSignals = (earnings.monitoring_signals || []).filter((s): s is string => typeof s === "string" && !!s.trim());
 
+  // PM ten-second strip — every field reuses a value already computed above
+  // for the header chips / body panels (no new compute, no LLM). Missing
+  // data renders "—" via PmStrip itself, never a synthesized stance.
+  const pmPosture = latest_run
+    ? { label: String(latest_run.committee_status) + (signals.recommendation ? ` · ${signals.recommendation}${recGated ? " (gated)" : ""}` : ""), sev: recGated ? "low" : COMMITTEE_SEV[latest_run.committee_status] ?? "low" }
+    : null;
+  const pmRisk = watchSignals[0] || weaknesses[0] || "no risk flagged";
+  const pmEvidence = latest_run
+    ? { label: totalFindings ? `${findings.CRITICAL || 0} crit · ${findings.MATERIAL || 0} mat` : "clean", sev: findings.CRITICAL ? "critical" : findings.MATERIAL ? "warning" : "ok" }
+    : { label: "no run", sev: "low" };
+  const pmAction = { label: recGated ? "Clear CP-5 gate" : "Review thesis", href: deepHref };
+
+  const SECTIONS: ProfileSection[] = [
+    { id: "profile-snapshot", label: "Snapshot" },
+    { id: "profile-trends", label: "Trends & Thesis" },
+    { id: "profile-business", label: "Business & Coverage" },
+    { id: "profile-market", label: "Market & Notes" },
+    { id: "profile-earnings", label: "Earnings & Runs" },
+  ];
+
   const body = (
       <div className="flex flex-col gap-3">
+        <ProfileSectionNav sections={SECTIONS} scrollRoot={scrollEl} />
+        {/* PM ten-second answer — presentation only (role_view), not access
+            control; the Analyst view skips straight to the panels below. */}
+        {roleView === "pm" ? (
+          <PmStrip posture={pmPosture} whatChanged={deskRead} risk={pmRisk} evidenceHealth={pmEvidence} action={pmAction} />
+        ) : null}
+        <div id="profile-snapshot" />
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
@@ -550,6 +585,7 @@ export function Profile({
           </div>
         )}
 
+        <div id="profile-trends" />
         {/* Row 2 — primary read: trend context | thesis, drivers, and watch. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_minmax(300px,1fr)] gap-3 items-start">
           <Panel
@@ -614,6 +650,7 @@ export function Profile({
           </div>
         </div>
 
+        <div id="profile-business" />
         {/* Row 3 — operating context | source/coverage gate. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3 items-start">
           <Panel title="Business profile">
@@ -668,6 +705,7 @@ export function Profile({
           </div>
         </div>
 
+        <div id="profile-market" />
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 items-start">
           <Panel
@@ -685,6 +723,7 @@ export function Profile({
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
 
+        <div id="profile-earnings" />
         {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
             earnings (deltas + prior→latest) | Run history. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
@@ -790,12 +829,18 @@ export function Profile({
         ) : null
       }
       narrowContract={{
-        essentialControls: isOverlay && onClose ? (
-          <CloseButton onClick={onClose} title="Close (Esc)" />
-        ) : null,
+        // Overlay keeps its close affordance; the STANDALONE page keeps the
+        // concept nav — previously `null`, which stripped every navigation
+        // affordance from the header below 1024px (only the footer link bar
+        // survived). Fixed as part of the design-rebuild shell work.
+        essentialControls: isOverlay ? (
+          onClose ? <CloseButton onClick={onClose} title="Close (Esc)" /> : null
+        ) : (
+          <ConceptNav compact />
+        ),
       }}
     >
-      <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
+      <div ref={setScrollEl} className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
         {body}
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 // Global "Ask" launcher — one entry point to the conversational surface, scoped
-// by where the analyst is. ⌘K / Ctrl+K toggles it from anywhere (Esc closes).
+// by where the analyst is. Alt+K (or the ⌘K palette's Ask row) opens it; Esc closes.
 // On the issuer-scoped concepts (Deep-Dive, Model) it opens the ATLF issuer Q&A;
 // elsewhere it opens the cross-issuer NL query. Deep-Dive owns its own
 // evidence-synced chat (rendered inside its EvidenceSyncProvider) and only reads
@@ -35,9 +35,20 @@ interface AskCtx {
   open: boolean;
   setOpen: (v: boolean) => void;
   toggle: () => void;
+  /** Open Ask with optional prefilled text — used by the ⌘K palette's
+      "Ask CAOS" passthrough row so typed text is never lost. */
+  openWith: (prefill?: string) => void;
+  /** One-shot prefill consumed by AskModal on open. */
+  prefill: string | null;
 }
 
-const Ctx = createContext<AskCtx>({ open: false, setOpen: () => {}, toggle: () => {} });
+const Ctx = createContext<AskCtx>({
+  open: false,
+  setOpen: () => {},
+  toggle: () => {},
+  openWith: () => {},
+  prefill: null,
+});
 
 export const useAsk = () => useContext(Ctx);
 
@@ -108,12 +119,26 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
 
 export function AskProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [prefill, setPrefill] = useState<string | null>(null);
   const pathname = usePathname() || "";
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
+
+  // One toggle for the Ask entry points (Alt+K via ConceptHotkeys and the
+  // header Ask button): the same gesture must do the same thing — on /query it
+  // focuses the query bar, else it toggles the modal. ⌘K/Ctrl+K now belongs to
+  // the global command palette (CommandPalette.tsx), whose "Ask CAOS" row
+  // routes back here through openWith() — muscle-memory text is preserved.
+  const openWith = useCallback((text?: string) => {
+    if (pathRef.current.startsWith("/query")) {
+      window.dispatchEvent(new Event("caos:query-focus"));
+      return;
+    }
+    setPrefill(text ?? null);
+    setOpen(true);
+  }, []);
+
   useEffect(() => {
-    // One toggle for both entry points (⌘K and the header Ask button): the same
-    // gesture must do the same thing — on /query it focuses the query bar, else
-    // it toggles the modal. Two inline copies of this branch had already begun
-    // to drift-proof one path at a time.
     const fire = () => {
       if (pathname.startsWith("/query")) {
         window.dispatchEvent(new Event("caos:query-focus"));
@@ -122,12 +147,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
-        e.preventDefault();
-        fire();
-      } else if (e.key === "Escape") {
-        setOpen(false);
-      }
+      if (e.key === "Escape") setOpen(false);
     };
     const onAskToggle = () => fire();
     window.addEventListener("keydown", onKey);
@@ -137,7 +157,16 @@ export function AskProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("caos:ask-toggle", onAskToggle);
     };
   }, [pathname]);
-  const value = useMemo(() => ({ open, setOpen, toggle: () => setOpen((v) => !v) }), [open]);
+
+  // Clear the one-shot prefill when Ask closes so a later plain open is clean.
+  useEffect(() => {
+    if (!open) setPrefill(null);
+  }, [open]);
+
+  const value = useMemo(
+    () => ({ open, setOpen, toggle: () => setOpen((v) => !v), openWith, prefill }),
+    [open, openWith, prefill],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -208,7 +237,7 @@ export function AskLauncher() {
   const trigger = !open ? (
     <button
       onClick={toggle}
-      title="Ask CAOS (Alt+K / ⌘K) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
+      title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
       className="fixed bottom-3 right-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
@@ -237,13 +266,16 @@ export function AskLauncher() {
 function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const concept = conceptFor(pathname);
+  // One-shot prefill from the ⌘K palette's "Ask CAOS" row (modal mounts fresh
+  // per open, so an initializer is enough).
+  const { prefill } = useAsk();
 
   const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
   const [capsErr, setCapsErr] = useState<string | null>(null);
   const [graph, setGraph] = useState<GraphResult | null>(null);
   const [graphErr, setGraphErr] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(prefill ?? "");
   const [note, setNote] = useState<string | null>(null);
   const [suggest, setSuggest] = useState<Capability[]>([]);
   const [cite, setCite] = useState<{ id: string; label?: string | null } | null>(null);

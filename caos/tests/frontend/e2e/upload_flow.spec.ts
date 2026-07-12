@@ -63,9 +63,12 @@ test.describe("CAOS single-process app", () => {
 
   test("concept switcher navigates between concepts", async ({ page }) => {
     await page.goto("/issuers/");
-    await page.getByTitle("Deep-Dive", { exact: true }).click();
+    // ConceptNav's title attribute is now "<item> — <group>" (RT-60 compact-
+    // mode group labeling); aria-label stays the bare item name, so match on
+    // the link's accessible name instead of title.
+    await page.getByRole("link", { name: "Deep-Dive", exact: true }).click();
     await expect(page).toHaveURL(/\/deepdive/);
-    await page.getByTitle("Command", { exact: true }).click();
+    await page.getByRole("link", { name: "Command", exact: true }).click();
     await expect(page).toHaveURL(/\/command/);
   });
 
