@@ -6,8 +6,8 @@ replica's still-live job as failed. ``issuer_research_reports`` already received
 the richer report queue claim/lease columns in migration 0038; this migration
 only adds the remaining pipeline lease column.
 
-Revision ID: 0039
-Revises: 0038
+Revision ID: 0042
+Revises: 0041
 Create Date: 2026-07-12
 """
 from typing import Sequence, Union
@@ -15,8 +15,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0039"
-down_revision: Union[str, None] = "0038"
+revision: str = "0042"
+down_revision: Union[str, None] = "0041"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
