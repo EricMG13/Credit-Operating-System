@@ -692,7 +692,7 @@ phase is marked passed.
 
 **Objective:** the boring operational muscle an enterprise handover assumes.
 
-- [ ] **G1 (S)** Backup restore drill automated. Today the restore procedure
+- [ ] **G1 (S)** *(Exec 2026-07-12: PR #175 open — restore_drill.sh scripts the drill end to end, verified against a REAL Postgres restore incl. the failure path (corrupt dump -> exit 1, no false pass); wired into docker-compose.yml + README + LAUNCH_PHASE1.)* Backup restore drill automated. Today the restore procedure
   is **comments in `backup.sh:13-19`** (`pg_restore … caos_restore_test`, tar
   extract) — not a script. Wrap it: pg_restore → scratch DB → row-count
   assert → drop; vault tarball → scratch extract. **Verify:** new
