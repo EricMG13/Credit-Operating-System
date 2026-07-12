@@ -17,6 +17,9 @@ import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { AlertFeed, EmailIntel } from "@/components/command/views";
+import { AlertInbox } from "@/components/monitor/AlertInbox";
+import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
+import { draftToAlertRows } from "@/lib/alerts/inbox";
 
 export default function MonitorPage() {
   return (
@@ -27,6 +30,14 @@ export default function MonitorPage() {
 }
 
 function Monitor() {
+  const { draft, offline: autonomyOffline } = useAutonomyDraft();
+  const liveRows = draft ? draftToAlertRows(draft) : [];
+  const hasLiveAlerts = !autonomyOffline && liveRows.length > 0;
+  // Default: demo disclosure open when there's nothing live to show, closed
+  // once live rows exist. `null` = follow that default; a click overrides for
+  // the session (same disclosure pattern as DecisionHeader).
+  const [demoOverride, setDemoOverride] = useState<boolean | null>(null);
+  const showDemo = demoOverride ?? !hasLiveAlerts;
   const run = useSharedDayRun();
   const running = run.playing && !run.sim.done; // actively stepping (pulse)
   const done = run.sim.done; // replay finished (static, honest end state)
@@ -138,14 +149,34 @@ function Monitor() {
         </PanelShell>
         <PanelShell
           title="Alert Routing · CP-MON-H"
-          className="min-h-0"
+          className="min-h-0 overflow-y-auto"
           right={
-            <span className="tabular text-caos-xs text-caos-muted">
-              {criticalOnly ? `critical only · ${alertsToday} routed` : `${alertsToday} routed${done ? " · complete" : ""}`}
-            </span>
+            hasLiveAlerts ? (
+              <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>
+                ● LIVE · {liveRows.length} routed
+              </span>
+            ) : (
+              <span className="tabular text-caos-xs text-caos-muted">
+                {criticalOnly ? `critical only · ${alertsToday} routed` : `${alertsToday} routed${done ? " · complete" : ""}`}
+              </span>
+            )
           }
         >
-          <AlertFeed tick={tick} running={running} done={done} sevFilter={criticalOnly ? "critical" : null} />
+          {/* Watchtower live inbox leads when there's something to show; the
+              seeded replay demotes behind a disclosure — never merged with
+              live rows, never relabeled. */}
+          <AlertInbox />
+          <button
+            type="button"
+            onClick={() => setDemoOverride(!showDemo)}
+            aria-expanded={showDemo}
+            className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring border-t border-caos-border/50 caos-target"
+          >
+            {showDemo ? "− " : "+ "}Demo replay · CP-MON-H seeded tape
+          </button>
+          {showDemo ? (
+            <AlertFeed tick={tick} running={running} done={done} sevFilter={criticalOnly ? "critical" : null} />
+          ) : null}
         </PanelShell>
       </div>
     </ResponsiveShell>
