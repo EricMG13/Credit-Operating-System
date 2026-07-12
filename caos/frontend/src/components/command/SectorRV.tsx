@@ -12,6 +12,7 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { ActionableDislocations } from "@/components/command/ActionableDislocations";
 import {
   BUCKETS,
   DELTA_COLS,
@@ -1317,6 +1318,14 @@ export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {
       }}
     >
       <CaveatHeader rows={rvRows} />
+
+      {/* Decision-first opener (WP-6): ranked |RV| + carry dislocations across
+          the whole loan universe, ahead of the sector-scoped scatter/toolbar/
+          heatmap/averages below — those are demoted, not deleted. */}
+      <PanelShell title="Actionable Dislocations" className="flex-none min-h-0" collapsible>
+        <ActionableDislocations rows={rvRows} />
+      </PanelShell>
+
       {/* sector selector */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
         <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
