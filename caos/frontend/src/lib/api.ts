@@ -305,6 +305,32 @@ export interface DailyDigest {
 export const getDigest = (): Promise<DailyDigest> =>
   api.get("/api/digest/daily").then((r) => r.data);
 
+export interface IngestionGapRow {
+  document_id: string;
+  issuer_id: string;
+  issuer_name: string;
+  file_name: string;
+  doc_type: string;
+  uploaded_at: string;
+  detail: string;
+}
+export interface CoverageOriginRow {
+  issuer_id: string;
+  issuer_name: string;
+  analyst_owner: string | null;
+  origins: Array<"NATIVE" | "OCR" | "NO_TEXT">;
+  document_count: number;
+}
+export interface IngestionGapsResponse {
+  as_of: string;
+  truncated: boolean;
+  zero_chunk: IngestionGapRow[];
+  ocr_lane: IngestionGapRow[];
+  coverage: CoverageOriginRow[];
+}
+export const getIngestionGaps = (): Promise<IngestionGapsResponse> =>
+  api.get("/api/digest/ingestion-gaps").then((r) => r.data);
+
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -675,6 +701,67 @@ export interface ScenarioSpec {
 
 export const scenarioFromNL = (text: string): Promise<ScenarioSpec> =>
   api.post("/api/scenario/nl", { text }).then((r) => r.data);
+
+export type ScenarioNodeStatus = "computed" | "degraded" | "no-data";
+export interface ScenarioPropagationNode {
+  node: "stress" | "liquidity" | "covenant" | "recovery" | "rv" | "portfolio" | "recommendation" | "report";
+  status: ScenarioNodeStatus;
+  value: number | null;
+  label: string;
+  basis: string;
+}
+export interface ScenarioPropagationResult {
+  shock: { issuer_id: string; run_id: string; ebitda_pct: number; rate_bps: number };
+  nodes: ScenarioPropagationNode[];
+}
+export const propagateScenario = (body: {
+  issuer_id: string;
+  run_id: string;
+  ebitda_pct: number;
+  rate_bps: number;
+}): Promise<ScenarioPropagationResult> =>
+  api.post("/api/scenario/propagate", body).then((r) => r.data);
+
+export interface DecisionVote {
+  id: string; member: string; vote: "approve" | "dissent" | "abstain";
+  dissent_note: string | null; created_at: string;
+}
+export interface IcDecision {
+  id: string; issuer_id: string; run_id: string; report_id: string | null;
+  action: "approve" | "decline" | "revisit"; status: "active" | "reopened";
+  conditions: string[]; expiry: string | null; snapshot: Record<string, unknown>;
+  snapshot_sha256: string; created_by: string | null; reopened_at: string | null;
+  reopen_alert_key: string | null; created_at: string; votes: DecisionVote[];
+}
+export const getDecisions = (issuerId: string): Promise<IcDecision[]> =>
+  api.get("/api/decisions", { params: { issuer_id: issuerId } }).then((r) => r.data);
+export const createDecision = (body: {
+  issuer_id: string; run_id: string; report_id?: string | null;
+  action: "approve" | "decline" | "revisit"; conditions?: string[];
+  expiry?: string | null; snapshot?: Record<string, unknown>;
+}): Promise<IcDecision> => api.post("/api/decisions", body).then((r) => r.data);
+export const voteDecision = (id: string, vote: "approve" | "dissent" | "abstain", dissentNote?: string): Promise<IcDecision> =>
+  api.post(`/api/decisions/${id}/votes`, { vote, dissent_note: dissentNote }).then((r) => r.data);
+export const reopenDecision = (id: string, triggerAlertKey: string): Promise<IcDecision> =>
+  api.post(`/api/decisions/${id}/reopen`, { trigger_alert_key: triggerAlertKey }).then((r) => r.data);
+
+export interface ThesisPrediction {
+  id: string; metric: string; horizon: string; predicted: number; realized: number | null;
+}
+export interface ThesisVersion {
+  id: string; issuer_id: string; version: number; thesis_md: string;
+  trigger: "manual" | "decision" | "alert" | "model_override";
+  linked_decision_id: string | null; linked_alert_key: string | null;
+  created_by: string | null; created_at: string; predictions: ThesisPrediction[];
+}
+export const getThesisVersions = (issuerId: string): Promise<ThesisVersion[]> =>
+  api.get("/api/thesis", { params: { issuer_id: issuerId } }).then((r) => r.data);
+export const createThesisVersion = (body: {
+  issuer_id: string; thesis_md: string; trigger?: ThesisVersion["trigger"];
+  predictions?: Array<{ metric: string; horizon: string; predicted: number }>;
+}): Promise<ThesisVersion> => api.post("/api/thesis", body).then((r) => r.data);
+export const realizeThesisPrediction = (id: string, realized: number): Promise<ThesisPrediction> =>
+  api.patch(`/api/thesis/predictions/${id}`, { realized }).then((r) => r.data);
 
 // ─── SEC EDGAR retrieval lane (free, no key; gated on EDGAR_USER_AGENT) ───────
 // Endpoints 503 until EDGAR_USER_AGENT is configured server-side.

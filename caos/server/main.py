@@ -25,7 +25,7 @@ from config import get_settings, is_deployed, require_postgres_in_production, re
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import alerts, auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
+from routes import alerts, auth, chat, decisions, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
 from engine.pipeline_executor import PipelineExecutor
@@ -319,6 +319,8 @@ app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
 app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
+app.include_router(decisions.router, prefix="/api/decisions", tags=["decisions"])
+app.include_router(thesis.router, prefix="/api/thesis", tags=["thesis"])
 
 
 # Unmatched /api/* → JSON 404. Must sit before the "/" StaticFiles mount: that

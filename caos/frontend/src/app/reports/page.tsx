@@ -21,6 +21,7 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { getSavedModel } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -119,6 +120,7 @@ function ReportStudio() {
   const [hideAddbacks, setHideAddbacks] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [hydrated, setHydrated] = useState(false);
+  const [decisionOpen, setDecisionOpen] = useState(false);
 
   // restore persisted workspace state
   const reportParam = searchParams.get("report");
@@ -361,13 +363,25 @@ function ReportStudio() {
         </>
       }
       primaryAction={
-        <button
-          onClick={() => window.print()}
-          disabled={!rep}
-          className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40 disabled:pointer-events-none"
-        >
-          ⎙ EXPORT PDF
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => window.print()}
+            disabled={!rep}
+            className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+          >
+            ⎙ EXPORT PDF
+          </button>
+          {live.runId ? (
+            <button
+              onClick={() => setDecisionOpen(true)}
+              disabled={live.committeeStatus !== "Committee Ready"}
+              title={live.committeeStatus === "Committee Ready" ? "Capture immutable IC decision" : `Run is ${live.committeeStatus ?? "not committee ready"}`}
+              className="focus-ring tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
+            >
+              SUBMIT TO IC
+            </button>
+          ) : null}
+        </div>
       }
       contextualControls={
         <>
@@ -506,6 +520,7 @@ function ReportStudio() {
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
+      {decisionOpen && live.runId ? <DecisionRoomDrawer issuerId={issuerId} runId={live.runId} reportId={rep?.id ?? activeId} onClose={() => setDecisionOpen(false)} /> : null}
       {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
     </ResponsiveShell>
   );

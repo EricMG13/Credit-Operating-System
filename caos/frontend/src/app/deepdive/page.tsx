@@ -34,7 +34,7 @@ import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { fromReportCaveat } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { useAsk } from "@/components/shared/Ask";
-import { getIssuer } from "@/lib/api";
+import { getIssuerProfile } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 // Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
@@ -48,6 +48,8 @@ const DebateTab = dynamic(() => import("@/components/deepdive/tabs").then((m) =>
 const RecoveryTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.RecoveryTab), { ssr: false, loading: TabLoading });
 const CovenantsTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.CovenantsTab), { ssr: false, loading: TabLoading });
 const ModuleView = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.ModuleView), { ssr: false, loading: TabLoading });
+const LiveCovenantCapacity = dynamic(() => import("@/components/deepdive/LiveCovenantCapacity").then((m) => m.LiveCovenantCapacity), { ssr: false, loading: TabLoading });
+const ScenarioNetworkPanel = dynamic(() => import("@/components/model/ScenarioNetworkPanel").then((m) => m.ScenarioNetworkPanel), { ssr: false, loading: TabLoading });
 const IssuerChat = dynamic(() => import("@/components/deepdive/IssuerChat").then((m) => m.IssuerChat), { ssr: false });
 const EvidenceModal = dynamic(() => import("@/components/reports/EvidenceModal").then((m) => m.EvidenceModal), { ssr: false });
 
@@ -91,7 +93,11 @@ function DeepDive() {
   // reference template rather than implying they are that issuer's own analysis.
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  const [issuerMeta, setIssuerMeta] = useState<{ name: string; ticker?: string | null } | null>(null);
+  const [issuerMeta, setIssuerMeta] = useState<{
+    name: string;
+    ticker?: string | null;
+    signals: Record<string, number | string | boolean | null>;
+  } | null>(null);
   // A failed lookup must not read as an eternal "Loading issuer…" — track the
   // failure and offer a retry instead of a permanent loading label.
   const [issuerErr, setIssuerErr] = useState(false);
@@ -100,8 +106,8 @@ function DeepDive() {
     if (isReference) { setIssuerMeta(null); return; }
     let stale = false;
     setIssuerErr(false);
-    getIssuer(issuerId)
-      .then((d) => { if (!stale) setIssuerMeta({ name: d.name, ticker: d.ticker }); })
+    getIssuerProfile(issuerId)
+      .then((d) => { if (!stale) setIssuerMeta({ name: d.issuer.name, ticker: d.issuer.ticker, signals: d.signals }); })
       .catch(() => { if (!stale) { setIssuerMeta(null); setIssuerErr(true); } });
     return () => { stale = true; };
   }, [issuerId, isReference, issuerAttempt]);
@@ -440,6 +446,9 @@ function DeepDive() {
         }
         evidenceHealth={fromReportCaveat(caveatKind, caveatKind === "reference" && !!live.runId)}
       />
+      <div className="px-2.5 py-2 bg-caos-panel border-b border-caos-border">
+        <ScenarioNetworkPanel issuerId={issuerId} runId={live.runId} />
+      </div>
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal
@@ -633,6 +642,7 @@ function DeepDive() {
             ) : (
               <>
                 <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+                {tab === "CP-4" ? <LiveCovenantCapacity signals={issuerMeta?.signals ?? {}} /> : null}
                 {/* Same live domino map for a real issuer's CP-4 tab — the map
                     the spec calls out as needing to "appear for live issuers too". */}
                 {tab === "CP-4" ? <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} /> : null}

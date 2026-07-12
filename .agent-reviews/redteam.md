@@ -261,6 +261,21 @@ Round 2 did not reopen RT-2026-07-02-01 or RT-2026-07-02-02 because the current 
 
 None.
 
+## Residual Design Rebuild Continuation — Critic Pass (2026-07-12)
+
+Decision under review: resume the residual-gap plan in the attached reconnaissance after the completed G1-G8 work, beginning with the partially written Coverage Control Plane and then the Scenario Network, IC Decision Room, and Thesis Memory.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-12-01 | 2026-07-12 | Complete the in-progress ingestion-gap endpoint as the first G14 slice | The partial implementation caps the cross-tenant OCR document-id query before applying issuer visibility, so another team's rows can consume the cap and hide a caller's own OCR gaps. The frontend API contract is also absent, leaving the current tree uncompilable. | High | Resolved | Replace the global id scan with a tenancy-scoped correlated existence query, add the typed API client, and keep endpoint/component tests in the same slice. |
+| RT-2026-07-12-02 | 2026-07-12 | Propagate every scenario node, including portfolio loss | G9 can accidentally smuggle in the vetoed G12 positions/OMS architecture or fabricate a position-weighted loss when no linked portfolio data exists. | High | Resolved | Scenario propagation reuses only existing run and portfolio-fit fields. Any unavailable portfolio input returns `NO_DATA` or downstream `DEGRADED`; it does not create positions, OMS state, or synthetic exposure. G12 remains deferred unless the user explicitly overrides the product boundary. |
+| RT-2026-07-12-03 | 2026-07-12 | Add IC decisions and versioned thesis memory in one rollout | A mutable live report or thesis read could drift after approval and falsely imply that the committee approved later evidence. | High | Resolved | Decisions store an immutable snapshot and document hash, votes append rather than rewrite the snapshot, and material-change reopen creates an audit event plus a new thesis version. No endpoint updates a prior snapshot in place. |
+| RT-2026-07-12-04 | 2026-07-12 | Finish the full Control Plane described in G14 | Entitlement visibility and full audit-history UI have no defined source contract and overlap the explicitly deferred G15 scope. | Medium | Accepted | This continuation ships live ingestion gaps, origin rollup, and analyst ownership only. Entitlements and expanded audit history remain deferred and are rendered nowhere until a real policy/source exists. |
+
+## Critic Reopen Check (2026-07-12)
+
+The continuation is allowed only while each implementation preserves the resolutions above. Any scenario code that invents portfolio exposure, any decision update path that mutates a snapshot, or any entitlement schema is a stop-and-escalate condition.
+
 ## Design Rebuild Phases 1+2 — Critic Pass (2026-07-11)
 
 Decision under review: the approved Phases 1+2 implementation plan for the persona-led design rebuild (workflow-grouped nav, role views, provenance grammar, decision header, shell consolidation, ⌘K palette; then per-surface restructuring per `.agent-reviews/design-rebuild-handoff.md`). Branch `feat/design-rebuild-p1` off `origin/main@9326fc92`.

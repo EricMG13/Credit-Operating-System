@@ -32,6 +32,7 @@ import { fmtPct, fmtUsdM } from "@/lib/format";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { ProfileSectionNav, type ProfileSection } from "@/components/issuers/ProfileSectionNav";
+import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -630,8 +631,8 @@ export function Profile({
           </Panel>
 
           <div className="flex flex-col gap-3">
-            <Panel title="Thesis & key drivers" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-6A</span>}>
-              <div className="px-3 py-2 flex flex-col gap-2">
+            <ThesisTimeline issuerId={id}>
+              <div className="flex flex-col gap-2">
                 <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
                 <SigBand label="Downside fragility" v={signals.fragility}
                   extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
@@ -646,7 +647,7 @@ export function Profile({
                   </div>
                 ) : null}
               </div>
-            </Panel>
+            </ThesisTimeline>
 
             {watchSignals.length ? (
               <div className="rounded border p-3" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 42%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)" }}>

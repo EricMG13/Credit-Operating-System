@@ -17,7 +17,36 @@ import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, type AlertRow } from "@/lib/alerts/inbox";
-import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
+import { getAlertStates, getDecisions, reopenDecision, setAlertState, type AlertStateDTO, type IcDecision } from "@/lib/api";
+
+function ReopenDecision({ row }: { row: AlertRow }) {
+  const material = /covenant|rating/i.test([row.metric, row.event, row.reason].filter(Boolean).join(" "));
+  const [decision, setDecision] = useState<IcDecision | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!material || !row.issuerId) return;
+    let alive = true;
+    getDecisions(row.issuerId).then((rows) => {
+      if (alive) setDecision(rows.find((item) => item.status === "active") ?? null);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [material, row.issuerId]);
+  if (!decision || decision.status === "reopened") return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try { setDecision(await reopenDecision(decision.id, row.key)); }
+        finally { setBusy(false); }
+      }}
+      className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring disabled:opacity-50 caos-target"
+    >
+      {busy ? "Reopening…" : "Reopen IC"}
+    </button>
+  );
+}
 
 function Row({
   row,
@@ -147,6 +176,7 @@ function Row({
               Resolve
             </button>
           )}
+          <ReopenDecision row={row} />
         </div>
       ) : null}
     </div>

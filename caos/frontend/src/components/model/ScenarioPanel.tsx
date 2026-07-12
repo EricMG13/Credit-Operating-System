@@ -17,6 +17,7 @@ import {
   type Drivers, type MetricKey, type ScenarioLens, type TornadoBar,
 } from "@/lib/model/scenarios";
 import { fmtMult2, fmtUsdAcct } from "@/lib/format";
+import { ScenarioNetworkPanel } from "./ScenarioNetworkPanel";
 
 // NaN/Infinity-safe (a degenerate projection — interest 0, adj ≤ 0 — renders
 // "—" rather than "NaNx" / "$InfinityM"). Same finite display as before.
@@ -406,7 +407,7 @@ function ScenarioBuilder({
 // drivers and is independent of base-case nudges (only downside-case sliders
 // and the Scenario Builder deltas — layered onto both cases — move it). This is
 // correct, not a stale column.
-export function ScenarioPanel({ model, downside, onCollapse }: { model: Model; downside?: DownsidePathway | null; onCollapse?: () => void }) {
+export function ScenarioPanel({ model, downside, issuerId = "", runId = null, onCollapse }: { model: Model; downside?: DownsidePathway | null; issuerId?: string; runId?: string | null; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
@@ -433,6 +434,7 @@ export function ScenarioPanel({ model, downside, onCollapse }: { model: Model; d
           onApply={(deltas, label, rationale) => setActive({ deltas, label, rationale })}
           onReset={() => setActive(null)}
         />
+        <ScenarioNetworkPanel issuerId={issuerId} runId={runId} />
       </div>
     </Panel>
   );

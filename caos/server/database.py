@@ -14,12 +14,12 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, delete, event, inspect, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -836,6 +836,65 @@ class AlertState(Base):
     # accepted from the client, so a resolution can't be backdated or forged.
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     resolution_note: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class Decision(Base):
+    """Immutable IC decision snapshot. Status may reopen; snapshot never mutates."""
+    __tablename__ = "decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    report_id: Mapped[Optional[str]] = mapped_column(String(64))
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    expiry: Mapped[Optional[date]] = mapped_column(Date)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    reopened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reopen_alert_key: Mapped[Optional[str]] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DecisionVote(Base):
+    __tablename__ = "decision_votes"
+    __table_args__ = (UniqueConstraint("decision_id", "member", name="uq_decision_vote_member"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    decision_id: Mapped[str] = mapped_column(String(36), ForeignKey("decisions.id"), index=True)
+    member: Mapped[str] = mapped_column(String(255), nullable=False)
+    vote: Mapped[str] = mapped_column(String(16), nullable=False)
+    dissent_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ThesisVersion(Base):
+    __tablename__ = "thesis_versions"
+    __table_args__ = (UniqueConstraint("issuer_id", "version", name="uq_thesis_issuer_version"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    thesis_md: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(24), nullable=False)
+    linked_decision_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("decisions.id"), index=True)
+    linked_alert_key: Mapped[Optional[str]] = mapped_column(String(160))
+    created_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ThesisPrediction(Base):
+    __tablename__ = "thesis_predictions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    thesis_version_id: Mapped[str] = mapped_column(String(36), ForeignKey("thesis_versions.id"), index=True)
+    metric: Mapped[str] = mapped_column(String(120), nullable=False)
+    horizon: Mapped[date] = mapped_column(Date, nullable=False)
+    predicted: Mapped[float] = mapped_column(Float, nullable=False)
+    realized: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 # ─── Portfolio posture (managed CLO: holdings + constraints) ─────────────────
