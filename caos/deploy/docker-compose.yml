@@ -63,6 +63,10 @@ services:
       ENVIRONMENT: production
       HOST: 0.0.0.0
       PORT: "8000"
+      # Uvicorn worker processes (E1). Unset/1 = today's single-process default.
+      # Postgres-only — run.py refuses >1 against SQLite. Size against Postgres's
+      # max_connections and load-test before raising (.env.example has the guidance).
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
       # Durable Postgres + vault; demo seed OFF (registry starts empty).
       CAOS_DEMO_SEED: "false"
       DATABASE_URL: postgresql+asyncpg://caos:${POSTGRES_PASSWORD}@db:5432/caos
