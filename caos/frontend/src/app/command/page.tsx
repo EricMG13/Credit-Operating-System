@@ -31,6 +31,7 @@ import { ResponsiveShell, type NarrowContract } from "@/components/shared/Respon
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { RankedChanges } from "@/components/command/RankedChanges";
 import { GovernancePanel } from "@/components/command/GovernancePanel";
+import { RecentDecisions } from "@/components/command/RecentDecisions";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
@@ -281,17 +282,27 @@ function CommandCenter() {
 
           {/* Combined governance panel: QA + Gaps (unchanged, live-wired) plus
               a new stale-sources category from the digest already fetched
-              above — zero new endpoints. mb-9 keeps this panel's title bar
-              clear of the floating Ask launcher (fixed bottom-3 right-3),
-              which otherwise sits on top of it at this collapsed height
-              (critique P2). */}
+              above — zero new endpoints. */}
           <PanelShell
             title="Governance · CP-5 / CP-0 / Staleness"
-            className="flex-none min-h-0 mb-9"
+            className="flex-none min-h-0"
             collapsible
             defaultCollapsed={true}
           >
             <GovernancePanel liveQa={liveQa} liveGaps={liveGapsItems} staleRows={digestLive ? digest?.stale ?? [] : []} />
+          </PanelShell>
+
+          {/* C8 — recent IC decisions, cross-issuer. mb-9 keeps this panel's
+              title bar clear of the floating Ask launcher (fixed bottom-3
+              right-3), which otherwise sits on top of it at this collapsed
+              height (critique P2) — now the last panel in the stack. */}
+          <PanelShell
+            title="Recent IC Decisions"
+            className="flex-none min-h-0 mb-9"
+            collapsible
+            defaultCollapsed={true}
+          >
+            <RecentDecisions />
           </PanelShell>
         </div>
       </div>
