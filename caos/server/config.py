@@ -219,6 +219,13 @@ class Settings(BaseSettings):
     caos_research_lease_seconds: int = 1800
     caos_research_max_attempts: int = 2      # re-claims before an orphan is reaped to failed
     caos_research_poll_seconds: float = 2.0  # worker loop tick
+    # Durable Issuer Research Report lease/recovery (research_report_executor.py
+    # QueueWorker on Postgres), mirroring the research-job lease. Report synthesis is
+    # one LLM call (minutes), not the multi-turn deep-research budget — shorter lease.
+    # Concurrency cap reuses caos_research_concurrency (both are LLM-synthesis jobs).
+    caos_report_lease_seconds: int = 600
+    caos_report_max_attempts: int = 3
+    caos_report_poll_seconds: float = 2.0    # worker loop tick
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
 

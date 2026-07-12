@@ -152,6 +152,15 @@ def ratings_xlsx(rows: "list[tuple[str, str]]") -> bytes:
     return buf.getvalue()
 
 
+# Shared by the QueueWorker claim/reaper tests (run/research/report executors):
+# SKIP LOCKED only exercises real multi-worker safety on Postgres.
+requires_pg = pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgresql"),
+    reason="worker claim/lease requires Postgres (SKIP LOCKED) — run in the CI server "
+           "job's Postgres step, or locally via DATABASE_URL=postgresql+asyncpg://...",
+)
+
+
 def wait_for_run(client, run_id: str, timeout_s: float = 10.0) -> dict:
     """Poll GET /runs/{id} until the run reaches a terminal state."""
     import time
