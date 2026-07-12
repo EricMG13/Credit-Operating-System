@@ -477,7 +477,18 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   Lands before F so the beta cohort dogfoods it. **Verify:** new table +
   route + UI; `pytest caos/tests/server/test_decision_record.py` (new)
   green. **Exit:** record created/read/appended through the real UI path.
-- [ ] **C9 (S–M)** Committee-pack `.xlsx` export (expansion 4.2): the current
+- [ ] **C9 (S–M)** *(Exec 2026-07-12: PR #189 open — real .xlsx via SheetJS
+  (npm i xlsx, per the stub's own comment) chosen over backend/openpyxl:
+  model grid/scenarios/assumptions are computed exclusively client-side, so a
+  backend export would mean re-implementing that math in Python (undermining
+  C9's own same-number-everywhere exit criterion) for no openpyxl benefit.
+  5 sheets (Model/Scenarios/Assumptions/Headline Facts/Overrides), every
+  sheet stamped ORIGIN/METHOD/RUN/AS-OF. xlsx@0.18.5 has 2 open unpatched
+  High CVEs in its PARSE path only — usage here is write-only, documented +
+  flagged in SBOM.md. Verified: real openpyxl round-trip done once by hand
+  (genuine cross-tool interop, all 5 sheets correct); 13 new vitest cases
+  (same-process SheetJS round trip) for ongoing CI; full frontend suite
+  560/560, tsc/eslint clean.)* Committee-pack `.xlsx` export (expansion 4.2): the current
   export is a documented dependency-free CSV stub (`export.ts:39-45`,
   S4 Ev-7); upgrade to real `.xlsx` via `openpyxl` (already a dependency for
   ingestion reads — `requirements.txt`) on the backend, or `npm i xlsx` on
