@@ -557,7 +557,7 @@ silently with 0 chunks.
 **Objective:** safe to put in front of an enterprise security review.
 "Functional" ≠ "safe to transfer" — this phase is the difference.
 
-- [ ] **E1 (M)** Stress/scale closure. Already landed: per-analyst run cap
+- [ ] **E1 (M)** *(Exec 2026-07-12: PR #171 open — WEB_CONCURRENCY multi-worker launch (Postgres-gated), stress harness run for REAL for the first time: 2-worker + throwaway Postgres, 15-user/60s locust, 2584 req/0 failures/p95 89ms. Advisory-lock migration safety across concurrent boots confirmed working. Found (not fixed, own follow-up): research/report executors stay in-process-only under multi-worker.)* Stress/scale closure. Already landed: per-analyst run cap
   (`config.py:210 caos_run_per_analyst_limit=3`, enforced `routes/runs.py:298`),
   identity-keyed rate limits across runs/vault/chat/models/digest/edgar/
   ingestion/issuers, SKIP LOCKED worker lease (`config.py:326`,
