@@ -64,6 +64,27 @@ describe("SectorRV Scatter Interaction", () => {
     expect(firstPoint.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("scatter points use roving tabindex (G7) — only one is a real tab stop, arrow keys move it and carry focus", () => {
+    render(<SectorRV />);
+    const points = screen.getAllByRole("button", { name: /Position/i });
+    expect(points.length).toBeGreaterThan(1);
+
+    // Exactly one point is in the natural tab order at rest.
+    expect(points.filter((p) => p.tabIndex === 0)).toHaveLength(1);
+
+    const first = points[0];
+    first.focus();
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(points[1]);
+    expect(points[1].tabIndex).toBe(0);
+    expect(first.tabIndex).toBe(-1);
+
+    fireEvent.keyDown(points[1], { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(first);
+  });
+
   it("applies responsive container query classes to layouts", () => {
     const { container } = render(<SectorRV />);
     const root = container.firstChild as HTMLElement;
