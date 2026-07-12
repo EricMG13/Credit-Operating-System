@@ -1,10 +1,15 @@
 "use client";
 
-// Concept F — The Monitor: CP-MON email-intelligence intake with live alert
-// routing, promoted out of the Command Center into its own standing surface.
-// This is the "trading-desk alertness" pillar — a stream you watch, distinct in
-// cadence from the posture/coverage snapshots in Command. Email Intelligence
-// (CP-MON) is the primary column; Alert Routing (CP-MON-H) rides alongside.
+// Concept F — The Monitor: CP-MON email-intelligence intake alongside the live
+// Watchtower alert-routing rail, promoted out of the Command Center into its
+// own standing surface. This is the "trading-desk alertness" pillar — a
+// stream you watch, distinct in cadence from the posture/coverage snapshots
+// in Command. Email Intelligence (CP-MON) is the primary column; the Alert
+// Routing rail leads with real Watchtower/Sentinel output and demotes CP-MON-
+// H's seeded showcase tape behind a disclosure — CP-MON-H (an email-derived
+// alert router) has no live implementation yet (routes/sector.py: "CP-MON
+// stay registry-pending"), so it is never the panel's own name once
+// Watchtower output is what's actually leading it (G8 cleanup).
 
 import { useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -193,7 +198,7 @@ function Monitor() {
           <EmailIntel />
         </PanelShell>
         <PanelShell
-          title="Alert Routing · CP-MON-H"
+          title="Alert Routing · Watchtower"
           className="min-h-0 overflow-y-auto"
           right={
             hasLiveAlerts ? (
