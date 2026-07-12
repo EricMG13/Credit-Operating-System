@@ -826,8 +826,10 @@ function QueryWorkspace() {
                   aria-autocomplete="list"
                   className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
                 />
+                {/* Alt+K focuses this bar directly (⌘K now opens the global
+                    palette, whose Ask row routes back here). */}
                 <span className="tabular text-caos-3xs text-caos-muted font-mono border border-caos-border rounded px-1 py-0.5 hidden sm:inline" aria-hidden>
-                  ⌘K
+                  Alt+K
                 </span>
                 <button
                   type="button"

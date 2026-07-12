@@ -7,6 +7,8 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { Panel } from "@/components/shared/Panel";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { fromSeedFlag } from "@/lib/provenance";
 import {
   askSectorTopic,
   getSectorFeeds,
@@ -79,10 +81,14 @@ function SourceChip({ source }: { source: SectorSource }) {
 }
 
 function ProvenanceBadge({ value }: { value: string }) {
+  // Shared grammar for the known flags; unknown vocabulary keeps the old
+  // warning badge verbatim rather than being guessed into an origin.
+  const prov = fromSeedFlag(value);
+  if (prov) return <ProvenanceChip prov={prov} />;
   return (
     <span className="inline-flex items-center gap-1 rounded border border-caos-warning/50 bg-caos-warning/10 px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider text-caos-warning">
       <StatusGlyph kind="warning" size={8} />
-      {value === "seed" ? "Seed / demo" : value}
+      {value}
     </span>
   );
 }

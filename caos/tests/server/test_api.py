@@ -224,7 +224,7 @@ def test_upload_zero_chunks_surfaces_warning(client, monkeypatch):
 
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
     # Force the extractor to yield no text (mimics a scanned/encrypted PDF).
-    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": "")
+    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": ("", False))
     pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     r = client.post(
         "/api/ingestion/upload/document",
@@ -242,7 +242,7 @@ def test_upload_with_text_has_no_warning(client, monkeypatch):
     import ingest
 
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
-    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": "real content " * 50)
+    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": ("real content " * 50, False))
     pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     r = client.post(
         "/api/ingestion/upload/document",

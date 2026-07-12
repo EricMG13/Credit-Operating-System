@@ -10,8 +10,14 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/components/shared/ConceptNav", () => ({
-  ConceptNav: () => <nav aria-label="Concepts">ConceptNav</nav>,
+// Mock next/navigation (not the shared ConceptNav component) so ConceptNav
+// renders for real — a vi.mock keyed on a shared component's module path
+// leaked across worker-shared test files once before (see vitest.config.ts's
+// react-dom/server comment); ShellIdentity now imports ConceptNav too, so the
+// same path-mock started intermittently breaking unrelated full-suite runs
+// with "ShellIdentity is not defined".
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/command",
 }));
 
 vi.mock("@/components/shared/IssuerLink", () => ({
@@ -104,7 +110,8 @@ describe("SectorReviewWorkspace", () => {
     expect(await screen.findByText("Q2 order books soften")).toBeTruthy();
     expect(screen.getByText("Earnings / 1")).toBeTruthy();
     expect(screen.getByText("ATLF / held")).toBeTruthy();
-    expect(screen.getAllByText("Seed / demo").length).toBeGreaterThan(0);
+    // Seeded provenance now renders through the shared grammar chip (DEMO).
+    expect(screen.getAllByText("DEMO").length).toBeGreaterThan(0);
     expect(screen.getByText("seed / seed")).toBeTruthy();
   });
 

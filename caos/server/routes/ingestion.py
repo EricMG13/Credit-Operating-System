@@ -107,6 +107,7 @@ async def _vault_document(
     text: str,
     content: bytes,
     background_tasks: BackgroundTasks,
+    chunk_prov: Optional[str] = None,
 ) -> IngestionResponse:
     # Gate on the issuer's team: no uploading documents into another team's issuer
     # (no-op when tenancy is off). Also covers the missing-issuer 404.
@@ -144,6 +145,7 @@ async def _vault_document(
                 "seq": i,
                 "text": chunk,
                 "chunk_hash": chash,
+                "prov": chunk_prov,
             })
             lineage_dicts.append({
                 "id": str(uuid.uuid4()),
@@ -191,8 +193,9 @@ async def upload_document(
         await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
         # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
         # large upload doesn't block the event loop for every other request.
-        text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
-    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
+        text, used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
+    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks,
+                                  chunk_prov="ocr" if used_ocr else None)
 
 
 async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:  # noqa: C901
@@ -317,7 +320,10 @@ async def upload_memo(  # noqa: C901
         if ext == ".pdf":
             ingest.sniff_pdf(content)
             # markitdown/pypdf is synchronous and CPU-bound — off-thread it (see upload_document).
-            text = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
+            # Memo chunking (chunk_memo_into_corpus) has no provenance column of
+            # its own yet — used_ocr is discarded here, unlike upload_document's
+            # document_chunks.prov tagging (D1). Out of scope for this pass.
+            text, _used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
         else:
             text = content.decode("utf-8", "replace")
     if not text.strip():
