@@ -10,14 +10,15 @@ chain — filled from PyPI metadata); the frontend summary from
 ## Verdict
 
 **No copyleft or unknown licenses in shipped code paths.** Everything is
-MIT / BSD / Apache-2.0 / ISC / MPL-2.0 / PSF-class. Three flags, all
-accepted:
+MIT / BSD / Apache-2.0 / ISC / MPL-2.0 / PSF-class. Three license flags, all
+accepted, plus one security (not license) flag on `xlsx`:
 
 | Flag | Package | Why accepted |
 |---|---|---|
 | LGPL-3.0-or-later | `@img/sharp-libvips-*` (sharp's prebuilt libvips) | Dynamically-linked native library used at build/serve time; LGPL obligations are met by dynamic linking and we distribute no modified libvips. Internal deployment, not redistributed software. |
 | CC-BY-4.0 | `caniuse-lite` | Browser-support **data**, not code; attribution carried by the package itself. |
 | UNLICENSED | `caos-frontend@2.0.0` | The app's own private package marker — correct for proprietary internal software. |
+| Security: 2 open High advisories, no fix on npm (`xlsx@0.18.5`, C9) | `xlsx` | `GHSA-4r6h-8v6p-xvw6` (prototype pollution) + `GHSA-5pgg-2g8v-p4x9` (ReDoS), both in `XLSX.read`/`readFile` (the **parse** path). Usage in this codebase (`components/model/export.ts`) is write-only — it builds a workbook via `aoa_to_sheet`/`book_new` and calls `writeFile`, never `read`, on untrusted input. Re-audit before any future code path calls `XLSX.read` on user-supplied bytes. |
 
 Weak-copyleft notes (no action): 3 Python packages under MPL-2.0
 (file-level copyleft — unmodified use), `certifi` under MPL-2.0, ZPL-2.1 ×2,
@@ -30,7 +31,7 @@ deployment.
 |---|---|
 | MIT | 203 |
 | ISC | 29 |
-| Apache-2.0 | 8 |
+| Apache-2.0 | 9 (incl. `xlsx` — see security flag above) |
 | BSD-3-Clause | 4 |
 | MIT AND ISC | 1 |
 | LGPL-3.0-or-later | 1 (see flag table) |
