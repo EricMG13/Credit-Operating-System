@@ -557,7 +557,7 @@ silently with 0 chunks.
 **Objective:** safe to put in front of an enterprise security review.
 "Functional" ≠ "safe to transfer" — this phase is the difference.
 
-- [ ] **E1 (M)** Stress/scale closure. Already landed: per-analyst run cap
+- [ ] **E1 (M)** *(Exec 2026-07-12: PR #171 open — WEB_CONCURRENCY multi-worker launch (Postgres-gated), stress harness run for REAL for the first time: 2-worker + throwaway Postgres, 15-user/60s locust, 2584 req/0 failures/p95 89ms. Advisory-lock migration safety across concurrent boots confirmed working. Found (not fixed, own follow-up): research/report executors stay in-process-only under multi-worker.)* Stress/scale closure. Already landed: per-analyst run cap
   (`config.py:210 caos_run_per_analyst_limit=3`, enforced `routes/runs.py:298`),
   identity-keyed rate limits across runs/vault/chat/models/digest/edgar/
   ingestion/issuers, SKIP LOCKED worker lease (`config.py:326`,
@@ -606,7 +606,7 @@ silently with 0 chunks.
   logs" grep test. **Verify:** `caos/docs/reference/SECRETS.md` (new) exists;
   new grep-based test scans structured logs for known secret patterns.
   **Exit:** runbook complete, grep test green in CI.
-- [ ] **E5 (M)** Security review pass. Already re-verified present: SSRF
+- [ ] **E5 (M)** *(Exec 2026-07-12: PR #180 open — playbook re-run vs origin/main, all 6 gates PASS, 0 new HIGH/MED; AST-based route-gate sweep replaced a buggy regex one; agent diff-review of the largest pending change (design-rebuild-p1's new alert_states route) found nothing. Report: security-infra-2026-07-12.md.)* Security review pass. Already re-verified present: SSRF
   allow-list (`edgar.py:111,270`), CSP/HSTS (`test_security_headers.py`),
   GDPR-delete transactional integrity (`test_gdpr_erase.py`,
   `erase_analyst.py`). Remaining: run `/security-review` on the full diff
@@ -692,7 +692,7 @@ phase is marked passed.
 
 **Objective:** the boring operational muscle an enterprise handover assumes.
 
-- [ ] **G1 (S)** Backup restore drill automated. Today the restore procedure
+- [ ] **G1 (S)** *(Exec 2026-07-12: PR #175 open — restore_drill.sh scripts the drill end to end, verified against a REAL Postgres restore incl. the failure path (corrupt dump -> exit 1, no false pass); wired into docker-compose.yml + README + LAUNCH_PHASE1.)* Backup restore drill automated. Today the restore procedure
   is **comments in `backup.sh:13-19`** (`pg_restore … caos_restore_test`, tar
   extract) — not a script. Wrap it: pg_restore → scratch DB → row-count
   assert → drop; vault tarball → scratch extract. **Verify:** new
@@ -714,7 +714,7 @@ phase is marked passed.
   bottleneck. Builds on E1's multi-worker config. **Verify:** `performance`
   playbook §4(B)/(C) legs run against the isolated QA stack. **Exit:**
   documented ceiling, p95 targets met or exception filed.
-- [ ] **G4 (S)** DR runbook: host-loss scenario — restore from off-host
+- [ ] **G4 (S)** *(Exec 2026-07-12: PR #177 open — DR_RUNBOOK.md written AND rehearsed for real: two isolated Docker networks simulating old/new host, old host's DB+network fully destroyed, new host recovered a real issuer from ONLY the off-host copy in 88s measured wall-clock. RTO/RPO stated honestly incl. total-loss-if-BACKUP_SYNC_CMD-unset.)* DR runbook: host-loss scenario — restore from off-host
   backups (now possible via the `BACKUP_SYNC_CMD` hook, `backup.sh:56-58`) to
   a fresh host; state RTO/RPO honestly (daily backup = up to 24h RPO). No
   runbook doc exists yet. **Rehearse once.** **Verify:** `caos/docs/
