@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { getIssuers, createIssuer, toErrorMessage } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { TextInput } from "@/components/shared/TextInput";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -18,6 +19,7 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 export default function IssuersPage() {
   return (
@@ -31,11 +33,10 @@ export default function IssuersPage() {
 // Ratings are no longer typed here — collected from ingested structured sheets
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
-const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "" };
+const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
 const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
-
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
@@ -170,52 +171,96 @@ function IssuersDirectory() {
       return next;
     });
 
-  return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <span className="flex items-center gap-2">
-          <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-          <span className="text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">CREDIT OS</span>
-          <span className="tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">v2.2</span>
-        </span>
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap">Issuer Register</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
-          {loading
-            ? "loading…"
-            : query
-            ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
-            : demo
-            ? DEMO_UNIVERSE.length + " sample issuers"
-            : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve"}
-        </span>
-        {!loading && demo ? (
-          <span
-            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
-            style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
-            title="No live coverage yet — these are sample issuers, not real coverage"
-          >
-            Demo coverage
-          </span>
-        ) : null}
-        <div className="flex-1" />
-        <ConceptNav />
-        <div className="h-4 w-px bg-caos-border" />
+  const summaryLabel = loading
+    ? "loading…"
+    : query
+    ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
+    : demo
+    ? DEMO_UNIVERSE.length + " sample issuers"
+    : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve";
+
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <ConceptNav compact />
+        <span className="h-4 w-px bg-caos-border shrink-0" />
+        <Link
+          href="/sponsors"
+          className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+        >
+          SPONSORS
+        </Link>
         <Link
           href="/upload"
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
-          UPLOAD DOCUMENTS
+          UPLOAD
         </Link>
+      </>
+    ),
+  };
+
+  return (
+    <ResponsiveShell
+      identity={
+        <>
+          <span className="flex items-center gap-2 shrink-0">
+            <span
+              className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold"
+              style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
+            >
+              C
+            </span>
+            {/* Wordmark + version are decorative brand chrome — lowest priority for
+                horizontal space next to the 7-item full-label ConceptNav; drop
+                them before the functional coverage-summary stat ever squeezes. */}
+            <span className="hidden 2xl:inline text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
+              CREDIT OS
+            </span>
+            <span className="hidden 2xl:inline tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
+              v2.2
+            </span>
+          </span>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap shrink-0">
+            Issuer Register
+          </span>
+          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0">
+            {summaryLabel}
+          </span>
+          {!loading && demo ? (
+            <span
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden 2xl:inline"
+              style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
+              title="No live coverage yet — these are sample issuers, not real coverage"
+            >
+              Demo coverage
+            </span>
+          ) : null}
+        </>
+      }
+      primaryAction={
         <button
           onClick={() => setShowForm(true)}
-          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
+          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring"
         >
           + NEW ISSUER
         </button>
-      </div>
-
+      }
+      contextualControls={
+        <>
+          <ConceptNav />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <Link
+            href="/upload"
+            className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+          >
+            UPLOAD DOCUMENTS
+          </Link>
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* degraded banner — registry fetch failed; demo coverage shown is NOT live */}
       {degraded ? (
         <div
@@ -225,9 +270,9 @@ function IssuersDirectory() {
         >
           <StatusGlyph kind="warning" />
           {hadRealCoverage.current ? (
-            <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>the last loaded results</span>, which may be out of date.</span>
+            <span>Couldn&rsquo;t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>the last loaded results</span>, which may be out of date.</span>
           ) : (
-            <span>Couldn’t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
+            <span>Couldn&rsquo;t reach the registry — showing <span className="font-medium" style={{ color: "var(--caos-warning)" }}>demo coverage</span>, not live data.</span>
           )}
           <button
             onClick={() => setReloadKey((k) => k + 1)}
@@ -306,7 +351,7 @@ function IssuersDirectory() {
             </div>
           ) : issuers.length === 0 && query ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for “{query}”</p>
+              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for &ldquo;{query}&rdquo;</p>
               <p className="text-caos-muted text-caos-lg max-w-xs">
                 Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
               </p>
@@ -344,8 +389,8 @@ function IssuersDirectory() {
               </button>
             </div>
           ) : (
-            <div className="text-caos-xl">
-              <div className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+            <div role="grid" className="text-caos-xl">
+              <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
                      key={i}
@@ -358,10 +403,11 @@ function IssuersDirectory() {
                      sortable={SORTABLE.has(FILTER_KEYS[i])}
                      sortState={sort}
                      onSort={cycleSort}
+                     asHeaderCell
                      className="tabular text-caos-xs uppercase tracking-wider text-caos-muted"
-                  >
-                    {h}
-                  </FilterHeader>
+                   >
+                     {h}
+                   </FilterHeader>
                 ))}
               </div>
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
@@ -371,47 +417,53 @@ function IssuersDirectory() {
               {shownIssuers.map((issuer) => (
                 <div
                   key={issuer.id}
+                  role="row"
                   className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                 >
                   {/* Stretched primary link: whole row is the click target for mouse,
                       and a single keyboard/SR-focusable control per row. Replaces the
                       former role="button" row, which nested the Upload button inside an
                       interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
-                  <a
-                    href={issuerProfileHref(issuer)}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openProfile(issuer.id);
-                    }}
-                    aria-label={`Open profile for ${issuer.name}`}
-                    className="absolute inset-0 z-0 focus-ring cursor-pointer"
-                  />
-                  <span className="tabular text-caos-accent text-caos-lg">
+                  <span role="gridcell" className="absolute inset-0 z-0 pointer-events-none">
+                    <a
+                      href={issuerProfileHref(issuer)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openProfile(issuer.id);
+                      }}
+                      aria-label={`Open profile for ${issuer.name}`}
+                      className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
+                    />
+                  </span>
+                  <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+                  <span role="gridcell" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
                   {(() => {
                     const r = issuerRating(issuer);
                     return (
                       <span
+                        role="gridcell"
                         className="tabular text-caos-md truncate"
-                        title={r ? "Agency rating — S&P / Moody’s / Fitch (first on file)" : "No agency rating on file"}
+                        title={r ? "Agency rating — S&P / Moody's / Fitch (first on file)" : "No agency rating on file"}
                         style={{ color: r ? (ratingDistressed(r) ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
                       >
                         {r || "—"}
                       </span>
                     );
                   })()}
-                  <span className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
-                  <span className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
-                  <button
-                    onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
-                    aria-label={`Upload documents for ${issuer.name}`}
-                    className="relative z-[1] inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
-                  >
-                    UPLOAD
-                  </button>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
+                  <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
+                    <button
+                      onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
+                      aria-label={`Upload documents for ${issuer.name}`}
+                      className="inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
+                    >
+                      UPLOAD
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -429,7 +481,7 @@ function IssuersDirectory() {
           }}
         />
       ) : null}
-    </div>
+    </ResponsiveShell>
   );
 }
 
@@ -456,7 +508,8 @@ function NewIssuerModal({
     setCreating(true);
     setCreateError(null);
     try {
-      onCreated(await createIssuer(form));
+      // sponsor is a grouping key for /api/sponsors — never persist "" as a group.
+      onCreated(await createIssuer({ ...form, sponsor: form.sponsor.trim() || undefined }));
       onClose();
     } catch (err) {
       setCreateError(toErrorMessage(err, "Couldn't create the issuer. Check the details and try again."));
@@ -466,7 +519,7 @@ function NewIssuerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center" style={{ background: "rgba(5,5,7,0.72)" }} onClick={onClose}>
+    <ModalBackdrop onClose={onClose}>
       <form
         ref={panelRef}
         role="dialog"
@@ -492,6 +545,7 @@ function NewIssuerModal({
             { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
             { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
             { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
+            { key: "sponsor", label: "Sponsor / PE owner", required: false, ph: "e.g. Kestrel Capital Partners", max: 255 },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
@@ -523,6 +577,6 @@ function NewIssuerModal({
           </button>
         </div>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

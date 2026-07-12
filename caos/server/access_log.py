@@ -44,11 +44,21 @@ def principal(headers: Mapping[str, str]) -> str:
 
 
 def client_source(headers: Mapping[str, str], client_host: Optional[str]) -> str:
-    """Real client IP — first hop of X-Forwarded-For (set by the edge proxy),
-    falling back to the socket peer when un-proxied."""
+    """Real client IP — the LAST hop of X-Forwarded-For, falling back to the
+    socket peer when un-proxied.
+
+    Caddy (the sole edge/reverse-proxy hop — see deploy/Caddyfile) APPENDS the
+    immediate peer's IP to any inbound X-Forwarded-For rather than replacing
+    it; oauth2-proxy forwards the header unchanged. An external caller hitting
+    Caddy directly can freely prepend an arbitrary value, so trusting the
+    FIRST hop (the prior behavior) let an attacker rotate a fake IP per
+    request to defeat the per-source login throttle (auth.py) and forge this
+    audit log's source field. The LAST hop is always Caddy's own honest
+    append — the only hop this deployment actually controls — so trust that
+    one and nothing an external caller supplied before it."""
     xff = headers.get("x-forwarded-for")
     if xff:
-        return sanitize_field(xff.split(",")[0].strip())
+        return sanitize_field(xff.split(",")[-1].strip())
     return sanitize_field(client_host or "?")
 
 

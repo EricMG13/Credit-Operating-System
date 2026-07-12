@@ -20,7 +20,7 @@ import re
 from itertools import groupby
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest
+from engine.periods import is_finite_number, latest_annual
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -92,7 +92,12 @@ def recovery_waterfall(tranches: List[dict], distressed_ev: float) -> List[dict]
 
 def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     nf = (cp1.runtime_output or {}).get("normalized_financials", {}) if cp1 is not None else {}
-    eb = latest(nf.get("adj_ebitda") or {})
+    eb = latest_annual(nf.get("adj_ebitda") or {})
+    # eb > 0 (not just truthy): the guard already rejects NaN/0, but a NEGATIVE LTM
+    # EBITDA (a loss year) would give a negative distressed EV (e.g. eb=-421 -> -2105),
+    # which is truthy, so the waterfall would run with remaining_ev<0 and assert a
+    # High-confidence "~0% expected recovery" across every tranche. A 5x multiple on
+    # negative EBITDA is meaningless — degrade to the seniority-only branch instead.
     return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
 
 
@@ -173,13 +178,25 @@ async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] 
         confidence="High" if ev else "Medium",
         downstream_consumers=["CP-6A"],
         limitation_flags=limitations,
+        # Lineage honesty (audit 2026-07-10 SPEC-3): with a computed waterfall the
+        # claim asserts recovery PERCENTAGES derived from the assumed 5.0x EV —
+        # that is a calculation on an assumption, not a quoted document fact, and
+        # stamping it Directly Sourced/High let the module grade its own
+        # assumption as source-quoted (CP-5B saw nothing). The tranche chunks
+        # stay anchored via resolved_chunk_id either way; the seniority-only
+        # (no-EV) claim really is the directly-sourced tranche scan.
         claims=[ClaimSpec(
             claim_id="C-CAP1",
             claim_text=(f"Recovery preference across {len(found)} tranche(s): {pref_txt}"
                         + (f"; {waterfall_basis}." if waterfall_basis else ".")),
             evidence=[EvidenceSpec(
-                evidence_id=f"E-CAP-{i}", extraction_type="quoted_text", lineage_class="Directly Sourced",
-                source_locator="Agreement / offering disclosure (ingested chunk)", confidence="High",
+                evidence_id=f"E-CAP-{i}",
+                extraction_type="calculated_metric" if ev else "quoted_text",
+                lineage_class="Calculated" if ev else "Directly Sourced",
+                source_locator=("Absolute-priority waterfall over tranches disclosed in the "
+                                "ingested chunk (5.0x EV assumption)" if ev
+                                else "Agreement / offering disclosure (ingested chunk)"),
+                confidence="Medium" if ev else "High",
                 resolved_chunk_id=t["chunk_id"]) for i, t in enumerate(found)],
         )],
     )

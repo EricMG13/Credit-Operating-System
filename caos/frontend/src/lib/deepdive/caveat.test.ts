@@ -24,4 +24,24 @@ describe("deepDiveCaveatKind", () => {
     expect(kind).toBe("noRun");
     expect(kind).not.toBe("live");
   });
+
+  // M-3: a genuine backend fetch failure (phase="error") must be told apart
+  // from "issuer exists, never analysed" (noRun) — previously both collapsed to
+  // the same generic message, hiding a real outage behind a normal empty read.
+  it("phase='error' resolves to 'error', not noRun", () => {
+    expect(deepDiveCaveatKind({ isReference: false, loading: false, runId: null, phase: "error" }))
+      .toBe("error");
+  });
+
+  it("reference and loading still win over phase='error'", () => {
+    expect(deepDiveCaveatKind({ isReference: true, loading: false, runId: null, phase: "error" }))
+      .toBe("reference");
+    expect(deepDiveCaveatKind({ isReference: false, loading: true, runId: null, phase: "error" }))
+      .toBe("loading");
+  });
+
+  it("phase is optional — omitting it keeps the pre-existing runId-only behavior", () => {
+    expect(deepDiveCaveatKind({ isReference: false, loading: false, runId: null })).toBe("noRun");
+    expect(deepDiveCaveatKind({ isReference: false, loading: false, runId: "r1" })).toBe("live");
+  });
 });

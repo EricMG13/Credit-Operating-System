@@ -6,7 +6,6 @@
 // gate-aware answer. Surfaced on the Command Center as the "scan coverage" tool.
 
 import { Fragment, useMemo, useRef, useState } from "react";
-import { Panel as PanelShell } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
@@ -14,14 +13,15 @@ import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
-type OpenCite = (chunkId: string, label?: string | null) => void;
+export type OpenCite = (chunkId: string, label?: string | null) => void;
 
-const STARTERS = [
+const _STARTERS = [
   "which issuers' margins are most exposed to higher inflation in energy prices",
   "which issuer is most levered",
   "which issuers flag energy or input-cost pressure in their filings",
@@ -260,8 +260,12 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult | SynthesisResu
 }
 
 // The query body (input + ranked/semantic results), reused both as the Command
-// Center panel and inside the global Ask launcher (⌘K) modal.
-function QueryResultsModal({
+// Center panel, inside the global Ask launcher (⌘K) modal, AND on the Query page
+// as the "Scan metrics" lane (one-box unification — additive, not replacing the
+// walk-primary Enter). The modal is self-contained: it brings its own focus trap
+// (useModalA11y), interpretation/summary/chart/table/caveats, and citation chips
+// that call back into the host's openCite.
+export function QueryResultsModal({
   question,
   res,
   busy,
@@ -279,10 +283,7 @@ function QueryResultsModal({
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
 
   return (
-    <div
-      className="fixed inset-0 z-modal flex justify-end bg-black/60"
-      onClick={onClose}
-    >
+    <ModalBackdrop onClose={onClose} align="end">
       <div
         ref={panelRef}
         role="dialog"
@@ -370,7 +371,7 @@ function QueryResultsModal({
           )}
         </div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

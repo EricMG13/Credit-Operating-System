@@ -18392,7 +18392,18 @@ export const COVERAGE = PORTFOLIO.map((p, i) => ({
   cells: Object.fromEntries(Object.entries(COVERAGE_CELLS).map(([l, arr]) => [l, arr[i % arr.length]])) as Record<string, string>,
 }));
 
-export const QA_QUEUE = [
+// One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits the same
+// shape from real run gate roll-ups so QaQueue can prefer live over this seed.
+export interface QaQueueItem {
+  id: string;
+  issuer: string;
+  module: string;
+  sev: "HIGH" | "MEDIUM" | "LOW";
+  age: string;
+  text: string;
+}
+
+export const QA_QUEUE: QaQueueItem[] = [
   { id: "QA-117", issuer: "ATLF", module: "CP-1C", sev: "HIGH", age: "2h", text: "Citation E-44 (peer EBITDA margin) unresolved — source page mismatch in CIM Annex C" },
   { id: "QA-114", issuer: "SXAA", module: "CP-4", sev: "HIGH", age: "1d", text: "Covenant register cites superseded credit agreement draft — controlling-doc check failed" },
   { id: "QA-112", issuer: "QLMH", module: "CP-1B", sev: "MEDIUM", age: "1d", text: "Variance bridge math: D&A add-back double count $4.1M (0.9% of EBITDA)" },
@@ -18400,7 +18411,17 @@ export const QA_QUEUE = [
   { id: "QA-105", issuer: "NWCF", module: "CP-5B", sev: "LOW", age: "4d", text: "Driver #4 lineage chain missing intermediate calc register reference" },
 ];
 
-export const GAPS = [
+// One CP-0 source-gap row. The live derivation (lib/command/gaps.ts) emits the
+// same shape from real run gap logs so GapsList can prefer live over this seed.
+export interface GapItem {
+  issuer: string;
+  doc: string;
+  impact: string;
+  sev: "high" | "medium" | "low";
+  requested: string;
+}
+
+export const GAPS: GapItem[] = [
   { issuer: "ATLF", doc: "Hedging register / swap confirms", impact: "CP-2F degraded — floating exposure modeled from SFA only", sev: "medium", requested: "Jun 04" },
   { issuer: "ATLF", doc: "Q4-25 management accounts", impact: "CP-1 derived-period bridge uses sponsor model figures", sev: "low", requested: "Jun 04" },
   { issuer: "QLMH", doc: "Unrestricted subsidiary financials", impact: "CP-4 leakage analysis incomplete — transfer capacity unbounded", sev: "high", requested: "Jun 06" },

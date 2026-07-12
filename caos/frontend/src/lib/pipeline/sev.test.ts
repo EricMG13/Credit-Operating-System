@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEV_COLOR, isCleared, sevSurface, sevVar } from "./sev";
+import { SEV_COLOR, isCleared, moduleLiveState, sevSurface, sevVar } from "./sev";
 
 describe("isCleared", () => {
   it("is true only for pass / warning (both unblock downstream)", () => {
@@ -10,6 +10,25 @@ describe("isCleared", () => {
     for (const s of ["idle", "running", "held", "blocked", "critical", undefined]) {
       expect(isCleared(s)).toBe(false);
     }
+  });
+});
+
+describe("moduleLiveState", () => {
+  it("maps a produced module's qa_status to a launcher state", () => {
+    expect(moduleLiveState("Passed")).toBe("pass");
+    expect(moduleLiveState("Restricted")).toBe("warning"); // cleared-with-concerns
+    expect(moduleLiveState("Not Reviewed")).toBe("pass");  // produced, not blocked
+  });
+  it("maps the engine's per-module failure gate (Blocked) to failed", () => {
+    // runner._persist_blocked sets qa_status="Blocked"; it must read as failed —
+    // NOT as a false pass (the module row IS persisted) and NOT as idle.
+    expect(moduleLiveState("Blocked")).toBe("failed");
+  });
+  it("treats an absent module (undefined) as idle — not produced this run", () => {
+    expect(moduleLiveState(undefined)).toBe("idle");
+  });
+  it("failed is not 'cleared' (a failed module must not unlock its pane)", () => {
+    expect(isCleared(moduleLiveState("Blocked"))).toBe(false);
   });
 });
 

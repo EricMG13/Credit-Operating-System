@@ -22,10 +22,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
+from database import AnalystWatchlist, Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
+from tenancy import block_if_tenancy_unscoped, require_issuer
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
 
 logger = logging.getLogger("caos")
@@ -33,6 +34,7 @@ router = APIRouter()
 
 _QUERY_MAX_PER_MINUTE = 20
 _READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
+_WATCHLIST_MAX_ISSUERS = 200  # bound the per-analyst brief scope + the replace payload
 _ADMIN_QUERY_RE = re.compile(r"\b(all runs by user|runs by user|user\s+[A-Z0-9._%+-]+@|analyst activity|by analyst|display all runs by)\b", re.I)
 
 
@@ -59,7 +61,7 @@ async def get_catalog(caller: CallerIdentity = Depends(get_identity)):
 
 @router.get("/capabilities")
 async def get_capabilities(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The Query rail: capability groups with each entry's enabled state and, when
@@ -88,11 +90,12 @@ class GraphRequest(BaseModel):
 @router.post("/graph")
 async def query_graph(
     body: GraphRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Run one capability and return its positioned node-link graph. Reads only —
     no LLM, no writes — so it shares the looser read rate guard."""
+    block_if_tenancy_unscoped()  # cross-issuer graph is not team-scoped
     _read_rate_guard(caller)
     try:
         from vault_export import sync_analyst_memos
@@ -111,7 +114,7 @@ async def query_graph(
 @router.get("/insights")
 async def query_insights(
     force: bool = False,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The Desk Brief: proactive, cited, AI-written insight cards over what changed
@@ -132,6 +135,86 @@ async def query_insights(
     return await queryinsights.insights(db, force=force, analyst_id=caller.id)
 
 
+# ── Per-analyst watchlist (Desk Brief scoping) ───────────────────────────────
+# The analyst's pinned issuers. Non-empty → the Desk Brief lane builds a
+# per-analyst evidence pack and keys the cached brief by analyst_id; empty → the
+# analyst falls back to the shared book-level brief. Replace semantics: the PUT
+# payload is the full intended set (additive diff applied idempotently), so the
+# analyst's UI never has to reason about partial deletes.
+
+class WatchlistResponse(BaseModel):
+    issuer_ids: list[str] = Field(default_factory=list)
+
+
+class WatchlistUpdate(BaseModel):
+    issuer_ids: list[str] = Field(min_length=0, max_length=_WATCHLIST_MAX_ISSUERS)
+
+
+@router.get("/watchlist", response_model=WatchlistResponse)
+async def get_watchlist(
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """The analyst's watchlist — the issuers their Desk Brief is scoped to."""
+    _read_rate_guard(caller)
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
+
+
+@router.put("/watchlist", response_model=WatchlistResponse)
+async def replace_watchlist(
+    body: WatchlistUpdate,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Replace the analyst's watchlist with the given issuer set (idempotent).
+
+    Validated against the issuers table so a stale/typo id is rejected rather
+    than silently producing an empty scoped brief. Deletes removed rows and
+    inserts new ones in one transaction; the Desk Brief regenerates on the next
+    fingerprint change + >24h boundary (or on an explicit force-refresh)."""
+    if not rate_limit.hit(
+        f"query-watchlist:{caller.id}", max_attempts=_READ_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Watchlist update rate limit reached — try again in a minute.",
+        )
+    target = set(body.issuer_ids)
+    # Reject any id that isn't a real issuer — a bad id would scope the brief to
+    # nothing and silently degrade the panel.
+    if target:
+        valid = set((await db.execute(
+            select(Issuer.id).where(Issuer.id.in_(list(target)))
+        )).scalars().all())
+        unknown = target - valid
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown issuer id(s): {sorted(unknown)}",
+            )
+    existing = (await db.execute(
+        select(AnalystWatchlist).where(AnalystWatchlist.analyst_id == caller.id)
+    )).scalars().all()
+    existing_ids = {r.issuer_id for r in existing}
+    for r in existing:
+        if r.issuer_id not in target:
+            await db.delete(r)
+    for iid in sorted(target - existing_ids):
+        db.add(AnalystWatchlist(analyst_id=caller.id, issuer_id=iid))
+    await db.commit()
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == caller.id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return WatchlistResponse(issuer_ids=list(rows))
+
+
 class AnswerRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     capability_id: Optional[str] = Field(default=None, max_length=64)
@@ -142,7 +225,7 @@ class AnswerRequest(BaseModel):
 @router.post("/answer")
 async def query_answer(
     body: AnswerRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The grounded answer beside a walk: a cited AI paragraph written from vault
@@ -180,7 +263,7 @@ class RouteRequest(BaseModel):
 @router.post("/route")
 async def route_query(
     body: RouteRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """LLM-route free text to up to 3 registry capabilities, each with a reason.
@@ -196,6 +279,7 @@ async def route_query(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Query rate limit reached — try again in a minute.",
         )
+    block_if_tenancy_unscoped()  # cross-issuer routing is not team-scoped
     if not queryoverlay.available():
         return {"candidates": [], "source": "keyword"}
     caps = await querygraph.capabilities(db)
@@ -219,7 +303,7 @@ class OverlayRequest(BaseModel):
 @router.post("/overlay")
 async def query_overlay(
     body: OverlayRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """The model overlay for one deterministic graph: citation-gated proposed
@@ -233,6 +317,7 @@ async def query_overlay(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Overlay rate limit reached — try again in a minute.",
         )
+    block_if_tenancy_unscoped()  # cross-issuer overlay is not team-scoped
     if not queryoverlay.available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -279,7 +364,7 @@ class AcceptLinkRequest(BaseModel):
 
 @router.get("/links")
 async def list_accepted_links(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
@@ -309,7 +394,7 @@ async def list_accepted_links(
 @router.post("/links")
 async def accept_link(
     body: AcceptLinkRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Ratify one model-proposed issuer↔issuer link. Analyst-initiated write —
@@ -361,10 +446,19 @@ async def accept_link(
 @router.delete("/links/{link_id}")
 async def retract_link(
     link_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    """Retract a ratified link — it stops being drawn on the next graph build."""
+    """Retract a ratified link — it stops being drawn on the next graph build.
+
+    Authorization — single-team model, BY DESIGN (same posture as routes/runs.py,
+    routes/portfolios.py): ratified links are shared desk work product, so ANY
+    authenticated analyst may retract any link (the row keeps ``analyst_id`` for
+    attribution, not ownership). Documented as a deliberate decision rather than
+    an omission (audit 2026-07-10 C2/API-2; pinned by
+    test_retract_link_idor_single_team_is_intentional); if the trust model ever
+    widens to multiple teams, gate retraction on the caller's team alongside the
+    runs.py authorization work."""
     if not rate_limit.hit(
         f"query:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
     ):
@@ -395,7 +489,7 @@ class ChunkResponse(BaseModel):
 @router.get("/chunk/{chunk_id}", response_model=ChunkResponse)
 async def get_chunk(
     chunk_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     """Fetch one ingested source chunk by id — backs click-to-source on the
@@ -414,6 +508,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "Module output not found")
             m_out, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             import json
             text = (
                 f"Module: {m_out.module_name} ({m_out.module_id}).\n"
@@ -436,6 +531,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "Claim not found")
             claim, m_out, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = f"Claim {claim.claim_id} ({m_out.module_name}):\n\n{claim.claim_text}"
             return ChunkResponse(
                 chunk_id=chunk_id, issuer_id=issuer.id, issuer_name=issuer.name,
@@ -452,6 +548,7 @@ async def get_chunk(
             if row is None:
                 raise HTTPException(404, "QA Finding not found")
             finding, run, issuer = row
+            require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = (
                 f"QA Finding {finding.finding_id} ({finding.severity})\n"
                 f"Module: {finding.module_id or 'Run'} · Lane {finding.lane}\n\n"
@@ -472,6 +569,7 @@ async def get_chunk(
     if row is None:
         raise HTTPException(404, "Chunk not found")
     chunk, doc, issuer = row
+    require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
     return ChunkResponse(
         chunk_id=chunk.id, issuer_id=issuer.id, issuer_name=issuer.name,
         doc=doc.file_name, doc_type=doc.doc_type, seq=chunk.seq, text=chunk.text,
@@ -481,9 +579,10 @@ async def get_chunk(
 @router.post("/nl")
 async def nl_query(
     body: NlQueryRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    block_if_tenancy_unscoped()  # cross-issuer metric ranking is not team-scoped
     if _ADMIN_QUERY_RE.search(body.question):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

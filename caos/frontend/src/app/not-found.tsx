@@ -1,6 +1,7 @@
 // Custom 404 (App Router). Replaces Next's stock "page could not be found" with
 // the CAOS surface. Server component — no interactivity needed; a Link returns to
-// the Command Center.
+// the Issuer Directory ("/" client-redirects there — the label must match the
+// destination, audit 2026-07-10 F17).
 
 import Link from "next/link";
 
@@ -21,7 +22,7 @@ export default function NotFound() {
           href="/"
           className="self-start rounded border border-caos-accent bg-caos-accent px-3 py-2 text-sm font-semibold text-caos-bg transition-caos hover:opacity-90 focus-ring"
         >
-          Back to Command Center
+          Back to Directory
         </Link>
       </div>
     </div>

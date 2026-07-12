@@ -7,8 +7,10 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import { OutputRegister, StepOutputModal } from "./OutputRegister";
+import { OutputRegister, StepOutputGrid, StepOutputModal } from "./OutputRegister";
 import { MODULE_STEPS, type StepRow } from "@/lib/deepdive/module-steps";
+import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
+import { STEP_NOTES } from "@/lib/deepdive/step-notes";
 
 // The step modal's QA-flag lane talks to the server; keep the suite offline.
 vi.mock("@/lib/api", () => ({
@@ -24,11 +26,15 @@ import { createQaFlag, listQaFlags } from "@/lib/api";
 
 const [SAMPLE_ID, SAMPLE_STEPS] = Object.entries(MODULE_STEPS)[0];
 const FIRST_STEP: StepRow = SAMPLE_STEPS[0];
+const CONSOLIDATED_ID = "__TEST_CONSOLIDATED__";
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.clearAllMocks();
+  delete MODULE_STEPS[CONSOLIDATED_ID];
+  Object.keys(STEP_OUTPUTS).forEach((key) => { if (key.startsWith(CONSOLIDATED_ID + ":")) delete STEP_OUTPUTS[key]; });
+  Object.keys(STEP_NOTES).forEach((key) => { if (key.startsWith(CONSOLIDATED_ID + ":")) delete STEP_NOTES[key]; });
 });
 
 describe("OutputRegister", () => {
@@ -56,6 +62,44 @@ describe("OutputRegister", () => {
     const buttons = screen.getAllByRole("button");
     fireEvent.click(buttons[1]); // buttons[0] is the header; [1] is the first step
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+});
+
+describe("StepOutputGrid", () => {
+  function seedConsolidationFixture(count = 5) {
+    MODULE_STEPS[CONSOLIDATED_ID] = Array.from({ length: count }, (_, i) => {
+      const name = "Coverage step " + (i + 1);
+      STEP_OUTPUTS[CONSOLIDATED_ID + ":" + name] = {
+        sections: [{ type: "text", title: "Coverage · fixture " + (i + 1), body: "Fixture body " + (i + 1) }],
+      };
+      STEP_NOTES[CONSOLIDATED_ID + ":" + name] = { body: "Narrative " + (i + 1) };
+      return ["T" + (i + 1), name, "ok"];
+    });
+  }
+
+  it("consolidates repeated same-prefix report cards", () => {
+    seedConsolidationFixture();
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="report" onOpenEvidence={() => {}} />);
+
+    expect(screen.getByText("5 steps consolidated")).toBeTruthy();
+    expect(screen.getByText("Coverage")).toBeTruthy();
+  });
+
+  it("summary mode shows narrative summaries without full step output", () => {
+    seedConsolidationFixture(2);
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="summary" onOpenEvidence={() => {}} />);
+
+    expect(screen.getByText(/workflow step summary/i)).toBeTruthy();
+    expect(screen.getByText("Narrative 1")).toBeTruthy();
+    expect(screen.queryByText("Fixture body 1")).toBeNull();
+  });
+
+  it("keeps dense mode unconsolidated", () => {
+    seedConsolidationFixture();
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="dense" onOpenEvidence={() => {}} />);
+
+    expect(screen.queryByText(/steps consolidated/)).toBeNull();
+    expect(screen.getByText("Coverage step 1")).toBeTruthy();
   });
 });
 

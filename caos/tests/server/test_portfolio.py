@@ -62,3 +62,24 @@ def test_portfolio_read_rate_limited(client):
     codes = [client.get("/api/portfolio").status_code for _ in range(62)]
     assert 429 in codes, "read guard should reject once the per-minute window is exceeded"
     rate_limit.reset()
+
+
+def test_portfolio_gaps_maps_cp0_gap_log():
+    """The live Source-Gaps board (A-1) derives from CP-0's gap log. Map the gap
+    severity to the board's high/medium/low and skip malformed/textless entries."""
+    from routes.portfolio import _portfolio_gaps
+
+    gaps = _portfolio_gaps({"gap_log": [
+        {"id": "G-01", "severity": "warning", "text": "No audited financials vaulted."},
+        {"id": "G-02", "severity": "critical", "text": "No credit agreement vaulted."},
+        {"severity": "warning"},  # textless — skipped
+        "not-a-dict",             # malformed — skipped
+        {"id": "G-03", "severity": "info", "text": "No hedging register vaulted."},
+    ]})
+    assert [(g.sev, g.doc) for g in gaps] == [
+        ("medium", "No audited financials vaulted."),
+        ("high", "No credit agreement vaulted."),
+        ("low", "No hedging register vaulted."),  # unknown severity → low
+    ]
+    assert _portfolio_gaps({}) == []               # no CP-0 output → no gaps
+    assert _portfolio_gaps({"gap_log": None}) == []

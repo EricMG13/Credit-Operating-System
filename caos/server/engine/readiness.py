@@ -44,12 +44,12 @@ _CONTENT_MARKERS = {
     "financials": ("form 10-k", "form 10-q", "annual report pursuant to section 13",
                    "quarterly report pursuant to section 13", "consolidated balance sheet",
                    "consolidated statements of operations",
-                   # IFRS / non-US filers + interim quarterly investor reports (e.g. Virgin Media O2):
                    "consolidated financial statements", "condensed consolidated",
                    "statement of financial position", "statement of profit or loss",
-                   "income statement"),
+                   "income statement", "annual report", "quarterly report"),
     "agreement": ("credit agreement", "indenture", "facility agreement",
-                  "senior facilities agreement", "loan agreement", "exhibit 10."),
+                  "senior facilities agreement", "loan agreement", "exhibit 10.",
+                  "exhibit 10", "ex-10", "ex10"),
     "offering": ("offering memorandum", "preliminary prospectus", "prospectus supplement",
                  "information memorandum"),
     "covenant": ("compliance certificate", "financial covenant", "covenant compliance"),
@@ -58,7 +58,15 @@ _CONTENT_MARKERS = {
 
 def _categorize(doc: Document, head: str = "") -> Set[str]:
     """Classify a document by doc_type / file name (cheap) and, crucially, by the
-    content of its head — so SEC filings named by accession number still classify."""
+    content of its head — so SEC filings named by accession number still classify.
+
+    Analyst memos (``doc_type == 'analyst-memo'``) short-circuit to no category:
+    they are analyst commentary, never a source filing, regardless of what terms
+    the commentary mentions (a memo discussing "credit agreement" / "10-K" must
+    not count toward source-coverage readiness). See ``engine/memochunks.py`` and
+    RT-2026-07-07-15."""
+    if (doc.doc_type or "").lower() == "analyst-memo":
+        return set()
     dt, fn, ct = (doc.doc_type or "").lower(), (doc.file_name or "").lower(), head.lower()
     return {
         cat for cat, (types, names) in _CATEGORIES.items()
@@ -79,11 +87,18 @@ async def synthesize_source_readiness(session: AsyncSession, issuer: Issuer) -> 
     if docs:
         rows = (await session.execute(
             select(DocumentChunk.document_id, DocumentChunk.text)
-            .where(DocumentChunk.document_id.in_([d.id for d in docs]))
+            .where(
+                DocumentChunk.document_id.in_([d.id for d in docs]),
+                DocumentChunk.seq < 3
+            )
             .order_by(DocumentChunk.document_id, DocumentChunk.seq)
         )).all()
+        heads_list: dict[str, list[str]] = {}
         for did, text in rows:
-            heads.setdefault(did, text)
+            if did not in heads_list:
+                heads_list[did] = []
+            heads_list[did].append(text)
+        heads = {did: "\n".join(texts) for did, texts in heads_list.items()}
 
     present: Set[str] = set()
     doc_map: list = []

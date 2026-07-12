@@ -5,6 +5,26 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import requires_pg
+
+
+def test_research_executor_settings_defaults():
+    from config import Settings
+
+    s = Settings()
+    assert s.caos_research_concurrency == 2
+    assert s.caos_research_lease_seconds == 1800
+    assert s.caos_research_max_attempts == 2
+
+
+def test_research_job_model_has_lease_columns():
+    from database import ResearchJob
+
+    cols = ResearchJob.__table__.columns
+    for name in ("claimed_at", "lease_expires_at", "attempts", "worker_id"):
+        assert name in cols, f"ResearchJob is missing column {name}"
+    assert cols["attempts"].default.arg == 0
+
 
 # ── Background execution ─────────────────────────────────────────────────────
 @pytest.mark.asyncio
@@ -161,3 +181,50 @@ async def test_research_concurrency_cap_completes_all(seeded_db, monkeypatch):
     finally:
         s.caos_research_concurrency = prev
         research_executor._sem = None
+
+
+# ── QueueWorker claim/reaper (Postgres only — SKIP LOCKED) ───────────────────
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_two_research_workers_claim_one_job_once(seeded_db):
+    from database import AsyncSessionLocal, ResearchJob
+    from research_executor import ResearchQueueWorker
+
+    async with AsyncSessionLocal() as s:
+        job = ResearchJob(analyst_id="t", brief={"subject": "Claim Race Co", "mode": "issuer"})
+        s.add(job)
+        await s.commit()
+        job_id = job.id
+
+    w1, w2 = ResearchQueueWorker(), ResearchQueueWorker()
+    id1 = await w1._claim_one()
+    id2 = await w2._claim_one()
+    claimed = [x for x in (id1, id2) if x == job_id]
+    assert len(claimed) == 1, "exactly one worker may claim the job"
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_research_reaper_fails_exhausted_orphan(seeded_db):
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, ResearchJob
+    from research_executor import ResearchQueueWorker
+
+    past = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with AsyncSessionLocal() as s:
+        job = ResearchJob(
+            analyst_id="t", brief={"subject": "Reaper Orphan Co", "mode": "issuer"},
+            status="running", attempts=2, lease_expires_at=past,
+        )
+        s.add(job)
+        await s.commit()
+        job_id = job.id
+
+    await ResearchQueueWorker()._reap_orphans()
+
+    async with AsyncSessionLocal() as s:
+        job = await s.get(ResearchJob, job_id)
+        assert job.status == "failed"
+        assert "max attempts" in (job.error or "")

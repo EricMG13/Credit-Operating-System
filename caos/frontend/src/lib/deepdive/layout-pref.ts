@@ -1,21 +1,30 @@
-// Deep-Dive module layout preference — browser-local (localStorage), no server
-// round-trip. Settings edits it; the Deep-Dive page reads it on mount.
-//   core  — original: workflow register, then sections in source order
-//   base  — conclusion-first; workflow steps in up to 4 columns stretched to
-//           fill the width, wrapping to rows below (recommended)
-//   dense — conclusion-first; workflow steps packed into newspaper columns
-//           (maximum density)
-export type DeepDiveLayout = "core" | "base" | "dense";
+// Deep-Dive module layout preference -- browser-local (localStorage), no server
+// round-trip. The Deep-Dive page reads it on mount.
+//   summary -- analysis body with compact workflow-step summary
+//   report  -- conclusion-first module report with consolidated workflow cards
+//   dense   -- max-density audit view with unconsolidated packed steps
+export type DeepDiveLayout = "summary" | "report" | "dense";
 
-export const DEFAULT_LAYOUT: DeepDiveLayout = "base";
+export const DEFAULT_LAYOUT: DeepDiveLayout = "report";
 
 const KEY = "caos.deepdive.layout";
+const LEGACY: Record<string, DeepDiveLayout> = {
+  core: "summary",
+  base: "report",
+  dense: "dense",
+};
 
 export function loadLayout(): DeepDiveLayout {
   if (typeof window === "undefined") return DEFAULT_LAYOUT;
   try {
     const v = localStorage.getItem(KEY);
-    return v === "core" || v === "base" || v === "dense" ? v : DEFAULT_LAYOUT;
+    if (v === "summary" || v === "report" || v === "dense") return v;
+    const migrated = v ? LEGACY[v] : undefined;
+    if (migrated) {
+      localStorage.setItem(KEY, migrated);
+      return migrated;
+    }
+    return DEFAULT_LAYOUT;
   } catch {
     return DEFAULT_LAYOUT;
   }

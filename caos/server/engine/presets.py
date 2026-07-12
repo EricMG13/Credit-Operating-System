@@ -152,11 +152,16 @@ def _tier_model(s, tier: str) -> str:
 
 
 def _has_provider_key(s, model: str) -> bool:
-    if model.startswith("gemini"):
-        return bool(s.gemini_api_key)
-    if "/" in model or model.startswith("deepseek") or model.startswith("openrouter"):
-        return bool(s.openrouter_api_key)
-    return bool(s.anthropic_api_key)
+    # Routed through the single classifier (llm_client.provider_of) so this
+    # key-degradation check can never disagree with actual call routing — a new
+    # id shape is classified once, not per-copy.
+    from engine.llm_client import provider_of
+
+    return bool({
+        "gemini": s.gemini_api_key,
+        "openrouter": s.openrouter_api_key,
+        "anthropic": s.anthropic_api_key,
+    }[provider_of(model)])
 
 
 def _configured_fallback(s, tier: str) -> str:
@@ -220,6 +225,27 @@ def reviewer_model() -> str:
     # degraded one) — there the cross critic is Gemini, if a key is set, else it
     # degrades to same-model. For a Gemini- or OpenRouter/DeepSeek-heavy lane the
     # cross critic is Anthropic (Claude critiques the DeepSeek draft).
-    if heavy.startswith("claude") or heavy.startswith("anthropic"):
+    from engine.llm_client import provider_of
+
+    if provider_of(heavy) == "anthropic":
         return s.council_reviewer_model_gemini if s.gemini_api_key else heavy
     return s.council_reviewer_model_anthropic if s.anthropic_api_key else heavy
+
+
+def rerank_model() -> str:
+    """Model for the LLM re-rank lane (engine/rerank.py). Pinned tier
+    (``RERANK_MODEL_TIER``, default ``cheap``) — the re-rank is a retrieval step
+    (relevance scoring over a ~20-item window), not a per-mode reasoning lane, so
+    it does NOT ride the analyst's mode table. Resolves the tier to a concrete
+    model id with the same provider-key fallback as ``model_for``: when the tier's
+    configured model has no key, degrade to a configured model that DOES, so a
+    partial-key deploy still reranks rather than silently no-op'ing. An invalid
+    tier coerces to ``cheap`` (the latency/price-sensitive default)."""
+    s = get_settings()
+    tier = (s.rerank_model_tier or "cheap").strip().lower()
+    if tier not in ("cheap", "fast", "strong", "top"):
+        tier = "cheap"
+    model = _tier_model(s, tier)
+    if not _has_provider_key(s, model):
+        return _configured_fallback(s, tier)
+    return model

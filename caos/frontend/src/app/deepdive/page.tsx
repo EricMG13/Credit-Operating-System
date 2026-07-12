@@ -7,18 +7,18 @@
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays
 // the run and outputs unlock as their producing modules clear.
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
-import { buildReports } from "@/lib/reports/builders";
+import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { isCleared } from "@/lib/pipeline/sev";
+import { isCleared, moduleLiveState } from "@/lib/pipeline/sev";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
@@ -30,6 +30,7 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { useAsk } from "@/components/shared/Ask";
 import { getIssuer } from "@/lib/api";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 // Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
 // the tab renderers (tabs.tsx + its fixture/chart tree) load when a module tab is
@@ -64,13 +65,11 @@ const GATE: Record<string, string> = { "CP-4": "CP-4C" };
 // Modules with a bespoke ATLF showcase renderer (debate / recovery / covenants).
 // For a real issuer with live output they fall through to the generic ModuleView.
 const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
-const GROUPS = [
+const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
   { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
   { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  // CP-4C is covered inside the CP-4 "Legal & Covenants" view (code "CP-4 / 4C",
-  // which renders the CP-4C register) — so it isn't a separate launcher entry.
   { label: "L4 LEGAL", mods: ["CP-4"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
@@ -125,7 +124,7 @@ function DeepDive() {
   // repeated double-clicks from the Execution Graph)
   useEffect(() => { if (modParam) setTab(modParam); }, [modParam]);
   const [evModal, setEvModal] = useState<string | null>(null);
-  // Layout (core / base / dense) — toggled from the sub-header; browser-local.
+  // Layout (summary / report / dense) — toggled from the sub-header; browser-local.
   const [layout, setLayout] = useState<DeepDiveLayout>(DEFAULT_LAYOUT);
   useEffect(() => setLayout(loadLayout()), []);
   const pickLayout = (l: DeepDiveLayout) => { setLayout(l); saveLayout(l); };
@@ -210,12 +209,21 @@ function DeepDive() {
   // in-panel ASK ATLF button and the shortcut drive the same chat.
   const { open: chatOpen, setOpen: setChatOpen } = useAsk();
   const run = useSimRun({ prefill: true, plan: SIM_PLAN });
-  const reports = useMemo(() => buildReports(), []);
+  // The tear-sheet report tree (builders.ts → model / ROWS / charts) is read only
+  // when an evidence link is opened, so defer its import + build out of the initial
+  // /deepdive bundle (PERF-2). Loads once, lazily, on the first evidence-modal open.
+  const [reports, setReports] = useState<Report[] | null>(null);
+  useEffect(() => {
+    if (!evModal || reports) return;
+    let cancelled = false;
+    void import("@/lib/reports/builders").then((m) => { if (!cancelled) setReports(m.buildReports()); });
+    return () => { cancelled = true; };
+  }, [evModal, reports]);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
   const live = useLiveRun(issuerId);
   // Honesty caveat for the sub-header: reference deal · resolving · live · no-run.
-  const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId });
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId, phase: live.phase });
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
@@ -247,10 +255,13 @@ function DeepDive() {
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
   // Launcher/gate display state. The ATLF sim narrates the reference deal only;
-  // a real issuer's module is "pass" when this run produced it and hollow-idle
-  // otherwise — never the reference sim's green theater. (critique: implied
-  // completion that is not this issuer's)
-  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : (live.liveOuts[id] ? "pass" : "idle"));
+  // a real issuer's module reflects THIS run's per-module qa_status via
+  // moduleLiveState — pass / warning (Restricted) / failed (Blocked) / hollow-idle
+  // (not produced). A Blocked module is persisted with output, so keying off
+  // liveOuts presence alone would light it a false green; qa_status is the honest
+  // signal. Never the reference sim's green theater. (critique: implied completion
+  // that is not this issuer's; identify failed modules)
+  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : moduleLiveState(live.liveStatus[id]));
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
@@ -262,6 +273,11 @@ function DeepDive() {
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
   // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
   const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
+  // A real issuer's open module that hit the engine's failure gate (qa_status
+  // Blocked). Distinct from "no output" (never produced) — the row exists, the
+  // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
+  // instead of an empty ModuleView under a ● LIVE badge.
+  const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
   // screen), and live output is never held behind replay theater — otherwise
@@ -272,85 +288,122 @@ function DeepDive() {
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
 
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Layout</span>
+        {([
+          { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+          { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
+          { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
+        ]).map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            aria-pressed={layout === o.v}
+            onClick={() => pickLayout(o.v)}
+            title={o.t}
+            className={
+              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+              (layout === o.v
+                ? "bg-caos-elevated text-caos-text border-caos-accent"
+                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+            }
+          >
+            {o.label}
+          </button>
+        ))}
+        <SimControls run={run} />
+      </>
+    ),
+  };
+
   return (
     <EvidenceSyncProvider>
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-4 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <ConceptNav compact />
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
-        {issuerErr && !isReference ? (
-          <button
-            onClick={() => setIssuerAttempt((a) => a + 1)}
-            className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring whitespace-nowrap"
-            title="Issuer lookup failed — retry"
-          >
-            RETRY
-          </button>
-        ) : null}
-        {caveatKind === "reference" ? (
-          // The reference showcase must never costume itself as a database run:
-          // SEEDED leads, the run id is part of the fiction and says so on hover.
-          <span
-            className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
-            title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
-          >
-            SEEDED RUN #2641 · {run.completed}/{run.total} modules
-          </span>
-        ) : caveatKind === "loading" ? (
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
-        ) : caveatKind === "live" ? (
-          // Always visible: this caveat pairs with the ● LIVE badge (which has no
-          // width gate), so hiding it <1280px would show "live" with no blend
-          // disclaimer. (#20)
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
-            live engine output · missing panes show no output
-          </span>
-        ) : (
-          // noRun: issuer exists but was never analysed; suppress seeded figures.
-          <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views. Run a new simulation in pipeline or model builder to populate.`}>
-            no run for {code} · run analysis to populate
-          </span>
-        )}
-        <div className="flex-1"></div>
-        {/* No persistent tip string here: the E-xx guidance lives in the
-            one-time FirstRunHint below, and the old "replay to watch outputs
-            unlock →" clause pointed at SimControls that are themselves gated to
-            2xl. Carrying it in the bar forced the deal label to crush and the
-            row to wrap in the 1280–1535 laptop band. (critique P1) */}
-        <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
-          {([
-            { v: "core" as const, label: "Source", t: "Source order: workflow register, then sections as the module produced them" },
-            { v: "base" as const, label: "Report", t: "Report order: conclusion first, steps in up to 4 stretched columns" },
-            { v: "dense" as const, label: "Dense", t: "Report order, packed: conclusion first, steps in tight newspaper columns" },
-          ]).map((o) => (
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
+          {issuerErr && !isReference ? (
             <button
-              key={o.v}
-              type="button"
-              aria-pressed={layout === o.v}
-              onClick={() => pickLayout(o.v)}
-              title={o.t}
-              className={
-                "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-                (layout === o.v
-                  ? "bg-caos-elevated text-caos-text border-caos-accent"
-                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-              }
+              onClick={() => setIssuerAttempt((a) => a + 1)}
+              className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring whitespace-nowrap"
+              title="Issuer lookup failed — retry"
             >
-              {o.label}
+              RETRY
             </button>
-          ))}
-        </div>
-        {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
-        <span className="hidden 2xl:flex items-center shrink-0"><SimControls run={run} /></span>
-      </div>
-
+          ) : null}
+          {caveatKind === "reference" ? (
+            <span
+              className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
+              title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
+            >
+              SEEDED RUN #2641 · {run.completed}/{run.total} modules
+            </span>
+          ) : caveatKind === "loading" ? (
+            <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">checking for live run…</span>
+          ) : caveatKind === "error" ? (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }} role="note" title={`Could not load ${code}'s live run — showing the last known state, not a confirmed no-run.`}>
+              could not load live run
+            </span>
+          ) : caveatKind === "live" ? (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} title="Live engine modules reflect this issuer; modules or rails without issuer-specific output show an explicit no-output state.">
+              live engine output · missing panes show no output
+            </span>
+          ) : (
+            <span className="tabular text-caos-xs whitespace-nowrap" style={{ color: "var(--caos-warning)" }} role="note" title={`No completed run for ${code}. Seeded ATLF output is suppressed for issuer-scoped views. Run a new simulation in pipeline or model builder to populate.`}>
+              no run for {code} · run analysis to populate
+            </span>
+          )}
+        </>
+      }
+      primaryAction={
+        <button
+          onClick={() => setChatOpen(!chatOpen)}
+          title="Ask follow-up questions about this issuer"
+          className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+        >
+          ASK {code}
+        </button>
+      }
+      contextualControls={
+        <>
+          <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
+            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
+            {([
+              { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+              { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
+              { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
+            ]).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                aria-pressed={layout === o.v}
+                onClick={() => pickLayout(o.v)}
+                title={o.t}
+                className={
+                  "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
+                  (layout === o.v
+                    ? "bg-caos-elevated text-caos-text border-caos-accent"
+                    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+                }
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
+          <SimControls run={run} />
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal
@@ -378,11 +431,17 @@ function DeepDive() {
                   <span className="flex items-center gap-0.5">
                     {g.mods.map((id) => {
                       const st = modState(id);
-                      return isCleared(st)
-                        ? <Dot key={id} sev={st} pulse={st === "running"} />
-                        // Padlock = sim-gated (reference replay); a real issuer's
-                        // missing module is hollow-idle "no output", not locked.
-                        : <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
+                      if (isCleared(st)) {
+                        // glyph: cleared modules can be pass OR warning — shape carries the
+                        // difference for colorblind analysts (the strip has no text per module)
+                        return <Dot key={id} sev={st} pulse={st === "running"} glyph />;
+                      }
+                      // A failed (Blocked) module is a ✕ ring in critical — never a
+                      // hollow-idle dot, or the strip would hide that it broke.
+                      if (st === "failed") return <Dot key={id} sev="blocked" glyph />;
+                      // Padlock = sim-gated (reference replay); a real issuer's
+                      // missing module is hollow-idle "no output", not locked.
+                      return <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
                     })}
                   </span>
                 ) : null}
@@ -413,8 +472,10 @@ function DeepDive() {
                         {/* Recess a pending module by dimming only the GLYPH, not
                             the whole chip — the label stays at full muted contrast
                             (AA), state is carried by the padlock/idle shape.
-                            (critique: locked-chip labels failed contrast) */}
-                        {!ok ? <span className="opacity-60"><StatusGlyph kind={isReference ? "locked" : "idle"} /></span> : <Dot sev={st} pulse={st === "running"} />}
+                            (critique: locked-chip labels failed contrast) A failed
+                            (Blocked) module shows a full-contrast ✕ ring in critical
+                            — the one non-cleared state that must not be dimmed away. */}
+                        {ok ? <Dot sev={st} pulse={st === "running"} /> : st === "failed" ? <Dot sev="blocked" glyph /> : <span className="opacity-60"><StatusGlyph kind={isReference ? "locked" : "idle"} /></span>}
                         <span className="hidden 2xl:inline">{name}</span>
                         <span className="2xl:hidden">{short}</span>
                       </button>
@@ -478,7 +539,11 @@ function DeepDive() {
               {/* Per-MODULE provenance, not run-scoped: light ● LIVE only when THIS
                   tab's data came from the live run. Missing issuer-scoped modules
                   show no-output, never a seeded ATLF table. (#5) */}
-              {moduleIsLive ? (
+              {moduleFailed ? (
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }} title="This module hit its failure gate (qa_status Blocked) and did not complete — no usable output.">
+                  ✕ FAILED
+                </span>
+              ) : moduleIsLive ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">
                   ● LIVE
                 </span>
@@ -487,17 +552,20 @@ function DeepDive() {
                   ◦ NO OUTPUT
                 </span>
               ) : null}
-              <button
-                onClick={() => setChatOpen(!chatOpen)}
-                title="Ask follow-up questions about this issuer"
-                className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-              >
-                ASK {code}
-              </button>
             </span>
           }
         >
-          {unlocked ? (
+          {moduleFailed ? (
+            // The module ran but hit its failure gate (Blocked) — show that plainly
+            // instead of an empty ModuleView, so a failed module is legible in the
+            // pane, not just the launcher strip. (identify failed modules)
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted text-center px-4">
+              <Dot sev="blocked" glyph />
+              <div className="tabular text-caos-xl" style={{ color: "var(--caos-critical)" }}>{tab} failed</div>
+              <div className="text-caos-md">this module hit its failure gate and produced no usable output</div>
+              <div className="text-caos-xs tabular">any downstream module that depends on {tab} is gated in turn</div>
+            </div>
+          ) : unlocked ? (
             // The bespoke debate/recovery/covenant tabs are the ATLF reference
             // *showcase*. For a real issuer with a live run for that module, render
             // its honest engine output via the generic ModuleView instead of the
@@ -533,7 +601,7 @@ function DeepDive() {
         <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
       </div>
 
-      {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
+      {evModal && reports ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).
@@ -547,7 +615,7 @@ function DeepDive() {
           issuerName={isReference ? undefined : issuerMeta?.name}
         />
       ) : null}
-    </div>
+    </ResponsiveShell>
     </EvidenceSyncProvider>
   );
 }

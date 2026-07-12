@@ -2,30 +2,42 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from database import (
-    Document, Issuer, MetricFact, ModuleOutput, QAFinding, Run, get_db,
+    Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
 )
+from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity
+from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
 
 router = APIRouter()
+
+# Authenticated write cap — issuer creation parses no documents but still spawns a
+# row, so bound it (duplicate-issuer spam / accidental double-submit). Reads stay
+# on their own generous page caps.
+_WRITE_MAX_PER_MINUTE = 30
 
 
 class IssuerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    ticker: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    sub_sector: Optional[str] = None
-    country: Optional[str] = None
+    # Bounds mirror the DB columns (String(32)/String(128), database.py): an
+    # unbounded field raises DataError → 500 on Postgres and silently persists
+    # oversized junk on SQLite (which ignores VARCHAR lengths).
+    ticker: Optional[str] = Field(default=None, max_length=32)
+    sector: Optional[str] = Field(default=None, max_length=128)
+    industry: Optional[str] = Field(default=None, max_length=128)
+    sub_sector: Optional[str] = Field(default=None, max_length=128)
+    country: Optional[str] = Field(default=None, max_length=128)
     figi: Optional[str] = Field(default=None, max_length=32)
     sponsor: Optional[str] = Field(default=None, max_length=255)
     # Agency ratings are no longer a create-time input — they're collected from
@@ -107,7 +119,7 @@ async def list_issuers(
     # since the UI lists the whole desk's coverage.
     limit: int = Query(500, ge=1, le=2000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     stmt = select(Issuer).order_by(Issuer.name)
@@ -123,7 +135,7 @@ async def list_issuers(
                 Issuer.figi.ilike(like),
             )
         )
-    stmt = stmt.limit(limit).offset(offset)
+    stmt = scope_issuers(stmt, caller).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -132,13 +144,30 @@ async def list_issuers(
 @router.post("/", response_model=IssuerResponse, status_code=201)
 async def create_issuer(
     body: IssuerCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    if not rate_limit.hit(
+        f"issuer-create:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(429, "Issuer-create rate limit reached — try again in a minute.")
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
-    # Attribution from the verified identity, never the request body (IssuerCreate
-    # carries no created_by field, so a spoofed body value is dropped). SEAM4-4.
+    name = (data.get("name") or "").strip()
+    # Dedup on a case-insensitive name so a double-click or two analysts adding the
+    # same issuer don't fork coverage into duplicate rows that then split
+    # runs/metric_facts. There is no DB uniqueness on Issuer.name yet, so this
+    # app-level check covers the realistic double-submit; a unique index on
+    # lower(name) is the durable follow-up for true concurrency.
+    existing = (await db.execute(
+        scope_issuers(select(Issuer).where(func.lower(Issuer.name) == name.lower()), caller)
+    )).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(409, "An issuer with that name already exists.")
+    # Stamp the creator's team so tenancy scoping applies to this issuer and
+    # everything derived from it (None when tenancy is off → shared/global). Attribution
+    # (created_by) comes from the verified identity, never the request body. SEAM4-4.
+    data["team_id"] = new_issuer_team(caller)
     issuer = Issuer(**data, created_by=caller.id)
     db.add(issuer)
     await db.flush()
@@ -149,12 +178,10 @@ async def create_issuer(
 @router.get("/{issuer_id}", response_model=IssuerResponse)
 async def get_issuer(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
     return issuer
 
 
@@ -164,9 +191,13 @@ async def list_issuer_documents(
     # Bounded page: a heavily-documented issuer's doc list grows unbounded. P4.
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    # Gate on the issuer's team (documents inherit it); no-op behavior change when
+    # tenancy is off (the guard only runs when enabled).
+    if tenancy_enabled():
+        require_issuer(caller, await db.get(Issuer, issuer_id))
     result = await db.execute(
         select(Document)
         .where(Document.issuer_id == issuer_id)
@@ -198,6 +229,16 @@ class RunBrief(BaseModel):
     completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # SQLite hands back naive datetimes; stored values are UTC. Serialize with
+        # an explicit offset, else `new Date()` client-side parses the UTC wall
+        # clock as LOCAL time and run dates shift by up to a day.
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
 
 
 class MetricFactOut(BaseModel):
@@ -282,6 +323,12 @@ def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
         "covenant_structure": cov.get("covenant_structure"),
         "covenant_headroom_turns": headroom.get("value"),
         "covenant_cushion_pct": headroom.get("ebitda_cushion_pct"),
+        # Covenant register (CP-4C extraction) — absent keys stay None.
+        "rp_basket_musd": cov.get("rp_basket_musd"),
+        "cross_default_musd": cov.get("cross_default_musd"),
+        "addback_cap_pct": cov.get("addback_cap_pct"),
+        "addback_utilization_pct": (cov.get("addback_audit") or {}).get("utilization_pct"),
+        "addback_breach": (cov.get("addback_audit") or {}).get("breach"),
         "revenue_growth_pct": earnings.get("revenue_growth_pct"),
         "ebitda_growth_pct": earnings.get("ebitda_growth_pct"),
         "margin_change_pp": earnings.get("margin_change_pp"),
@@ -358,12 +405,10 @@ def _strengths_weaknesses(  # noqa: C901
 @router.get("/{issuer_id}/profile", response_model=IssuerProfileResponse)
 async def get_issuer_profile(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
 
     # Recent runs newest-first (bounded — runs accumulate forever, P4). The first
     # is the latest run of any status; the first complete one backs signals/QA.
@@ -417,15 +462,20 @@ async def get_issuer_profile(
             "categories_missing": cp0.get("categories_missing"),
             "edgar_available": cp0.get("edgar_available"),
         })
-        for f in (await db.execute(
+        for qf in (await db.execute(
             select(QAFinding).where(QAFinding.run_id == latest_complete.id)
         )).scalars().all():
-            findings[f.severity] = findings.get(f.severity, 0) + 1
+            findings[qf.severity] = findings.get(qf.severity, 0) + 1
 
     # Headline ratios (run-preferred) feed the rule-based strengths/weaknesses read.
     headline_vals: Dict[str, float] = {}
+    best_fact_by_key: Dict[str, MetricFact] = {}
     for f in facts:
-        if f.headline and (f.metric_key not in headline_vals or f.provenance == "run"):
+        # Canonical collapse (engine.metrics.better_fact: run/fixture tier, then
+        # recency) — the old run-only rule let stale seed values shadow a fresh
+        # fixture fact on the profile while NL query ranked the fixture above.
+        if f.headline and better_fact(best_fact_by_key.get(f.metric_key), f):
+            best_fact_by_key[f.metric_key] = f
             headline_vals[f.metric_key] = f.value
     strengths, weaknesses = _strengths_weaknesses(signals, headline_vals)
 
@@ -489,11 +539,11 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
         sized = is_finite_number(amt)
         trips: Optional[bool] = None
         if thr is not None and sized:
-            trips = float(amt) >= thr
+            trips = float(amt) >= thr  # type: ignore[arg-type]  # guarded by is_finite_number on line above
         rows.append(CrossDefaultDomino(
             code=str(t["code"]),
             tranche=str(t.get("tranche") or t["code"]),
-            amount_musd=float(amt) if sized else None,
+            amount_musd=float(amt) if sized else None,  # type: ignore[arg-type]  # guarded by is_finite_number
             trips_cross_default=trips,
             pulls_in=[str(o["code"]) for o in clean if o is not t] if trips else [],
         ))
@@ -503,12 +553,10 @@ def _domino_map(tranches: List[Dict[str, Any]], threshold: Any) -> List[CrossDef
 @router.get("/{issuer_id}/cross-default", response_model=CrossDefaultMapResponse)
 async def get_cross_default_map(
     issuer_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     run = (await db.execute(
         select(Run).where(Run.issuer_id == issuer_id, Run.status == "complete")
@@ -540,3 +588,227 @@ async def get_cross_default_map(
         dominoes=_domino_map(tranches, thr),
         note=" ".join(notes) or None,
     )
+
+
+# ── Issuer Research Report (AI-synthesized credit summary) ───────────────────
+# A durable background job (mirrors ResearchJob + research_executor.py): POST
+# persists an IssuerResearchReport row and enqueues a background task; the client
+# polls GET. The report is a house artifact (not analyst-scoped) — any analyst
+# viewing the same issuer+run sees the same report. Cached per (issuer_id, run_id).
+
+_REPORT_MAX_PER_MINUTE = 3
+
+
+class ResearchReportBrief(BaseModel):
+    ai_mode: str = Field(
+        default="standard", pattern="^(max|standard|lite)$",
+    )
+
+
+class ResearchReportCreated(BaseModel):
+    id: str
+    status: str
+
+
+class ResearchReportOut(BaseModel):
+    id: str
+    issuer_id: str
+    run_id: str
+    status: str
+    payload: Optional[dict] = None
+    markdown: Optional[str] = None
+    validation: Optional[dict] = None
+    prompt_version: Optional[str] = None
+    tokens_used: int = 0
+    demo: bool = False
+    truncated: bool = False
+    progress: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    is_stale: bool = False
+
+    @field_validator("created_at", "completed_at", mode="after")
+    @classmethod
+    def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
+        # Same naive-UTC → aware conversion as RunBrief (SQLite drops tzinfo).
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v
+
+
+def _report_out(report: IssuerResearchReport, is_stale: bool = False) -> ResearchReportOut:
+    return ResearchReportOut(
+        id=report.id,
+        issuer_id=report.issuer_id,
+        run_id=report.run_id,
+        status=report.status,
+        payload=report.payload,
+        markdown=report.markdown,
+        validation=report.validation,
+        prompt_version=report.prompt_version,
+        tokens_used=report.tokens_used,
+        demo=report.demo,
+        truncated=report.truncated,
+        progress=report.progress,
+        error=report.error,
+        created_at=report.created_at,
+        completed_at=report.completed_at,
+        is_stale=is_stale,
+    )
+
+
+@router.post(
+    "/{issuer_id}/research-report",
+    response_model=ResearchReportCreated,
+    status_code=201,
+)
+async def create_research_report(
+    issuer_id: str,
+    brief: ResearchReportBrief = ResearchReportBrief(),
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects by type; default is dead code but keeps the optional-param shape consistent
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    # Must have a completed run
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+    if latest_complete is None:
+        raise HTTPException(
+            409,
+            "No completed run — run the pipeline first before generating a research report.",
+        )
+
+    if not rate_limit.hit(
+        f"research_report:{caller.id}",
+        max_attempts=_REPORT_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            429,
+            "Research report rate limit reached — try again in a minute.",
+        )
+
+    # Idempotent: if a report already exists for this issuer+run and is running
+    # or complete, return it instead of creating a duplicate. A failed report
+    # is ignored — the analyst can re-generate after a failure.
+    existing = (await db.execute(
+        select(IssuerResearchReport).where(
+            IssuerResearchReport.issuer_id == issuer_id,
+            IssuerResearchReport.run_id == latest_complete.id,
+            IssuerResearchReport.status.in_(("queued", "running", "complete")),
+        ).order_by(IssuerResearchReport.created_at.desc()).limit(1)
+    )).scalars().first()
+    if existing is not None:
+        return ResearchReportCreated(id=existing.id, status=existing.status)
+
+    # Created 'queued' (model default): the durable executor claims + executes it, so
+    # a redeploy re-claims rather than losing the synthesis. On SQLite the in-process
+    # executor picks it up via enqueue; on Postgres the QueueWorker loop does.
+    report = IssuerResearchReport(
+        issuer_id=issuer_id,
+        run_id=latest_complete.id,
+        analyst_id=caller.id,
+    )
+    db.add(report)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent requests can both pass the `existing` check-then-insert
+        # above before either commits; the loser hits uq_issuer_run_report. Return
+        # the winner's row instead of 500ing — same recovery shape as
+        # routes/models.py's SavedModel concurrent-first-save fix.
+        await db.rollback()
+        winner = (await db.execute(
+            select(IssuerResearchReport).where(
+                IssuerResearchReport.issuer_id == issuer_id,
+                IssuerResearchReport.run_id == latest_complete.id,
+            )
+        )).scalars().first()
+        if winner is None:  # pragma: no cover — constraint violated but no row found is impossible
+            raise
+        return ResearchReportCreated(id=winner.id, status=winner.status)
+
+    # Fire-and-forget: execution outlives the request.
+    request.app.state.research_report_executor.enqueue(report.id)
+    return ResearchReportCreated(id=report.id, status=report.status)
+
+
+@router.get(
+    "/{issuer_id}/research-report",
+    response_model=ResearchReportOut,
+)
+async def get_latest_research_report(
+    issuer_id: str,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Return the latest research report for this issuer, or 404 if none.
+    Sets is_stale when the report's run_id != latest complete run_id."""
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    # Latest complete run (for staleness check)
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+
+    # Latest report for this issuer (complete reports only — failed/running
+    # reports are not surfaced as the current house view).
+    report = (await db.execute(
+        select(IssuerResearchReport).where(
+            IssuerResearchReport.issuer_id == issuer_id,
+            IssuerResearchReport.status == "complete",
+        ).order_by(IssuerResearchReport.created_at.desc()).limit(1)
+    )).scalars().first()
+
+    if report is None:
+        raise HTTPException(404, "No research report — generate one first.")
+
+    is_stale = (
+        latest_complete is not None
+        and report.run_id != latest_complete.id
+    )
+    return _report_out(report, is_stale=is_stale)
+
+
+@router.get(
+    "/{issuer_id}/research-report/{report_id}",
+    response_model=ResearchReportOut,
+)
+async def get_research_report(
+    issuer_id: str,
+    report_id: str,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Poll a specific research report job by id."""
+    issuer = await db.get(Issuer, issuer_id)
+    if not issuer:
+        raise HTTPException(404, "Issuer not found")
+
+    report = await db.get(IssuerResearchReport, report_id)
+    if report is None or report.issuer_id != issuer_id:
+        raise HTTPException(404, "Research report not found.")
+
+    # Staleness check
+    latest_complete = (await db.execute(
+        select(Run).where(
+            Run.issuer_id == issuer_id, Run.status == "complete",
+        ).order_by(Run.created_at.desc()).limit(1)
+    )).scalars().first()
+    is_stale = (
+        latest_complete is not None
+        and report.run_id != latest_complete.id
+    )
+    return _report_out(report, is_stale=is_stale)

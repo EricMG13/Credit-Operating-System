@@ -183,11 +183,15 @@ export function G2Chart({
       else settleTimer = setTimeout(settle, 32);
     };
     // Defer loading g2 until a chart actually mounts; then start sizing.
+    // A failed dynamic import (network blip, CDN issue, chunk-load error
+    // after a deploy) must not become an unhandled rejection with the chart
+    // silently never rendering — route it through the same dead-frame `fail`
+    // as a failed build/render.
     import("@antv/g2").then((m) => {
       if (dead) return;
       ChartCtor = m.Chart;
       settleTimer = setTimeout(settle, 0);
-    });
+    }).catch(fail);
 
     return () => {
       dead = true;

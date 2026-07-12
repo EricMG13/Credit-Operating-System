@@ -7,8 +7,9 @@ repository. This is the single canonical source: `AGENTS.md` is a symlink to
 ## Project
 
 **CAOS — Credit Agent OS**: an institutional leveraged-finance credit analysis
-platform. A five-concept Next.js 15 analyst UI (Command Center, Pipeline,
-Deep-Dive, Model Builder, Report Studio) backed by a FastAPI service, deployed
+platform. A six-concept Next.js 15 analyst UI (Command Center, Pipeline,
+Deep-Dive, Model Builder, Report Studio, Monitor — plus the global Ask ⌘K
+launcher) backed by a FastAPI service, deployed
 as a self-hosted Docker stack (Caddy → oauth2-proxy → FastAPI → Postgres). The analytical methodology is the 27-module
 "Modular OS" prompt corpus under `Modular OS/`. The app lives under `caos/`
 (`frontend/` Next.js, `server/` FastAPI). See [caos/README.md](caos/README.md)
@@ -116,27 +117,33 @@ visible focus ring.
 - **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
 - **FastAPI Server Environment**: Execute the server suite and check scripts using the designated virtual environment path: `/Users/ericguei/Claude/Projects/Credit Operating System/caos/server/.venv/bin/python` or `.venv311`. Do not downgrade the FastAPI `0.138` package pin.
 
-## Task Observer (skill improvement)
+## Skill improvement observations
 
-At the start of any task-oriented session — any interaction where you will
-use tools and produce deliverables — invoke the task-observer skill before
-beginning work. This ensures skill improvement opportunities are captured
-throughout the session.
+Capture skill-improvement opportunities as you work: when a skill's guidance is
+wrong, incomplete, or could be sharper for CAOS, record it in the observation
+log (`skill-observations/observation-log.md`) as an OPEN entry tagged to that
+skill.
 
-When loading any skill, check the observation log for OPEN observations
-tagged to that skill (`skill-observations/observation-log.md`). Apply their
-insights to the current work, even if the skill file hasn't been updated yet.
-This enables immediate application of observations before they're permanently
-integrated during the weekly review.
+When loading any skill, check that log for OPEN observations tagged to it.
+Apply their insights to the current work, even if the skill file hasn't been
+updated yet. This enables immediate application of observations before they're
+permanently integrated during a later review pass.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Credit-Operating-System** (10837 symbols, 19186 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project can be indexed by GitNexus as **Credit-Operating-System**. The
+"Always Do" rules below apply **only when the GitNexus MCP tools are actually
+available in your session AND a `.gitnexus/` index exists in the tree** — the
+index is not committed, so most sessions have neither. In that (common) case,
+do NOT skip the underlying diligence: trace callers/blast-radius with exhaustive
+`grep`/read before editing a shared symbol, and review your diff before
+committing. (An earlier version of this section demanded GitNexus
+unconditionally, which no session could satisfy — audit 2026-07-10 META-1.)
 
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+> Index stale/missing? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
-## Always Do
+## Always Do (when GitNexus is available — see above)
 
 - **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
 - **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.

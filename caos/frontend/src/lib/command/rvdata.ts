@@ -6,6 +6,37 @@ export type Liquidity = "High" | "Normal" | "OK" | "Concerning" | "Impaired";
 export type RVSignal = "Cheap" | "Wide" | "Inline" | "Tight" | "Rich" | "N/A";
 
 export const DELTA_COLS = ["Δ 1M", "Δ YTD"];
+export const RV_AS_OF = "2026-07-06";
+export const RV_FILE_LABEL = "Jun 29 08:39";
+export const RV_SOURCE = "market-data.json";
+export const RV_THRESHOLDS = {
+  cheap: 150,
+  wide: 50,
+  tight: -50,
+  rich: -150,
+} as const;
+
+// Source feed carries Bloomberg's raw "#N/A N/A" per-agency placeholder
+// (composite ratings like "#N/A N/A / BB-" when one agency has no rating).
+// Swap it for the app's own "—" convention at display time rather than
+// leaking the source system's error token.
+export const cleanRating = (rating: string): string => rating.replace(/#N\/A(\s+N\/A)?/g, "—");
+
+export type RVStaleness = {
+  label: "CURRENT (0–90d)" | "POTENTIALLY STALE (91–180d)" | "STALE (>180d)" | "UNKNOWN";
+  tone: "success" | "warning" | "critical";
+};
+
+export function rvStaleness(asOf = RV_AS_OF, now = new Date()): RVStaleness {
+  const asOfTime = Date.parse(`${asOf}T00:00:00Z`);
+  if (Number.isNaN(asOfTime)) return { label: "UNKNOWN", tone: "warning" };
+
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const ageDays = Math.max(0, Math.floor((todayUtc - asOfTime) / (1000 * 60 * 60 * 24)));
+  if (ageDays <= 90) return { label: "CURRENT (0–90d)", tone: "success" };
+  if (ageDays <= 180) return { label: "POTENTIALLY STALE (91–180d)", tone: "warning" };
+  return { label: "STALE (>180d)", tone: "critical" };
+}
 
 export interface BenchmarkProvenance {
   asOf: string;
@@ -26,6 +57,15 @@ export interface PortfolioRV {
   held: boolean;
   headroomPct?: number;
 }
+
+export type RVHolding = { held: boolean; headroomPct?: number };
+export type RVHoldingInput = {
+  id?: string | null;
+  figi?: string | null;
+  name?: string | null;
+  borrower?: string | null;
+  headroomPct?: number;
+};
 
 export interface RVRow {
   company: string;
@@ -53,6 +93,15 @@ export interface RVRow {
   ytm: number;
   dm: number;
 }
+
+export type DerivedPosture = {
+  label: "CONSTRUCTIVE" | "NEUTRAL" | "CAUTIOUS";
+  cheapShare: number;
+  richShare: number;
+  cheapCount: number;
+  richCount: number;
+  n: number;
+};
 
 interface MarketDataInput {
   company: string;
@@ -112,12 +161,30 @@ const SP_TO_MOODYS: Record<string, string> = {
 
 const isNum = (x: number | null | undefined): x is number => typeof x === "number" && Number.isFinite(x);
 const mean = (xs: number[]): number | null => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
-const median = (xs: number[]): number | null => {
+export const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const sorted = [...xs].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+
+export function derivePosture(rowsList: RVRow[]): DerivedPosture {
+  const benchmarked = rowsList.filter((r) => isNum(r.rvBp));
+  const n = benchmarked.length;
+  if (!n) {
+    return { label: "NEUTRAL", cheapShare: 0, richShare: 0, cheapCount: 0, richCount: 0, n: 0 };
+  }
+
+  const cheapCount = benchmarked.filter((r) => (r.rvBp as number) > 0).length;
+  const richCount = benchmarked.filter((r) => (r.rvBp as number) < 0).length;
+  const cheapShare = cheapCount / n;
+  const richShare = richCount / n;
+  // Cheap-share minus rich-share is the desk posture rule; 10pts keeps one outlier
+  // from flipping the headline while making the "derived" label auditable.
+  const spreadPts = (cheapShare - richShare) * 100;
+  const label = spreadPts >= 10 ? "CONSTRUCTIVE" : spreadPts <= -10 ? "CAUTIOUS" : "NEUTRAL";
+  return { label, cheapShare, richShare, cheapCount, richCount, n };
+}
 
 const ratingBucket = (rating: string): string => {
   for (const side of rating.split(/\s+\/\s+/).map((s) => s.trim())) {
@@ -143,10 +210,10 @@ const liquidity = (bid: number, ask: number, ytm: number, dm: number): Liquidity
 
 const rvSignal = (rvBp: number | null): RVSignal => {
   if (rvBp === null) return "N/A";
-  if (rvBp >= 150) return "Cheap";
-  if (rvBp >= 50) return "Wide";
-  if (rvBp <= -150) return "Rich";
-  if (rvBp <= -50) return "Tight";
+  if (rvBp >= RV_THRESHOLDS.cheap) return "Cheap";
+  if (rvBp >= RV_THRESHOLDS.wide) return "Wide";
+  if (rvBp <= RV_THRESHOLDS.rich) return "Rich";
+  if (rvBp <= RV_THRESHOLDS.tight) return "Tight";
   return "Inline";
 };
 
@@ -165,18 +232,35 @@ const parseMaturityYears = (maturityStr: string | null | undefined): number | nu
     const m = maturityStr.match(/'?(\d{2})/);
     if (m) {
       const year = 2000 + parseInt(m[1]);
-      const currentYear = new Date().getFullYear();
+      const currentYear = parseInt(RV_AS_OF.slice(0, 4), 10);
       return Math.max(0.1, year - currentYear);
     }
     return null;
   }
-  const diffMs = d.getTime() - new Date("2026-07-06").getTime();
+  const diffMs = d.getTime() - Date.parse(`${RV_AS_OF}T00:00:00Z`);
   const years = diffMs / (1000 * 60 * 60 * 24 * 365.25);
   return Math.max(0.1, years);
 };
 
-export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?: number }>): RVRow[] {
-  const holdingsMap = holdings || new Map<string, { held: boolean; headroomPct?: number }>();
+const addHoldingKey = (map: Map<string, RVHolding>, key: string | null | undefined, holding: RVHolding) => {
+  const normalized = key?.trim();
+  if (normalized) map.set(normalized.toUpperCase(), holding);
+};
+
+export function buildRVHoldingsMap(items: RVHoldingInput[]): Map<string, RVHolding> {
+  const map = new Map<string, RVHolding>();
+  for (const item of items) {
+    const holding: RVHolding = item.headroomPct === undefined ? { held: true } : { held: true, headroomPct: item.headroomPct };
+    addHoldingKey(map, item.figi, holding);
+    addHoldingKey(map, item.id, holding);
+    addHoldingKey(map, item.name, holding);
+    addHoldingKey(map, item.borrower, holding);
+  }
+  return map;
+}
+
+export function buildRVRows(holdings?: Map<string, RVHolding>): RVRow[] {
+  const holdingsMap = holdings || new Map<string, RVHolding>();
   const dmBenchmarks = new Map<string, { median: number | null; n: number }>();
 
   for (const r of validRows) {
@@ -196,13 +280,14 @@ export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?
     const isCredible = credibleDm(r.mid3yDm);
     const rvBp = benchmark === null || !isCredible ? null : r.mid3yDm! - benchmark;
     const figi = r.bloombergId.toUpperCase();
+    const peerN = benchInfo?.n ?? 0;
 
     const rvProvenance: BenchmarkProvenance | null = rvBp !== null ? {
-      asOf: "2026-07-06",
+      asOf: RV_AS_OF,
       peerSet: "sector×bucket",
-      n: benchInfo?.n ?? 0,
-      source: "market-data.json",
-      credible: isCredible,
+      n: peerN,
+      source: RV_SOURCE,
+      credible: isCredible && peerN >= 2,
     } : null;
 
     const instrumentRv: InstrumentRV = {
@@ -212,7 +297,7 @@ export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?
       maturity: r.maturity || null,
     };
 
-    const holding = holdingsMap.get(figi) || holdingsMap.get(r.company) || { held: false };
+    const holding = holdingsMap.get(figi) || holdingsMap.get(r.company.toUpperCase()) || { held: false };
     const portfolioRv: PortfolioRV = {
       held: holding.held,
       headroomPct: holding.headroomPct,
@@ -229,7 +314,7 @@ export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?
       loanType: r.loanType,
       figi,
       rank: r.ranking,
-      rating: r.ratings,
+      rating: cleanRating(r.ratings),
       bucket,
       size: r.size!,
       margin: r.margin!,
@@ -252,8 +337,12 @@ export function buildRVRows(holdings?: Map<string, { held: boolean; headroomPct?
 
 export function invalidationTrigger(rvBp: number | null, n: number): string {
   if (rvBp === null) return "—";
-  if (rvBp >= 150) return "rvBp compresses to < +50bp or peer-set n < 4";
-  if (rvBp >= 50) return "rvBp compresses to < +10bp";
+  if (rvBp >= RV_THRESHOLDS.cheap) {
+    return n < 4
+      ? "rvBp compresses to < +50bp and peer-set n improves to ≥4"
+      : "rvBp compresses to < +50bp";
+  }
+  if (rvBp >= RV_THRESHOLDS.wide) return "rvBp compresses to < +10bp";
   return "baseline change";
 }
 
@@ -269,7 +358,7 @@ export function crossSectorMatrix(rowsList: RVRow[]): Record<string, Record<stri
     matrix[sector] = {};
     for (const bucket of BUCKETS) {
       const cohort = rowsList.filter((r) => r.sector === sector && r.bucket === bucket && r.rvBp !== null);
-      const medianVal = cohort.length > 0 ? median(cohort.map((r) => r.rvBp as number)) : null;
+      const medianVal = cohort.length < 2 ? null : median(cohort.map((r) => r.rvBp as number));
       matrix[sector][bucket] = {
         median: medianVal,
         n: cohort.length,
@@ -287,10 +376,10 @@ export interface Sector {
   rows: RVRow[];
 }
 
-export const RV_SECTORS: Sector[] = [...new Set(rows.map((r) => r.sector))].map((name) => ({
+export const buildRVSectors = (rowsList: RVRow[]): Sector[] => [...new Set(rowsList.map((r) => r.sector))].map((name) => ({
   name,
   color: SECTOR_COLORS[name] ?? "#a1a1b5",
-  rows: rows.filter((r) => r.sector === name),
+  rows: rowsList.filter((r) => r.sector === name),
 }));
 
 export interface IndexStat {
@@ -303,7 +392,7 @@ export interface IndexStat {
   dm: number;
 }
 
-export const INDEX_STATS: IndexStat[] = RV_SECTORS.map((sector) => {
+export const buildIndexStats = (sectors: Sector[]): IndexStat[] => sectors.map((sector) => {
   const mids = sector.rows.map((r) => (r.bid + r.ask) / 2);
   return {
     name: sector.name,
@@ -315,6 +404,9 @@ export const INDEX_STATS: IndexStat[] = RV_SECTORS.map((sector) => {
     dm: mean(sector.rows.map((r) => r.dm)) ?? 0,
   };
 });
+
+export const RV_SECTORS: Sector[] = buildRVSectors(rows);
+export const INDEX_STATS: IndexStat[] = buildIndexStats(RV_SECTORS);
 
 export interface RatingAvg {
   bucket: string;

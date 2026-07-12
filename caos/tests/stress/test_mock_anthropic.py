@@ -34,3 +34,21 @@ def test_stream_returns_sse_events():
     assert r.status_code == 200
     assert "text/event-stream" in r.headers["content-type"]
     assert "message_start" in r.text and "message_stop" in r.text
+
+
+def test_chat_completions_ok_returns_openai_shape():
+    os.environ["MOCK_MODE"] = "ok"
+    r = TestClient(m.app).post("/chat/completions", json={"model": "x", "messages": []})
+    assert r.status_code == 200
+    b = r.json()
+    assert b["choices"][0]["message"]["content"]
+    assert b["choices"][0]["finish_reason"] == "stop"
+
+
+def test_chat_completions_429_mode_returns_429():
+    os.environ["MOCK_MODE"] = "429"
+    try:
+        r = TestClient(m.app).post("/chat/completions", json={"messages": []})
+        assert r.status_code == 429
+    finally:
+        os.environ["MOCK_MODE"] = "ok"

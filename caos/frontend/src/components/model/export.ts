@@ -10,12 +10,7 @@ import type { Model } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
 import { ROWS } from "./rows";
 import { GROUPS_META } from "./model-format";
-
-function csvCell(v: string | number | null | undefined): string {
-  if (v == null) return "";
-  const s = String(v);
-  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
+import { csvCell, downloadCsv } from "@/lib/csv";
 
 export function exportModel(
   model: Model,
@@ -64,11 +59,5 @@ export function exportModel(
     });
   }
 
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = meta.filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCsv(meta.filename, lines.join("\n"));
 }

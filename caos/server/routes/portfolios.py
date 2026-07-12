@@ -6,6 +6,16 @@ positions (engine/portfolio.py) — nothing derived is persisted, so the holding
 are always the single source of truth. Ingest also soft-links each position to a
 registered issuer and refreshes that issuer's agency rating (shared with the
 Phase-1 ratings collector).
+
+Authorization — single-team model, by design (matches routes/runs.py). Every
+authenticated analyst can read and write every portfolio; the handlers below take
+``caller`` (rate-limiting, attribution via ``created_by``) but deliberately do
+NOT filter by ``caller.id`` — a one-coverage-team fit, not an oversight. If the
+trust model ever widens to multiple teams/tenants, per-caller authorization MUST
+be added here (scope every ``portfolio_id`` lookup on ``created_by``). Until then
+it is left unbuilt rather than guessed; the portfolios IDOR test in
+test_portfolios.py pins the current cross-analyst behaviour so a change to it is
+a conscious decision.
 """
 
 from __future__ import annotations
@@ -91,7 +101,7 @@ async def _constraints(db: AsyncSession, portfolio_id: str) -> List[Dict[str, An
 @router.get("", response_model=List[PortfolioSummary], include_in_schema=False)
 @router.get("/", response_model=List[PortfolioSummary])
 async def list_portfolios(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     rows = (await db.execute(select(Portfolio).order_by(Portfolio.name).limit(200))).scalars().all()
@@ -162,7 +172,7 @@ async def list_portfolios(
 @router.get("/{portfolio_id}", response_model=PortfolioDetail)
 async def get_portfolio(
     portfolio_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     prt = await db.get(Portfolio, portfolio_id)
@@ -239,7 +249,7 @@ async def create_portfolio(
     holdings: UploadFile = File(...),
     constraints: Optional[UploadFile] = File(None),
     mandate: Optional[UploadFile] = File(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _rate_guard(caller)
@@ -282,7 +292,7 @@ async def create_portfolio(
 async def update_holdings(
     portfolio_id: str,
     holdings: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _rate_guard(caller)

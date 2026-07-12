@@ -19,9 +19,12 @@ Fault isolation: the endpoint always returns instantly (the persisted brief, or
 deterministic highlights when there is no brief yet); regeneration is a
 background single-flight task, and any failure leaves the previous brief served.
 Keyless deploys never call the model — `available()` is False and the client
-hides the panel. Spend is bounded to ≤1 call/24h/book: regeneration needs BOTH a
-changed data fingerprint AND a >24h-old brief (or an explicit force), so a
-run-burst day cannot multiply cost.
+hides the panel. Spend is bounded to ≤1 call/24h per scope: regeneration needs
+BOTH a changed data fingerprint AND a >24h-old brief (or an explicit force), so
+a run-burst day cannot multiply cost. A "scope" is the book (the shared
+book-level brief, ``analyst_id NULL``) or one analyst's watchlist (a per-analyst
+brief, Phase-2 personalization) — an analyst only gets their own brief once they
+curate a watchlist; an empty watchlist falls back to the book-level brief.
 """
 
 from __future__ import annotations
@@ -32,13 +35,14 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import (
     AsyncSessionLocal,
+    AnalystWatchlist,
     Document,
     Issuer,
     MetricFact,
@@ -47,10 +51,13 @@ from database import (
     QueryInsight,
     Run,
     aware_utc,
+    LineageEdge,
 )
+
 from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
+from engine.metrics import headline_fact_predicates
 
 logger = logging.getLogger("caos")
 
@@ -96,8 +103,11 @@ class PackEntry:
     chunk_id: Optional[str] = None
 
 
-async def _delta_entries(db: AsyncSession) -> List[PackEntry]:
-    """Run-over-run KPI moves: latest vs prior complete-run headline value."""
+async def _delta_entries(db: AsyncSession, issuer_ids: Optional[Sequence[str]] = None) -> List[PackEntry]:
+    """Run-over-run KPI moves: latest vs prior complete-run headline value.
+
+    When ``issuer_ids`` is given (per-analyst watchlist scope), only those
+    issuers' deltas are read — the personalized signal. ``None`` = whole book."""
     rows = (await db.execute(
         select(
             MetricFact.issuer_id, MetricFact.metric_key, MetricFact.value, MetricFact.unit,
@@ -106,10 +116,12 @@ async def _delta_entries(db: AsyncSession) -> List[PackEntry]:
         .join(Run, Run.id == MetricFact.run_id)
         .join(Issuer, Issuer.id == MetricFact.issuer_id)
         .where(
-            MetricFact.headline.is_(True),
-            MetricFact.metric_key.in_(list(_DELTAS)),
+            # Adds ``qa_status != "Blocked"`` (via the shared predicate) that this lane
+            # omitted — defense-in-depth behind the runner's Blocked-CP-1 write-skip.
+            *headline_fact_predicates(_DELTAS),
             MetricFact.provenance == "run",
             Run.status == "complete",
+            *([] if issuer_ids is None else [MetricFact.issuer_id.in_(list(issuer_ids))]),
         )
         .order_by(MetricFact.issuer_id, MetricFact.metric_key, Run.created_at.desc())
         .limit(_SCAN_CAP)
@@ -145,12 +157,15 @@ async def _delta_entries(db: AsyncSession) -> List[PackEntry]:
     return entries[:_SCAN_CAP]
 
 
-async def _finding_entries(db: AsyncSession) -> List[PackEntry]:
+async def _finding_entries(db: AsyncSession, issuer_ids: Optional[Sequence[str]] = None) -> List[PackEntry]:
     rows = (await db.execute(
         select(QAFinding, Issuer.name)
         .join(Run, Run.id == QAFinding.run_id)
         .join(Issuer, Issuer.id == Run.issuer_id)
-        .where(Run.status == "complete")
+        .where(
+            Run.status == "complete",
+            *([] if issuer_ids is None else [Run.issuer_id.in_(list(issuer_ids))]),
+        )
         .order_by(Run.created_at.desc())
         .limit(_SCAN_CAP)
     )).all()
@@ -206,13 +221,28 @@ async def _walk_enabled(db: AsyncSession, cap_id: str) -> bool:
     return False
 
 
-async def build_pack(db: AsyncSession) -> List[PackEntry]:
+async def build_pack(db: AsyncSession, issuer_ids: Optional[Sequence[str]] = None) -> List[PackEntry]:
     """The deterministic evidence pack — every entry carries a stable id, the
-    numbers a citing card may state, and a click-through (chunk or walk)."""
-    deltas = await _delta_entries(db)
-    findings = await _finding_entries(db)
+    numbers a citing card may state, and a click-through (chunk or walk).
+
+    When ``issuer_ids`` is given, the delta + finding entries are scoped to that
+    set (per-analyst watchlist); the coverage/context entries stay book-level —
+    an analyst watching 3 issuers still sees the whole-book coverage counts."""
+    deltas = await _delta_entries(db, issuer_ids)
+    findings = await _finding_entries(db, issuer_ids)
     context = await _context_entries(db)
     return deltas + findings + context
+
+
+async def watchlist_issuer_ids(db: AsyncSession, analyst_id: str) -> List[str]:
+    """The sorted issuer ids on an analyst's watchlist. Empty list = no
+    watchlist → the caller falls back to the book-level brief."""
+    rows = (await db.execute(
+        select(AnalystWatchlist.issuer_id)
+        .where(AnalystWatchlist.analyst_id == analyst_id)
+        .order_by(AnalystWatchlist.added_at)
+    )).scalars().all()
+    return sorted(rows)
 
 
 async def fingerprint(db: AsyncSession) -> str:
@@ -233,6 +263,76 @@ async def fingerprint(db: AsyncSession) -> str:
         "latest": latest or "",
     }
     return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+
+
+async def fingerprint_analyst(db: AsyncSession, analyst_id: str, issuer_ids: Sequence[str]) -> str:
+    """Per-analyst fingerprint: hashes the sorted watchlist issuer_ids plus each
+    watched issuer's latest complete-run id. Changes when the analyst adds/removes
+    a watched issuer OR when any watched issuer gets a new complete run — so the
+    brief regenerates only on a real per-analyst data change, not every book edit
+    (the spend bound that justifies per-analyst scoping)."""
+    latest_runs: List[str] = []
+    if issuer_ids:
+        rows = (await db.execute(
+            select(Run.issuer_id, Run.id)
+            .where(Run.issuer_id.in_(list(issuer_ids)), Run.status == "complete")
+            .order_by(Run.issuer_id, Run.created_at.desc())
+        )).all()
+        seen: set = set()
+        for iid, rid in rows:
+            if iid in seen:
+                continue
+            seen.add(iid)
+            latest_runs.append(f"{iid}:{rid}")
+    basis = {"analyst_id": analyst_id, "watchlist": sorted(issuer_ids), "latest_runs": latest_runs}
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+
+
+async def fingerprint_issuer(db: AsyncSession, issuer_id: str) -> str:
+    """Merkle fingerprint for a single issuer.
+    Calculates a hash based on the issuer's documents, runs, findings, and accepted links.
+    """
+    async def count(stmt) -> int:
+        return int((await db.execute(stmt)).scalar() or 0)
+
+    latest_run = (await db.execute(
+        select(Run.id)
+        .where(Run.issuer_id == issuer_id, Run.status == "complete")
+        .order_by(Run.created_at.desc())
+        .limit(1)
+    )).scalar()
+
+    doc_rows = (await db.execute(
+        select(Document.id, Document.storage_key)
+        .where(Document.issuer_id == issuer_id)
+        .order_by(Document.id)
+    )).all()
+    docs_info = [{"id": r[0], "key": r[1]} for r in doc_rows]
+
+    findings_count = await count(
+        select(func.count())
+        .select_from(QAFinding)
+        .join(Run, Run.id == QAFinding.run_id)
+        .where(Run.issuer_id == issuer_id)
+    )
+
+    links_count = await count(
+        select(func.count())
+        .select_from(QueryAcceptedLink)
+        .where((QueryAcceptedLink.issuer_a == issuer_id) | (QueryAcceptedLink.issuer_b == issuer_id))
+    )
+
+    basis = {
+        "issuer_id": issuer_id,
+        "latest_run": latest_run or "",
+        "docs": docs_info,
+        "findings_count": findings_count,
+        "links_count": links_count,
+    }
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+
+
+
 
 
 # ── Generation (LLM) + validator ─────────────────────────────────────────────
@@ -346,11 +446,37 @@ async def _generate(db: AsyncSession, pack: List[PackEntry]) -> tuple[List[dict]
     return _deterministic_cards(pack), None, True
 
 
+async def _resolve_scope(db: AsyncSession, analyst_id: Optional[str]) -> tuple[str, Optional[str], List[str], str]:
+    """Resolve the brief scope for one analyst.
+
+    Returns ``(scope_key, persist_analyst_id, issuer_ids, fingerprint)``:
+    - non-empty watchlist → per-analyst brief: scope_key = the analyst id,
+      persist_analyst_id = the analyst id, scoped pack + ``fingerprint_analyst``.
+    - empty/absent watchlist (or no caller) → book-level brief: scope_key =
+      ``__book__``, persist_analyst_id = None, whole-book pack + ``fingerprint``.
+
+    The scope_key is the single-flight key (per-analyst regens don't serialize,
+    duplicate book-level regens collapse); persist_analyst_id is the cache column
+    value (NULL = book-level, served to every no-watchlist analyst)."""
+    if analyst_id:
+        issuer_ids = await watchlist_issuer_ids(db, analyst_id)
+        if issuer_ids:
+            fp = await fingerprint_analyst(db, analyst_id, issuer_ids)
+            return analyst_id, analyst_id, issuer_ids, fp
+    # No caller, or no watchlist → book-level.
+    return "__book__", None, [], await fingerprint(db)
+
+
 async def _regenerate(db: AsyncSession, analyst_id: Optional[str]) -> dict:
-    """Build → generate → validate → persist one brief. Returns its payload."""
-    pack = await build_pack(db)
-    fp = await fingerprint(db)
+    """Build → generate → validate → persist one brief. Returns its payload.
+
+    The scope is resolved from the analyst's watchlist (per-analyst when non-
+    empty, else book-level with ``analyst_id=NULL``) so a no-watchlist analyst
+    shares the single book-level brief row rather than each getting their own."""
+    _scope_key, persist_analyst_id, issuer_ids, fp = await _resolve_scope(db, analyst_id)
+    pack = await build_pack(db, issuer_ids or None)
     model: Optional[str] = None
+    payload: Dict[str, Any]
     if not pack:
         payload = {"cards": [], "degraded": True,
                    "generated_reason": "No coverage data yet.", "data_fingerprint": fp}
@@ -361,8 +487,20 @@ async def _regenerate(db: AsyncSession, analyst_id: Optional[str]) -> dict:
             "generated_reason": ("Deterministic highlights — the model lane returned "
                                  "nothing groundable." if degraded else "AI desk brief."),
         }
-    row = QueryInsight(data_fingerprint=fp, model=model, payload=payload, analyst_id=analyst_id)
+    row = QueryInsight(data_fingerprint=fp, model=model, payload=payload, analyst_id=persist_analyst_id)
     db.add(row)
+    await db.flush()
+    evidence_ids = []
+    for card in payload.get("cards", []):
+        evidence_ids.extend(card.get("evidence_ids", []))
+    unique_ev_ids = sorted(list(set(evidence_ids)))
+    for eid in unique_ev_ids:
+        db.add(LineageEdge(
+            artifact_id=f"insight:{row.id}",
+            parent_id=f"evidence:{eid}",
+            transform="desk-brief",
+            transform_version="1.0"
+        ))
     await db.commit()
     await db.refresh(row)
     return _served(row, refreshing=False)
@@ -387,29 +525,29 @@ def _stale(row: QueryInsight) -> bool:
 
 
 # ── Single-flight background regeneration ────────────────────────────────────
-# ponytail: a module-level flag is the single-flight lock — correct under the
-# Phase-1 single-uvicorn-worker assumption (same as create-run's asyncio.Lock and
-# the rate limiter). Phase-2 multi-worker needs a DB advisory lock; recorded, not
-# built here.
-_regen_inflight = False
+# Keyed by scope (analyst_id for a per-analyst brief, ``__book__`` for the shared
+# book-level brief) so per-analyst regens run concurrently with each other and
+# with a book-level regen, while a duplicate request for the SAME scope collapses.
+# Correct under the Phase-1 single-uvicorn-worker assumption (same as create-run's
+# asyncio.Lock and the rate limiter). Phase-2 multi-worker needs a DB advisory
+# lock; recorded, not built here.
+_regen_inflight: set = set()
 _regen_tasks: set = set()
 
 
-def _ensure_regen(analyst_id: Optional[str]) -> None:
-    global _regen_inflight
-    if _regen_inflight:
+def _ensure_regen(scope_key: str, analyst_id: Optional[str]) -> None:
+    if scope_key in _regen_inflight:
         return
-    _regen_inflight = True  # set before await-free create_task → no interleave race
+    _regen_inflight.add(scope_key)  # set before await-free create_task → no interleave race
 
     async def _task() -> None:
-        global _regen_inflight
         try:
             async with AsyncSessionLocal() as db:
                 await _regenerate(db, analyst_id)
         except Exception as e:  # noqa: BLE001 — fault-isolated: keep the prior brief
-            logger.warning("query-insights regeneration failed: %s", e)
+            logger.warning("query-insights regeneration failed (%s): %s", scope_key, e)
         finally:
-            _regen_inflight = False
+            _regen_inflight.discard(scope_key)
 
     t = asyncio.create_task(_task())
     _regen_tasks.add(t)  # keep a ref so the loop can't GC the task mid-flight
@@ -418,28 +556,43 @@ def _ensure_regen(analyst_id: Optional[str]) -> None:
 
 async def insights(db: AsyncSession, *, force: bool = False, analyst_id: Optional[str] = None) -> dict:
     """The Desk Brief endpoint's core: return a brief instantly, regenerate in the
-    background when warranted. Never blocks on the LLM; never fabricates."""
-    fp = await fingerprint(db)
-    row = (await db.execute(
-        select(QueryInsight).order_by(QueryInsight.generated_at.desc()).limit(1)
-    )).scalars().first()
+    background when warranted. Never blocks on the LLM; never fabricates.
+
+    Scope is resolved from the analyst's watchlist: a non-empty watchlist serves
+    a per-analyst brief (cache row ``analyst_id == caller.id``); an empty/absent
+    watchlist falls back to the shared book-level brief (``analyst_id IS NULL``)."""
+    scope_key, _persist_id, issuer_ids, fp = await _resolve_scope(db, analyst_id)
+    # Cache lookup is scope-aware: a per-analyst analyst never sees a book-level
+    # row and vice versa — the two tiers don't shadow each other.
+    if analyst_id and issuer_ids:
+        row = (await db.execute(
+            select(QueryInsight)
+            .where(QueryInsight.analyst_id == analyst_id)
+            .order_by(QueryInsight.generated_at.desc()).limit(1)
+        )).scalars().first()
+    else:
+        row = (await db.execute(
+            select(QueryInsight)
+            .where(QueryInsight.analyst_id.is_(None))
+            .order_by(QueryInsight.generated_at.desc()).limit(1)
+        )).scalars().first()
 
     if row is not None and row.data_fingerprint == fp and not _stale(row) and not force:
         return _served(row, refreshing=False)
 
     # Regenerate only when the model lane exists AND (forced, or no brief, or the
-    # book changed AND the brief is >24h old) — the both-conditions rule bounds
-    # spend on a run-burst day (RT-2026-07-04-05).
+    # scope's data changed AND the brief is >24h old) — the both-conditions rule
+    # bounds spend on a run-burst day (RT-2026-07-04-05), now per-scope (RT-22).
     should_regen = available() and (
         force or row is None or (fp != row.data_fingerprint and _stale(row))
     )
     if should_regen:
-        _ensure_regen(analyst_id)
+        _ensure_regen(scope_key, analyst_id)
         if row is not None:
             return _served(row, refreshing=True)
         # No brief yet: serve deterministic highlights now; the poll picks up the
         # AI brief when the background task lands.
-        pack = await build_pack(db)
+        pack = await build_pack(db, issuer_ids or None)
         return {
             "cards": _deterministic_cards(pack), "degraded": True,
             "generated_reason": "Building the AI desk brief…", "data_fingerprint": fp,
@@ -452,7 +605,7 @@ async def insights(db: AsyncSession, *, force: bool = False, analyst_id: Optiona
 
     # Keyless / no data: deterministic highlights (the client hides the panel when
     # the model lane is unavailable, so this is a safety net, not a normal path).
-    pack = await build_pack(db)
+    pack = await build_pack(db, issuer_ids or None)
     return {
         "cards": _deterministic_cards(pack), "degraded": True,
         "generated_reason": ("Model lane unavailable — deterministic highlights."

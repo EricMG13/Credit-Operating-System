@@ -23,36 +23,30 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from database import (
-    Claim, Document, DocumentChunk, EvidenceItem, Issuer, MetricFact,
+    Claim, EvidenceItem, Issuer, MetricFact,
     ModuleOutput, QAFinding, Run,
 )
-from engine import budget, edgar_cp1, presets, reported_cp1
+from engine import budget, presets
+from engine.bindings import RunContext, resolve_binding
 from engine.fixtures import DEMO_FIXTURE_LIMITATION, REFERENCE_ISSUER_ID, demo_fixture_finding
-from engine.adjusted import reconcile_adjusted_ebitda, reconciliation_finding
-from engine.factpack import synthesize_fact_pack
+from engine.adjusted import reconciliation_finding
 from engine.council import get_reviewer
-from engine.covenants import addback_cap_finding, covlite_finding, synthesize_covenants
-from engine.capstructure import synthesize_recovery_preference
-from engine.catalysts import synthesize_catalysts
-from engine.debate import synthesize_debate
-from engine.downside import synthesize_downside
-from engine.legal import synthesize_legal_review
-from engine.liquidity import synthesize_liquidity
-from engine.macro import synthesize_macro
-from engine.portfoliofit import synthesize_portfolio_fit
-from engine.refinancing import synthesize_refinancing
-from engine.relval import synthesize_relative_value
-from engine.sponsor import synthesize_sponsor_review
-from engine.coststructure import synthesize_cost_structure
-from engine.earnings import monitoring_finding, synthesize_earnings_delta
-from engine.peers import peer_outlier_finding, synthesize_peer_benchmark
-from engine.readiness import synthesize_source_readiness
-from engine.metrics import extract_cost_facts, extract_facts, leverage_plausibility_finding
+from engine.covenants import addback_cap_finding, covlite_finding
+from engine.earnings import monitoring_finding
+from engine.peers import peer_outlier_finding
+from engine.metrics import (
+    cp1_completeness_finding,
+    cp1_grounding_finding,
+    extract_cost_facts,
+    extract_facts,
+    leverage_magnitude_finding,
+    leverage_plausibility_finding,
+)
 from engine.gate import (
     Finding,
     cap_committee_status_for_blocked_upstream,
@@ -92,7 +86,10 @@ def _stamp_prompt_version(synthesizer_name: str) -> str:
 # serially within their layer while the pure (retrieve-only) modules fan out.
 # CP-0 reads the issuer's vaulted docs; CP-1 may vault EDGAR XBRL; CP-1C reads
 # the metric store for peers; CP-3C reads the bound portfolio's positions.
-_SESSION_SYNTH = {"CP-0", "CP-1", "CP-1C", "CP-3C"}
+# Derived from the registry (ModuleSpec.session_bound), not hardcoded: a new
+# session-using synthesizer declares the flag where the module is declared, so
+# it can never be silently fanned out concurrently on the shared AsyncSession.
+_SESSION_SYNTH = {m.module_id for m in REGISTRY.values() if m.session_bound}
 
 
 def _now() -> datetime:
@@ -111,9 +108,15 @@ def _dependency_layers(module_ids: Sequence[str]) -> List[List[str]]:
     layers: List[List[str]] = []
     remaining = list(module_ids)
     while remaining:
+        # Layering honors BOTH edge kinds: depends_on (hard, also input-gated)
+        # and after (soft ordering only) — so a module scheduled ``after`` its
+        # corpus feeds actually sees them in ``upstream`` at synth time, without
+        # the input gate blocking it when a soft feed is Blocked (SPEC-1/2).
         layer = [
             m for m in remaining
-            if all(d in placed for d in REGISTRY[m].depends_on if d in in_set)
+            if all(d in placed
+                   for d in (*REGISTRY[m].depends_on, *getattr(REGISTRY[m], "after", ()))
+                   if d in in_set)
         ]
         if not layer:
             # The registry is asserted to be a DAG; an empty layer with modules
@@ -185,107 +188,6 @@ def _apply_blocked_upstream_cascade(
             row.limitation_flags = list(row.limitation_flags or []) + [flag]
 
 
-async def synthesize_module(  # noqa: C901  # pre-existing multi-branch dispatcher; decompose the dispatch table when reworked
-    module_id: str, session: AsyncSession, issuer: Optional[Issuer],
-    issuer_name: str, synthesizer, upstream: Dict[str, ModulePayload], retrieve,
-    portfolio_id: Optional[str] = None,
-) -> ModulePayload:
-    """Dispatch one module to its wired synthesizer (the engine's slice). Reads run
-    state (issuer / upstream / retrieve) but writes none, so a layer's pure-synth
-    modules run concurrently; the if-chain wires each module's own arg shape."""
-    # CP-0 reads the issuer's own vaulted documents (no fixture), so a fresh
-    # issuer reports its real source pack, not a canned one.
-    if module_id == "CP-0" and issuer is not None:
-        return await synthesize_source_readiness(session, issuer)
-    # CP-2 = FundamentalCreditSynthesizer. Live mode runs the corpus Active Prompt
-    # (full qualitative synthesis grounded in retrieved chunks + upstream); the
-    # offline/fixture path falls back to the deterministic cost-structure read, so
-    # the engine stays fully exercisable without a model key.
-    if module_id == "CP-2":
-        if synthesizer.name == "live":
-            return await synthesizer.synthesize(
-                "CP-2", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
-            )
-        return await synthesize_cost_structure(issuer_name, retrieve)
-    # CP-1 prefers a deterministic EDGAR reported foundation for any public
-    # filer, falling back to the LLM/fixture synthesizer; then it embeds the
-    # reported-vs-adjusted (add-back) reconciliation it adjusts.
-    if module_id == "CP-1":
-        cp1 = await _synthesize_cp1(
-            session, issuer, issuer_name, synthesizer, upstream, retrieve
-        )
-        # The add-back reconciliation strips a "% of adjusted EBITDA" haircut off
-        # CP-1's EBITDA, so it is only correct when that EBITDA is the *adjusted*
-        # (marketed) figure — the fixture / live-LLM basis. On a REPORTED basis
-        # (EDGAR XBRL or issuer-disclosed) the EBITDA already excludes those
-        # add-backs, so re-stripping them double-counts and manufactures a
-        # worse-than-reported "deleveraging gap" — a provenance violation
-        # ("reported is canonical"). Skip it there; the reported EBITDA already
-        # carries its own limitation flag. The marketed-vs-reported bridge would
-        # need the inverse math (E/(1-pct)) and is a separate deliberate feature.
-        basis = (cp1.runtime_output or {}).get("basis")
-        if basis not in ("reported_gaap_xbrl", "reported_disclosure"):
-            res = await reconcile_adjusted_ebitda(cp1, retrieve)
-            if res is not None:
-                recon, claim = res
-                (cp1.runtime_output or {})["adjusted_ebitda_reconciliation"] = recon
-                cp1.claims.append(claim)
-        return cp1
-    # CP-1A is the BusinessTransactionFactPack: scan offering/transaction text.
-    if module_id == "CP-1A":
-        return await synthesize_fact_pack(retrieve)
-    # CP-1B is a pure period-over-period delta off CP-1 (no docs/LLM).
-    if module_id == "CP-1B":
-        return synthesize_earnings_delta(upstream["CP-1"])
-    # CP-1C benchmarks the issuer vs peers from the metric store.
-    if module_id == "CP-1C" and issuer is not None:
-        return await synthesize_peer_benchmark(session, issuer, upstream["CP-1"])
-    # CP-4C computes covenant capacity / headroom against CP-1's leverage.
-    if module_id == "CP-4C":
-        return await synthesize_covenants(upstream["CP-1"], retrieve)
-    # CP-2B stresses CP-1's leverage/coverage into downside pathways.
-    if module_id == "CP-2B":
-        return await synthesize_downside(upstream["CP-1"])
-    # CP-2C registers forward catalysts from upstream monitoring signals.
-    if module_id == "CP-2C":
-        return await synthesize_catalysts(upstream)
-    # CP-2D scans offering/governance text for sponsor red flags.
-    if module_id == "CP-2D":
-        return await synthesize_sponsor_review(retrieve)
-    # CP-2E scans financial/agreement text for liquidity sources, and prices
-    # the runway against CP-1's cash interest.
-    if module_id == "CP-2E":
-        return await synthesize_liquidity(retrieve, upstream.get("CP-1"))
-    # CP-2F stresses CP-1's debt stack for base-rate sensitivity and scans for an
-    # interest-rate hedge register / FX exposure.
-    if module_id == "CP-2F":
-        return await synthesize_macro(upstream["CP-1"], retrieve)
-    # CP-3 scores the issuer's fundamentals vs peers from CP-1C.
-    if module_id == "CP-3":
-        return await synthesize_relative_value(upstream["CP-1C"])
-    # CP-3B scans agreement/offering text for the debt tranches, then waterfalls
-    # CP-1's distressed EV over them for expected recovery / instrument preference.
-    if module_id == "CP-3B":
-        return await synthesize_recovery_preference(retrieve, upstream.get("CP-1"))
-    # CP-3C maps CP-3's RV recommendation to a portfolio sleeve/sizing; when the
-    # run is bound to a portfolio, its concentration register goes live.
-    if module_id == "CP-3C":
-        return await synthesize_portfolio_fit(
-            upstream["CP-3"], upstream.get("CP-1"), session, issuer, portfolio_id)
-    # CP-3D scores refinancing/LME vulnerability from leverage + fragility.
-    if module_id == "CP-3D":
-        return await synthesize_refinancing(upstream["CP-1"], upstream.get("CP-2B"))
-    # CP-4 scans ingested agreement/covenant text for aggressive provisions.
-    if module_id == "CP-4":
-        return await synthesize_legal_review(retrieve)
-    # CP-6A/6E are the L6 adversarial debate over the produced upstream outputs.
-    if module_id in ("CP-6A", "CP-6E"):
-        return await synthesize_debate(module_id, upstream)
-    return await synthesizer.synthesize(
-        module_id, issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
-    )
-
-
 async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  # 283-line orchestrator; decompose (QA phase + fact projection) when next touched
     """Execute the slice for ``run`` in place; sets status and gate roll-up.
 
@@ -325,6 +227,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
     upstream: Dict[str, ModulePayload] = {}
     module_status: Dict[str, str] = {}
     output_rows: Dict[str, ModuleOutput] = {}
+    # CRITICAL lane-7 GATE findings from structurally Blocked modules — folded
+    # into the CP-5 clearance payload so it can never read PASSED/CRITICAL:0
+    # while a module (and the run roll-up) is Blocked (audit 2026-07-10 QA-6).
+    structural_findings: List[Finding] = []
     plan: Optional[RoutePlan] = None
 
     sem = asyncio.Semaphore(max(1, settings.synth_concurrency))
@@ -354,10 +260,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         already-completed peers in this layer."""
         async with sem:
             try:
-                return await synthesize_module(
-                    module_id, session, issuer, issuer_name,
-                    synthesizer, upstream, retrieve, run.portfolio_id,
+                ctx = RunContext(
+                    module_id=module_id, session=session, issuer=issuer,
+                    issuer_name=issuer_name, synthesizer=synthesizer, upstream=upstream,
+                    retrieve=retrieve, portfolio_id=run.portfolio_id,
                 )
+                return await resolve_binding(ctx)
             except SynthesisError as e:
                 return e
             except Exception as e:  # noqa: BLE001 — isolate the fault to this module
@@ -370,20 +278,22 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         concurrent synthesis."""
         if isinstance(result, SynthesisError):
             logger.warning("synthesis failed for %s: %s", module_id, result)
-            output_rows[module_id] = _persist_blocked(
+            output_rows[module_id], gate_f = _persist_blocked(
                 session, run.id, module_id, f"Synthesis failed: {result}"
             )
+            structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
             return
         payload = result
         errors = validate_payload(payload)
         if errors:
             logger.warning("payload validation failed for %s: %s", module_id, errors)
-            output_rows[module_id] = _persist_blocked(
+            output_rows[module_id], gate_f = _persist_blocked(
                 session, run.id, module_id,
                 "Payload failed schema validation: " + "; ".join(errors),
                 validation_status="Blocked",
             )
+            structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
             return
         # CP-X limitation propagation: carry CP-0 source-gap flags onto the module.
@@ -408,7 +318,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         for module_id in layer:
             reason = _block_reason(module_id)
             if reason is not None:
-                output_rows[module_id] = _persist_blocked(session, run.id, module_id, reason)
+                output_rows[module_id], gate_f = _persist_blocked(session, run.id, module_id, reason)
+                structural_findings.append(gate_f)
                 module_status[module_id] = "Blocked"
             else:
                 runnable.append(module_id)
@@ -460,26 +371,29 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 
         # ── CP-5B: evidence lineage validation ───────────────────────────
         findings = validate_lineage(produced)
-        # CP-1's embedded reported-vs-adjusted reconciliation → an informational
-        # finding the deterministic CP-5 gate consumes alongside lineage findings.
-        recon = reconciliation_finding(upstream.get("CP-1"))
-        if recon is not None:
-            findings.append(recon)
-        covlite = covlite_finding(upstream.get("CP-4C"))
-        if covlite is not None:
-            findings.append(covlite)
-        addback_cap = addback_cap_finding(upstream.get("CP-4C"))
-        if addback_cap is not None:
-            findings.append(addback_cap)
-        monitor = monitoring_finding(upstream.get("CP-1B"))
-        if monitor is not None:
-            findings.append(monitor)
-        peer = peer_outlier_finding(upstream.get("CP-1C"))
-        if peer is not None:
-            findings.append(peer)
-        lev_plaus = leverage_plausibility_finding(upstream.get("CP-1"))
-        if lev_plaus is not None:
-            findings.append(lev_plaus)
+        # Deterministic per-module finding providers the CP-5 gate consumes
+        # alongside lineage findings. Table-driven: nine copy-pasted blocks used
+        # to live here, and a pasted-wrong upstream key silently fed a check the
+        # wrong module's payload (the finding just never fired). Declare the
+        # (provider, module) pair once; the loop cannot drift.
+        _FINDING_PROVIDERS = (
+            (reconciliation_finding, "CP-1"),      # reported-vs-adjusted recon
+            (covlite_finding, "CP-4C"),
+            (addback_cap_finding, "CP-4C"),
+            (monitoring_finding, "CP-1B"),
+            (peer_outlier_finding, "CP-1C"),
+            (leverage_plausibility_finding, "CP-1"),
+            (leverage_magnitude_finding, "CP-1"),
+            (cp1_grounding_finding, "CP-1"),
+            # CP-5 numeric-completeness lane: a confident-but-empty CP-1 must not
+            # ship committee-ready just because it raised no severity findings (the
+            # gate has no numeric check of its own).
+            (cp1_completeness_finding, "CP-1"),
+        )
+        for provider, module_id in _FINDING_PROVIDERS:
+            f = provider(upstream.get(module_id))
+            if f is not None:
+                findings.append(f)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a
@@ -504,7 +418,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # and flags reasoning the lineage pass cannot see. It only *produces*
         # findings; the deterministic CP-5 gate below still decides status. No-op
         # (no token cost) unless council_enabled and a key are set.
-        council = await get_reviewer().review(produced)
+        reviewer = get_reviewer()
+        council = await reviewer.review(produced)
         for f in council:
             session.add(QAFinding(
                 run_id=run.id, module_id=f.module_id, finding_id=f.finding_id,
@@ -513,7 +428,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
                 required_remediation=f.required_remediation,
             ))
         findings = findings + council  # the CP-5 gate consumes lineage + council
-        await _persist_cp5c(session, run.id, produced, council)
+        await _persist_cp5c(
+            session, run.id, produced, council,
+            review_meta=getattr(reviewer, "last_review_meta", None),
+        )
 
         # ── CP-5: the deterministic gate ──────────────────────────────────
         for mid in analytical_ids:
@@ -535,7 +453,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # bites the post-gate case.
         _apply_blocked_upstream_cascade(analytical_ids, module_status, output_rows)
 
-        await _persist_cp5(session, run.id, findings, module_status)
+        await _persist_cp5(session, run.id, findings + structural_findings, module_status)
 
         # ── Project structured metric facts (run-derived, for cross-issuer NL query) ──
         # A gate-Blocked CP-1/CP-2 (CP-5 emitted an unresolved CRITICAL — e.g. an
@@ -545,33 +463,55 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # gated on a real write, so a Blocked re-run keeps the last QA-passed facts
         # rather than wiping them. Defense-in-depth read-filter: peers._peer_facts.
         cp1 = upstream.get("CP-1")
-        cp1_ok = False
+        cp1_facts: List[dict] = []
         if cp1 is not None and output_rows["CP-1"].qa_status != "Blocked":
-            cp1_ok = True
             # is_reference_issuer gates fixture provenance: the genuine ATLF demo keeps
             # "fixture"; the same fixture served for any other issuer is tagged the
             # non-authoritative "demo_fixture" (#10).
             is_ref = run.issuer_id == REFERENCE_ISSUER_ID
-            for fact in extract_facts(
+            cp1_facts = extract_facts(
                 run.id, cp1, output_rows["CP-1"].qa_status, is_reference_issuer=is_ref
-            ):
+            )
+            for fact in cp1_facts:
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
         cp2 = upstream.get("CP-2")
-        cp2_ok = False
+        cp2_facts: List[dict] = []
         if cp2 is not None and output_rows["CP-2"].qa_status != "Blocked":
-            cp2_ok = True
-            for fact in extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status):
+            cp2_facts = extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status)
+            for fact in cp2_facts:
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
 
         # Retention (DATA-1): the cross-issuer query only uses the latest run's
         # facts per issuer, so supersede older run-derived rows for this issuer
         # rather than letting them accumulate unbounded. Seed facts are untouched.
-        if cp1_ok or cp2_ok:
+        #
+        # Gated on cp1_facts/cp2_facts (an ACTUAL write this run), not on
+        # cp1_ok/cp2_ok (merely "not Blocked") — a not-Blocked module can still
+        # legitimately extract zero facts (e.g. a CP-1 with no finite headline
+        # metric that isn't confident enough to trip cp1_completeness_finding).
+        # Scoped per module_id too: CP-1 succeeding must not sweep CP-2's own
+        # untouched prior facts (or vice versa) — each module only supersedes
+        # its own earlier rows, and only when it actually wrote a replacement.
+        # Both conditions matter: the old `if cp1_ok or cp2_ok` fired the ONE
+        # shared delete whenever either module merely wasn't Blocked, which
+        # could wipe a module's last-known-good facts down to nothing even
+        # though this run wrote no replacement for them (confidence-review).
+        if cp1_facts:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
+                    MetricFact.module_id == "CP-1",
                     # #04 fixture + #10 demo_fixture facts supersede too, so a non-demo
                     # issuer's fabricated fixture rows don't accumulate across re-runs.
+                    MetricFact.provenance.in_(("run", "fixture", "demo_fixture")),
+                    MetricFact.run_id != run.id,
+                )
+            )
+        if cp2_facts:
+            await session.execute(
+                delete(MetricFact).where(
+                    MetricFact.issuer_id == run.issuer_id,
+                    MetricFact.module_id == "CP-2",
                     MetricFact.provenance.in_(("run", "fixture", "demo_fixture")),
                     MetricFact.run_id != run.id,
                 )
@@ -584,6 +524,12 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             run.qa_status, worst_confidence([p.confidence for p in produced])
         )
         run.tokens_used = run_budget.used
+        if run_budget.budget_exhausted:
+            run.error = "Degraded: Ran out of LLM token budget. Some analytical modules were skipped."
+        elif run_budget.degraded:
+            run.error = "Degraded: LLM rate limits/overloads forced fallback to cheaper models."
+        else:
+            run.error = None
         run.status = "complete"
         run.completed_at = _now()
     except Exception:
@@ -596,8 +542,15 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 def _persist_blocked(
     session: AsyncSession, run_id: str, module_id: str, reason: str,
     *, validation_status: str = "Not Executed",
-) -> ModuleOutput:
-    """Record a module that could not run, plus a CRITICAL structural finding."""
+) -> Tuple[ModuleOutput, Finding]:
+    """Record a module that could not run, plus a CRITICAL structural finding.
+
+    Returns the Finding too so execute_run can fold it into the CP-5 clearance
+    payload: these GATE findings used to be written straight to the QAFinding
+    table and never reach the ``findings`` list CP-5 counts — a run with a
+    structurally Blocked module could persist a CP-5 payload reading
+    ``clearance: PASSED, CRITICAL: 0`` while run.qa_status was Blocked
+    (audit 2026-07-10 QA-6)."""
     row = ModuleOutput(
         run_id=run_id, module_id=module_id, module_name=module_id,
         owned_object="", runtime_output={"blocked_reason": reason},
@@ -606,12 +559,17 @@ def _persist_blocked(
         limitation_flags=[reason],
     )
     session.add(row)
-    session.add(QAFinding(
-        run_id=run_id, module_id=module_id, finding_id=f"{module_id}-GATE",
-        severity="CRITICAL", lane=7, description=reason,
+    finding = Finding(
+        finding_id=f"{module_id}-GATE", severity="CRITICAL", lane=7,
+        module_id=module_id, description=reason,
         required_remediation="Resolve the upstream or schema failure and re-run the module.",
+    )
+    session.add(QAFinding(
+        run_id=run_id, module_id=finding.module_id, finding_id=finding.finding_id,
+        severity=finding.severity, lane=finding.lane, description=finding.description,
+        required_remediation=finding.required_remediation,
     ))
-    return row
+    return row, finding
 
 
 async def _persist_output(
@@ -626,10 +584,17 @@ async def _persist_output(
     )
     session.add(row)
     await session.flush()  # assign row.id for claim FK
-    for c in payload.claims:
-        claim = Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
-        session.add(claim)
+    # Two flushes per module, not one per claim: add every Claim, flush once to
+    # materialize all their PKs, then add the EvidenceItems — the old per-claim
+    # flush cost a serial DB round trip per claim across every module of every run.
+    claims = [
+        Claim(module_output_id=row.id, claim_id=c.claim_id, claim_text=c.claim_text)
+        for c in payload.claims
+    ]
+    session.add_all(claims)
+    if claims:
         await session.flush()
+    for c, claim in zip(payload.claims, claims):
         for e in c.evidence:
             session.add(EvidenceItem(
                 claim_pk=claim.id, evidence_id=e.evidence_id,
@@ -638,77 +603,6 @@ async def _persist_output(
                 confidence=e.confidence,
             ))
     return row
-
-
-async def _synthesize_cp1(
-    session: AsyncSession, issuer: Optional[Issuer], issuer_name: str,
-    synthesizer, upstream: Dict[str, ModulePayload], retrieve,
-) -> ModulePayload:
-    """CP-1 precedence: a deterministic EDGAR reported foundation for a public
-    filer (cited to XBRL, no key) when EDGAR is configured and the issuer has a
-    ticker; otherwise the LLM/fixture synthesizer. The EDGAR figures are vaulted
-    as a chunk and the payload's evidence resolved to it, so CP-5B passes cleanly
-    and click-to-source has a real source. The adjusted/covenant-EBITDA read is a
-    separate layer (CP-4C) — EDGAR is the reported basis only."""
-    settings = get_settings()
-    if settings.edgar_user_agent.strip() and issuer is not None and issuer.ticker:
-        build = await asyncio.to_thread(edgar_cp1.fetch_cp1, issuer.ticker, issuer_name)
-        if build is not None:
-            chunk_id = await _vault_edgar_facts(session, issuer, build.facts_text)
-            for c in build.payload.claims:
-                for e in c.evidence:
-                    e.resolved_chunk_id = chunk_id
-            logger.info("CP-1 grounded in EDGAR for %s (CIK %s)", issuer_name, build.cik)
-            return build.payload
-    # Non-EDGAR issuers (non-US / IFRS, no SEC XBRL): try a reported-disclosure CP-1
-    # from the issuer's own quarterly investor report / earnings before the LLM/fixture
-    # path. Its evidence already resolves to the source (uploaded) chunk.
-    #
-    # The reference/demo issuer is excluded: its docs are stub text with curated
-    # fixture financials, so the thin headline-only reported extractor would preempt
-    # the rich fixture (offline) or a full LLM spread (live) with a single number.
-    if issuer is None or issuer.id != REFERENCE_ISSUER_ID:
-        reported = await reported_cp1.build_reported_cp1_payload(issuer_name, retrieve)
-        if reported is not None:
-            logger.info("CP-1 grounded in issuer-disclosed reported metrics for %s", issuer_name)
-            return reported
-    return await synthesizer.synthesize(
-        "CP-1", issuer_name=issuer_name, upstream=upstream, retrieve=retrieve
-    )
-
-
-async def _vault_edgar_facts(session: AsyncSession, issuer: Issuer, facts_text: str) -> str:
-    """Idempotently vault the EDGAR XBRL extract as a single-chunk document for the
-    issuer, returning the chunk id to anchor CP-1 evidence to. Re-runs refresh the
-    chunk text in place rather than accumulating duplicates."""
-    storage_key = f"edgar/{issuer.id}/xbrl_facts"
-    doc = (await session.execute(
-        select(Document).where(
-            Document.issuer_id == issuer.id, Document.storage_key == storage_key
-        )
-    )).scalar_one_or_none()
-    if doc is not None:
-        chunk = (await session.execute(
-            select(DocumentChunk)
-            .where(DocumentChunk.document_id == doc.id)
-            .order_by(DocumentChunk.seq)
-        )).scalars().first()
-        if chunk is not None:
-            chunk.text = facts_text
-            await session.flush()
-            return chunk.id
-    else:
-        doc = Document(
-            issuer_id=issuer.id, doc_type="EDGAR-XBRL",
-            file_name="sec_edgar_xbrl_facts.txt", storage_key=storage_key,
-            chunk_count=1, uploaded_by="edgar-lane",
-        )
-        session.add(doc)
-        await session.flush()
-    chunk = DocumentChunk(document_id=doc.id, seq=0, text=facts_text)
-    session.add(chunk)
-    await session.flush()
-    return chunk.id
 
 
 async def _resolve_evidence(payload: ModulePayload, retrieve, *, suppress_sourced: bool) -> None:
@@ -777,19 +671,28 @@ async def _persist_cp5b(
 
 
 async def _persist_cp5c(
-    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding]
+    session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding],
+    *, review_meta: Optional[Dict] = None,
 ) -> None:
     """Record the committee review as an auditable module output (show your work).
 
-    Always Passed/Committee Ready as a *process* record — it attests the review
-    ran; the findings it raised gate the analytical modules, not this row. When
-    the council is disabled this records a clean, zero-seat pass.
+    Always Passed/Committee Ready as a *process* record — it attests what the
+    review DID; the findings it raised gate the analytical modules, not this
+    row. When the council is disabled this records a clean, zero-seat pass.
+
+    ``review_meta`` (from the reviewer's ``last_review_meta``) discloses actual
+    execution: an ENABLED council whose fan-out was skipped (token budget
+    exhausted) or whose seats all failed used to persist ``enabled: true,
+    findings: all-zero`` — indistinguishable from "reviewed and clean"
+    (audit 2026-07-10 QA-4). The record now carries executed/requested seat
+    counts and a skip reason, so "not assessed" never reads as "passed".
     """
     counts = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
     for f in findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
     settings = get_settings()
     seats = min(max(0, settings.council_seats), 4) if settings.council_enabled else 0
+    meta = review_meta or {}
     session.add(ModuleOutput(
         run_id=run_id, module_id="CP-5C", module_name="SemanticCommitteeReview",
         owned_object="committee_review", confidence="High",
@@ -797,6 +700,12 @@ async def _persist_cp5c(
         runtime_output={
             "enabled": bool(settings.council_enabled),
             "seats": seats,
+            "review_execution": {
+                "requested_seats": meta.get("requested_seats", seats),
+                "executed_seats": meta.get("executed_seats", 0),
+                "failed_seats": meta.get("failed_seats", 0),
+                "skipped_reason": meta.get("skipped_reason"),
+            },
             "peer_round": bool(settings.council_enabled and settings.council_peer_round),
             "modules_reviewed": [p.module_id for p in produced],
             "findings_by_severity": counts,

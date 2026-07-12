@@ -3,6 +3,32 @@
 Skills copied in from upstream repos (not authored here). Pinned to the commit
 each was fetched at on 2026-07-04. Re-sync = re-copy from the same upstream path.
 
+## Per-agent CAOS mirrors (authored here, not vendored)
+
+`commit`, `refresh-preview`, `outstanding`, and `impeccable` in this tree are
+**Codex/GPT-targeted mirrors** of the canonical `.claude/skills/` versions
+(same skill, `s/Claude/Codex/`, `s/Claude/GPT/`, `.claude`→`.agents` paths).
+This duplication is intentional so each agent gets its own name/paths. Keep the
+shared body in sync by hand when editing either copy — the only intended deltas
+are agent name and skill path. (The `.claude/` copy is canonical for design
+guidance; port improvements there first, then mirror.)
+
+## Skills-audit removals (2026-07-08)
+
+Removed per `.agent-reviews/skills-audit.md` (recoverable via git history):
+byte-identical `gitnexus-debugging`/`gitnexus-impact-analysis` copies (canonical
+set lives at `.claude/skills/gitnexus/`); no-CAOS-surface skills
+(`error-model-validation-architect` Kotlin/Spring, `debugging-code` .NET/Rider,
+`compose-ui-test-server` Compose Desktop, `implement-feature`/`codebase-audit`
+Go/skillshare, `openrouter-typescript-sdk`); the 15 one-verb design skills +
+`teach-impeccable` (all subsumed by the `impeccable` umbrella's sub-commands);
+`a11y-audit` (regex-based, superseded by the mandated `a11y-axe.mjs` axe-core
+runner); and `security-best-practices` (OpenAI, py/js/ts — redundant with the
+broader `owasp-security`). None of these were listed in the vendored tables below.
+Also fixed `senior-security`: its routing table pointed at 8 sibling security
+skills that were never vendored — added an "Installed in CAOS" caveat naming the
+only two present (`adversarial-reviewer`, `code-reviewer`).
+
 | Skill dir | Upstream | Commit | License | Notes |
 |-----------|----------|--------|---------|-------|
 | `finding-duplicate-functions` | [obra/superpowers-lab](https://github.com/obra/superpowers-lab) `/skills/finding-duplicate-functions` | `51111f7` | MIT © Jesse Vincent | Needs `rg`+`jq`. **Extractor is TS/JS-only** — does not scan `caos/server/` Python without a forked extractor. |

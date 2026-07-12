@@ -11,7 +11,11 @@ name: caos
 
 services:
   db:
-    image: postgres:18-alpine
+    # pgvector-enabled Postgres 18 (Debian-based; the stock postgres:18-alpine
+    # lacks the `vector` extension that mig 0030's embeddings table needs). The
+    # `backup` service below stays on postgres:18-alpine — pg_dump is a client and
+    # does not need the extension installed.
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
     # read_only is unset — the postgres entrypoint starts as root, drops to the
@@ -23,7 +27,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: caos
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # PG18 layout (audit 2026-07-10 DEP-1): the official 18+ images moved
+      # PGDATA to /var/lib/postgresql/<major>/docker and declare their volume at
+      # /var/lib/postgresql — mount the volume THERE. A mount at the pre-18
+      # /var/lib/postgresql/data path is detected by the 18+ entrypoint as an
+      # "unused mount/volume" and ABORTS the container: the stack never
+      # completed a first boot as previously shipped. (pgvector:pg18 shares the
+      # official image's entrypoint/layout.)
+      - db-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U caos -d caos"]
       interval: 10s
@@ -52,6 +63,10 @@ services:
       ENVIRONMENT: production
       HOST: 0.0.0.0
       PORT: "8000"
+      # Uvicorn worker processes (E1). Unset/1 = today's single-process default.
+      # Postgres-only — run.py refuses >1 against SQLite. Size against Postgres's
+      # max_connections and load-test before raising (.env.example has the guidance).
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
       # Durable Postgres + vault; demo seed OFF (registry starts empty).
       CAOS_DEMO_SEED: "false"
       DATABASE_URL: postgresql+asyncpg://caos:${POSTGRES_PASSWORD}@db:5432/caos
@@ -134,9 +149,10 @@ services:
 
   backup:
     # P7-1: daily pg_dump of Postgres + a tarball of the document vault, with
-    # rotation, to the `backups` volume. On-host only — copy /backups off-host
-    # (rsync / object storage) for real durability. Override cadence/retention
-    # via BACKUP_INTERVAL_SECONDS / BACKUP_KEEP in .env.
+    # rotation, to the `backups` volume. On-host only unless BACKUP_SYNC_CMD is
+    # set (off-host copy hook, e.g. rsync / rclone / aws s3 sync — runs after
+    # each cycle). Override cadence/retention via BACKUP_INTERVAL_SECONDS /
+    # BACKUP_KEEP in .env.
     image: postgres:18-alpine
     restart: unless-stopped
     depends_on:
@@ -150,9 +166,15 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # Optional off-host copy hook, runs after each backup cycle (empty = off).
+      BACKUP_SYNC_CMD: ${BACKUP_SYNC_CMD:-}
     entrypoint: ["/bin/sh", "/backup.sh"]
     volumes:
       - ./backup.sh:/backup.sh:ro
+      # Mounted alongside backup.sh so `docker compose exec backup sh
+      # /restore_drill.sh` (G1) can run the drill against this same
+      # container's /backups + Postgres access — not run automatically.
+      - ./restore_drill.sh:/restore_drill.sh:ro
       - vault-data:/vault:ro
       - backups:/backups
     networks: [internal]

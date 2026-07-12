@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from engine import llm_client, presets
 from database import Issuer, MetricFact
-from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts
+from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts, DERIVED_PROVENANCE, provenance_tier
 from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
 
 logger = logging.getLogger("caos.nlquery")
@@ -232,14 +232,12 @@ _SYSTEM = (
 
 
 async def _llm_translate(question: str) -> QuerySpec:
-    import anthropic
 
     settings = get_settings()
-    # Explicit timeout (SDK default is ~10 min) so a stuck translate can't pin the
-    # request lane open. See config.caos_llm_timeout_s.
-    client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
-    )
+    # Shared cached client (llm_client.anthropic_client): per-call construction
+    # re-paid TLS setup on every request and leaked unclosed httpx transports;
+    # the client itself carries max_retries=0 (PERF_AUDIT_2026-07-10 Finding 1).
+    client = llm_client.anthropic_client(settings)
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
@@ -299,14 +297,12 @@ _PLAN_SYSTEM = (
 
 
 async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, SynthesisSpec]]:
-    import anthropic
 
     settings = get_settings()
-    # Explicit timeout (SDK default is ~10 min) so a stuck plan can't pin the
-    # request lane open. See config.caos_llm_timeout_s.
-    client = anthropic.AsyncAnthropic(
-        api_key=settings.anthropic_api_key, timeout=settings.caos_llm_timeout_s
-    )
+    # Shared cached client (llm_client.anthropic_client): per-call construction
+    # re-paid TLS setup on every request and leaked unclosed httpx transports;
+    # the client itself carries max_retries=0 (PERF_AUDIT_2026-07-10 Finding 1).
+    client = llm_client.anthropic_client(settings)
     catalog = "\n".join(
         f"- {m['key']}: {m['label']} ({m['unit']}, "
         f"{'higher=better' if m['higher_is_better'] else 'higher=worse'}) — {m['description']}"
@@ -374,12 +370,10 @@ def _passes(value: Optional[float], op: str, target) -> bool:
 
 
 # ── Latest-per (issuer, metric) collapse ─────────────────────────────────────
-_DERIVED_PROVENANCE = ("run", "fixture")  # run/fixture outrank seed in the collapse tier
-
-
-def _derived(provenance: str) -> int:
-    """Collapse tier: a real run OR the demo fixture outranks seed (#04)."""
-    return 1 if provenance in _DERIVED_PROVENANCE else 0
+# Canonical tier + comparator live in engine.metrics (shared by querygraph,
+# peers, sponsors, and the issuer profile) so no surface ranks facts differently.
+_DERIVED_PROVENANCE = DERIVED_PROVENANCE
+_derived = provenance_tier
 
 
 def _better_fact(prev: Optional[MetricFact], fact: MetricFact) -> bool:

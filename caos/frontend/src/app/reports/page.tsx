@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { ReportDoc } from "@/components/reports/ReportDoc";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
@@ -18,6 +17,7 @@ import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { getSavedModel } from "@/lib/api";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -71,13 +71,8 @@ function ReportStudio() {
   // Report Studio reads only the DB-saved Model Builder state. Unsaved browser
   // edits in /model do not affect committee output.
   const [modelInputs, setModelInputs] = useState<ModelInputs>({});
-  // When the saved Model Builder state fails to load, the deliverable silently
-  // falls back to base fixture figures — a committee-ready PDF whose numbers
-  // differ from the analyst's saved model. Track the failure so the sub-header
-  // can state it (and offer a retry) rather than exporting a wrong read.
   const [modelLoadError, setModelLoadError] = useState(false);
   const [modelReloadKey, setModelReloadKey] = useState(0);
-  // fallow-ignore-next-line complexity
   useEffect(() => {
     let cancelled = false;
     setModelLoadError(false);
@@ -96,9 +91,6 @@ function ReportStudio() {
     });
     return () => { cancelled = true; };
   }, [issuerId, modelReloadKey]);
-  // Prefer a live CP-1 run for the LTM/PF anchor (same hook the Model Builder
-  // uses). Only the ATLF reference page may build seeded report templates; real
-  // issuers show no-output until CP-RENDER is wired to live module payloads.
   const eng = useModelEngine(issuerId);
   const live = useLiveRun(issuerId);
   const reports = useMemo(
@@ -163,7 +155,6 @@ function ReportStudio() {
     if (stored) return; // respect a remembered manual zoom
     const el = scrollRef.current;
     if (el && el.scrollWidth > el.clientWidth) fitToWidth();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, rep?.id]);
 
   // Keyboard shortcuts for power users: +/- step zoom, f fits, 1..9 pick a report.
@@ -187,7 +178,6 @@ function ReportStudio() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reports, zoom]);
   const repOmit = rep ? omit[rep.id] || {} : {};
   const omitCount = Object.keys(repOmit).length;
@@ -214,8 +204,6 @@ function ReportStudio() {
   };
   const resetEdits = () => {
     if (!rep) return;
-    // Irreversible: drops every analyst edit on this deliverable (and the
-    // localStorage mirror with it). Confirm before discarding manual committee work.
     const plural = editCount === 1 ? "" : "s";
     if (!window.confirm(`Discard ${editCount} analyst edit${plural} on this deliverable? This can't be undone.`)) return;
     setEdits((e) => {
@@ -232,111 +220,174 @@ function ReportStudio() {
     setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
-  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId });
+  // phase included so a backend outage reads "could not load", not the confident
+  // "no run for this issuer" — this surface produces committee documents.
+  const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
+
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        {ZOOMS.map((z) => (
+          <button
+            key={z}
+            onClick={() => setZoom(z)}
+            aria-pressed={zoom === z}
+            aria-label={"Zoom " + Math.round(z * 100) + " percent"}
+            className={
+              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
+              (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
+          >
+            {Math.round(z * 100)}%
+          </button>
+        ))}
+        <button
+          onClick={fitToWidth}
+          title="Fit the page to the available width"
+          className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
+        >
+          FIT
+        </button>
+      </>
+    ),
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <PageSubHeader gap="gap-3">
-        <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
-        <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
-        {caveatKind === "reference" ? (
-          <span
-            className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
-            role="note"
-            title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run. Every figure is the ATLF fixture."
-          >
-            REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
-          </span>
-        ) : caveatKind === "loading" ? (
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-            checking for live run…
-          </span>
-        ) : caveatKind === "live" ? (
-          <span
-            className="tabular text-caos-xs whitespace-nowrap"
-            style={{ color: "var(--caos-warning)" }}
-            title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
-          >
-            live engine output · report renderer not wired
-          </span>
-        ) : (
-          <span
-            className="tabular text-caos-xs whitespace-nowrap"
-            style={{ color: "var(--caos-warning)" }}
-            role="note"
-            title="No completed run for this issuer. Report Studio will not show the ATLF reference template for a real issuer."
-          >
-            no run for this issuer · report unavailable
-          </span>
-        )}
-        {modelLoadError ? (
-          <span
-            role="alert"
-            className="tabular text-caos-xs flex items-center gap-1.5 shrink-0 px-1.5 h-6 rounded border whitespace-nowrap"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-            title="Could not load this analyst's saved Model Builder overrides. The deliverable is showing base fixture figures, which may differ from the saved model."
-          >
-            <span aria-hidden="true">⚠</span>
-            saved model unavailable — base figures shown
-            <button
-              type="button"
-              onClick={() => setModelReloadKey((k) => k + 1)}
-              className="focus-ring underline underline-offset-2 hover:no-underline"
-              style={{ color: "var(--caos-warning)" }}
+    <ResponsiveShell
+      identity={
+        <>
+          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">CP-RENDER</span>
+          <span className="text-caos-xl text-caos-text font-medium shrink-0 whitespace-nowrap">Report Studio — committee deliverables</span>
+          {caveatKind === "reference" && eng.runId ? (
+            // FE-5: buildReports incorporates eng.anchor when a live run exists on
+            // the reference issuer, but the debate/recovery/covenant tabs and the
+            // DEAL narrative stay ATLF fixtures regardless (same rationale as
+            // lib/deepdive/caveat.ts) — say both halves precisely instead of the
+            // blanket "not a live issuer run" claim.
+            <span
+              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              role="note"
+              title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
             >
-              retry
-            </button>
+              REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run
+            </span>
+          ) : caveatKind === "reference" ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted"
+              role="note"
+              title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run."
+            >
+              REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run
+            </span>
+          ) : caveatKind === "loading" ? (
+            <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+              checking for live run…
+            </span>
+          ) : caveatKind === "error" ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap"
+              style={{ color: "var(--caos-critical)" }}
+              role="note"
+              title="Could not load this issuer's live run — report state is unknown, not a confirmed no-run."
+            >
+              could not load live run
+            </span>
+          ) : caveatKind === "live" ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap"
+              style={{ color: "var(--caos-warning)" }}
+              title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
+            >
+              live engine output · report renderer not wired
+            </span>
+          ) : (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap"
+              style={{ color: "var(--caos-warning)" }}
+              role="note"
+              title="No completed run for this issuer. Report Studio will not show the ATLF reference template for a real issuer."
+            >
+              no run for this issuer · report unavailable
+            </span>
+          )}
+          {modelLoadError ? (
+            <span
+              role="alert"
+              className="tabular text-caos-xs flex items-center gap-1.5 shrink-0 px-1.5 h-6 rounded border whitespace-nowrap"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+              title="Could not load this analyst's saved Model Builder overrides. The deliverable is showing base fixture figures."
+            >
+              <span aria-hidden="true">⚠</span>
+              saved model unavailable — base figures shown
+              <button
+                type="button"
+                onClick={() => setModelReloadKey((k) => k + 1)}
+                className="focus-ring underline underline-offset-2 hover:no-underline"
+                style={{ color: "var(--caos-warning)" }}
+              >
+                retry
+              </button>
+            </span>
+          ) : null}
+        </>
+      }
+      primaryAction={
+        <button
+          onClick={() => window.print()}
+          disabled={!rep}
+          className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40 disabled:pointer-events-none"
+        >
+          ⎙ EXPORT PDF
+        </button>
+      }
+      contextualControls={
+        <>
+          {/* paper tone — decorative, in MoreDrawer at narrow */}
+          <span className="flex items-center gap-1 shrink-0">
+            {PAPERS.map((p) => (
+              <button
+                key={p.v}
+                onClick={() => setPaper(p.v)}
+                aria-pressed={paper === p.v}
+                aria-label={"Paper tone " + p.label}
+                title={"Paper tone — " + p.label + " · preview only"}
+                className={"focus-ring w-6 h-6 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
+                style={{ background: p.v }}
+              />
+            ))}
           </span>
-        ) : null}
-        <span className="flex-1" />
-        {/* paper tone — decorative, drops first on narrow screens */}
-        <span className="hidden 2xl:flex items-center gap-1 shrink-0">
-          {PAPERS.map((p) => (
-            <button
-              key={p.v}
-              onClick={() => setPaper(p.v)}
-              aria-pressed={paper === p.v}
-              aria-label={"Paper tone " + p.label}
-              title={"Paper tone — " + p.label + " · preview only (export prints white)"}
-              className={"focus-ring w-4 h-4 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
-              style={{ background: p.v }}
-            />
-          ))}
-        </span>
-        <button
-          onClick={() => setShowSources(!showSources)}
-          aria-pressed={showSources}
-          className={
-            "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
-            (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-          }
-        >
-          SOURCES
-        </button>
-        <button
-          onClick={() => setEditMode(!editMode)}
-          aria-pressed={editMode}
-          title="Edit the deliverable inline — every figure, label and paragraph is editable; edits persist locally and carry into the PDF export"
-          className={
-            "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
-            (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-          }
-        >
-          {editMode ? "✎ EDITING" : "✎ EDIT"}
-        </button>
-        {editCount > 0 ? (
           <button
-            onClick={resetEdits}
-            title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
-            className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
+            onClick={() => setShowSources(!showSources)}
+            aria-pressed={showSources}
+            className={
+              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+              (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
           >
-            ↺ {editCount}
+            SOURCES
           </button>
-        ) : null}
-        <span className="h-4 w-px bg-caos-border" />
-        {/* zoom */}
-        <span className="flex items-center gap-1">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            aria-pressed={editMode}
+            title="Edit the deliverable inline"
+            className={
+              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
+              (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
+            }
+          >
+            {editMode ? "✎ EDITING" : "✎ EDIT"}
+          </button>
+          {editCount > 0 ? (
+            <button
+              onClick={resetEdits}
+              title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
+              className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
+            >
+              ↺ {editCount}
+            </button>
+          ) : null}
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          {/* zoom */}
           {ZOOMS.map((z) => (
             <button
               key={z}
@@ -358,31 +409,23 @@ function ReportStudio() {
           >
             FIT
           </button>
-        </span>
-        <button
-          onClick={() => window.print()}
-          disabled={!rep}
-          className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
-        >
-          ⎙ EXPORT PDF
-        </button>
-        {/* QA-117 / evidence E-44 is a finding on the ATLF reference deal only.
-            Gate on isReference so it never renders — nor opens seeded evidence —
-            against a live issuer, whose header may correctly show "no run". */}
-        {isReference ? (
-          <button
-            type="button"
-            onClick={() => setEvModal("E-44")}
-            title="Open QA-117 finding (evidence E-44)"
-            aria-label="Open QA-117 finding (evidence E-44)"
-            className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-          >
-            CP-5 CONDITIONAL — QA-117
-          </button>
-        ) : null}
-      </PageSubHeader>
-
+          {/* QA-117 / evidence E-44 is a finding on the ATLF reference deal only. */}
+          {isReference ? (
+            <button
+              type="button"
+              onClick={() => setEvModal("E-44")}
+              title="Open QA-117 finding (evidence E-44)"
+              aria-label="Open QA-117 finding (evidence E-44)"
+              className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
+              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+            >
+              CP-5 CONDITIONAL — QA-117
+            </button>
+          ) : null}
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       {/* workspace */}
       <div className="flex-1 min-h-0 flex gap-2 p-2">
         {rep && leftOpen ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
@@ -434,7 +477,7 @@ function ReportStudio() {
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} /> : null}
-    </div>
+    </ResponsiveShell>
   );
 }
 

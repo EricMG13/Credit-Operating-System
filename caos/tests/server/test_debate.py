@@ -118,3 +118,36 @@ def test_no_signals_degrades_confidence_but_stays_valid():
     assert validate_payload(p) == [] and validate_lineage([p]) == []
     # Verdict still present (neutral default) and gate-clean.
     assert p.runtime_output["verdict"]["lean"] == "BALANCED"
+
+
+# ── narration fault isolation (BE4-1) ────────────────────────────────────────
+
+def test_one_side_narration_failure_does_not_sink_the_other(monkeypatch):
+    """A raising narrate() on one advocate must degrade to deterministic prose
+    for that side only — never propagate and take down the whole synthesis
+    (mirrors council.py's asyncio.gather(..., return_exceptions=True) fault
+    isolation for its per-seat fan-out)."""
+
+    class _FlakyDebater:
+        name = "flaky"
+
+        async def narrate(self, advocate, lens, points, upstream):
+            if advocate == debate._SPECS["CP-6A"].bull:
+                raise RuntimeError("simulated provider 5xx")
+            return f"LIVE: {debate._prose(advocate, points)}"
+
+    monkeypatch.setattr(debate, "get_debater", lambda: _FlakyDebater())
+
+    # lev=5.0 is a bear point; ebitda_growth=11.0 is the only bull point, so the
+    # deterministic fallback is a known, exact string.
+    up = {"CP-1": _cp1(5.0), "CP-2": ModulePayload("CP-2", "", "", {}),
+          "CP-1B": _cp1b(ebitda_growth=11.0), "CP-4C": _cp4c(structure="cov-lite")}
+    p = _run("CP-6A", up)  # must not raise
+
+    assert validate_payload(p) == [] and validate_lineage([p]) == []
+    # Bull side failed narration -> deterministic fallback, not the live prefix.
+    bull_narrative = p.runtime_output["bull_case"]["narrative"]
+    assert bull_narrative == "Bull Advocate: Adjusted EBITDA grew 11% YoY."
+    assert not bull_narrative.startswith("LIVE:")
+    # Bear side succeeded -> its narration survives untouched.
+    assert p.runtime_output["bear_case"]["narrative"].startswith("LIVE:")

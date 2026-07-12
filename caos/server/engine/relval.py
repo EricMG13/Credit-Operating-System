@@ -79,6 +79,13 @@ def build_scorecard(cp1c_rt: dict) -> Optional[dict]:
         "scorecard": scorecard,
         "composite_percentile": composite,
         "recommendation": recommendation,
+        # Corpus CP-3 (REF-05): "RV conclusions require dated market evidence.
+        # If absent, RV = Unclear." No market feed exists (spreads/price are
+        # Phase-2), so the lean is fundamentals-only by construction — say so
+        # in the payload rather than let the label overclaim a market-relative
+        # read (audit 2026-07-10 SPEC-5). CP-3C sizing still consumes the lean.
+        "rv_basis": "fundamentals_only",
+        "market_evidence": "none (no market data feed — corpus RV = Unclear)",
         "metrics_scored": len(ranked),
         "peer_scope": cp1c_rt.get("peer_scope", "peers"),
     }
@@ -100,11 +107,18 @@ async def synthesize_relative_value(cp1c: ModulePayload) -> ModulePayload:
         module_id="CP-3", module_name="RelativeValueSecuritySelection",
         owned_object="relative_value_analysis", runtime_output=sc, confidence="High",
         downstream_consumers=["CP-6A", "CP-6E"],
+        # Corpus CP-3 prohibits stating RV without dated market evidence; the
+        # claim says "fundamentals lean", not "relative value", and the flag
+        # carries the market-data gap into the QA/limitations surface (SPEC-5).
+        limitation_flags=["No dated market evidence (spreads/price are an external "
+                          "Phase-2 feed): the recommendation is a fundamentals-vs-peers "
+                          "lean, not a market relative-value read (corpus RV = Unclear)."],
         claims=[ClaimSpec(
             claim_id="C-RV1",
             claim_text=(f"Across {sc['metrics_scored']} peer metrics vs {sc['peer_scope']}, "
                         f"composite {sc['composite_percentile']}th percentile → "
-                        f"{sc['recommendation']} relative value."),
+                        f"{sc['recommendation']} fundamentals lean (no market data — "
+                        "not a priced relative-value call)."),
             evidence=[EvidenceSpec("E-RV1", "upstream_artifact", "Calculated",
                                    "Derived from CP-1C peer comparisons", "Medium")],
         )],

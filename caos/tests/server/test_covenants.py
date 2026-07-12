@@ -294,8 +294,12 @@ def test_synthesize_rp_and_cross_default_surfaced():
 def test_inexact_chunk_id_downgrades_citation(monkeypatch):
     """When the model didn't pin a real retrieved chunk (safe_chunk_id exact=False),
     the covenant citation must NOT claim 'Directly Sourced / High' — it downgrades to
-    Inferred/Medium so a substituted/absent source never overstates provenance."""
+    Analyst Inference/Medium so a substituted/absent source never overstates
+    provenance. The downgrade value must be a member of schemas.LINEAGE_CLASSES:
+    the earlier "Inferred" literal failed validate_payload and hard-Blocked the
+    module on exactly this graceful-downgrade path (audit 2026-07-10 QA-1)."""
     import engine.covenants as cov
+    from engine.schemas import LINEAGE_CLASSES, validate_payload
 
     cp1_no_lev = ModulePayload(
         module_id="CP-1", module_name="X", owned_object="o",
@@ -308,7 +312,9 @@ def test_inexact_chunk_id_downgrades_citation(monkeypatch):
     monkeypatch.setattr(cov, "extract_covenant_terms", terms_inexact)
     p = asyncio.run(cov.synthesize_covenants(cp1_no_lev, _retrieve(_INDENTURE, "c-sub")))
     ev = p.claims[0].evidence[0]
-    assert ev.lineage_class == "Inferred" and ev.confidence == "Medium"
+    assert ev.lineage_class == "Analyst Inference" and ev.confidence == "Medium"
+    assert ev.lineage_class in LINEAGE_CLASSES  # must never block the payload
+    assert validate_payload(p) == []
     assert ev.resolved_chunk_id == "c-sub"  # still points at the chunk for navigation
 
     async def terms_exact(retrieve):
@@ -337,6 +343,84 @@ def test_covlite_finding_silent_for_maintenance():
 
 
 # ── Runner wiring on the ATLF deal ───────────────────────────────────────────
+# ── _llm_covenant_terms: magnitude grounding (#3) ───────────────────────────
+# amount_term/cap_t previously accepted any sign/range-valid figure with no check
+# that it actually appears in its own cited chunk — a hallucinated (or prompt-
+# injected) magnitude sailed through. These pin the grounding gate added on top.
+
+def _hit(cid: str, text: str) -> SimpleNamespace:
+    return SimpleNamespace(chunk_id=cid, text=text)
+
+
+@pytest.mark.asyncio
+async def test_llm_covenant_terms_grounds_leverage_covenant(monkeypatch):
+    import engine.covenants as cov
+
+    async def fake_extract_json(retrieve, *, query, k, system, schema=None):
+        return ({"leverage_covenant_x": 6.0, "leverage_chunk_id": "c1", "leverage_basis": "total"},
+               [_hit("c1", "Consolidated Total Net Leverage Ratio shall not exceed 6.00x.")])
+
+    monkeypatch.setattr(cov, "extract_json", fake_extract_json)
+    out = await cov._llm_covenant_terms(lambda q, k=10: [])
+    assert out["leverage_covenant_x"] == (6.0, "c1", True)
+
+
+@pytest.mark.asyncio
+async def test_llm_covenant_terms_rejects_ungrounded_leverage_covenant(monkeypatch):
+    import engine.covenants as cov
+
+    async def fake_extract_json(retrieve, *, query, k, system, schema=None):
+        # Chunk says nothing about a 9.0x covenant — hallucinated/injected figure.
+        return ({"leverage_covenant_x": 9.0, "leverage_chunk_id": "c1"},
+               [_hit("c1", "The credit agreement governs a term loan B facility.")])
+
+    monkeypatch.setattr(cov, "extract_json", fake_extract_json)
+    out = await cov._llm_covenant_terms(lambda q, k=10: [])
+    assert out is None  # every term was rejected → whole-payload None
+
+
+@pytest.mark.asyncio
+async def test_llm_covenant_terms_grounds_billion_scale_amount(monkeypatch):
+    """incremental_musd is normalized to $M, but a source stating '$1.5 billion'
+    surfaces only 1.5 via the raw numeral scan — the dual-form check (raw + /1000)
+    must ground a correctly-extracted billion-scale figure."""
+    import engine.covenants as cov
+
+    async def fake_extract_json(retrieve, *, query, k, system, schema=None):
+        return ({"incremental_musd": 1500.0, "incremental_chunk_id": "c1"},
+               [_hit("c1", "Incremental facilities may not exceed $1.5 billion in the aggregate.")])
+
+    monkeypatch.setattr(cov, "extract_json", fake_extract_json)
+    out = await cov._llm_covenant_terms(lambda q, k=10: [])
+    assert out["incremental_musd"] == (1500.0, "c1", True)
+
+
+@pytest.mark.asyncio
+async def test_llm_covenant_terms_rejects_ungrounded_amount(monkeypatch):
+    import engine.covenants as cov
+
+    async def fake_extract_json(retrieve, *, query, k, system, schema=None):
+        return ({"rp_basket_musd": 250.0, "rp_chunk_id": "c1"},
+               [_hit("c1", "Restricted payments require board approval.")])
+
+    monkeypatch.setattr(cov, "extract_json", fake_extract_json)
+    out = await cov._llm_covenant_terms(lambda q, k=10: [])
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_llm_covenant_terms_grounds_addback_cap_percent_form(monkeypatch):
+    import engine.covenants as cov
+
+    async def fake_extract_json(retrieve, *, query, k, system, schema=None):
+        return ({"addback_cap_pct": 0.25, "addback_cap_chunk_id": "c1"},
+               [_hit("c1", "Cost savings add-backs are capped at 25% of Consolidated EBITDA.")])
+
+    monkeypatch.setattr(cov, "extract_json", fake_extract_json)
+    out = await cov._llm_covenant_terms(lambda q, k=10: [])
+    assert out["addback_cap_pct"] == (0.25, "c1", True)
+
+
 @pytest.fixture(scope="module")
 def client():
     from main import app

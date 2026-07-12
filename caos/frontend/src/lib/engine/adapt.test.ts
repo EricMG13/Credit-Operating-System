@@ -271,3 +271,50 @@ describe("adaptModule — generic shapes", () => {
     expect(pts && pts.type === "table" && pts.rows[0][0]).toContain("EBITDA grew");
   });
 });
+
+describe("adaptModule — CP-4C covenant register", () => {
+  const cp4c = (rt: Record<string, unknown>): ModuleDetailDTO => ({
+    ...CP1, module_id: "CP-4C", module_name: "CovenantCapacityCalculator",
+    qa_status: "Passed", claims: [], runtime_output: rt,
+  });
+
+  it("orders the register KPIs and flags an add-back breach in text and severity", () => {
+    const out = adaptModule(cp4c({
+      covenant_structure: "cov-lite",
+      current_net_leverage: 5.68,
+      rp_basket_musd: 150,
+      cross_default_musd: 50,
+      addback_cap_pct: 0.25,
+      addback_audit: { disclosed_addback_pct: 0.28, cap_pct: 0.25, utilization_pct: 112, breach: true },
+      calculations: [],
+    }));
+    expect(out.kpis.map((k) => k.l)).toEqual([
+      "Structure", "Net leverage", "RP / builder basket", "Cross-default trips at", "Add-back cap",
+    ]);
+    const cap = out.kpis.find((k) => k.l === "Add-back cap")!;
+    expect(cap.v).toContain("25% of EBITDA");
+    expect(cap.v).toContain("112% used");
+    expect(cap.v).toContain("BREACH");   // breach is text, not color alone
+    expect(cap.sev).toBe("critical");
+    expect(out.kpis.find((k) => k.l === "RP / builder basket")!.v).toBe("$150M");
+    expect(out.kpis.find((k) => k.l === "Cross-default trips at")!.v).toBe("$50M");
+  });
+
+  it("drops absent terms instead of rendering dashes (cov-lite sparse extraction)", () => {
+    const out = adaptModule(cp4c({ covenant_structure: "cov-lite", calculations: [] }));
+    expect(out.kpis.map((k) => k.l)).toEqual(["Structure"]);
+    expect(out.kpis[0].sev).toBeUndefined();
+  });
+
+  it("warns (not critical) at high utilization below the cap", () => {
+    const out = adaptModule(cp4c({
+      covenant_structure: "maintenance",
+      addback_cap_pct: 0.25,
+      addback_audit: { utilization_pct: 88, breach: false },
+      calculations: [],
+    }));
+    const cap = out.kpis.find((k) => k.l === "Add-back cap")!;
+    expect(cap.sev).toBe("warning");
+    expect(cap.v).not.toContain("BREACH");
+  });
+});

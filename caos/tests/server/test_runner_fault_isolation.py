@@ -16,14 +16,16 @@ async def test_non_synthesiserror_isolates_to_blocked(seeded_db, monkeypatch):
     from database import AsyncSessionLocal, ModuleOutput, Run
     from run_executor import execute_run_by_id
 
-    orig = runner.synthesize_module
+    # The dispatch moved behind the bindings seam (spec P1·C1); runner imports
+    # resolve_binding by name, so patch it on runner. It takes a single RunContext.
+    orig = runner.resolve_binding
 
-    async def boom(module_id, *a, **k):
-        if module_id == "CP-2F":  # a pure, fan-out module → runs in the layer gather
+    async def boom(ctx, *a, **k):
+        if ctx.module_id == "CP-2F":  # a pure, fan-out module → runs in the layer gather
             raise TypeError("simulated malformed-upstream crash")
-        return await orig(module_id, *a, **k)
+        return await orig(ctx, *a, **k)
 
-    monkeypatch.setattr(runner, "synthesize_module", boom)
+    monkeypatch.setattr(runner, "resolve_binding", boom)
 
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")

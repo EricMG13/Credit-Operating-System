@@ -16,8 +16,8 @@ export default function UploadPage() {
         {/* Skip link + #main-content landmark live in the root layout — no page-local copy. */}
         {/* sub-header */}
         <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-          <Link href="/pipeline" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Pipeline
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
           </Link>
           <div className="h-4 w-px bg-caos-border" />
           <ConceptNav compact />

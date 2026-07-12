@@ -63,23 +63,30 @@ def compute_pathways(nf: dict) -> Optional[dict]:
     Coverage gets the same finite check, yielding per-scenario None.
     """
     lev = nf.get("net_leverage_adj_ltm")
-    if not is_finite_number(lev):
-        return None  # CP-1 gave no usable (finite) leverage figure — nothing to stress.
+    # Non-positive leverage joins non-finite in the degrade path: the held-flat-
+    # debt algebra has no valid meaning for a net-cash or negative-EBITDA issuer
+    # (leverage -10x → every stressed value < 7.0x → fragility LOW at High
+    # confidence for the MOST distressed case, cascading into CP-3D's LME read;
+    # audit 2026-07-10 ENG-13). Such issuers read Insufficient, never LOW.
+    if not is_finite_number(lev) or lev <= 0:
+        return None  # CP-1 gave no usable (finite, positive) leverage — nothing to stress.
     cov = nf.get("interest_coverage_ltm")
-    cov_is_finite = is_finite_number(cov)
+    # Narrow via the TypeGuard inline (a stored bool wouldn't narrow `cov` for mypy).
+    cov_val: Optional[float] = cov if is_finite_number(cov) else None
 
-    scenarios = [
+    scenarios: list[dict[str, Optional[float]]] = [
         {
             "ebitda_shock_pct": round(s * 100),
             "stressed_net_leverage": round(lev / (1 - s), 2),
-            "stressed_interest_coverage": round(cov * (1 - s), 2) if cov_is_finite else None,
+            "stressed_interest_coverage": round(cov_val * (1 - s), 2) if cov_val is not None else None,
         }
         for s in _SHOCKS
     ]
 
     shock_to_breach = next(
-        (sc["ebitda_shock_pct"] for sc in scenarios if sc["stressed_net_leverage"] >= _BREACH_X),
-        None
+        (sc["ebitda_shock_pct"] for sc in scenarios
+         if (stressed_lev := sc["stressed_net_leverage"]) is not None and stressed_lev >= _BREACH_X),
+        None,
     )
 
     # Fragility ladder: already-distressed or breaches by 10% -> HIGH; by 20% ->
@@ -108,7 +115,7 @@ async def synthesize_downside(cp1: ModulePayload) -> ModulePayload:
         return ModulePayload(
             module_id="CP-2B", module_name="DownsidePathway",
             owned_object="downside_pathway",
-            runtime_output={"scenarios": [], "note": "CP-1 provided no leverage to stress."},
+            runtime_output={"scenarios": [], "note": "CP-1 provided no positive leverage to stress."},
             confidence="Insufficient Information",
             limitation_flags=["CP-1 provided no net leverage; no downside pathway computed."],
             downstream_consumers=["CP-6A"],

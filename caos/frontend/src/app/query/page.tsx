@@ -11,7 +11,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
 import { GroupLauncher } from "@/components/query/GroupLauncher";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
@@ -22,12 +21,14 @@ import { RelativeValueTable } from "@/components/query/RelativeValueTable";
 import { ScatterCanvas } from "@/components/query/ScatterCanvas";
 import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
+import { QueryResultsModal } from "@/components/command/NlQuery";
 import { QueryPrintSheet } from "@/components/query/QueryPrintSheet";
 import { QueryReportSheet } from "@/components/query/QueryReportSheet";
 import { ReportRail } from "@/components/query/ReportRail";
 import { useNotify } from "@/components/shared/Notifications";
-import { acceptQueryLink, listQueryLinks, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
+import { acceptQueryLink, listQueryLinks, nlQuery, queryAnswer, queryCapabilities, queryGraph, queryInsights, queryOverlay, queryRoute, retractQueryLink } from "@/lib/api";
 import type { AnswerResult, Capability, CapabilitiesResult, GraphResult, GraphNode, InsightBrief, InsightCard, OverlayEdge, OverlayResult } from "@/lib/query/graph";
+import type { NlQueryResult } from "@/lib/query/types";
 import { pairKey } from "@/lib/query/graph";
 import { addSection, parseStoredReport, removeSection, REPORT_STORAGE_KEY, sectionId, type ReportSection } from "@/lib/query/report";
 import { downloadQueryCsv } from "@/lib/query/export";
@@ -36,6 +37,9 @@ import { engineNote, QUESTIONS, questionFor, questionGroups } from "@/lib/query/
 import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { synthesize } from "@/lib/query/synthesis";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import Link from "next/link";
+import { ConceptNav } from "@/components/shared/ConceptNav";
 
 export default function QueryPage() {
   return (
@@ -107,6 +111,9 @@ function QueryWorkspace() {
   const [brief, setBrief] = useState<InsightBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
   const [briefCollapsed, setBriefCollapsed] = useState(false);
+  // NOTE: Phase-2 watchlist editor (WatchlistEditor.tsx + /api/query/watchlist)
+  // is built but not yet rendered here — re-add the import + a collapsible toggle
+  // when wiring the Desk-Brief personalization control into this layout.
   // Layout F — the running report the analyst assembles, the right-rail tab, and
   // which print-root is live (only one at a time so window.print never doubles).
   const [report, setReport] = useState<ReportSection[]>([]);
@@ -116,6 +123,19 @@ function QueryWorkspace() {
   const [answer, setAnswer] = useState<AnswerResult | null>(null);
   const [answerLoading, setAnswerLoading] = useState(false);
   const answerSeq = useRef(0);
+  // One-box unification (additive) — the "Scan metrics" lane: an explicit
+  // secondary action beside the walk-primary Run button. Calls the /nl metric
+  // planner and renders the ranked table / evidence list in the shared
+  // QueryResultsModal (reused from the Command Center /nl box). Walk stays the
+  // primary action (Enter); the analyst chooses the metric lane explicitly, so
+  // intent is never silently misrouted (RT-2026-07-07-26). Auto-detection is a
+  // documented follow-on, not this phase.
+  const [metricRes, setMetricRes] = useState<NlQueryResult | null>(null);
+  const [metricBusy, setMetricBusy] = useState(false);
+  const [metricErr, setMetricErr] = useState<string | null>(null);
+  const [metricOpen, setMetricOpen] = useState(false);
+  const [metricLive, setMetricLive] = useState("");
+  const metricAbort = useRef<AbortController | null>(null);
   // Q3 ambient overlay: fire the model overlay once per session on the analyst's
   // first explicit walk, so there is model commentary without per-click spend.
   const didAutoOverlay = useRef(false);
@@ -129,7 +149,18 @@ function QueryWorkspace() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem("caos:query-history");
-      if (stored) setHistory(JSON.parse(stored));
+      if (stored) {
+        const parsed: unknown = JSON.parse(stored);
+        // Element-shape check, not just Array.isArray: a hand-edited or
+        // schema-drifted entry ([null], {text: 42}) would otherwise crash the
+        // dropdown render / addToHistory on every visit until storage is cleared.
+        if (Array.isArray(parsed)) {
+          setHistory(parsed.filter((h): h is HistoryEntry =>
+            !!h && typeof h === "object"
+            && typeof (h as HistoryEntry).text === "string"
+            && typeof (h as HistoryEntry).capId === "string"));
+        }
+      }
     } catch (e) {
       console.warn("Could not load history", e);
     }
@@ -354,8 +385,12 @@ function QueryWorkspace() {
     if (!caps?.availability?.model_lane) return;
     didAutoOverlay.current = true;
     setOverlayBusy(true);
+    // Seq guard (same contract as queryGraph): the overlay lane runs 30–130s, so a
+    // late resolution after the analyst ran a different question must not attach
+    // the OLD graph's overlay to the new graph. run() clears overlay + bumps seq.
+    const seq = runSeq.current;
     queryOverlay(graph.capability_id)
-      .then((o) => setOverlay((cur) => cur ?? o)) // never clobber a manual toggle
+      .then((o) => { if (seq === runSeq.current) setOverlay((cur) => cur ?? o); }) // never clobber a manual toggle
       .catch(() => { /* ambient — silent, the deterministic graph is untouched */ })
       .finally(() => setOverlayBusy(false));
   }, [graph, caps]);
@@ -365,8 +400,15 @@ function QueryWorkspace() {
   // so the analyst can accept several proposals in one sitting.
   const refreshGraph = useCallback(() => {
     if (!activeId) return;
+    // Bind to the current run sequence: if the analyst switches capability (run()
+    // bumps runSeq) while this refresh is in flight, its response must not clobber
+    // the newer graph. Mirrors the guard in run(). (audit F5)
+    const seq = runSeq.current;
     queryGraph(activeId, undefined, activeId === "shared-theme" ? theme : undefined)
-      .then(setGraph)
+      .then((g) => {
+        if (seq !== runSeq.current) return;
+        setGraph(g);
+      })
       // The link IS stored server-side; only the redraw failed. Don't leave the
       // "ratified" toast sitting over a graph that never drew the new edge —
       // tell the analyst the view is stale so they reload. SEAM3-8.
@@ -525,6 +567,51 @@ function QueryWorkspace() {
     setSuggest([]);
   }, []);
 
+  // One-box unification — the "Scan metrics" lane (additive secondary action).
+  // Calls the /nl metric planner and opens the shared QueryResultsModal with the
+  // ranked table / evidence list. Independent of the walk flow: it does NOT touch
+  // graph/answer/route state, so a metric scan never disturbs a live walk. A
+  // second click while in-flight aborts (button reads CANCEL). Fault-isolated: a
+  // 422 ("Couldn't map that to a known metric") surfaces as an in-modal hint, not
+  // a page-level error — the analyst can rephrase or fall back to Run (walk).
+  const cancelMetric = useCallback(() => {
+    metricAbort.current?.abort();
+  }, []);
+
+  const scanMetrics = useCallback(() => {
+    const question = text.trim();
+    if (!question || metricBusy) return;
+    const ctrl = new AbortController();
+    metricAbort.current = ctrl;
+    setMetricBusy(true);
+    setMetricErr(null);
+    setMetricRes(null);
+    setMetricOpen(true);
+    setMetricLive("Scanning the metric store…");
+    nlQuery(question, ctrl.signal)
+      .then((r) => {
+        setMetricRes(r);
+        const n = r.rows.length;
+        setMetricLive(`${n} ${n === 1 ? "issuer" : "issuers"} returned.`);
+      })
+      .catch((e) => {
+        if (ctrl.signal.aborted) {
+          setMetricRes(null);
+          setMetricLive("Scan cancelled.");
+          return;
+        }
+        const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
+          || (e as Error)?.message || "scan failed";
+        setMetricErr(String(detail));
+        setMetricRes(null);
+        setMetricLive("Scan failed.");
+      })
+      .finally(() => {
+        if (metricAbort.current === ctrl) metricAbort.current = null;
+        setMetricBusy(false);
+      });
+  }, [text, metricBusy]);
+
   // Loud routing: prefer the LLM router (reasons shown, alternatives offered),
   // degrade to the keyword router on empty candidates or any failure — routing
   // never gets worse than the deterministic path.
@@ -652,31 +739,53 @@ function QueryWorkspace() {
     return overlay.edges.filter((e) => !drawn.has(pairKey(e.source, e.target)));
   }, [overlay, graph]);
 
+  const narrowContract: NarrowContract = {
+    essentialControls: (
+      <>
+        <VaultMemoUpload
+          onUploaded={() => {
+            queryCapabilities().then(setCaps).catch(() => {});
+            if (activeId === "analyst-memos") pick("analyst-memos");
+          }}
+        />
+        <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
+      </>
+    ),
+  };
+
   return (
-    <div className="h-screen flex flex-col">
-      <PageSubHeader gap="gap-4">
-        <QueryMark />
-        <div className="min-w-0">
-          <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
-          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted leading-none mt-1">
-            proactive research over coverage
+    <ResponsiveShell
+      identity={
+        <>
+          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
+            ← Directory
+          </Link>
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <ConceptNav compact />
+          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <QueryMark />
+          <div className="min-w-0">
+            <div className="tabular text-caos-xl text-caos-text font-semibold leading-none">Query</div>
+            <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted leading-none mt-1">
+              proactive research over coverage
+            </div>
           </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2 overflow-hidden">
+        </>
+      }
+      contextualControls={
+        <>
           <VaultMemoUpload
             onUploaded={() => {
-              // New wikilinks may ungrey / repopulate the Wiki & Memos edge.
               queryCapabilities().then(setCaps).catch(() => {});
               if (activeId === "analyst-memos") pick("analyst-memos");
             }}
           />
           <MetricPill label="answerable" value={caps ? `${totalReady}/${totalCaps}` : "loading"} />
-          {/* The active question already leads the answer header below — no need
-              to triplicate it here. */}
           {running && <span className="tabular text-caos-2xs text-caos-accent caos-running">building answer</span>}
-        </div>
-      </PageSubHeader>
-
+        </>
+      }
+      narrowContract={narrowContract}
+    >
       <div className="flex-1 min-h-0 flex bg-caos-bg">
         <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Layout F — the ask bar is anchored at the BOTTOM (order-last), so the
@@ -721,6 +830,21 @@ function QueryWorkspace() {
                   className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
                 >
                   Run
+                </button>
+                {/* One-box unification (additive) — the metric-search lane as an
+                    explicit secondary action. Enter stays walk-primary; this
+                    button is the only way into the /nl metric lane, so intent is
+                    never silently misrouted (RT-2026-07-07-26). A second click
+                    while in-flight aborts (reads CANCEL). */}
+                <button
+                  type="button"
+                  onClick={() => (metricBusy ? cancelMetric() : scanMetrics())}
+                  disabled={!metricBusy && !text.trim()}
+                  aria-label={metricBusy ? "Cancel metric scan" : "Scan metrics across coverage"}
+                  title="Rank issuers across the metric store — e.g. 'which issuers are most levered'"
+                  className="tabular text-caos-sm px-3 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {metricBusy ? "CANCEL" : "SCAN METRICS"}
                 </button>
               </div>
 
@@ -947,13 +1071,20 @@ function QueryWorkspace() {
                         setOverlay(null);
                         return;
                       }
+                      // The overlay LLM lane runs 30-130s; bind the run sequence so a
+                      // capability switch mid-flight (run() bumps runSeq + clears the
+                      // overlay) can't have this stale response draw its proposed links
+                      // over a different graph.
+                      const seq = runSeq.current;
                       setOverlayBusy(true);
                       queryOverlay(activeId)
                         .then((o) => {
+                          if (seq !== runSeq.current) return;
                           setOverlay(o);
                           notify("Model overlay ready", `${o.edges.length} proposed link${o.edges.length === 1 ? "" : "s"}${o.cached ? " (cached)" : ""}`);
                         })
                         .catch((e) => {
+                          if (seq !== runSeq.current) return;
                           const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
                             || (e as Error)?.message || "model overlay failed";
                           notify("Model overlay failed", String(d));
@@ -1124,6 +1255,28 @@ function QueryWorkspace() {
 
       {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
 
+      {/* One-box unification — the "Scan metrics" result overlay. Reuses the
+          Command Center /nl modal verbatim (QueryResultsModal), so the ranked
+          table / evidence list / chart / caveats render identically on both
+          surfaces. The citation chips call back into the shared `cite` state
+          above, so the same CitationViewer backs both the walk and metric lanes.
+          Walk stays primary (Enter); this modal is opened only by the explicit
+          SCAN METRICS button (RT-2026-07-07-26 / 27). */}
+      {metricOpen && (
+        <QueryResultsModal
+          question={text}
+          res={metricRes}
+          busy={metricBusy}
+          err={metricErr}
+          onClose={() => {
+            setMetricOpen(false);
+            if (metricBusy) cancelMetric();
+          }}
+          openCite={(id, label) => setCite({ id, label })}
+        />
+      )}
+      <div className="sr-only" role="status" aria-live="polite">{metricLive}</div>
+
       {/* Committee print exhibits (display:none until window.print()). Only ONE
           print-root is live at a time — the per-graph exhibit by default, the
           multi-section research report while exporting — so print never doubles. */}
@@ -1136,7 +1289,7 @@ function QueryWorkspace() {
         />
       )}
       {printMode === "report" && <QueryReportSheet sections={report} graph={graph} />}
-    </div>
+    </ResponsiveShell>
   );
 }
 

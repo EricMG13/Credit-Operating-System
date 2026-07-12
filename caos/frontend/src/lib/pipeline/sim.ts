@@ -4,8 +4,8 @@
 // pure engine on a timer and exposes play/speed/reset controls plus the derived
 // completed/total counts to the Pipeline Visualizer.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { type PlanStep } from "./data";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { SIM_PLAN, type PlanStep } from "./data";
 import { type Sim, initSim, simClock, stepSim } from "./sim-engine";
 
 export interface SimRun {
@@ -63,5 +63,72 @@ export function useSimRun({
     sim, playing, setPlaying, speed, setSpeed, reset,
     clock: simClock(sim.tick), completed,
     total: plan.filter((m) => m.outcome !== "idle").length,
+  };
+}
+
+// Command, Monitor, and Sector RV all replay the SAME SIM_PLAN as "today" —
+// each previously called useSimRun independently, so "alerts today" and the
+// clock disagreed depending on which page had been mounted longer (critique
+// P1: PM-facing numbers must agree). This module-level singleton (same
+// pattern as the scroll-lock counter in use-modal-a11y.ts) is the one ongoing
+// clock all three subscribe to via useSyncExternalStore, so navigating
+// between them shows the same tick everywhere. Pipeline (per-scenario plans)
+// and Deep-Dive (prefill/instant-complete) are a different use case and keep
+// their own independent useSimRun instance.
+interface SharedDayState { sim: Sim; playing: boolean; speed: number }
+let sharedState: SharedDayState = { sim: initSim(SIM_PLAN), playing: true, speed: 1 };
+let sharedIntervalId: ReturnType<typeof setInterval> | null = null;
+const sharedListeners = new Set<() => void>();
+const notifySharedDay = () => sharedListeners.forEach((l) => l());
+
+function stopSharedDayInterval() {
+  if (sharedIntervalId !== null) {
+    clearInterval(sharedIntervalId);
+    sharedIntervalId = null;
+  }
+}
+function startSharedDayInterval() {
+  if (sharedIntervalId !== null || !sharedState.playing || sharedState.sim.done) return;
+  sharedIntervalId = setInterval(() => {
+    sharedState = { ...sharedState, sim: stepSim(sharedState.sim, SIM_PLAN, null) };
+    notifySharedDay();
+    if (sharedState.sim.done) stopSharedDayInterval();
+  }, 650 / sharedState.speed);
+}
+if (typeof window !== "undefined") startSharedDayInterval();
+
+export function useSharedDayRun(): SimRun {
+  const subscribe = useCallback((cb: () => void) => {
+    sharedListeners.add(cb);
+    return () => sharedListeners.delete(cb);
+  }, []);
+  const getSnapshot = useCallback(() => sharedState, []);
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  const setPlaying = useCallback((p: boolean) => {
+    sharedState = { ...sharedState, playing: p };
+    stopSharedDayInterval();
+    if (p) startSharedDayInterval();
+    notifySharedDay();
+  }, []);
+  const setSpeed = useCallback((s: number) => {
+    sharedState = { ...sharedState, speed: s };
+    stopSharedDayInterval();
+    startSharedDayInterval();
+    notifySharedDay();
+  }, []);
+  const reset = useCallback(() => {
+    stopSharedDayInterval();
+    sharedState = { sim: initSim(SIM_PLAN), playing: true, speed: sharedState.speed };
+    startSharedDayInterval();
+    notifySharedDay();
+  }, []);
+
+  const { sim, playing, speed } = state;
+  const completed = SIM_PLAN.filter((m) => ["pass", "warning", "held"].includes(sim.mods[m.id]?.state)).length;
+  return {
+    sim, playing, setPlaying, speed, setSpeed, reset,
+    clock: simClock(sim.tick), completed,
+    total: SIM_PLAN.filter((m) => m.outcome !== "idle").length,
   };
 }

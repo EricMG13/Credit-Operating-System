@@ -47,3 +47,29 @@ describe("api shape guards", () => {
     await expect(getIssuers()).rejects.toThrow("Invalid issuer response");
   });
 });
+
+// M-13a regression: the request interceptor reads localStorage (loadMode() +
+// the caos_query_model key) with no guard. In a browser with localStorage
+// disabled/full/blocked (private-mode Safari, some corporate policies), a
+// throwing read must not break every single API call's interceptor.
+describe("api request interceptor — localStorage resilience (M-13a)", () => {
+  it("does not break the request when localStorage.getItem throws", async () => {
+    // jsdom's window.localStorage instance ignores a per-instance method
+    // override — spy on Storage.prototype so the throw actually reaches the
+    // interceptor's read.
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (key: string) {
+      if (key === "caos_query_model") throw new DOMException("blocked", "SecurityError");
+      return null;
+    });
+    api.defaults.adapter = ((config: unknown) =>
+      Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config: config as never,
+        data: [],
+      })) as never;
+
+    await expect(api.get("/api/runs")).resolves.toBeTruthy();
+  });
+});

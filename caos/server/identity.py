@@ -58,6 +58,10 @@ class CallerIdentity:
     # Where the identity came from: "profile" (in-app login), "proxy" (edge SSO),
     # or "local" (dev fallback). The frontend gates the login landing on this.
     source: str = "local"
+    # The caller's team for multi-team tenancy (tenancy.py). Resolved from the signed-in
+    # analyst's row; None for a proxy/local caller with no profile. Inert unless
+    # CAOS_TENANCY_ENABLED (single-team default ignores it).
+    team_id: str | None = None
 
 
 def _sig(raw: str, secret: str) -> str:
@@ -114,7 +118,7 @@ _LOCAL_DEV = CallerIdentity(
 
 
 async def get_identity(
-    request: Request, db: AsyncSession = Depends(get_db)
+    request: Request, db: AsyncSession = Depends(get_db, scope="function")
 ) -> CallerIdentity:
     """FastAPI dependency: resolve the caller.
 
@@ -183,6 +187,7 @@ async def get_identity(
                         email=cookie_email,
                         full_name=sanitize_field(data["name"]),
                         source="profile",
+                        team_id=analyst.team_id,  # multi-team tenancy scope (inert unless enabled)
                     )
 
     email = request.headers.get("x-forwarded-email")
