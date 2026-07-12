@@ -508,7 +508,15 @@ LLM-adjacent surface and must hold the fault-isolation invariant.
 it. Runs parallel to C after B. **Shrunk this grounding — D2 (RAG answer
 lane) is done and moved to §1's working table.**
 
-- [ ] **D1 (M)** OCR lane completion. The extraction lane is built and
+- [ ] **D1 (M)** *(Exec 2026-07-12: PR #183 open — document_chunks.prov
+  migration 0039 (NULL=native, "ocr"=Tesseract recognition), extract_pdf_text
+  now returns (text, used_ocr) threaded into chunk_prov on upload_document;
+  new golden test drives a genuinely image-only PDF (PIL render → JPEG →
+  hand-built /DCTDecode PDF, zero text layer, verified empty via pypdf)
+  through the real upload API with the real installed ocrmypdf/tesseract
+  binaries (not a stub) — confirms prov=="ocr" + recovered text. (c) already
+  true pre-PR: ocrmypdf/tesseract-ocr installed at deploy/Dockerfile:35. Full
+  suite 1407/6 skipped, migration round-trips clean.)* OCR lane completion. The extraction lane is built and
   stub-tested: `ocrmypdf`/tesseract config (`config.py:237`
   `ocrmypdf_cmd="ocrmypdf"`, 300s timeout) and `_ocrmypdf_text`
   (`ingest.py:123`, called at `:168`, degrades to `""` on missing binary);
