@@ -19,7 +19,14 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 import { AlertFeed, EmailIntel } from "@/components/command/views";
 import { AlertInbox } from "@/components/monitor/AlertInbox";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows } from "@/lib/alerts/inbox";
+import { draftToAlertRows, requiredActionFor } from "@/lib/alerts/inbox";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { GovernancePanel } from "@/components/command/GovernancePanel";
+import { usePortfolio } from "@/lib/engine/usePortfolio";
+import { useDigest } from "@/lib/engine/useDigest";
+import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
+import { liveGaps } from "@/lib/command/gaps";
+import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
 
 export default function MonitorPage() {
   return (
@@ -33,6 +40,15 @@ function Monitor() {
   const { draft, offline: autonomyOffline } = useAutonomyDraft();
   const liveRows = draft ? draftToAlertRows(draft) : [];
   const hasLiveAlerts = !autonomyOffline && liveRows.length > 0;
+  const topRow = liveRows[0];
+  // Governance's shared queue (Command shows the identical categories from the
+  // same live sources — QA queues visible from both, per the handoff).
+  const portfolio = usePortfolio();
+  const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
+  const liveFailed = portfolio.live ? liveFailedGates(portfolio.rows) : undefined;
+  const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
+  const liveMixed = portfolio.live ? liveMixedOrigin(portfolio.rows) : undefined;
+  const { digest, live: digestLive } = useDigest();
   // Default: demo disclosure open when there's nothing live to show, closed
   // once live rows exist. `null` = follow that default; a click overrides for
   // the session (same disclosure pattern as DecisionHeader).
@@ -116,8 +132,26 @@ function Monitor() {
         ),
       }}
     >
+      {/* Decision header — cells populate from the live autonomy draft only;
+          offline they state "— no data" rather than promoting the seeded
+          replay into a decision strip (mock-vs-live seam, matches Command). */}
+      <DecisionHeader
+        whatChanged={hasLiveAlerts ? liveRows.slice(0, 3).map((r) => r.event).join(" · ") : undefined}
+        whyItMatters={hasLiveAlerts && topRow ? `${topRow.reason} · severity ${topRow.severity}` : undefined}
+        requiredAction={hasLiveAlerts && topRow ? requiredActionFor(topRow) : undefined}
+        evidenceHealth={
+          hasLiveAlerts
+            ? {
+                origin: "LIVE",
+                method: "MODELLED",
+                detail: `${liveRows.length} alert${liveRows.length === 1 ? "" : "s"} routed from the live autonomy draft`,
+              }
+            : undefined
+        }
+      />
       {/* workspace — intake stream is primary; alert routing rides alongside */}
-      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-2 p-2">
+      <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 overflow-auto">
+      <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-2">
         <PanelShell
           title="Email Intelligence · CP-MON intake"
           className="min-h-0"
@@ -178,6 +212,25 @@ function Monitor() {
             <AlertFeed tick={tick} running={running} done={done} sevFilter={criticalOnly ? "critical" : null} />
           ) : null}
         </PanelShell>
+      </div>
+      {/* Shared governance queue — identical categories to Command's, off the
+          same live portfolio/digest sources, so QA queues are visible from
+          both surfaces (handoff persona resolution). mb-9 clears the floating
+          Ask launcher, matching Command's panel. */}
+      <PanelShell
+        title="Governance · CP-5 / CP-0 / Staleness"
+        className="flex-none min-h-0 mb-9"
+        collapsible
+        defaultCollapsed={true}
+      >
+        <GovernancePanel
+          liveQa={liveQa}
+          liveFailedGates={liveFailed}
+          liveGaps={liveGapsItems}
+          liveMixedOrigin={liveMixed}
+          staleRows={digestLive ? digest?.stale ?? [] : []}
+        />
+      </PanelShell>
       </div>
     </ResponsiveShell>
   );

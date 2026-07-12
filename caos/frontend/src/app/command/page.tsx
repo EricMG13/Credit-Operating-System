@@ -19,8 +19,9 @@ import { Panel as PanelShell } from "@/components/shared/Panel";
 import { LiveCoverage } from "@/components/command/LiveCoverage";
 import { DailyDigestPanel } from "@/components/command/DailyDigestPanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
-import { liveQaItems } from "@/lib/command/qa";
+import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
 import { liveGaps } from "@/lib/command/gaps";
+import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
 import { useDigest } from "@/lib/engine/useDigest";
 import {
   IssuerStrip,
@@ -56,8 +57,13 @@ function CommandCenter() {
   // Prefer the live CP-5 gate queue (real run roll-ups) over the seeded finding
   // list when a backend answered; offline, QaQueue falls back to the seed (A-1).
   const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
+  // Committee-only gate failures (Draft Only / Insufficient Info despite a
+  // passed CP-5 severity gate) — a distinct governance category from liveQa.
+  const liveFailed = portfolio.live ? liveFailedGates(portfolio.rows) : undefined;
   // Live CP-0 source-gap board off the same portfolio fetch; seed fallback offline.
   const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
+  // Live-run-backed issuers whose bespoke tabs still stay the reference fixture.
+  const liveMixed = portfolio.live ? liveMixedOrigin(portfolio.rows) : undefined;
   // Live coverage-health digest (staleness / WARF / CCC watch); empty → the
   // research lens keeps only its seeded panels.
   const { digest, live: digestLive } = useDigest();
@@ -174,7 +180,7 @@ function CommandCenter() {
         }
         requiredAction={
           portfolio.live
-            ? `${(liveQa ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`
+            ? `${(liveQa ?? []).length + (liveFailed ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`
             : undefined
         }
         evidenceHealth={
@@ -291,7 +297,13 @@ function CommandCenter() {
             collapsible
             defaultCollapsed={true}
           >
-            <GovernancePanel liveQa={liveQa} liveGaps={liveGapsItems} staleRows={digestLive ? digest?.stale ?? [] : []} />
+            <GovernancePanel
+              liveQa={liveQa}
+              liveFailedGates={liveFailed}
+              liveGaps={liveGapsItems}
+              liveMixedOrigin={liveMixed}
+              staleRows={digestLive ? digest?.stale ?? [] : []}
+            />
           </PanelShell>
         </div>
       </div>

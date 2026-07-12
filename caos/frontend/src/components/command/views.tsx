@@ -852,10 +852,24 @@ function EmptyNote({ tone, label, body }: { tone: "success" | "warning"; label: 
 // `items` is the live CP-5 gate queue (lib/command/qa.ts) when a backend is
 // present; absent, it falls back to the seeded per-finding list so the offline
 // demo is unchanged. An empty live array is a real "queue clear" state.
-export function QaQueue({ items }: { items?: QaQueueItem[] }) {
-  const queue = items ?? QA_QUEUE;
+export function QaQueue({
+  items,
+  noFallback = false,
+  emptyLabel = "QA queue clear",
+  emptyBody = "No open CP-5 findings. New QA-gate failures land here for triage.",
+}: {
+  items?: QaQueueItem[];
+  /** Governance's new categories (Failed Gates) have no seeded demo fixture —
+   *  `noFallback` keeps an undefined/offline `items` at an honest empty state
+   *  instead of falling back to the original QA_QUEUE seed (which would
+   *  duplicate those five rows under a second heading). */
+  noFallback?: boolean;
+  emptyLabel?: string;
+  emptyBody?: string;
+}) {
+  const queue = items ?? (noFallback ? [] : QA_QUEUE);
   if (queue.length === 0) {
-    return <EmptyNote tone="success" label="QA queue clear" body="No open CP-5 findings. New QA-gate failures land here for triage." />;
+    return <EmptyNote tone="success" label={emptyLabel} body={emptyBody} />;
   }
   return (
     <div>
