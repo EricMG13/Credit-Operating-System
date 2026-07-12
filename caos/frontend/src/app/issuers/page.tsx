@@ -20,6 +20,8 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { BatchBar } from "@/components/shared/BatchBar";
+import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
 
 export default function IssuersPage() {
   return (
@@ -34,7 +36,7 @@ export default function IssuersPage() {
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
-const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const COLS = "grid grid-cols-[28px_60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
 
@@ -68,6 +70,9 @@ function IssuersDirectory() {
   // in a scannable order (H7). Clicking a sortable header cycles asc→desc→none;
   // `null` (cleared) reverts to the raw server/demo order.
   const [sort, setSort] = useState<SortState>({ col: "name", dir: "asc" });
+  // BatchBar selection (WP-10). Pruned against `issuers` below so a stale id
+  // never survives a reload/search that drops that row from the register.
+  const [selected, setSelected] = useState<string[]>([]);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -116,6 +121,13 @@ function IssuersDirectory() {
     const q = new URLSearchParams(window.location.search).get("q");
     if (q) setQuery(q);
   }, []);
+
+  // Drop any selected id that's no longer in the register (search/reload
+  // swapped the row set out from under it) — a batch action must never run
+  // against an issuer that isn't there to run it against.
+  useEffect(() => {
+    setSelected((prev) => prev.filter((id) => issuers.some((i) => i.id === id)));
+  }, [issuers]);
 
   const filterVals = useMemo<Record<(typeof FILTER_KEYS)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
     ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
@@ -170,6 +182,27 @@ function IssuersDirectory() {
       }
       return next;
     });
+
+  const toggleSelect = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  // Select-all applies to the currently visible (filtered+sorted) rows only —
+  // toggling it never touches a selection made outside the current view.
+  const shownIds = shownIssuers.map((i) => i.id);
+  const allShownSelected = shownIds.length > 0 && shownIds.every((id) => selected.includes(id));
+  const toggleSelectAllShown = () =>
+    setSelected((prev) =>
+      allShownSelected ? prev.filter((id) => !shownIds.includes(id)) : Array.from(new Set([...prev, ...shownIds]))
+    );
+
+  // Exactly three real actions — Run pipeline, Add to watchlist, Export CSV.
+  // No delete/refresh/assign: none of those have real backing semantics yet,
+  // and BatchBar's contract is to never claim a fake blanket "done".
+  const batchActions = [
+    runPipelineAction(selected.length),
+    addToWatchlistAction(selected),
+    exportCsvAction(issuers.filter((i) => selected.includes(i.id))),
+  ];
 
   const summaryLabel = loading
     ? "loading…"
@@ -335,10 +368,16 @@ function IssuersDirectory() {
             </span>
           }
         >
+          {selected.length > 0 ? (
+            <div className="px-2 pt-2 pb-1">
+              <BatchBar selected={selected} onClear={() => setSelected([])} itemLabel="issuer" actions={batchActions} />
+            </div>
+          ) : null}
           {loading ? (
             <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
               {Array.from({ length: 9 }).map((_, i) => (
                 <div key={i} className={COLS + " px-3 py-[7px] border-b border-caos-border/50"}>
+                  <span />
                   <span className="h-2.5 w-9 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-44 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-8 rounded-sm bg-caos-elevated/70" />
@@ -391,6 +430,14 @@ function IssuersDirectory() {
           ) : (
             <div role="grid" className="text-caos-xl">
               <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+                <span role="columnheader" className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={allShownSelected}
+                    onChange={toggleSelectAllShown}
+                    aria-label={allShownSelected ? "Deselect all issuers" : "Select all issuers"}
+                  />
+                </span>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
                      key={i}
@@ -433,6 +480,14 @@ function IssuersDirectory() {
                       }}
                       aria-label={`Open profile for ${issuer.name}`}
                       className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
+                    />
+                  </span>
+                  <span role="gridcell" className="relative z-[1] flex items-center min-h-[24px]">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(issuer.id)}
+                      onChange={() => toggleSelect(issuer.id)}
+                      aria-label={`Select ${issuer.name}`}
                     />
                   </span>
                   <span role="gridcell" className="tabular text-caos-accent text-caos-lg">

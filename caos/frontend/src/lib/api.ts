@@ -497,8 +497,19 @@ import type {
 // API-client surface for POST /api/runs, used by UploadWizard. portfolioId is
 // optional: omit to let the server auto-bind the book that holds the issuer
 // (CP-3C concentration); pass one to evaluate against a specific book.
-export const createRun = (issuerId: string, asOfDate?: string, portfolioId?: string): Promise<RunSummaryDTO> =>
-  api.post("/api/runs", { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId }).then((r) => r.data);
+// idempotencyKey is optional too: the server (routes/runs.py) reads an
+// Idempotency-Key header to dedupe a dropped-response retry against a run it
+// already created, rather than creating a duplicate. UploadWizard's calls
+// omit it (its own dedup is the 409 active-run check); batch callers that
+// fire several of these in a row (e.g. the Issuers directory BatchBar) pass one.
+export const createRun = (
+  issuerId: string, asOfDate?: string, portfolioId?: string, idempotencyKey?: string,
+): Promise<RunSummaryDTO> =>
+  api.post(
+    "/api/runs",
+    { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId },
+    idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : undefined,
+  ).then((r) => r.data);
 
 export const listRuns = (issuerId?: string): Promise<RunListItemDTO[]> =>
   api.get("/api/runs", { params: issuerId ? { issuer_id: issuerId } : {} }).then((r) => r.data);
