@@ -546,6 +546,45 @@ export const listQaFlags = (params: {
   run_id?: string;
 }): Promise<QaFlagDTO[]> => api.get("/api/qa/flags", { params }).then((r) => r.data);
 
+// IC Decision Record (C8) — append-only per-issuer record. No update/delete
+// route by design (a revised view is a new row, not an edit).
+export type DecisionRecommendation = "OVERWEIGHT" | "NEUTRAL" | "UNDERWEIGHT" | "PASS";
+export type DecisionConviction = "HIGH" | "MEDIUM" | "LOW";
+export type DecisionOutcome = "approved" | "declined" | "revisit-by";
+
+export interface DecisionRecordDTO {
+  id: string;
+  issuer_id: string;
+  // Populated only by listDecisionRecords (joins Issuer for the cross-issuer
+  // Command board view) — null on createDecisionRecord's response.
+  issuer_name: string | null;
+  run_id: string | null;
+  report_id: string | null;
+  recommendation: DecisionRecommendation;
+  conviction: DecisionConviction;
+  thesis: string;
+  committee_date: string;
+  decision: DecisionOutcome;
+  dissent: string | null;
+  analyst_id: string | null;
+  created_at: string | null;
+}
+
+export const createDecisionRecord = (data: {
+  issuer_id: string;
+  run_id?: string;
+  report_id?: string;
+  recommendation: DecisionRecommendation;
+  conviction: DecisionConviction;
+  thesis: string;
+  committee_date: string;
+  decision: DecisionOutcome;
+  dissent?: string;
+}): Promise<DecisionRecordDTO> => api.post("/api/decisions", data).then((r) => r.data);
+
+export const listDecisionRecords = (params: { issuer_id?: string } = {}): Promise<DecisionRecordDTO[]> =>
+  api.get("/api/decisions", { params }).then((r) => r.data);
+
 // Committee export — rejects (409) unless the run is Committee Ready.
 // Surface ahead of its UI consumer (Report Studio).
 // fallow-ignore-next-line unused-export

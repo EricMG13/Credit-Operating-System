@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getCrossDefaultMap, getIssuerProfile, queryGraph, type BusinessFact, type CrossDefaultMap, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { createDecisionRecord, getCrossDefaultMap, getIssuerProfile, listDecisionRecords, queryGraph, type BusinessFact, type CrossDefaultMap, type DecisionConviction, type DecisionOutcome, type DecisionRecommendation, type DecisionRecordDTO, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -532,6 +532,7 @@ export function Profile({
     { id: "profile-trends", label: "Trends & Thesis" },
     { id: "profile-business", label: "Business & Coverage" },
     { id: "profile-market", label: "Market & Notes" },
+    { id: "profile-decisions", label: "IC Decisions" },
     { id: "profile-earnings", label: "Earnings & Runs" },
   ];
 
@@ -722,6 +723,11 @@ export function Profile({
 
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
+
+        <div id="profile-decisions" />
+        {/* Row 4b — IC Decision Record (C8): the natural terminus of the whole
+            pipeline. Full-width — higher governance weight than a sidebar panel. */}
+        <DecisionRecordPanel issuerId={id} />
 
         <div id="profile-earnings" />
         {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
@@ -939,6 +945,193 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
                   ) : null}
                 </div>
                 {note.excerpt ? <p className="tabular text-caos-xs text-caos-muted mt-0.5">{note.excerpt}</p> : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+const DECISION_RECOMMENDATIONS: DecisionRecommendation[] = ["OVERWEIGHT", "NEUTRAL", "UNDERWEIGHT", "PASS"];
+const DECISION_CONVICTIONS: DecisionConviction[] = ["HIGH", "MEDIUM", "LOW"];
+const DECISION_OUTCOMES: DecisionOutcome[] = ["approved", "declined", "revisit-by"];
+
+// C8 — IC Decision Record: the append-only "what did we decide, when, on
+// what evidence, and who dissented" close to the pipeline. No edit/delete —
+// a revised view is logged as a new row, matching the E3 audit-trail
+// discipline this record is meant to sit alongside.
+export function DecisionRecordPanel({ issuerId }: { issuerId: string }) {
+  const [records, setRecords] = useState<DecisionRecordDTO[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"idle" | "composing" | "submitting" | "error">("idle");
+  const [form, setForm] = useState({
+    recommendation: "NEUTRAL" as DecisionRecommendation,
+    conviction: "MEDIUM" as DecisionConviction,
+    thesis: "",
+    committee_date: new Date().toISOString().slice(0, 10),
+    decision: "approved" as DecisionOutcome,
+    dissent: "",
+  });
+
+  useEffect(() => {
+    let stale = false;
+    listDecisionRecords({ issuer_id: issuerId })
+      .then((rows) => { if (!stale) setRecords(rows); })
+      .catch((e) => {
+        if (stale) return;
+        const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || (e as Error)?.message || "could not load decision records";
+        setError(String(detail));
+      });
+    return () => { stale = true; };
+  }, [issuerId]);
+
+  const submit = () => {
+    if (!form.thesis.trim()) return;
+    setPhase("submitting");
+    createDecisionRecord({
+      issuer_id: issuerId,
+      recommendation: form.recommendation,
+      conviction: form.conviction,
+      thesis: form.thesis.trim(),
+      committee_date: form.committee_date,
+      decision: form.decision,
+      dissent: form.dissent.trim() || undefined,
+    })
+      .then((r) => {
+        setRecords((prev) => [r, ...(prev ?? [])]);
+        setForm((f) => ({ ...f, thesis: "", dissent: "" }));
+        setPhase("idle");
+      })
+      .catch(() => setPhase("error"));
+  };
+
+  return (
+    <Panel
+      title="IC decision record"
+      right={records?.length ? <span className="tabular text-caos-2xs text-caos-muted">{records.length} on file</span> : null}
+    >
+      <div className="px-3 py-2 flex flex-col gap-2">
+        {phase === "composing" || phase === "submitting" ? (
+          <div className="flex flex-col gap-1.5 pb-2 border-b border-caos-border/40">
+            <div className="grid grid-cols-3 gap-1.5">
+              <label className="flex flex-col gap-0.5">
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Recommendation</span>
+                <select
+                  value={form.recommendation}
+                  onChange={(e) => setForm((f) => ({ ...f, recommendation: e.target.value as DecisionRecommendation }))}
+                  className="rounded border border-caos-border bg-caos-bg px-1.5 py-1 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos"
+                >
+                  {DECISION_RECOMMENDATIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Conviction</span>
+                <select
+                  value={form.conviction}
+                  onChange={(e) => setForm((f) => ({ ...f, conviction: e.target.value as DecisionConviction }))}
+                  className="rounded border border-caos-border bg-caos-bg px-1.5 py-1 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos"
+                >
+                  {DECISION_CONVICTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Committee date</span>
+                <input
+                  type="date"
+                  value={form.committee_date}
+                  onChange={(e) => setForm((f) => ({ ...f, committee_date: e.target.value }))}
+                  className="rounded border border-caos-border bg-caos-bg px-1.5 py-1 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos"
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-0.5">
+              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Thesis</span>
+              <textarea
+                value={form.thesis}
+                onChange={(e) => setForm((f) => ({ ...f, thesis: e.target.value }))}
+                maxLength={2000}
+                rows={2}
+                autoFocus
+                placeholder="One-sentence thesis behind the call."
+                className="rounded border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted resize-y"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <label className="flex flex-col gap-0.5">
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision</span>
+                <select
+                  value={form.decision}
+                  onChange={(e) => setForm((f) => ({ ...f, decision: e.target.value as DecisionOutcome }))}
+                  className="rounded border border-caos-border bg-caos-bg px-1.5 py-1 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos"
+                >
+                  {DECISION_OUTCOMES.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Dissent (optional)</span>
+                <input
+                  value={form.dissent}
+                  onChange={(e) => setForm((f) => ({ ...f, dissent: e.target.value }))}
+                  maxLength={2000}
+                  placeholder="Who dissented, and why"
+                  className="rounded border border-caos-border bg-caos-bg px-1.5 py-1 text-caos-sm text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted"
+                />
+              </label>
+            </div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={submit}
+                disabled={phase === "submitting" || !form.thesis.trim()}
+                className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {phase === "submitting" ? "RECORDING…" : "RECORD DECISION"}
+              </button>
+              <button
+                onClick={() => setPhase("idle")}
+                disabled={phase === "submitting"}
+                className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring disabled:opacity-40"
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2 pb-1">
+            <button
+              onClick={() => setPhase("composing")}
+              className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring"
+            >
+              + RECORD DECISION
+            </button>
+            {phase === "error" ? (
+              <span role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>
+                could not record — check connection and retry
+              </span>
+            ) : null}
+          </div>
+        )}
+
+        {records === null ? (
+          <Empty>{error ? `Couldn't load decision history — ${error}` : "Loading decision history..."}</Empty>
+        ) : records.length === 0 ? (
+          <Empty>No IC decisions recorded for this issuer yet.</Empty>
+        ) : (
+          <div className="flex flex-col divide-y divide-caos-border/40">
+            {records.map((r) => (
+              <div key={r.id} className="py-1.5 first:pt-0 last:pb-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="tabular text-caos-sm text-caos-text font-medium">
+                    {r.recommendation} · {r.conviction} conviction · {r.decision}
+                  </span>
+                  <span className="tabular text-caos-2xs text-caos-muted shrink-0">{r.committee_date}</span>
+                </div>
+                <p className="tabular text-caos-xs text-caos-muted mt-0.5">{r.thesis}</p>
+                {r.dissent ? (
+                  <p className="tabular text-caos-2xs mt-0.5" style={{ color: "var(--caos-warning)" }}>Dissent: {r.dissent}</p>
+                ) : null}
               </div>
             ))}
           </div>

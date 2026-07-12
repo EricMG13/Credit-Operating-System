@@ -14,12 +14,12 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, delete, event, inspect, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -799,6 +799,35 @@ class AnalystQaFlag(Base):
     note: Mapped[Optional[str]] = mapped_column(Text)
     analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DecisionRecord(Base):
+    """IC Decision Record (C8, expansion 4.1) — the append-only "what did we
+    decide, when, on what evidence, and who dissented" close to the pipeline.
+
+    A record, not a workflow: no update/delete route exists (append new rows
+    for a revised view). issuer_id is a required FK (a decision without an
+    issuer is meaningless); run_id/report_id are nullable FKs — the run/report
+    a decision was based on, when one exists — mirroring MetricFact's
+    required-issuer/optional-run shape. analyst_id is a plain stamp (not FK),
+    matching every other analyst-attribution column, so GDPR erasure can
+    anonymize it to NULL without cascade-delete semantics.
+    """
+    __tablename__ = "decision_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    report_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuer_research_reports.id"), index=True)
+    # OVERWEIGHT | NEUTRAL | UNDERWEIGHT (CP-3's own vocabulary, relval.py) | PASS
+    recommendation: Mapped[str] = mapped_column(String(16), nullable=False)
+    conviction: Mapped[str] = mapped_column(String(16), nullable=False)  # HIGH | MEDIUM | LOW
+    thesis: Mapped[str] = mapped_column(Text, nullable=False)
+    committee_date: Mapped[date] = mapped_column(Date, nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)  # approved | declined | revisit-by
+    dissent: Mapped[Optional[str]] = mapped_column(Text)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
 
 
 class AlertState(Base):
