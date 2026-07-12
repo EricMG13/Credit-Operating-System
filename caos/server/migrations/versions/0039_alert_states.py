@@ -7,8 +7,8 @@ anomaly in a LATER cycle is a genuinely new event and should correctly reset to
 open rather than silently inherit a stale ack. Plain strings (no FK) — same
 audit-record shape as AnalystQaFlag, not run state.
 
-Revision ID: 0038
-Revises: 0037
+Revision ID: 0039
+Revises: 0038
 Create Date: 2026-07-12
 """
 from typing import Sequence, Union
@@ -16,8 +16,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0038"
-down_revision: Union[str, None] = "0037"
+revision: str = "0039"
+down_revision: Union[str, None] = "0038"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

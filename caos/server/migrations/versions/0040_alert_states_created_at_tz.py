@@ -1,14 +1,14 @@
 """Fix alert_states.created_at to be timezone-aware.
 
-Migration 0038 created the column as a naive `DateTime()`, but the ORM model
+Migration 0039 created the column as a naive `DateTime()`, but the ORM model
 (AlertState in database.py) declares `DateTime(timezone=True)` like every
 other timestamp column in this codebase. Invisible on SQLite (no tz-aware
 column type there), but on Postgres it lands as `TIMESTAMP WITHOUT TIME ZONE`
 and `alembic check` flags real drift. Reinterpret existing naive values as UTC
 rather than shifting them.
 
-Revision ID: 0039
-Revises: 0038
+Revision ID: 0040
+Revises: 0039
 Create Date: 2026-07-12
 """
 from typing import Sequence, Union
@@ -16,8 +16,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0039"
-down_revision: Union[str, None] = "0038"
+revision: str = "0040"
+down_revision: Union[str, None] = "0039"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
