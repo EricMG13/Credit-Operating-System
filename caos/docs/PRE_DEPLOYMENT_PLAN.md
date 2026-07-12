@@ -606,7 +606,7 @@ silently with 0 chunks.
   logs" grep test. **Verify:** `caos/docs/reference/SECRETS.md` (new) exists;
   new grep-based test scans structured logs for known secret patterns.
   **Exit:** runbook complete, grep test green in CI.
-- [ ] **E5 (M)** Security review pass. Already re-verified present: SSRF
+- [ ] **E5 (M)** *(Exec 2026-07-12: PR #180 open — playbook re-run vs origin/main, all 6 gates PASS, 0 new HIGH/MED; AST-based route-gate sweep replaced a buggy regex one; agent diff-review of the largest pending change (design-rebuild-p1's new alert_states route) found nothing. Report: security-infra-2026-07-12.md.)* Security review pass. Already re-verified present: SSRF
   allow-list (`edgar.py:111,270`), CSP/HSTS (`test_security_headers.py`),
   GDPR-delete transactional integrity (`test_gdpr_erase.py`,
   `erase_analyst.py`). Remaining: run `/security-review` on the full diff
