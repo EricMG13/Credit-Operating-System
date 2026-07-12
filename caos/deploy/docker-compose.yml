@@ -167,6 +167,10 @@ services:
     entrypoint: ["/bin/sh", "/backup.sh"]
     volumes:
       - ./backup.sh:/backup.sh:ro
+      # Mounted alongside backup.sh so `docker compose exec backup sh
+      # /restore_drill.sh` (G1) can run the drill against this same
+      # container's /backups + Postgres access — not run automatically.
+      - ./restore_drill.sh:/restore_drill.sh:ro
       - vault-data:/vault:ro
       - backups:/backups
     networks: [internal]
