@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MoreDrawer } from "./MoreDrawer";
+import { useBreakpoint } from "@/lib/useBreakpoint";
 
 /**
  * The 40px sub-header strip every concept page wears. Replaces the hand-rolled
@@ -34,24 +35,15 @@ export function SubHeader({
   className?: string;
   "aria-label"?: string;
 }) {
-  // Track the 1280px breakpoint for the contextual-controls collapse.
-  const [wide, setWide] = useState(true);
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia("(min-width: 1280px)");
-    const apply = () => setWide(mq.matches);
-    apply();
-    setHydrated(true);
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
+  // The 1280px contextual-controls collapse comes from the shared shell
+  // breakpoint hook — one source with ResponsiveShell (RT-2026-07-11-64).
+  const { breakpoint, hydrated } = useBreakpoint();
 
   // MoreDrawer open state — owned here so the trigger and panel are siblings.
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // While hydrating, assume wide (SSR-safe — no layout flash on desktop).
-  const showInline = !hydrated || wide;
+  const showInline = !hydrated || breakpoint === "wide";
   const hasContextual = !!contextualControls;
 
   // Close the drawer when the breakpoint flips to wide — otherwise a stale

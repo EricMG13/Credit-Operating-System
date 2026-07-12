@@ -153,10 +153,14 @@ def _ocrmypdf_text(content: bytes) -> str:
     return ""
 
 
-def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> str:
+def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> tuple[str, bool]:
+    """Returns (text, used_ocr). ``used_ocr`` is True only when the OCR
+    last-resort lane actually produced the returned text (D1) — callers use
+    it to tag chunk provenance so a lower-fidelity OCR read is discountable,
+    never silently indistinguishable from a native text-layer extraction."""
     md = _markitdown_text(content, filename)
     if md is not None:
-        return md
+        return md, False
 
     from pypdf import PdfReader
 
@@ -165,8 +169,11 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> str:
         text = "\n".join((page.extract_text() or "") for page in reader.pages)
     except Exception:
         text = ""  # scanned / encrypted PDFs vault fine, just produce no chunks
+    if text.strip():
+        return text, False
     # No text layer → try OCR before giving up (scanned/image PDF).
-    return text if text.strip() else _ocrmypdf_text(content)
+    ocr_text = _ocrmypdf_text(content)
+    return ocr_text, bool(ocr_text.strip())
 
 
 def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
@@ -218,7 +225,7 @@ def extract_text(content: bytes, filename: str = "download.bin") -> str:
     return text.strip()
 
 
-def chunk_text(text: str) -> List[str]:
+def chunk_text(text: str) -> List[str]:  # noqa: C901 - pre-existing tokenizer complexity
     text = text.strip()
     if not text:
         return []

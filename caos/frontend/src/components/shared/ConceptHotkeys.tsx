@@ -6,19 +6,11 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { CONCEPT_CYCLE } from "@/lib/nav";
 
-const CONCEPTS = [
-  "/command",
-  "/pipeline",
-  "/deepdive",
-  "/model",
-  "/reports",
-  "/monitor",
-  "/research",
-  "/query",
-  "/sector-rv",
-  "/sector",
-];
+// Alt+←/→ stops come from the shared nav registry — cycle order is the visual
+// nav order by construction (this file used to keep its own diverging list).
+const CONCEPTS = CONCEPT_CYCLE;
 
 function isEditable(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;

@@ -8,6 +8,8 @@
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { G2Chart } from "@/components/charts/G2Chart";
+import { AuthorityBlock } from "./AuthorityBlock";
+import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
 
 export type ReportEdits = Record<string, string>;
 type OnEdit = (path: string, text: string) => void;
@@ -269,6 +271,7 @@ export function ReportDoc({
   onEdit,
   hideAddbacks,
   onOpenEvidence,
+  authority,
 }: {
   rep: Report;
   omit?: Record<number, boolean>;
@@ -278,6 +281,10 @@ export function ReportDoc({
   onEdit?: OnEdit;
   hideAddbacks?: boolean;
   onOpenEvidence?: (id: string) => void;
+  /** Origin/Method/Freshness/QA for the printed authority block — omit to
+      fall back to the old blanket "reference template" disclaimer (callers
+      that haven't been updated yet). */
+  authority?: { caveatKind: DeepDiveCaveatKind; liveRunBacked: boolean; runId?: string | null; qaNote?: string | null };
 }) {
   const ctx: EditCtx = { edits, onEdit, hideAddbacks };
   const isModelAppendix = rep.id === "model";
@@ -313,19 +320,25 @@ export function ReportDoc({
           </div>
         ) : null}
 
-        {/* Fixture disclaimer — the paged IC memo is the deliverable most likely
+        {/* Authority block — the paged IC memo is the deliverable most likely
             handed to committee; stamp it so a printed PDF is never mistaken for a
-            live issuer run. (#19) Kept in normal flow so it prints. */}
-        <div
-          role="note"
-          style={{
-            margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
-            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
-            textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
-          }}
-        >
-          Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
-        </div>
+            live issuer run when it isn't one. (#19, P2-WP-8) Kept in normal flow
+            so it prints. Falls back to the old blanket claim if no caveat state
+            was supplied (defensive — every current caller passes one). */}
+        {authority ? (
+          <AuthorityBlock {...authority} />
+        ) : (
+          <div
+            role="note"
+            style={{
+              margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
+              color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+              textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
+            }}
+          >
+            Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
+          </div>
+        )}
 
         {pages.map((pg, pi) => (
           <div key={pg.name} className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
@@ -392,10 +405,12 @@ export function ReportDoc({
           <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · INTERNAL USE</span>
         </div>
       )}
-      {/* Report Studio renders the Atlas Forge reference deal as a committee-ready
-          template; it is not wired to a live issuer run. Stamp it so an exported
-          PDF is never mistaken for a real issuer's memo. (#19) */}
-      {isModelAppendix ? null : (
+      {/* Authority block — origin/method/QA derived from the real caveat state,
+          not a blanket "not live" claim, so an exported PDF stays accurate
+          when the figures ARE live-backed (FE-5). (#19, P2-WP-8) */}
+      {isModelAppendix ? null : authority ? (
+        <AuthorityBlock {...authority} />
+      ) : (
         <div
           role="note"
           style={{
