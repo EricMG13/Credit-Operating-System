@@ -110,7 +110,27 @@ test.describe("Query — walk to committee exhibit", () => {
   // credit" rail group, picks two distinct issuers via the inline pickers, and
   // asserts a fresh synthesis + table render — the walk answers a real query
   // end-to-end (the plan's C7 exit bar).
-  test("head-to-head: pick two issuers and compare", async ({ page }) => {
+  //
+  // Issuer names come from the real /api/issuers list, not hardcoded demo
+  // names ("Atlas"/"Acme") — CI's E2E server boots with CAOS_DEMO_SEED unset
+  // (demo seeding is off by default), so those fixture issuers are not
+  // guaranteed to exist; whatever coverage is actually present (from this
+  // server's own seed or an earlier spec's bootstrap flow) is what's used.
+  test("head-to-head: pick two issuers and compare", async ({ page, request }) => {
+    const issuersResp = await request.get("/api/issuers/");
+    const issuers = await issuersResp.json();
+    if (!Array.isArray(issuers) || issuers.length < 2) {
+      test.skip(true, "fewer than 2 issuers in coverage — head-to-head needs two to compare.");
+      return;
+    }
+    const firstWord = (name: string) => {
+      const w = name.split(" ")[0];
+      return w.length >= 2 ? w : name.slice(0, Math.min(4, name.length));
+    };
+    const [nameA, nameB] = [issuers[0].name, issuers[1].name];
+    const termA = firstWord(nameA);
+    const termB = firstWord(nameB);
+
     await page.goto("/query/");
     await waitForFirstAnswer(page);
 
@@ -127,10 +147,10 @@ test.describe("Query — walk to committee exhibit", () => {
     const issuerB = page.getByRole("textbox", { name: "Issuer B" });
     await expect(issuerA).toBeVisible({ timeout: 15000 });
 
-    await issuerA.fill("Atlas");
-    await page.getByRole("button", { name: /Atlas/ }).first().click();
-    await issuerB.fill("Acme");
-    await page.getByRole("button", { name: /Acme/ }).first().click();
+    await issuerA.fill(termA);
+    await page.getByRole("button", { name: new RegExp(termA) }).first().click();
+    await issuerB.fill(termB);
+    await page.getByRole("button", { name: new RegExp(termB) }).first().click();
 
     await page.getByRole("button", { name: "Compare", exact: true }).click();
     await waitForFirstAnswer(page);
