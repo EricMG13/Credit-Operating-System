@@ -7,7 +7,7 @@
 // muscle memory keeps working for question-shaped input (RT-2026-07-11-62).
 // Alt+K still opens Ask directly (ConceptHotkeys, unchanged).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { staticRows, type PaletteRow, type IssuerRow } from "@/lib/palette";

@@ -890,7 +890,7 @@ export interface AnalystSettings {
   email_intelligence: { outlook_connected?: boolean; approved_senders?: string[] };
   /** Presentation preference only — never authorization (server coerces unknown values to "analyst"). */
   role_view?: RoleView;
-  /** Deep-Dive pins/recents, standing-view affirmations — see updateAnalystWorkspace. */
+  /** Deep-Dive pins/recents, standing-view affirmations. */
   workspace?: Record<string, unknown>;
 }
 export const getAnalystSettings = (): Promise<AnalystSettings> =>
@@ -988,15 +988,3 @@ export const setAlertState = (
     .then((r) => r.data);
 export const getAlertStates = (alertKey?: string): Promise<AlertStateDTO[]> =>
   api.get("/api/alerts/state", { params: alertKey ? { alert_key: alertKey } : {} }).then((r) => r.data);
-
-// ─── Analyst workspace (Deep-Dive pins/recents/affirmations) ──────────────
-// PUT /api/settings/analyst REPLACES the whole blob — every write here reads
-// the current settings first so sibling fields (role_view, model_lanes,
-// email_intelligence) are never clobbered by a workspace-only update.
-export const updateAnalystWorkspace = async (
-  patch: (workspace: Record<string, unknown>) => Record<string, unknown>,
-): Promise<AnalystSettings> => {
-  const current = await getAnalystSettings();
-  const next = { ...current, workspace: patch(current.workspace || {}) };
-  return saveAnalystSettings(next);
-};
