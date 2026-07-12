@@ -223,6 +223,10 @@ class DocumentChunk(Base):
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    # D1: extraction provenance. NULL = native text layer (markitdown/pypdf);
+    # "ocr" = ocrmypdf/Tesseract recognition off a scanned/image page — lower
+    # fidelity (misreads, layout loss), so CP-5/analysts can discount it.
+    prov: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     tsv: Mapped[Optional[TSVECTOR]] = mapped_column(
         TSVECTOR,
         Computed("to_tsvector('english', text)", persisted=True),
