@@ -29,6 +29,7 @@ import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, requiredActionFor } from "@/lib/alerts/inbox";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { GovernancePanel } from "@/components/command/GovernancePanel";
+import { ControlPlanePanel } from "@/components/monitor/ControlPlanePanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { useDigest } from "@/lib/engine/useDigest";
 import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
@@ -235,7 +236,7 @@ function Monitor() {
           Ask launcher, matching Command's panel. */}
       <PanelShell
         title="Governance · CP-5 / CP-0 / Staleness"
-        className="flex-none min-h-0 mb-9"
+        className="flex-none min-h-0"
         collapsible
         defaultCollapsed={true}
       >
@@ -246,6 +247,18 @@ function Monitor() {
           liveMixedOrigin={liveMixed}
           staleRows={digestLive ? digest?.stale ?? [] : []}
         />
+      </PanelShell>
+      {/* Coverage Control Plane (WP-4 G14) — ingestion-side health: documents
+          that vaulted but produced no usable text, or produced only lower-
+          fidelity OCR-derived text. Both degrade silently in ingest.py with
+          no other visibility anywhere. mb-9 clears the floating Ask launcher. */}
+      <PanelShell
+        title="Coverage Control Plane · ingestion"
+        className="flex-none min-h-0 mb-9"
+        collapsible
+        defaultCollapsed={true}
+      >
+        <ControlPlanePanel />
       </PanelShell>
       </div>
       )}

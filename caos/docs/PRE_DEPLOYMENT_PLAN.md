@@ -61,6 +61,21 @@ default off) cross-**team** isolation mechanism (`caos/server/tenancy.py`) —
 this is orthogonal to **E2**'s roles-lite decision (within-team analyst/
 admin/read-only roles); E2 remains open (no `role` column exists).
 
+### 2026-07-12 update — working branch `feat/design-rebuild-p1`, not `main`
+
+**This session is grounded on an unmerged feature branch, not `origin/main`.**
+Everything above (and the exec-notes threaded through §§3–9 below) describes
+`origin/main`; this block is the delta.
+
+| Check | Result |
+|---|---|
+| `origin/main` tip | Advanced to **`14cb9c53`** (from `313ebac`) — merged #165 (D4 stamp) and #167 (C1/E4/E6 stamp). Those items' `[ ]`/exec-note state below is current as of `14cb9c53`. |
+| Working branch | `feat/design-rebuild-p1`, **15 commits ahead of `origin/main`, 0 behind**, not yet pushed/PR'd. A P1-WP/P2-WP work-package initiative (shell unification, nav registry, breakpoints, role views, provenance-chip grammar, ⌘K palette, a11y sweep, Command governance panel, Monitor live alert inbox, Reports export trigger) — **not reconciled into the A–H phase-letter structure yet**; do that at the next full grounding. Plus substantial **uncommitted** WIP on top (`database.py`, `main.py`, `config.py`, `research_executor.py`, `research_report_executor.py`, `routes/issuers.py` modified; new migrations in flight) — this tree is being edited in parallel by the user right now; treat file-level specifics as a snapshot, not a fact to build on. |
+| Dependabot, live re-check | **2 open** (#139 vitest 3→4, #140 @vitest/coverage-v8 3→4) — not 12. A5's same-day exec-note already explains the drop (9 of 12 merged 2026-07-11); this just confirms the live count today. |
+| Server suite, this branch + WIP | **22 failed / 1070 passed / 2 skipped / 319 errors**, 146.5s (`.venv311`, `caos/tests/server`, offline). **Not a deploy-ready baseline** — do not cite the `origin/main` 1393/2 number for this branch. The error volume (319) is consistent with a fixture/conftest-level break from the in-flight core-file WIP, not 319 independent test bugs; root-causing it is out of scope for this doc update and the tree is a moving target. Re-run clean once the WIP settles. |
+| C3-seam, concrete local delta | On **this branch only**: `monitor/page.tsx` now imports a live `AlertInbox` component (`components/monitor/AlertInbox.tsx`) driven by `useAutonomyDraft` (`lib/engine/useAutonomyDraft.ts`) + `draftToAlertRows`, and migration `0038_alert_states` (table `alert_states`: `alert_key`/`state`/`assignee`/`note`/`analyst_id`) landed — real progress beyond `origin/main`'s "confirmed entirely absent." **But:** `monitor/page.tsx` still also imports `simAlertsToday`/`CRITICAL_ALERTS` (mock) and `AlertFeed`/`EmailIntel` (mock) alongside the live inbox — a hybrid state, not yet a clean live/labeled-sample split. The `AlertSink`/`EmailSink`/`InAppSink` **interface abstraction itself is still zero-hit** (`git grep -in "alertsink\|emailsink\|inappsink"` empty), even on this branch — the P2-WP work built a direct alert-inbox path, not the seam interface C3-seam specifies. Reconcile which approach wins at C3-seam pickup. |
+| Local branch/worktree hygiene | Materially worse than any prior count in this document — **104 local branches** as of this check (A6 already flags this as a moving, machine-local number not to hard-code; re-verify at pickup, do not carry today's number forward either). |
+
 ---
 
 ## 0. Definitions — read first
@@ -91,6 +106,10 @@ inbox-visible alerts does not exist — `monitor/page.tsx` still renders a
 labeled simulation (`monitor/page.tsx:14,64-67` "Illustrative sample — not
 live"). **C3-seam (§5) builds this whole boundary**; only the email-transport
 half of `EmailSink` is meant to stay outstanding at the gate.
+**State 2026-07-12 (branch `feat/design-rebuild-p1` only, unmerged):** a live
+`AlertInbox` + `useAutonomyDraft` + `alert_states` table landed (P2-WP-3) —
+see the 2026-07-12 update block above. The `AlertSink`/`EmailSink` interface
+itself is still zero-hit even here; reconcile at C3-seam pickup.
 
 **#2 Market data → Bloomberg.** Product decision 2026-07-03: the Bloomberg
 connector is **built in-plan** (C5), not left as a stub — persisted quote
@@ -149,7 +168,7 @@ inherited from a prior grounding.
 
 | Gap | Evidence | Phase |
 |-----|----------|-------|
-| **`AlertSink`/`EmailSink`/`InAppSink` seam, watch-rule model, alert persistence, alert inbox — entirely absent.** Monitor frontend still a labeled simulation. Autonomy *engine* is committed but nothing turns its output into a persisted, actionable alert. | Zero hits (S4 Ev-1); `monitor/page.tsx:14-18,64-67` | C (C3-seam) |
+| **`AlertSink`/`EmailSink`/`InAppSink` seam, watch-rule model, alert persistence, alert inbox — entirely absent on `origin/main`.** Monitor frontend still a labeled simulation there. Autonomy *engine* is committed but nothing turns its output into a persisted, actionable alert. *(A live `AlertInbox` UI now exists on the unmerged `feat/design-rebuild-p1` branch — see the 2026-07-12 update block above; the `AlertSink` interface itself is still unbuilt even there.)* | Zero hits (S4 Ev-1); `monitor/page.tsx:14-18,64-67` | C (C3-seam) |
 | **Market-data layer — entirely absent.** No quote store, no `MarketDataProvider`/`BloombergProvider`/`ManualQuoteProvider`, no Sector RV refresh button, no Settings section. Bloomberg exists only as a name in seeded frontend fixtures. | Zero hits (S4 Ev-2); 37 migrations, none market-data | C (C5) |
 | No `MOCK_LEDGER.md` mock-inventory deliverable | absent from tree | C (C1) |
 | Command Center labeled sample sleeve board retained (though live-aware IssuerStrip + Source-Gaps board landed) | `command/page.tsx` "Sample portfolio — not live" | C (C2) |
@@ -161,7 +180,7 @@ inherited from a prior grounding.
 | Roles-lite (E2) not built — no `role` column, no `CAOS_ADMIN_EMAILS`, no role dependency. (The `team_id`/tenancy mechanism that landed 2026-07-10 is a *different*, orthogonal axis — cross-team isolation, not within-team roles.) | `database.py` has `team_id` columns only (S4 Ev-12) | E (E2) |
 | No `audit_log` table, no SBOM, no DR runbook, no scripted restore drill (drill = shell *comments* in `backup.sh`) | grep clean; `backup.sh:13-19` | E, G |
 | Unmerged: `feat/covenant-frontend` (1 orphan commit `3605c99`, frontend pages for the covenant register — the backend adapter, routes, and Query walks already shipped independently) | `git ls-remote --heads origin` | A (A3) |
-| **12** open dependabot PRs (plan previously under-tracked this at 2) + 4 draft feature/infra PRs + 1 non-draft feature PR (#147 merged) | GitHub MCP query, 2026-07-11 | A (A5) |
+| **12** open dependabot PRs (plan previously under-tracked this at 2) + 4 draft feature/infra PRs + 1 non-draft feature PR (#147 merged) *(re-verified 2026-07-12: down to 2 open — #139, #140 — the rest merged same-day per A5)* | GitHub MCP query, 2026-07-11 | A (A5) |
 | 9 unmerged orphan branches (no open PR) + 18 remote branches merged & prunable | `git ls-remote --heads origin`, cross-checked via `git merge-base` | A (A6) |
 | 8 dangling skill symlinks in `.claude/skills/` (targets removed by the 2026-07-08 skills audit) | S4 Ev-10 | A (A6b, new) |
 | CI has not gone green on `main` since `ee37030` (#148); no `schedule:`/`workflow_dispatch:` trigger exists anywhere in `ci.yml` | S4 Ev-4 | — (tracked per-phase; automation work items in the loop doc) |
@@ -216,7 +235,7 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen. Merged same evening: #155, #157, #160, #161 — close #135 as superseded; #150 verdict = rebase+rescope, do not merge as-is; #158 revert is the remaining unblock.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
+- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen. Merged same evening: #155, #157, #160, #161 — close #135 as superseded; #150 verdict = rebase+rescope, do not merge as-is; #158 revert is the remaining unblock. Re-verified 2026-07-12: live count is 2 open — #139 vitest 3.2.6→4.1.10, #140 @vitest/coverage-v8 3.2.6→4.1.10 — both held pending the same vitest-4 policy call as #141 typescript.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
   not the previously-tracked 2): **#85** alembic 1.13→1.18, **#88** fastapi
   0.138→0.139 (do not downgrade the 0.138 pin — an upgrade needs py3.11/
   starlette re-verify), **#133** playwright/test 1.60→1.61.1, **#134**
@@ -247,7 +266,9 @@ truth, tooling roots clean.
   disposition. *(Local branch/worktree counts from the prior 2026-07-08
   grounding — "43 local branches, 10 worktrees" — describe the developer's
   own machine and are not verifiable from a fresh clone; re-check locally at
-  pickup, do not carry the stale number forward.)*
+  pickup, do not carry the stale number forward. 2026-07-12 re-check on
+  `feat/design-rebuild-p1`: 104 local branches — worse, same caveat applies,
+  do not carry *this* number forward either.)*
 - [x] **A6b (S) — new.** **DONE 2026-07-11** — all 8 dangling links removed (verify command returns empty); `outstanding` skill now cites `.venv311` + the ~1393/2 baseline. (Local `.claude/skills` is untracked, so there is nothing to merge.) Skills-root hygiene: 8 dangling symlinks in
   `.claude/skills/` whose `.agents/skills/` targets were removed by the
   2026-07-08 skills audit (`error-model-validation-architect`,
@@ -388,6 +409,10 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   "Sample" caos/frontend/src/app/command/page.tsx` returns 0 (or only an
   explicit empty-state string). **Exit:** no unlabeled/labeled-sample data on
   the board in a prod build.
+  *(2026-07-12, unmerged `feat/design-rebuild-p1` only: a "ranked-changes
+  opener + combined governance panel" landed (commit `bc696b72`, P2-WP-2) —
+  not yet independently verified against this item's `grep "Sample"` check;
+  re-verify at C2 pickup rather than assuming it closes the item.)*
 - [ ] **C3-seam (L — own implementation plan at pickup)** Monitor alert seam.
   The autonomy **engine** (Sentinel→Anomaly→Analyst→Reporter DAG) is
   committed and tested (`engine/autonomy.py` et al., `test_autonomy.py`) —
@@ -418,6 +443,18 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   zero). **Exit:** rule → event → inbox → `InAppSink` round-trips end-to-end
   from a golden-issuer run; `EmailSink` stub records intent with rendered
   subject/body; Monitor frontend has zero "Illustrative sample" markers left.
+  *(2026-07-12, unmerged `feat/design-rebuild-p1` only: real progress toward
+  the "Alert inbox UI" and "watch-rule"/persistence bullets landed —
+  `alert_states` table (migration `0038`), a live `AlertInbox` component, and
+  `useAutonomyDraft` wiring into `monitor/page.tsx` (commits `2fff9396`
+  "server: alert_states table + route", `c2a90ee2` "monitor: live alert inbox
+  — Watchtower event to ack/assign", P2-WP-0/P2-WP-3). The `AlertSink`/
+  `EmailSink` interface bullet is still **not** built even on this branch —
+  `git grep` for it is still empty there. `monitor/page.tsx` still imports
+  the mock `simAlertsToday`/`CRITICAL_ALERTS`/`AlertFeed`/`EmailIntel`
+  alongside the new live path — the "zero Illustrative-sample markers" exit
+  bar is not yet met. Work is unmerged; re-verify fresh at C3-seam pickup
+  rather than assuming this delta carries forward as-is.)*
 - [ ] **C4 (M)** Deep-Dive / Report Studio residual seeded panels (from the
   C1 ledger): each → live adapter or explicit "no data / degraded" state. No
   unlabeled seed survives in a production build. **Verify:** C1's
@@ -977,3 +1014,21 @@ issuer walk, sponsor/counterparty graph — both live in `questions.ts`/
   status and mechanism claims from drifting independently, which is how the
   "nightly loop" cadence claims went stale the first time (no `schedule:`
   trigger ever existed in `ci.yml`).
+- **2026-07-12:** `origin/main` advanced to `14cb9c53` (merged #165 D4-stamp,
+  #167 C1/E4/E6-stamp — those items' exec-notes above are current as of that
+  SHA). Live dependabot re-check: 2 open (#139, #140), not 12 — confirms A5's
+  same-day merge narrative. Separately, this update was written from an
+  **unmerged working branch**, `feat/design-rebuild-p1` (15 commits ahead of
+  `origin/main`, plus uncommitted WIP) — a P1-WP/P2-WP design-rebuild
+  initiative not yet reconciled into the A–H phase-letter structure. It
+  contains real, concrete progress on C3-seam's alert-inbox/persistence
+  bullets (`alert_states` migration, live `AlertInbox` UI, `useAutonomyDraft`
+  wiring) but **not** the `AlertSink`/`EmailSink` interface itself, and the
+  branch's test suite is **currently broken** (22 failed / 319 errors on
+  `.venv311`) under in-flight WIP touching core server files — not a
+  deploy-ready state. See the "2026-07-12 update" block after the Trunk
+  state table for the full delta. **Next full grounding should**: (a)
+  reconcile the P1-WP/P2-WP commits against the phase-letter structure once
+  merged, (b) re-run the suite clean once the WIP settles, (c) decide whether
+  the branch's direct alert-inbox approach supersedes or complements the
+  `AlertSink`/`EmailSink` interface C3-seam specifies.

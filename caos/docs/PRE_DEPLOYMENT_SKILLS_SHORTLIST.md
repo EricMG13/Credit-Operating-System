@@ -1,152 +1,99 @@
 # Pre-Deployment — Skills & Checks Shortlist
 
-> **Purpose:** the skills, workflows, and checks to run while working the
-> [PRE_DEPLOYMENT_PLAN](PRE_DEPLOYMENT_PLAN.md) A–H program, organized by
-> when they apply (every change vs. a specific phase-exit gate) rather than
-> by the now-resolved 2026-07-08 branch-recovery tiers the prior version of
-> this document used. Cadences/mechanisms for anything recurring live in
-> [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md) — this document
-> only says *which* skill to reach for, not *how often*.
+> **Purpose:** the skills and checks to run **before** working the
+> [PRE_DEPLOYMENT_PLAN](PRE_DEPLOYMENT_PLAN.md) A–H checklist, to remediate
+> outstanding faults. Ordered by tier. Grounded **2026-07-11** against `main`
+> (`origin/main` @ `6bf73a1a`); prior grounding 2026-07-08.
+>
+> Skills are invoked with the `Skill` tool (or `/name`). Checks are commands.
+> Reference: run the server suite on `.venv311` (py3.11 prod-parity), never the
+> py3.9 `.venv` (missing pgvector); clear `ANTHROPIC_API_KEY` for offline QA.
+
+> ✅ **Status 2026-07-11 — Tier 0 is COMPLETE.** The 07-08 branch merged (PRs
+> #131/#151) and the pre-production audit (P0/P1/P2) shipped, so all A0 deploy
+> blockers cleared (5/6; only A0-6 local dev-venv drift remains). `main` boots,
+> migrates on pgvector Postgres, installs from the lock, and the suite is green
+> (**1369 pass / 2 skip** on `.venv311`). **Start at Tier 1** to verify the
+> consolidated trunk, then Tier 2 for the phase gates. Tier 0 is kept below for
+> history.
 
 ---
 
-## Ground truth (reconciled 2026-07-11 against `origin/main@313ebac`)
+## The one root cause *(resolved)*
 
-**Three skill roots exist:**
-
-- `.agents/skills/` — canonical, 26 skill directories with real content.
-- `.claude/skills/` — 6 real directories (`commit`, `fable-5-prompter`,
-  `gitnexus`, `impeccable`, `outstanding`, `refresh-preview`) + 22 symlinks
-  into `.agents/skills/`. **This is the skill root Claude Code sessions read
-  from.**
-- `.github/skills/` — 53 entries, all symlinks into `.agents/skills/` (a
-  different consumption path, not used by Claude Code sessions directly).
-
-**8 dangling symlinks in `.claude/skills/`** (targets removed by the
-2026-07-08 skills audit that trimmed the catalog 53→27; confirmed this
-session — `find .claude/skills -maxdepth 1 -type l -exec sh -c 'test -e "$1"
-|| echo DANGLING: $1' _ {} \;`): `error-model-validation-architect`,
-`openrouter-typescript-sdk`, `implement-feature`, `critique`,
-`codebase-audit`, `compose-ui-test-server`, `distill`,
-`security-best-practices`. PR #124 (open, draft) already restores
-`security-best-practices`'s target — decide restore-vs-remove per symlink
-under the master plan's **A6b** item; do not treat these as callable until
-that lands.
-
-**Corrected against the prior version of this document** — three names it
-listed as "run this" or left ambiguous actually **exist as real skill
-directories**: `adversarial-reviewer`, `senior-qa`, `playwright-pro` (all in
-`.agents/skills/`). Same goes for `senior-security` (see "Confirmed-present
-skills" below). **Re-checked this session: none of the four has a
-`.claude/skills/` entry** — each is absent both from the 6 real directories
-and the 22-symlink list above (confirmed directly: `test -e
-.claude/skills/<name>` fails for all four; none appears in a live
-Skill-tool listing either) — **so none is reachable by a Claude Code
-session in this repo today**, only by reading the file directly at its
-`.agents/skills/<name>/SKILL.md` path. Every Tier-P/Tier-G/run-order
-reference to these four below is therefore aspirational pending a fix
-(add the missing `.claude/skills/<name> -> ../../.agents/skills/<name>`
-symlinks — a distinct gap from the 8 *dangling* symlinks below, since these
-four never had a `.claude/skills/` entry to begin with). **Genuinely
-absent** (do not reference these — they were named in an earlier draft of
-this program and never existed as skills): `confidence-review` (a
-practice/report-writing convention — see the loop doc's L16 — not an
-installed skill), `ponytail-audit`/`ponytail-review`, `tdd-guide`,
-`superpowers:writing-plans` (no plugin/marketplace config exists anywhere in
-the repo; its *output* convention — writing plans to
-`docs/superpowers/plans/` — is real and kept, just not as a named skill;
-use the built-in plan-mode workflow instead), and `code-reviewer` (never
-existed under any skill root, and is not the same skill as the correctly
-named built-in `/code-review`, which this document already uses
-correctly elsewhere).
-
-**`outstanding` project skill is internally stale**: its own `SKILL.md`
-still cites the retired py3.9 `.venv` and a "~317 pass" baseline — refresh
-under **A6b**; until then, trust this document's and the master plan's own
-numbers (1393 pass / 2 skip, this session, on `.venv311`) over anything
-`outstanding` reports.
-
-**Env preamble for every check below:** build and use
-`caos/server/.venv311` (python3.11, hashed `requirements.lock` +
-`requirements-dev.txt`) — never a py3.9 venv, none should exist in a fresh
-container. `caos/tests/server/conftest.py` force-blanks
-`ANTHROPIC_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY` for offline runs;
-export `CAOS_TEST_LIVE=1` only if you deliberately want the live-key lane.
+Every Tier-0 fault was the same mistake: **features committed ahead of their
+still-uncommitted implementation files** (41 uncommitted `.py`; two features —
+C3 autonomy DAG, D2 RAG lane — intertwined with committed references). It was
+cleared the way the tier predicted: the WIP landed coherently via PRs #131/#151
+and the existing guards (`check_lock_sync.py`, `test_migrations.py`) now bite on
+a clean trunk. **Lesson for the phase gates: never commit a reference ahead of
+the file it points to** — the guard only catches it once someone runs it on a
+clean checkout.
 
 ---
 
-## Tier P — every change (per-PR discipline)
+## Tier 0 — Unblock the branch (A0). ✅ DONE 2026-07-11.
 
-| Step | Tool | Why |
+*All items below cleared via the #131/#151 merge + pre-prod audit. Kept for
+history and as the clean-tree recipe to re-run before any future deploy cut.
+Only A0-6 (local py3.9 `.venv` drift) remains — dev-env only, not a blocker.*
+
+| # | Fault (plan ref) | Skill / check to run | Why |
+|---|---|---|---|
+| 0.1 | 41 files WIP, working tree red (A0-1/2/5) | **`confidence-review`** skill on the uncommitted diff *(mandated by session hook)* | Enumerate what's half-done before you freeze it into commits — the 3 red tests are unfinished case-normalization. |
+| 0.2 | Commit the C3+D2 WIP so committed refs resolve (A0-1/2) | **`commit`** project skill (stage explicit paths, parallel-WIP-safe) + **`gitnexus detect_changes`** before each commit | `main.py`/`0033` already reference untracked `autonomy.py`/`pipeline_executor.py`/`0031`/`0032`. Land them as coherent feature commits (autonomy DAG; RAG lane), not one blob. |
+| 0.3 | pgvector imported, not declared (A0-3) | **check:** add `pgvector` to `requirements.txt` + `requirements.lock`; then `python caos/scripts/check_lock_sync.py`. **Skill:** `postgres-best-practices` to extend the guard to catch import↔lock drift, not just txt↔lock | Same class as the google-genai lock bug. A clean `pip install -r requirements.lock` must import `database.py`. |
+| 0.4 | Prod DB can't run the vector migration (A0-4) | **check:** swap deploy Postgres to a pgvector image (`pgvector/pgvector:pg18`) + add `CREATE EXTENSION IF NOT EXISTS vector`. **Skill:** `postgres-best-practices` on `0030` (HNSW params, extension bootstrap) | Stock `postgres:18-alpine` has no pgvector; the HNSW `vector_cosine_ops` index fails on a fresh DB. |
+| 0.5 | **Clean-tree gate** (A0 exit) | **checks, in a throwaway checkout** (not the working tree): `git clone`/`worktree add` the target ref → `pip install -r requirements.lock` → `alembic upgrade head` on an empty pgvector Postgres → `python -c "import main"` → `pytest caos/tests/server` on `.venv311` | The working tree masks A0-1..4. Only a clean tree proves boot+migrate+install. This is the real A0 exit gate. |
+| 0.6 | py3.9 `.venv` can't collect (A0-6) | **check:** `caos/server/.venv/bin/pip install pgvector` (once 0.3 lands) or retire the py3.9 venv | Parallel agents on `.venv` hit 45 false collection errors. |
+
+**Tier 0 exit = Phase A0 exit:** fresh checkout boots, migrates on empty pgvector
+DB, installs from the lock, full suite green on `.venv311`. **✅ Met 2026-07-11.**
+
+---
+
+## Tier 1 — Verify each merge into `main` (standing pre-merge gate)
+
+The 07-08 consolidation (autonomy DAG, RAG lane, ResponsiveShell, pgvector/rerank)
+already merged and got the P0/P1/P2 pre-prod audit. **This tier is now the
+standing gate for the *next* merges:** A3 `feat/covenant-frontend`, the dependabot
+major bumps (#141 typescript→7, #139/#140 vitest→4), and any new LLM lane.
+
+| Fault / surface | Skill | Why |
 |---|---|---|
-| 1 | GitNexus `impact` (before editing a symbol) | Blast-radius check — CLAUDE.md-mandated, non-negotiable. |
-| 2 | Edit | — |
-| 3 | GitNexus `detect_changes` (before committing) | Confirms the diff only touches expected symbols/flows. |
-| 4 | `commit` skill | Stages explicit paths, never `git add -A` — safe alongside the user's parallel WIP in this tree. |
-| 5 | `/code-review` (+ `adversarial-reviewer` skill specifically for engine or LLM-lane diffs) | Correctness + reuse/simplification pass; `adversarial-reviewer` for the load-bearing invariant surfaces (fault isolation, no-tools-writes). |
-| 6 | `verify` skill | Exercises the changed runtime surface end-to-end, not just tests/typecheck — skip only for diffs with no runtime surface (docs/tests-only). |
+| Correctness of the 12-commit + WIP diff vs `origin/main` | **`/code-review high`** (or `ultra` for the cloud multi-agent pass) | Broad correctness net on the largest delta since 07-03. |
+| New LLM lanes (autonomy Sentinel→…→Reporter, RAG `queryanswer`) must keep the fault-isolation invariant (a timeout/5xx never aborts a run; **no LLM lane has tools/writes**) | **`adversarial-reviewer`** on `engine/{autonomy,sentinel,anomaly,analyst,reporter}.py` + `queryanswer.py` | New lanes are the highest-risk new code; the invariant is load-bearing (see memory `caos-llm-fault-isolation`). |
+| New endpoints (`/api/autonomy/*`, RAG answer), new untrusted-doc paths (memo chunking), pgvector surface | **`/security-review`** (E5 dry-run) + **`owasp-security`** | Every new route/lane widens the attack surface before the E-phase formal gate. |
+| Vector store, HNSW index, migration chain, RAG SQL | **`postgres-best-practices`** | pgvector is new to the stack; index/query/migration hygiene. |
+| `is_finite_number` guard on any new CP-1-derived math in the lanes | **check:** grep new/changed engine files per CLAUDE.md engine invariant (B3) | NaN/inf/0-denom must degrade to `None`, not poison the payload. |
 
-## Tier G — gate-specific skills, checks, and playbooks
+---
 
-Cross-reference: the loop doc's §6 table gives cadence/artifact-path detail
-for every playbook cited below; this table is "what to reach for," that one
-is "how often and where the report lands."
+## Tier 2 — Quality sweeps (before the Phase C / E / H gates)
 
-| Gate | Skills / checks | Playbooks (loop doc §6) |
+| Fault / surface | Skill / check | Why |
 |---|---|---|
-| **A exit** (trunk consolidation) | `fallow` (full sweep, not just changed-only — dead code/dupes/circular-deps after the branch-cleanup churn); `outstanding` skill **only after A6b refreshes it**; manual tracker sweep (L15) | `code-health-methodology.md` |
-| **B exit** (engine certification) | `adversarial-reviewer` on new engine invariant tests (B2/B4); `senior-qa` for the B1/B5 test-authoring itself (golden E2E + corpus property assertions); `postgres-best-practices` if B5's capture pipeline touches SQL | `engine-correctness.md` |
-| **C exit** (all concepts live) | `playwright-pro` for C6's concept-link suite + Monitor e2e once C3-seam lands; `impeccable` for any UI surface touched (Command board, Monitor inbox, Settings Market Data section) — covers the CLAUDE.md design-token conformance (dark workspace ramp, tabular-nums, 32px Panel header, `prefers-reduced-motion`); `.claude/workflows/caos-review-sweep.js` (`args: {plan: 'seam'}`) for the C3-seam/C5 integration-seams review at pickup and at gate; `adversarial-reviewer` + `llm-safety-grounding` playbook specifically for C3-seam's new autonomy-driven alert surface (it's a new LLM-adjacent lane — the fault-isolation invariant must hold) | `frontend-functional.md`, `design-a11y-ux.md`, `integration-seams.md`, `llm-safety-grounding.md` |
-| **D exit** (ingestion breadth) | `senior-qa` for D3's table-driven robustness matrix; no dedicated security/perf skill needed here beyond Tier P | (none dedicated — D-work is covered by the per-PR loops) |
-| **E exit** (enterprise hardening) | `/security-review` (full diff since last gate — this is the formal E5 pass, distinct from the per-PR CI security job); `senior-security` skill for the E2 roles-lite threat model (forged-role/cookie-tamper test design) and E3 audit-log design; `postgres-best-practices` for E3's `audit_log` migration and E1's DB-pool sizing; `owasp-security` as a cross-check against OWASP Top 10:2025 / ASVS 5.0 during the E5 pass | `backend-api-data.md`, `security-infra.md` |
-| **G/H exit** (ops readiness, gate) | `postgres-best-practices` for G5-adjacent migration safety re-checks; no dedicated skill for G1/G3/G4 (these are scripting/runbook work, not review-skill work) — use `verify` after writing `restore_drill.sh` and the DR runbook to confirm they actually execute | `performance.md` (G3), the restore-drill loop (L19) |
+| `ResponsiveShell`/`SubHeader` touched all 10 surfaces — unused exports, dead files, circular deps, dup after the refactor | **`fallow`** (JS/TS health, changed-code risk) | Big refactor = cleanup opportunities + regression risk; free static pass. |
+| a11y regressions on changed routes (all surfaces migrated; Monitor inbox once wired) | **check:** `node caos/frontend/scripts/a11y-axe.mjs` (real axe, not the regex scanner) | Plan's monthly a11y loop + per-UI-phase gate; memory: regex scanner = false positives. |
+| Autonomy DAG is ~15 new files — over-engineering risk before it calcifies | **`ponytail-audit`** (or `/ponytail-review` on the WIP diff) | Question the DAG's surface area while it's still cheap to trim. |
+| Missing querygraph regression test (A1); coverage for the new lanes | **`senior-qa`** / **`tdd-guide`** | A1 cap (`_GATE_NODE_CAP=300`) has no assertion; autonomy/RAG need node-count + fault-isolation tests. |
+| Concept-link + Monitor E2E once the frontend is wired (C6) | **`playwright-pro`** (auth once via storageState — memory `caos-e2e-and-fallow-ci`) | Same-number-everywhere + alert round-trip. |
 
-## Skills/references dropped or replaced from the prior version
+---
 
-| Prior name | Disposition |
-|---|---|
-| `confidence-review` | Never existed as a skill. Replaced by: "confidence audit" as a named **practice**, not a tool call — a fresh-context review thread combining `/code-review high` + `adversarial-reviewer` + independent verifier agents (the pattern behind `caos/docs/qa/reports/confidence-audit-2026-07-11.md`). See loop doc L16. |
-| `ponytail-audit` / `ponytail-review` | Never existed as a skill (only appeared in an unrelated plugin-capability review doc). If a surface-area trim is wanted (e.g. reviewing whether C3-seam's watch-rule model over-engineers its DAG), use the built-in `simplify` skill instead. |
-| `tdd-guide` | Never existed as a skill. TDD-by-default is already stated as program policy in the master plan §13 ("Ways of working") — no tool needed to invoke it, it's a practice discipline for whoever picks up an engine/API item. |
-| `superpowers:writing-plans` | No `superpowers` plugin or marketplace config exists anywhere in this repo (`.claude/settings.json` has only the two PreToolUse hooks; no `.mcp.json`, no plugins block). The *convention* it named — write L-item implementation plans at pickup time, output to `docs/superpowers/plans/` — is real and preserved (an existing plan there,
-`2026-07-06-command-center-refinement.md`, shows the pattern); use the
-built-in Claude Code plan-mode workflow to produce it, not a named skill. |
-| Tier-0/1/2 framing (A0-branch-recovery tiers) | Dropped entirely — the 2026-07-08 A0 incident it was built around is resolved (master plan §15). Its one durable lesson — never commit code that references still-uncommitted implementation files — is now a line in master plan §13, not a tooling tier. |
-
-## Confirmed-present skills not previously listed
-
-`senior-security` (real directory in `.agents/skills/` — but, like
-`adversarial-reviewer`/`senior-qa`/`playwright-pro` above, **not** currently
-reachable via `.claude/skills/`; see "Ground truth" above), GitNexus's own
-sub-skills (impact analysis, exploring, debugging, refactoring, CLI — see
-`.claude/skills/gitnexus/`), and the saved workflow
-`.claude/workflows/caos-review-sweep.js` (item-by-item review sweep +
-adversarial verify + matrix synthesis; `args.plan: fe | be | security | perf
-| seam` → writes `caos/docs/qa/REVIEW_MATRIX_*.md`) — this is the mechanism
-behind several `MANUAL` loop rows in the loop doc, not a bespoke one-off.
-
-## Run order (TL;DR, per gate)
+## Run order (TL;DR)
 
 ```
-Every change   impact → edit → detect_changes → commit → /code-review
-               (+ adversarial-reviewer on engine/LLM diffs) → verify
-
-A exit         fallow (full) → tracker sweep (L15) → outstanding (post-A6b)
-
-B exit         adversarial-reviewer (B2/B4 tests) → senior-qa (B1/B5 authoring)
-               → engine-correctness playbook
-
-C exit         playwright-pro (C6) → impeccable (UI surfaces) →
-               caos-review-sweep --plan=seam (C3-seam/C5) →
-               adversarial-reviewer + llm-safety-grounding playbook (C3-seam)
-               → frontend-functional + design-a11y-ux playbooks
-
-D exit         senior-qa (D3 matrix) — otherwise per-PR loops only
-
-E exit         /security-review (full) → senior-security (E2/E3 design) →
-               postgres-best-practices (E1/E3) → owasp-security cross-check
-               → backend-api-data + security-infra playbooks
-
-G/H exit       verify (restore_drill.sh, DR runbook) → postgres-best-practices
-               (migration re-check) → performance playbook (G3)
+Tier 0  ✅ DONE — clean-tree gate met 2026-07-11 (A0 cleared)
+Tier 1  /code-review high → adversarial-reviewer → /security-review →
+        postgres-best-practices                                    ← per next merge (A3, majors)
+Tier 2  fallow → a11y-axe → ponytail-audit → senior-qa → playwright-pro   ← phase gates
 ```
+
+Tier 0 is green, so the A–H program plan resumes now at **A1** (add the querygraph
+cap regression test), **A3** (covenant-frontend merge — run Tier 1 on it),
+**A5** (triage the 12 dependabot PRs — auto-merge safe, verify fastapi/alembic,
+hold the majors), **A6** (branch/worktree cleanup — 59 local branches),
+**A7** (tracker sweep + refresh the stale `AUDIT.md` header to 1369 tests).
+Then C-phase: wire the Monitor frontend to the merged autonomy engine + build the
+`AlertSink`/`EmailSink` seam (C3), and the market-data quote store (C5).

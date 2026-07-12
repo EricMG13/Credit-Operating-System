@@ -19,11 +19,11 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Issuer, Run, aware_utc, get_db
+from database import Document, DocumentChunk, Issuer, Run, aware_utc, get_db
 from identity import CallerIdentity, get_identity
 from tenancy import scope_issuers, tenancy_enabled
 # Rating scale lives in ratings.py (one source of truth, shared with the
@@ -71,6 +71,48 @@ class DigestResponse(BaseModel):
     ccc_watch: List[WatchRow] = []     # B3/B- and below
     qa: Dict[str, int] = {}            # latest-complete-run qa_status -> count
     activity_24h: Dict[str, int] = {}  # runs completed / failed in the last 24h
+
+
+# Coverage Control Plane (WP-4 G14) — the ingestion-side counterpart to the
+# stale/CCC watch lists above: a vaulted document that quietly produced no
+# usable chunks (a scanned/encrypted PDF the OCR lane also couldn't read), or
+# one that only ever produced lower-fidelity OCR-derived chunks. Both degrade
+# silently today (ingest.py logs a warning and moves on) — this surfaces them
+# as a real, honest, live signal instead of a document that just vanishes
+# into "vaulted, contributes nothing" with no visibility anywhere.
+_DOC_SCAN_CAP = 2000
+
+
+class IngestionGapRow(BaseModel):
+    document_id: str
+    issuer_id: str
+    issuer_name: str
+    file_name: str
+    doc_type: str
+    uploaded_at: datetime
+    detail: str
+
+
+class CoverageOriginRow(BaseModel):
+    issuer_id: str
+    issuer_name: str
+    analyst_owner: Optional[str] = None
+    origins: List[str] = []
+    document_count: int
+
+
+class IngestionGapsResponse(BaseModel):
+    as_of: datetime
+    truncated: bool = False
+    # Vaulted but zero chunks extracted — every downstream module treats this
+    # document as if it doesn't exist; nothing else surfaces that fact today.
+    zero_chunk: List[IngestionGapRow] = []
+    # At least one chunk came off the OCR lane (lower-fidelity than a native
+    # text layer) — discountable, not a hard failure, but worth disclosing.
+    ocr_lane: List[IngestionGapRow] = []
+    # Per-issuer source-origin mix plus the analyst on the latest complete run.
+    # Raw source labels stay deliberately small: NATIVE / OCR / NO_TEXT.
+    coverage: List[CoverageOriginRow] = []
 
 
 def _read_rate_guard(caller: CallerIdentity) -> None:
@@ -179,4 +221,81 @@ async def daily_digest(
         ccc_watch=ccc_watch,
         qa=qa,
         activity_24h={"runs_completed": completed_24h, "runs_failed": failed_24h},
+    )
+
+
+@router.get("/ingestion-gaps", response_model=IngestionGapsResponse)
+async def ingestion_gaps(
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_rate_guard(caller)
+    now = datetime.now(timezone.utc)
+
+    has_ocr = exists(
+        select(DocumentChunk.id).where(
+            DocumentChunk.document_id == Document.id,
+            DocumentChunk.prov == "ocr",
+        )
+    ).correlate(Document)
+    docs_q = select(Document, Issuer.name, has_ocr).join(Issuer, Document.issuer_id == Issuer.id)
+    if tenancy_enabled():
+        docs_q = docs_q.where(Document.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
+    docs_q = docs_q.order_by(Document.uploaded_at.desc()).limit(_DOC_SCAN_CAP)
+    rows = (await db.execute(docs_q)).all()
+
+    zero_chunk: List[IngestionGapRow] = []
+    ocr_lane: List[IngestionGapRow] = []
+    origin_rollup: Dict[str, Dict[str, object]] = {}
+    for doc, issuer_name, document_has_ocr in rows:
+        rollup = origin_rollup.setdefault(doc.issuer_id, {
+            "issuer_name": issuer_name,
+            "origins": set(),
+            "document_count": 0,
+        })
+        rollup["document_count"] = int(rollup["document_count"]) + 1
+        if doc.chunk_count == 0:
+            rollup["origins"].add("NO_TEXT")
+            zero_chunk.append(IngestionGapRow(
+                document_id=doc.id, issuer_id=doc.issuer_id, issuer_name=issuer_name,
+                file_name=doc.file_name, doc_type=doc.doc_type,
+                uploaded_at=aware_utc(doc.uploaded_at) or now,
+                detail="No text extracted — vaulted but unusable by any module (scanned/encrypted source; OCR unavailable or also failed).",
+            ))
+        elif document_has_ocr:
+            rollup["origins"].add("OCR")
+            ocr_lane.append(IngestionGapRow(
+                document_id=doc.id, issuer_id=doc.issuer_id, issuer_name=issuer_name,
+                file_name=doc.file_name, doc_type=doc.doc_type,
+                uploaded_at=aware_utc(doc.uploaded_at) or now,
+                detail="Extracted via OCR (scanned/image source) — lower-fidelity than a native text layer; discount accordingly.",
+            ))
+        else:
+            rollup["origins"].add("NATIVE")
+    zero_chunk = zero_chunk[:_MAX_LIST]
+    ocr_lane = ocr_lane[:_MAX_LIST]
+
+    latest_owner: Dict[str, Optional[str]] = {}
+    owner_q = select(Run).where(Run.status == "complete")
+    if tenancy_enabled():
+        owner_q = owner_q.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
+    for run in (await db.execute(
+        owner_q.order_by(Run.created_at.desc()).limit(5000)
+    )).scalars().all():
+        latest_owner.setdefault(run.issuer_id, run.analyst_id)
+
+    coverage = [
+        CoverageOriginRow(
+            issuer_id=issuer_id,
+            issuer_name=str(values["issuer_name"]),
+            analyst_owner=latest_owner.get(issuer_id),
+            origins=sorted(values["origins"]),
+            document_count=int(values["document_count"]),
+        )
+        for issuer_id, values in origin_rollup.items()
+    ][:_MAX_LIST]
+
+    return IngestionGapsResponse(
+        as_of=now, truncated=len(rows) >= _DOC_SCAN_CAP,
+        zero_chunk=zero_chunk, ocr_lane=ocr_lane, coverage=coverage,
     )
