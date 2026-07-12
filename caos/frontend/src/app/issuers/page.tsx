@@ -436,6 +436,7 @@ function IssuersDirectory() {
                     checked={allShownSelected}
                     onChange={toggleSelectAllShown}
                     aria-label={allShownSelected ? "Deselect all issuers" : "Select all issuers"}
+                    className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target"
                   />
                 </span>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
@@ -488,6 +489,7 @@ function IssuersDirectory() {
                       checked={selected.includes(issuer.id)}
                       onChange={() => toggleSelect(issuer.id)}
                       aria-label={`Select ${issuer.name}`}
+                      className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target"
                     />
                   </span>
                   <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
