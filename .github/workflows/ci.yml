@@ -14,6 +14,12 @@ jobs:
   frontend:
     name: Frontend — lint, typecheck, test, build
     runs-on: ubuntu-latest
+    # A microtask-starving hang (infinite re-render loop via promise-chained
+    # setState) never yields to the macrotask queue, so vitest's own
+    # testTimeout (vitest.config.ts) can never fire — only a wall-clock kill
+    # from the runner is immune to that. Job normally finishes in a few
+    # minutes; 15 is generous headroom, not a target.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: caos/frontend
@@ -107,7 +113,10 @@ jobs:
       - name: Worker tests (Postgres)
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
-        run: python -m pytest caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q
+        run: |
+          python -m pytest caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q
+          # E4 secret-log hygiene needs the deployed posture, which requires Postgres.
+          python -m pytest caos/tests/server/test_secret_log_hygiene.py -q
 
   lock:
     name: Lock — requirements.lock in sync
@@ -267,7 +276,8 @@ jobs:
         run: npm audit --audit-level=high
       # Secret scan over the repo + history. OSS image (no GITLEAKS_LICENSE — that
       # is only required by the org-gated Action, which we deliberately avoid).
-      # .gitleaks.toml allowlists prose/vendored trees that carry example tokens.
+      # .gitleaks.toml allowlists prose/vendored trees that carry example tokens;
+      # .gitleaksignore exempts specific verified-false-positive lines by fingerprint.
       - name: Secret scan (gitleaks)
         run: |
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \

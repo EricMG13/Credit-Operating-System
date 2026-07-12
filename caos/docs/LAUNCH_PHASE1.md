@@ -202,8 +202,12 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   passes (p95 under threshold, no errors) at the expected concurrency.
 - [ ] **Backup restore drill (not just backup).** A dump that never restores is
   not a backup. After the `backup` service has written at least one artifact,
-  restore it into a **scratch** target (never the live DB) and confirm row counts,
-  then drop the scratch DB:
+  run the scripted drill (G1) — restores into **scratch** targets (never the
+  live DB/vault), asserts real content came back, cleans up after itself:
+  ```bash
+  docker compose exec backup sh /restore_drill.sh
+  ```
+  Exit 0 = both legs verified. Manual equivalent (troubleshooting only):
   ```bash
   docker compose exec db createdb -U caos caos_restore_test
   docker compose exec backup sh -c 'PGPASSWORD=$POSTGRES_PASSWORD \
