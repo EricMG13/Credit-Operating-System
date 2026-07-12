@@ -22,12 +22,20 @@ set lives at `.claude/skills/gitnexus/`); no-CAOS-surface skills
 `compose-ui-test-server` Compose Desktop, `implement-feature`/`codebase-audit`
 Go/skillshare, `openrouter-typescript-sdk`); the 15 one-verb design skills +
 `teach-impeccable` (all subsumed by the `impeccable` umbrella's sub-commands);
-`a11y-audit` (regex-based, superseded by the mandated `a11y-axe.mjs` axe-core
-runner); and `security-best-practices` (OpenAI, py/js/ts — redundant with the
-broader `owasp-security`). None of these were listed in the vendored tables below.
+and `a11y-audit` (regex-based, superseded by the mandated `a11y-axe.mjs` axe-core
+runner). None of these were listed in the vendored tables below.
 Also fixed `senior-security`: its routing table pointed at 8 sibling security
 skills that were never vendored — added an "Installed in CAOS" caveat naming the
 only two present (`adversarial-reviewer`, `code-reviewer`).
+
+**Kept after review (2026-07-08):** `security-best-practices` was briefly removed
+as redundant with `owasp-security`, then restored — the two are complementary,
+not duplicative: `owasp-security` owns standards + the LLM/Agentic-AI surface,
+while `security-best-practices` ships **framework-exact** hardening refs that
+match the CAOS stack directly (`python-fastapi-web-server-security.md`,
+`javascript-typescript-nextjs-web-server-security.md`,
+`javascript-typescript-react-web-frontend-security.md`). Now documented in the
+table below.
 
 | Skill dir | Upstream | Commit | License | Notes |
 |-----------|----------|--------|---------|-------|
@@ -50,6 +58,7 @@ CC-BY-SA-4.0 is a share-alike license: modifications to the ToB skill files dist
 |-----------|----------|--------|---------|-------|
 | `owasp-security` | [agamm/claude-code-owasp](https://github.com/agamm/claude-code-owasp) `/.claude/skills/owasp-security` | `f5dfa3d` | MIT © Agam More | ADOPT. Pure markdown, zero exec/network. OWASP Top 10:2025 + ASVS 5.0 + LLM/Agentic-AI 2025-26; Python + JS/TS language refs. |
 | `statistical-analysis` | [K-Dense-AI/scientific-agent-skills](https://github.com/K-Dense-AI/scientific-agent-skills) `/skills/statistical-analysis` | HEAD (2026-07-04) | MIT | TRIAL, **guidance-mode only**. 1 of 149 skills cherry-picked. `scripts/assumption_checks.py` needs scipy/statsmodels — do NOT wire into the engine; RV/percentile money-math stays hand-written under CAOS NaN discipline. |
+| `security-best-practices` | [openai/skills](https://github.com/openai/skills/tree/main/skills/.curated/security-best-practices) | curated (2026-07) | see `LICENSE.txt` | KEEP. Pure markdown, zero exec/network. Framework-exact secure-by-default refs; the FastAPI + Next.js + React ones match the CAOS stack directly. Complements `owasp-security` (standards + LLM/Agentic); trigger only on explicit security-review requests for py/js/ts. |
 
 Also vendored: `caos/server/vendor/sanitize.py` (see that dir's SOURCE.md).
 
