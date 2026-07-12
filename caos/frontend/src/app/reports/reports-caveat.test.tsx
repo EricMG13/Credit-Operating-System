@@ -16,11 +16,6 @@ let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference 
 // that — an inline literal here recreates on every render and infinite-loops it.
 const LIVE_ANCHOR = { netLeverage: 4.2 };
 
-// Module-level, not inline in the mock factory: the real hook's anchor is
-// reference-stable across renders, and page.tsx's useMemo depends on that —
-// an inline literal here recreates on every render and infinite-loops it.
-const LIVE_ANCHOR = { netLeverage: 4.2 };
-
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
