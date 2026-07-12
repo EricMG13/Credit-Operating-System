@@ -5,8 +5,8 @@ Who/what/when on every route that changes persisted state (PRE_DEPLOYMENT_PLAN
 FK) so GDPR erasure can anonymize it the same way — see database.py's
 ``AuditLog`` docstring and ``erase_analyst_data``.
 
-Revision ID: 0039
-Revises: 0038
+Revision ID: 0041
+Revises: 0040
 Create Date: 2026-07-12
 """
 from typing import Sequence, Union
@@ -14,8 +14,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0039"
-down_revision: Union[str, None] = "0038"
+revision: str = "0041"
+down_revision: Union[str, None] = "0040"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
