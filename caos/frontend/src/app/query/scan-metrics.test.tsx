@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-// One-box unification (additive) — locks the "Scan metrics" lane contract on the
-// Query page: the button is the explicit secondary action beside walk-primary Run
-// (Enter never triggers a metric scan), it calls /api/query/nl, and the shared
-// QueryResultsModal renders the ranked table / interpretation / caveats using the
-// same surface as the Command Center /nl box (RT-2026-07-07-26 / 27). Walk state
-// (graph/answer/route) is untouched by a metric scan.
+// One-composer intent router (P2-WP-4) — locks the "Scan metrics" lane
+// contract on the Query page now that Run/Enter share one dispatch path
+// (runLane) instead of a separate always-visible SCAN METRICS button. The
+// underlying /nl call, shared QueryResultsModal rendering, and error
+// surfacing are UNCHANGED from the prior contract (RT-2026-07-07-26/27);
+// what changed is purely how the metric lane gets triggered — the
+// deterministic classifier (lib/query/intent-router.ts) decides, visibly,
+// before submit.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { StructuredResult } from "@/lib/query/types";
@@ -68,11 +70,11 @@ vi.mock("@/components/query/ReportRail", () => ({
   ReportRail: () => <div data-testid="report-rail" />,
 }));
 
+let modelLaneOn = true;
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  // No capabilities → no auto-walk, no model lane → keyword-only walk path. The
-  // canvas stays on the placeholder so the modal is the only result surface.
-  queryCapabilities: vi.fn().mockResolvedValue({ groups: [], availability: { model_lane: false } }),
+  queryCapabilities: vi.fn().mockImplementation(async () => ({ groups: [], availability: { model_lane: modelLaneOn } })),
   queryInsights: vi.fn().mockResolvedValue({ cards: [], refreshing: false }),
   queryGraph: vi.fn().mockResolvedValue({ nodes: [], edges: [], caveats: [], capability_id: "peer-set", mode: "peer", title: "peers" }),
   queryRoute: vi.fn().mockResolvedValue({ candidates: [], source: "keyword" }),
@@ -94,6 +96,7 @@ const mockQueryRoute = vi.mocked(queryRoute);
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  modelLaneOn = true;
 });
 
 const structuredResult: StructuredResult = {
@@ -121,16 +124,16 @@ const structuredResult: StructuredResult = {
   ],
 };
 
-describe("Query · Scan metrics lane (one-box unification, additive)", () => {
-  it("SCAN METRICS button calls /nl and opens the shared modal with the ranked table (RT-2026-07-07-26/27)", async () => {
+describe("Query · Scan metrics lane (one-composer intent router)", () => {
+  it("metric-shaped text routes Run into the metric lane and opens the shared modal (RT-2026-07-07-26/27)", async () => {
     mockNlQuery.mockResolvedValue(structuredResult);
     render(<QueryPage />);
 
-    // The button is the explicit secondary action — distinct from walk-primary Run.
-    const scanBtn = await screen.findByRole("button", { name: "Scan metrics across coverage" });
-    const input = screen.getByLabelText("Query coverage") as HTMLInputElement;
+    const input = await screen.findByLabelText("Query coverage") as HTMLInputElement;
+    // "most" matches the ranking-language metric pattern.
     fireEvent.change(input, { target: { value: "which issuers are most levered" } });
-    fireEvent.click(scanBtn);
+    await screen.findByText("METRIC SCAN"); // the router chip is visible pre-submit
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
 
     // /nl is called with the typed question; the walk endpoints are NOT called by a scan.
     await waitFor(() => {
@@ -149,16 +152,31 @@ describe("Query · Scan metrics lane (one-box unification, additive)", () => {
     expect(screen.getByText("· Seeded values are illustrative.")).toBeTruthy();
   });
 
-  it("Enter on the input stays walk-primary — it never triggers a metric scan", async () => {
+  it("Enter fires the SAME lane the router chip shows (no click/keyboard disagreement)", async () => {
     mockNlQuery.mockResolvedValue(structuredResult);
     render(<QueryPage />);
 
     const input = await screen.findByLabelText("Query coverage") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "which issuers are most levered" } });
+    await screen.findByText("METRIC SCAN");
     fireEvent.keyDown(input, { key: "Enter" });
 
-    // Enter routes through the walk path (keywordSubmit, since model_lane is off),
-    // never through /nl. The metric lane is button-only by design.
+    await waitFor(() => expect(mockNlQuery).toHaveBeenCalledTimes(1));
+    expect(mockQueryGraph).not.toHaveBeenCalled();
+  });
+
+  it("never routes into the metric lane when the model lane is unavailable — degrades to the deterministic walk", async () => {
+    modelLaneOn = false;
+    mockNlQuery.mockResolvedValue(structuredResult);
+    render(<QueryPage />);
+
+    const input = await screen.findByLabelText("Query coverage") as HTMLInputElement;
+    // Same metric-shaped text as above — but with no live model lane the
+    // classifier must still choose graph, never a dead metric lane.
+    fireEvent.change(input, { target: { value: "which issuers are most levered" } });
+    await screen.findByText("GRAPH WALK");
+    fireEvent.keyDown(input, { key: "Enter" });
+
     await waitFor(() => {
       expect(mockNlQuery).not.toHaveBeenCalled();
     });
@@ -168,10 +186,10 @@ describe("Query · Scan metrics lane (one-box unification, additive)", () => {
     mockNlQuery.mockRejectedValue({ response: { data: { detail: "Couldn't map that to a known metric — foo." } } });
     render(<QueryPage />);
 
-    const scanBtn = await screen.findByRole("button", { name: "Scan metrics across coverage" });
-    const input = screen.getByLabelText("Query coverage") as HTMLInputElement;
+    const input = await screen.findByLabelText("Query coverage") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "rank by frobnication" } });
-    fireEvent.click(scanBtn);
+    await screen.findByText("METRIC SCAN");
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Couldn't map that to a known metric");
@@ -179,9 +197,25 @@ describe("Query · Scan metrics lane (one-box unification, additive)", () => {
     expect(screen.queryByRole("table", { name: "Ranked query results" })).toBeNull();
   });
 
-  it("SCAN METRICS is disabled until text is entered", async () => {
+  it("Run is disabled until text is entered", async () => {
     render(<QueryPage />);
-    const scanBtn = await screen.findByRole("button", { name: "Scan metrics across coverage" });
-    expect((scanBtn as HTMLButtonElement).disabled).toBe(true);
+    const runBtn = await screen.findByRole("button", { name: "Run" });
+    expect((runBtn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("a click on the reroute chip flips the lane for that submission", async () => {
+    mockNlQuery.mockResolvedValue(structuredResult);
+    render(<QueryPage />);
+
+    const input = await screen.findByLabelText("Query coverage") as HTMLInputElement;
+    // Graph-shaped text (no metric pattern) — router defaults to GRAPH WALK.
+    fireEvent.change(input, { target: { value: "peer network for this issuer" } });
+    await screen.findByText("GRAPH WALK");
+    fireEvent.click(screen.getByRole("button", { name: /reroute: METRIC SCAN/ }));
+    await screen.findByText("METRIC SCAN");
+
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() => expect(mockNlQuery).toHaveBeenCalledTimes(1));
+    expect(mockQueryGraph).not.toHaveBeenCalled();
   });
 });

@@ -37,6 +37,8 @@ import { engineNote, QUESTIONS, questionFor, questionGroups } from "@/lib/query/
 import { coerceView, nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { synthesize } from "@/lib/query/synthesis";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { classifyIntent, type QueryLane } from "@/lib/query/intent-router";
+import { LaneRouter } from "@/components/query/LaneRouter";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 import Link from "next/link";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -87,6 +89,10 @@ function QueryWorkspace() {
   const [openGroup, setOpenGroup] = useState<string | null>(null); // launcher popover
   const [railCollapsed, setRailCollapsed] = useState(false); // report/evidence panel
   const [text, setText] = useState("");
+  // Manual reroute override for the one-composer intent router (P2-WP-4) — a
+  // click on LaneRouter's reroute button sets this for the CURRENT text; a
+  // new question (text edit) clears it so the classifier re-decides fresh.
+  const [laneOverride, setLaneOverride] = useState<QueryLane | null>(null);
   const [theme, setTheme] = useState(""); // free-text risk theme for the shared-theme walk
   const [note, setNote] = useState<string | null>(null);
   // Note tone: Routed/Routing read as info (accent/muted, no "!"); only real
@@ -679,6 +685,25 @@ function QueryWorkspace() {
       });
   }, [text, caps, capById, keywordSubmit, run, addToHistory, fetchAnswer]);
 
+  // One-composer intent router (P2-WP-4): a deterministic, pre-submit
+  // classifier decides whether Run enters the metric lane (scanMetrics) or
+  // the graph-walk lane (submit, which owns its own LLM-router→keyword
+  // fallback unchanged). "Never route into a dead lane": metricLaneAvailable
+  // mirrors submit()'s own model_lane gate, so intent-router never offers the
+  // metric lane when the deterministic keyword path is the only live one.
+  const laneChoice = useMemo(
+    () =>
+      laneOverride
+        ? { lane: laneOverride, reason: "manual reroute" }
+        : classifyIntent(text, { metricLaneAvailable: !!caps?.availability?.model_lane }),
+    [text, laneOverride, caps],
+  );
+  const runLane = useCallback(() => {
+    if (metricBusy) { cancelMetric(); return; }
+    if (laneChoice.lane === "metric") scanMetrics();
+    else submit();
+  }, [laneChoice, metricBusy, cancelMetric, scanMetrics, submit]);
+
   // Close the dropdown only when focus actually leaves the whole composer — a
   // Tab into a suggestion button must NOT dismiss the menu (the old input-only
   // onBlur trapped keyboard users out of Recent entirely).
@@ -708,9 +733,9 @@ function QueryWorkspace() {
         suggestOptions[activeSuggest].run();
         return;
       }
-      submit();
+      runLane();
     }
-  }, [suggestOpen, suggestOptions, activeSuggest, submit]);
+  }, [suggestOpen, suggestOptions, activeSuggest, runLane]);
 
   const views = useMemo(() => (graph ? viewsFor(graph.capability_id, graph.mode) : []), [graph]);
   const activeView = graph ? coerceView(view, graph.capability_id, graph.mode) : view;
@@ -809,7 +834,7 @@ function QueryWorkspace() {
                 <input
                   ref={inputRef}
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => { setText(e.target.value); setLaneOverride(null); }}
                   onFocus={() => setSearchOpen(true)}
                   onKeyDown={onInputKeyDown}
                   placeholder={`Route a question across coverage — ${totalReady || "…"} questions ready`}
@@ -826,29 +851,25 @@ function QueryWorkspace() {
                 <span className="tabular text-caos-3xs text-caos-muted font-mono border border-caos-border rounded px-1 py-0.5 hidden sm:inline" aria-hidden>
                   Alt+K
                 </span>
+                {/* One composer, one primary action (P2-WP-4) — the old
+                    separate Run / SCAN METRICS buttons folded into one Run
+                    that dispatches through the intent router below. Enter
+                    (onInputKeyDown) goes through the same runLane() path, so
+                    keyboard and click can never disagree about which lane
+                    fires. A second click while a metric scan is in-flight
+                    always cancels, regardless of what the classifier
+                    currently says (RT-2026-07-07-26's abort guarantee). */}
                 <button
                   type="button"
-                  onClick={submit}
-                  className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
-                >
-                  Run
-                </button>
-                {/* One-box unification (additive) — the metric-search lane as an
-                    explicit secondary action. Enter stays walk-primary; this
-                    button is the only way into the /nl metric lane, so intent is
-                    never silently misrouted (RT-2026-07-07-26). A second click
-                    while in-flight aborts (reads CANCEL). */}
-                <button
-                  type="button"
-                  onClick={() => (metricBusy ? cancelMetric() : scanMetrics())}
+                  onClick={runLane}
                   disabled={!metricBusy && !text.trim()}
-                  aria-label={metricBusy ? "Cancel metric scan" : "Scan metrics across coverage"}
-                  title="Rank issuers across the metric store — e.g. 'which issuers are most levered'"
-                  className="tabular text-caos-sm px-3 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+                  aria-label={metricBusy ? "Cancel metric scan" : undefined}
+                  className="tabular text-caos-sm px-3 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {metricBusy ? "CANCEL" : "SCAN METRICS"}
+                  {metricBusy ? "CANCEL" : "Run"}
                 </button>
               </div>
+              {text.trim() && !metricBusy ? <LaneRouter choice={laneChoice} onOverride={setLaneOverride} /> : null}
 
               {suggestOpen && (
                 <ul
@@ -1262,8 +1283,10 @@ function QueryWorkspace() {
           table / evidence list / chart / caveats render identically on both
           surfaces. The citation chips call back into the shared `cite` state
           above, so the same CitationViewer backs both the walk and metric lanes.
-          Walk stays primary (Enter); this modal is opened only by the explicit
-          SCAN METRICS button (RT-2026-07-07-26 / 27). */}
+          Opened when the intent router (P2-WP-4) routes Run into the metric
+          lane — never silently, always visible first via LaneRouter
+          (RT-2026-07-07-26 / 27's original never-silently-misrouted guarantee,
+          now satisfied by the pre-submit chip instead of a second button). */}
       {metricOpen && (
         <QueryResultsModal
           question={text}

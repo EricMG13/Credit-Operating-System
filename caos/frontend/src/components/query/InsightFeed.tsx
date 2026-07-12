@@ -11,6 +11,7 @@
 import { useMemo } from "react";
 import type { InsightBrief, InsightCard } from "@/lib/query/graph";
 import { MODEL_HUE } from "@/components/query/node-style";
+import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 
 // A short scannable tag derived from the card's first cited evidence id — the
 // pack id namespace (delta:/f:/coverage/docs) tells us what kind of signal it is,
@@ -91,15 +92,18 @@ export function InsightFeed({
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-text font-semibold">Desk Brief</span>
         </button>
 
-        <span
-          className="tabular text-caos-3xs uppercase tracking-wider rounded px-1.5 py-px border"
-          style={marking
-            ? { color: MODEL_HUE, borderColor: `${MODEL_HUE}66`, backgroundColor: `${MODEL_HUE}14` }
-            : { color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
-          title={marking ? "Model-written, grounded in the coverage database — one click from its evidence" : "Deterministic highlights — the model lane returned nothing groundable"}
-        >
-          {marking ? "AI-Generated" : "Deterministic"}
-        </span>
+        {/* Shared grammar (P2-WP-4) replaces the bespoke purple "AI-Generated"/
+            "Deterministic" chip — both states are real coverage-DB data
+            (origin LIVE); method is the only axis that differs. */}
+        <ProvenanceChip
+          prov={{
+            origin: "LIVE",
+            method: marking ? "MODELLED" : "DERIVED",
+            detail: marking
+              ? "Model-written, grounded in the coverage database — one click from its evidence"
+              : "Deterministic highlights — the model lane returned nothing groundable",
+          }}
+        />
 
         {cards.length > 0 && (
           <span className="tabular text-caos-3xs text-caos-muted font-mono">{cards.length} {cards.length === 1 ? "card" : "cards"}</span>
