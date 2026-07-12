@@ -714,7 +714,7 @@ phase is marked passed.
   bottleneck. Builds on E1's multi-worker config. **Verify:** `performance`
   playbook §4(B)/(C) legs run against the isolated QA stack. **Exit:**
   documented ceiling, p95 targets met or exception filed.
-- [ ] **G4 (S)** DR runbook: host-loss scenario — restore from off-host
+- [ ] **G4 (S)** *(Exec 2026-07-12: PR #177 open — DR_RUNBOOK.md written AND rehearsed for real: two isolated Docker networks simulating old/new host, old host's DB+network fully destroyed, new host recovered a real issuer from ONLY the off-host copy in 88s measured wall-clock. RTO/RPO stated honestly incl. total-loss-if-BACKUP_SYNC_CMD-unset.)* DR runbook: host-loss scenario — restore from off-host
   backups (now possible via the `BACKUP_SYNC_CMD` hook, `backup.sh:56-58`) to
   a fresh host; state RTO/RPO honestly (daily backup = up to 24h RPO). No
   runbook doc exists yet. **Rehearse once.** **Verify:** `caos/docs/
