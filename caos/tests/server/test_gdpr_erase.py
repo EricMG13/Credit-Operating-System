@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
-        Analyst, AsyncSessionLocal, Document, Issuer, ResearchJob, Run, SavedModel,
+        Analyst, AsyncSessionLocal, AuditLog, Document, Issuer, ResearchJob, Run, SavedModel,
         erase_analyst_data,
     )
 
@@ -32,10 +32,16 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         # (analyst_id is a loose string key; a re-registration mints a new uuid,
         # so an undeleted row would orphan while still holding subject data).
         s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=subj_id, payload={"o": 1}))
+        # E3: an audit_log row the subject actioned — must be ANONYMIZED (kept,
+        # analyst_id scrubbed), not deleted — it's compliance history.
+        s.add(AuditLog(id="gdpr-audit-subj", analyst_id=subj_id, action="issuer.create",
+                       target_type="issuer", target_id="gdpr-issuer", after={"name": "GDPR Co"}))
         # Bystander's data — must survive untouched
         s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id, status="complete"))
         s.add(ResearchJob(id="gdpr-job-other", status="complete", analyst_id=other_id))
         s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=other_id, payload={"o": 2}))
+        s.add(AuditLog(id="gdpr-audit-other", analyst_id=other_id, action="issuer.create",
+                       target_type="issuer", target_id="gdpr-issuer", after={"name": "GDPR Co"}))
         await s.commit()
 
     async with AsyncSessionLocal() as s:
@@ -46,6 +52,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         "saved_models_deleted": 1,
         "runs_anonymized": 1,
         "documents_anonymized": 1,
+        "audit_log_anonymized": 1,
         "profile_deleted": 1,
     }
 
@@ -68,6 +75,23 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         from sqlalchemy import select
         kept = (await s.execute(select(SavedModel.analyst_id))).scalars().all()
         assert kept == [other_id]
+        # E3: audit_log rows are RETAINED (compliance history), only the actor
+        # link is scrubbed for the subject; the bystander's row is untouched;
+        # the erasure event itself (analyst.gdpr_erase) is present and already
+        # anonymized at write time.
+        subj_audit = await s.get(AuditLog, "gdpr-audit-subj")
+        assert subj_audit is not None
+        assert subj_audit.analyst_id is None
+        assert subj_audit.action == "issuer.create"
+        assert subj_audit.target_id == "gdpr-issuer"
+        other_audit = await s.get(AuditLog, "gdpr-audit-other")
+        assert other_audit is not None and other_audit.analyst_id == other_id
+        erase_events = (await s.execute(
+            select(AuditLog).where(AuditLog.action == "analyst.gdpr_erase",
+                                    AuditLog.target_id == subj_id)
+        )).scalars().all()
+        assert len(erase_events) == 1
+        assert erase_events[0].analyst_id is None
 
 
 @pytest.mark.asyncio

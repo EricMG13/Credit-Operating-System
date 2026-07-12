@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 from database import AnalystWatchlist, Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
@@ -426,12 +427,20 @@ async def accept_link(
     )
     db.add(row)
     try:
+        # flush + audit INSIDE the try: a concurrent-insert collision on the
+        # flush must hit the same recovery path as one on commit, not escape
+        # uncaught (this bit the SSO-profile route the same way — see auth.py).
+        await db.flush()  # populate row.id (client-side uuid default)
+        audit.write(db, analyst_id=caller.id, action="query_link.create",
+                    target_type="query_link", target_id=row.id,
+                    after={"issuer_a": a, "issuer_b": b, "capability_id": body.capability_id})
         await db.commit()
     except IntegrityError:
         # Concurrent double-accept of the same pair (double-click / racing request)
         # both passed the existence SELECT above; uq_accepted_link_pair then fires.
-        # Honour the idempotency contract — return the row the winner wrote — rather
-        # than a 500. (Saboteur W6)
+        # Rollback discards the row AND its audit entry together — the loser
+        # created nothing. Honour the idempotency contract — return the row the
+        # winner wrote — rather than a 500. (Saboteur W6)
         await db.rollback()
         existing = (await db.execute(
             select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
@@ -471,6 +480,9 @@ async def retract_link(
     )).scalars().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Link not found.")
+    audit.write(db, analyst_id=caller.id, action="query_link.retract",
+                target_type="query_link", target_id=link_id,
+                before={"issuer_a": row.issuer_a, "issuer_b": row.issuer_b})
     await db.delete(row)
     await db.commit()
     return {"deleted": link_id}

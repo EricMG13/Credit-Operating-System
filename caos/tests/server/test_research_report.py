@@ -658,6 +658,9 @@ async def test_create_report_recovers_from_concurrent_insert_conflict(monkeypatc
         def add(self, obj):
             pass
 
+        async def flush(self):
+            pass  # E3: create_research_report flushes to populate report.id for the audit row
+
         async def commit(self):
             self.commit_calls += 1
             if self.commit_calls == 1:

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 from database import AnalystQaFlag, get_db
 from identity import CallerIdentity, get_identity
@@ -63,6 +64,10 @@ async def create_flag(
         analyst_id=caller.id,
     )
     db.add(flag)
+    await db.flush()  # populate flag.id (client-side uuid default) for the audit row
+    audit.write(db, analyst_id=caller.id, action="qa_flag.create",
+                target_type="qa_flag", target_id=flag.id,
+                after={"module_id": flag.module_id, "issuer_id": flag.issuer_id, "run_id": flag.run_id})
     await db.commit()
     await db.refresh(flag)
     return QaFlagOut.model_validate(flag)

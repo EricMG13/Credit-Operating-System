@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import avscan
 import ingest
 import portfolio_ingest
@@ -277,6 +278,9 @@ async def create_portfolio(
         await avscan.scan(cc)
         await _persist_constraints(db, prt.id, portfolio_ingest.parse_constraints_csv(cc))
     await db.flush()
+    audit.write(db, analyst_id=caller.id, action="portfolio.create",
+                target_type="portfolio", target_id=prt.id,
+                after={"name": prt.name, "kind": prt.kind, "n_positions": len(positions)})
 
     ex = pf.compute_exposure(positions)
     comp = pf.check_constraints(await _constraints(db, prt.id), ex)
@@ -306,6 +310,9 @@ async def update_holdings(
     await _persist_positions(db, portfolio_id, positions)
     prt.updated_at = datetime.now(timezone.utc)
     await db.flush()
+    audit.write(db, analyst_id=caller.id, action="portfolio.update_holdings",
+                target_type="portfolio", target_id=portfolio_id,
+                after={"n_positions": len(positions)})
     ex = pf.compute_exposure(positions)
     comp = pf.check_constraints(await _constraints(db, portfolio_id), ex)
     return PortfolioSummary(
