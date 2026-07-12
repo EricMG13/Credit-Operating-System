@@ -69,3 +69,16 @@ export function draftToAlertRows(draft: AutonomyDraft): AlertRow[] {
   const rows = draft.sections.flatMap((s) => rowsForSection(s, sinceWhen));
   return rows.sort((a, b) => b.severity - a.severity);
 }
+
+// Deterministic anomaly-kind → suggested next step. A fixed, honest mapping —
+// never an LLM call — so "required action" never blocks on a model lane.
+const REQUIRED_ACTION: Record<string, string> = {
+  "cusum-shift": "review trend model",
+  "ts-jump": "review timing shift",
+  "peer-outlier": "compare to peers",
+};
+
+export function requiredActionFor(row: Pick<AlertRow, "reason">): string {
+  const kind = row.reason.split(" · ")[0];
+  return REQUIRED_ACTION[kind] ?? "review finding";
+}

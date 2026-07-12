@@ -23,12 +23,15 @@ import { liveQaItems } from "@/lib/command/qa";
 import { liveGaps } from "@/lib/command/gaps";
 import { useDigest } from "@/lib/engine/useDigest";
 import {
-  GapsList, IssuerStrip,
-  PortfolioTable, PostureSummary, QaQueue,
+  IssuerStrip,
+  PortfolioTable, PostureSummary,
 } from "@/components/command/views";
 import { NlQuery } from "@/components/command/NlQuery";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { RankedChanges } from "@/components/command/RankedChanges";
+import { GovernancePanel } from "@/components/command/GovernancePanel";
+import { useRoleView } from "@/components/shared/RoleViewProvider";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
@@ -45,6 +48,7 @@ export default function CommandPage() {
 function CommandCenter() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
+  const { roleView } = useRoleView();
 
   const run = useSharedDayRun();
   const tick = run.sim.tick;
@@ -188,15 +192,27 @@ function CommandCenter() {
       {/* workspace */}
       <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
+          {/* Dominant opener: the live Watchtower ranked-changes list. PM/QA
+              default expanded via DecisionHeader; the panel itself always
+              shows (empty/offline states render honestly inline). */}
+          <PanelShell title="Ranked Changes · Watchtower draft" className="flex-none min-h-0" collapsible>
+            <RankedChanges />
+          </PanelShell>
           {/* Posture bar above query bar */}
           <PostureSummary />
           <NlQuery />
 
-          {/* Coverage area */}
+          {/* Coverage area — PM/QA default collapsed (ranked changes above is
+              their answer); Analyst keeps it expanded. `key={roleView}` forces
+              Panel's uncontrolled defaultCollapsed to re-evaluate on a role
+              switch (it's an initial-only useState otherwise). */}
           <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
             <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
               <PanelShell
+                key={roleView}
                 title="Coverage"
+                collapsible
+                defaultCollapsed={roleView !== "analyst"}
                 className="flex-1 min-h-0"
                 right={
                   <div className="flex items-center gap-3">
@@ -263,26 +279,19 @@ function CommandCenter() {
             </PanelShell>
           ) : null}
 
-          {/* Consolidated QA Findings & Source Gaps at the bottom. mb-9 keeps this
-              panel's title bar clear of the floating Ask launcher (fixed
-              bottom-3 right-3), which otherwise sits on top of it at this
-              collapsed height (critique P2). */}
+          {/* Combined governance panel: QA + Gaps (unchanged, live-wired) plus
+              a new stale-sources category from the digest already fetched
+              above — zero new endpoints. mb-9 keeps this panel's title bar
+              clear of the floating Ask launcher (fixed bottom-3 right-3),
+              which otherwise sits on top of it at this collapsed height
+              (critique P2). */}
           <PanelShell
-            title="QA Findings & Source Gaps · CP-5 / CP-0"
+            title="Governance · CP-5 / CP-0 / Staleness"
             className="flex-none min-h-0 mb-9"
             collapsible
             defaultCollapsed={true}
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
-              <div>
-                <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">QA Queue · CP-5 open findings</h3>
-                <QaQueue items={liveQa} />
-              </div>
-              <div>
-                <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-muted mb-2 px-3">Source Gaps · CP-0 gap log</h3>
-                <GapsList items={liveGapsItems} />
-              </div>
-            </div>
+            <GovernancePanel liveQa={liveQa} liveGaps={liveGapsItems} staleRows={digestLive ? digest?.stale ?? [] : []} />
           </PanelShell>
         </div>
       </div>
