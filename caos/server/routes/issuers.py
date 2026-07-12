@@ -703,14 +703,16 @@ async def create_research_report(
         select(IssuerResearchReport).where(
             IssuerResearchReport.issuer_id == issuer_id,
             IssuerResearchReport.run_id == latest_complete.id,
-            IssuerResearchReport.status.in_(("running", "complete")),
+            IssuerResearchReport.status.in_(("queued", "running", "complete")),
         ).order_by(IssuerResearchReport.created_at.desc()).limit(1)
     )).scalars().first()
     if existing is not None:
         return ResearchReportCreated(id=existing.id, status=existing.status)
 
+    # Created 'queued' (model default): the durable executor claims + executes it, so
+    # a redeploy re-claims rather than losing the synthesis. On SQLite the in-process
+    # executor picks it up via enqueue; on Postgres the QueueWorker loop does.
     report = IssuerResearchReport(
-        status="running",
         issuer_id=issuer_id,
         run_id=latest_complete.id,
         analyst_id=caller.id,
