@@ -463,33 +463,55 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # gated on a real write, so a Blocked re-run keeps the last QA-passed facts
         # rather than wiping them. Defense-in-depth read-filter: peers._peer_facts.
         cp1 = upstream.get("CP-1")
-        cp1_ok = False
+        cp1_facts: List[dict] = []
         if cp1 is not None and output_rows["CP-1"].qa_status != "Blocked":
-            cp1_ok = True
             # is_reference_issuer gates fixture provenance: the genuine ATLF demo keeps
             # "fixture"; the same fixture served for any other issuer is tagged the
             # non-authoritative "demo_fixture" (#10).
             is_ref = run.issuer_id == REFERENCE_ISSUER_ID
-            for fact in extract_facts(
+            cp1_facts = extract_facts(
                 run.id, cp1, output_rows["CP-1"].qa_status, is_reference_issuer=is_ref
-            ):
+            )
+            for fact in cp1_facts:
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
         cp2 = upstream.get("CP-2")
-        cp2_ok = False
+        cp2_facts: List[dict] = []
         if cp2 is not None and output_rows["CP-2"].qa_status != "Blocked":
-            cp2_ok = True
-            for fact in extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status):
+            cp2_facts = extract_cost_facts(run.id, cp2, output_rows["CP-2"].qa_status)
+            for fact in cp2_facts:
                 session.add(MetricFact(issuer_id=run.issuer_id, **fact))
 
         # Retention (DATA-1): the cross-issuer query only uses the latest run's
         # facts per issuer, so supersede older run-derived rows for this issuer
         # rather than letting them accumulate unbounded. Seed facts are untouched.
-        if cp1_ok or cp2_ok:
+        #
+        # Gated on cp1_facts/cp2_facts (an ACTUAL write this run), not on
+        # cp1_ok/cp2_ok (merely "not Blocked") — a not-Blocked module can still
+        # legitimately extract zero facts (e.g. a CP-1 with no finite headline
+        # metric that isn't confident enough to trip cp1_completeness_finding).
+        # Scoped per module_id too: CP-1 succeeding must not sweep CP-2's own
+        # untouched prior facts (or vice versa) — each module only supersedes
+        # its own earlier rows, and only when it actually wrote a replacement.
+        # Both conditions matter: the old `if cp1_ok or cp2_ok` fired the ONE
+        # shared delete whenever either module merely wasn't Blocked, which
+        # could wipe a module's last-known-good facts down to nothing even
+        # though this run wrote no replacement for them (confidence-review).
+        if cp1_facts:
             await session.execute(
                 delete(MetricFact).where(
                     MetricFact.issuer_id == run.issuer_id,
+                    MetricFact.module_id == "CP-1",
                     # #04 fixture + #10 demo_fixture facts supersede too, so a non-demo
                     # issuer's fabricated fixture rows don't accumulate across re-runs.
+                    MetricFact.provenance.in_(("run", "fixture", "demo_fixture")),
+                    MetricFact.run_id != run.id,
+                )
+            )
+        if cp2_facts:
+            await session.execute(
+                delete(MetricFact).where(
+                    MetricFact.issuer_id == run.issuer_id,
+                    MetricFact.module_id == "CP-2",
                     MetricFact.provenance.in_(("run", "fixture", "demo_fixture")),
                     MetricFact.run_id != run.id,
                 )

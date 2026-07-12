@@ -26,8 +26,8 @@ from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
 from routes import alerts, auth, chat, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, research, runs, scenario, sector, settings as settings_routes, sponsors, autonomy
-from research_executor import ResearchExecutor
-from research_report_executor import ResearchReportExecutor
+from research_executor import get_research_executor
+from research_report_executor import get_report_executor
 from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
     await app.state.executor.start()
     logger.info("CAOS run executor started (%s)", app.state.executor.name)
     # Durable Deep Research (M-3): background jobs the client polls, swept on boot.
-    app.state.research_executor = ResearchExecutor()
+    app.state.research_executor = get_research_executor()
     await app.state.research_executor.start()
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
     # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows
@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     logger.info("CAOS pipeline executor started (%s)", app.state.pipeline_executor.name)
     # Durable Issuer Research Report synthesis: background jobs the client polls,
     # swept on boot. Mirrors ResearchExecutor.
-    app.state.research_report_executor = ResearchReportExecutor()
+    app.state.research_report_executor = get_report_executor()
     await app.state.research_report_executor.start()
     logger.info("CAOS research report executor started (%s)", app.state.research_report_executor.name)
 
