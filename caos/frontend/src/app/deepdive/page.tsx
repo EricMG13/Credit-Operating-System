@@ -23,6 +23,7 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
+import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
 import { loadLayout, saveLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
 import { ModuleFinder } from "@/components/deepdive/ModuleFinder";
@@ -620,9 +621,23 @@ function DeepDive() {
               tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} layout={layout} /> :
               tab === "CP-6E" ? <DebateTab variant="CP-6E" onOpenEvidence={setEvModal} layout={layout} /> :
               tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
-              <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
-            ) :
-            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+              // CP-4: the ATLF showcase fixture PLUS the live cross-default domino
+              // map (WP-4 G13) — the fixture has its own bespoke COVENANTS/CAPACITY
+              // narrative, the domino section is real, run-sourced data (honestly
+              // empty when this issuer_id has no completed run, which is the ATLF
+              // reference's usual state).
+              <>
+                <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
+                <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} />
+              </>
+            ) : (
+              <>
+                <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+                {/* Same live domino map for a real issuer's CP-4 tab — the map
+                    the spec calls out as needing to "appear for live issuers too". */}
+                {tab === "CP-4" ? <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} /> : null}
+              </>
+            )
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />

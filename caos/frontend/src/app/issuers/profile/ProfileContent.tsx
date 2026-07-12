@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getCrossDefaultMap, getIssuerProfile, queryGraph, type BusinessFact, type CrossDefaultMap, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -20,6 +20,7 @@ const EMPTY_EARNINGS: EarningsSummary = {
 };
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
+import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
@@ -713,7 +714,7 @@ export function Profile({
               </div>
             </Panel>
 
-            <CrossDefaultPanel issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
+            <CrossDefaultDominoes issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
           </div>
         </div>
 
@@ -993,68 +994,9 @@ function SigBand({ label, v, extra, gated = false }: { label: string; v: unknown
   );
 }
 
-// Cross-default dominoes — which tranches a single facility default pulls in
-// (CP-3B tranche register × the CP-4C material-indebtedness threshold). Fetched
-// lazily off the profile read; when the run extracted no threshold or tranches
-// the server's honest note renders instead — never a fabricated map.
-function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boolean }) {
-  const [map, setMap] = useState<CrossDefaultMap | null>(null);
-  // Distinct from "no run yet" (hasRun=false, nothing fetched): a genuine fetch
-  // failure (500/timeout/etc) must render an explicit error, not collapse to
-  // the same silent nothing as "not applicable" — mirrors SponsorsView's
-  // track-record fetch (app/sponsors/page.tsx), which shows "Couldn't load…"
-  // on catch instead of vanishing.
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    if (!hasRun) return;
-    let stale = false;
-    setError(false);
-    getCrossDefaultMap(issuerId)
-      .then((d) => { if (!stale) setMap(d); })
-      .catch(() => { if (!stale) setError(true); });
-    return () => { stale = true; };
-  }, [issuerId, hasRun]);
-  if (!hasRun) return null;
-  if (error) {
-    return (
-      <Panel title="Cross-default dominoes">
-        <div className="px-3 py-2.5"><Empty>Couldn’t load cross-default data.</Empty></div>
-      </Panel>
-    );
-  }
-  if (!map) return null;
-  const computable = map.threshold_musd != null && map.dominoes.length > 0;
-  return (
-    <Panel
-      title="Cross-default dominoes"
-      right={map.threshold_musd != null
-        ? <span className="tabular text-caos-2xs text-caos-muted">trips ≥ {fmt(map.threshold_musd, "$M")}</span>
-        : undefined}
-    >
-      {!computable ? (
-        <div className="px-3 py-2.5"><Empty>{map.note || "No domino map for this run."}</Empty></div>
-      ) : (
-        <div className="text-caos-md divide-y divide-caos-border/30">
-          {map.dominoes.map((d) => (
-            <div key={d.code} className="px-3 py-1.5 flex items-baseline gap-2">
-              <span className="tabular text-caos-sm text-caos-accent w-14 shrink-0">{d.code}</span>
-              <span className="text-caos-text text-caos-md truncate flex-1">{d.tranche}</span>
-              <span className="tabular text-caos-sm text-caos-muted">{d.amount_musd != null ? fmt(d.amount_musd, "$M") : "unsized"}</span>
-              <span
-                className="tabular text-caos-xs w-28 text-right shrink-0"
-                style={{ color: d.trips_cross_default === true ? "var(--caos-critical)" : "var(--caos-muted)" }}
-              >
-                {d.trips_cross_default === true
-                  ? `▸ pulls in ${d.pulls_in.length} tranche${d.pulls_in.length === 1 ? "" : "s"}`
-                  : d.trips_cross_default === false ? "below threshold" : "not computable"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </Panel>
-  );
-}
+// Cross-default dominoes now render via the shared CrossDefaultDominoes
+// component (components/shared/CrossDefaultDominoes.tsx) — Deep-Dive's
+// Covenants tab reads the identical live map (WP-4 G13).
 
 function SigText({ label, v, sev }: { label: string; v: string | null; sev?: string }) {
   if (v == null) return null;
