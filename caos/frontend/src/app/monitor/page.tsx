@@ -10,6 +10,7 @@ import { useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/data";
@@ -18,6 +19,7 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { AlertFeed, EmailIntel } from "@/components/command/views";
 import { AlertInbox } from "@/components/monitor/AlertInbox";
+import { PhoneTriage } from "@/components/monitor/PhoneTriage";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, requiredActionFor } from "@/lib/alerts/inbox";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
@@ -37,6 +39,8 @@ export default function MonitorPage() {
 }
 
 function Monitor() {
+  const { breakpoint } = useBreakpoint();
+  const isPhone = breakpoint === "mobile";
   const { draft, offline: autonomyOffline } = useAutonomyDraft();
   const liveRows = draft ? draftToAlertRows(draft) : [];
   const hasLiveAlerts = !autonomyOffline && liveRows.length > 0;
@@ -149,7 +153,14 @@ function Monitor() {
             : undefined
         }
       />
-      {/* workspace — intake stream is primary; alert routing rides alongside */}
+      {/* workspace — intake stream is primary; alert routing rides alongside.
+          Phone triage is a deliberately different, single-purpose layout
+          (locked decision #4): reading, alerts, ack/assign/resolve, and
+          desktop handoff ONLY — no email intake grid, no governance table,
+          no modeling. Everything else keeps the tablet/desktop workspace. */}
+      {isPhone ? (
+        <PhoneTriage />
+      ) : (
       <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 overflow-auto">
       <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-2">
         <PanelShell
@@ -232,6 +243,7 @@ function Monitor() {
         />
       </PanelShell>
       </div>
+      )}
     </ResponsiveShell>
   );
 }
