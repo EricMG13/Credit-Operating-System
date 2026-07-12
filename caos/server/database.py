@@ -802,9 +802,9 @@ class AnalystQaFlag(Base):
 
 
 class AlertState(Base):
-    """Ack/assign for one Watchtower alert (Command's ranked changes + Monitor's
-    alert inbox share this — same row, same truth, both surfaces read it via
-    lib/alerts/inbox.ts on the frontend).
+    """Ack/assign/resolve for one Watchtower alert (Command's ranked changes +
+    Monitor's alert inbox share this — same row, same truth, both surfaces
+    read it via lib/alerts/inbox.ts on the frontend).
 
     `alert_key` is deterministic from the autonomy draft — f"{run_id}:{issuer_id}:
     {kind}:{metric}" — and unique: a second POST for the same key upserts rather
@@ -813,6 +813,11 @@ class AlertState(Base):
     change-driven), so it correctly starts open again rather than inheriting a
     stale ack. Plain strings (no FK) — audit record, not run state, same shape
     as AnalystQaFlag above.
+
+    `state` is a fail-closed lattice — open(0) < ack(1) < resolved(2); the route
+    layer (routes/alerts.py) rejects a regression with 409 rather than silently
+    accepting it. `resolved_at` is stamped server-side the moment `state` first
+    reaches "resolved" (never client-supplied, so it can't be backdated).
     """
     __tablename__ = "alert_states"
     # Named to match migration 0038's unique index so `alembic check`
@@ -827,6 +832,10 @@ class AlertState(Base):
     note: Mapped[Optional[str]] = mapped_column(Text)
     analyst_id: Mapped[Optional[str]] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Server-stamped the instant `state` first becomes "resolved" — never
+    # accepted from the client, so a resolution can't be backdated or forged.
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text)
 
 
 # ─── Portfolio posture (managed CLO: holdings + constraints) ─────────────────

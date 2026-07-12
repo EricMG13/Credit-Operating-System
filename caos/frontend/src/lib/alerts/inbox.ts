@@ -82,3 +82,16 @@ export function requiredActionFor(row: Pick<AlertRow, "reason">): string {
   const kind = row.reason.split(" · ")[0];
   return REQUIRED_ACTION[kind] ?? "review finding";
 }
+
+// A quantified read on the row's severity — the same standard-deviations
+// unit family every anomaly detector emits (ts-jump/peer-outlier's robust
+// z-score against the peer/history median, cusum-shift's sigma-normalized
+// run length; engine/anomaly.py guards every one of these against a non-
+// finite result before it ever reaches a claim/bullet). This replaces
+// "impact" as a bare reason string with a real number — never a fabricated
+// basis-point figure the engine doesn't actually compute. Non-finite input
+// (should not happen, given the engine's own guard, but never trust a
+// boundary twice) renders null, which callers must show as "—", never 0.
+export function formatImpact(row: Pick<AlertRow, "severity">): string | null {
+  return Number.isFinite(row.severity) ? `${row.severity.toFixed(1)}σ` : null;
+}

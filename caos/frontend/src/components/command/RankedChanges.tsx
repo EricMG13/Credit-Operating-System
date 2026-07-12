@@ -15,7 +15,7 @@ import Link from "next/link";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, requiredActionFor, type AlertRow } from "@/lib/alerts/inbox";
+import { draftToAlertRows, formatImpact, requiredActionFor, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
 
 function issuerHref(row: AlertRow): string {
@@ -92,10 +92,21 @@ export function RankedChanges() {
       {rows.map((row) => {
         const state = states.get(row.key);
         const acked = state?.state === "ack";
+        const resolved = state?.state === "resolved";
+        const impact = formatImpact(row);
         return (
           <div key={row.key} className="px-3 py-[6px] border-b border-caos-border/50">
             <div className="flex items-center gap-2">
               <ProvenanceChip prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+              {impact ? (
+                <span
+                  className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
+                  title="Anomaly severity — standard deviations from the baseline/peer median, never a fabricated bp figure"
+                  style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
+                >
+                  {impact}
+                </span>
+              ) : null}
               <IssuerLink
                 query={row.issuerName}
                 title={`Open ${row.issuerName} profile`}
@@ -104,7 +115,7 @@ export function RankedChanges() {
                 {row.issuerName}
               </IssuerLink>
               <span className="tabular text-caos-xs text-caos-muted ml-auto">
-                {state?.assignee || "unassigned"}
+                {resolved ? "resolved" : state?.assignee || "unassigned"}
               </span>
             </div>
             <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
@@ -119,11 +130,12 @@ export function RankedChanges() {
               </Link>
               <button
                 type="button"
-                disabled={acked}
+                disabled={acked || resolved}
                 onClick={() => ack(row.key)}
+                title={resolved ? "Resolved on Monitor — this row is closed" : undefined}
                 className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
               >
-                {acked ? "Acked" : "Ack"}
+                {resolved ? "Resolved" : acked ? "Acked" : "Ack"}
               </button>
             </div>
           </div>

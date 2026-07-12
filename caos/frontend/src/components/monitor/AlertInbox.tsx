@@ -2,10 +2,10 @@
 
 // Monitor's live alert inbox — shares lib/alerts/inbox.ts derivation with
 // Command's RankedChanges so the two surfaces can never disagree about what
-// an alert says. Renders event → impact → owner → ack/assign. The final
-// state column reads "Ack/assigned", never "Resolved" — there is no
-// server-side resolution event; the honest loop ends at acknowledgement
-// (P2-WP-3).
+// an alert says. Renders event → impact → owner → ack/assign/resolve. The
+// loop now ends at a real "Resolved" terminal state (G8) — resolved rows
+// collapse out of the active list into their own disclosure below, never
+// mixed back in with (or relabeled as) an open/acked row.
 //
 // Renders null when there is nothing live to show (offline, or a settled
 // empty draft) — the caller (Monitor page) decides what DEMO fallback to
@@ -16,7 +16,7 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, type AlertRow } from "@/lib/alerts/inbox";
+import { draftToAlertRows, formatImpact, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
 
 function Row({
@@ -26,6 +26,7 @@ function Row({
   onToggleSelect,
   onAck,
   onAssign,
+  onResolve,
 }: {
   row: AlertRow;
   state: AlertStateDTO | undefined;
@@ -33,9 +34,16 @@ function Row({
   onToggleSelect: () => void;
   onAck: () => void;
   onAssign: (name: string) => void;
+  onResolve: (note: string) => void;
 }) {
   const [assigneeInput, setAssigneeInput] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [resolveNote, setResolveNote] = useState("");
   const acked = state?.state === "ack";
+  const resolved = state?.state === "resolved";
+  const impact = formatImpact(row);
+  const stateLabel = resolved ? "Resolved" : acked ? "Ack/assigned" : "Open";
+  const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
   return (
     <div className="px-3 py-[6px] border-b border-caos-border/50">
       <div className="flex items-center gap-2">
@@ -43,10 +51,20 @@ function Row({
           type="checkbox"
           checked={selected}
           onChange={onToggleSelect}
+          disabled={resolved}
           aria-label={`Select ${row.event}`}
-          className="min-h-8 min-w-8 caos-target"
+          className="min-h-8 min-w-8 caos-target disabled:opacity-40"
         />
         <ProvenanceChip prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+        {impact ? (
+          <span
+            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
+            title="Anomaly severity — standard deviations from the baseline/peer median (engine/anomaly.py's robust z-score / cusum run, never a fabricated bp figure)"
+            style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
+          >
+            {impact}
+          </span>
+        ) : null}
         <IssuerLink
           query={row.issuerName}
           title={`Open ${row.issuerName} profile`}
@@ -56,41 +74,81 @@ function Row({
         </IssuerLink>
         <span
           className="tabular text-caos-2xs uppercase tracking-wider ml-auto"
-          style={{ color: acked ? "var(--caos-success)" : "var(--caos-muted)" }}
+          style={{ color: stateColor }}
         >
-          {acked ? "Ack/assigned" : "Open"}
+          {stateLabel}
         </span>
       </div>
       <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
       <div className="text-caos-xs text-caos-muted leading-snug mt-0.5">{row.reason}</div>
-      <div className="flex items-center gap-2 mt-1.5">
-        <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
-        <input
-          value={assigneeInput}
-          onChange={(e) => setAssigneeInput(e.target.value)}
-          placeholder="assign to…"
-          className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target"
-        />
-        <button
-          type="button"
-          disabled={!assigneeInput.trim()}
-          onClick={() => {
-            onAssign(assigneeInput.trim());
-            setAssigneeInput("");
-          }}
-          className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
-        >
-          Assign
-        </button>
-        <button
-          type="button"
-          disabled={acked}
-          onClick={onAck}
-          className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
-        >
-          Ack
-        </button>
-      </div>
+      {resolved && state?.resolution_note ? (
+        <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 italic">
+          resolved: {state.resolution_note}
+        </div>
+      ) : null}
+      {!resolved ? (
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
+          <input
+            value={assigneeInput}
+            onChange={(e) => setAssigneeInput(e.target.value)}
+            placeholder="assign to…"
+            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target"
+          />
+          <button
+            type="button"
+            disabled={!assigneeInput.trim()}
+            onClick={() => {
+              onAssign(assigneeInput.trim());
+              setAssigneeInput("");
+            }}
+            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+          >
+            Assign
+          </button>
+          <button
+            type="button"
+            disabled={acked}
+            onClick={onAck}
+            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+          >
+            Ack
+          </button>
+          {resolving ? (
+            <>
+              <input
+                value={resolveNote}
+                onChange={(e) => setResolveNote(e.target.value)}
+                placeholder="resolution note (optional)…"
+                autoFocus
+                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target"
+              />
+              <button
+                type="button"
+                onClick={() => { onResolve(resolveNote); setResolving(false); setResolveNote(""); }}
+                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target"
+              >
+                Confirm resolve
+              </button>
+              <button
+                type="button"
+                onClick={() => { setResolving(false); setResolveNote(""); }}
+                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setResolving(true)}
+              className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target"
+            >
+              Resolve
+            </button>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -99,6 +157,7 @@ export function AlertInbox() {
   const { draft, loading, offline } = useAutonomyDraft();
   const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
   const [selected, setSelected] = useState<string[]>([]);
+  const [resolvedOpen, setResolvedOpen] = useState(false);
 
   const rows = draft ? draftToAlertRows(draft) : [];
 
@@ -125,6 +184,9 @@ export function AlertInbox() {
 
   const applyState = (key: string, next: AlertStateDTO) => setStates((m) => new Map(m).set(key, next));
 
+  const activeRows = rows.filter((r) => states.get(r.key)?.state !== "resolved");
+  const resolvedRows = rows.filter((r) => states.get(r.key)?.state === "resolved");
+
   return (
     <div>
       <BatchBar
@@ -139,7 +201,7 @@ export function AlertInbox() {
           },
         ]}
       />
-      {rows.map((row) => (
+      {activeRows.map((row) => (
         <Row
           key={row.key}
           row={row}
@@ -152,8 +214,37 @@ export function AlertInbox() {
               (r) => applyState(row.key, r),
             )
           }
+          onResolve={(note) =>
+            setAlertState(row.key, "resolved", { resolutionNote: note || undefined }).then((r) => applyState(row.key, r))
+          }
         />
       ))}
+      {resolvedRows.length > 0 ? (
+        <div className="border-t border-caos-border/50">
+          <button
+            type="button"
+            onClick={() => setResolvedOpen((v) => !v)}
+            aria-expanded={resolvedOpen}
+            className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target"
+          >
+            {resolvedOpen ? "− " : "+ "}Resolved ({resolvedRows.length})
+          </button>
+          {resolvedOpen
+            ? resolvedRows.map((row) => (
+                <Row
+                  key={row.key}
+                  row={row}
+                  state={states.get(row.key)}
+                  selected={false}
+                  onToggleSelect={() => {}}
+                  onAck={() => {}}
+                  onAssign={() => {}}
+                  onResolve={() => {}}
+                />
+              ))
+            : null}
+        </div>
+      ) : null}
     </div>
   );
 }

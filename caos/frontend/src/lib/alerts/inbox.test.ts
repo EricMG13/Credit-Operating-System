@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { draftToAlertRows } from "./inbox";
+import { draftToAlertRows, formatImpact } from "./inbox";
 import type { AutonomyDraft } from "@/lib/api";
 
 function draft(overrides: Partial<AutonomyDraft> = {}): AutonomyDraft {
@@ -107,5 +107,18 @@ describe("draftToAlertRows", () => {
   it("the empty-draft envelope (error set, no sections) still resolves to []", () => {
     const d = draft({ sections: [], error: "autonomy cycle unavailable" });
     expect(draftToAlertRows(d)).toEqual([]);
+  });
+});
+
+describe("formatImpact", () => {
+  it("renders the severity as a standard-deviations figure", () => {
+    expect(formatImpact({ severity: 2.34 })).toBe("2.3σ");
+    expect(formatImpact({ severity: 0.7 })).toBe("0.7σ");
+  });
+
+  it("renders null (never a fabricated 0) for a non-finite severity", () => {
+    expect(formatImpact({ severity: NaN })).toBeNull();
+    expect(formatImpact({ severity: Infinity })).toBeNull();
+    expect(formatImpact({ severity: -Infinity })).toBeNull();
   });
 });

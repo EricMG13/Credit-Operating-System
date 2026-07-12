@@ -111,4 +111,48 @@ describe("AlertInbox", () => {
     });
     await waitFor(() => expect(setAlertState).toHaveBeenCalledWith("2026-07-12T09:00:00Z:EG:ts-jump:dm", "ack"));
   });
+
+  it("shows a quantified impact badge next to the reason, in the same standard-deviations unit the engine computes", async () => {
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW); // severity: 0.7
+    getAlertStates.mockResolvedValue([]);
+    render(<AlertInbox />);
+    await waitFor(() => expect(screen.getByText("0.7σ")).toBeTruthy());
+  });
+
+  it("Resolve moves a row to the real terminal state and out of the active list, into a collapsed Resolved section", async () => {
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW);
+    getAlertStates.mockResolvedValue([]);
+    setAlertState.mockResolvedValue({
+      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+      resolved_at: "2026-07-12T09:10:00Z", resolution_note: "Refinanced, no longer material.",
+    });
+    render(<AlertInbox />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Resolve" })).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    });
+    fireEvent.change(screen.getByPlaceholderText("resolution note (optional)…"), {
+      target: { value: "Refinanced, no longer material." },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Confirm resolve" }));
+    });
+
+    await waitFor(() =>
+      expect(setAlertState).toHaveBeenCalledWith(
+        "2026-07-12T09:00:00Z:EG:ts-jump:dm", "resolved", { resolutionNote: "Refinanced, no longer material." },
+      ),
+    );
+    // The row leaves the active list (no more Open/Ack/Resolve buttons visible
+    // for it) and the collapsed disclosure now shows a count.
+    await waitFor(() => expect(screen.getByText("+ Resolved (1)")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Ack" })).toBeNull();
+    expect(screen.queryByText("Resolved")).toBeNull(); // still collapsed
+
+    fireEvent.click(screen.getByText("+ Resolved (1)"));
+    expect(screen.getByText("Resolved")).toBeTruthy();
+    expect(screen.getByText("resolved: Refinanced, no longer material.")).toBeTruthy();
+  });
 });

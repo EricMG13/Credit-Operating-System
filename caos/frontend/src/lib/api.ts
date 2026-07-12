@@ -995,19 +995,23 @@ export const getAutonomyDraft = (force = false): Promise<AutonomyDraft> =>
 export interface AlertStateDTO {
   id: string;
   alert_key: string;
-  state: "open" | "ack";
+  state: "open" | "ack" | "resolved";
   assignee: string | null;
   note: string | null;
   analyst_id: string | null;
   created_at: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
 }
 export const setAlertState = (
   alertKey: string,
-  state: "open" | "ack",
-  opts?: { assignee?: string; note?: string },
+  state: "open" | "ack" | "resolved",
+  opts?: { assignee?: string; note?: string; resolutionNote?: string },
 ): Promise<AlertStateDTO> =>
   api
-    .post("/api/alerts/state", { alert_key: alertKey, state, assignee: opts?.assignee, note: opts?.note })
+    .post("/api/alerts/state", {
+      alert_key: alertKey, state, assignee: opts?.assignee, note: opts?.note, resolution_note: opts?.resolutionNote,
+    })
     .then((r) => r.data);
 export const getAlertStates = (alertKey?: string): Promise<AlertStateDTO[]> =>
   api.get("/api/alerts/state", { params: alertKey ? { alert_key: alertKey } : {} }).then((r) => r.data);

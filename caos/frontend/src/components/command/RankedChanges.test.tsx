@@ -83,11 +83,40 @@ describe("RankedChanges", () => {
     expect(screen.getByText("Ranked by severity — holdings not loaded")).toBeTruthy();
     expect(screen.getByText("compare to peers")).toBeTruthy();
     expect(screen.getByText("unassigned")).toBeTruthy();
+    expect(screen.getByText("0.9σ")).toBeTruthy(); // quantified impact, not just the reason string
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Ack" }));
     });
     await waitFor(() => expect(setAlertState).toHaveBeenCalledWith("2026-07-12T09:00:00Z:ATLF:peer-outlier:claim", "ack"));
     await waitFor(() => expect(screen.getByText("Acked")).toBeTruthy());
+  });
+
+  it("a row resolved on Monitor reads 'Resolved' here too and its Ack action is disabled — the two surfaces never disagree", async () => {
+    getAutonomyDraft.mockResolvedValue({
+      ...EMPTY_DRAFT,
+      generated_at: "2026-07-12T09:00:00Z",
+      sections: [
+        {
+          issuer_id: "ATLF", issuer_name: "Atlas Forge", max_severity: 0.9,
+          claims: [{
+            text: "EBITDA margin compressed sharply vs peers", claim_type: "anomaly",
+            anomaly_kind: "peer-outlier", anomaly_severity: 0.9, chunk_ids: [], fact_ids: [],
+            model: "claude-opus-4-8",
+          }],
+          deterministic_bullets: [], exhibit: [],
+        },
+      ],
+    });
+    getAlertStates.mockResolvedValue([{
+      id: "1", alert_key: "2026-07-12T09:00:00Z:ATLF:peer-outlier:claim", state: "resolved",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+      resolved_at: "2026-07-12T09:10:00Z", resolution_note: null,
+    }]);
+
+    render(<RankedChanges />);
+    const resolveBtn = await screen.findByRole("button", { name: "Resolved" });
+    expect((resolveBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("resolved")).toBeTruthy(); // owner slot, not "unassigned"
   });
 });
