@@ -15,6 +15,7 @@ import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
+import { ScopeLabel } from "@/components/shared/ScopeLabel";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
@@ -330,7 +331,7 @@ function Settings() {
           {tab === "models" ? (
           <div id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models" className="flex flex-col gap-2">
           {/* Role view — mirrors the header selector; same provider state. */}
-          <Panel title="Role view · saved to your analyst profile">
+          <Panel title="Role view" right={<ScopeLabel scope="profile" />}>
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 Workspace presentation preference — chooses which composition analytical surfaces
@@ -342,7 +343,7 @@ function Settings() {
           </Panel>
 
           {/* Model mode */}
-          <Panel title="Model mode · saved in this browser">
+          <Panel title="Model mode" right={<ScopeLabel scope="device" />}>
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 The cost↔quality tier the engine runs its LLM lanes at — module synthesis, the
@@ -354,7 +355,7 @@ function Settings() {
           </Panel>
 
           {/* Query model */}
-          <Panel title="Query Model · saved in this browser">
+          <Panel title="Query Model" right={<ScopeLabel scope="device" />}>
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 The language model used by the Query workspace and the global Ask launcher to translate
@@ -414,13 +415,19 @@ function Settings() {
           </Panel>
 
           <Panel
-              title="Custom model routing · saved to analyst profile"
-              right={analystStatusTag}
+              title="Custom model routing"
+              right={
+                <span className="flex items-center gap-2">
+                  <ScopeLabel scope="profile" />
+                  {analystStatusTag}
+                </span>
+              }
             >
               <div className="p-3 flex flex-col gap-2">
                 <p className="tabular text-caos-2xs text-caos-warning leading-snug">
-                  Stored on your analyst profile — not yet applied. LLM lanes still run at the
-                  workspace tier above; per-lane wiring lands with the run-lane override rollout.
+                  Not yet applied — LLM lanes still run at the workspace tier above. Per-lane
+                  wiring lands with the run-lane override rollout; these selects are disabled
+                  until then. Any value already stored on your profile is shown, not cleared.
                 </p>
                 {[
                   ["module_synthesis", "Module synthesis"],
@@ -432,11 +439,10 @@ function Settings() {
                     <span className={labelCls}>{label}</span>
                     <select
                       value={analystSettings.model_lanes[lane] || ""}
-                      disabled={!analystLoaded}
-                      onChange={(e) => saveAnalyst({
-                        ...analystSettings,
-                        model_lanes: { ...analystSettings.model_lanes, [lane]: e.target.value },
-                      })}
+                      disabled
+                      aria-disabled="true"
+                      title="Not yet applied — activates with the run-lane override rollout"
+                      onChange={() => {}}
                       className="rounded border border-caos-border bg-caos-elevated px-2 py-1.5 tabular text-caos-md text-caos-text focus-ring disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <option value="">Use workspace tier</option>
@@ -458,9 +464,10 @@ function Settings() {
           {tab === "research" ? (
           <div id="settings-panel-research" role="tabpanel" aria-labelledby="settings-tab-research">
           <Panel
-            title="Research defaults · saved in this browser"
+            title="Research defaults"
             right={
               <span className="flex items-center gap-3">
+                <ScopeLabel scope="device" />
                 {saved ? <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
                 <button
                   onClick={() => { setPrefs(DEFAULT_PREFS); setSaved(false); }}
@@ -509,7 +516,12 @@ function Settings() {
             <div id="settings-panel-email" role="tabpanel" aria-labelledby="settings-tab-email">
             <Panel
               title="Email Intelligence · Outlook connection"
-              right={<span className="tabular text-caos-xs text-caos-muted">feed built near production</span>}
+              right={
+                <span className="flex items-center gap-2">
+                  <ScopeLabel scope="profile" />
+                  <span className="tabular text-caos-xs text-caos-muted">feed built near production</span>
+                </span>
+              }
             >
               <div className="p-3 flex flex-col gap-3">
                 <div className="flex items-center justify-between rounded border border-caos-border bg-caos-bg px-3 py-2">
@@ -553,8 +565,13 @@ function Settings() {
           {tab === "workspace" ? (
           <div id="settings-panel-workspace" role="tabpanel" aria-labelledby="settings-tab-workspace">
           <Panel
-            title="Workspace configuration · set via environment, restart to change"
-            right={cfg && !cfg.llm_configured ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>NO MODEL KEY · demo mode</span> : null}
+            title="Workspace configuration"
+            right={
+              <span className="flex items-center gap-2">
+                <ScopeLabel scope="workspace" />
+                {cfg && !cfg.llm_configured ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>NO MODEL KEY · demo mode</span> : null}
+              </span>
+            }
           >
             <div className="p-3">
               {cfgErr ? (
