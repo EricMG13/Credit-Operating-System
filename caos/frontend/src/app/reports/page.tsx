@@ -36,12 +36,14 @@ function PrintPortal({
   showSources,
   edits,
   hideAddbacks,
+  authority,
 }: {
   rep: ReturnType<typeof buildReports>[number];
   omit: Record<number, boolean>;
   showSources: boolean;
   edits: Record<string, string>;
   hideAddbacks?: boolean;
+  authority?: Parameters<typeof ReportDoc>[0]["authority"];
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -52,7 +54,10 @@ function PrintPortal({
     return () => d.remove();
   }, []);
   if (!el) return null;
-  return createPortal(<ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} />, el);
+  return createPortal(
+    <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} authority={authority} />,
+    el,
+  );
 }
 
 export default function ReportsPage() {
@@ -226,6 +231,17 @@ function ReportStudio() {
   // phase included so a backend outage reads "could not load", not the confident
   // "no run for this issuer" — this surface produces committee documents.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
+
+  // Printed authority block (P2-WP-8) — same caveat state and FE-5
+  // live-run-backed distinction the on-screen header already uses (266-311
+  // below), so the deliverable's own masthead never overstates or
+  // understates what actually backs it.
+  const authority = {
+    caveatKind,
+    liveRunBacked: caveatKind === "reference" && !!eng.runId,
+    runId: eng.runId,
+    qaNote: caveatKind === "reference" ? "QA: CP-5 CONDITIONAL — QA-117" : eng.committeeStatus ? `COMMITTEE: ${eng.committeeStatus}` : null,
+  };
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -455,6 +471,7 @@ function ReportStudio() {
                 onEdit={editMode ? applyEdit : undefined}
                 onOpenEvidence={setEvModal}
                 hideAddbacks={hideAddbacks && rep.id === "model"}
+                authority={authority}
               />
             </div> : (
               <div className="min-h-[420px] flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -484,12 +501,12 @@ function ReportStudio() {
             </button>
           ) : null}
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
-          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} />
+          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} />
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
-      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} /> : null}
+      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
     </ResponsiveShell>
   );
 }
