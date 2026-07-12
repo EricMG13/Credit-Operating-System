@@ -5,11 +5,14 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { PORTFOLIO } from "@/lib/command/data";
-import { buildRVHoldingsMap, buildRVRows, RV_FILE_LABEL, RV_SECTORS } from "@/lib/command/rvdata";
+import { buildRVHoldingsMap, buildRVRows, RV_AS_OF, rvStaleness, RV_FILE_LABEL, RV_SECTORS } from "@/lib/command/rvdata";
 import { SectorRV } from "@/components/command/SectorRV";
+import { freshnessFrom } from "@/components/command/ActionableDislocations";
+import { rankDislocations, canOpenDeepDive } from "@/lib/command/dislocations";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { SimControls } from "@/components/pipeline/atoms";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 
 export default function SectorRvPage() {
@@ -28,7 +31,12 @@ function SectorRvWorkspace() {
     [portfolio.live, portfolio.rows]
   );
   const rvLoanCount = RV_SECTORS.reduce((sum, sector) => sum + sector.rows.length, 0);
-  const matchedHeld = useMemo(() => buildRVRows(holdings).filter((row) => row.portfolioRv.held).length, [holdings]);
+  const rvRows = useMemo(() => buildRVRows(holdings), [holdings]);
+  const matchedHeld = useMemo(() => rvRows.filter((row) => row.portfolioRv.held).length, [rvRows]);
+  // Same ranking ActionableDislocations opens with — the decision header must
+  // never disagree with the panel it summarizes.
+  const topDislocation = useMemo(() => rankDislocations(rvRows, 1)[0] ?? null, [rvRows]);
+  const staleness = rvStaleness(RV_AS_OF);
 
   const narrowContract: NarrowContract = {
     // At <1280px, the header shows only the 4 summary metrics + sim clock.
@@ -85,6 +93,38 @@ function SectorRvWorkspace() {
       }
       narrowContract={narrowContract}
     >
+      {/* Decision header — mirrors the SAME top-ranked dislocation
+          ActionableDislocations opens with (rankDislocations), so this never
+          disagrees with the panel below it. Evidence health carries the
+          identical REFERENCE/DERIVED/freshness grammar as that panel's chip. */}
+      <DecisionHeader
+        whatChanged={
+          topDislocation
+            ? `${topDislocation.company} ${topDislocation.rvBp > 0 ? "+" : ""}${Math.round(topDislocation.rvBp)}bp vs sector×rating median`
+            : undefined
+        }
+        whyItMatters={
+          topDislocation
+            ? `${topDislocation.rating} · ${topDislocation.subSector}${topDislocation.held ? " · held position" : ""}`
+            : "No benchmarked loans in the current universe"
+        }
+        requiredAction={
+          topDislocation
+            ? topDislocation.held
+              ? "Held position dislocated — review sizing"
+              : canOpenDeepDive(topDislocation)
+                ? `Open ${topDislocation.company} in Deep-Dive to assess`
+                : "Unmatched name — no issuer profile to open"
+            : undefined
+        }
+        evidenceHealth={{
+          origin: "REFERENCE",
+          method: "DERIVED",
+          freshness: freshnessFrom(staleness.label),
+          detail: "market-data.json reference feed · RV = 3Y DM − sector×rating median (n ≥ 2)",
+          asOf: RV_AS_OF,
+        }}
+      />
       <div className="flex-1 overflow-y-auto gap-3.5 p-2 flex flex-col">
         <SectorRV holdings={holdings} />
       </div>

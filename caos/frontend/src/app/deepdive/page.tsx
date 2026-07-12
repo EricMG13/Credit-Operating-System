@@ -30,6 +30,8 @@ import { StandingViewStrip } from "@/components/deepdive/StandingViewStrip";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
+import { fromReportCaveat } from "@/lib/provenance";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { useAsk } from "@/components/shared/Ask";
 import { getIssuer } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
@@ -406,6 +408,37 @@ function DeepDive() {
       }
       narrowContract={narrowContract}
     >
+      {/* Decision header — evidence health mirrors the same caveat grammar the
+          identity chip already states; the other three cells lean only on
+          data this page already fetched (the sim clock, live module count,
+          CP-5C council). Loading/error/no-run all honestly read "— no data"
+          rather than a guessed decision. */}
+      <DecisionHeader
+        whatChanged={
+          caveatKind === "reference"
+            ? `${run.completed}/${run.total} modules cleared`
+            : caveatKind === "live"
+              ? `${Object.keys(live.liveOuts).length} module${Object.keys(live.liveOuts).length === 1 ? "" : "s"} with live output`
+              : undefined
+        }
+        whyItMatters={
+          live.council[0]
+            ? `${live.council[0].finding_id} — ${live.council[0].severity}${live.council.length > 1 ? ` (+${live.council.length - 1} more)` : ""}`
+            : live.committeeStatus
+              ? `Committee status: ${live.committeeStatus}`
+              : undefined
+        }
+        requiredAction={
+          live.council[0]?.required_remediation
+            ? live.council[0].required_remediation
+            : caveatKind === "noRun"
+              ? `Run analysis for ${code} to populate modules`
+              : caveatKind === "reference"
+                ? "Review CP-6A debate before committee"
+                : undefined
+        }
+        evidenceHealth={fromReportCaveat(caveatKind, caveatKind === "reference" && !!live.runId)}
+      />
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal

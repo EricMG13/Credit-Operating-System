@@ -29,8 +29,7 @@ import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, lat
 import { issuerSector } from "@/lib/issuers";
 import { fmtPct, fmtUsdM } from "@/lib/format";
 import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
-import { useRoleView } from "@/components/shared/RoleViewProvider";
-import { PmStrip } from "@/components/issuers/PmStrip";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { ProfileSectionNav, type ProfileSection } from "@/components/issuers/ProfileSectionNav";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
@@ -445,7 +444,6 @@ export function Profile({
     ? ((sponsor as { ledger: { flag: string; chunk_id?: string }[] }).ledger) : [];
 
   const [gran, setGran] = useState<"FY" | "Q">("FY");
-  const { roleView } = useRoleView();
   // Callback ref (not useRef) — ProfileSectionNav needs the element itself to
   // set up its IntersectionObserver, and a plain ref stays null through the
   // render that creates it.
@@ -515,9 +513,12 @@ export function Profile({
   // signals — a callout with warning chrome must never fire on a clean read.
   const watchSignals = (earnings.monitoring_signals || []).filter((s): s is string => typeof s === "string" && !!s.trim());
 
-  // PM ten-second strip — every field reuses a value already computed above
+  // Decision header — every field reuses a value already computed above
   // for the header chips / body panels (no new compute, no LLM). Missing
-  // data renders "—" via PmStrip itself, never a synthesized stance.
+  // data renders "— no data" via DecisionHeader itself, never a synthesized
+  // stance. Replaces the old PM-only PmStrip: the shared header is role-aware
+  // (collapsed for Analyst, open for PM/QA) rather than role-gated, so QA
+  // gets the same ten-second answer PM did.
   const pmPosture = latest_run
     ? { label: String(latest_run.committee_status) + (signals.recommendation ? ` · ${signals.recommendation}${recGated ? " (gated)" : ""}` : ""), sev: recGated ? "low" : COMMITTEE_SEV[latest_run.committee_status] ?? "low" }
     : null;
@@ -526,6 +527,9 @@ export function Profile({
     ? { label: totalFindings ? `${findings.CRITICAL || 0} crit · ${findings.MATERIAL || 0} mat` : "clean", sev: findings.CRITICAL ? "critical" : findings.MATERIAL ? "warning" : "ok" }
     : { label: "no run", sev: "low" };
   const pmAction = { label: recGated ? "Clear CP-5 gate" : "Review thesis", href: deepHref };
+  const EVIDENCE_SEV_COLOR: Record<string, string> = {
+    critical: "var(--caos-critical)", warning: "var(--caos-warning)", ok: "var(--caos-success)", low: "var(--caos-muted)",
+  };
 
   const SECTIONS: ProfileSection[] = [
     { id: "profile-snapshot", label: "Snapshot" },
@@ -538,11 +542,19 @@ export function Profile({
   const body = (
       <div className="flex flex-col gap-3">
         <ProfileSectionNav sections={SECTIONS} scrollRoot={scrollEl} />
-        {/* PM ten-second answer — presentation only (role_view), not access
-            control; the Analyst view skips straight to the panels below. */}
-        {roleView === "pm" ? (
-          <PmStrip posture={pmPosture} whatChanged={deskRead} risk={pmRisk} evidenceHealth={pmEvidence} action={pmAction} />
-        ) : null}
+        {/* Decision header — visible to every role; Analyst opens collapsed
+            (a single reveal row), PM/QA open expanded (their ten-second
+            answer), matching Command/Monitor/Deep-Dive/Sector RV. */}
+        <DecisionHeader
+          whatChanged={deskRead}
+          whyItMatters={pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk}
+          requiredAction={
+            <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">
+              {pmAction.label} →
+            </Link>
+          }
+          evidenceHealth={<span style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}>{pmEvidence.label}</span>}
+        />
         <div id="profile-snapshot" />
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}

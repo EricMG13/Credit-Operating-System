@@ -24,7 +24,7 @@ import type { ProvFreshness } from "@/lib/provenance";
 import { rankDislocations, canOpenDeepDive, deepDiveHref, type Dislocation } from "@/lib/command/dislocations";
 import { RV_AS_OF, rvStaleness, type RVRow } from "@/lib/command/rvdata";
 
-function freshnessFrom(label: string): ProvFreshness {
+export function freshnessFrom(label: string): ProvFreshness {
   if (label === "UNKNOWN") return "UNKNOWN";
   if (label.startsWith("CURRENT")) return "CURRENT";
   return "STALE";
