@@ -200,9 +200,9 @@ async def upload_document(
     return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
 
 
-async def _collect_ratings(
+async def _collect_ratings(  # noqa: C901
     db: AsyncSession, content: bytes, resp: IngestionResponse, caller: CallerIdentity,
-) -> None:  # noqa: C901
+) -> None:
     """Pull agency ratings off a structured (xlsx) upload and write them onto
     matching *existing* issuers — matched by FIGI, then ticker, then exact name.
 
