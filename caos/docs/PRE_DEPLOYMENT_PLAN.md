@@ -1,12 +1,14 @@
 # CAOS — Pre-Deployment Program Plan
 
-> **Latest status:** the **2026-07-13 authoritative reconciliation** below is
-> the release ledger. It supersedes the retained 2026-07-11/12 snapshots.
+> **Latest status:** the **2026-07-13 coverage review** below is the current
+> release-planning overlay. The earlier 2026-07-13 code reconciliation remains
+> useful implementation history, but it predates `c6c0f9a6` and must be
+> re-grounded before any checkbox is closed.
 
 > **For agentic workers:** this is the **master program plan** (current state
 > → enterprise transfer). It tracks **status** only — status verdicts,
 > checkboxes, exit gates. Every "tested regularly" / cadence claim resolves to
-> a loop ID (`L1`–`L20`) defined in
+> a loop ID (`L1`–`L22`) defined in
 > [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md), which owns
 > **mechanism** — do not restate cadences here without a loop ID; if a claim
 > needs a new automation, the loop doc names the work item. Tooling/skills
@@ -34,6 +36,38 @@ everything live re-verified after its phase lands. Supersedes the phase
 ordering in [DEVELOPMENT_PHASES.md](DEVELOPMENT_PHASES.md) where they
 conflict (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens *after*
 transfer — it is outstanding item #2 by design).
+
+### 2026-07-13 coverage review — gaps added to the release ledger
+
+This review examined the plan itself against the deploy stack, CI/nightly
+workflows, migration/backup scripts, DR runbook, current engine registry, and
+the current checkout (`codex/111@c6c0f9a6`). The checkout is dirty with
+parallel work, so this is **not** a fresh readiness verdict and does not mark
+implementation items complete. It closes omissions in what the program must
+prove.
+
+| ID | Coverage gap found | Why the prior plan was insufficient | Blocking owner / proof |
+|---|---|---|---|
+| PG-01 | Immutable release candidate and provenance | H1 could build from a mutable checkout; no release manifest pinned commit, image digest, schema head, config fingerprint, or test evidence to the same bytes. | **H0** — signed release manifest, clean `origin/main` checkout, final-image scan, archived evidence. |
+| PG-02 | Production-schema migration and rollback decision | CI proves generic up/down, but not upgrade from the actual production revision/data shape or compatibility with the last-good image. | **H0** — schema preflight, restored-snapshot rehearsal, expand/contract decision, abort thresholds, pre-migration backup. |
+| PG-03 | Independent availability and infrastructure alerting | G2 routed app failures through CAOS's own Monitor; a dead app/host/DB/ingress cannot alert through itself. | **G7** — external probe plus host/container/disk/cert/backup alerts, tested delivery and named owner. |
+| PG-04 | Off-host backup is configured, fresh, encrypted, and observable | G6 credited an optional hook; unset or failed sync still means total loss on host failure. | **G8** — observed off-host sync, age/failure alarm, encryption/access evidence, realistic restore. |
+| PG-05 | Host operating baseline | The app/container posture did not own firewall/SSH, Docker daemon access, OS patches, time sync, disk capacity/encryption, log rotation, or certificate expiry. | **G9** — dated host-readiness artifact on the target host. |
+| PG-06 | Spec-only module promise resolution | UF-01 named CP-SR/CP-MON/CP-RENDER/CP-EXTRACT but no blocking item owned implementation or an explicit equivalent-service decision; X5 incorrectly made CP-SR non-blocking. | **C13** — promise-to-runtime map and production E2E; Sector Review cannot pass on reference synthesis alone. |
+| PG-07 | Data governance beyond GDPR erasure | No record-class retention, backup-expiry, legal-hold, data-classification, vendor residency/DPA, or immutable-record policy. | **E8/H3** — approved policy, control tests, and accepted exceptions. |
+| PG-08 | Persona-critical UAT | One same-number concept link does not prove analyst, PM/CIO, and Research/QA workflows, degraded states, exports, supported browsers, or narrow/zoom layouts. | **H6** — signed UAT matrix on the immutable candidate. |
+| PG-09 | Beta/production data separation | F1 said to retain golden/corpus issuers in “production,” contradicting demo-seed-off and risking fixture data in the live workspace. | **F1 corrected** — isolated beta workspace; fixtures remain offline; production starts empty unless real pilot data is explicitly migrated. |
+| PG-10 | Cutover, communications, hypercare, and abort ownership | Sign-off existed, but no change window, freeze, user notice, rollback decision owner, success thresholds, or post-cutover observation period. | **H7** — timed cutover/rollback run sheet and hypercare handoff. |
+| PG-11 | Supply-chain coverage of the final OCI image | Dependency/SBOM checks did not prove the final image's OS packages, digest, or critical-vulnerability disposition. | **H0** — scan the built release image by digest and attach the result. |
+| PG-12 | Blocker-only completion accounting | The final raw checkbox grep could never pass while intentionally non-blocking C7–C9 and X1–X13 remained open. | **H8** — explicit blocker ledger; expansion backlog stays outside the release verdict. |
+
+These rows are release blockers. PG-01/02/03/04/06/08/09/11/12 are
+non-waivable because they establish artifact identity, recoverability, outage
+detection, honest product scope, test-data separation, and the validity of the
+verdict itself. PG-05/07/10 may be satisfied by an enterprise-owned equivalent
+only when H3 records the exact control, owner, evidence, and H5 approval; a
+generic “accepted risk” is not closure. The matching critic pass is recorded
+in `.agent-reviews/redteam.md` (RT-2026-07-13-152…160).
 
 ## Historical trunk state — 2026-07-11 (superseded)
 
@@ -146,7 +180,7 @@ not treated as “merged on main.”
 | UF-05 | Live Report renderer | Draft/version persistence exists; CP-RENDER and issuer-specific report composition do not. | C4/CP-RENDER; real issuer → report version → PDF/IC journey. |
 | UF-06 | Live Deep-Dive rail/read-model adapters | Real module center views exist; several retained evidence, QA, output-register, and committee panes are reference-only. | C4; parity matrix must pass before fixture path retirement. |
 | UF-07 | Persisted model scenario application | Scenario calculations and network readout exist; an applied scenario is not a saved override/checkpoint artifact. | A-1; apply/undo/save/reopen E2E. |
-| UF-08 | Roles-lite authorization | `role_view` is presentation; there is no analyst/admin/read-only policy dependency or admin assignment plane. | E2; deny-by-default mutation matrix. |
+| UF-08 | Roles-lite authorization | `role_view` remains presentation-only. A server role field and selected write gates now exist in the current checkout, but exhaustive legacy-route enforcement and an admin assignment plane are not yet certified. | E2; deny-by-default mutation matrix. |
 | UF-09 | Firm-wide append-only audit log | `audit_log`/audit helper are absent from current checkout and `origin/main`; candidate PR #169 is open. | E3; all shared mutations write actor/before/after rows. |
 | UF-10 | Breadth corpus | The 61-name MANIFEST exists; captured fixtures and `corpus_run` marker remain absent. | B5; scoped fixture count must equal manifest scope. |
 | UF-11 | Full concept-link decision journey | Individual E2Es exist, but no one test proves issuer → upload → pipeline → Deep-Dive → model checkpoint → finding → report with identical artifact identity and numbers. | C6; one backend-connected Playwright/API journey. |
@@ -296,10 +330,10 @@ current status or release decision.**
 | B | Engine certification completion | both lanes clean on 3 goldens + captured breadth corpus, headless | ~2–3 wk | A |
 | C | All concepts live | kill the mock: Monitor seam, market data, Command board, remaining seams | ~3–5 wk | B |
 | D | Ingestion breadth | OCR provenance/golden, upload robustness matrix (RAG lane already done) | ~1 wk | B (∥ C) |
-| E | Enterprise hardening | roles-lite, audit trail, secrets runbook, stress run, SBOM | ~2–3 wk | C |
+| E | Enterprise hardening | roles-lite, audit trail, secrets, governance, stress, SBOM | ~2–3 wk | C |
 | F | Beta — build the dictionary | 3–5 analysts, real coverage, gap log | ~3–4 wk cal. | C, D (∥ E) |
-| G | Ops readiness | drills, alerting loop, load, DR, loops locked | ~1–2 wk | E |
-| H | Pre-deployment gate + handover | full gate on prod-parity, transfer package | ~1 wk | all |
+| G | Ops readiness | drills, independent alerting, host baseline, load, DR | ~1–2 wk | E |
+| H | Pre-deployment gate + handover | immutable candidate, UAT, cutover rehearsal, transfer package | ~1 wk | all |
 
 Sizes are planning aids, re-estimated at each phase exit (§13). D shrank
 materially this grounding (D2 RAG lane is done); A shrank (A0's five P0
@@ -373,6 +407,17 @@ truth, tooling roots clean.
   now **355/355 `Pass`**, 0 `Pending Verification`; CP-SR production compute
   remains separately and honestly tracked under UF-01/UW-19 rather than
   hidden in the UI tracker.
+- [ ] **A8 (M) — current-state re-grounding.** The 2026-07-13 authoritative
+  implementation register predates commits through `c6c0f9a6` and migration
+  `0052`; it also predates the live nightly workflow, analyst role field,
+  decision/committee/report-export work, Portfolio Lab, and lineage v2. Once
+  parallel WIP settles, reconcile every UW/UF row and A–H status against a
+  clean `origin/main` checkout and current GitHub checks. Present-in-worktree
+  is not merged; a field/table is not a complete policy; a passing UI tracker
+  is not proof of live data. **Verify:** dated reconciliation records commit,
+  clean-tree status, open PRs, migration head, CI URL, current test/axe counts,
+  and evidence for every status flip. **Exit:** no “latest/current” claim in
+  this plan points at an older checkout without an explicit historical label.
 
 **Exit gate:** `main` is the only release branch (post A3/A6/A6b) · 0 open
 non-dependabot PRs without a recorded decision · dependabot backlog ≤14 days
@@ -380,7 +425,7 @@ old (A5/L14) · CI green on `main` tip (**not true as of 2026-07-13: two E2E
 failures**) · server suite green on the designated server venv (latest local:
 1457 pass / 7 skip; latest main CI server job green) · `FEATURE_TRACKER.csv`
 has 0 unresolved `Pending Verification` rows ·
-0 dangling skill symlinks.
+0 dangling skill symlinks · A8 current-state reconciliation complete.
 
 **Loops:** L1 (CI gate), L2 (code review), L3 (blast radius), L14 (dependency
 triage), L15 (tracker sweep) — see the loop doc.
@@ -616,6 +661,17 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   one contract/E2E case per visible mode proves the queued run's plan matches
   its label; invalid/retired modes fail explicitly. **Exit:** no selected mode
   can queue the full route while claiming a narrower/different route.
+- [ ] **C13 (M) — runtime promise resolution (PG-06/UF-01).** Produce a
+  checked-in promise map for `CP-SR`, `CP-MON`, `CP-RENDER`, and `CP-EXTRACT`.
+  For each module, either implement and register it, or name the live service
+  that fully owns the same user-visible contract and remove or redirect the
+  spec-only route promise. A label or reference synthesis is not equivalent.
+  Sector Review must have a real asynchronous, source-backed refresh/publish
+  path before C exits; it is not excused by X5's non-blocking expansion policy.
+  **Verify:** registry/route contract test plus one production-data E2E per
+  mapped promise, including degraded and empty behavior. **Exit:** no
+  production control or concept claims a module whose only runtime state is
+  `implemented=False`.
 
 **Exit gate:** `MOCK_LEDGER.md` (C1) burned to zero silent-mock and zero
 unlabeled sample in prod build · C3-seam: rule → event → inbox → `InAppSink`
@@ -624,7 +680,7 @@ read only the persisted quote store, Sector RV refresh round-trips against
 fixture-backed Bloomberg and degrades to manual, Settings Market Data section
 live · concept-link suite (C6) green · C10 action semantics honest · C11
 scenario application persists and round-trips · C12 selected run mode matches
-the immutable server plan · a11y axe re-run clean on
+the immutable server plan · C13 closes every spec-only user promise · a11y axe re-run clean on
 new/changed routes (Monitor inbox especially — loop doc `design-a11y-ux`
 playbook). C7–C9 are tracked here but **do not block this gate** (§14
 expansion policy).
@@ -694,10 +750,13 @@ silently with 0 chunks.
   injection; record and close what it finds. **Exit:** stress suite green at
   2× pilot concurrency with fault injection; multi-worker config committed
   and load-tested (feeds G3).
-- [ ] **E2 (L — own implementation plan at pickup) — DECIDED 2026-07-03:
-  roles-lite.** Confirmed not built (S4 Ev-12: only `team_id` columns exist,
-  which is the orthogonal cross-team tenancy mechanism from `313ebac`, not
-  roles). Three roles on the existing analyst-profile system:
+- [ ] **E2 (L — own implementation plan at pickup) — roles-lite, partial and
+  not yet certified.** The current checkout has an `Analyst.role` field and
+  `require_write_role` on selected newer routes, which supersedes the old
+  “only team_id exists” claim. That is not enough to close E2: the exhaustive
+  mutation/admin route matrix, bootstrap/assignment plane, legacy-route
+  coverage, and forged-role/cookie tests still require A8 re-grounding and
+  proof. Three roles on the existing analyst-profile system:
   - **analyst** (default) — full workspace read/write, runs, uploads, watch
     rules.
   - **admin** — analyst rights + profile/role management + audit-log view +
@@ -751,13 +810,25 @@ silently with 0 chunks.
   Settings persistence + run dispatch tests prove each lane selection changes
   the executed route; an unavailable route produces an explicit recovery
   state. **Exit:** no permanently disabled/no-op production select remains.
+- [ ] **E8 (M) — data governance and vendor handling (PG-07).** Create an
+  approved record-class matrix for uploaded source documents, chunks and
+  embeddings, run facts, prompts/model outputs, findings, committee records,
+  audit rows, analyst identity data, exports, logs, and backups. For each,
+  define classification, owner, purpose, retention, deletion/anonymization,
+  legal-hold behavior, backup-expiry propagation, and export/access policy.
+  Record Anthropic, Google OIDC, SEC EDGAR, Bloomberg, and email-transport
+  data-flow/residency/DPA decisions; do not assume a vendor's default data-use
+  posture. **Verify:** policy-to-control test matrix exercises expiry and
+  erasure for mutable records and proves immutable/audit exceptions are
+  documented and authorized. **Exit:** Data Owner and Security Owner approve
+  the matrix; every exception is in H3's accepted-risk register.
 
 **Exit gate:** stress suite green at 2× pilot concurrency with fault
 injection (E1) · roles-lite implemented + tested (E2) · audit log on 100% of
 mutating routes, tested (E3) · secrets runbook + grep test (E4) · security
 review PASS with accepted-risk register (E5) · SBOM published (E6) · custom
 model-lane routing is either live and audited or removed from production
-Settings (E7).
+Settings (E7) · record-class retention and vendor handling approved (E8).
 
 **Loops:** L12 (stress — work item for weekly smoke; manual full run at
 phase exits), L18 (security review — manual + live per-PR subset),
@@ -771,13 +842,17 @@ backend-api-data and security-infra playbooks (loop doc §3).
 exposes. *(= DEVELOPMENT_PHASES Phase 3, unchanged in spirit — 0/5 boxes
 checked there.)* Calendar-parallel with E after C+D land.
 
-- [ ] **F1 (S)** Reset production registry to empty (launch default). **Keep
-  the sealed golden set** — it is the regression net, never "cleanup." File
-  anchor: production `Issuer` table (`caos/server/database.py`), excluding
-  rows tagged in the golden fixture set. **Verify:** `SELECT count(*) FROM
-  issuers WHERE ticker NOT IN ('VSAT','FUN','VMO2', ...corpus tickers)`
-  returns 0 post-reset. **Exit:** registry empty except the sealed golden +
-  corpus set.
+- [ ] **F1 (S) — beta/production data separation (PG-09).** Run F on an
+  isolated beta environment with production-parity configuration. Sealed
+  goldens and breadth-corpus fixtures remain offline test assets and are never
+  inserted into the beta or production database. Reset the **beta** registry
+  before cohort onboarding; production starts empty under
+  `CAOS_DEMO_SEED=false` unless a separately approved cutover imports real
+  pilot records. **Verify:** environment identifier and database endpoint are
+  recorded; beta contains zero fixture-tagged issuers before F2; the H0
+  release manifest proves production seed is off. **Exit:** beta and
+  production data stores are distinct, test fixtures are absent, and any
+  real-data migration has an owner, reconciliation, and rollback plan.
 - [ ] **F2 (—)** Onboard 3–5 analysts; each builds their own issuers via the
   real ingestion path (upload / EDGAR-vault). Brief them on LAUNCH_PHASE1 §6
   expectations + how to read provenance. File anchor: `LAUNCH_PHASE1.md §6`
@@ -837,7 +912,9 @@ phase is marked passed.
   `caos/server/.venv311/bin/python -m pytest
   caos/tests/server/test_ops_alerting.py -q` (new file — trigger a synthetic
   5xx/unhandled-exception burst against a test client and assert an alert
-  lands in the inbox via `InAppSink`). **Exit:** rule live, test green.
+  lands in the inbox via `InAppSink`). **Exit:** rule live, test green. This
+  proves product self-observation only; it does not satisfy PG-03/G7 because
+  CAOS cannot report its own total outage.
 - [ ] **G3 (M)** Load characterization: locust at enterprise-plausible
   concurrency (define with owner — e.g. 15 analysts × think-time) on
   prod-parity build; p95 targets per route class; document ceiling + first
@@ -851,20 +928,54 @@ phase is marked passed.
 - [x] **G5 (S)** ~~Migration safety~~ **DONE** — `test_migrations.py` already
   covers single-head, `alembic check`, and a full up/downgrade round-trip on
   both py3.11 and py3.14 CI legs.
-- [x] **G6 (S)** ~~Off-host backup copy~~ **DONE** — opt-in `BACKUP_SYNC_CMD`
-  hook landed 2026-07-11 (`backup.sh:56-58`, `.env.example`). G1's restore
-  drill should exercise this path at least once to close the loop.
+- [x] **G6 (S)** ~~Off-host backup mechanism~~ **DONE** — opt-in
+  `BACKUP_SYNC_CMD` hook landed 2026-07-11 (`backup.sh:56-58`, `.env.example`).
+  This credits the mechanism only. Deployment configuration, freshness,
+  encryption, alerting, and recovery from the remote copy remain open in G8.
+- [ ] **G7 (M) — independent service/host monitoring (PG-03).** From outside
+  the CAOS host, probe public ingress and a deliberately minimal liveness
+  signal; monitor certificate expiry and DNS. From the host/management plane,
+  monitor container health/restarts, Postgres readiness/connections, queue
+  age/failures, CPU/memory/disk/inodes, backup freshness, and clock skew. Route
+  alerts through a channel that does not depend on CAOS, with severity,
+  acknowledgement, escalation, owner, and tested delivery. Define pilot
+  availability and recovery SLOs plus an error-budget/accepted-risk decision.
+  **Verify:** kill app, DB, and ingress separately; fill a scratch filesystem
+  past threshold; age a backup/certificate fixture; each condition alerts and
+  recovery clears it. **Exit:** dated evidence names the independent monitor,
+  notification target, thresholds, and responder.
+- [ ] **G8 (M) — deployable backup/restore control (PG-04).** Configure a real
+  encrypted off-host destination with least-privilege credentials and
+  retention matching E8. Prove the latest DB and vault artifacts arrived,
+  expose their age and sync result to G7, alert on failure/staleness, and
+  restore from the off-host copy at realistic pilot data volume. Record the
+  measured RPO/RTO and have the Data Owner accept them. **Verify:** simulate
+  loss of the local `backups` volume and recover only from the remote copy.
+  **Exit:** `BACKUP_SYNC_CMD` is non-empty on the target, latest sync is green,
+  remote restore passes, and no operator needs undocumented credentials.
+- [ ] **G9 (M) — target-host readiness (PG-05).** File a dated host baseline:
+  supported OS/Docker/Compose versions and patch level; firewall exposes only
+  80/443 publicly; SSH/admin access and Docker-group membership are
+  least-privilege and logged; time sync works; data volumes and off-host
+  backups are encrypted with correct ownership; disk/inode headroom covers
+  database, vault, OCR scratch, image builds, logs, and one restore; log
+  rotation and certificate renewal are configured; reboot/restart order is
+  tested. **Verify:** commands and sanitized outputs live in the H3 admin
+  package. **Exit:** deploying engineer and Security Owner sign the baseline.
 
-**Exit gate:** restore drill from off-host copy PASS (G1, using G6's hook) ·
+**Exit gate:** restore drill from off-host copy PASS (G1/G8, using G6's hook) ·
 **error-rate alerting live and tested (G2)** — included in this gate for the
 same reason as F5 above: it is core ops work, not a §14 expansion item, and
 must not stay silently open once the phase is marked passed · DR rehearsal
-PASS with stated RTO/RPO (G4) · load test PASS at agreed concurrency (G3) ·
-migration up/down PASS (G5, done) · every loop-doc §2 loop relevant to a
+PASS with stated RTO/RPO (G4/G8) · load test PASS at agreed concurrency (G3) ·
+migration up/down PASS (G5, done) · independent monitoring and tested delivery
+(G7) · encrypted/fresh off-host recovery (G8) · target-host baseline signed
+(G9) · every loop-doc §2 loop relevant to a
 landed phase has run ≥2 consecutive green cycles.
 
 **Loops:** L13 (perf smoke), L19 (restore drill — manual + `HANDOVER` post-
-transfer cadence).
+transfer cadence), L21 (independent availability/host alerts), L22 (backup
+freshness and off-host recovery).
 
 ---
 
@@ -885,9 +996,26 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 
 **Objective:** prove the end state and package the transfer.
 
+- [ ] **H0 (M) — freeze and preflight the release candidate
+  (PG-01/PG-02/PG-11).**
+  Cut a candidate from a clean checkout exactly equal to a green
+  `origin/main` commit. Build once, record the application image digest and
+  every third-party image digest, schema head, sanitized config fingerprint,
+  Modular OS manifest hash, and linked CI/nightly/security evidence in a
+  release manifest. Add a deployment override/manifest that consumes the app
+  as `image@sha256` (and resolves third-party tags to recorded digests), so the
+  target host loads or pulls the candidate without rebuilding source. Scan the
+  **final OCI image** (including OS packages) and
+  disposition every critical/high finding. Against a recent restored copy of
+  the target database, rehearse upgrade from its actual Alembic revision,
+  application boot, critical reads/writes, and the chosen rollback/forward-fix
+  path. Immediately before H1, take and verify a fresh off-host DB+vault
+  backup and record migration abort thresholds. **Exit:** deploy and rollback
+  both name immutable digests; no build occurs from a dirty tree; the
+  candidate schema and last-good compatibility decision are signed.
 - [ ] **H1 (M)** Full [LAUNCH_PHASE1 §5](LAUNCH_PHASE1.md) checklist on a
-  prod-parity host (`.venv311` / fastapi pin), every box, no skips (currently
-  16/16 unchecked there — by nature, these are deploy-time checks).
+  prod-parity host using H0's exact image digest, every box, no skips. Update
+  stale checklist counts rather than copying them into the evidence record.
 - [ ] **H2 (S)** Full regression stack green on that build in one sweep:
   golden-master + golden E2E + concept-link + e2e + stress + a11y + perf +
   ingestion matrix. Reuses the `workflow_dispatch:` trigger the loop doc's
@@ -903,12 +1031,16 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   - Analyst onboarding guide (from F briefings)
   - OpenAPI export + endpoint inventory
   - SBOM/license report (E6)
-  - Accepted-risk register (E2/E5 decisions, signed)
+  - Release manifest, migration/rollback evidence, host baseline, monitoring
+    inventory, and cutover run sheet (H0/G7/G9/H7)
+  - Data-governance/vendor-handling matrix (E8), including retention, legal
+    hold, backup expiry, residency/DPA decisions, and immutable-record policy
+  - Accepted-risk register (E2/E5/E8 and availability/RPO/RTO decisions, signed)
   - Support model: issue intake, triage SLA, release cadence — this is also
     where the `HANDOVER`-class loops (quarterly security review, quarterly
     restore drill) get a named owner post-transfer.
-  **Verify:** `ls caos/docs/handover/` shows all 7 listed sub-documents,
-  each non-empty and dated. **Exit:** package complete; PM/CIO can execute
+  **Verify:** a dated handover index enumerates every artifact above and each
+  link resolves; do not use a brittle file-count assertion. **Exit:** package complete; PM/CIO can execute
   the H5 sign-off from it without asking a follow-up question.
 - [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready:
   - `EmailSink` adapter spec: SMTP + MS Graph variants; auth, rate limits,
@@ -928,7 +1060,7 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   packages reviewable by enterprise IT/licensing without further CAOS-side
   work.
 - [ ] **H5 (S)** Sign-off (table below). **Verify:** each row's "Sign-off"
-  cell is filled with a name + date, not blank. **Exit:** all three rows
+  cell is filled with a name + date, not blank. **Exit:** all rows
   signed.
 
 | Role | Gate | Sign-off |
@@ -936,16 +1068,45 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 | Deploying engineer | H1 + H2 green | |
 | Head of Research / QA | golden set + gap log + CP-5 gate | |
 | PM / CIO | accepted-risk register + the two named outstanding items | |
+| Security / Platform owner | H0, G7, G9, E5 and incident path | |
+| Data owner | E8 policy, G8 RPO/RTO and production-data boundary | |
+| Support owner | H7 cutover, escalation and handover loops | |
+
+- [ ] **H6 (M) — persona-critical UAT (PG-08).** On H0's immutable candidate,
+  execute a signed matrix for: analyst issuer onboarding → evidence-backed run
+  → Deep-Dive/model/report/decision; PM/CIO portfolio posture, changes,
+  committee pack and read-only behavior; Research/QA source tracing, CP-5
+  restriction, ratification, audit and correction. Include empty, partial,
+  vendor-down, stale-market, auth-expiry, failed-upload, failed-run, narrow
+  viewport, 200% zoom, keyboard, print/PDF/XLSX, and supported-browser cases.
+  Reference data must remain visibly reference-only and cannot satisfy a live
+  case. **Exit:** all critical cases pass or carry a signed accepted risk with
+  workaround and owner.
+- [ ] **H7 (S) — cutover, abort, communications, and hypercare (PG-10).** Name
+  the change window, freeze point, deployer, migration owner, go/no-go chair,
+  rollback decision owner, analyst notification, status channel, success/error
+  thresholds, observation period, and support rota. Rehearse the timed run
+  sheet on prod-parity, including one forced abort and restoration of the
+  last-good digest/data state. **Exit:** contacts acknowledge the plan and
+  hypercare ends only after the agreed stable window and evidence review.
+- [ ] **H8 (S) — blocker-only closure ledger (PG-12).** Generate a final table
+  of every blocking A–H item plus PG-01…PG-12 with status, evidence link,
+  owner, and accepted-risk reference. C7–C9 and §14 expansion items remain
+  visible but explicitly non-blocking. **Exit:** zero blocking rows are open
+  or evidence-free; no readiness conclusion depends on counting every
+  Markdown checkbox in this mixed program/backlog document.
 
 **Exit gate = pre-deployment reached:** every phase gate A–G passed
 (including F5's dogfood row and G2's alerting row above, so no unlisted item
-survives outside the two named seams) · H1/H2 green · handover package
+survives outside the two named seams) · H0 release candidate frozen and
+preflighted · H1/H2 green · handover package
 complete (H3) · both outstanding-item packages ready (H4) · H5 signed ·
+persona UAT signed (H6) · cutover/hypercare rehearsed (H7) · blocker ledger
+closed (H8) ·
 outstanding items = exactly two: the `EmailSink` adapter (spec'd) and
-Bloomberg activation (connector built; runbook ready). **Verify:** re-run the
-`grep -c "^- \[ \]" caos/docs/PRE_DEPLOYMENT_PLAN.md` sanity check — every
-remaining open checkbox at this point should be inside H4's own two
-activation-package bullets, nothing else.
+Bloomberg activation (connector built; runbook ready). **Verify:** H8's
+blocker-only ledger has zero open/evidence-free rows. Do not use a raw checkbox
+grep: this document deliberately retains non-blocking expansion work.
 
 ---
 
@@ -958,7 +1119,7 @@ nothing is missing by omission. "By design" links to a recorded decision.
 |-------------|--------------|-----------|
 | SSO / domain-restricted auth | ✅ oauth2-proxy + Google OIDC | exists; enterprise IdP = transfer config (H3) |
 | In-app identity / profiles | ✅ analyst profiles, signed cookie | exists |
-| Authorization model | ⚠️ single-team + optional config-gated cross-team tenancy mechanism (off by default) | **E2 — roles-lite decided, not built** |
+| Authorization model | ⚠️ analyst role field and selected write gates now exist; complete mutation/admin matrix still needs current re-grounding | **E2 — prove deny-by-default coverage** |
 | Audit trail | ⚠️ runs/decision events only; firm-wide append-only log is not on main | E3; PR #169 remains open |
 | Rate limiting / abuse caps | ✅ per-analyst run cap + identity-keyed limits | E1 closes multi-worker gap |
 | Secrets management + rotation | ✅ fail-closed + shipped rotation/log-hygiene runbook | E4 done; append future market/email credentials in C5/H4 |
@@ -968,25 +1129,30 @@ nothing is missing by omission. "By design" links to a recorded decision.
 | Security headers / TLS | ✅ Caddy + CSP/HSTS | re-verified H1 |
 | Pen-test style review | ⚠️ 2026-07-12 baseline pass; final-diff rerun outstanding | E5 + loop doc L18 |
 | SBOM / license compliance | ✅ shipped report; no unflagged non-permissive license | E6 done |
-| Backups | ✅ daily + rotation + opt-in off-host sync | exists (G6 done) |
+| Backups | ⚠️ daily local + optional off-host mechanism; target configuration/freshness/encryption not yet proven | G6 mechanism; **G8 deployment control** |
 | Restore drills | ✅ scripted and real failure path verified | G1 done; quarterly L19 cadence |
 | DR / host-loss plan | ✅ fresh-host runbook rehearsed from off-host copy | G4 done; H2 final-build rehearsal |
 | Observability (logs) | ✅ structured, contextual | exists |
-| Alerting on errors | ❌ (depends on C3-seam) | G2 |
+| Product self-alerting | ❌ (depends on C3-seam) | G2 |
+| Independent uptime/host/backup alerting | ❌ | **G7/G8; L21/L22** |
 | APM | ❌ **by design** (no paid services) | recorded decision |
 | Load testing | ⚠️ 15-user/2-worker run passed; 2× pilot calibration remains | E1, G3 |
-| Migrations discipline | ✅ alembic self-migrate + up/down round-trip test | done (G5) |
+| Migrations discipline | ⚠️ generic up/down tests pass; actual-target preflight and release rollback decision remain | G5 + **H0** |
 | Graceful LLM degradation | ✅ fault isolation by construction | exists; re-proven at each LLM-surface phase exit |
 | Market-data integration | ⚠️ normalized REFERENCE snapshot/run WIP; no live/manual provider chain | C5 connector + store + refresh + Settings; H4 activation w/ entitlements |
 | Monitor alert seam | ⚠️ live inbox/state WIP; no watch-rule/sink/email pipeline | C3-seam; H4 EmailSink activation |
-| Data retention | ✅ run-fact pruning | exists |
+| Data retention / legal hold / backup expiry | ⚠️ run-fact pruning exists; record-class governance is incomplete | **E8/H3** |
 | GDPR delete | ✅ transactional | re-verified E5 |
 | Empty/error/degraded states | ⚠️ explicit shared state contract shipped; reference/live route gaps remain | C4 plus UW/UF register |
 | Accessibility | ✅ latest local sweep: 0 serious/critical axe findings on 15 routes | rerun on immutable H1 build; loop doc `design-a11y-ux` |
 | i18n | ❌ **by design** — single-desk English product | note in H3 |
 | Multi-tenancy | ⚠️ mechanism exists (config-gated, off) but **by design** default is one shared team | SECURITY §2, H3; `tenancy.py` |
 | API documentation | ✅ OpenAPI | exported H3 |
-| Runbooks (deploy/rollback) | ✅ LAUNCH_PHASE1 | rehearsed G/H |
+| Immutable release / image provenance | ❌ | **H0** |
+| Target-host hardening and capacity | ❌ as a signed release artifact | **G9/H3** |
+| Runbooks (deploy/rollback) | ⚠️ LAUNCH_PHASE1 exists; immutable-digest and production-schema rehearsal remain | **H0/H1/H7** |
+| Persona-critical UAT | ❌ formal signed matrix | **H6** |
+| Cutover/change communications/hypercare | ❌ | **H7** |
 | User onboarding docs | ⚠️ §6 briefing only | H3 guide |
 | Support/maintenance model | ❌ | H3 |
 | Feature tracking / QA ledger | ✅ 355/355 `Pass` | A7b done; per-phase sweeps keep it current |
@@ -1016,6 +1182,13 @@ open items tracked as §14 expansion backlog here.
   incident happened (§15) — never commit code that references still-
   uncommitted implementation files; land features as one coherent commit or
   stack, not committed-refs-ahead-of-files.
+- **Freeze once, build once, promote by digest.** H0 is the point where normal
+  small-merge flow stops for the candidate. Any code, dependency, migration,
+  prompt, config-contract, or deploy-asset change after H0 creates a new
+  candidate and invalidates H1/H2/H6 evidence tied to the prior digest.
+- **Production never contains regression fixtures.** Goldens, breadth corpus,
+  sample sleeves, and reference workspaces remain test/reference data; F uses
+  an isolated beta environment and H0 proves demo seed is off.
 - **Docs lie until reconciled** — status claims come from code/tests, not
   trackers; per-phase sweeps (L15) keep them honest.
 - **Confidence and goal audits at every phase exit** (L16, L17) — a
@@ -1051,8 +1224,11 @@ here with a named unblocking event — none is scheduled by default.
 - [ ] **X4 (M)** Analyst call tracking / hit rate (4.8). **Unblock:**
   post-transfer real marks (Bloomberg cutover, outstanding item #2). C8's
   timestamps make this retroactive from day one.
-- [ ] **X5 (L, own plan)** Sector dashboards — CP-SR (4.10). **Unblock:**
-  post-transfer (needs F breadth **and** real marks).
+- [ ] **X5 (L, own plan)** Advanced cross-sector dashboards and benchmarking
+  beyond C13's production Sector Review contract (4.10). **Unblock:**
+  post-transfer (needs F breadth **and** real marks). CP-SR's core
+  source-backed refresh/publish promise is blocking C13 work and may not be
+  deferred here.
 - [ ] **X6 (M–L, own plan)** Actionable-intel lane. **Unblock:** C3-seam
   (alert schema + inbox) — **now unblocked once C3-seam lands**, still
   unscheduled by default.

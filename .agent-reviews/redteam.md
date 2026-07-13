@@ -540,3 +540,29 @@ Residual tooling note: the GitNexus index reports current at commit `37a1f01`,
 but symbol impact and final `detect-changes` cannot open its pending LadybugDB WAL
 because `lbug.shadow` is absent. No WAL data was deleted; exhaustive source/diff
 review and the full verification matrix are the fallback required by AGENTS.md.
+
+## Pre-Deployment Program Coverage Review — Critic Pass (2026-07-13)
+
+Decision under review: retain the eight-phase pre-deployment program, but close
+coverage holes before treating its final gate as an enterprise-transfer claim.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-152 | Release engineer | H1 can build from a mutable checkout and auto-migrate on boot without first naming the exact release commit, image digest, schema head, or pre-migration restore point. A rollback may therefore rebuild different bytes or discover too late that the old image cannot read the new schema. | High | Resolved in plan | Add an immutable release-candidate manifest, clean-tree/main-tip gate, final-image scan, production-schema preflight, immediate off-host backup, migration rehearsal, rollback threshold, and evidence bundle before H1. |
+| RT-2026-07-13-153 | Incident commander | G2 asks CAOS's own Monitor/AlertSink to report CAOS failure. A dead app, host, ingress, DB, or full disk cannot reliably alert through itself. | High | Resolved in plan | Require an independent external availability path plus host/container/disk/certificate/backup monitoring, a tested notification route, severity model, owner, and SLO/error-budget decision. Product Monitor remains a separate credit-workflow control. |
+| RT-2026-07-13-154 | Disaster-recovery operator | G6 is marked done when an optional `BACKUP_SYNC_CMD` hook merely exists; an unset or failing hook still means total loss on host failure. Restore evidence also does not prove backup age, encryption, or alerting. | High | Resolved in plan | Split mechanism-present from deployment-configured: final gate requires encrypted off-host destination, observed successful sync, freshness check, failure alert, and restore from the off-host copy at realistic pilot volume. |
+| RT-2026-07-13-155 | Product owner | Four spec-only modules are listed as blockers in the reconciliation, but no blocking phase item owns the decision to implement them or map their promises to equivalent live services. CP-SR is also placed in the non-blocking expansion backlog while Sector Review is treated as a production surface. | High | Resolved in plan | Add a blocking promise-resolution item mapping CP-SR/CP-MON/CP-RENDER/CP-EXTRACT to implemented modules or explicit equivalent services, with user-visible scope and tests; Sector Review cannot pass on reference synthesis alone. |
+| RT-2026-07-13-156 | Data-governance reviewer | The plan covers GDPR erasure but not record-class retention, backup deletion propagation, legal hold, data classification, vendor data handling/residency, or the fate of uploaded documents and immutable committee records. | High | Resolved in plan | Add a data-governance gate and handover artifacts covering retention/deletion by record class, backup expiry, legal hold, vendor/DPA decisions, and accepted exceptions. |
+| RT-2026-07-13-157 | QA lead | One concept-link happy path plus per-surface tests does not constitute persona UAT across analyst, PM/CIO, and Research/QA workflows, degraded states, exports, narrow layouts, and supported browsers. | High | Resolved in plan | Add a signed persona-critical UAT matrix on the immutable release candidate, with seeded/reference content prohibited from masquerading as live evidence. |
+| RT-2026-07-13-158 | Host administrator | Application/container hardening is detailed, but the release gate does not own host firewall/SSH, Docker daemon access, OS patch level, time sync, volume permissions, disk encryption/capacity, log rotation, or certificate expiry. | High | Resolved in plan | Add a host-readiness checklist and evidence artifact; only 80/443 are public, administrative access is controlled, and capacity/rotation/expiry thresholds are monitored. |
+| RT-2026-07-13-159 | Saboteur | F1 says to reset the production registry while retaining golden/corpus issuers. That can put test fixtures in the live analyst workspace and conflicts with demo-seed-off launch behavior. | High | Resolved in plan | Scope F to an isolated beta environment and keep goldens/corpus offline; production starts empty unless a separately approved migration imports real pilot data. |
+| RT-2026-07-13-160 | Program auditor | The final `grep -c "^- [ ]"` test can never prove readiness because the same document intentionally keeps non-blocking C7-C9 and expansion X-items open, while H4's activation bullets are not checkbox rows. | High | Resolved in plan | Replace the raw checkbox count with a blocker-only closure ledger covering blocking A-H and the new coverage-gap register; preserve non-blocking backlog items without confusing the release verdict. |
+
+### Critic reopen conditions (Pre-Deployment Program)
+
+Reopen if a release can be built from an unclean or unpinned checkout; a schema
+change reaches the pilot without a rehearsed data-safe recovery path; off-host
+backup or external alerting remains optional at sign-off; any spec-only module's
+user promise has no blocking owner; beta fixtures can enter production; the
+handover omits retention/vendor/host operations; persona UAT is unsigned; or
+readiness is inferred from an undifferentiated checkbox count.
