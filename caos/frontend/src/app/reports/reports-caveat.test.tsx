@@ -15,6 +15,8 @@ let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference 
 // reference-stable across renders, and page.tsx's useMemo (line 98) depends on
 // that — an inline literal here recreates on every render and infinite-loops it.
 const LIVE_ANCHOR = { netLeverage: 4.2 };
+const EMPTY_LIVE_OUTS = {};
+const EMPTY_LIVE_STATUS = {};
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
@@ -25,7 +27,7 @@ vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/lib/engine/useLiveRun", () => ({
-  useLiveRun: () => ({ liveOuts: {}, liveEvidence: {}, runId: null, committeeStatus: null, council: [], loading: false, phase: "none" }),
+  useLiveRun: () => ({ liveOuts: EMPTY_LIVE_OUTS, liveStatus: EMPTY_LIVE_STATUS, liveEvidence: {}, runId: null, committeeStatus: null, council: [], loading: false, phase: "none" }),
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({

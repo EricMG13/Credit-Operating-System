@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
@@ -17,12 +19,14 @@ import {
   type QueryRun,
 } from "@/lib/analysis-workbench";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
+import { useTypedUrlState } from "@/lib/typed-url-state";
 
 const STARTERS = [
   "Which credits have the largest leverage deterioration?",
   "Show evidence linking refinancing risk to sector posture.",
   "Compare recovery assumptions across the selected instruments.",
 ];
+const QUERY_URL_KEYS = ["lane", "run"] as const;
 
 function inferLane(question: string): QueryRun["selected_lane"] {
   if (/\b(graph|link|connected|relationship|contagion|lineage)\b/i.test(question)) return "graph";
@@ -156,8 +160,9 @@ function QueryResult({ run }: { run: QueryRun | null }) {
 export function QueryInvestigationWorkbench() {
   const { roleView } = useRoleView();
   const contextState = useAnalysisContext({ name: "Cross-coverage investigation" });
+  const { values: urlState, update: updateUrlState } = useTypedUrlState(QUERY_URL_KEYS);
   const [question, setQuestion] = useState("");
-  const [lane, setLane] = useState<QueryRun["selected_lane"]>("metric");
+  const [lane, setLaneState] = useState<QueryRun["selected_lane"]>(() => urlState.lane === "graph" || urlState.lane === "grounded" ? urlState.lane : "metric");
   const [manualLane, setManualLane] = useState(false);
   const [run, setRun] = useState<QueryRun | null>(null);
   const [history, setHistory] = useState<QueryRun[]>([]);
@@ -168,11 +173,19 @@ export function QueryInvestigationWorkbench() {
   const [findingsKey, setFindingsKey] = useState(0);
 
   useEffect(() => {
+    if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
+      setLaneState(urlState.lane);
+    } else if (urlState.lane === null) {
+      setLaneState("metric");
+    }
+  }, [urlState.lane]);
+
+  useEffect(() => {
     if (!contextState.context) return;
     analysisApi.listQueryRuns(contextState.context.id).then((rows) => {
       setHistory(rows);
-      if (contextState.context?.query_session_id) {
-        const latest = rows.find((item) => item.id === contextState.context?.query_session_id);
+      if (urlState.run || contextState.context?.query_session_id) {
+        const latest = rows.find((item) => item.id === (urlState.run ?? contextState.context?.query_session_id));
         if (latest) setRun(latest);
       }
     }).catch(() => setHistory([]));
@@ -182,7 +195,12 @@ export function QueryInvestigationWorkbench() {
       if (first) setCapabilityId(first.id);
       setCapabilityError(null);
     }).catch(() => setCapabilityError("Graph capabilities unavailable. Metric questions remain usable."));
-  }, [contextState.context]);
+  }, [contextState.context, urlState.run]);
+
+  const setLane = (next: QueryRun["selected_lane"]) => {
+    setLaneState(next);
+    updateUrlState({ lane: next === "metric" ? null : next }, "replace");
+  };
 
   const runQuery = useCallback(async () => {
     if (!contextState.context || !question.trim() || running) return;
@@ -195,12 +213,13 @@ export function QueryInvestigationWorkbench() {
         capability_id: lane === "graph" ? capabilityId : undefined,
       });
       setRun(next);
+      updateUrlState({ run: next.id, lane: next.selected_lane === "metric" ? null : next.selected_lane }, "replace");
       setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 100));
       contextState.setContext({ ...contextState.context, query_session_id: next.id });
     } finally {
       setRunning(false);
     }
-  }, [capabilityId, contextState, lane, question, running]);
+  }, [capabilityId, contextState, lane, question, running, updateUrlState]);
 
   const missing = useMemo(() => Array.isArray(run?.result.missing_dependencies) ? run.result.missing_dependencies.map(String) : [], [run]);
   const decisionState: DecisionContextState = {
@@ -240,12 +259,14 @@ export function QueryInvestigationWorkbench() {
       primaryAction={<button type="button" onClick={() => void runQuery()} disabled={!context || !question.trim() || running} className="caos-primary-action focus-ring disabled:opacity-40">{running ? "Running…" : "Run Query"}</button>}
       contextualControls={<>{headStat("Lane", lane)}{headStat("History", String(history.length))}{headStat("Findings", context ? "Shared" : "—")}</>}
       utilityLabel="Query utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3><ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
-      decisionContext={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
+      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3><ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
       narrowContract={narrow}
     >
-      <main className="min-h-0 flex-1 overflow-hidden flex flex-col">
-        <section className="border-b border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer">
+      <main className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
+        <PersonaWorkbench
+          surface="query"
+          decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
+          context={<section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer">
           <div className="flex flex-wrap items-center gap-2">
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
             {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
@@ -254,15 +275,14 @@ export function QueryInvestigationWorkbench() {
           <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
           <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className="rounded-sm border border-caos-border px-2 py-1 text-left text-caos-xs text-caos-muted hover:text-caos-text focus-ring">{starter}</button>)}</div>
           {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
-        </section>
-        <div className="grid flex-1 min-h-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <section className="min-h-0 overflow-hidden" aria-label="Query answer"><QueryResult run={run} /></section>
-          <aside className="min-h-0 overflow-auto border-l border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
+        </section>}
+          primary={<section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>}
+          inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
             <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <button type="button" onClick={() => void pinFinding()} disabled={pinning || !["ready", "observed-empty"].includes(run.status)} className="caos-action-secondary ml-auto focus-ring disabled:opacity-40">{pinning ? "Pinning…" : "Pin finding"}</button> : null}</div>
             {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} source identifiers attached to this run.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id} className="tabular text-caos-xs text-caos-muted"><span className="text-caos-accent">C{index + 1}</span> · {id}</li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
-          </aside>
-        </div>
+          </aside>}
+        />
       </main>
     </EnterprisePage>
   );

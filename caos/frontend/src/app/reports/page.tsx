@@ -22,12 +22,17 @@ import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import {
   getReportDraft,
   getSavedModel,
+  exportReportVersionBinary,
+  listReportVersions,
   publishReportVersion,
   saveReportDraft,
+  type ReportVersionDTO,
 } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
+import { buildLiveReports, reportFromVersion } from "@/lib/reports/live-builder";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -109,9 +114,21 @@ function ReportStudio() {
   }, [issuerId, modelReloadKey]);
   const eng = useModelEngine(issuerId);
   const live = useLiveRun(issuerId);
+  const [versions, setVersions] = useState<ReportVersionDTO[]>([]);
   const reports = useMemo(
-    () => isReference ? buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined }) : [],
-    [isReference, modelInputs, eng.anchor],
+    () => {
+      if (isReference) return buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined });
+      const liveReports = live.runId ? buildLiveReports({
+        issuerId,
+        runId: live.runId,
+        asOf: live.asOf,
+        committeeStatus: live.committeeStatus,
+        liveOuts: live.liveOuts,
+        liveStatus: live.liveStatus,
+      }) : [];
+      return [...liveReports, ...versions.map(reportFromVersion)];
+    },
+    [eng.anchor, isReference, issuerId, live.asOf, live.committeeStatus, live.liveOuts, live.liveStatus, live.runId, modelInputs, versions],
   );
 
   const [activeId, setActiveId] = useState("snapshot");
@@ -133,8 +150,21 @@ function ReportStudio() {
   const [publishState, setPublishState] = useState<"idle" | "publishing" | "published" | "error">("idle");
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    const contextId = analysis.context?.id;
+    if (!contextId || isReference) { setVersions([]); return; }
+    let cancelled = false;
+    listReportVersions(contextId)
+      .then((rows) => { if (!cancelled) setVersions(rows); })
+      .catch(() => { if (!cancelled) setPublishMessage("Published versions unavailable; the live draft remains open."); });
+    return () => { cancelled = true; };
+  }, [analysis.context?.id, isReference]);
+
   // restore persisted workspace state
   const reportParam = searchParams.get("report");
+  const deepLinkedVersionId = reportParam && versions.some((version) => version.id === reportParam)
+    ? reportParam
+    : null;
   // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
@@ -174,7 +204,9 @@ function ReportStudio() {
         if (cancelled) return;
         setDraftRevision(draft?.revision ?? null);
         const payload = draft?.payload ?? {};
-        if (typeof payload.active_id === "string") setActiveId(payload.active_id);
+        // A frozen-version deep link is an explicit navigation instruction.
+        // Never let a slower mutable-draft response replace it.
+        if (!deepLinkedVersionId && typeof payload.active_id === "string") setActiveId(payload.active_id);
         if (payload.omit && typeof payload.omit === "object") setOmit(payload.omit as Record<string, Record<number, boolean>>);
         if (payload.edits && typeof payload.edits === "object") setEdits(payload.edits as Record<string, Record<string, string>>);
         if (typeof payload.paper === "string") setPaper(payload.paper);
@@ -184,7 +216,7 @@ function ReportStudio() {
       .catch(() => setPublishMessage("Server draft unavailable; local edits remain intact."))
       .finally(() => { if (!cancelled) setServerDraftReady(true); });
     return () => { cancelled = true; };
-  }, [analysis.context?.id]);
+  }, [analysis.context?.id, deepLinkedVersionId]);
 
   useEffect(() => {
     const contextId = analysis.context?.id;
@@ -329,14 +361,42 @@ function ReportStudio() {
           edits: repEdits,
           show_sources: showSources,
           hide_addbacks: hideAddbacks && rep.id === "model",
+          rendered_report: rep,
         },
       });
       await analysis.patch({ artifacts: { ...context.artifacts, report_version_id: version.id } });
+      setVersions((current) => [version, ...current.filter((item) => item.id !== version.id)]);
+      setActiveId(version.id);
       setPublishState("published");
       setPublishMessage(`Published ${version.id.slice(0, 8)} · immutable`);
     } catch (reason) {
       setPublishState("error");
       setPublishMessage(reason instanceof Error ? reason.message : "Publish blocked by readiness or version conflict.");
+    }
+  };
+
+  const activeVersionId = versions.some((version) => version.id === rep?.id)
+    ? rep?.id ?? null
+    : analysis.context?.artifacts.report_version_id ?? null;
+  const downloadVersion = async (format: "pdf" | "xlsx") => {
+    if (!activeVersionId) {
+      setPublishMessage("Publish an immutable committee version before downloading a binary file.");
+      return;
+    }
+    setPublishMessage(`Preparing ${format.toUpperCase()}…`);
+    try {
+      const file = await exportReportVersionBinary(activeVersionId, format);
+      const url = URL.createObjectURL(file.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setPublishMessage(`Downloaded ${file.filename}`);
+    } catch (reason) {
+      setPublishMessage(reason instanceof Error ? reason.message : `${format.toUpperCase()} export failed.`);
     }
   };
 
@@ -428,11 +488,11 @@ function ReportStudio() {
           ) : caveatKind === "live" ? (
             <span
               className="flex items-center gap-1.5 min-w-0"
-              title="Live engine modules reflect this issuer; CP-RENDER is not wired to produce issuer-specific report pages yet."
+              title="Live engine modules are composed into this issuer-specific committee document."
             >
               <ProvenanceChip prov={fromReportCaveat("live", true)!} />
               <span className="tabular text-caos-xs whitespace-nowrap truncate" style={{ color: "var(--caos-warning)" }}>
-                report renderer not wired
+                live module report · {live.runId?.slice(0, 8)}
               </span>
             </span>
           ) : (
@@ -552,7 +612,9 @@ function ReportStudio() {
             </button>
           ) : null}
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => window.print()} disabled={!rep} className="caos-action-secondary focus-ring disabled:opacity-40">Export PDF</button>
+            <button type="button" onClick={() => window.print()} disabled={!rep} className="caos-action-secondary focus-ring disabled:opacity-40">Print / save PDF</button>
+            <button type="button" onClick={() => void downloadVersion("pdf")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable PDF" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download PDF</button>
+            <button type="button" onClick={() => void downloadVersion("xlsx")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable XLSX" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download XLSX</button>
           {live.runId ? (
             <button
               type="button"
@@ -576,10 +638,11 @@ function ReportStudio() {
       narrowContract={narrowContract}
     >
       {/* workspace */}
-      <div className="flex-1 min-h-0 flex gap-2 p-2">
-        {rep && leftOpen ? <ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
+      <div className="caos-persona-route reports-workbench flex-1 min-h-0">
+      <PersonaWorkbench surface="reports" primary={<div className="report-studio-layout h-full min-h-0 flex gap-2 p-2">
+        {rep && leftOpen ? <div className="report-studio-deliverables"><ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /></div> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
 
-        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
+        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
             {rep ? <div style={{ zoom, "--rd-zoom": zoom } as React.CSSProperties}>
               <ReportDoc
@@ -597,15 +660,15 @@ function ReportStudio() {
               <div className="min-h-[420px] flex flex-col items-center justify-center gap-2 text-center px-6">
                 <div className="tabular text-caos-xl text-caos-text">No issuer-specific report output</div>
                 <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">
-                  CP-RENDER is not wired to live module payloads yet. Run the issuer,
-                  then use Deep-Dive or Model Builder until Report Studio has live output.
+                  No completed live module output is available for this issuer. Run the
+                  analysis pipeline, then return here to compose and publish the report.
                 </div>
               </div>
             )}
           </div>
         </div>
 
-        {rep && rightOpen ? <div className="w-[300px] shrink-0 flex flex-col gap-2 min-h-0 overflow-y-auto pb-12">
+        {rep && rightOpen ? <div className="report-studio-panels w-[300px] shrink-0 flex flex-col gap-2 min-h-0 overflow-y-auto pb-12">
           <button onClick={() => setRightOpen(false)} className="tabular text-caos-xs text-caos-muted hover:text-caos-text self-end focus-ring">COLLAPSE</button>
           <LineagePanel rep={rep} onOpenEvidence={setEvModal} />
           {rep.id === "model" ? (
@@ -623,6 +686,7 @@ function ReportStudio() {
           <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
           <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} />
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
+      </div>} />
       </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}

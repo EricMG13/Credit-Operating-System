@@ -32,10 +32,22 @@ import { issuerSector } from "@/lib/issuers";
 import { fmtPct, fmtUsdM } from "@/lib/format";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
-import { ProfileSectionNav, type ProfileSection } from "@/components/issuers/ProfileSectionNav";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import { useTypedUrlState } from "@/lib/typed-url-state";
+
+const PROFILE_URL_KEYS = ["tab"] as const;
+const PROFILE_TABS = [
+  { id: "snapshot", label: "Snapshot" },
+  { id: "financials", label: "Financials" },
+  { id: "structure", label: "Structure & Covenant" },
+  { id: "market", label: "Market & RV" },
+  { id: "events", label: "Events" },
+  { id: "evidence", label: "Evidence / QA" },
+] as const;
+type ProfileTab = typeof PROFILE_TABS[number]["id"];
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -433,6 +445,10 @@ export function Profile({
 }) {
   const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
   const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
+  const { values: profileUrl, update: updateProfileUrl } = useTypedUrlState(PROFILE_URL_KEYS);
+  const activeTab = PROFILE_TABS.some((tab) => tab.id === profileUrl.tab)
+    ? profileUrl.tab as ProfileTab
+    : "snapshot";
   const earnings = data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
   const deepHref = analysis.context
     ? contextHref("/deepdive", analysis.context.id, { issuer: id })
@@ -452,10 +468,6 @@ export function Profile({
     ? ((sponsor as { ledger: { flag: string; chunk_id?: string }[] }).ledger) : [];
 
   const [gran, setGran] = useState<"FY" | "Q">("FY");
-  // Callback ref (not useRef) — ProfileSectionNav needs the element itself to
-  // set up its IntersectionObserver, and a plain ref stays null through the
-  // render that creates it.
-  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
   // Snapshot + trend series come straight from the engine's metric facts. We do
   // NOT synthesize senior/total leverage from net leverage — a fabricated figure
@@ -521,16 +533,17 @@ export function Profile({
       issuerIds === context.issuer_ids
       && runId === context.artifacts.issuer_run_id
       && current?.active_id === id
+      && current?.view === activeTab
     ) return;
     void analysis.patch({
       issuer_ids: issuerIds,
       artifacts: { ...context.artifacts, issuer_run_id: runId },
       surface_state: {
         ...context.surface_state,
-        "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [] },
+        "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [], view: activeTab },
       },
     }).catch(() => {});
-  }, [analysis, id, latest_run?.id]);
+  }, [activeTab, analysis, id, latest_run?.id]);
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
@@ -574,22 +587,38 @@ export function Profile({
       }
     : { whatChanged: profileUnavailable, whyItMatters: profileUnavailable, requiredAction: profileUnavailable, evidenceHealth: profileUnavailable };
 
-  const SECTIONS: ProfileSection[] = [
-    { id: "profile-snapshot", label: "Snapshot" },
-    { id: "profile-trends", label: "Trends & Thesis" },
-    { id: "profile-business", label: "Business & Coverage" },
-    { id: "profile-market", label: "Market & Notes" },
-    { id: "profile-earnings", label: "Earnings & Runs" },
-  ];
+  const evidenceAtlas = (
+    <Panel title="Evidence Atlas" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Latest run</span>}>
+      <dl className="grid gap-1 p-3">
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority?.provenance.origin ?? "Unavailable"} · {profileAuthority?.approval ?? "UNRATIFIED"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Source readiness</dt><dd className="tabular text-caos-xs text-caos-text">{coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "Unavailable"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Documents</dt><dd className="tabular text-caos-xs text-caos-text">{Number(coverage.documents) || 0}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Open findings</dt><dd className="tabular text-caos-xs text-caos-text">{totalFindings}</dd></div>
+      </dl>
+      {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? <div className="px-3 pb-3"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">Missing categories</h3><ul className="mt-1 grid gap-1">{(coverage.categories_missing as string[]).map((category) => <li key={category} className="text-caos-xs text-caos-muted">△ {category}</li>)}</ul></div> : null}
+      <Link href={deepHref} className="caos-action-secondary focus-ring inline-flex m-3 mt-0 no-underline">Open evidence in Deep-Dive</Link>
+    </Panel>
+  );
 
   const body = (
       <div className="flex flex-col gap-3">
-        <ProfileSectionNav sections={SECTIONS} scrollRoot={scrollEl} />
-        {/* Decision header — visible to every role; Analyst opens collapsed
-            (a single reveal row), PM/QA open expanded (their ten-second
-            answer), matching Command/Monitor/Deep-Dive/Sector RV. */}
-        <DecisionHeader state={profileDecision} />
-        <div id="profile-snapshot" />
+        <div role="tablist" aria-label="Issuer profile sections" className="flex items-center gap-1 overflow-x-auto border-b border-caos-border pb-2" onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }}>
+          {PROFILE_TABS.map((tab) => <button id={`profile-tab-${tab.id}`} key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`profile-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => updateProfileUrl({ tab: tab.id === "snapshot" ? null : tab.id })} className="caos-action-secondary focus-ring whitespace-nowrap">{tab.label}</button>)}
+        </div>
+        <PersonaWorkbench
+          surface="issuer-profile"
+          decision={<DecisionHeader state={profileDecision} />}
+          inspector={activeTab === "evidence" ? null : evidenceAtlas}
+          primary={<div className="grid gap-3" role="tabpanel" id={`profile-panel-${activeTab}`} aria-labelledby={`profile-tab-${activeTab}`}>
+        <section hidden={activeTab !== "snapshot"} className="grid gap-3">
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
@@ -630,8 +659,9 @@ export function Profile({
             </div>
           </div>
         )}
+        </section>
 
-        <div id="profile-trends" />
+        <section hidden={activeTab !== "financials"} className="grid gap-3">
         {/* Row 2 — primary read: trend context | thesis, drivers, and watch. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_minmax(300px,1fr)] gap-3 items-start">
           <Panel
@@ -695,8 +725,9 @@ export function Profile({
             ) : null}
           </div>
         </div>
+        </section>
 
-        <div id="profile-business" />
+        <section hidden={activeTab !== "structure"} className="grid gap-3">
         {/* Row 3 — operating context | source/coverage gate. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3 items-start">
           <Panel title="Business profile">
@@ -750,8 +781,9 @@ export function Profile({
             <CrossDefaultDominoes issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
           </div>
         </div>
+        </section>
 
-        <div id="profile-market" />
+        <section hidden={activeTab !== "market"} className="grid gap-3">
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 items-start">
           <Panel
@@ -768,8 +800,9 @@ export function Profile({
 
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
+        </section>
 
-        <div id="profile-earnings" />
+        <section hidden={activeTab !== "events"} className="grid gap-3">
         {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
             earnings (deltas + prior→latest) | Run history. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
@@ -807,6 +840,19 @@ export function Profile({
             )}
           </Panel>
         </div>
+        </section>
+        <section hidden={activeTab !== "evidence"} className="grid gap-3">
+          {evidenceAtlas}
+          <Panel title="QA findings" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
+            <div className="grid grid-cols-3 gap-2 p-3">
+              <SigText label="Critical" v={String(findings.CRITICAL || 0)} sev={findings.CRITICAL ? "critical" : undefined} />
+              <SigText label="Material" v={String(findings.MATERIAL || 0)} sev={findings.MATERIAL ? "warning" : undefined} />
+              <SigText label="Minor" v={String(findings.MINOR || 0)} />
+            </div>
+          </Panel>
+        </section>
+      </div>}
+        />
       </div>
   );
 
@@ -873,7 +919,7 @@ export function Profile({
         ),
       }}
     >
-      <div ref={setScrollEl} className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
+      <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
         {body}
       </div>
 

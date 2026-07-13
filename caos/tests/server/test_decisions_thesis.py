@@ -54,12 +54,24 @@ async def test_decision_freezes_authoritative_snapshot_and_appends_thesis(client
     response = client.post("/api/decisions", json={
         "issuer_id": issuer_id, "run_id": run_id, "report_id": "snapshot",
         "action": "approve", "conditions": ["Monthly liquidity update"],
-        "snapshot": {"committee_status": "forged", "thesis_md": "Base case remains defensible."},
+        "snapshot": {
+            "committee_status": "forged",
+            "thesis_md": "Base case remains defensible.",
+            "authority": {"origin": "live", "approval_state": "ratified", "source_ids": ["forged"]},
+            "evidence": [{"source_locator": "forged"}],
+            "document_sha256": "f" * 64,
+        },
     })
     assert response.status_code == 201, response.text
     decision = response.json()
     assert decision["snapshot"]["committee_status"] == "Committee Ready"
     assert len(decision["snapshot"]["document_sha256"]) == 64
+    assert decision["snapshot"]["document_sha256"] != "f" * 64
+    assert decision["snapshot"]["origin"] == "legacy-direct"
+    assert decision["snapshot"]["authority"]["method"] == "legacy-direct-decision"
+    assert decision["snapshot"]["authority"]["source_ids"] != ["forged"]
+    assert "evidence" not in decision["snapshot"]
+    assert decision["snapshot"]["untrusted_client_context"]["evidence"][0]["source_locator"] == "forged"
     assert len(decision["snapshot_sha256"]) == 64
 
     versions = client.get("/api/thesis", params={"issuer_id": issuer_id}).json()

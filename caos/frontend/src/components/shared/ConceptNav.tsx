@@ -48,6 +48,14 @@ const ICONS: Record<string, Icon> = {
     <rect x="1.6" y="1.6" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="1.6" width="4.3" height="4.3" rx="1" />
     <rect x="1.6" y="8.1" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="8.1" width="4.3" height="4.3" rx="1" />
   </>),
+  portfolio: svg(<>
+    <path d="M2 3.2h10v8H2zM4.2 3.2V2h5.6v1.2" />
+    <path d="M2 6.2h10M5.3 6.2v5.1M8.7 6.2v5.1" />
+  </>),
+  decisions: svg(<>
+    <path d="M3 1.8h6.3l1.7 1.7v8.7H3z" />
+    <path d="M9.3 1.8v2h1.8M5 6h4M5 8.3h4M5 10.6h2.4" />
+  </>),
   pipeline: svg(<>
     <path d="M7 3.2v3M7 6.2H3.4v3.4M7 6.2h3.6v3.4" />
     <circle cx="7" cy="2.2" r="1.1" /><circle cx="3.4" cy="11" r="1.1" /><circle cx="10.6" cy="11" r="1.1" />

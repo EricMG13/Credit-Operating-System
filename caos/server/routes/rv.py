@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -28,6 +28,7 @@ from database import (
 )
 from identity import CallerIdentity, get_identity
 from sector_taxonomy import canonical_sector_id
+from tenancy import require_portfolio_access, tenancy_enabled
 
 router = APIRouter()
 
@@ -153,15 +154,19 @@ async def _owned_run(db: AsyncSession, run_id: str, analyst_id: str) -> RVScreen
 
 
 async def _portfolio_positions(
-    db: AsyncSession, portfolio_scope: Optional[str], analyst_id: str
+    db: AsyncSession, portfolio_scope: Optional[str], caller: CallerIdentity
 ) -> dict[str, list[PortfolioPosition]]:
     if not portfolio_scope:
         return {}
-    portfolio = (await db.execute(select(Portfolio).where(
-        Portfolio.id == portfolio_scope,
-        or_(Portfolio.created_by == analyst_id, Portfolio.created_by.is_(None)),
-    ))).scalar_one_or_none()
-    if portfolio is None:
+    portfolio = await db.get(Portfolio, portfolio_scope)
+    try:
+        portfolio = require_portfolio_access(caller, portfolio)
+    except HTTPException:
+        return {}
+    if (
+        not tenancy_enabled()
+        and portfolio.created_by not in {None, caller.id}
+    ):
         return {}
     positions = (await db.execute(select(PortfolioPosition).where(
         PortfolioPosition.portfolio_id == portfolio.id,
@@ -325,7 +330,7 @@ async def create_rv_screen(
         dm = _number((instrument.payload or {}).get("mid3yDm"))
         if dm is not None and 0 < dm < 5000:
             cohorts.setdefault(_cohort_key(instrument), []).append(dm)
-    holdings = await _portfolio_positions(db, context.portfolio_scope, caller.id)
+    holdings = await _portfolio_positions(db, context.portfolio_scope, caller)
 
     ranked: list[tuple[float, MarketInstrument, dict, list[str], dict]] = []
     for instrument in instruments:

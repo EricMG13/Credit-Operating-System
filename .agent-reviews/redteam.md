@@ -432,3 +432,111 @@ Decision under review: apply the approved critique, system-convergence, surface-
 ### Critic reopen conditions (2026-07-13)
 
 Stop and revise if a shared visual change alters a route's work model, if missing data is rendered as observed-empty, if Deep-Dive Summary loses analysis content, if print/model behavior regresses for a DOM-count win, or if any overlay traps focus or occludes a page-level action.
+
+## Persona, Intelligence, Portfolio Lab, and IC Book — Critic Gate (2026-07-13)
+
+Decision under review: complete the approved persona-composition and one-table architecture, add Portfolio Lab and IC Book as the only new top-level concepts, and introduce a shared cited-insight layer without weakening deterministic credit controls.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-121 | Saboteur | Re-implementing the workbench plan wholesale would duplicate the already-landed Workbench and Evidence Atlas contracts and could regress the 673 frontend and 1,457 server test baselines. | High | Resolved in implementation strategy | Reconcile current code against the approved contracts first. Extend existing primitives and migrate only missing surfaces; do not create parallel shells, role providers, evidence panes, or analysis-context models. |
+| RT-2026-07-13-122 | Security Auditor | Presentation lenses could leak into portfolio, committee, or insight authorization and make PM/QA labels appear to confer mutation authority. | High | Resolved in contract | `RoleViewProvider` remains presentation-only. All portfolio, agenda, vote, ratification, and rejection mutations resolve the authenticated server principal and server role; foreign resources return not found. |
+| RT-2026-07-13-123 | Saboteur | A literal one-table rule could hide exact data behind charts or force Model and Report Studio into inappropriate generic list layouts. | High | Resolved in contract | Enforce one visible table scroll owner only on list/worklist compositions. Model retains spreadsheet semantics, Report Studio retains document semantics, and every chart exposes an accessible tabular fallback without mounting a second visible table. |
+| RT-2026-07-13-124 | Performance Auditor | Portfolio analytics could ship every position and chart series in one payload, creating slow filters, high memory use, and misleading stale aggregates on large books. | High | Resolved in API design | Positions are separately paginated/sorted/filtered; analytics return bounded aggregate series with `as_of`, authority, and missing dependencies. The UI virtualizes long position lists and fingerprints filters independently from aggregate refreshes. |
+| RT-2026-07-13-125 | Security Auditor | AI-generated committee or portfolio prose could forge citations, repeat prompt-injected source text, or directly change decision-bearing state. | High | Resolved in insight boundary | Insights use an owned, closed source set, server-derived authority, claim-level evidence ids, numeric validation, untrusted-content wrapping, bounded output, and deterministic fallback. AI has no write tools; proposed changes require preview, explicit confirmation, and a deterministic domain endpoint. |
+| RT-2026-07-13-126 | Saboteur | A failed automatic refresh could replace a ratified brief with an empty or partial result immediately before an IC meeting. | High | Resolved in persistence model | Insight versions are immutable and fingerprinted. Background refresh creates a new queued/running artifact; readers retain the last ratified or ready artifact until the replacement is ready. Error/partial artifacts never overwrite prior ratified content. |
+| RT-2026-07-13-127 | New Hire | Adding Portfolio Lab, IC Book, QA Control, Covenant Lab, Calendar, and Market views together would recreate navigation overload. | Medium | Resolved in information architecture | Only `/portfolios` and `/decisions` become top-level concepts. QA, covenant, catalyst, and market capabilities remain modes or inspectors within existing routes until production data and workflow volume justify promotion. |
+| RT-2026-07-13-128 | Accessibility Auditor | Responsive inspectors and visualization fallbacks could create duplicate focus targets, nested scroll owners, or charts whose meaning is carried only by color. | High | Resolved in component acceptance gates | One inspector is active per route, drawers restore focus and close on Escape, one table owns scrolling, reduced motion is honored, status uses text/glyphs, and every visualization provides an accessible summary plus an on-demand equivalent data view. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a persona changes data access, a list route renders two visible table scroll owners, a failed insight replaces a ratified artifact, AI writes domain state, portfolio analytics lose their as-of/authority envelope, a third new top-level concept is added, or responsive drawers duplicate evidence/focus ownership.
+
+## Portfolio Lab Backend Contracts — Critic Pass (2026-07-13)
+
+Decision under review: add exact-team portfolio tenancy, paginated positions,
+deterministic analytics/stress snapshots, and server-role mutation gates without
+changing the tenancy-disabled shared-desk contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-129 | Security Auditor | Adding a team column only to the primary portfolio routes would leave indirect references, run auto-binding, RV screening, and CP-3C able to cross tenant boundaries. | High | Resolved in implementation strategy | One exact-team by-id helper and one query scoper gate every direct and indirect portfolio seam. Foreign identifiers resolve as 404; tenancy-off behavior remains a no-op. |
+| RT-2026-07-13-130 | Saboteur | Persisting only stress outputs would make a result impossible to reproduce after holdings change, while recalculating reads would mutate committee evidence. | High | Resolved in persistence contract | Each stress run stores immutable canonical inputs, outputs, authority, and a fingerprint over the exact sorted holdings snapshot plus inputs. Reads never recompute or update it. |
+| RT-2026-07-13-131 | New Hire | A cursor encoded from a mutable sort field can skip or duplicate positions when values tie. | High | Resolved in API contract | The cursor is an opaque bounded offset into a deterministic allow-listed ordering with an id tie-breaker; tests pin no duplicates across pages. |
+| RT-2026-07-13-132 | Security Auditor | UI role-view controls could be mistaken for authorization and allow a server-side read-only principal to mutate holdings, stresses, votes, or decisions. | High | Resolved in authorization contract | A reusable identity-role helper rejects server principals in read-only roles before every portfolio and decision mutation. Presentation role view is never consulted. |
+| RT-2026-07-13-133 | Saboteur | NaN, infinity, or a zero NAV can leak invalid JSON or silently corrupt concentration and stress percentages. | High | Resolved in computation contract | Every holdings multiply/divide uses `is_finite_number`; invalid inputs become explicit missing dependencies, finite par can backstop an invalid price, and zero denominators produce `None`. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if any portfolio id is dereferenced without the shared gate, if
+tenancy-disabled cross-analyst reads/writes regress, if a stored stress snapshot is
+recomputed on read, if a read-only server principal can mutate portfolio/decision
+state, or if any response can contain NaN or infinity.
+
+## IC Book Agenda and Finalization — Critic Pass (2026-07-13)
+
+Decision under review: add mutable committee preparation around the existing
+immutable decision and vote record, then finalize the preparation into a frozen
+committee artifact in one transaction.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-134 | Security Auditor | An agenda id accepted without issuer, portfolio, and owner checks could expose a different team's thesis or permit cross-tenant finalization. | High | Resolved in contract | Agenda reads and writes derive scope from the authenticated principal and linked resources. Foreign identifiers return 404; presentation lens is never consulted. |
+| RT-2026-07-13-135 | Saboteur | A two-step finalize path could create a decision while leaving the agenda editable, or mark the agenda decided without creating the immutable snapshot. | High | Resolved in transaction boundary | Readiness validation, snapshot freezing, decision creation, and agenda linkage execute inside one database transaction. Any failed validation or write leaves both artifacts unchanged. |
+| RT-2026-07-13-136 | New Hire | Copying agenda fields into a decision without the exact run, report, evidence, and portfolio references would make committee history look complete while severing lineage. | High | Resolved in snapshot contract | Finalization records the canonical agenda fields and freezes each supplied artifact reference plus its authority/fingerprint. Missing required dependencies fail explicitly before creation. |
+| RT-2026-07-13-137 | Saboteur | Adding filters or pagination by rewriting the existing issuer-only list could break Monitor and Decision Room clients. | High | Resolved in compatibility contract | Existing `issuer_id` calls and list response remain valid. New filters, stable sorting, pagination metadata, and by-id lookup are additive and receive compatibility tests. |
+| RT-2026-07-13-138 | Accessibility Auditor | Agenda and decision history displayed together can violate the one-table rule and duplicate inspector focus on narrow screens. | High | Resolved in composition contract | Agenda and history are mutually exclusive datasets in one dominant table region. A single decision inspector becomes a drawer at narrow breakpoints, restores focus, and exposes votes, dissent, evidence, expiry, and reopen history as structured lists. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if finalization can partially commit, if a finalized agenda can be
+edited, if a foreign agenda or linked artifact is distinguishable from missing, if
+existing decision clients change shape, or if agenda and history tables are visible
+at the same time.
+
+## Report Studio Live Rendering and Binary Export — Critic Pass (2026-07-13)
+
+Decision under review: bind Report Studio to live module output and immutable report
+versions, then export committee-ready versions as real PDF and XLSX files.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-139 | Saboteur | Reusing the Atlas Forge report template for another issuer can present fixture narrative and covenant claims as live analysis. | High | Resolved in contract | Non-reference issuers render only their own adapted module outputs and authority. The reference template remains visibly marked and is never publishable as a live version. |
+| RT-2026-07-13-140 | Security Auditor | A binary export endpoint could become an IDOR or let mutable client payloads bypass the immutable publication gate. | High | Resolved in contract | Export reloads an analyst-owned, published, live-origin `ReportVersion` and renders only its frozen canonical document. Unsupported formats and unpublishable versions fail closed. |
+| RT-2026-07-13-141 | New Hire | An XLSX that is merely JSON renamed with an `.xlsx` suffix would pass a superficial download check but fail in Excel and destroy number semantics. | High | Resolved in verification gate | The server emits OpenXML with typed cells, styled headers, frozen panes and source metadata; tests reopen it with an independent parser and assert workbook structure and representative values. |
+| RT-2026-07-13-142 | Accessibility Auditor | Replacing browser print with a hidden download-only action can remove the inspected document preview and keyboard-accessible print path. | Medium | Resolved in interaction design | The paper preview and print path remain. Published-version PDF/XLSX downloads are additive, labelled controls with explicit version state and do not introduce a surrounding data table. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a non-reference issuer sees fixture narrative, if export reads a
+mutable draft or foreign version, if a downloaded workbook cannot be reopened as
+OpenXML, if export drops the authority/version identifiers, or if print preview is
+removed.
+
+## Persona, Intelligence, Portfolio Lab, and IC Book — Implementation Closure (2026-07-13)
+
+The implementation did not reopen any high-impact objection in RT-121 through
+RT-142. The shared shell remains adapter-based; presentation lenses are absent
+from authorization; Portfolio Lab and IC Book are the only added top-level
+concepts; insight writes remain advisory and deterministic-domain mediated; and
+portfolio/committee resources are principal-scoped.
+
+Closure evidence:
+
+- Frontend: 734 Vitest assertions, lint, production build, 27 current-stack
+  Playwright cases, three production-shell login cases, four dedicated workbench
+  verifiers, and the 85-case route/responsive/200%-zoom layout gate pass.
+- Accessibility: the local axe runner reports zero violation nodes across all 17
+  migrated product routes, including the issuer profile fixture.
+- Server: 1,489 sandbox-safe tests plus all eight AV socket tests pass; seven
+  environment-dependent cases remain explicitly skipped. Migrations upgrade to
+  0051, downgrade to 0048, and re-upgrade to 0051 cleanly.
+- Export and integrity: XLSX is independently reopened as OpenXML; PDF snapshot,
+  immutable agenda finalization, stress fingerprinting, finite-number guards,
+  tenant isolation, insight grounding, ratification, and lease behavior are
+  covered by the passing contract suites.
+
+Residual tooling note: the GitNexus index reports current at commit `37a1f01`,
+but symbol impact and final `detect-changes` cannot open its pending LadybugDB WAL
+because `lbug.shadow` is absent. No WAL data was deleted; exhaustive source/diff
+review and the full verification matrix are the fallback required by AGENTS.md.

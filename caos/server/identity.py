@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from access_log import sanitize_field
@@ -62,6 +63,18 @@ class CallerIdentity:
     # analyst's row; None for a proxy/local caller with no profile. Inert unless
     # CAOS_TENANCY_ENABLED (single-team default ignores it).
     team_id: str | None = None
+
+
+_READ_ONLY_SERVER_ROLES = {"viewer", "read-only", "read_only", "readonly"}
+
+
+def require_write_role(caller: CallerIdentity) -> None:
+    """Reject domain mutations for a read-only authenticated server principal.
+
+    This deliberately ignores the frontend's presentation-only role view.
+    """
+    if caller.role.strip().lower() in _READ_ONLY_SERVER_ROLES:
+        raise HTTPException(403, "Read-only callers cannot mutate this resource.")
 
 
 def _sig(raw: str, secret: str) -> str:
@@ -186,6 +199,7 @@ async def get_identity(
                         id=ident_id,
                         email=cookie_email,
                         full_name=sanitize_field(data["name"]),
+                        role=getattr(analyst, "role", None) or "analyst",
                         source="profile",
                         team_id=analyst.team_id,  # multi-team tenancy scope (inert unless enabled)
                     )
@@ -201,11 +215,24 @@ async def get_identity(
             )
         return _LOCAL_DEV
     username = request.headers.get("x-forwarded-preferred-username") or email or user
+    persisted_analyst = None
+    if email and hasattr(db, "execute"):
+        persisted_analyst = (await db.execute(
+            select(Analyst).where(
+                func.lower(Analyst.email) == email.strip().lower()
+            )
+        )).scalar_one_or_none()
     # Forwarded headers are attacker-influenced off-proxy; sanitize before they
     # become caller.email (→ Document.uploaded_by) or hit the exception logger. S7.
     return CallerIdentity(
         id=sanitize_field(user or email or "unknown"),
         email=sanitize_field(email or (user or "unknown")),
         full_name=sanitize_field(username or "Authenticated User"),
+        role=(
+            getattr(persisted_analyst, "role", None) or "analyst"
+            if persisted_analyst is not None
+            else "analyst"
+        ),
         source="proxy",
+        team_id=(persisted_analyst.team_id if persisted_analyst is not None else None),
     )

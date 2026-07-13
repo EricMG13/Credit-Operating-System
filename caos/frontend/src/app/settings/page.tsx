@@ -26,6 +26,7 @@ import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
 import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
 import { PortfoliosPanel } from "@/components/settings/PortfoliosPanel";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 
 export default function SettingsPage() {
   return (
@@ -331,7 +332,8 @@ function Settings() {
       narrowContract={{ essentialControls: null }}
     >
       {/* body */}
-      <div className="flex-1 min-h-0 overflow-auto p-2">
+      <div className="caos-persona-route settings-workbench flex-1 min-h-0 overflow-auto p-2">
+      <PersonaWorkbench surface="settings" primary={<div>
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
           <div
             role="tablist"
@@ -650,6 +652,7 @@ function Settings() {
           ) : null}
           {tab === "portfolios" ? <PortfoliosPanel /> : null}
         </div>
+      </div>} />
       </div>
     </EnterprisePage>
   );

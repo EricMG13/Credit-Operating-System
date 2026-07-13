@@ -27,6 +27,8 @@ import type { Sim } from "@/lib/pipeline/sim-engine";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { SubHeader } from "@/components/shared/SubHeader";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 import type { RunListItemDTO } from "@/lib/engine/types";
 
@@ -331,18 +333,22 @@ function PipelineVisualizer() {
       }
       narrowContract={narrowContract}
     >
+      <div className="caos-persona-route pipeline-workbench flex-1 min-h-0">
+      <PersonaWorkbench surface="pipeline" primary={<div className="h-full min-h-0 flex flex-col">
       <WorkbenchToolbar
         title="Run worklist"
         description="Inspect stage clearance, failures and evidence for the selected analysis run."
         count={`${runRows.length} runs · ${completed}/${total} modules`}
         viewLabel={useLive ? "Live run" : "Demo route"}
       />
+      <DominantTableRegion ownerId="pipeline-run-worklist" label="Recent analysis runs" className="shrink-0">
       <PipelineRunWorklist
         runs={runRows}
         selectedRunId={runParam}
         unavailable={runRowsError}
         onSelect={selectRun}
       />
+      </DominantTableRegion>
       <PipelineWorkspace
         view={view}
         sim={sim}
@@ -359,6 +365,8 @@ function PipelineVisualizer() {
         pickDriver={pickDriver}
         setEvModal={setEvModal}
       />
+      </div>} />
+      </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={liveRun.liveEvidence} isLiveRun={!isReference && !!liveRun.runId} onClose={() => setEvModal(null)} /> : null}
     </EnterprisePage>
@@ -523,7 +531,7 @@ function PipelineWorkspace({
   setEvModal,
 }: PipelineWorkspaceProps) {
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
+    <div className="pipeline-workspace flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
       <div className="flex flex-col gap-2 min-h-0 min-w-0">
         <PanelShell
           title={view === "graph" ? "Execution Graph · CP-X route plan" : "Execution Swimlanes · L0 → Export"}

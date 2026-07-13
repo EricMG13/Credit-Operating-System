@@ -3,7 +3,7 @@
 // (header OPEN DEEP-DIVE), issuer-scoped jumps in the static bottom bar,
 // ratings shown once (header), no layout switcher / hidden shortcuts.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Profile } from "./ProfileContent";
 import type { IssuerProfile } from "@/lib/api";
 
@@ -25,6 +25,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.history.replaceState({}, "", "/issuers/profile");
 });
 
 const data: IssuerProfile = {
@@ -92,17 +93,29 @@ describe("Profile (distilled)", () => {
     expect(screen.getAllByText("Net leverage").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("5.2×").length).toBeGreaterThanOrEqual(1);
 
-    const headings = screen.getAllByRole("heading").map((h) => h.textContent || "");
-    const order = (label: string) => headings.findIndex((h) => h.includes(label));
-    const financial = order("Financial & credit trend");
-    const thesis = order("Thesis & key drivers");
-    const business = order("Business profile");
-    const market = order("Market · price & DM");
-    expect([financial, thesis, business, market]).not.toContain(-1);
-    expect(financial).toBeLessThan(thesis);
-    expect(thesis).toBeLessThan(business);
-    expect(business).toBeLessThan(market);
-
+    // The old simultaneous five-row stack is replaced by one URL-addressable
+    // active analysis tab. Switching tabs preserves every prior capability.
+    expect(screen.getByRole("tab", { name: "Snapshot" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("heading", { name: "Financial & credit trend" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
+    expect(window.location.search).toBe("?tab=financials");
+    expect(screen.getByRole("heading", { name: "Financial & credit trend" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Thesis & key drivers/ })).toBeTruthy();
     expect(screen.getByRole("img", { name: /FY2024 5\.0×; FY2025 5\.2×/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByRole("heading", { name: "Business profile" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Structure & coverage" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Market & RV" }));
+    expect(screen.getByRole("heading", { name: "Market · price & DM" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getByRole("heading", { name: /Latest earnings/ })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Run history/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence / QA" }));
+    expect(screen.getByRole("heading", { name: "Evidence Atlas" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "QA findings" })).toBeTruthy();
   });
 });

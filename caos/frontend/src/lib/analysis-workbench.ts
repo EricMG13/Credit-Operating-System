@@ -36,13 +36,60 @@ export interface AnalysisArtifactRefs {
   report_version_id: string | null;
   alert_event_id: string | null;
   sponsor_id: string | null;
+  portfolio_id?: string | null;
+  decision_id?: string | null;
+  insight_id?: string | null;
 }
 
 export type AnalysisSurfaceName =
   | "issuers" | "upload" | "research" | "sponsors" | "command"
   | "deep-dive" | "model" | "reports" | "pipeline" | "monitor"
   | "settings" | "issuer-profile" | "global-ask" | "query"
-  | "sector-review" | "rv-screener";
+  | "sector-review" | "rv-screener" | "portfolio-lab" | "ic-book";
+
+export interface InsightClaim {
+  id: string;
+  statement: string;
+  evidence_ids: string[];
+  numeric_facts: Array<{ label: string; value: number; unit?: string | null }>;
+}
+
+export interface InsightPage {
+  /** Immutable version history; use current for the effective analyst view. */
+  items: InsightArtifact[];
+  /** Newest ready or ratified insight, independent of the history cursor. */
+  current: InsightArtifact | null;
+  next_cursor: string | null;
+}
+
+export interface InsightArtifact {
+  id: string;
+  context_id: string;
+  surface: AnalysisSurfaceName;
+  kind: string;
+  status: "queued" | "running" | "ready" | "partial" | "error" | "stale" | "ratified" | "rejected";
+  subject_refs: AnalysisArtifactRefs;
+  summary: string;
+  claims: InsightClaim[];
+  recommended_actions: string[];
+  missing_dependencies: string[];
+  authority: AuthorityEnvelope;
+  source_fingerprint: string;
+  version: number;
+  model: string | null;
+  generated_at: string;
+  ratified_at: string | null;
+  rejected_at: string | null;
+  lease_owner: string | null;
+  lease_expires_at: string | null;
+}
+
+export interface InsightCreate {
+  surface: AnalysisSurfaceName;
+  kind: string;
+  subject_refs?: Partial<AnalysisArtifactRefs>;
+  force?: boolean;
+}
 
 export interface AnalysisSurfaceStateEntry {
   query?: string | null;
@@ -173,6 +220,21 @@ export const analysisApi = {
     api.get<AnalysisContext>(`/api/analysis/contexts/${id}`).then((response) => response.data),
   patchContext: (id: string, body: Partial<AnalysisContext>) =>
     api.patch<AnalysisContext>(`/api/analysis/contexts/${id}`, body).then((response) => response.data),
+  listInsights: (
+    contextId: string,
+    filters: { surface?: AnalysisSurfaceName; kind?: string; cursor?: string; limit?: number } = {},
+  ) => api.get<InsightPage>(`/api/analysis/contexts/${contextId}/insights`, {
+    params: filters,
+  }).then((response) => response.data),
+  createInsight: (contextId: string, body: InsightCreate) =>
+    api.post<InsightArtifact>(`/api/analysis/contexts/${contextId}/insights`, body)
+      .then((response) => response.data),
+  ratifyInsight: (id: string) =>
+    api.post<InsightArtifact>(`/api/analysis/insights/${id}/ratify`)
+      .then((response) => response.data),
+  rejectInsight: (id: string) =>
+    api.post<InsightArtifact>(`/api/analysis/insights/${id}/reject`)
+      .then((response) => response.data),
   listFindings: (contextId: string) =>
     api.get<Finding[]>("/api/analysis/findings", { params: { context_id: contextId } }).then((response) => response.data),
   createFinding: (body: {
@@ -215,6 +277,12 @@ export function contextHref(path: string, contextId: string, params: Record<stri
   return `${path}?${search.toString()}`;
 }
 
+export function mergeContextIntoCurrentUrl(href: string, contextId: string) {
+  const current = new URL(href);
+  if (!current.searchParams.has("context")) current.searchParams.set("context", contextId);
+  return `${current.pathname}${current.search}${current.hash}`;
+}
+
 const pendingContextCreates = new Map<string, Promise<AnalysisContext>>();
 
 function createContextOnce(defaults: { name: string; sector_id?: string }) {
@@ -240,8 +308,8 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string 
       setLoading(true);
       setError(null);
       try {
-        const url = new URL(window.location.href);
-        const contextId = url.searchParams.get("context");
+        const initialUrl = new URL(window.location.href);
+        const contextId = initialUrl.searchParams.get("context");
         const value = contextId
           ? await analysisApi.getContext(contextId)
           : await createContextOnce({ name: defaultName, sector_id: defaultSectorId });
@@ -249,8 +317,15 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string 
         setContext(value);
         window.dispatchEvent(new CustomEvent("caos:analysis-context", { detail: value }));
         if (!contextId) {
-          url.searchParams.set("context", value.id);
-          window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+          // Context creation is asynchronous. Merge into the URL that exists at
+          // completion time so a lane/filter/selection changed while awaiting
+          // the API is never replaced by the stale URL captured above.
+          window.history.replaceState(
+            window.history.state,
+            "",
+            mergeContextIntoCurrentUrl(window.location.href, value.id),
+          );
+          window.dispatchEvent(new PopStateEvent("popstate"));
         }
       } catch (reason) {
         if (!cancelled) setError(toErrorMessage(reason, "Analysis context unavailable."));

@@ -12,6 +12,7 @@ racing (no-op on SQLite).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
 from datetime import date, datetime, timezone
@@ -186,6 +187,9 @@ class Analyst(Base):
     location: Mapped[Optional[str]] = mapped_column(String(16))
     recovery_word_hashes: Mapped[list] = mapped_column(JSON, default=list)
     recovery_hints: Mapped[list] = mapped_column(JSON, default=list)
+    role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="analyst", server_default="analyst"
+    )
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
     settings_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -655,6 +659,43 @@ class AnalysisFinding(Base):
     authority: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalysisInsight(Base):
+    """Immutable cited insight version scoped to one analyst-owned context."""
+
+    __tablename__ = "analysis_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "analyst_id", "context_id", "surface", "kind", "source_fingerprint", "version",
+            name="uq_analysis_insight_generation",
+        ),
+        Index("ix_analysis_insights_context_generated", "context_id", "generated_at"),
+        Index("ix_analysis_insights_analyst_status", "analyst_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), nullable=False
+    )
+    surface: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="ready")
+    subject_refs: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    claims: Mapped[list] = mapped_column(JSON, default=list)
+    recommended_actions: Mapped[list] = mapped_column(JSON, default=list)
+    missing_dependencies: Mapped[list] = mapped_column(JSON, default=list)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    model: Mapped[Optional[str]] = mapped_column(String(128))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    ratified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(64))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class AnalysisQueryRun(Base):
@@ -1130,6 +1171,15 @@ class Decision(Base):
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
     run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
     report_id: Mapped[Optional[str]] = mapped_column(String(64))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("portfolios.id"), index=True
+    )
+    agenda_item_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("committee_agenda_items.id"), unique=True
+    )
+    report_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("report_versions.id"), index=True
+    )
     action: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     conditions: Mapped[list] = mapped_column(JSON, default=list)
@@ -1152,6 +1202,47 @@ class DecisionVote(Base):
     vote: Mapped[str] = mapped_column(String(16), nullable=False)
     dissent_note: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CommitteeAgendaItem(Base):
+    """Mutable committee preparation that freezes into one immutable decision."""
+
+    __tablename__ = "committee_agenda_items"
+    __table_args__ = (
+        UniqueConstraint("finalized_decision_id", name="uq_agenda_finalized_decision"),
+        Index("ix_agenda_issuer_scheduled", "issuer_id", "scheduled_for"),
+        Index("ix_agenda_portfolio_scheduled", "portfolio_id", "scheduled_for"),
+        Index("ix_agenda_owner_status", "owner_id", "status"),
+        Index("ix_agenda_status_scheduled", "status", "scheduled_for"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False)
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("portfolios.id"))
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(16), nullable=False)
+    conviction: Mapped[Optional[float]] = mapped_column(Float)
+    thesis: Mapped[str] = mapped_column(Text, nullable=False)
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    expiry: Mapped[Optional[date]] = mapped_column(Date)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    report_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("report_versions.id"), index=True
+    )
+    context_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    finalized_decision_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("decisions.id")
+    )
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class ThesisVersion(Base):
@@ -1201,6 +1292,7 @@ class Portfolio(Base):
     # from the mandate file — a roll-up for display, like ModuleOutput.runtime_output.
     mandate: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[Optional[str]] = mapped_column(String(255))
+    team_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -1254,6 +1346,29 @@ class PortfolioConstraint(Base):
     breach_type: Mapped[Optional[str]] = mapped_column(String(16))
     source_document: Mapped[Optional[str]] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PortfolioStressRun(Base):
+    """Immutable deterministic stress snapshot for one managed portfolio."""
+
+    __tablename__ = "portfolio_stress_runs"
+    __table_args__ = (
+        Index("ix_portfolio_stress_runs_portfolio_created", "portfolio_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    portfolio_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("portfolios.id"), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    inputs: Mapped[dict] = mapped_column(JSON, nullable=False)
+    output: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    authority: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="complete")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class PipelineRun(Base):
@@ -1380,6 +1495,41 @@ async def get_db():
             raise
 
 
+def _erasure_principal(analyst_id: str) -> str:
+    digest = hashlib.sha256(analyst_id.encode("utf-8")).hexdigest()[:20]
+    return f"erased:{digest}"
+
+
+def _redact_embedded_identity(value, keys: list[str], pseudonym: str):
+    if isinstance(value, dict):
+        return {
+            key: _redact_embedded_identity(item, keys, pseudonym)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_embedded_identity(item, keys, pseudonym) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for key in keys:
+            redacted = redacted.replace(key, pseudonym)
+        return redacted
+    return value
+
+
+def _privacy_redacted_snapshot(
+    snapshot: dict, *, keys: list[str], pseudonym: str, prior_hash: str
+) -> tuple[dict, str] | None:
+    redacted = _redact_embedded_identity(snapshot, keys, pseudonym)
+    if redacted == snapshot:
+        return None
+    redacted["privacy_redaction"] = {
+        "principal": pseudonym,
+        "prior_snapshot_sha256": prior_hash,
+    }
+    canonical = json.dumps(redacted, sort_keys=True, separators=(",", ":"), default=str)
+    return json.loads(canonical), hashlib.sha256(canonical.encode()).hexdigest()
+
+
 async def erase_analyst_data(
     session: AsyncSession, *, analyst_id: str, email: Optional[str] = None
 ) -> dict[str, int]:
@@ -1396,10 +1546,104 @@ async def erase_analyst_data(
     the self-service route and the operator CLI — get an atomic erase.
     """
     keys = [k for k in (analyst_id, email) if k]
+    pseudonym = _erasure_principal(analyst_id)
+    owned_report_ids = list((await session.execute(
+        select(ReportVersion.id).where(ReportVersion.analyst_id.in_(keys))
+    )).scalars().all())
+    owned_context_ids = list((await session.execute(
+        select(AnalysisContextRecord.id).where(AnalysisContextRecord.analyst_id.in_(keys))
+    )).scalars().all())
 
     # Delete private versioned artifacts before their owning analysis contexts.
     # Reports reference checkpoints, while checkpoints and research jobs
     # reference contexts, so the order here is intentionally dependency-first.
+    # Draft committee preparation is private workspace state; finalized agenda
+    # and decisions are immutable firm work product. Retain the latter while
+    # removing the personal attribution and nullable private-artifact links.
+    agenda_drafts = await session.execute(
+        delete(CommitteeAgendaItem).where(
+            CommitteeAgendaItem.owner_id.in_(keys),
+            CommitteeAgendaItem.status != "decided",
+        )
+    )
+    finalized_agenda = await session.execute(
+        update(CommitteeAgendaItem).where(
+            CommitteeAgendaItem.owner_id.in_(keys),
+            CommitteeAgendaItem.status == "decided",
+        ).values(owner_id=pseudonym, report_version_id=None, context_id=None)
+    )
+    if owned_report_ids:
+        await session.execute(
+            update(CommitteeAgendaItem).where(
+                CommitteeAgendaItem.report_version_id.in_(owned_report_ids)
+            ).values(report_version_id=None)
+        )
+        await session.execute(
+            update(Decision).where(
+                Decision.report_version_id.in_(owned_report_ids)
+            ).values(report_version_id=None)
+        )
+    if owned_context_ids:
+        await session.execute(
+            update(CommitteeAgendaItem).where(
+                CommitteeAgendaItem.context_id.in_(owned_context_ids)
+            ).values(context_id=None)
+        )
+    decisions_anonymized = await session.execute(
+        update(Decision).where(Decision.created_by.in_(keys)).values(created_by=pseudonym)
+    )
+    decision_votes_anonymized = await session.execute(
+        update(DecisionVote).where(DecisionVote.member.in_(keys)).values(member=pseudonym)
+    )
+    thesis_versions_anonymized = await session.execute(
+        update(ThesisVersion).where(ThesisVersion.created_by.in_(keys)).values(
+            created_by=pseudonym
+        )
+    )
+    snapshots_redacted = 0
+    finalized_rows = list((await session.execute(
+        select(CommitteeAgendaItem).where(CommitteeAgendaItem.status == "decided")
+    )).scalars().all())
+    for agenda in finalized_rows:
+        result = _privacy_redacted_snapshot(
+            agenda.snapshot or {},
+            keys=keys,
+            pseudonym=pseudonym,
+            prior_hash=agenda.snapshot_sha256 or "",
+        )
+        if result is None:
+            continue
+        agenda.snapshot, agenda.snapshot_sha256 = result
+        snapshots_redacted += 1
+        if agenda.finalized_decision_id:
+            linked = await session.get(Decision, agenda.finalized_decision_id)
+            if linked is not None:
+                linked.snapshot = agenda.snapshot
+                linked.snapshot_sha256 = agenda.snapshot_sha256
+    linked_decision_ids = {
+        row.finalized_decision_id for row in finalized_rows if row.finalized_decision_id
+    }
+    other_decisions = list((await session.execute(
+        select(Decision).where(Decision.id.not_in(linked_decision_ids))
+    )).scalars().all()) if linked_decision_ids else list((await session.execute(
+        select(Decision)
+    )).scalars().all())
+    for decision in other_decisions:
+        result = _privacy_redacted_snapshot(
+            decision.snapshot or {},
+            keys=keys,
+            pseudonym=pseudonym,
+            prior_hash=decision.snapshot_sha256,
+        )
+        if result is not None:
+            decision.snapshot, decision.snapshot_sha256 = result
+            snapshots_redacted += 1
+    analysis_insights = await session.execute(
+        delete(AnalysisInsight).where(AnalysisInsight.analyst_id.in_(keys))
+    )
+    portfolio_stress_runs = await session.execute(
+        delete(PortfolioStressRun).where(PortfolioStressRun.created_by.in_(keys))
+    )
     report_versions = await session.execute(
         delete(ReportVersion).where(ReportVersion.analyst_id.in_(keys))
     )
@@ -1463,6 +1707,14 @@ async def erase_analyst_data(
         "model_checkpoints_deleted": checkpoints.rowcount or 0,  # type: ignore[attr-defined]
         "report_drafts_deleted": report_drafts.rowcount or 0,  # type: ignore[attr-defined]
         "report_versions_deleted": report_versions.rowcount or 0,  # type: ignore[attr-defined]
+        "analysis_insights_deleted": analysis_insights.rowcount or 0,  # type: ignore[attr-defined]
+        "portfolio_stress_runs_deleted": portfolio_stress_runs.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_agenda_deleted": agenda_drafts.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_agenda_anonymized": finalized_agenda.rowcount or 0,  # type: ignore[attr-defined]
+        "decisions_anonymized": decisions_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "decision_votes_anonymized": decision_votes_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "thesis_versions_anonymized": thesis_versions_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_snapshots_redacted": snapshots_redacted,
         "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,

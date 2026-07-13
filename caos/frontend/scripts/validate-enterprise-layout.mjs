@@ -4,14 +4,18 @@ import { chromium } from 'playwright';
 import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
 
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
-const routes = ['/issuers/','/issuers/profile/?id=a71f0000-0000-0000-0000-000000000001','/upload/','/research/','/query/','/sector/','/sector-rv/','/command/','/deepdive/','/model/','/reports/','/pipeline/','/monitor/','/sponsors/','/settings/'];
-const viewports = [
+const defaultRoutes = ['/issuers/','/issuers/profile/?id=iss-1','/upload/','/research/','/query/','/sector/','/sector-rv/','/command/','/portfolios/','/deepdive/','/model/','/decisions/','/reports/','/pipeline/','/monitor/','/sponsors/','/settings/'];
+const routes = process.env.ROUTES?.split(',').map((route) => route.trim()).filter(Boolean) ?? defaultRoutes;
+const defaultViewports = [
   { name: 'desktop', width: 1440, height: 900, zoom: 1 },
   { name: 'laptop', width: 1280, height: 800, zoom: 1 },
   { name: 'tablet', width: 1024, height: 768, zoom: 1 },
   { name: 'phone', width: 390, height: 844, zoom: 1 },
   { name: 'zoom200', width: 720, height: 450, zoom: 2 },
 ];
+const viewports = process.env.VIEWPORT
+  ? defaultViewports.filter((viewport) => viewport.name === process.env.VIEWPORT)
+  : defaultViewports;
 
 const browser = await chromium.launch();
 const context = await browser.newContext();
@@ -27,12 +31,21 @@ let checked = 0;
 for (const viewport of viewports) {
   await page.setViewportSize({ width: viewport.width, height: viewport.height });
   for (const route of routes) {
+    console.error(`layout: ${viewport.name} ${route}`);
+    // Clear a prior route's synthetic zoom before navigation. Applying zoom to
+    // `<html>` before hydration makes React report a false SSR mismatch.
+    await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     await page.goto(BASE + route, { waitUntil: 'domcontentloaded' });
+    // Every route in this gate has completed the PersonaWorkbench migration.
+    // Waiting on `main` returned before hydration and measured the empty shell,
+    // which made the retired shell marker look absent on every route.
+    await page.locator('[data-testid="persona-workbench"]').waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined);
     await page.evaluate((zoom) => { document.documentElement.style.zoom = String(zoom); }, viewport.zoom);
-    await page.locator('.caos-enterprise-page').waitFor({ state: 'visible' });
     const result = await page.evaluate(() => ({
       path: location.pathname,
-      root: !!document.querySelector('.caos-enterprise-page'),
+      root: !!document.querySelector('[data-testid="persona-workbench"]'),
+      workbenches: document.querySelectorAll('[data-testid="persona-workbench"]').length,
+      primarySlots: document.querySelectorAll('[data-testid="persona-workbench"] [data-slot="primary"]').length,
       primaryActions: document.querySelectorAll('[data-page-primary-action]').length,
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       width: document.documentElement.scrollWidth,
@@ -46,9 +59,12 @@ for (const viewport of viewports) {
         text: (element.textContent || '').trim().slice(0, 60),
         rect: [Math.round(element.getBoundingClientRect().left), Math.round(element.getBoundingClientRect().right)],
       })),
+      state: document.querySelector('main#main-content')?.textContent?.trim().slice(-500) ?? '',
     }));
     checked += 1;
-    if (!result.root || result.primaryActions !== 1 || result.documentOverflow) failures.push({ viewport: viewport.name, route, ...result });
+    if (!result.root || result.workbenches !== 1 || result.primarySlots !== 1 || result.primaryActions !== 1 || result.documentOverflow) {
+      failures.push({ viewport: viewport.name, route, ...result });
+    }
   }
 }
 await browser.close();

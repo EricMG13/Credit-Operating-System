@@ -37,6 +37,7 @@ from database import (
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
+from routes.analysis import _validate_context_subjects
 from tenancy import block_if_tenancy_unscoped, require_issuer
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
 
@@ -715,6 +716,12 @@ async def create_query_run(
     ):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Query rate limit reached.")
     context = await _owned_context(db, body.context_id, caller.id)
+    await _validate_context_subjects(
+        db,
+        issuer_ids=context.issuer_ids or [],
+        instrument_ids=context.instrument_ids or [],
+        caller=caller,
+    )
     now = datetime.now(timezone.utc)
     authority = AuthorityEnvelope(
         origin="live",

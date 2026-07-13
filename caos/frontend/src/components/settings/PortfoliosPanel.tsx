@@ -6,6 +6,7 @@
 // compliance are computed server-side (engine/portfolio.py) and shown inline.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
@@ -17,18 +18,8 @@ import {
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-// Compliance status → the semantic color it must never be carried by alone (paired
-// with the text label in the cell).
-const STATUS_COLOR: Record<string, string> = {
-  Pass: "var(--caos-success)",
-  Watch: "var(--caos-warning)",
-  Breach: "var(--caos-critical)",
-  Info: "var(--caos-muted)",
-};
-
 const usd = (n: unknown) =>
   typeof n === "number" ? "$" + Math.round(n).toLocaleString() : "—";
-const pct = (n: unknown) => (typeof n === "number" ? n.toFixed(2) + "%" : "—");
 
 export function PortfoliosPanel() {
   const [list, setList] = useState<PortfolioSummary[]>([]);
@@ -146,8 +137,7 @@ export function PortfoliosPanel() {
   );
 }
 
-// The computed posture for one book: exposure summary + sector concentration +
-// compliance monitor, and a drag-drop to replace positions from a new holdings file.
+// Settings owns configuration/import. Operational posture lives in Portfolio Lab.
 function PortfolioPosture({ detail, onUpdated, onError }: {
   detail: PortfolioDetail;
   onUpdated: (d: PortfolioDetail) => void;
@@ -155,9 +145,9 @@ function PortfolioPosture({ detail, onUpdated, onError }: {
 }) {
   const [busy, setBusy] = useState(false);
   const ex = detail.exposure as Record<string, unknown>;
-  const sectors = (ex.sectors as Array<Record<string, unknown>> | undefined) ?? [];
-  const ratings = (ex.rating_dist as Array<Record<string, unknown>> | undefined) ?? [];
-  const single = ex.single_name_max as Record<string, unknown> | null;
+  const breaches = detail.compliance.filter((row) => row.status === "Breach").length;
+  const watches = detail.compliance.filter((row) => row.status === "Watch").length;
+  const mandateRows = Object.entries(detail.mandate ?? {}).slice(0, 6);
 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (!accepted[0] || busy) return;
@@ -176,72 +166,24 @@ function PortfolioPosture({ detail, onUpdated, onError }: {
   });
 
   return (
-    <Panel title={`Posture · ${detail.name}`} right={<span className="tabular text-caos-xs text-caos-muted">computed from holdings</span>}>
+    <Panel title={`Configuration · ${detail.name}`} right={<span className="tabular text-caos-xs text-caos-muted">imports & mandate</span>}>
       <div className="p-3 flex flex-col gap-3">
-        {/* summary strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[["NAV", usd(ex.total_nav)], ["Par", usd(ex.total_par)], ["Positions", String(ex.n_positions ?? "—")],
-            ["Obligors", String(ex.n_obligors ?? "—")], ["WA rating", String(ex.wa_rating ?? "—")],
-            ["WA margin", typeof ex.wa_margin === "number" ? Math.round(ex.wa_margin as number) + "bps" : "—"],
-            ["1st lien", pct(ex.first_lien_pct)], ["Single name", single ? pct(single.pct_nav) : "—"]].map(([l, v]) => (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" aria-label="Portfolio configuration summary">
+          {[["Positions", String(ex.n_positions ?? "—")], ["Reported NAV", usd(ex.total_nav)],
+            ["Constraints", String(detail.compliance.length)], ["Exceptions", `${breaches} breach · ${watches} watch`]].map(([l, v]) => (
             <div key={l} className="rounded border border-caos-border px-2 py-1.5">
               <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</div>
               <div className="tabular text-caos-lg text-caos-text">{v}</div>
             </div>
           ))}
         </div>
+        {mandateRows.length ? <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2" aria-label="Mandate configuration">
+          {mandateRows.map(([key, value]) => <div key={key} className="rounded border border-caos-border px-2 py-1.5"><dt className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{key.replaceAll("_", " ")}</dt><dd className="m-0 mt-1 tabular text-caos-md text-caos-text truncate">{String(value)}</dd></div>)}
+        </dl> : <p className="m-0 text-caos-md text-caos-muted">No mandate metadata was imported.</p>}
 
-        {/* rating distribution */}
-        {ratings.length ? (
-          <div className="flex flex-wrap gap-1.5">
-            {ratings.map((r) => (
-              <span key={String(r.bucket)} className="tabular text-caos-xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted">
-                {String(r.bucket)} <span className="text-caos-text">{pct(r.pct_nav)}</span>
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        {/* top sectors */}
-        {sectors.length ? (
-          <div>
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Top sectors (%NAV)</div>
-            <div className="rounded border border-caos-border overflow-hidden">
-              {sectors.slice(0, 8).map((s) => {
-                const p = typeof s.pct_nav === "number" ? (s.pct_nav as number) : 0;
-                const over = p > 10;
-                return (
-                  <div key={String(s.sector)} className="grid grid-cols-[1fr_180px_56px] items-center gap-x-2 px-3 py-[5px] border-b border-caos-border/50 last:border-b-0">
-                    <span className="text-caos-md text-caos-text truncate">{String(s.sector)}</span>
-                    <span className="h-2 rounded-sm" style={{ width: `${Math.min(100, p * 6)}%`, background: over ? "var(--caos-critical)" : "var(--caos-accent)" }} />
-                    <span className="tabular text-caos-xs text-right" style={{ color: over ? "var(--caos-critical)" : "var(--caos-muted)" }}>{pct(p)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        {/* compliance monitor */}
-        {detail.compliance.length ? (
-          <div>
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Constraint compliance</div>
-            <div className="rounded border border-caos-border overflow-hidden">
-              <div className="grid grid-cols-[1fr_96px_72px_72px_84px] gap-x-2 px-3 h-6 items-center border-b border-caos-border bg-caos-panel tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-                <span>Parameter</span><span>Limit</span><span className="text-right">Current</span><span className="text-right">Headroom</span><span className="text-right">Status</span>
-              </div>
-              {detail.compliance.map((c, i) => (
-                <div key={String(c.code ?? i)} className="grid grid-cols-[1fr_96px_72px_72px_84px] gap-x-2 px-3 py-[5px] items-center border-b border-caos-border/50 last:border-b-0">
-                  <span className="text-caos-md text-caos-text truncate" title={String(c.parameter ?? "")}>{String(c.parameter ?? "—")}</span>
-                  <span className="tabular text-caos-xs text-caos-muted truncate">{String(c.limit_text ?? "—")}</span>
-                  <span className="tabular text-caos-xs text-right text-caos-text">{typeof c.current === "number" ? c.current : "—"}</span>
-                  <span className="tabular text-caos-xs text-right text-caos-muted">{typeof c.headroom === "number" ? c.headroom : "—"}</span>
-                  <span className="tabular text-caos-xs text-right font-medium" style={{ color: STATUS_COLOR[String(c.status)] ?? "var(--caos-muted)" }}>{String(c.status ?? "—")}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <Link href={`/portfolios?portfolio=${encodeURIComponent(detail.id)}`} className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md flex items-center justify-center">
+          OPEN OPERATIONAL POSTURE IN PORTFOLIO LAB
+        </Link>
 
         {/* update holdings */}
         <div {...getRootProps()} className="rounded border border-dashed px-4 py-4 text-center cursor-pointer transition-caos"

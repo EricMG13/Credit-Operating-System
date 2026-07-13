@@ -41,6 +41,7 @@ import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromModelEngine } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 
@@ -740,8 +741,12 @@ function ModelBuilder() {
         </>
       }
       narrowContract={narrowContract}
-      decisionContext={<DecisionHeader state={modelDecision} defaultOpen={false} />}
     >
+      <div className="caos-persona-route model-workbench flex-1 min-h-0">
+      <PersonaWorkbench
+        surface="model"
+        decision={<DecisionHeader state={modelDecision} defaultOpen={false} />}
+        primary={<div className="h-full min-h-0 flex flex-col">
       <section className="sm:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Model phone triage">
         <div className="rounded border border-caos-border bg-caos-panel">
           <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
@@ -895,6 +900,9 @@ function ModelBuilder() {
       {/* isLiveRun: a live issuer's E-xx id must hit the explicit unresolved
           panel, never shadow-resolve to the seeded ATLF excerpt as "VERIFIED". */}
       {evModal ? <EvidenceModal id={evModal} reports={reports} isLiveRun={!isReference} onClose={() => setEvModal(null)} /> : null}
+        </div>}
+      />
+      </div>
     </EnterprisePage>
   );
 }

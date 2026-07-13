@@ -22,9 +22,14 @@ from database import (
     AlertEvent,
     AnalysisContextRecord,
     AnalysisFinding,
+    AnalysisInsight,
     AnalysisQueryRun,
+    Decision,
     Document,
+    Issuer,
+    MarketInstrument,
     ModelCheckpoint,
+    Portfolio,
     ReportVersion,
     ResearchJob,
     RVScreenRun,
@@ -36,6 +41,7 @@ from database import (
 )
 from identity import CallerIdentity, get_identity
 from sector_taxonomy import canonical_sector_id
+from tenancy import require_issuer, require_portfolio_access, tenancy_enabled
 
 router = APIRouter()
 
@@ -151,7 +157,7 @@ async def _validate_artifact_refs(
     refs: AnalysisArtifactRefs,
     *,
     context_id: Optional[str],
-    analyst_id: str,
+    caller: CallerIdentity,
 ) -> None:
     """Reject foreign or mismatched artifact ids before they enter a context."""
 
@@ -165,7 +171,7 @@ async def _validate_artifact_refs(
         if not artifact_id:
             continue
         row = await db.get(model, artifact_id)
-        if row is None or getattr(row, "analyst_id", None) != analyst_id:
+        if row is None or getattr(row, "analyst_id", None) != caller.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found.")
         row_context_id = getattr(row, "context_id", None)
         if context_id is None and row_context_id:
@@ -177,12 +183,55 @@ async def _validate_artifact_refs(
             raise HTTPException(status.HTTP_409_CONFLICT, f"{label} belongs to a different analysis context.")
     if refs.issuer_run_id:
         run = await db.get(Run, refs.issuer_run_id)
-        if run is None or run.analyst_id != analyst_id:
+        if run is None or run.analyst_id != caller.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer run not found.")
     if refs.alert_event_id and await db.get(AlertEvent, refs.alert_event_id) is None:
         # Alert events are team-visible by design; existence is all the context
         # linker may infer. The alert payload itself remains behind its route.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
+    if refs.portfolio_id:
+        require_portfolio_access(caller, await db.get(Portfolio, refs.portfolio_id))
+    if refs.decision_id:
+        decision = await db.get(Decision, refs.decision_id)
+        if decision is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found.")
+        require_issuer(caller, await db.get(Issuer, decision.issuer_id))
+    if refs.insight_id:
+        insight = await db.get(AnalysisInsight, refs.insight_id)
+        if insight is None or insight.analyst_id != caller.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Insight not found.")
+        if context_id is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Insight is already bound to an analysis context.",
+            )
+        if context_id and insight.context_id != context_id:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Insight belongs to a different analysis context.")
+
+
+async def _validate_context_subjects(
+    db: AsyncSession,
+    *,
+    issuer_ids: list[str],
+    instrument_ids: list[str],
+    caller: CallerIdentity,
+) -> None:
+    """Resolve all context subjects and fail closed before analytical use."""
+    for issuer_id in dict.fromkeys(issuer_ids):
+        require_issuer(caller, await db.get(Issuer, issuer_id))
+    for instrument_id in dict.fromkeys(instrument_ids):
+        instrument = await db.get(MarketInstrument, instrument_id)
+        if instrument is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
+        if tenancy_enabled():
+            if not instrument.issuer_id:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
+            try:
+                require_issuer(caller, await db.get(Issuer, instrument.issuer_id))
+            except HTTPException as exc:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND, "Market instrument not found."
+                ) from exc
 
 
 @router.get("/taxonomy")
@@ -211,7 +260,14 @@ async def create_context(
     sector_id = canonical_sector_id(body.sector_id)
     if body.sector_id and sector_id is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
-    await _validate_artifact_refs(db, body.artifacts, context_id=None, analyst_id=caller.id)
+    await _validate_context_subjects(
+        db, issuer_ids=body.issuer_ids, instrument_ids=body.instrument_ids, caller=caller
+    )
+    if body.portfolio_scope:
+        require_portfolio_access(
+            caller, await db.get(Portfolio, body.portfolio_scope)
+        )
+    await _validate_artifact_refs(db, body.artifacts, context_id=None, caller=caller)
     now = datetime.now(timezone.utc)
     row = AnalysisContextRecord(
         analyst_id=caller.id,
@@ -283,13 +339,24 @@ async def patch_context(
         # sibling artifact reference it never intended to touch.
         merged_artifacts = {**(row.artifacts or {}), **(changes["artifacts"] or {})}
         refs = AnalysisArtifactRefs.model_validate(merged_artifacts)
-        await _validate_artifact_refs(db, refs, context_id=context_id, analyst_id=caller.id)
+        await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
         changes["artifacts"] = refs.model_dump(mode="json")
     if "surface_state" in changes:
         merged_surface_state = {**(row.surface_state or {}), **(changes["surface_state"] or {})}
         changes["surface_state"] = AnalysisSurfaceState.model_validate(
             merged_surface_state
         ).model_dump(mode="json", by_alias=True, exclude_none=True)
+    if "issuer_ids" in changes or "instrument_ids" in changes:
+        await _validate_context_subjects(
+            db,
+            issuer_ids=changes.get("issuer_ids", row.issuer_ids or []),
+            instrument_ids=changes.get("instrument_ids", row.instrument_ids or []),
+            caller=caller,
+        )
+    if changes.get("portfolio_scope"):
+        require_portfolio_access(
+            caller, await db.get(Portfolio, changes["portfolio_scope"])
+        )
     for key, value in changes.items():
         setattr(row, key, value)
     row.updated_at = datetime.now(timezone.utc)

@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from database import (
 )
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
+from report_exports import render_report_pdf, render_report_xlsx
 from tenancy import require_run_access
 
 router = APIRouter()
@@ -247,6 +249,7 @@ async def create_report_version(
 @router.post("/versions/{version_id}/export")
 async def export_report_version(
     version_id: str,
+    format: Literal["json", "xlsx", "pdf"] = Query("json"),
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
@@ -256,6 +259,38 @@ async def export_report_version(
     authority = row.authority or {}
     if row.status != "published" or authority.get("origin") != "live":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only live published report versions can be exported.")
+    if format == "xlsx":
+        content = render_report_xlsx(
+            version_id=row.id,
+            document_sha256=row.document_sha256,
+            payload=row.payload or {},
+            authority=authority,
+        )
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="caos-report-{row.id}.xlsx"',
+                "Cache-Control": "private, no-store",
+                "X-CAOS-Document-SHA256": row.document_sha256,
+            },
+        )
+    if format == "pdf":
+        content = render_report_pdf(
+            version_id=row.id,
+            document_sha256=row.document_sha256,
+            payload=row.payload or {},
+            authority=authority,
+        )
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="caos-report-{row.id}.pdf"',
+                "Cache-Control": "private, no-store",
+                "X-CAOS-Document-SHA256": row.document_sha256,
+            },
+        )
     return {
         "id": row.id,
         "document_sha256": row.document_sha256,

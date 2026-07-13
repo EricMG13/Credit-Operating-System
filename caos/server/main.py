@@ -25,7 +25,7 @@ from config import get_settings, is_deployed, require_postgres_in_production, re
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import analysis, alerts, auth, chat, decisions, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
+from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
 from engine.pipeline_executor import PipelineExecutor
@@ -313,6 +313,7 @@ app.include_router(sponsors.router, prefix="/api/sponsors", tags=["sponsors"])
 app.include_router(digest.router, prefix="/api/digest", tags=["digest"])
 app.include_router(qa.router, prefix="/api/qa", tags=["qa"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
+app.include_router(analysis_insights.router, prefix="/api/analysis", tags=["analysis-insights"])
 app.include_router(query.router, prefix="/api/query", tags=["query"])
 app.include_router(scenario.router, prefix="/api/scenario", tags=["scenario"])
 app.include_router(research.router, prefix="/api/research", tags=["research"])
@@ -323,6 +324,7 @@ app.include_router(settings_routes.router, prefix="/api/settings", tags=["settin
 app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(decisions.router, prefix="/api/decisions", tags=["decisions"])
+app.include_router(committee.router, prefix="/api/committee", tags=["committee"])
 app.include_router(thesis.router, prefix="/api/thesis", tags=["thesis"])
 
 

@@ -71,8 +71,11 @@ def assess_fit(cp3_rt: dict, leverage: Optional[float]) -> Optional[dict]:
 async def _live_concentration(session: AsyncSession, portfolio_id: str, issuer) -> Optional[dict]:
     """The issuer's live concentration in a bound portfolio (assess_issuer_fit over
     its persisted positions + constraints). None if the portfolio has no positions."""
-    from database import PortfolioConstraint, PortfolioPosition
+    from database import Portfolio, PortfolioConstraint, PortfolioPosition
     from engine.portfolio import assess_issuer_fit
+    from tenancy import require_portfolio_access
+
+    require_portfolio_access(issuer.team_id, await session.get(Portfolio, portfolio_id))
 
     prows = (await session.execute(
         select(

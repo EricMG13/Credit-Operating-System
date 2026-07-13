@@ -48,7 +48,7 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
     expect(header.textContent).toContain("Watchtower endpoint unavailable");
     expect(header.textContent).not.toContain("No material change");
     expect(header.textContent).not.toContain("No action required");
-    expect(screen.getByText("Governance · CP-5 / CP-0 / Staleness")).toBeTruthy();
+    expect(screen.getByText("Governance summary")).toBeTruthy();
   });
 
   it("populates the decision header from a live autonomy draft and shows the shared governance categories", async () => {
@@ -95,8 +95,8 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
     await waitFor(() => expect(header.textContent).toContain("EBITDA margin compressed sharply vs peers"));
     expect(header.textContent).toContain("compare to peers");
 
-    expect(screen.getByText("Governance · CP-5 / CP-0 / Staleness")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Expand Governance/i }));
+    fireEvent.click(screen.getByRole("tab", { name: "Governance" }));
+    expect(screen.getByText("Governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
     expect(screen.getByText("QA Queue · CP-5 open findings")).toBeTruthy();
     expect(screen.getByText("Failed Gates · committee gate")).toBeTruthy();
     expect(screen.getByText("Mixed Origin · reference + live run")).toBeTruthy();

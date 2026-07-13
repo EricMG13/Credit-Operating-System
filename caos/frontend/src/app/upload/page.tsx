@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { UploadWizard } from "@/components/upload/UploadWizard";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 
 // The MNPI handling notice must survive every breakpoint — it is a policy
@@ -42,10 +43,12 @@ export default function UploadPage() {
         narrowContract={{ essentialControls: <MnpiChip /> }}
       >
         {/* wizard — the <main> landmark lives in the root layout */}
-        <div id="intake-workspace" className="flex-1 min-h-0 overflow-auto p-2" tabIndex={-1}>
+        <div id="intake-workspace" className="caos-persona-route upload-workbench flex-1 min-h-0 overflow-auto p-2" tabIndex={-1}>
+          <PersonaWorkbench surface="upload" primary={
           <Suspense fallback={null}>
             <UploadWizard />
           </Suspense>
+          } />
         </div>
       </EnterprisePage>
     </RequireAuth>

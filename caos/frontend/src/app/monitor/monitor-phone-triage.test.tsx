@@ -3,7 +3,7 @@
 // breakpoint — the dense EmailIntel/AlertInbox/Governance layout never
 // renders below 768px, and PhoneTriage never renders above it.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import MonitorPage from "./page";
 
 let mockBreakpoint: "wide" | "desktop" | "tablet" | "mobile" = "wide";
@@ -34,18 +34,36 @@ afterEach(() => {
 });
 
 describe("Monitor · phone triage breakpoint gate (G6)", () => {
-  it("mounts PhoneTriage instead of the desktop workspace at the mobile breakpoint", async () => {
+  it("keeps phone triage primary while context and governance remain available as drawers", async () => {
     mockBreakpoint = "mobile";
+    window.matchMedia = vi.fn().mockImplementation(() => ({
+      matches: true,
+      media: "(max-width: 899px)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
     render(<MonitorPage />);
     await waitFor(() => expect(screen.getByText("Watchtower unreachable")).toBeTruthy()); // PhoneTriage's offline state
     expect(screen.queryByText("Email Intelligence · CP-MON intake")).toBeNull();
-    expect(screen.queryByText("Governance · CP-5 / CP-0 / Staleness")).toBeNull();
+    expect(screen.queryByText("Governance summary")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open context drawer" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open evidence inspector drawer" }));
+    expect(await screen.findByText("Governance summary")).toBeTruthy();
   });
 
   it("mounts the desktop workspace, never PhoneTriage, at wider breakpoints", async () => {
     mockBreakpoint = "desktop";
+    window.matchMedia = vi.fn().mockImplementation(() => ({
+      matches: false,
+      media: "(max-width: 899px)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
     render(<MonitorPage />);
-    await waitFor(() => expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy());
-    expect(screen.getByText("Governance · CP-5 / CP-0 / Staleness")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy());
+    expect(screen.getByText("Governance summary")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
+    expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
   });
 });

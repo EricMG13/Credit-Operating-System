@@ -24,6 +24,8 @@ import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
 import { contextHref, useAnalysisContext, type AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
 
@@ -345,6 +347,8 @@ function IssuersDirectory() {
       }
       narrowContract={narrowContract}
     >
+      <div className="caos-persona-route issuers-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="issuers" primary={<div className="h-full min-h-0 flex flex-col">
       <WorkbenchToolbar
         title="Coverage register"
         description="Filter, select and route covered names without losing issuer context."
@@ -394,7 +398,8 @@ function IssuersDirectory() {
       ) : null}
 
       {/* directory */}
-      <div className="flex-1 min-h-0 p-2">
+      <DominantTableRegion ownerId="issuer-register" label="Issuer coverage register" className="flex-1 min-h-0">
+      <div className="h-full min-h-0">
         <Panel
           title="Issuer Register · coverage universe"
           className="h-full"
@@ -576,6 +581,9 @@ function IssuersDirectory() {
             </div>
           )}
         </Panel>
+      </div>
+      </DominantTableRegion>
+      </div>} />
       </div>
 
       {/* create modal */}

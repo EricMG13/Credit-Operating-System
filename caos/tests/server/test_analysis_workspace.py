@@ -24,13 +24,13 @@ def test_context_and_findings_are_analyst_owned():
         created = client.post("/api/analysis/contexts", json={
             "name": "Telecom weekly",
             "sector_id": "Telecommunications",
-            "issuer_ids": ["issuer-1", "issuer-1"],
+            "issuer_ids": ["a71f0000-0000-0000-0000-000000000001"] * 2,
             "filters": {"rating": "B"},
         })
         assert created.status_code == 201, created.text
         context = created.json()
         assert context["sector_id"] == "telecom"
-        assert context["issuer_ids"] == ["issuer-1"]
+        assert context["issuer_ids"] == ["a71f0000-0000-0000-0000-000000000001"]
 
         source_run = client.post("/api/query/runs", json={
             "context_id": context["id"],

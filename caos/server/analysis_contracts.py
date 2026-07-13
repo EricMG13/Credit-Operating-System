@@ -37,6 +37,12 @@ AnalysisSurfaceName: TypeAlias = Literal[
     "query",
     "sector-review",
     "rv-screener",
+    "portfolio-lab",
+    "ic-book",
+]
+
+InsightStatus: TypeAlias = Literal[
+    "queued", "running", "ready", "partial", "error", "stale", "ratified", "rejected"
 ]
 
 FindingSourceSurface: TypeAlias = Literal[
@@ -71,6 +77,9 @@ class AnalysisArtifactRefs(BaseModel):
     report_version_id: Optional[str] = Field(default=None, max_length=36)
     alert_event_id: Optional[str] = Field(default=None, max_length=36)
     sponsor_id: Optional[str] = Field(default=None, max_length=255)
+    portfolio_id: Optional[str] = Field(default=None, max_length=36)
+    decision_id: Optional[str] = Field(default=None, max_length=36)
+    insight_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class AnalysisSurfaceStateEntry(BaseModel):
@@ -107,6 +116,8 @@ class AnalysisSurfaceState(BaseModel):
     query: Optional[AnalysisSurfaceStateEntry] = None
     sector_review: Optional[AnalysisSurfaceStateEntry] = Field(default=None, alias="sector-review")
     rv_screener: Optional[AnalysisSurfaceStateEntry] = Field(default=None, alias="rv-screener")
+    portfolio_lab: Optional[AnalysisSurfaceStateEntry] = Field(default=None, alias="portfolio-lab")
+    ic_book: Optional[AnalysisSurfaceStateEntry] = Field(default=None, alias="ic-book")
 
 
 class AuthorityEnvelope(BaseModel):
@@ -120,6 +131,50 @@ class AuthorityEnvelope(BaseModel):
     confidence: Optional[float] = Field(default=None, ge=0, le=1)
     approval_state: Literal["draft", "ratified", "published", "rejected"] = "draft"
     analyst_override: Optional[str] = Field(default=None, max_length=2000)
+
+
+class InsightNumericFact(BaseModel):
+    label: str = Field(min_length=1, max_length=160)
+    value: float
+    unit: Optional[str] = Field(default=None, max_length=32)
+
+
+class InsightClaim(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    statement: str = Field(min_length=1, max_length=2000)
+    evidence_ids: list[str] = Field(min_length=1, max_length=100)
+    numeric_facts: list[InsightNumericFact] = Field(default_factory=list, max_length=100)
+
+
+class InsightArtifact(BaseModel):
+    id: str
+    context_id: str
+    surface: AnalysisSurfaceName
+    kind: str
+    status: InsightStatus
+    subject_refs: AnalysisArtifactRefs = Field(default_factory=AnalysisArtifactRefs)
+    summary: str
+    claims: list[InsightClaim] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    missing_dependencies: list[str] = Field(default_factory=list)
+    authority: AuthorityEnvelope
+    source_fingerprint: str
+    version: int = Field(ge=0)
+    model: Optional[str] = None
+    generated_at: datetime
+    ratified_at: Optional[datetime] = None
+    rejected_at: Optional[datetime] = None
+    lease_owner: Optional[str] = None
+    lease_expires_at: Optional[datetime] = None
+
+
+class InsightPage(BaseModel):
+    items: list[InsightArtifact]
+    current: Optional[InsightArtifact] = Field(
+        default=None,
+        description="Newest ready or ratified effective insight; items is immutable history.",
+    )
+    next_cursor: Optional[str] = None
 
 
 class AnalysisContext(BaseModel):

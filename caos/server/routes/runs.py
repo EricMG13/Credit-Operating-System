@@ -35,11 +35,18 @@ import vault_export
 from config import get_settings
 from engine import presets
 from database import (
-    Claim, EvidenceItem, Issuer, ModuleOutput, PortfolioPosition, QAFinding, Run, get_db,
+    Claim, EvidenceItem, Issuer, ModuleOutput, Portfolio, PortfolioPosition, QAFinding, Run, get_db,
 )
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
-from tenancy import require_issuer, require_run_access, scope_issuers, tenancy_enabled
+from tenancy import (
+    require_issuer,
+    require_portfolio_access,
+    require_run_access,
+    scope_issuers,
+    scope_portfolios,
+    tenancy_enabled,
+)
 
 logger = logging.getLogger("caos")
 router = APIRouter()
@@ -106,13 +113,22 @@ def _idempotency_store(caller_id: str, key: Optional[str], run_id: str) -> None:
 _RUNS_MAX_PER_MINUTE = 12
 
 
-async def _auto_portfolio(db: AsyncSession, issuer_id: str) -> Optional[str]:
+async def _auto_portfolio(
+    db: AsyncSession, issuer_id: str, caller: Optional[CallerIdentity] = None
+) -> Optional[str]:
     """The single portfolio holding this issuer, if exactly one does — so a run
     auto-binds its book for CP-3C. None when unheld or held in several (ambiguous
     → don't guess; the caller can pass an explicit portfolio_id)."""
-    pids = (await db.execute(
+    if caller is None and tenancy_enabled():
+        return None
+    stmt = (
         select(PortfolioPosition.portfolio_id)
-        .where(PortfolioPosition.issuer_id == issuer_id).distinct()
+        .join(Portfolio, Portfolio.id == PortfolioPosition.portfolio_id)
+        .where(PortfolioPosition.issuer_id == issuer_id)
+        .distinct()
+    )
+    pids = (await db.execute(
+        scope_portfolios(stmt, caller) if caller is not None else stmt
     )).scalars().all()
     return pids[0] if len(pids) == 1 else None
 
@@ -269,6 +285,11 @@ async def create_run(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
 
     require_issuer(caller, await db.get(Issuer, body.issuer_id))
+    explicit_portfolio = (
+        require_portfolio_access(caller, await db.get(Portfolio, body.portfolio_id))
+        if body.portfolio_id
+        else None
+    )
 
     # Dedup: refuse a second run while one is already active for this issuer, so
     # two analysts (or a double-click) don't kick off duplicate work that then
@@ -320,7 +341,10 @@ async def create_run(
         # Bind a portfolio: the explicit choice, else auto-bind the one book that
         # holds this issuer (so CP-3C's concentration goes live with no extra step;
         # ambiguous when held in several → left unbound rather than guessing).
-        portfolio_id = body.portfolio_id or await _auto_portfolio(db, body.issuer_id)
+        if explicit_portfolio is not None:
+            portfolio_id = explicit_portfolio.id
+        else:
+            portfolio_id = await _auto_portfolio(db, body.issuer_id, caller)
         run = Run(
             issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
             portfolio_id=portfolio_id,

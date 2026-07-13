@@ -33,6 +33,7 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { fromReportCaveat } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { useAsk } from "@/components/shared/Ask";
 import { createThesisVersion, getIssuerProfile, updateAnalystWorkspace } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
@@ -88,6 +89,7 @@ const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
+  const evidenceParam = searchParams.get("evidence");
   // Issuer opened from the directory (?issuer=). Absent → the ATLF reference deal
   // (the bespoke showcase). The live engine overlay is keyed off this id; the
   // bespoke debate/recovery/covenant tabs and DEAL narrative are ATLF fixtures,
@@ -445,7 +447,7 @@ function DeepDive() {
   };
 
   return (
-    <EvidenceSyncProvider>
+    <EvidenceSyncProvider initialActive={evidenceParam}>
     <EnterprisePage kind="object"
       identity={
         <ShellIdentity tag="DEEP-DIVE" title={dealLabel}>
@@ -539,8 +541,12 @@ function DeepDive() {
         </>
       }
       narrowContract={narrowContract}
-      decisionContext={<DecisionHeader state={deepDecision} defaultOpen={false} />}
     >
+      <div className="caos-persona-route deepdive-workbench flex-1 min-h-0">
+      <PersonaWorkbench
+        surface="deep-dive"
+        decision={<DecisionHeader state={deepDecision} defaultOpen={false} />}
+        primary={<div className="h-full min-h-0 flex flex-col">
       <section className="sm:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Deep-Dive phone triage">
         <div className="rounded border border-caos-border bg-caos-panel">
           <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
@@ -825,6 +831,9 @@ function DeepDive() {
           issuerName={isReference ? undefined : issuerMeta?.name}
         />
       ) : null}
+      </div>
+        </div>}
+      />
       </div>
     </EnterprisePage>
     </EvidenceSyncProvider>

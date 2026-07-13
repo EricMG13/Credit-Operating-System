@@ -25,9 +25,8 @@ import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
 import { useDigest } from "@/lib/engine/useDigest";
 import {
   IssuerStrip,
-  PortfolioTable, PostureSummary,
+  PortfolioTable,
 } from "@/components/command/views";
-import { NlQuery } from "@/components/command/NlQuery";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { RankedChanges } from "@/components/command/RankedChanges";
@@ -35,11 +34,17 @@ import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
-import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
+import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
+import { analysisApi, contextHref, type InsightArtifact, useAnalysisContext } from "@/lib/analysis-workbench";
+import { useTypedUrlState } from "@/lib/typed-url-state";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
 ).length;
+const COMMAND_URL_KEYS = ["dataset", "selected"] as const;
+type CommandDataset = "changes" | "positions" | "coverage" | "governance";
 
 export default function CommandPage() {
   return (
@@ -51,9 +56,15 @@ export default function CommandPage() {
 
 function CommandCenter() {
   const analysis = useAnalysisContext({ name: "Portfolio command" });
-  const [selected, setSelected] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
   const { roleView } = useRoleView();
+  const { values: urlState, update: updateUrlState } = useTypedUrlState(COMMAND_URL_KEYS);
+  const selected = urlState.selected;
+  const requestedDataset = urlState.dataset as CommandDataset | null;
+  const dataset: CommandDataset = requestedDataset && ["changes", "positions", "coverage", "governance"].includes(requestedDataset)
+    ? requestedDataset
+    : roleView === "qa" ? "governance" : roleView === "pm" ? "changes" : "coverage";
+  const [insight, setInsight] = useState<InsightArtifact | null>(null);
+  const [insightMessage, setInsightMessage] = useState<string | null>(null);
 
   const run = useSharedDayRun();
   const tick = run.sim.tick;
@@ -141,19 +152,49 @@ function CommandCenter() {
     const context = analysis.context;
     if (!context) return;
     const current = context.surface_state.command;
-    if (current?.active_id === selected && current?.view === activeTab && current?.filters?.role === roleView) return;
+    if (current?.active_id === selected && current?.view === dataset && current?.filters?.role === roleView) return;
     void analysis.patch({
       surface_state: {
         ...context.surface_state,
         command: {
           ...current,
           active_id: selected,
-          view: activeTab,
+          view: dataset,
           filters: { ...current?.filters, role: roleView },
         },
       },
     });
-  }, [activeTab, analysis, roleView, selected]);
+  }, [analysis, dataset, roleView, selected]);
+
+  useEffect(() => {
+    if (!analysis.context?.id) return;
+    let alive = true;
+    analysisApi.listInsights(analysis.context.id, { surface: "command", kind: "decision-brief", limit: 20 })
+      .then((page) => { if (alive) setInsight(page.current); })
+      .catch(() => { if (alive) setInsightMessage("No cited decision brief is available."); });
+    return () => { alive = false; };
+  }, [analysis.context?.id]);
+
+  const generateInsight = async () => {
+    if (!analysis.context?.id) return;
+    setInsightMessage("Generating cited decision brief…");
+    try {
+      const created = await analysisApi.createInsight(analysis.context.id, {
+        surface: "command",
+        kind: "decision-brief",
+        subject_refs: { alert_event_id: selected },
+        force: Boolean(insight),
+      });
+      if (created.status === "ready" || created.status === "ratified") {
+        setInsight(created);
+        setInsightMessage(null);
+      } else {
+        setInsightMessage(`Brief is ${created.status}.`);
+      }
+    } catch (reason) {
+      setInsightMessage(reason instanceof Error ? reason.message : "Cited decision brief is unavailable.");
+    }
+  };
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -223,7 +264,6 @@ function CommandCenter() {
         </div>
       }
       narrowContract={narrowContract}
-      decisionContext={<DecisionHeader state={commandDecision} />}
     >
       {/* Decision header — cells populate from the LIVE digest + portfolio
           roll-ups only; offline they state "— no data" rather than promoting
@@ -236,120 +276,62 @@ function CommandCenter() {
           count={portfolio.loading ? "Loading" : portfolio.error ? "Live coverage unavailable" : `${portfolio.coveredCount}/${portfolio.issuerCount} covered`}
           viewLabel={`View: ${roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}`}
         />
-        <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
-          {/* Dominant opener: the live Watchtower ranked-changes list. PM/QA
-              default expanded via DecisionHeader; the panel itself always
-              shows (empty/offline states render honestly inline). */}
-          <div id="ranked-changes" tabIndex={-1}>
-            <PanelShell title="Ranked Changes · Watchtower draft" className="flex-none min-h-0" collapsible>
-              <RankedChanges />
-            </PanelShell>
-          </div>
-          {/* Posture bar above query bar */}
-          <PostureSummary />
-          <NlQuery />
-
-          {/* Coverage area — PM/QA default collapsed (ranked changes above is
-              their answer); Analyst keeps it expanded. `key={roleView}` forces
-              Panel's uncontrolled defaultCollapsed to re-evaluate on a role
-              switch (it's an initial-only useState otherwise). */}
-          <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
-            <div className="flex-1 flex flex-col gap-2 min-h-0 min-w-0">
+        <div id="ranked-changes" className="caos-persona-route command-workbench flex-1 min-h-0" tabIndex={-1}>
+          <PersonaWorkbench
+            surface="command"
+            decision={<DecisionHeader state={commandDecision} />}
+            primary={
               <PanelShell
-                key={roleView}
-                title="Coverage"
-                collapsible
-                defaultCollapsed={roleView !== "analyst"}
-                className="flex-1 min-h-0"
-                right={
-                  <div className="flex items-center gap-3">
-                    <span className="tabular text-caos-xs text-caos-muted">
-                      {activeTab === "positions"
-                        ? `${PORTFOLIO.length} positions`
-                        : `${portfolio.coveredCount} of ${portfolio.issuerCount} covered` +
-                          // Honest staleness stamp (FE-3): the board refreshes on an
-                          // interval, and the as-of makes the snapshot age visible.
-                          (portfolio.fetchedAt
-                            ? ` · as of ${portfolio.fetchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-                            : "")}
-                    </span>
-                    <div className="flex bg-caos-bg border border-caos-border/80 rounded p-[2px] gap-0.5">
-                      {([
-                        ["Sample Sleeve", "positions"],
-                        ["Live Coverage", "runs"],
-                      ] as const).map(([label, mode]) => (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => setActiveTab(mode)}
-                          className={
-                            "shrink-0 tabular text-caos-2xs px-2.5 py-0.5 rounded-sm transition-caos focus-ring cursor-pointer " +
-                            (activeTab === mode
-                              ? "bg-caos-elevated text-caos-text font-medium"
-                              : "text-caos-muted hover:text-caos-text")
-                          }
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                }
+                title={dataset === "changes" ? "Ranked Changes · Watchtower draft" : dataset === "positions" ? "Sample sleeve · positions" : dataset === "coverage" ? "Live Coverage" : "Governance · CP-5 / CP-0 / Staleness"}
+                className="h-full min-h-0"
+                right={<div role="tablist" aria-label="Command dataset" className="flex items-center gap-1 overflow-x-auto">
+                  {([ ["Changes", "changes"], ["Sample sleeve", "positions"], ["Live coverage", "coverage"], ["Governance", "governance"] ] as const).map(([label, mode]) => <button key={mode} type="button" role="tab" aria-selected={dataset === mode} onClick={() => updateUrlState({ dataset: mode })} className="caos-action-secondary focus-ring whitespace-nowrap">{label}</button>)}
+                </div>}
               >
-                {activeTab === "positions" ? (
-                  <PortfolioTable selected={selected} onSelect={setSelected} />
-                ) : (
-                  <div className="overflow-x-auto h-full flex flex-col">
-                    <LiveCoverage rows={portfolio.rows} selected={selected} onSelect={setSelected} />
-                  </div>
+                {dataset === "changes" ? <RankedChanges /> : dataset === "governance" ? <GovernancePanel liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : (
+                  <DominantTableRegion ownerId="command-worklist" label={dataset === "positions" ? "Sample sleeve positions" : "Live coverage worklist"} className="h-full min-h-0">
+                    {dataset === "positions" ? <PortfolioTable selected={selected} onSelect={(value) => updateUrlState({ selected: value }, "replace")} /> : <div className="overflow-x-auto h-full flex flex-col"><LiveCoverage rows={portfolio.rows} selected={selected} onSelect={(value) => updateUrlState({ selected: value }, "replace")} /></div>}
+                  </DominantTableRegion>
                 )}
               </PanelShell>
-            </div>
-          </div>
-
-          {/* Daily Digest — live coverage-health readout (WARF, staleness,
-              CCC-cliff watch, 24h activity); hidden until the registry is
-              live so the research lens keeps only its seeded panels offline. */}
-          {digestLive && digest ? (
-            <PanelShell
-              title="Daily Digest · coverage & ratings"
-              className="flex-none min-h-0"
-              collapsible
-              defaultCollapsed={true}
-              right={
-                <span className="tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>
-                  ● LIVE · as of {new Date(digest.as_of).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-                </span>
-              }
-            >
-              <DailyDigestPanel digest={digest} />
-            </PanelShell>
-          ) : null}
-
-          {/* Combined governance panel: QA + Gaps (unchanged, live-wired) plus
-              a new stale-sources category from the digest already fetched
-              above — zero new endpoints. mb-9 keeps this panel's title bar
-              clear of the floating Ask launcher (fixed bottom-3 right-3),
-              which otherwise sits on top of it at this collapsed height
-              (critique P2). */}
-          <PanelShell
-            title="Governance · CP-5 / CP-0 / Staleness"
-            className="flex-none min-h-0 mb-9"
-            collapsible
-            defaultCollapsed={true}
-          >
-            <GovernancePanel
-              liveQa={liveQa}
-              liveFailedGates={liveFailed}
-              liveGaps={liveGapsItems}
-              liveMixedOrigin={liveMixed}
-              staleRows={digestLive ? digest?.stale ?? [] : []}
-            />
-          </PanelShell>
+            }
+            context={<CommandContext digest={digestLive ? digest : null} digestAsOf={digestAsOf} />}
+            inspector={<div className="grid gap-2">
+              <CommandGovernanceSummary qa={liveQa?.length} failed={liveFailed?.length} gaps={liveGapsItems?.length} mixed={liveMixed?.length} stale={digestLive ? digest?.stale?.length ?? 0 : undefined} onOpen={() => updateUrlState({ dataset: "governance" })} />
+              <PanelShell title="Cited decision brief">
+                <button type="button" onClick={() => void generateInsight()} className="caos-action-secondary focus-ring m-2">{insight ? "Refresh cited brief" : "Generate cited brief"}</button>
+                {insight ? <article className="p-2 pt-0 grid gap-2"><p className="text-caos-sm text-caos-text">{insight.summary}</p><ul className="grid gap-1">{insight.claims.map((claim) => <li key={claim.id} className="text-caos-xs text-caos-muted">{claim.statement} · sources {claim.evidence_ids.join(", ") || "missing"}</li>)}</ul></article> : <p role="status" className="p-2 pt-0 text-caos-xs text-caos-muted">{insightMessage ?? "No cited brief generated."}</p>}
+              </PanelShell>
+              {analysis.context ? <Link href={contextHref("/query", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open cross-issuer Query</Link> : null}
+            </div>}
+          />
         </div>
       </div>
 
-      {selected ? <IssuerStrip code={selected} liveRow={liveSelected} onClose={() => setSelected(null)} /> : null}
+      {selected ? <IssuerStrip code={selected} liveRow={liveSelected} onClose={() => updateUrlState({ selected: null }, "replace")} /> : null}
     </EnterprisePage>
   );
+}
+
+function CommandGovernanceSummary({ qa, failed, gaps, mixed, stale, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; onOpen: () => void }) {
+  const rows = [["CP-5 findings", qa], ["Failed gates", failed], ["Source gaps", gaps], ["Mixed origin", mixed], ["Stale sources", stale]] as const;
+  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl><button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
+}
+
+function CommandContext({ digest, digestAsOf }: { digest: ReturnType<typeof useDigest>["digest"] | null; digestAsOf: string | null }) {
+  const postureOrder = ["OVERWEIGHT", "HOLD", "UNDERWEIGHT", "REDUCE"] as const;
+  const rows = postureOrder.map((posture) => ({ posture, count: PORTFOLIO.filter((position) => position.posture === posture).length }));
+  const spec: VisualizationSpec = {
+    kind: "bar",
+    title: "Sample sleeve posture",
+    unit: "positions",
+    asOf: digestAsOf ?? undefined,
+    sourceIds: ["sample-portfolio-sleeve"],
+    accessibleSummary: `${PORTFOLIO.length} sample positions: ${rows.map((row) => `${row.posture} ${row.count}`).join(", ")}.`,
+    status: rows.some((row) => row.posture === "REDUCE" && row.count > 0) ? { label: "Reduce posture present", tone: "critical" } : { label: "No reduce posture", tone: "success" },
+    data: rows,
+    tabularFallback: { label: "Sample sleeve posture counts", columns: [{ key: "posture", label: "Posture" }, { key: "count", label: "Positions" }], data: rows },
+    chart: { type: "interval", encode: { x: "posture", y: "count" } },
+  };
+  return <div className="grid gap-2"><SemanticVisualization spec={spec} />{digest ? <PanelShell title="Daily Digest · coverage & ratings" right={<span className="tabular text-caos-xs text-caos-success">● LIVE</span>}><DailyDigestPanel digest={digest} /></PanelShell> : <PanelShell title="Daily Digest"><p className="p-2 text-caos-xs text-caos-muted">Live coverage digest unavailable.</p></PanelShell>}</div>;
 }

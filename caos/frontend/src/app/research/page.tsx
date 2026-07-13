@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
@@ -386,8 +387,8 @@ function Research() {
       narrowContract={{ essentialControls: null }}
     >
       {/* workspace — brief (left) drives the report (right) */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[400px_minmax(0,1fr)] gap-2 p-2 overflow-auto lg:overflow-hidden">
-        <Panel title="Research brief">
+      <div className="caos-persona-route research-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="research" context={<Panel title="Research brief">
           {/* min-h-full (not h-full): fills the panel when short, and grows so the
               panel's own overflow-auto scrolls when the advanced section is open —
               no flex-1 child to collapse and overlap on a short viewport. */}
@@ -477,9 +478,9 @@ function Research() {
               )}
             </div>
           </div>
-        </Panel>
+        </Panel>}
 
-        <ReportPane
+        primary={<ReportPane
           running={running}
           error={error}
           result={result}
@@ -495,7 +496,8 @@ function Research() {
             setPrevResult(null);
             setError(null);
           }}
-        />
+        />}
+      />
       </div>
     </EnterprisePage>
   );

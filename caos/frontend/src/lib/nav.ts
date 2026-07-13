@@ -35,8 +35,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Decide",
     items: [
       { href: "/command", icon: "command", label: "Command Center" },
+      { href: "/portfolios", icon: "portfolio", label: "Portfolio Lab" },
       { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
       { href: "/model", icon: "model", label: "Model Builder" },
+      { href: "/decisions", icon: "decisions", label: "IC Book" },
     ],
   },
   {

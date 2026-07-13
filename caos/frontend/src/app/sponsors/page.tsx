@@ -14,6 +14,8 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
@@ -128,6 +130,8 @@ function SponsorsView() {
       }
       narrowContract={{ essentialControls: null }}
     >
+      <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="sponsors" primary={<div className="h-full min-h-0 flex flex-col">
       <WorkbenchToolbar
         title="Sponsor coverage"
         description="Select a sponsor to inspect cross-name governance and ownership history."
@@ -135,7 +139,8 @@ function SponsorsView() {
         viewLabel="Shared worklist"
       />
 
-      <div className="flex-1 min-h-0 p-2 flex gap-2">
+      <DominantTableRegion ownerId="sponsor-register" label="Sponsor coverage register" className="flex-1 min-h-0">
+      <div className="h-full min-h-0 flex gap-2">
         {/* sponsor register */}
         <Panel title="Sponsors · by coverage" className="w-80 shrink-0">
           {sponsors === null ? (
@@ -208,6 +213,9 @@ function SponsorsView() {
           )}
         </Panel>
         </div>
+      </div>
+      </DominantTableRegion>
+      </div>} />
       </div>
     </EnterprisePage>
   );

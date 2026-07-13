@@ -9,8 +9,9 @@ import pytest
 @pytest.mark.asyncio
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
-        Analyst, AsyncSessionLocal, Document, Issuer, ResearchJob, Run, SavedModel,
-        erase_analyst_data,
+        Analyst, AnalysisContextRecord, AnalysisInsight, AsyncSessionLocal,
+        Document, Issuer, Portfolio, PortfolioStressRun, ResearchJob, Run,
+        SavedModel, erase_analyst_data,
     )
 
     subj_id, subj_email = "gdpr-subject", "erase-me@test.local"
@@ -32,10 +33,29 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         # (analyst_id is a loose string key; a re-registration mints a new uuid,
         # so an undeleted row would orphan while still holding subject data).
         s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=subj_id, payload={"o": 1}))
+        s.add(Portfolio(id="gdpr-portfolio", name="GDPR Portfolio"))
+        s.add(PortfolioStressRun(
+            id="gdpr-stress", portfolio_id="gdpr-portfolio", created_by=subj_id,
+            label="Private stress", inputs={}, output={}, source_fingerprint="2" * 64,
+            authority={}, status="complete",
+        ))
+        s.add(AnalysisContextRecord(id="gdpr-context", analyst_id=subj_id, name="Private context"))
+        s.add(AnalysisInsight(
+            id="gdpr-insight", analyst_id=subj_id, context_id="gdpr-context",
+            surface="query", kind="desk-brief", status="ready", subject_refs={},
+            summary="Private cited view", claims=[], recommended_actions=[],
+            missing_dependencies=[], authority={}, source_fingerprint="gdpr-fingerprint",
+            version=0,
+        ))
         # Bystander's data — must survive untouched
         s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id, status="complete"))
         s.add(ResearchJob(id="gdpr-job-other", status="complete", analyst_id=other_id))
         s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=other_id, payload={"o": 2}))
+        s.add(PortfolioStressRun(
+            id="gdpr-stress-other", portfolio_id="gdpr-portfolio", created_by=other_id,
+            label="Bystander stress", inputs={}, output={}, source_fingerprint="3" * 64,
+            authority={}, status="complete",
+        ))
         await s.commit()
 
     async with AsyncSessionLocal() as s:
@@ -47,6 +67,14 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         "model_checkpoints_deleted": 0,
         "report_drafts_deleted": 0,
         "report_versions_deleted": 0,
+        "analysis_insights_deleted": 1,
+        "portfolio_stress_runs_deleted": 1,
+        "committee_agenda_deleted": 0,
+        "committee_agenda_anonymized": 0,
+        "decisions_anonymized": 0,
+        "decision_votes_anonymized": 0,
+        "thesis_versions_anonymized": 0,
+        "committee_snapshots_redacted": 0,
         "saved_models_deleted": 1,
         "runs_anonymized": 1,
         "documents_anonymized": 1,
@@ -57,6 +85,8 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         # Private data + PII gone.
         assert await s.get(Analyst, subj_id) is None
         assert await s.get(ResearchJob, "gdpr-job") is None
+        assert await s.get(AnalysisInsight, "gdpr-insight") is None
+        assert await s.get(PortfolioStressRun, "gdpr-stress") is None
         # Shared work product retained, attribution scrubbed.
         run = await s.get(Run, "gdpr-run")
         assert run is not None and run.analyst_id is None
@@ -68,6 +98,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         run_other = await s.get(Run, "gdpr-run-other")
         assert run_other is not None and run_other.analyst_id == other_id
         assert await s.get(ResearchJob, "gdpr-job-other") is not None
+        assert await s.get(PortfolioStressRun, "gdpr-stress-other") is not None
         # Saved models: subject's deleted, bystander's kept.
         from sqlalchemy import select
         kept = set((await s.execute(select(SavedModel.analyst_id))).scalars().all())

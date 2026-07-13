@@ -228,7 +228,7 @@ export function ComposePanel({
 /* ---------- right rail: export ---------- */
 export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report; omitCount: number; editCount?: number; runId?: string }) {
   const rows: [string, string][] = [
-    ["Format", "PDF · US Letter"],
+    ["Format", "PDF · US Letter / XLSX"],
     ["Renderer", "CP-RENDER v2.2"],
     ["Citations", citeCount(rep) + " resolved · 0 orphaned"],
     ["Sections", rep.sections.length - omitCount + " of " + rep.sections.length + " included"],

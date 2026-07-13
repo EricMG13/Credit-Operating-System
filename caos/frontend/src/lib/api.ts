@@ -523,8 +523,8 @@ export interface PortfolioSummary {
   kind: string;
   as_of_date?: string | null;
   n_positions: number;
-  total_nav: number;
-  total_par: number;
+  total_nav: number | null;
+  total_par: number | null;
   breaches: number;
   watches: number;
   created_at?: string | null;
@@ -1156,6 +1156,18 @@ export const publishReportVersion = (body: {
   payload: Record<string, unknown>;
 }): Promise<ReportVersionDTO> =>
   api.post("/api/reports/versions", body).then((r) => r.data);
+export const exportReportVersionBinary = (
+  versionId: string,
+  format: "pdf" | "xlsx",
+): Promise<{ blob: Blob; filename: string }> =>
+  api.post(`/api/reports/versions/${versionId}/export`, null, {
+    params: { format },
+    responseType: "blob",
+  }).then((response) => {
+    const disposition = String(response.headers["content-disposition"] ?? "");
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `caos-report-${versionId}.${format}`;
+    return { blob: response.data as Blob, filename };
+  });
 
 // ─── Autonomy draft (Watchtower — Sentinel→Anomaly→Analyst→Reporter DAG) ───
 export interface AutonomyClaim {
