@@ -5,6 +5,7 @@
 // (run via `node scripts/a11y-axe.mjs`, not imported — invisible to the import graph.)
 import { chromium } from 'playwright';
 import { createRequire } from 'module';
+import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
 const require = createRequire(import.meta.url);
 const axePath = require.resolve('axe-core/axe.min.js');
 
@@ -15,21 +16,30 @@ const TAGS = ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa'];
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
+// Static-export verification has no API process. When explicitly requested,
+// stub identity inside the browser only so axe scans the application surfaces,
+// not the authentication recovery wall. Production auth code is unchanged.
+if (process.env.BYPASS_AUTH === '1') {
+  await installSurfaceStubs(page, { id: 'a11y-local', email: 'a11y@local.dev', full_name: 'A11y Bot', role: 'analyst', is_active: true, source: 'local' });
+}
+
 // Sign in first — the app gates every route behind an analyst profile, so without
 // this the scan would only ever see the login landing. The POST sets the signed
 // cookie in this context's jar, which the page navigations below then carry.
 const CODE = process.env.ANALYST_SIGNUP_CODE || '131113';
-try {
-  const r = await page.request.post(BASE + '/api/auth/profile', { data: { code: CODE, name: 'A11y Bot' } });
-  if (!r.ok()) console.error(`a11y login failed (${r.status()}) — scanning the login wall instead`);
-} catch (e) { console.error('a11y login error:', e.message); }
+if (process.env.BYPASS_AUTH !== '1') {
+  try {
+    const r = await page.request.post(BASE + '/api/auth/profile', { data: { code: CODE, name: 'A11y Bot' } });
+    if (!r.ok()) console.error(`a11y login failed (${r.status()}) — scanning the login wall instead`);
+  } catch (e) { console.error('a11y login error:', e.message); }
+}
 
 const out = {};
 for (const route of ROUTES) {
   try {
     await page.goto(BASE + route, { waitUntil: 'networkidle', timeout: 30000 });
   } catch { await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
-  await page.waitForTimeout(700);
+  await page.locator('.caos-enterprise-page').waitFor({ state: 'visible' });
   await page.addScriptTag({ path: axePath });
   const res = await page.evaluate(async (tags) => {
     const r = await window.axe.run(document, { runOnly: { type: 'tag', values: tags } });

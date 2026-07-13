@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -13,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Issuer, SavedModel, get_db
+from database import AnalysisContextRecord, Issuer, ModelCheckpoint, Run, SavedModel, get_db
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
@@ -60,6 +61,174 @@ class SavedModelOut(BaseModel):
     analyst_id: str
     payload: dict
     updated_at: datetime
+
+
+class ModelCheckpointCreate(BaseModel):
+    context_id: str = Field(min_length=1, max_length=36)
+    label: str = Field(default="Analyst checkpoint", min_length=1, max_length=160)
+    issuer_run_id: Optional[str] = Field(default=None, max_length=64)
+    parent_checkpoint_id: Optional[str] = Field(default=None, max_length=36)
+    expected_updated_at: Optional[datetime] = None
+
+
+class ModelCheckpointOut(BaseModel):
+    id: str
+    issuer_id: str
+    context_id: str
+    issuer_run_id: Optional[str]
+    parent_checkpoint_id: Optional[str]
+    label: str
+    payload_hash: str
+    payload: dict
+    authority: dict
+    created_at: datetime
+
+
+class ModelCheckpointRestore(BaseModel):
+    expected_updated_at: Optional[datetime] = None
+
+
+def _checkpoint_out(row: ModelCheckpoint) -> ModelCheckpointOut:
+    return ModelCheckpointOut(
+        id=row.id,
+        issuer_id=row.issuer_id,
+        context_id=row.context_id,
+        issuer_run_id=row.issuer_run_id,
+        parent_checkpoint_id=row.parent_checkpoint_id,
+        label=row.label,
+        payload_hash=row.payload_hash,
+        payload=row.payload or {},
+        authority=row.authority or {},
+        created_at=_aware(row.created_at),
+    )
+
+
+async def _owned_context(db: AsyncSession, context_id: str, analyst_id: str) -> AnalysisContextRecord:
+    row = (await db.execute(select(AnalysisContextRecord).where(
+        AnalysisContextRecord.id == context_id,
+        AnalysisContextRecord.analyst_id == analyst_id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    return row
+
+
+@router.get("/{issuer_id}/checkpoints", response_model=list[ModelCheckpointOut])
+async def list_model_checkpoints(
+    issuer_id: str,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    rows = (await db.execute(
+        select(ModelCheckpoint).where(
+            ModelCheckpoint.issuer_id == issuer_id,
+            ModelCheckpoint.analyst_id == caller.id,
+        ).order_by(ModelCheckpoint.created_at.desc()).limit(100)
+    )).scalars().all()
+    return [_checkpoint_out(row) for row in rows]
+
+
+@router.post("/{issuer_id}/checkpoints", response_model=ModelCheckpointOut, status_code=status.HTTP_201_CREATED)
+async def create_model_checkpoint(
+    issuer_id: str,
+    body: ModelCheckpointCreate,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    if not rate_limit.hit(f"model-checkpoints:{caller.id}", max_attempts=15, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Checkpoint rate limit reached.")
+    context = await _owned_context(db, body.context_id, caller.id)
+    if context.issuer_ids and issuer_id not in context.issuer_ids:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Issuer is outside the active analysis context.")
+    saved = (await db.execute(select(SavedModel).where(
+        SavedModel.issuer_id == issuer_id,
+        SavedModel.analyst_id == caller.id,
+    ))).scalar_one_or_none()
+    if saved is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Save the working model before creating a checkpoint.")
+    if body.expected_updated_at is not None and _as_utc(body.expected_updated_at) != _as_utc(saved.updated_at):
+        raise HTTPException(status.HTTP_409_CONFLICT, "The working model changed before checkpoint creation.")
+    if body.issuer_run_id:
+        run = await db.get(Run, body.issuer_run_id)
+        if run is None or run.issuer_id != issuer_id or run.analyst_id != caller.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer run not found.")
+    if body.parent_checkpoint_id:
+        parent = await db.get(ModelCheckpoint, body.parent_checkpoint_id)
+        if parent is None or parent.analyst_id != caller.id or parent.issuer_id != issuer_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Parent checkpoint not found.")
+    canonical = json.dumps(saved.payload or {}, sort_keys=True, separators=(",", ":"), default=str)
+    now = datetime.now(timezone.utc)
+    row = ModelCheckpoint(
+        issuer_id=issuer_id,
+        analyst_id=caller.id,
+        context_id=context.id,
+        issuer_run_id=body.issuer_run_id,
+        parent_checkpoint_id=body.parent_checkpoint_id,
+        label=body.label.strip(),
+        payload_hash=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        payload=saved.payload or {},
+        authority={
+            "origin": "live",
+            "method": "modelled",
+            "freshness": "current",
+            "as_of": now.isoformat(),
+            "source_ids": [body.issuer_run_id] if body.issuer_run_id else [],
+            "run_id": body.issuer_run_id,
+            "version_id": None,
+            "confidence": None,
+            "approval_state": "draft",
+            "analyst_override": None,
+        },
+        created_at=now,
+    )
+    db.add(row)
+    await db.flush()
+    row.authority = {**row.authority, "version_id": row.id}
+    context.artifacts = {
+        **(context.artifacts or {}),
+        "model_checkpoint_id": row.id,
+        "issuer_run_id": body.issuer_run_id or (context.artifacts or {}).get("issuer_run_id"),
+    }
+    context.updated_at = now
+    await db.flush()
+    return _checkpoint_out(row)
+
+
+@router.post("/checkpoints/{checkpoint_id}/restore", response_model=SavedModelOut)
+async def restore_model_checkpoint(
+    checkpoint_id: str,
+    body: ModelCheckpointRestore,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    checkpoint = await db.get(ModelCheckpoint, checkpoint_id)
+    if checkpoint is None or checkpoint.analyst_id != caller.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Model checkpoint not found.")
+    saved = (await db.execute(select(SavedModel).where(
+        SavedModel.issuer_id == checkpoint.issuer_id,
+        SavedModel.analyst_id == caller.id,
+    ))).scalar_one_or_none()
+    if saved and body.expected_updated_at is not None and _as_utc(body.expected_updated_at) != _as_utc(saved.updated_at):
+        raise HTTPException(status.HTTP_409_CONFLICT, "The working model changed before restore.")
+    now = datetime.now(timezone.utc)
+    if saved is None:
+        saved = SavedModel(
+            issuer_id=checkpoint.issuer_id,
+            analyst_id=caller.id,
+            payload=checkpoint.payload or {},
+            updated_at=now,
+        )
+        db.add(saved)
+    else:
+        saved.payload = checkpoint.payload or {}
+        saved.updated_at = now
+    await db.flush()
+    return SavedModelOut(
+        issuer_id=checkpoint.issuer_id,
+        analyst_id=caller.id,
+        payload=checkpoint.payload or {},
+        updated_at=now,
+    )
 
 
 @router.get("/{issuer_id}", response_model=Optional[SavedModelOut])

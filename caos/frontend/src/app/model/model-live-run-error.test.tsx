@@ -33,7 +33,7 @@ afterEach(() => {
 describe("Model Builder · live-run error phase (M-5)", () => {
   it("surfaces a role=alert LIVE RUN UNAVAILABLE chip when eng.phase is 'error'", async () => {
     render(<ModelPage />);
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("LIVE RUN UNAVAILABLE");
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((alert) => alert.textContent?.includes("LIVE RUN UNAVAILABLE"))).toBe(true);
   });
 });

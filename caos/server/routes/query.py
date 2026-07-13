@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,7 +23,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import AnalystWatchlist, Document, DocumentChunk, Issuer, QueryAcceptedLink, get_db
+from analysis_contracts import AuthorityEnvelope, QueryRun
+from database import (
+    AnalysisContextRecord,
+    AnalysisQueryRun,
+    AnalystWatchlist,
+    Document,
+    DocumentChunk,
+    Issuer,
+    QueryAcceptedLink,
+    get_db,
+)
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity
@@ -608,3 +619,242 @@ async def nl_query(
     if mode == "synthesis":
         return await execute_synthesis(db, spec)
     return await execute(db, spec)
+
+
+# ── Versioned Query investigations ──────────────────────────────────────────
+
+class QueryRunCreate(BaseModel):
+    context_id: str = Field(min_length=1, max_length=36)
+    question: str = Field(min_length=1, max_length=500)
+    selected_lane: str = Field(pattern="^(metric|graph|grounded)$")
+    capability_id: Optional[str] = Field(default=None, max_length=64)
+    issuer_id: Optional[str] = Field(default=None, max_length=36)
+    method_override: Optional[str] = Field(default=None, max_length=64)
+
+
+async def _owned_context(
+    db: AsyncSession, context_id: str, analyst_id: str
+) -> AnalysisContextRecord:
+    context = (await db.execute(select(AnalysisContextRecord).where(
+        AnalysisContextRecord.id == context_id,
+        AnalysisContextRecord.analyst_id == analyst_id,
+    ))).scalar_one_or_none()
+    if context is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    return context
+
+
+def _run_out(row: AnalysisQueryRun) -> QueryRun:
+    return QueryRun(
+        id=row.id,
+        context_id=row.context_id,
+        question=row.question,
+        selected_lane=row.selected_lane,
+        method_override=row.method_override,
+        status=row.status,
+        result=row.result or {},
+        authority=AuthorityEnvelope.model_validate(row.authority),
+        error=row.error,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _is_observed_empty(result: dict) -> bool:
+    for key in ("rows", "nodes", "claims", "citations", "results"):
+        if key in result and isinstance(result[key], list):
+            return len(result[key]) == 0
+    return False
+
+
+def _result_source_ids(result: dict) -> list[str]:
+    """Lift source identifiers from lane-specific payloads into the envelope.
+
+    Query's legacy executors return citations at different depths. The shared
+    workbench must not force clients to understand each result shape before it
+    can state whether a conclusion is sourced.
+    """
+    found: set[str] = set()
+    singular = {"source_id", "claim_id", "evidence_id", "chunk_id", "document_id"}
+    plural = {"source_ids", "citation_ids"}
+
+    def visit(value: object, parent_key: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in singular and isinstance(child, (str, int)) and str(child):
+                    found.add(str(child))
+                elif key in plural and isinstance(child, list):
+                    for item in child:
+                        if isinstance(item, (str, int)) and str(item):
+                            found.add(str(item))
+                visit(child, key)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, parent_key)
+        elif parent_key in {"citations", "sources"} and isinstance(value, (str, int)):
+            found.add(str(value))
+
+    visit(result)
+    return sorted(found)
+
+
+@router.post("/runs", response_model=QueryRun, status_code=status.HTTP_201_CREATED)
+async def create_query_run(
+    body: QueryRunCreate,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Run one explicit lane and persist both its result and recovery state.
+
+    Lane choice is displayed before execution by the client and is never
+    silently changed here. A failed lane remains a saved investigation with the
+    original question and deterministic alternatives named in ``result``.
+    """
+    if not rate_limit.hit(
+        f"query-run:{caller.id}", max_attempts=_QUERY_MAX_PER_MINUTE, window_seconds=60
+    ):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Query rate limit reached.")
+    context = await _owned_context(db, body.context_id, caller.id)
+    now = datetime.now(timezone.utc)
+    authority = AuthorityEnvelope(
+        origin="live",
+        method=body.method_override or body.selected_lane,
+        freshness="current",
+        as_of=now,
+        source_ids=[],
+        approval_state="draft",
+    )
+    row = AnalysisQueryRun(
+        analyst_id=caller.id,
+        context_id=context.id,
+        question=body.question,
+        selected_lane=body.selected_lane,
+        method_override=body.method_override,
+        status="running",
+        result={},
+        authority=authority.model_dump(mode="json"),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    await db.flush()
+    authority.run_id = row.id
+
+    try:
+        if body.selected_lane == "graph":
+            block_if_tenancy_unscoped()
+            if not body.capability_id:
+                row.status = "partial"
+                row.result = {
+                    "missing_dependencies": ["capability_id"],
+                    "available_lanes": ["metric", "grounded"],
+                }
+            else:
+                row.result = await querygraph.build_graph(
+                    db, body.capability_id, body.issuer_id, theme=body.question
+                )
+                row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
+        elif body.selected_lane == "grounded":
+            if not queryanswer.available():
+                row.status = "partial"
+                row.result = {
+                    "missing_dependencies": ["model_provider"],
+                    "available_lanes": ["metric", "graph"],
+                    "recovery": "Choose a deterministic lane; the question is preserved.",
+                }
+            else:
+                row.result = await queryanswer.answer(
+                    db,
+                    body.question,
+                    capability_id=body.capability_id,
+                    issuer_id=body.issuer_id,
+                    analyst_id=caller.id,
+                    force=False,
+                )
+                row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
+        else:
+            block_if_tenancy_unscoped()
+            mode, spec = await plan(body.question)
+            if mode == "semantic":
+                row.result = await execute_semantic(db, spec)
+            elif mode == "synthesis":
+                row.result = await execute_synthesis(db, spec)
+            else:
+                row.result = await execute(db, spec)
+            row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
+    except (QueryError, KeyError) as exc:
+        row.status = "error"
+        row.error = str(exc)
+        row.result = {
+            "available_lanes": [lane for lane in ("metric", "graph", "grounded") if lane != body.selected_lane],
+            "recovery": "Revise the question or explicitly select another lane.",
+        }
+    except Exception as exc:  # noqa: BLE001 — persisted, explicit recovery state
+        logger.warning("versioned query run %s failed: %s", row.id, exc)
+        row.status = "error"
+        row.error = "Selected lane failed. The question and context were preserved."
+        row.result = {
+            "available_lanes": [lane for lane in ("metric", "graph", "grounded") if lane != body.selected_lane],
+            "recovery": "Retry this lane or choose a deterministic alternative.",
+        }
+
+    row.updated_at = datetime.now(timezone.utc)
+    authority.source_ids = _result_source_ids(row.result or {})
+    row.authority = authority.model_dump(mode="json")
+    context.query_session_id = row.id
+    context.updated_at = row.updated_at
+    await db.flush()
+    return _run_out(row)
+
+
+@router.get("/runs", response_model=list[QueryRun])
+async def list_query_runs(
+    context_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_rate_guard(caller)
+    stmt = select(AnalysisQueryRun).where(AnalysisQueryRun.analyst_id == caller.id)
+    if context_id:
+        await _owned_context(db, context_id, caller.id)
+        stmt = stmt.where(AnalysisQueryRun.context_id == context_id)
+    rows = (await db.execute(
+        stmt.order_by(AnalysisQueryRun.created_at.desc()).limit(100)
+    )).scalars().all()
+    return [_run_out(row) for row in rows]
+
+
+@router.get("/runs/{run_id}", response_model=QueryRun)
+async def get_query_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_rate_guard(caller)
+    row = (await db.execute(select(AnalysisQueryRun).where(
+        AnalysisQueryRun.id == run_id,
+        AnalysisQueryRun.analyst_id == caller.id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Query run not found.")
+    return _run_out(row)
+
+
+@router.post("/runs/{run_id}/cancel", response_model=QueryRun)
+async def cancel_query_run(
+    run_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    row = (await db.execute(select(AnalysisQueryRun).where(
+        AnalysisQueryRun.id == run_id,
+        AnalysisQueryRun.analyst_id == caller.id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Query run not found.")
+    if row.status not in {"queued", "running"}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only queued or running queries can be cancelled.")
+    row.status = "cancelled"
+    row.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return _run_out(row)

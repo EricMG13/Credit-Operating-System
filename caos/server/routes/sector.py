@@ -8,7 +8,7 @@ schema-valid payloads.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -16,8 +16,28 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import AnalystSectorFeed, SectorReviewRun, SectorSignal, aware_utc, get_db
+from analysis_contracts import (
+    AuthorityEnvelope,
+    SectorComparable,
+    SectorDimensionScore,
+    SectorEarlyWarning,
+    SectorReviewSectionV2,
+    SectorReviewV2,
+    SectorRisk,
+    SectorSourceRegisterItem,
+    SectorUncertainty,
+)
+from database import (
+    AnalysisContextRecord,
+    AnalystSectorFeed,
+    SectorReviewRatification,
+    SectorReviewRun,
+    SectorSignal,
+    aware_utc,
+    get_db,
+)
 from identity import CallerIdentity, get_identity
+from sector_taxonomy import CANONICAL_SECTORS, canonical_sector_id
 from sector_logic import sector_materiality_score, sector_signal_dedup_hash
 
 router = APIRouter()
@@ -661,6 +681,421 @@ async def ask_sector_topic(
             "no open-web retrieval in the seed MVP."
         ),
     )
+
+
+# ── CP-SR V2: versioned dossier, section ratification and publication ────────
+
+_DIMENSIONS = (
+    ("fundamentals", "Fundamental direction"),
+    ("leverage", "Leverage trajectory"),
+    ("liquidity", "Liquidity and refinancing"),
+    ("covenants", "Covenant protection"),
+    ("recovery", "Downside and recovery"),
+    ("relative-value", "Relative value"),
+)
+
+
+class SectorReviewCreate(BaseModel):
+    context_id: str = Field(min_length=1, max_length=36)
+    sector_id: Optional[str] = Field(default=None, max_length=128)
+    timeframe: str = Field(default="weekly", max_length=32)
+    as_of: Optional[str] = None
+    refresh_trigger: Literal["ad_hoc", "scheduled", "signal"] = "ad_hoc"
+
+
+class SectionRatification(BaseModel):
+    section_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["ratified", "rejected"]
+    override_text: Optional[str] = Field(default=None, max_length=4000)
+
+
+class SectorRatificationRequest(BaseModel):
+    sections: list[SectionRatification] = Field(min_length=1, max_length=7)
+
+
+async def _owned_analysis_context(
+    db: AsyncSession, context_id: str, analyst_id: str
+) -> AnalysisContextRecord:
+    context = (await db.execute(select(AnalysisContextRecord).where(
+        AnalysisContextRecord.id == context_id,
+        AnalysisContextRecord.analyst_id == analyst_id,
+    ))).scalar_one_or_none()
+    if context is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    return context
+
+
+async def _owned_review(
+    db: AsyncSession, review_id: str, analyst_id: str
+) -> SectorReviewRun:
+    row = (await db.execute(select(SectorReviewRun).where(
+        SectorReviewRun.id == review_id,
+        SectorReviewRun.analyst_id == analyst_id,
+    ))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sector review not found.")
+    return row
+
+
+def _review_v2(row: SectorReviewRun) -> SectorReviewV2:
+    try:
+        return SectorReviewV2.model_validate(row.payload)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Sector review uses the legacy contract.") from exc
+
+
+def _severity_likelihood(severity: str) -> Literal["low", "medium", "high"]:
+    if severity in {"critical", "high"}:
+        return "high"
+    if severity == "medium":
+        return "medium"
+    return "low"
+
+
+def _build_review_payload(
+    *,
+    review_id: str,
+    context_id: str,
+    sector_id: str,
+    timeframe: str,
+    version: int,
+    now: datetime,
+    signals: list[SectorSignalOut],
+) -> SectorReviewV2:
+    label = CANONICAL_SECTORS[sector_id][0]
+    live_signals = [signal for signal in signals if signal.provenance not in {"seed", "demo", "reference"}]
+    origin = "live" if live_signals else "reference"
+    latest_signal = max((signal.signal_date for signal in signals), default=None)
+    age_days = (now - latest_signal).days if latest_signal else None
+    freshness = "stale" if age_days is None or age_days > 14 else "current"
+    source_ids = [signal.id for signal in signals]
+
+    section_seed = _sections_for(label, signals)
+    sections = [SectorReviewSectionV2(
+        id=section.id,
+        title=section.title,
+        posture=section.posture,
+        summary=section.summary,
+        confidence=0.65 if live_signals else 0.35,
+        freshness=freshness if live_signals else "reference",
+        signal_ids=section.signal_ids,
+    ) for section in section_seed]
+
+    dimensions = [SectorDimensionScore(
+        id=dimension_id,
+        label=dimension_label,
+        score=None,
+        confidence=0,
+        freshness="unavailable",
+        source_ids=[],
+        missing_dependency="CP-SR dimension synthesis",
+    ) for dimension_id, dimension_label in _DIMENSIONS]
+
+    risks = [SectorRisk(
+        id=f"risk-{signal.id}",
+        title=signal.headline,
+        likelihood=_severity_likelihood(signal.severity),
+        severity=signal.severity if signal.severity in {"low", "medium", "high", "critical"} else "medium",
+        mitigants=[],
+        residual_risk="Unassessed — analyst review required.",
+        source_ids=[signal.id],
+    ) for signal in signals[:5]]
+
+    comparable_map: dict[str, SectorComparable] = {}
+    for signal in signals:
+        for issuer in signal.issuers:
+            key = issuer.issuer_id or issuer.name.lower()
+            comparable_map.setdefault(key, SectorComparable(
+                issuer_id=issuer.issuer_id,
+                issuer_name=issuer.name,
+                posture="affected",
+                metrics={},
+                missing_dependencies=["latest issuer facts", "comparable valuation"],
+            ))
+
+    early_warning = [SectorEarlyWarning(
+        id=f"ew-{signal.id}",
+        indicator=signal.headline,
+        threshold="Materiality score >= 75 or severity critical",
+        current_state=f"{signal.materiality_score:.0f} / {signal.severity}",
+        status=(
+            "breached" if signal.severity == "critical" or signal.materiality_score >= 75
+            else "watch" if signal.severity in {"high", "medium"}
+            else "normal"
+        ),
+        source_ids=[signal.id],
+    ) for signal in signals]
+
+    sources: list[SectorSourceRegisterItem] = []
+    seen_sources: set[str] = set()
+    for signal in signals:
+        for source in signal.sources:
+            if source.ref in seen_sources:
+                continue
+            seen_sources.add(source.ref)
+            sources.append(SectorSourceRegisterItem(
+                id=source.ref,
+                title=source.title,
+                origin=source.provenance,
+                method=source.source_type,
+                freshness="reference" if source.provenance == "seed" else freshness,
+                as_of=signal.signal_date,
+                url=source.url,
+            ))
+
+    missing_dependencies = [
+        "six CP-SR dimension scores",
+        "issuer comparable metrics",
+        "downside and recovery evidence",
+    ]
+    if not live_signals:
+        missing_dependencies.insert(0, "live source-backed sector signals")
+    uncertainties = [SectorUncertainty(
+        id=f"gap-{index + 1}",
+        statement=dependency,
+        impact="Blocks decision-grade publication and downstream use.",
+        route_to_qa=True,
+        source_ids=source_ids,
+    ) for index, dependency in enumerate(missing_dependencies)]
+
+    if live_signals:
+        what_changed = live_signals[0].headline
+        why_it_matters = live_signals[0].summary
+    else:
+        what_changed = "Observation incomplete — no qualifying live signal set."
+        why_it_matters = "Reference signals can frame investigation but cannot establish sector posture."
+
+    status_value: Literal["partial", "stale"] = "stale" if live_signals and freshness == "stale" else "partial"
+    authority = AuthorityEnvelope(
+        origin=origin,
+        method="CP-SR adapter-v2",
+        freshness=freshness if live_signals else "reference",
+        as_of=now,
+        source_ids=source_ids,
+        run_id=review_id,
+        version_id=f"v{version}",
+        confidence=0.65 if live_signals else 0.35,
+        approval_state="draft",
+    )
+    return SectorReviewV2(
+        id=review_id,
+        context_id=context_id,
+        sector_id=sector_id,
+        sector_label=label,
+        timeframe=timeframe,
+        version=version,
+        status=status_value,
+        as_of=now,
+        posture=_posture(signals) if live_signals else "Unratified",
+        what_changed=what_changed,
+        why_it_matters=why_it_matters,
+        required_action="Resolve source gaps, inspect evidence, then ratify each section.",
+        evidence_health=(
+            f"{len(live_signals)} live / {len(signals)} total signals"
+            if live_signals else f"REFERENCE ONLY · {len(signals)} signals"
+        ),
+        sections=sections,
+        dimension_scores=dimensions,
+        risks=risks,
+        comparables=list(comparable_map.values()),
+        early_warning=early_warning,
+        source_register=sources,
+        uncertainties=uncertainties,
+        downstream_readiness={
+            "ready": False,
+            "consumers": ["Query", "RV Screener", "Command", "Monitor", "Report Studio"],
+            "blocked_by": missing_dependencies + ["analyst ratification"],
+        },
+        missing_dependencies=missing_dependencies,
+        authority=authority,
+        ratifications={},
+        created_at=now,
+    )
+
+
+@router.post("/reviews", response_model=SectorReviewV2, status_code=status.HTTP_201_CREATED)
+async def create_sector_review(
+    body: SectorReviewCreate,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _write_guard(caller)
+    context = await _owned_analysis_context(db, body.context_id, caller.id)
+    requested_sector = canonical_sector_id(body.sector_id) if body.sector_id else context.sector_id
+    if requested_sector is None or requested_sector not in CANONICAL_SECTORS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A canonical sector is required.")
+    if context.sector_id and context.sector_id != requested_sector:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Review sector does not match the active context.")
+    context.sector_id = requested_sector
+    label = CANONICAL_SECTORS[requested_sector][0]
+    now = _parse_dt(body.as_of) or datetime.now(timezone.utc)
+    previous = (await db.execute(
+        select(SectorReviewRun)
+        .where(
+            SectorReviewRun.sector == requested_sector,
+            SectorReviewRun.analyst_id == caller.id,
+        )
+        .order_by(SectorReviewRun.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    try:
+        previous_version = int((previous.payload or {}).get("version", 0)) if previous else 0
+    except (TypeError, ValueError):
+        previous_version = 0
+    signals = await _query_signals(db, sector=label, limit=50)
+    row = SectorReviewRun(
+        sector=requested_sector,
+        timeframe=body.timeframe,
+        as_of=now,
+        posture="Unratified",
+        confidence={},
+        payload={},
+        input_signal_ids=[signal.id for signal in signals],
+        analyst_id=caller.id,
+        refresh_trigger=body.refresh_trigger,
+        status="running",
+        provenance="reference",
+        created_at=now,
+    )
+    db.add(row)
+    await db.flush()
+    review = _build_review_payload(
+        review_id=row.id,
+        context_id=context.id,
+        sector_id=requested_sector,
+        timeframe=body.timeframe,
+        version=previous_version + 1,
+        now=now,
+        signals=signals,
+    )
+    row.posture = review.posture
+    row.confidence = {"overall": review.authority.confidence}
+    row.payload = review.model_dump(mode="json")
+    row.status = review.status
+    row.provenance = review.authority.origin
+    context.sector_review_run_id = row.id
+    context.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return review
+
+
+@router.get("/reviews", response_model=list[SectorReviewV2])
+async def list_sector_reviews(
+    context_id: Optional[str] = None,
+    sector_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_guard(caller)
+    stmt = select(SectorReviewRun).where(SectorReviewRun.analyst_id == caller.id)
+    if context_id:
+        await _owned_analysis_context(db, context_id, caller.id)
+    if sector_id:
+        canonical = canonical_sector_id(sector_id)
+        if canonical is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
+        stmt = stmt.where(SectorReviewRun.sector == canonical)
+    rows = (await db.execute(
+        stmt.order_by(SectorReviewRun.created_at.desc()).limit(100)
+    )).scalars().all()
+    reviews: list[SectorReviewV2] = []
+    for row in rows:
+        try:
+            review = _review_v2(row)
+        except HTTPException:
+            continue
+        if context_id and review.context_id != context_id:
+            continue
+        reviews.append(review)
+    return reviews
+
+
+@router.get("/reviews/{review_id}", response_model=SectorReviewV2)
+async def get_sector_review(
+    review_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_guard(caller)
+    return _review_v2(await _owned_review(db, review_id, caller.id))
+
+
+@router.post("/reviews/{review_id}/ratifications", response_model=SectorReviewV2)
+async def ratify_sector_review(
+    review_id: str,
+    body: SectorRatificationRequest,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _write_guard(caller)
+    row = await _owned_review(db, review_id, caller.id)
+    review = _review_v2(row)
+    valid_sections = {section.id for section in review.sections}
+    if any(item.section_id not in valid_sections for item in body.sections):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector-review section.")
+    for item in body.sections:
+        existing = (await db.execute(select(SectorReviewRatification).where(
+            SectorReviewRatification.review_run_id == row.id,
+            SectorReviewRatification.analyst_id == caller.id,
+            SectorReviewRatification.section_id == item.section_id,
+        ))).scalar_one_or_none()
+        if existing is None:
+            db.add(SectorReviewRatification(
+                review_run_id=row.id,
+                analyst_id=caller.id,
+                section_id=item.section_id,
+                decision=item.decision,
+                override_text=item.override_text,
+            ))
+        else:
+            existing.decision = item.decision
+            existing.override_text = item.override_text
+        review.ratifications[item.section_id] = item.decision
+    if any(decision == "rejected" for decision in review.ratifications.values()):
+        review.authority.approval_state = "rejected"
+    elif valid_sections and valid_sections == {
+        section_id for section_id, decision in review.ratifications.items() if decision == "ratified"
+    } and review.status == "ready":
+        review.authority.approval_state = "ratified"
+    else:
+        review.authority.approval_state = "draft"
+    row.payload = review.model_dump(mode="json")
+    await db.flush()
+    return review
+
+
+@router.post("/reviews/{review_id}/publish", response_model=SectorReviewV2)
+async def publish_sector_review(
+    review_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _write_guard(caller)
+    row = await _owned_review(db, review_id, caller.id)
+    review = _review_v2(row)
+    blockers: list[str] = []
+    if review.status != "ready":
+        blockers.append(f"analysis state is {review.status}")
+    if review.authority.origin in {"reference", "demo", "seed"}:
+        blockers.append("reference/demo evidence cannot be published")
+    if review.authority.approval_state != "ratified":
+        blockers.append("all sections require analyst ratification")
+    if review.missing_dependencies:
+        blockers.extend(review.missing_dependencies)
+    if blockers:
+        raise HTTPException(status.HTTP_409_CONFLICT, {
+            "message": "Sector review is not publishable.",
+            "blockers": list(dict.fromkeys(blockers)),
+        })
+    review.authority.approval_state = "published"
+    review.downstream_readiness = {
+        "ready": True,
+        "consumers": ["Query", "RV Screener", "Command", "Monitor", "Report Studio"],
+        "blocked_by": [],
+    }
+    row.payload = review.model_dump(mode="json")
+    await db.flush()
+    return review
 
 
 __all__ = ["sector_signal_dedup_hash", "sector_materiality_score"]

@@ -19,9 +19,15 @@ import { useModelEngine } from "@/lib/engine/useModelEngine";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
-import { getSavedModel } from "@/lib/api";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import {
+  getReportDraft,
+  getSavedModel,
+  publishReportVersion,
+  saveReportDraft,
+} from "@/lib/api";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
+import { useAnalysisContext } from "@/lib/analysis-workbench";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -76,6 +82,7 @@ function ReportStudio() {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const analysis = useAnalysisContext({ name: "Committee report workspace" });
 
   // Report Studio reads only the DB-saved Model Builder state. Unsaved browser
   // edits in /model do not affect committee output.
@@ -121,6 +128,10 @@ function ReportStudio() {
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [hydrated, setHydrated] = useState(false);
   const [decisionOpen, setDecisionOpen] = useState(false);
+  const [draftRevision, setDraftRevision] = useState<number | null>(null);
+  const [serverDraftReady, setServerDraftReady] = useState(false);
+  const [publishState, setPublishState] = useState<"idle" | "publishing" | "published" | "error">("idle");
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
 
   // restore persisted workspace state
   const reportParam = searchParams.get("report");
@@ -152,6 +163,53 @@ function ReportStudio() {
       localStorage.setItem("caos-e-edits", JSON.stringify(edits));
     } catch {}
   }, [hydrated, activeId, zoom, omit, edits]);
+
+  useEffect(() => {
+    const contextId = analysis.context?.id;
+    if (!contextId) return;
+    let cancelled = false;
+    setServerDraftReady(false);
+    getReportDraft(contextId)
+      .then((draft) => {
+        if (cancelled) return;
+        setDraftRevision(draft?.revision ?? null);
+        const payload = draft?.payload ?? {};
+        if (typeof payload.active_id === "string") setActiveId(payload.active_id);
+        if (payload.omit && typeof payload.omit === "object") setOmit(payload.omit as Record<string, Record<number, boolean>>);
+        if (payload.edits && typeof payload.edits === "object") setEdits(payload.edits as Record<string, Record<string, string>>);
+        if (typeof payload.paper === "string") setPaper(payload.paper);
+        if (typeof payload.show_sources === "boolean") setShowSources(payload.show_sources);
+        if (typeof payload.hide_addbacks === "boolean") setHideAddbacks(payload.hide_addbacks);
+      })
+      .catch(() => setPublishMessage("Server draft unavailable; local edits remain intact."))
+      .finally(() => { if (!cancelled) setServerDraftReady(true); });
+    return () => { cancelled = true; };
+  }, [analysis.context?.id]);
+
+  useEffect(() => {
+    const contextId = analysis.context?.id;
+    if (!contextId || !hydrated || !serverDraftReady) return;
+    const timer = window.setTimeout(() => {
+      void saveReportDraft(contextId, {
+        issuer_id: issuerId,
+        active_id: activeId,
+        omit,
+        edits,
+        paper,
+        show_sources: showSources,
+        hide_addbacks: hideAddbacks,
+      }, draftRevision ?? undefined)
+        .then((draft) => {
+          setDraftRevision(draft.revision);
+          setPublishMessage("Draft autosaved");
+        })
+        .catch(() => setPublishMessage("Draft conflict — reload before publishing."));
+    }, 850);
+    return () => window.clearTimeout(timer);
+    // draftRevision is intentionally excluded: a successful autosave updating
+    // the revision must not immediately schedule an identical second write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, analysis.context?.id, edits, hideAddbacks, hydrated, issuerId, omit, paper, serverDraftReady, showSources]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
 
@@ -194,6 +252,19 @@ function ReportStudio() {
   const repEdits = rep ? edits[rep.id] || {} : {};
   const editCount = Object.keys(repEdits).length;
 
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || !live.runId || context.artifacts.issuer_run_id === live.runId) return;
+    void analysis.patch({
+      issuer_ids: isReference ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
+      artifacts: { ...context.artifacts, issuer_run_id: live.runId },
+      surface_state: {
+        ...context.surface_state,
+        reports: { ...context.surface_state.reports, active_id: activeId, view: editMode ? "edit" : "preview" },
+      },
+    });
+  }, [activeId, analysis, editMode, isReference, issuerId, live.runId]);
+
   const toggleSec = (i: number) => {
     if (!rep) return;
     setOmit((o) => {
@@ -230,6 +301,45 @@ function ReportStudio() {
     setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
   };
 
+  const publishCommitteeVersion = async () => {
+    const context = analysis.context;
+    const checkpointId = context?.artifacts.model_checkpoint_id;
+    if (!context || !live.runId || !checkpointId || !rep) return;
+    setPublishState("publishing");
+    setPublishMessage(null);
+    try {
+      const draft = await saveReportDraft(context.id, {
+        issuer_id: issuerId,
+        active_id: activeId,
+        omit,
+        edits,
+        paper,
+        show_sources: showSources,
+        hide_addbacks: hideAddbacks,
+      }, draftRevision ?? undefined);
+      setDraftRevision(draft.revision);
+      const version = await publishReportVersion({
+        context_id: context.id,
+        run_id: live.runId,
+        model_checkpoint_id: checkpointId,
+        payload: {
+          issuer_id: issuerId,
+          deliverable_id: rep.id,
+          omit: repOmit,
+          edits: repEdits,
+          show_sources: showSources,
+          hide_addbacks: hideAddbacks && rep.id === "model",
+        },
+      });
+      await analysis.patch({ artifacts: { ...context.artifacts, report_version_id: version.id } });
+      setPublishState("published");
+      setPublishMessage(`Published ${version.id.slice(0, 8)} · immutable`);
+    } catch (reason) {
+      setPublishState("error");
+      setPublishMessage(reason instanceof Error ? reason.message : "Publish blocked by readiness or version conflict.");
+    }
+  };
+
   // phase included so a backend outage reads "could not load", not the confident
   // "no run for this issuer" — this surface produces committee documents.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
@@ -247,34 +357,32 @@ function ReportStudio() {
 
   const narrowContract: NarrowContract = {
     essentialControls: (
-      <>
-        {ZOOMS.map((z) => (
-          <button
-            key={z}
-            onClick={() => setZoom(z)}
-            aria-pressed={zoom === z}
-            aria-label={"Zoom " + Math.round(z * 100) + " percent"}
-            className={
-              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
-              (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            {Math.round(z * 100)}%
-          </button>
-        ))}
-        <button
-          onClick={fitToWidth}
-          title="Fit the page to the available width"
-          className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
-        >
-          FIT
-        </button>
-      </>
+      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+        {Math.round(zoom * 100)}% · {editCount ? `${editCount} edit${editCount === 1 ? "" : "s"}` : "clean draft"}
+      </span>
     ),
   };
+  const canPublish = Boolean(
+    !isReference
+    && rep
+    && live.runId
+    && live.committeeStatus === "Committee Ready"
+    && analysis.context?.artifacts.model_checkpoint_id,
+  );
+  const publishBlockReason = isReference
+    ? "Reference output can be previewed and exported, but cannot be published as a live committee version."
+    : !live.runId
+      ? "A completed issuer run is required."
+      : live.committeeStatus !== "Committee Ready"
+        ? `Run is ${live.committeeStatus ?? "not committee ready"}.`
+        : !analysis.context?.artifacts.model_checkpoint_id
+          ? "Save an immutable Model checkpoint before publishing."
+          : !rep
+            ? "No issuer-specific report composition is available."
+            : "Publish an immutable committee version.";
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="editor"
       identity={
         <>
           {/* Reports was the one surface with no concept nav or Directory
@@ -363,109 +471,111 @@ function ReportStudio() {
         </>
       }
       primaryAction={
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => window.print()}
-            disabled={!rep}
-            className="focus-ring flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
-          >
-            ⎙ EXPORT PDF
-          </button>
-          {live.runId ? (
-            <button
-              onClick={() => setDecisionOpen(true)}
-              disabled={live.committeeStatus !== "Committee Ready"}
-              title={live.committeeStatus === "Committee Ready" ? "Capture immutable IC decision" : `Run is ${live.committeeStatus ?? "not committee ready"}`}
-              className="focus-ring tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap disabled:opacity-40 disabled:pointer-events-none"
-            >
-              SUBMIT TO IC
-            </button>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => void publishCommitteeVersion()}
+          disabled={!canPublish || publishState === "publishing"}
+          title={publishBlockReason}
+          className="caos-primary-action focus-ring disabled:opacity-40"
+        >
+          {publishState === "publishing" ? "Publishing…" : "Publish committee version"}
+        </button>
       }
-      contextualControls={
-        <>
-          {/* paper tone — decorative, in MoreDrawer at narrow */}
-          <span className="flex items-center gap-1 shrink-0">
-            {PAPERS.map((p) => (
+      utilityLabel="Report utilities"
+      utilityControls={
+        <div className="grid gap-3 min-w-[17rem]">
+          <fieldset className="grid gap-1.5">
+            <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Document display</legend>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {PAPERS.map((p) => (
+                <button
+                  key={p.v}
+                  type="button"
+                  onClick={() => setPaper(p.v)}
+                  aria-pressed={paper === p.v}
+                  aria-label={"Paper tone " + p.label}
+                  title={"Paper tone — " + p.label + " · preview only"}
+                  className={"focus-ring w-7 h-7 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
+                  style={{ background: p.v }}
+                />
+              ))}
               <button
-                key={p.v}
-                onClick={() => setPaper(p.v)}
-                aria-pressed={paper === p.v}
-                aria-label={"Paper tone " + p.label}
-                title={"Paper tone — " + p.label + " · preview only"}
-                className={"focus-ring w-6 h-6 rounded-sm border transition-caos " + (paper === p.v ? "border-caos-accent" : "border-caos-border")}
-                style={{ background: p.v }}
-              />
-            ))}
-          </span>
-          <button
-            onClick={() => setShowSources(!showSources)}
-            aria-pressed={showSources}
-            className={
-              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
-              (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            SOURCES
-          </button>
-          <button
-            onClick={() => setEditMode(!editMode)}
-            aria-pressed={editMode}
-            title="Edit the deliverable inline"
-            className={
-              "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos whitespace-nowrap " +
-              (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            {editMode ? "✎ EDITING" : "✎ EDIT"}
-          </button>
-          {editCount > 0 ? (
-            <button
-              onClick={resetEdits}
-              title={"Discard " + editCount + " analyst edit" + (editCount === 1 ? "" : "s") + " on this deliverable"}
-              className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos whitespace-nowrap"
-            >
-              ↺ {editCount}
-            </button>
-          ) : null}
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          {/* zoom */}
-          {ZOOMS.map((z) => (
-            <button
-              key={z}
-              onClick={() => setZoom(z)}
-              aria-pressed={zoom === z}
-              aria-label={"Zoom " + Math.round(z * 100) + " percent"}
-              className={
-                "focus-ring tabular text-caos-xs px-1.5 h-6 rounded border transition-caos " +
-                (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-              }
-            >
-              {Math.round(z * 100)}%
-            </button>
-          ))}
-          <button
-            onClick={fitToWidth}
-            title="Fit the page to the available width"
-            className="focus-ring tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
-          >
-            FIT
-          </button>
-          {/* QA-117 / evidence E-44 is a finding on the ATLF reference deal only. */}
+                type="button"
+                onClick={() => setShowSources(!showSources)}
+                aria-pressed={showSources}
+                className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (showSources ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
+              >
+                SOURCES
+              </button>
+            </div>
+          </fieldset>
+          <fieldset className="grid gap-1.5">
+            <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Editorial controls</legend>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEditMode(!editMode)}
+                aria-pressed={editMode}
+                className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
+              >
+                {editMode ? "EDITING" : "EDIT DOCUMENT"}
+              </button>
+              {editCount > 0 ? (
+                <button type="button" onClick={resetEdits} className="caos-action-secondary focus-ring">
+                  RESET {editCount} EDIT{editCount === 1 ? "" : "S"}
+                </button>
+              ) : null}
+            </div>
+          </fieldset>
+          <fieldset className="grid gap-1.5">
+            <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Zoom</legend>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {ZOOMS.map((z) => (
+                <button
+                  key={z}
+                  type="button"
+                  onClick={() => setZoom(z)}
+                  aria-pressed={zoom === z}
+                  aria-label={"Zoom " + Math.round(z * 100) + " percent"}
+                  className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
+                >
+                  {Math.round(z * 100)}%
+                </button>
+              ))}
+              <button type="button" onClick={fitToWidth} className="caos-action-secondary focus-ring">FIT</button>
+            </div>
+          </fieldset>
           {isReference ? (
             <button
               type="button"
               onClick={() => setEvModal("E-44")}
-              title="Open QA-117 finding (evidence E-44)"
-              aria-label="Open QA-117 finding (evidence E-44)"
-              className="focus-ring tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap"
-              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
+              className="caos-action-secondary focus-ring text-left"
+              style={{ color: "var(--caos-warning)" }}
             >
-              CP-5 CONDITIONAL — QA-117
+              OPEN CP-5 CONDITIONAL · QA-117
             </button>
           ) : null}
-        </>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => window.print()} disabled={!rep} className="caos-action-secondary focus-ring disabled:opacity-40">Export PDF</button>
+          {live.runId ? (
+            <button
+              type="button"
+              onClick={() => setDecisionOpen(true)}
+              disabled={live.committeeStatus !== "Committee Ready"}
+              title={live.committeeStatus === "Committee Ready" ? "Capture immutable IC decision" : `Run is ${live.committeeStatus ?? "not committee ready"}`}
+              className="caos-action-secondary focus-ring disabled:opacity-40"
+            >
+              Submit to IC
+            </button>
+          ) : null}
+          </div>
+          <span role={publishState === "error" ? "alert" : "status"} className="tabular text-caos-xs text-caos-muted">{publishMessage || "Draft autosaves to the active analysis context."}</span>
+        </div>
+      }
+      contextualControls={
+        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+          {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · {Math.round(zoom * 100)}%
+        </span>
       }
       narrowContract={narrowContract}
     >
@@ -522,7 +632,7 @@ function ReportStudio() {
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {decisionOpen && live.runId ? <DecisionRoomDrawer issuerId={issuerId} runId={live.runId} reportId={rep?.id ?? activeId} onClose={() => setDecisionOpen(false)} /> : null}
       {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 

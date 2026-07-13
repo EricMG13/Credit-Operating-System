@@ -5,8 +5,11 @@ import Link from "next/link";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { Panel } from "@/components/shared/Panel";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { BatchBar } from "@/components/shared/BatchBar";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { EvidenceInspector } from "@/components/shared/EvidenceInspector";
+import { RecoveryState } from "@/components/shared/RecoveryState";
 import { SignalSlideOver } from "./SignalSlideOver";
 import { downloadSignalsCsv } from "./signalsCsv";
 import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge, fmtAsOf } from "./shared";
@@ -231,7 +234,7 @@ export function SectorReviewWorkspace() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
         <>
           <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
@@ -247,18 +250,24 @@ export function SectorReviewWorkspace() {
           </span>
         </>
       }
-      contextualControls={
+      primaryAction={
         <button
           type="button"
           onClick={refresh}
           disabled={!selectedSector || refreshing}
-          className="rounded border border-caos-border px-2 py-1 tabular text-caos-2xs uppercase tracking-wider text-caos-muted hover:text-caos-text hover:border-caos-accent/60 disabled:opacity-50 disabled:cursor-not-allowed transition-caos focus-ring"
+          className="caos-primary-action disabled:opacity-50 disabled:cursor-not-allowed focus-ring"
         >
           {refreshing ? "Refreshing" : "Refresh"}
         </button>
       }
       narrowContract={narrowContract}
     >
+      <WorkbenchToolbar
+        title="Sector signal worklist"
+        description="Review, select and route market signals through the shared governance queue."
+        count={`${visibleSignals.length} signals`}
+        viewLabel={selectedSector || "No sector"}
+      />
       <div className="flex-1 min-h-0 p-2 grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)] gap-2 overflow-hidden">
         <Panel
           title="Sector Feeds"
@@ -397,9 +406,11 @@ export function SectorReviewWorkspace() {
                 </select>
               </div>
               {error ? (
-                <div className="rounded border border-caos-critical/60 bg-caos-critical/10 p-2 text-caos-sm text-caos-critical">
-                  {error}
-                </div>
+                <RecoveryState
+                  title="Sector review unavailable"
+                  detail="The review service could not be reached. Your current feed and filters are preserved; no market conclusion was drawn."
+                  onRetry={selectedSector ? refresh : undefined}
+                />
               ) : null}
               {review?.staleness_flag === "seed" ? (
                 <div className="rounded border border-caos-warning/50 bg-caos-warning/10 p-2 text-caos-sm text-caos-warning">
@@ -502,6 +513,35 @@ export function SectorReviewWorkspace() {
               </div>
             </Panel>
 
+            <div className="min-h-0 flex flex-col gap-2 overflow-auto">
+            {activeSignal || review ? <EvidenceInspector
+              title="Signal evidence"
+              provenance={{
+                origin: (activeSignal?.provenance ?? review?.provenance) === "live" ? "LIVE" : "DEMO",
+                method: "DERIVED",
+                freshness: activeSignal?.staleness_flag === "stale" ? "STALE" : review ? "CURRENT" : "UNKNOWN",
+                detail: "Sector signal lineage and downstream review consumers.",
+              }}
+              approval="DRAFT"
+              asOf={activeSignal?.signal_date ?? review?.as_of ?? "observation unavailable"}
+              claims={activeSignal ? [{
+                id: activeSignal.id,
+                text: activeSignal.headline,
+                source: activeSignal.sources.map((source) => source.title).join(" · ") || "Source unavailable",
+                state: activeSignal.staleness_flag === "stale" ? "stale" : "current",
+              }] : []}
+              consumers={["Sector Review", "QA queue", "Command governance"]}
+              glossary={[
+                { term: "Materiality", definition: "Ranked estimate of expected credit-decision impact." },
+                { term: "Provenance", definition: "Origin and method attached to the selected signal and its sources." },
+              ]}
+            /> : (
+              <Panel title="Signal Evidence">
+                <div className="p-3 text-caos-sm text-caos-muted">
+                  Evidence unavailable — load a sector review, then select a signal to inspect lineage and downstream consumers.
+                </div>
+              </Panel>
+            )}
             <Panel title="Seven-Section Envelope" className="min-h-0">
               <div className="p-2 flex flex-col gap-2">
                 {(review?.sections || []).map((section) => (
@@ -525,6 +565,7 @@ export function SectorReviewWorkspace() {
                 ) : null}
               </div>
             </Panel>
+            </div>
           </div>
         </div>
       </div>
@@ -588,6 +629,6 @@ export function SectorReviewWorkspace() {
           onAskTopic={openAskFromSlideOver}
         />
       ) : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }

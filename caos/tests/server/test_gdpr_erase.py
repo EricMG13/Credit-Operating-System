@@ -43,6 +43,10 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
 
     assert summary == {
         "research_jobs_deleted": 1,
+        "source_manifests_deleted": 0,
+        "model_checkpoints_deleted": 0,
+        "report_drafts_deleted": 0,
+        "report_versions_deleted": 0,
         "saved_models_deleted": 1,
         "runs_anonymized": 1,
         "documents_anonymized": 1,
@@ -66,8 +70,9 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         assert await s.get(ResearchJob, "gdpr-job-other") is not None
         # Saved models: subject's deleted, bystander's kept.
         from sqlalchemy import select
-        kept = (await s.execute(select(SavedModel.analyst_id))).scalars().all()
-        assert kept == [other_id]
+        kept = set((await s.execute(select(SavedModel.analyst_id))).scalars().all())
+        assert subj_id not in kept
+        assert other_id in kept
 
 
 @pytest.mark.asyncio

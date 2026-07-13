@@ -11,8 +11,16 @@ describe("nav registry", () => {
     expect(CONCEPT_CYCLE).toEqual(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)));
   });
 
-  it("covers all 12 concept routes", () => {
-    expect(CONCEPT_CYCLE).toHaveLength(12);
+  it("uses full product names where short labels lose information scent", () => {
+    const labels = Object.fromEntries(NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.href, item.label])));
+    expect(labels["/command"]).toBe("Command Center");
+    expect(labels["/model"]).toBe("Model Builder");
+    expect(labels["/reports"]).toBe("Report Studio");
+    expect(labels["/monitor"]).toBe("Alert Monitor");
+  });
+
+  it("covers all 13 workflow routes", () => {
+    expect(CONCEPT_CYCLE).toHaveLength(13);
     for (const href of [
       "/issuers",
       "/upload",
@@ -20,6 +28,7 @@ describe("nav registry", () => {
       "/query",
       "/sector",
       "/sector-rv",
+      "/sponsors",
       "/command",
       "/deepdive",
       "/model",

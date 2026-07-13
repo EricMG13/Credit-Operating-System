@@ -9,6 +9,7 @@ import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import { CommandPalette } from "@/components/shared/CommandPalette";
 import { RouteHeading } from "@/components/shared/RouteHeading";
+import { WorkflowRail } from "@/components/shared/WorkflowRail";
 
 export const metadata: Metadata = {
   title: "Credit Agent OS (CAOS)",
@@ -46,12 +47,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             >
               Skip to navigation
             </a>
-            {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
-            <main id="main-content"><RouteHeading />{children}</main>
+            <div className="caos-workspace">
+              <WorkflowRail />
+              {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
+              <main id="main-content" className="caos-workspace-main"><RouteHeading />{children}</main>
+            </div>
             {/* bottom-24 (not bottom-16): the collapsed 48x36 hit-area otherwise
                 overlaps bottom-row content on routes with dense bottom chrome
                 (Query's walk launcher, Command's QA panel) — critique P2. */}
-            <div className="fixed bottom-24 left-3 z-overlay hidden lg:block">
+            <div className="fixed bottom-24 left-3 min-[1180px]:left-[228px] z-overlay hidden lg:block">
               <GlobalIssuerSearch />
             </div>
             <AskLauncher />

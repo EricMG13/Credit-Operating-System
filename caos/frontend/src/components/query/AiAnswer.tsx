@@ -21,7 +21,7 @@ export function AiAnswer({ answer, loading, onOpenChunk }: Props) {
   return (
     <div
       className="mt-2 rounded-md border bg-caos-bg/60 px-3 py-2 print:hidden"
-      style={{ borderColor: `${MODEL_HUE}44`, borderLeft: `2px solid ${MODEL_HUE}` }}
+      style={{ borderColor: `${MODEL_HUE}66`, backgroundColor: `${MODEL_HUE}0A` }}
     >
       <div className="flex items-center gap-1.5 mb-1">
         <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold" style={{ color: MODEL_HUE }}>

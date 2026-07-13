@@ -21,6 +21,7 @@ const TITLES: Record<string, string> = {
   monitor: "Monitor",
   sector: "Sector Review",
   "sector-rv": "Sector RV",
+  sponsors: "Sponsor Track Records",
 };
 
 export function RouteHeading() {

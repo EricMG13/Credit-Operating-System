@@ -27,28 +27,29 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/query", icon: "query", label: "Query" },
       { href: "/sector", icon: "sector", label: "Sector Review" },
       { href: "/sector-rv", icon: "sector-rv", label: "RV Screener" },
+      { href: "/sponsors", icon: "sponsors", label: "Sponsors" },
     ],
   },
   {
     id: "decide",
     label: "Decide",
     items: [
-      { href: "/command", icon: "command", label: "Command" },
+      { href: "/command", icon: "command", label: "Command Center" },
       { href: "/deepdive", icon: "deepdive", label: "Deep-Dive" },
-      { href: "/model", icon: "model", label: "Model" },
+      { href: "/model", icon: "model", label: "Model Builder" },
     ],
   },
   {
     id: "publish",
     label: "Publish",
-    items: [{ href: "/reports", icon: "report", label: "Report" }],
+    items: [{ href: "/reports", icon: "report", label: "Report Studio" }],
   },
   {
     id: "monitor",
     label: "Monitor",
     items: [
       { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
-      { href: "/monitor", icon: "monitor", label: "Monitor" },
+      { href: "/monitor", icon: "monitor", label: "Alert Monitor" },
     ],
   },
 ];

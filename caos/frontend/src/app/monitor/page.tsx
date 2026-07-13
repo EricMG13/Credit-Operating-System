@@ -11,10 +11,11 @@
 // stay registry-pending"), so it is never the panel's own name once
 // Watchtower output is what's actually leading it (G8 cleanup).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
@@ -35,6 +36,9 @@ import { useDigest } from "@/lib/engine/useDigest";
 import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
 import { liveGaps } from "@/lib/command/gaps";
 import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
+import type { DecisionContextState } from "@/lib/decision-state";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 
 export default function MonitorPage() {
   return (
@@ -45,9 +49,11 @@ export default function MonitorPage() {
 }
 
 function Monitor() {
+  const analysis = useAnalysisContext({ name: "Alert oversight" });
+  const [selectedAlertCount, setSelectedAlertCount] = useState(0);
   const { breakpoint } = useBreakpoint();
   const isPhone = breakpoint === "mobile";
-  const { draft, offline: autonomyOffline } = useAutonomyDraft();
+  const { draft, offline: autonomyOffline, loading: autonomyLoading } = useAutonomyDraft();
   const liveRows = draft ? draftToAlertRows(draft) : [];
   const hasLiveAlerts = !autonomyOffline && liveRows.length > 0;
   const topRow = liveRows[0];
@@ -81,6 +87,50 @@ function Monitor() {
   // "SIM" while running, "COMPLETE" at end, "PAUSED" only before/at a pause —
   // the old build read "PAUSED" at completion, so the run ended by lying.
   const simState = running ? "SIM" : done ? "COMPLETE" : "PAUSED";
+  const draftAsOf = draft?.generated_at
+    ? new Date(draft.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    : null;
+  const draftAuthority = draftAsOf ? {
+    provenance: { origin: "LIVE" as const, method: "MODELLED" as const, freshness: "CURRENT" as const, detail: "Autonomy draft alert routing.", asOf: draftAsOf },
+    approval: draft?.ratified ? "RATIFIED" as const : "UNRATIFIED" as const,
+  } : undefined;
+  const monitorUnavailable = autonomyLoading
+    ? { kind: "loading" as const, message: "Checking Watchtower draft…" }
+    : autonomyOffline
+      ? { kind: "offline" as const, lastKnown: "Watchtower endpoint unavailable" }
+      : { kind: "partial" as const, value: "Draft answered without an observation timestamp", missingSources: ["generated_at"], asOf: "timestamp missing" };
+  const monitorDecision: DecisionContextState = draftAsOf
+    ? {
+        whatChanged: hasLiveAlerts
+          ? { kind: "ready", value: liveRows.slice(0, 3).map((row) => row.event).join(" · "), asOf: draftAsOf, authority: draftAuthority }
+          : { kind: "observed-empty", message: "No routed alerts observed", asOf: draftAsOf, authority: draftAuthority },
+        whyItMatters: hasLiveAlerts && topRow
+          ? { kind: "ready", value: `${topRow.reason} · severity ${topRow.severity}`, asOf: draftAsOf, authority: draftAuthority }
+          : { kind: "observed-empty", message: "No portfolio impact observed", asOf: draftAsOf, authority: draftAuthority },
+        requiredAction: hasLiveAlerts && topRow
+          ? { kind: "ready", value: requiredActionFor(topRow), asOf: draftAsOf, authority: draftAuthority }
+          : { kind: "observed-empty", message: "No acknowledgment required", asOf: draftAsOf, authority: draftAuthority },
+        evidenceHealth: { kind: "ready", value: `${liveRows.length} alert${liveRows.length === 1 ? "" : "s"} routed from the autonomy draft`, asOf: draftAsOf, authority: draftAuthority },
+      }
+    : { whatChanged: monitorUnavailable, whyItMatters: monitorUnavailable, requiredAction: monitorUnavailable, evidenceHealth: monitorUnavailable };
+
+  useEffect(() => {
+    const updateSelection = (event: Event) => {
+      const detail = (event as CustomEvent<{ count: number; eventId: string | null }>).detail;
+      setSelectedAlertCount(detail?.count ?? 0);
+      const context = analysis.context;
+      if (!context || !detail?.eventId || context.artifacts.alert_event_id === detail.eventId) return;
+      void analysis.patch({
+        artifacts: { ...context.artifacts, alert_event_id: detail.eventId },
+        surface_state: {
+          ...context.surface_state,
+          monitor: { ...context.surface_state.monitor, active_id: detail.eventId },
+        },
+      });
+    };
+    window.addEventListener("caos:monitor-selection", updateSelection);
+    return () => window.removeEventListener("caos:monitor-selection", updateSelection);
+  }, [analysis]);
 
   // The red number is an affordance: toggles the rail to criticals only.
   // Rendered once — inline in the full contextual set at ≥1024px, or as a
@@ -103,7 +153,7 @@ function Monitor() {
   );
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
         <ShellIdentity
           tag="CP-MON"
@@ -121,6 +171,16 @@ function Monitor() {
           title="Monitor — email intelligence & alert routing"
         />
       }
+      primaryAction={
+        <button
+          type="button"
+          disabled={selectedAlertCount === 0}
+          onClick={() => window.dispatchEvent(new Event("caos:monitor-ack-selected"))}
+          className="caos-primary-action focus-ring disabled:opacity-40"
+        >
+          Acknowledge selected{selectedAlertCount ? ` (${selectedAlertCount})` : ""}
+        </button>
+      }
       contextualControls={
         <>
           {/* Msgs-today and Unresolved are NOT repeated here — the EmailIntel
@@ -129,10 +189,11 @@ function Monitor() {
               honesty chip un-clipped at 1440px. */}
           {criticalFilterButton}
           {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
-          <SimControls run={run} />
-          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
         </>
       }
+      status={draftAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {draftAsOf}</span> : null}
+      utilityLabel="Replay controls"
+      utilityControls={<div className="grid gap-3"><SimControls run={run} /><span className="tabular text-caos-xs text-caos-muted">{simState} · {run.clock} ET</span>{analysis.context ? <Link href={contextHref("/command", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Command</Link> : null}</div>}
       narrowContract={{
         essentialControls: (
           <>
@@ -141,24 +202,17 @@ function Monitor() {
           </>
         ),
       }}
+      decisionContext={<DecisionHeader state={monitorDecision} />}
     >
+      <WorkbenchToolbar
+        title="Alert worklist"
+        description="Acknowledge, assign and hand off routed events; phone remains triage-only."
+        count={autonomyLoading ? "Loading" : autonomyOffline ? "Offline" : `${liveRows.length} live alerts`}
+        viewLabel="Shared worklist"
+      />
       {/* Decision header — cells populate from the live autonomy draft only;
           offline they state "— no data" rather than promoting the seeded
           replay into a decision strip (mock-vs-live seam, matches Command). */}
-      <DecisionHeader
-        whatChanged={hasLiveAlerts ? liveRows.slice(0, 3).map((r) => r.event).join(" · ") : undefined}
-        whyItMatters={hasLiveAlerts && topRow ? `${topRow.reason} · severity ${topRow.severity}` : undefined}
-        requiredAction={hasLiveAlerts && topRow ? requiredActionFor(topRow) : undefined}
-        evidenceHealth={
-          hasLiveAlerts
-            ? {
-                origin: "LIVE",
-                method: "MODELLED",
-                detail: `${liveRows.length} alert${liveRows.length === 1 ? "" : "s"} routed from the live autonomy draft`,
-              }
-            : undefined
-        }
-      />
       {/* workspace — intake stream is primary; alert routing rides alongside.
           Phone triage is a deliberately different, single-purpose layout
           (locked decision #4): reading, alerts, ack/assign/resolve, and
@@ -167,7 +221,7 @@ function Monitor() {
       {isPhone ? (
         <PhoneTriage />
       ) : (
-      <div className="flex-1 min-h-0 flex flex-col gap-2 p-2 overflow-auto">
+      <div id="alert-inbox" className="flex-1 min-h-0 flex flex-col gap-2 p-2 overflow-auto" tabIndex={-1}>
       <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_400px] gap-2">
         <PanelShell
           title="Email Intelligence · CP-MON intake"
@@ -262,6 +316,6 @@ function Monitor() {
       </PanelShell>
       </div>
       )}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }

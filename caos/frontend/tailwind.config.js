@@ -42,14 +42,14 @@ module.exports = {
       // code. Headings keep a tight line-height; font-size otherwise inherits the
       // 1.5 base and the dense UI tunes leading per context.
       fontSize: {
-        "caos-3xs": "9px", // micro  (alias of 2xs) — at the 9px label floor
-        "caos-2xs": "9px", // micro — 9px is the design-context minimum label size
-        "caos-xs": "9.5px", //  label
-        "caos-sm": "9.5px", //  label  (alias of xs)
-        "caos-md": "10.5px", // body
-        "caos-lg": "10.5px", // body   (alias of md)
-        "caos-xl": "12px", //   row
-        "caos-2xl": "12px", //  row    (alias of xl)
+        "caos-3xs": "10px", // micro metadata floor
+        "caos-2xs": "10px", // micro metadata floor
+        "caos-xs": "10.5px", // label
+        "caos-sm": "10.5px", // label (alias of xs)
+        "caos-md": "11.5px", // body
+        "caos-lg": "11.5px", // body (alias of md)
+        "caos-xl": "13px", // row
+        "caos-2xl": "13px", // row (alias of xl)
         "caos-metric": ["16px", { lineHeight: "1.15" }],
         "caos-metric-lg": ["18px", { lineHeight: "1.12" }], // severity-ramp rung between metric and hero (email tiles)
         "caos-hero": ["22px", { lineHeight: "1.1" }],

@@ -24,8 +24,11 @@ import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/co
 import { deriveClearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import type { Sim } from "@/lib/pipeline/sim-engine";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { SubHeader } from "@/components/shared/SubHeader";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import type { RunListItemDTO } from "@/lib/engine/types";
 
 export default function PipelinePage() {
   return (
@@ -61,7 +64,11 @@ function PipelineVisualizer() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const issuerParam = searchParams.get("issuer");
+  const runParam = searchParams.get("run");
+  const analysis = useAnalysisContext({ name: "Pipeline run review" });
   const [latestLiveIssuer, setLatestLiveIssuer] = useState<string | null>(null);
+  const [runRows, setRunRows] = useState<RunListItemDTO[]>([]);
+  const [runRowsError, setRunRowsError] = useState(false);
   const [view, setView] = useViewPreference("graph");
 
   useEffect(() => {
@@ -92,16 +99,27 @@ function PipelineVisualizer() {
     if (issuerParam) { setLatestLiveIssuer(null); return; }
     let stale = false;
     listRuns()
-      .then((runs) => { if (!stale) setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null); })
-      .catch(() => { if (!stale) setLatestLiveIssuer(null); });
+      .then((runs) => {
+        if (stale) return;
+        setRunRows(runs);
+        setRunRowsError(false);
+        setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null);
+      })
+      .catch(() => {
+        if (stale) return;
+        setRunRows([]);
+        setRunRowsError(true);
+        setLatestLiveIssuer(null);
+      });
     return () => { stale = true; };
   }, [issuerParam]);
 
   // Prefer the requested issuer, otherwise the newest complete live run; fall
   // back to the ATLF reference demo when no live run is available.
-  const issuerId = issuerParam || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
+  const selectedRunRow = runRows.find((item) => item.id === runParam) ?? null;
+  const issuerId = issuerParam || selectedRunRow?.issuer_id || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  const { value: live, phase, latest } = useLivePipelineStatus(issuerId);
+  const { value: live, phase, latest } = useLivePipelineStatus(issuerId, runParam);
   const liveRun = useLiveRun(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
@@ -135,14 +153,53 @@ function PipelineVisualizer() {
     if (mod) setSelected(mod[0]);
   };
 
+  const selectRun = (row: RunListItemDTO) => {
+    const query = new URLSearchParams(searchParams.toString());
+    query.set("issuer", row.issuer_id);
+    query.set("run", row.id);
+    if (analysis.context) query.set("context", analysis.context.id);
+    router.replace(`/pipeline?${query.toString()}`);
+  };
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context) return;
+    const nextArtifacts = runParam && context.artifacts.issuer_run_id !== runParam
+      ? { ...context.artifacts, issuer_run_id: runParam }
+      : context.artifacts;
+    const current = context.surface_state.pipeline;
+    if (current?.active_id === (runParam ?? null) && current?.view === view && nextArtifacts === context.artifacts) return;
+    void analysis.patch({
+      artifacts: nextArtifacts,
+      issuer_ids: issuerId === ATLF_REFERENCE_ISSUER_ID ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
+      surface_state: {
+        ...context.surface_state,
+        pipeline: { ...current, active_id: runParam, view },
+      },
+    });
+  }, [analysis, issuerId, runParam, view]);
+
   // Double-click a module → its output register in the Concept C deep-dive.
   // CP-0 is the L0 intake stage, so it opens Document Intake; INFRA nodes
   // produce the committee pack itself, so they land on Concept E.
   const openModule = (id: string) => {
-    if (id === "CP-0") { router.push("/upload"); return; }
+    const shared = {
+      issuer: issuerId,
+      ...(runParam ? { run: runParam } : {}),
+    };
+    if (id === "CP-0") {
+      router.push(analysis.context ? contextHref("/upload", analysis.context.id, shared) : `/upload?issuer=${encodeURIComponent(issuerId)}`);
+      return;
+    }
     const infra = MODULES.find((m) => m.id === id)?.layer === "INFRA";
-    const q = `issuer=${encodeURIComponent(issuerId)}`;
-    router.push(infra ? `/reports?${q}` : `/deepdive?${q}&mod=${id}`);
+    const path = infra ? "/reports" : "/deepdive";
+    const extra = infra ? shared : { ...shared, mod: id };
+    if (analysis.context) {
+      router.push(contextHref(path, analysis.context.id, extra));
+      return;
+    }
+    const params = new URLSearchParams(extra);
+    router.push(`${path}?${params.toString()}`);
   };
 
   // A real issuer's run errored / is mid-flight / never ran — render an honest
@@ -162,6 +219,9 @@ function PipelineVisualizer() {
   // long issuer id truncates — it names what the header shows (the live CP-X run vs
   // the offline route template), so it must never be clipped out of view.
   const issuerModeSuffix = useLive ? " — live CP-X run" : " — " + mode.title;
+  const openRunHref = analysis.context
+    ? contextHref("/deepdive", analysis.context.id, { issuer: issuerId, ...(live?.runId ? { run: live.runId } : {}) })
+    : `/deepdive?issuer=${encodeURIComponent(issuerId)}${live?.runId ? `&run=${encodeURIComponent(live.runId)}` : ""}`;
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -186,7 +246,7 @@ function PipelineVisualizer() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
         <>
           <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
@@ -219,15 +279,22 @@ function PipelineVisualizer() {
       }
       primaryAction={
         <Link
-          href="/upload"
-          title="L0 · Document Intake — add source documents (CP-0) that feed this route"
-          className="no-underline flex items-center gap-1 tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0 focus-ring"
+          href={openRunHref}
+          title="Open the selected run in Deep-Dive"
+          className="caos-action-primary no-underline focus-ring"
         >
-          ↑ L0 INTAKE
+          OPEN SELECTED RUN
         </Link>
       }
-      contextualControls={
+      utilityLabel="Run display controls"
+      utilityControls={
         <>
+          <Link
+            href={analysis.context ? contextHref("/upload", analysis.context.id, { issuer: issuerId }) : `/upload?issuer=${encodeURIComponent(issuerId)}`}
+            className="caos-action-secondary no-underline focus-ring"
+          >
+            DOCUMENT INTAKE
+          </Link>
           {/* CP-X route template switcher (demo mode only) */}
           {!useLive ? (
             <ToggleGroup
@@ -271,6 +338,18 @@ function PipelineVisualizer() {
       }
       narrowContract={narrowContract}
     >
+      <WorkbenchToolbar
+        title="Run worklist"
+        description="Inspect stage clearance, failures and evidence for the selected analysis run."
+        count={`${runRows.length} runs · ${completed}/${total} modules`}
+        viewLabel={useLive ? "Live run" : "Demo route"}
+      />
+      <PipelineRunWorklist
+        runs={runRows}
+        selectedRunId={runParam}
+        unavailable={runRowsError}
+        onSelect={selectRun}
+      />
       <PipelineWorkspace
         view={view}
         sim={sim}
@@ -289,7 +368,69 @@ function PipelineVisualizer() {
       />
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={liveRun.liveEvidence} isLiveRun={!isReference && !!liveRun.runId} onClose={() => setEvModal(null)} /> : null}
-    </ResponsiveShell>
+    </EnterprisePage>
+  );
+}
+
+function PipelineRunWorklist({
+  runs,
+  selectedRunId,
+  unavailable,
+  onSelect,
+}: {
+  runs: RunListItemDTO[];
+  selectedRunId: string | null;
+  unavailable: boolean;
+  onSelect: (run: RunListItemDTO) => void;
+}) {
+  if (unavailable) {
+    return (
+      <div role="status" className="mx-2 mt-2 rounded border border-caos-warning/50 bg-caos-warning-surface px-3 py-2 tabular text-caos-xs text-caos-warning">
+        Run index unavailable. The selected run remains visible, but no live worklist can be asserted.
+      </div>
+    );
+  }
+  if (!runs.length) return null;
+  return (
+    <div className="mx-2 mt-2 max-h-28 shrink-0 overflow-auto rounded border border-caos-border bg-caos-panel" aria-label="Recent analysis runs">
+      <table className="w-full min-w-[760px] border-collapse tabular text-caos-xs">
+        <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
+          <tr>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Run</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Issuer</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">State</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Committee</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">As of</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium uppercase tracking-wider">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.slice(0, 20).map((item) => {
+            const selected = selectedRunId === item.id;
+            const statusKind = item.status === "complete" ? "pass" : item.status === "failed" ? "blocked" : "running";
+            return (
+              <tr key={item.id} className={`border-t border-caos-border ${selected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/60"}`}>
+                <td className="px-2 py-1.5 text-caos-text">{item.id.slice(0, 8)}</td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.issuer_id}</td>
+                <td className="px-2 py-1.5"><Tag sev={statusKind}>{item.status.toUpperCase()}</Tag></td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.committee_status || "UNRATED"}</td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.as_of_date || "UNKNOWN"}</td>
+                <td className="px-2 py-1 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item)}
+                    aria-pressed={selected}
+                    className="caos-action-secondary focus-ring"
+                  >
+                    {selected ? "SELECTED" : "OPEN"}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

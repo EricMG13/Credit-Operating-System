@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
-vi.mock("@/lib/api", () => ({ getMe: vi.fn() }));
+vi.mock("@/lib/api", () => ({ getMe: vi.fn(), bindWorkspacePrincipal: vi.fn() }));
 
 import { AuthProvider, useAuth } from "./AuthProvider";
 import { getMe } from "@/lib/api";

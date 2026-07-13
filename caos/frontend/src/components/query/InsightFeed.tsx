@@ -167,7 +167,7 @@ function Card({
   return (
     <article
       className="flex flex-col gap-1.5 rounded-md border border-caos-border bg-caos-bg p-2.5 transition-caos hover:border-caos-elevated"
-      style={accent ? { borderLeft: `2px solid ${accent}` } : undefined}
+      style={accent ? { borderColor: `${accent}66`, backgroundColor: `${accent}07` } : undefined}
     >
       <div className="flex items-center gap-1.5">
         <span className="tabular text-caos-3xs uppercase tracking-wider font-mono" style={{ color: tag.color }}>{tag.label}</span>

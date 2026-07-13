@@ -11,13 +11,38 @@
 // empty draft) — the caller (Monitor page) decides what DEMO fallback to
 // show in that case; this component never fabricates rows.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, type AlertRow } from "@/lib/alerts/inbox";
-import { getAlertStates, getDecisions, reopenDecision, setAlertState, type AlertStateDTO, type IcDecision } from "@/lib/api";
+import {
+  getAlertEvents,
+  getAlertStates,
+  getDecisions,
+  patchAlertEvent,
+  refreshAlertEvents,
+  reopenDecision,
+  setAlertState,
+  type AlertEventDTO,
+  type AlertStateDTO,
+  type IcDecision,
+} from "@/lib/api";
+
+function eventState(event: AlertEventDTO): AlertStateDTO {
+  return {
+    id: event.id,
+    alert_key: event.alert_key,
+    state: event.state,
+    assignee: event.assignee,
+    note: event.note,
+    analyst_id: null,
+    created_at: event.created_at,
+    resolved_at: event.resolved_at,
+    resolution_note: event.resolution_note,
+  };
+}
 
 function ReopenDecision({ row }: { row: AlertRow }) {
   const material = /covenant|rating/i.test([row.metric, row.event, row.reason].filter(Boolean).join(" "));
@@ -84,7 +109,7 @@ function Row({
           aria-label={`Select ${row.event}`}
           className="min-h-8 min-w-8 caos-target disabled:opacity-40"
         />
-        <ProvenanceChip prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+        <ConclusionAuthority prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
         {impact ? (
           <span
             className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
@@ -186,6 +211,7 @@ function Row({
 export function AlertInbox() {
   const { draft, loading, offline } = useAutonomyDraft();
   const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
+  const [events, setEvents] = useState<Map<string, AlertEventDTO>>(new Map());
   const [selected, setSelected] = useState<string[]>([]);
   const [resolvedOpen, setResolvedOpen] = useState(false);
 
@@ -194,9 +220,18 @@ export function AlertInbox() {
   useEffect(() => {
     if (rows.length === 0) return;
     let alive = true;
-    getAlertStates()
-      .then((list) => {
-        if (alive) setStates(new Map(list.map((s) => [s.alert_key, s])));
+    Promise.all([
+      getAlertStates(),
+      refreshAlertEvents().catch(() => getAlertEvents()),
+    ])
+      .then(([list, durable]) => {
+        if (!alive) return;
+        const durableByKey = new Map(durable.map((event) => [event.alert_key, event]));
+        setEvents(durableByKey);
+        setStates(new Map([
+          ...list.map((state) => [state.alert_key, state] as const),
+          ...durable.map((event) => [event.alert_key, eventState(event)] as const),
+        ]));
       })
       .catch(() => {
         // enrichment only — an unreachable alerts route just shows unassigned/open.
@@ -207,12 +242,40 @@ export function AlertInbox() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.generated_at]);
 
-  if (loading || offline || rows.length === 0) return null;
-
   const toggleSelect = (key: string) =>
     setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
 
   const applyState = (key: string, next: AlertStateDTO) => setStates((m) => new Map(m).set(key, next));
+
+  const persistState = useCallback(async (
+    key: string,
+    state: AlertStateDTO["state"],
+    opts?: { assignee?: string; note?: string; resolutionNote?: string },
+  ) => {
+    const event = events.get(key);
+    if (!event) return opts ? setAlertState(key, state, opts) : setAlertState(key, state);
+    const next = await patchAlertEvent(event.id, state, opts);
+    setEvents((current) => new Map(current).set(key, next));
+    return eventState(next);
+  }, [events]);
+
+  useEffect(() => {
+    const acknowledgeSelected = () => {
+      void Promise.all(selected.map(async (key) => applyState(key, await persistState(key, "ack"))))
+        .then(() => setSelected([]));
+    };
+    window.addEventListener("caos:monitor-ack-selected", acknowledgeSelected);
+    return () => window.removeEventListener("caos:monitor-ack-selected", acknowledgeSelected);
+  }, [persistState, selected]);
+
+  useEffect(() => {
+    const first = selected[0] ? events.get(selected[0]) : null;
+    window.dispatchEvent(new CustomEvent("caos:monitor-selection", {
+      detail: { count: selected.length, eventId: first?.id ?? null },
+    }));
+  }, [events, selected]);
+
+  if (loading || offline || rows.length === 0) return null;
 
   const activeRows = rows.filter((r) => states.get(r.key)?.state !== "resolved");
   const resolvedRows = rows.filter((r) => states.get(r.key)?.state === "resolved");
@@ -227,7 +290,7 @@ export function AlertInbox() {
           {
             id: "ack",
             label: "Ack",
-            run: async (key) => applyState(key, await setAlertState(key, "ack")),
+            run: async (key) => applyState(key, await persistState(key, "ack")),
           },
         ]}
       />
@@ -238,14 +301,14 @@ export function AlertInbox() {
           state={states.get(row.key)}
           selected={selected.includes(row.key)}
           onToggleSelect={() => toggleSelect(row.key)}
-          onAck={() => setAlertState(row.key, "ack").then((r) => applyState(row.key, r))}
+          onAck={() => persistState(row.key, "ack").then((r) => applyState(row.key, r))}
           onAssign={(name) =>
-            setAlertState(row.key, states.get(row.key)?.state === "ack" ? "ack" : "open", { assignee: name }).then(
+            persistState(row.key, states.get(row.key)?.state === "ack" ? "ack" : "open", { assignee: name }).then(
               (r) => applyState(row.key, r),
             )
           }
           onResolve={(note) =>
-            setAlertState(row.key, "resolved", { resolutionNote: note || undefined }).then((r) => applyState(row.key, r))
+            persistState(row.key, "resolved", { resolutionNote: note || undefined }).then((r) => applyState(row.key, r))
           }
         />
       ))}

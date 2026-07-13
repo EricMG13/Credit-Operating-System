@@ -73,7 +73,7 @@ export function GroupLauncher({ groups, cardsByGroup, openId, onToggle, onPick, 
               </div>
               <ul className="px-2 pb-2 flex flex-col gap-1.5">
                 {cardsByGroup[open.id].map((card) => (
-                  <li key={card.id} className="rounded border border-caos-border bg-caos-bg p-2" style={{ borderLeft: `2px solid ${MODEL_HUE}` }}>
+                  <li key={card.id} className="rounded border bg-caos-bg p-2" style={{ borderColor: `${MODEL_HUE}66`, backgroundColor: `${MODEL_HUE}08` }}>
                     <p className="text-caos-xs text-caos-text font-medium font-sans leading-snug">{card.headline}</p>
                     {card.detail && <p className="text-caos-3xs text-caos-muted font-sans leading-relaxed mt-0.5">{card.detail}</p>}
                     {card.evidence.length > 0 && (

@@ -94,7 +94,8 @@ describe("Model Builder · checkpoints (G3)", () => {
     fireEvent.paste(grid, { clipboardData: { getData: () => "10" } });
     await waitFor(() => expect(screen.getByText("MANUAL OVERRIDE")).toBeTruthy());
 
-    fireEvent.click(screen.getByTitle("Save or restore a named snapshot of your overrides"));
+    fireEvent.click(screen.getByRole("button", { name: /Model tools/ }));
+    fireEvent.click(await screen.findByTitle("Save or restore a named snapshot of your overrides"));
     const nameInput = await screen.findByLabelText("Checkpoint name");
     fireEvent.change(nameInput, { target: { value: "First pass" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

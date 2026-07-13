@@ -19,18 +19,22 @@ import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
   type FileOutcome, type RunQueueOutcome, type Step,
 } from "@/components/upload/steps";
+import { useAnalysisContext } from "@/lib/analysis-workbench";
 
 interface UploadWizardProps {
   initialIssuers?: Issuer[];
 }
 
 export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
+  const analysis = useAnalysisContext({ name: "Document intake" });
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
   const [issuerQuery, setIssuerQuery] = useState("");
   const [selectedIssuer, setSelectedIssuer] = useState<Issuer | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [runMode, setRunMode] = useState<string>("full");
+  const [origin, setOrigin] = useState<"live" | "reference" | "demo">("live");
+  const [method, setMethod] = useState<"reported" | "derived" | "modelled">("reported");
   // Portfolio context for the run CP-3C evaluates against ("" = auto-bind the
   // book holding the issuer). Fetched once; picker only shows if any book exists.
   const [portfolios, setPortfolios] = useState<PortfolioSummary[]>([]);
@@ -150,6 +154,8 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         const formData = new FormData();
         formData.append("issuer_id", selectedIssuer.id);
         formData.append("run_mode", runMode);
+        formData.append("origin", origin);
+        formData.append("method", method);
         formData.append("file", file);
         let settled: FileOutcome;
         try {
@@ -158,6 +164,24 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             : await uploadDocument(formData);
           settled = { name: file.name, result: res, file };
           vaultedAny = true;
+          if (analysis.context) {
+            const context = analysis.context;
+            await analysis.patch({
+              issuer_ids: context.issuer_ids.includes(selectedIssuer.id)
+                ? context.issuer_ids
+                : [...context.issuer_ids, selectedIssuer.id],
+              artifacts: { ...context.artifacts, source_manifest_id: res.source_manifest_id },
+              surface_state: {
+                ...context.surface_state,
+                upload: {
+                  ...(context.surface_state.upload ?? {}),
+                  active_id: res.source_manifest_id,
+                  selected_ids: [selectedIssuer.id],
+                  view: "result",
+                },
+              },
+            }).catch(() => setError("Source was ingested, but the analysis context could not be linked."));
+          }
         } catch (err) {
           settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
         }
@@ -177,6 +201,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
           runQueuedRef.current = true;
           setRunOutcome({ state: "queued", runId: run.id });
+          if (analysis.context) {
+            await analysis.patch({
+              artifacts: { ...analysis.context.artifacts, issuer_run_id: run.id },
+            }).catch(() => setError("Run queued, but the analysis context could not be linked."));
+          }
         } catch (err: unknown) {
           const status = (err as { response?: { status?: number } })?.response?.status;
           if (status === 409) {
@@ -215,6 +244,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     try {
       const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
       setRunCreated(run);
+      if (analysis.context) {
+        await analysis.patch({ artifacts: { ...analysis.context.artifacts, issuer_run_id: run.id } });
+      }
     } catch (err) {
       setRunError(toErrorMessage(err, "Could not create the run"));
     } finally {
@@ -227,6 +259,8 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setSelectedIssuer(null);
     setFiles([]);
     setRunMode("full");
+    setOrigin("live");
+    setMethod("reported");
     setOutcomes([]);
     setError("");
     setProgress(null);
@@ -257,6 +291,23 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       setStep((s) => (s === "issuer" ? "file" : s));
     }
   }, [issuerParam, issuers]);
+
+  useEffect(() => {
+    if (!selectedIssuer || !analysis.context) return;
+    const context = analysis.context;
+    const issuerIds = context.issuer_ids.includes(selectedIssuer.id)
+      ? context.issuer_ids
+      : [...context.issuer_ids, selectedIssuer.id];
+    const current = context.surface_state.upload;
+    if (issuerIds === context.issuer_ids && current?.selected_ids?.[0] === selectedIssuer.id && current.view === step) return;
+    void analysis.patch({
+      issuer_ids: issuerIds,
+      surface_state: {
+        ...context.surface_state,
+        upload: { ...(current ?? {}), selected_ids: [selectedIssuer.id], view: step },
+      },
+    }).catch(() => setError("The selected issuer could not be linked to this analysis context."));
+  }, [analysis, selectedIssuer, step]);
 
   const modeMeta = RUN_MODES.find((m) => m.k === runMode);
   const okCount = outcomes.filter((o) => o.result).length;
@@ -332,6 +383,10 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           onRemoveFile={(f) => setFiles((prev) => prev.filter((x) => x !== f))}
           runMode={runMode}
           setRunMode={setRunMode}
+          origin={origin}
+          setOrigin={setOrigin}
+          method={method}
+          setMethod={setMethod}
           uploading={uploading}
           progress={progress}
           onUpload={handleUpload}
@@ -367,6 +422,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           runCreated={runCreated}
           runError={runError}
           onCreateRun={handleCreateRun}
+          contextId={analysis.context?.id}
         />
       ) : null}
     </div>

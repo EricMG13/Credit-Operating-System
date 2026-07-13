@@ -16,7 +16,7 @@ const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   driver: { stroke: CHART_HEX.warning, width: 2.4 },
   // Wiki walk: membership IS the answer, so make these hairlines legible — a
   // touch lighter than the raw border and rendered at higher opacity below.
-  member: { stroke: "#4a4f66", width: 1 },
+  member: { stroke: "#34384a", width: 1 },
   seq: { stroke: CHART_HEX.accent, width: 1.8 },
   bull: { stroke: CHART_HEX.success, width: 1.5, dash: "4 3" },
   bear: { stroke: CHART_HEX.critical, width: 1.5, dash: "4 3" },

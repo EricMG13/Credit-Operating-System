@@ -9,6 +9,7 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,7 +25,7 @@ import ingest
 import rate_limit
 import ratings
 import vault_export
-from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
+from database import Document, DocumentChunk, Issuer, SourceManifest, get_db, AsyncSessionLocal
 from identity import CallerIdentity, get_identity
 from tenancy import require_issuer, scope_issuers
 
@@ -88,6 +89,18 @@ class IngestionResponse(BaseModel):
     # Count of issuers whose agency rating was updated from a Ratings column in a
     # structured (xlsx) upload; None/absent for PDFs or a sheet without ratings.
     ratings_updated: Optional[int] = None
+    source_manifest_id: str
+
+
+class SourceManifestOut(BaseModel):
+    id: str
+    issuer_id: str
+    origin: str
+    method: str
+    status: str
+    files: list[dict]
+    authority: dict
+    created_at: datetime
 
 
 def _validate_run_mode(run_mode: str) -> str:
@@ -108,6 +121,8 @@ async def _vault_document(
     content: bytes,
     background_tasks: BackgroundTasks,
     chunk_prov: Optional[str] = None,
+    origin: str = "live",
+    method: str = "reported",
 ) -> IngestionResponse:
     # Gate on the issuer's team: no uploading documents into another team's issuer
     # (no-op when tenancy is off). Also covers the missing-issuer 404.
@@ -130,7 +145,6 @@ async def _vault_document(
     db.add(doc)
     await db.flush()
     if chunks:
-        import hashlib
         import uuid
         from database import LineageEdge
 
@@ -165,6 +179,40 @@ async def _vault_document(
                 await session.commit()
         background_tasks.add_task(run_embed_task)
 
+    as_of = datetime.now(timezone.utc)
+    manifest = SourceManifest(
+        analyst_id=caller.id,
+        issuer_id=issuer_id,
+        origin=origin,
+        method=method,
+        status="ready" if chunks else "partial",
+        files=[{
+            "document_id": doc.id,
+            "file_name": doc.file_name,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "media_type": file.content_type or "application/octet-stream",
+            "size_bytes": len(content),
+            "chunks_created": len(chunks),
+            "extraction": chunk_prov or "native",
+            "malware_scan": "clean",
+            "warning": ingest.NO_CHUNKS_WARNING if not chunks else None,
+        }],
+        authority={
+            "origin": origin,
+            "method": method,
+            "freshness": "current",
+            "as_of": as_of.isoformat(),
+            "source_ids": [doc.id],
+            "run_id": None,
+            "version_id": None,
+            "confidence": 1.0 if chunks else 0.0,
+            "approval_state": "draft",
+            "analyst_override": None,
+        },
+        created_at=as_of,
+    )
+    db.add(manifest)
+    await db.flush()
     return IngestionResponse(
         document_id=doc.id,
         issuer_id=issuer_id,
@@ -173,6 +221,7 @@ async def _vault_document(
         chunks_created=len(chunks),
         message=f"{file.filename} vaulted and chunked ({len(chunks)} chunks) — {run_mode} run.",
         warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
+        source_manifest_id=manifest.id,
     )
 
 
@@ -181,6 +230,8 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
+    origin: str = Form("live"),
+    method: str = Form("reported"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
@@ -194,8 +245,14 @@ async def upload_document(
         # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
         # large upload doesn't block the event loop for every other request.
         text, used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
-    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks,
-                                  chunk_prov="ocr" if used_ocr else None)
+    if origin not in {"live", "reference", "demo"}:
+        raise HTTPException(422, "origin must be one of: live, reference, demo")
+    if method not in {"reported", "derived", "modelled"}:
+        raise HTTPException(422, "method must be one of: reported, derived, modelled")
+    return await _vault_document(
+        db, caller, issuer_id, "Document", mode, file, text, content, background_tasks,
+        chunk_prov="ocr" if used_ocr else None, origin=origin, method=method,
+    )
 
 
 async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:  # noqa: C901
@@ -250,6 +307,8 @@ async def upload_pricing_sheet(
     background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
+    origin: str = Form("live"),
+    method: str = Form("reported"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
@@ -266,11 +325,39 @@ async def upload_pricing_sheet(
         # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
         # upload_document) so a large workbook doesn't stall the single event loop.
         text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
-    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
+    if origin not in {"live", "reference", "demo"}:
+        raise HTTPException(422, "origin must be one of: live, reference, demo")
+    if method not in {"reported", "derived", "modelled"}:
+        raise HTTPException(422, "method must be one of: reported, derived, modelled")
+    resp = await _vault_document(
+        db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks,
+        origin=origin, method=method,
+    )
 
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
     await _collect_ratings(db, content, resp)
     return resp
+
+
+@router.get("/manifests/{manifest_id}", response_model=SourceManifestOut)
+async def get_source_manifest(
+    manifest_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    row = await db.get(SourceManifest, manifest_id)
+    if row is None or row.analyst_id != caller.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Source manifest not found.")
+    return SourceManifestOut(
+        id=row.id,
+        issuer_id=row.issuer_id,
+        origin=row.origin,
+        method=row.method,
+        status=row.status,
+        files=row.files or [],
+        authority=row.authority or {},
+        created_at=row.created_at,
+    )
 
 
 class MemoUploadResponse(BaseModel):

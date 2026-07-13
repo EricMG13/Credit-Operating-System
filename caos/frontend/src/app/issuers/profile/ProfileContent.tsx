@@ -29,10 +29,12 @@ import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
 import { fmtPct, fmtUsdM } from "@/lib/format";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { ProfileSectionNav, type ProfileSection } from "@/components/issuers/ProfileSectionNav";
 import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
+import type { DecisionContextState } from "@/lib/decision-state";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -130,10 +132,10 @@ function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: 
 
 // Issuer-scoped jumps into the other concepts, rendered in the bottom bar.
 const ISSUER_ACTIONS = [
-  { href: "/pipeline?issuer=", label: "Run analysis" },
-  { href: "/model?issuer=", label: "Model Builder" },
-  { href: "/reports?issuer=", label: "Report Studio" },
-  { href: "/upload?issuer=", label: "Upload docs" },
+  { href: "/pipeline?issuer=", label: "Run issuer analysis" },
+  { href: "/model?issuer=", label: "Open in Model Builder" },
+  { href: "/reports?issuer=", label: "Open in Report Studio" },
+  { href: "/upload?issuer=", label: "Upload issuer documents" },
 ];
 
 export default function IssuerProfilePage() {
@@ -429,8 +431,11 @@ export function Profile({
   onClose?: () => void;
 }) {
   const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
+  const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
   const earnings = data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
-  const deepHref = "/deepdive?issuer=" + encodeURIComponent(id);
+  const deepHref = analysis.context
+    ? contextHref("/deepdive", analysis.context.id, { issuer: id })
+    : "/deepdive?issuer=" + encodeURIComponent(id);
   // A Blocked run must not flash a committee-green stance: the recommendation
   // chip is rendered gated (idle sev + explicit label) so a screenshot can never
   // show the overweight without the block.
@@ -505,6 +510,27 @@ export function Profile({
     return () => { document.title = prev; };
   }, [isOverlay, issuer.ticker, issuer.name]);
 
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context) return;
+    const issuerIds = context.issuer_ids.includes(id) ? context.issuer_ids : [...context.issuer_ids, id];
+    const runId = latest_run?.id ?? context.artifacts.issuer_run_id;
+    const current = context.surface_state["issuer-profile"];
+    if (
+      issuerIds === context.issuer_ids
+      && runId === context.artifacts.issuer_run_id
+      && current?.active_id === id
+    ) return;
+    void analysis.patch({
+      issuer_ids: issuerIds,
+      artifacts: { ...context.artifacts, issuer_run_id: runId },
+      surface_state: {
+        ...context.surface_state,
+        "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [] },
+      },
+    }).catch(() => {});
+  }, [analysis, id, latest_run?.id]);
+
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
   // Honest one-line desk read, composed from the REAL earnings deltas — direction
@@ -532,6 +558,20 @@ export function Profile({
   const EVIDENCE_SEV_COLOR: Record<string, string> = {
     critical: "var(--caos-critical)", warning: "var(--caos-warning)", ok: "var(--caos-success)", low: "var(--caos-muted)",
   };
+  const profileAsOf = latest_run?.as_of_date ?? null;
+  const profileAuthority = profileAsOf ? {
+    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: "CURRENT" as const, detail: "Issuer profile read-model from the latest completed run.", asOf: profileAsOf },
+    approval: latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
+  } : undefined;
+  const profileUnavailable = { kind: "unavailable" as const, message: "No timestamped completed run available" };
+  const profileDecision: DecisionContextState = profileAsOf
+    ? {
+        whatChanged: { kind: "ready", value: deskRead, asOf: profileAsOf, authority: profileAuthority },
+        whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf: profileAsOf, authority: profileAuthority },
+        requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf: profileAsOf, authority: profileAuthority },
+        evidenceHealth: { kind: totalFindings ? "partial" : "ready", value: <span style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}>{pmEvidence.label}</span>, missingSources: totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : [], asOf: profileAsOf, authority: profileAuthority },
+      }
+    : { whatChanged: profileUnavailable, whyItMatters: profileUnavailable, requiredAction: profileUnavailable, evidenceHealth: profileUnavailable };
 
   const SECTIONS: ProfileSection[] = [
     { id: "profile-snapshot", label: "Snapshot" },
@@ -547,16 +587,7 @@ export function Profile({
         {/* Decision header — visible to every role; Analyst opens collapsed
             (a single reveal row), PM/QA open expanded (their ten-second
             answer), matching Command/Monitor/Deep-Dive/Sector RV. */}
-        <DecisionHeader
-          whatChanged={deskRead}
-          whyItMatters={pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk}
-          requiredAction={
-            <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">
-              {pmAction.label} →
-            </Link>
-          }
-          evidenceHealth={<span style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}>{pmEvidence.label}</span>}
-        />
+        <DecisionHeader state={profileDecision} />
         <div id="profile-snapshot" />
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
@@ -779,13 +810,13 @@ export function Profile({
   );
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="object"
       heightClass={isOverlay ? "h-full" : "h-screen"}
       identity={
         <>
           {!isOverlay ? (
             <>
-              <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
+              <Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
                 <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
                 <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
               </Link>
@@ -835,6 +866,7 @@ export function Profile({
           OPEN DEEP-DIVE →
         </Link>
       }
+      status={profileAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Latest run {profileAsOf}</span> : null}
       contextualControls={
         !isOverlay ? (
           <ConceptNav compact />
@@ -865,14 +897,14 @@ export function Profile({
         {ISSUER_ACTIONS.map((a) => (
           <Link
             key={a.href}
-            href={a.href + encodeURIComponent(id)}
+            href={`${a.href}${encodeURIComponent(id)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
             className="no-underline tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring"
           >
             {a.label}
           </Link>
         ))}
       </div>
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 

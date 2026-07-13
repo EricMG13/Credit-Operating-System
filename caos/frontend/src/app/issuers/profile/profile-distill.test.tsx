@@ -69,8 +69,8 @@ describe("Profile (distilled)", () => {
 
     // Issuer-scoped jumps live in the bottom bar, carrying ?issuer=.
     for (const [label, path] of [
-      ["Run analysis", "/pipeline"], ["Model Builder", "/model"],
-      ["Report Studio", "/reports"], ["Upload docs", "/upload"],
+      ["Run issuer analysis", "/pipeline"], ["Open in Model Builder", "/model"],
+      ["Open in Report Studio", "/reports"], ["Upload issuer documents", "/upload"],
     ] as const) {
       expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(path + "?issuer=iss-1");
     }

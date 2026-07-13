@@ -312,7 +312,7 @@ export function Inspector({
         <div className="text-caos-md text-caos-muted mt-1 leading-snug max-w-[55ch]">{m.desc}</div>
       </div>
       {!inScope ? (
-        <div className="px-3 py-2 border-b border-caos-border flex items-start gap-2" style={{ background: "rgba(138,138,154,0.06)" }}>
+        <div className="px-3 py-2 border-b border-caos-border flex items-start gap-2" style={{ background: "color-mix(in srgb, var(--caos-muted) 6%, transparent)" }}>
           <span aria-hidden="true" className="text-caos-md text-caos-muted mt-px">⊘</span>
           <span className="text-caos-md text-caos-muted leading-snug">
             Out of scope for the {modeLabel} route — CP-X skipped this module; registers inherit from the last

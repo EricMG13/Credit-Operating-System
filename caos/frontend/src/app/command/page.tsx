@@ -5,7 +5,7 @@
 // Sector RV has been promoted to a standalone route under /sector-rv.
 // Click a row for the issuer detail strip; ATLF links into the Analytical Deep-Dive.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
@@ -28,11 +28,14 @@ import {
   PortfolioTable, PostureSummary,
 } from "@/components/command/views";
 import { NlQuery } from "@/components/command/NlQuery";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { RankedChanges } from "@/components/command/RankedChanges";
 import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
+import type { DecisionContextState } from "@/lib/decision-state";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
@@ -47,6 +50,7 @@ export default function CommandPage() {
 }
 
 function CommandCenter() {
+  const analysis = useAnalysisContext({ name: "Portfolio command" });
   const [selected, setSelected] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"positions" | "runs">("positions");
   const { roleView } = useRoleView();
@@ -66,7 +70,7 @@ function CommandCenter() {
   const liveMixed = portfolio.live ? liveMixedOrigin(portfolio.rows) : undefined;
   // Live coverage-health digest (staleness / WARF / CCC watch); empty → the
   // research lens keeps only its seeded panels.
-  const { digest, live: digestLive } = useDigest();
+  const { digest, live: digestLive, loading: digestLoading } = useDigest();
 
   // A Live Coverage selection resolves against the LIVE rows, never the seeded
   // fixture — a live ticker matching a seeded code must not show sample figures
@@ -78,6 +82,78 @@ function CommandCenter() {
   // "Still accruing" is "not done yet" — matches Monitor's identical read of
   // the same shared clock so the two pages never disagree (critique P1).
   const alertsToday = simAlertsToday(tick, !run.sim.done);
+  const digestAsOf = digest?.as_of
+    ? new Date(digest.as_of).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    : null;
+  const digestAuthority = digestAsOf ? {
+    provenance: {
+      origin: "LIVE" as const,
+      method: "DERIVED" as const,
+      freshness: digest && digest.stale.length > 0 ? "STALE" as const : "CURRENT" as const,
+      detail: "Daily digest assembled from completed engine runs.",
+      asOf: digestAsOf,
+    },
+    approval: "UNRATIFIED" as const,
+  } : undefined;
+  const commandDecision: DecisionContextState = {
+    whatChanged: digestLoading
+      ? { kind: "loading", message: "Checking 24-hour engine activity…" }
+      : digestLive && digest && digestAsOf
+        ? (Object.values(digest.activity_24h || {}).some((value) => typeof value === "number" && value > 0)
+          ? {
+              kind: "ready",
+              value: `${Object.entries(digest.activity_24h || {}).filter(([, value]) => typeof value === "number" && value > 0).slice(0, 3).map(([key, value]) => `${value} ${key.replaceAll("_", " ")}`).join(" · ")} in 24h`,
+              asOf: digestAsOf,
+              authority: digestAuthority,
+            }
+          : { kind: "observed-empty", message: "No engine activity observed in 24h", asOf: digestAsOf, authority: digestAuthority })
+        : { kind: "unavailable", message: "Live activity observation unavailable" },
+    whyItMatters: digestLoading
+      ? { kind: "loading", message: "Calculating portfolio impact…" }
+      : digestLive && digest && digestAsOf && digest.warf != null
+        ? { kind: "ready", value: `WARF ${digest.warf}${digest.warf_band ? ` (${digest.warf_band})` : ""} · CCC watch ${digest.ccc_watch.length}`, asOf: digestAsOf, authority: digestAuthority }
+        : { kind: "unavailable", message: "Portfolio impact unavailable" },
+    requiredAction: portfolio.loading
+      ? { kind: "loading", message: "Checking governance queues…" }
+      : portfolio.error
+        ? { kind: "offline", lastKnown: "Governance queues unavailable" }
+        : portfolio.fetchedAt
+          ? {
+              kind: "ready",
+              value: `${(liveQa ?? []).length + (liveFailed ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`,
+              asOf: portfolio.fetchedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }),
+              authority: { provenance: { origin: "LIVE", method: "DERIVED", freshness: "CURRENT", detail: "Portfolio QA and source-gap roll-up." }, approval: "UNRATIFIED" },
+            }
+          : { kind: "unavailable", message: "Governance queue observation unavailable" },
+    evidenceHealth: digestLoading
+      ? { kind: "loading", message: "Checking evidence coverage…" }
+      : digestLive && digest && digestAsOf
+        ? {
+            kind: digest.stale.length > 0 ? "stale" : "ready",
+            value: `${digest.stale.length} stale of ${digest.coverage?.issuers ?? 0} covered · threshold ${digest.stale_threshold_days}d`,
+            asOf: digestAsOf,
+            authority: digestAuthority,
+          }
+        : { kind: "unavailable", message: "Evidence health unavailable" },
+  };
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context) return;
+    const current = context.surface_state.command;
+    if (current?.active_id === selected && current?.view === activeTab && current?.filters?.role === roleView) return;
+    void analysis.patch({
+      surface_state: {
+        ...context.surface_state,
+        command: {
+          ...current,
+          active_id: selected,
+          view: activeTab,
+          filters: { ...current?.filters, role: roleView },
+        },
+      },
+    });
+  }, [activeTab, analysis, roleView, selected]);
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -97,7 +173,7 @@ function CommandCenter() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="overview"
       identity={
         <>
           <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
@@ -119,16 +195,9 @@ function CommandCenter() {
         </>
       }
       primaryAction={
-        <Link
-          href="/monitor"
-          title="Open Monitor — CP-MON email intelligence & alert routing (demo replay; CP-MON is spec-only, not an executing module)"
-          className="no-underline flex items-baseline gap-1.5 whitespace-nowrap rounded border border-caos-border px-2 py-1 hover:border-caos-accent/60 transition-caos group"
-        >
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Alerts today</span>
-          <span className="tabular text-[14px] font-medium" style={{ color: "var(--caos-accent)" }}>{alertsToday}</span>
-          <span className="tabular text-caos-xs text-caos-muted group-hover:text-caos-accent transition-caos">→ Monitor</span>
-        </Link>
+        <a href="#ranked-changes" className="caos-primary-action no-underline focus-ring">Open top change</a>
       }
+      status={digestAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {digestAsOf}</span> : null}
       contextualControls={
         <>
           {/* Seeded sample-sleeve stat — visible on wide desks only; the DM
@@ -145,65 +214,44 @@ function CommandCenter() {
                 lives in the DecisionHeader's Evidence-health cell;
               - QA-findings / source-gaps → DecisionHeader Required-action
                 cell + the QA panel below. */}
+        </>
+      }
+      utilityLabel="Simulation controls"
+      utilityControls={
+        <div className="grid gap-3">
           <SimControls run={run} />
           <span className="flex items-center gap-1.5" title="Demo replay clock, not a live feed — matches Monitor and Sector RV">
             <Dot sev={run.sim.done ? "ok" : "running"} pulse={run.playing && !run.sim.done} glyph={run.sim.done} />
             <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">
-              {run.playing && !run.sim.done ? "SIM" : run.sim.done ? "COMPLETE" : "PAUSED"}
+              {run.playing && !run.sim.done ? "SIM" : run.sim.done ? "COMPLETE" : "PAUSED"} · {run.clock} ET
             </span>
           </span>
-          <span className="tabular text-caos-md text-caos-muted whitespace-nowrap hidden 2xl:inline">{run.clock} ET</span>
-        </>
+          {analysis.context ? <Link href={contextHref("/monitor", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Monitor</Link> : null}
+        </div>
       }
       narrowContract={narrowContract}
+      decisionContext={<DecisionHeader state={commandDecision} />}
     >
       {/* Decision header — cells populate from the LIVE digest + portfolio
           roll-ups only; offline they state "— no data" rather than promoting
           seeded sample counts into a decision strip (mock-vs-live seam). */}
-      <DecisionHeader
-        whatChanged={
-          digestLive && digest
-            ? [
-                Object.entries(digest.activity_24h || {})
-                  .filter(([, v]) => typeof v === "number" && v > 0)
-                  .slice(0, 3)
-                  .map(([k, v]) => `${v} ${k.replaceAll("_", " ")}`)
-                  .join(" · ") || "no engine activity",
-                "in 24h",
-              ].join(" ")
-            : undefined
-        }
-        whyItMatters={
-          digestLive && digest && digest.warf != null
-            ? `WARF ${digest.warf}${digest.warf_band ? ` (${digest.warf_band})` : ""} · CCC watch ${digest.ccc_watch.length}`
-            : undefined
-        }
-        requiredAction={
-          portfolio.live
-            ? `${(liveQa ?? []).length + (liveFailed ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`
-            : undefined
-        }
-        evidenceHealth={
-          digestLive && digest
-            ? {
-                origin: "LIVE" as const,
-                freshness: digest.stale.length > 0 ? ("STALE" as const) : ("CURRENT" as const),
-                detail: `${digest.stale.length} stale of ${digest.coverage?.issuers ?? 0} covered · threshold ${digest.stale_threshold_days}d`,
-                asOf: new Date(digest.as_of).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-              }
-            : undefined
-        }
-      />
-
       {/* workspace */}
       <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden">
+        <WorkbenchToolbar
+          title="Portfolio command"
+          description="Ranked changes, portfolio posture and governance queues in one decision surface."
+          count={portfolio.loading ? "Loading" : portfolio.error ? "Live coverage unavailable" : `${portfolio.coveredCount}/${portfolio.issuerCount} covered`}
+          viewLabel={`View: ${roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}`}
+        />
         <div className="flex-1 flex flex-col gap-3.5 min-h-0 min-w-0">
           {/* Dominant opener: the live Watchtower ranked-changes list. PM/QA
               default expanded via DecisionHeader; the panel itself always
               shows (empty/offline states render honestly inline). */}
-          <PanelShell title="Ranked Changes · Watchtower draft" className="flex-none min-h-0" collapsible>
-            <RankedChanges />
-          </PanelShell>
+          <div id="ranked-changes" tabIndex={-1}>
+            <PanelShell title="Ranked Changes · Watchtower draft" className="flex-none min-h-0" collapsible>
+              <RankedChanges />
+            </PanelShell>
+          </div>
           {/* Posture bar above query bar */}
           <PostureSummary />
           <NlQuery />
@@ -309,6 +357,6 @@ function CommandCenter() {
       </div>
 
       {selected ? <IssuerStrip code={selected} liveRow={liveSelected} onClose={() => setSelected(null)} /> : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }

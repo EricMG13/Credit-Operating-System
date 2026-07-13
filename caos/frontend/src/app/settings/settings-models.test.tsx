@@ -24,8 +24,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
     gemini_configured: false, openrouter_configured: false,
     governance: {}, engine: {}, deep_research: {}, retrieval: {}, workspace: {},
   }),
-  getAnalystSettings: vi.fn().mockResolvedValue({ model_lanes: {}, email_intelligence: { approved_senders: [] } }),
-  saveAnalystSettings: vi.fn().mockRejectedValue({
+  getAnalystSettings: vi.fn().mockResolvedValue({ model_lanes: {}, email_intelligence: { approved_senders: [] }, revision: 0 }),
+  patchAnalystSettings: vi.fn().mockRejectedValue({
     response: { data: { detail: "No analyst profile — settings not saved." } },
   }),
 }));
@@ -59,4 +59,3 @@ describe("Settings · Models tab", () => {
     });
   });
 });
-

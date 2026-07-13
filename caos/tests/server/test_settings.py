@@ -48,7 +48,7 @@ def test_analyst_settings_roundtrip_with_profile_cookie():
         r = c.put("/api/settings/analyst", json=body)
         assert r.status_code == 200, r.text
         # Omitted role_view/workspace default to the analyst view / empty dict.
-        assert r.json() == {**body, "role_view": "analyst", "workspace": {}}
+        assert r.json() == {**body, "role_view": "analyst", "workspace": {}, "revision": 1}
 
         r2 = c.get("/api/settings/analyst")
         assert r2.status_code == 200
@@ -71,7 +71,7 @@ def test_role_view_roundtrip_validation_and_legacy_coercion():
         r = c.put("/api/settings/analyst", json=body)
         assert r.status_code == 200, r.text
         assert r.json()["role_view"] == "pm"
-        assert c.get("/api/settings/analyst").json() == {**body, "workspace": {}}
+        assert c.get("/api/settings/analyst").json() == {**body, "workspace": {}, "revision": 1}
 
         # Invalid value is rejected, and the stored preference is untouched.
         bad = {**body, "role_view": "admin"}
@@ -146,3 +146,24 @@ def test_workspace_field_roundtrips_and_junk_coerces_to_empty_dict():
         r2 = c.get("/api/settings/analyst")
         assert r2.status_code == 200
         assert r2.json()["workspace"] == {}
+
+
+def test_analyst_settings_patch_is_partial_and_revision_checked():
+    from main import app
+
+    with TestClient(app) as c:
+        login = c.post("/api/auth/profile", json={"code": "131113", "name": "Revision Guard"})
+        assert login.status_code in (200, 201), login.text
+        initial = c.get("/api/settings/analyst").json()
+        patched = c.patch("/api/settings/analyst", json={
+            "expected_revision": initial["revision"],
+            "workspace": {"query_model": "claude-sonnet-4-6"},
+        })
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["workspace"]["query_model"] == "claude-sonnet-4-6"
+        assert patched.json()["model_lanes"] == initial["model_lanes"]
+        conflict = c.patch("/api/settings/analyst", json={
+            "expected_revision": initial["revision"],
+            "role_view": "pm",
+        })
+        assert conflict.status_code == 409

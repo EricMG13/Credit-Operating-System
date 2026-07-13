@@ -141,6 +141,29 @@ export const clearWorkspaceStorage = () => {
       if (k.startsWith("caos")) localStorage.removeItem(k);
     }
   } catch { /* private mode / quota — nothing to clear */ }
+  try {
+    for (const k of Object.keys(sessionStorage)) {
+      if (k.startsWith("caos")) sessionStorage.removeItem(k);
+    }
+  } catch { /* private mode / quota — nothing to clear */ }
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("context")) {
+      url.searchParams.delete("context");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  } catch { /* non-browser test harness */ }
+};
+
+const PRINCIPAL_STORAGE_KEY = "caos.principal.id";
+
+/** Re-key browser caches before a newly resolved principal is rendered. */
+export const bindWorkspacePrincipal = (principalId: string) => {
+  if (typeof window === "undefined") return;
+  let prior: string | null = null;
+  try { prior = localStorage.getItem(PRINCIPAL_STORAGE_KEY); } catch {}
+  if (prior && prior !== principalId) clearWorkspaceStorage();
+  try { localStorage.setItem(PRINCIPAL_STORAGE_KEY, principalId); } catch {}
 };
 
 // Email + password account lane (alongside edge SSO). register creates the account
@@ -438,13 +461,39 @@ export const askSectorTopic = (signal_id: string, question: string): Promise<Sec
 // The server parses, virus-scans, and chunks the file inside the request, so a
 // real filing can run well past the 20s default. Give ingestion a generous
 // 5-min ceiling (still bounded, so a truly hung API can't strand the wizard).
-export const uploadDocument = (formData: FormData) =>
+export interface IngestionResult {
+  document_id: string;
+  issuer_id: string;
+  minio_key: string;
+  run_mode: string;
+  chunks_created: number;
+  message: string;
+  warning?: string | null;
+  ratings_updated?: number | null;
+  source_manifest_id: string;
+}
+
+export interface SourceManifestDTO {
+  id: string;
+  issuer_id: string;
+  origin: "live" | "reference" | "demo";
+  method: "reported" | "derived" | "modelled";
+  status: string;
+  files: Array<Record<string, unknown>>;
+  authority: Record<string, unknown>;
+  created_at: string;
+}
+
+export const getSourceManifest = (id: string): Promise<SourceManifestDTO> =>
+  api.get(`/api/ingestion/manifests/${id}`).then((r) => r.data);
+
+export const uploadDocument = (formData: FormData): Promise<IngestionResult> =>
   api.post("/api/ingestion/upload/document", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 300_000,
   }).then((r) => r.data);
 
-export const uploadPricingSheet = (formData: FormData) =>
+export const uploadPricingSheet = (formData: FormData): Promise<IngestionResult> =>
   api.post("/api/ingestion/upload/pricing-sheet", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 300_000,
@@ -916,8 +965,11 @@ export const deepResearch = async (
   onProgress?: (p: ResearchProgress | null) => void,
   onJobId?: (id: string) => void, // fires the durable id so the page can persist it for reattach
   signal?: AbortSignal,
+  contextId?: string,
 ): Promise<ResearchResult> => {
-  const { id } = (await api.post("/api/research", brief)).data as { id: string };
+  const { id } = (await api.post("/api/research", brief, {
+    params: contextId ? { context_id: contextId } : undefined,
+  })).data as { id: string };
   onJobId?.(id); // persist before the (multi-minute) poll, so a reload can reattach
   return _pollResearch(id, onProgress, signal);
 };
@@ -990,11 +1042,17 @@ export interface AnalystSettings {
   role_view?: RoleView;
   /** Deep-Dive pins/recents, standing-view affirmations — see updateAnalystWorkspace. */
   workspace?: Record<string, unknown>;
+  revision?: number;
 }
 export const getAnalystSettings = (): Promise<AnalystSettings> =>
   api.get("/api/settings/analyst").then((r) => r.data);
 export const saveAnalystSettings = (data: AnalystSettings): Promise<AnalystSettings> =>
   api.put("/api/settings/analyst", data).then((r) => r.data);
+export const patchAnalystSettings = (
+  expectedRevision: number,
+  patch: Partial<Omit<AnalystSettings, "revision">>,
+): Promise<AnalystSettings> =>
+  api.patch("/api/settings/analyst", { expected_revision: expectedRevision, ...patch }).then((r) => r.data);
 
 // ─── Analyst workspace (Deep-Dive pins/recents/affirmations) ──────────────
 // PUT /api/settings/analyst REPLACES the whole blob — every write here reads
@@ -1004,8 +1062,7 @@ export const updateAnalystWorkspace = async (
   patch: (workspace: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<AnalystSettings> => {
   const current = await getAnalystSettings();
-  const next = { ...current, workspace: patch(current.workspace || {}) };
-  return saveAnalystSettings(next);
+  return patchAnalystSettings(current.revision ?? 0, { workspace: patch(current.workspace || {}) });
 };
 
 export interface SavedModelDTO {
@@ -1028,6 +1085,77 @@ export const saveModel = (
   api
     .put(`/api/models/${issuerId}`, { payload, expected_updated_at: expectedUpdatedAt ?? undefined })
     .then((r) => r.data);
+
+export interface ModelCheckpointDTO {
+  id: string;
+  issuer_id: string;
+  context_id: string;
+  issuer_run_id: string | null;
+  parent_checkpoint_id: string | null;
+  label: string;
+  payload_hash: string;
+  payload: Record<string, unknown>;
+  authority: Record<string, unknown>;
+  created_at: string;
+}
+export const getModelCheckpoints = (issuerId: string): Promise<ModelCheckpointDTO[]> =>
+  api.get(`/api/models/${issuerId}/checkpoints`).then((r) => r.data);
+export const createModelCheckpoint = (issuerId: string, body: {
+  context_id: string;
+  label?: string;
+  issuer_run_id?: string;
+  parent_checkpoint_id?: string;
+  expected_updated_at?: string | null;
+}): Promise<ModelCheckpointDTO> =>
+  api.post(`/api/models/${issuerId}/checkpoints`, body).then((r) => r.data);
+export const restoreModelCheckpoint = (
+  checkpointId: string,
+  expectedUpdatedAt?: string | null,
+): Promise<SavedModelDTO> =>
+  api.post(`/api/models/checkpoints/${checkpointId}/restore`, {
+    expected_updated_at: expectedUpdatedAt ?? undefined,
+  }).then((r) => r.data);
+
+export interface ReportDraftDTO {
+  id: string;
+  context_id: string;
+  payload: Record<string, unknown>;
+  revision: number;
+  updated_at: string;
+}
+export interface ReportVersionDTO {
+  id: string;
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id: string | null;
+  status: string;
+  payload: Record<string, unknown>;
+  document_sha256: string;
+  authority: Record<string, unknown>;
+  created_at: string;
+}
+export const getReportDraft = (contextId: string): Promise<ReportDraftDTO | null> =>
+  api.get(`/api/reports/drafts/${contextId}`).then((r) => r.data);
+export const saveReportDraft = (
+  contextId: string,
+  payload: Record<string, unknown>,
+  expectedRevision?: number,
+): Promise<ReportDraftDTO> =>
+  api.put(`/api/reports/drafts/${contextId}`, {
+    payload,
+    expected_revision: expectedRevision,
+  }).then((r) => r.data);
+export const listReportVersions = (contextId: string): Promise<ReportVersionDTO[]> =>
+  api.get("/api/reports/versions", { params: { context_id: contextId } }).then((r) => r.data);
+export const publishReportVersion = (body: {
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id?: string;
+  payload: Record<string, unknown>;
+}): Promise<ReportVersionDTO> =>
+  api.post("/api/reports/versions", body).then((r) => r.data);
 
 // ─── Autonomy draft (Watchtower — Sentinel→Anomaly→Analyst→Reporter DAG) ───
 export interface AutonomyClaim {
@@ -1102,3 +1230,37 @@ export const setAlertState = (
     .then((r) => r.data);
 export const getAlertStates = (alertKey?: string): Promise<AlertStateDTO[]> =>
   api.get("/api/alerts/state", { params: alertKey ? { alert_key: alertKey } : {} }).then((r) => r.data);
+
+export interface AlertEventDTO {
+  id: string;
+  alert_key: string;
+  issuer_id: string | null;
+  run_id: string | null;
+  kind: string;
+  title: string;
+  impact: string;
+  evidence: Record<string, unknown>;
+  authority: Record<string, unknown>;
+  state: "open" | "ack" | "resolved";
+  assignee: string | null;
+  note: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
+  api.post("/api/alerts/refresh").then((r) => r.data);
+export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
+  api.get("/api/alerts/events", { params: state ? { state } : {} }).then((r) => r.data);
+export const patchAlertEvent = (
+  id: string,
+  state: AlertEventDTO["state"],
+  opts?: { assignee?: string; note?: string; resolutionNote?: string },
+): Promise<AlertEventDTO> =>
+  api.patch(`/api/alerts/events/${id}`, {
+    state,
+    assignee: opts?.assignee,
+    note: opts?.note,
+    resolution_note: opts?.resolutionNote,
+  }).then((r) => r.data);

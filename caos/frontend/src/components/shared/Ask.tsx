@@ -17,7 +17,7 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getIssuer } from "@/lib/api";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { queryCapabilities, queryGraph } from "@/lib/api";
+import { queryCapabilities } from "@/lib/api";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
@@ -28,6 +28,7 @@ import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
+import { analysisApi, useAnalysisContext, type QueryRun } from "@/lib/analysis-workbench";
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -232,13 +233,17 @@ export function AskLauncher() {
 
   if (pathname.startsWith("/query")) return null;
 
+  const triggerPosition = pathname.startsWith("/sector")
+    ? "bottom-16 right-3"
+    : "bottom-3 right-3";
+
   // Floating trigger, hidden while open. Deep-Dive also has an in-panel ASK
   // button, but this keeps ⌘K discoverable everywhere.
   const trigger = !open ? (
     <button
       onClick={toggle}
       title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className="fixed bottom-3 right-3 z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+      className={`fixed ${triggerPosition} z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos`}
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
       <AskMark /> Ask
@@ -264,6 +269,7 @@ export function AskLauncher() {
 // Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets
 // focus-trap / restore / scroll-lock + dialog semantics via useModalA11y.
 function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void }) {
+  const contextState = useAnalysisContext({ name: "Global ASK investigation" });
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const concept = conceptFor(pathname);
   // One-shot prefill from the ⌘K palette's "Ask CAOS" row (modal mounts fresh
@@ -283,6 +289,8 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [readerOpen, setReaderOpen] = useState(false);
   const [hasQueried, setHasQueried] = useState(false);
   const [layout, setLayout] = useState<QueryView>("graph");
+  const [queryRun, setQueryRun] = useState<QueryRun | null>(null);
+  const [pinned, setPinned] = useState(false);
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -320,10 +328,31 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
     setSuggest([]);
     setSelectedNode(null);
     setReaderOpen(false);
+    setPinned(false);
 
-    queryGraph(capId)
-      .then((g) => {
+    const context = contextState.context;
+    if (!context) {
+      setGraphErr(contextState.error || "Analysis context is not ready.");
+      setRunning(false);
+      return;
+    }
+    const question = text.trim() || capById.get(capId)?.label || capId;
+    analysisApi.createQueryRun({
+      context_id: context.id,
+      question,
+      selected_lane: "graph",
+      capability_id: capId,
+    })
+      .then((savedRun) => {
         if (seq !== runSeq.current) return;
+        setQueryRun(savedRun);
+        if (savedRun.status !== "ready" && savedRun.status !== "observed-empty") {
+          const missing = Array.isArray(savedRun.result.missing_dependencies)
+            ? ` Missing: ${savedRun.result.missing_dependencies.join(", ")}.`
+            : "";
+          throw new Error(savedRun.error || `Query ${savedRun.status}.${missing}`);
+        }
+        const g = savedRun.result as unknown as GraphResult;
         setGraph(g);
         // Every run opens on its native view — a leftover Scatter/Lineage from
         // the previous graph must never be the first render of a new one.
@@ -338,7 +367,22 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       .finally(() => {
         if (seq === runSeq.current) setRunning(false);
       });
-  }, []);
+  }, [capById, contextState.context, contextState.error, text]);
+
+  const pinQueryFinding = useCallback(async () => {
+    const context = contextState.context;
+    if (!context || !queryRun || pinned) return;
+    await analysisApi.createFinding({
+      context_id: context.id,
+      kind: "global-ask-answer",
+      title: graph?.title || queryRun.question,
+      body: queryRun.question,
+      source_surface: "global-ask",
+      source_run_id: queryRun.id,
+      evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },
+    });
+    setPinned(true);
+  }, [contextState.context, graph?.title, pinned, queryRun]);
 
   const submit = useCallback(() => {
     const q = text.trim().toLowerCase();
@@ -529,6 +573,14 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                       ))}
 
                       <div className="flex gap-1.5 ml-2">
+                        <button
+                          type="button"
+                          onClick={() => void pinQueryFinding()}
+                          disabled={!queryRun || pinned}
+                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer focus-ring disabled:opacity-40"
+                        >
+                          {pinned ? "PINNED" : "PIN FINDING"}
+                        </button>
                         <button
                           onClick={() => downloadQueryCsv(graph)}
                           className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer"

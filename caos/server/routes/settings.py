@@ -45,6 +45,32 @@ class AnalystSettings(BaseModel):
     # annotations, NOT a governance action). Frontend caps each list; server
     # only enforces the overall 100KB blob cap below.
     workspace: dict = Field(default_factory=dict)
+    revision: int = Field(default=0, ge=0)
+
+
+class AnalystSettingsPatch(BaseModel):
+    expected_revision: int = Field(ge=0)
+    model_lanes: dict | None = None
+    email_intelligence: dict | None = None
+    role_view: str | None = None
+    workspace: dict | None = None
+
+
+def _settings_out(analyst: Analyst | None) -> AnalystSettings:
+    raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
+    rv = raw.get("role_view")
+    workspace = raw.get("workspace")
+    return AnalystSettings(
+        model_lanes=raw.get("model_lanes") or {},
+        email_intelligence=raw.get("email_intelligence") or {},
+        role_view=rv if rv in _ROLE_VIEWS else "analyst",
+        workspace=workspace if isinstance(workspace, dict) else {},
+        revision=analyst.settings_revision if analyst is not None else 0,
+    )
+
+
+def _settings_payload(body: AnalystSettings) -> dict:
+    return body.model_dump(exclude={"revision"})
 
 
 @router.get("")
@@ -99,17 +125,9 @@ async def read_analyst_settings(
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     analyst = await db.get(Analyst, caller.id)
-    raw = analyst.settings if analyst is not None and isinstance(analyst.settings, dict) else {}
-    rv = raw.get("role_view")
-    workspace = raw.get("workspace")
-    return AnalystSettings(
-        model_lanes=raw.get("model_lanes") or {},
-        email_intelligence=raw.get("email_intelligence") or {},
-        # Old two-field blobs (and junk values) coerce to the analyst view —
-        # a GET never 500s over a preference.
-        role_view=rv if rv in _ROLE_VIEWS else "analyst",
-        workspace=workspace if isinstance(workspace, dict) else {},
-    )
+    # Old two-field blobs (and junk values) coerce to the analyst view — a GET
+    # never 500s over a preference.
+    return _settings_out(analyst)
 
 
 @router.put("/analyst", response_model=AnalystSettings)
@@ -125,7 +143,8 @@ async def write_analyst_settings(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "role_view must be one of: analyst, pm, qa.",
         )
-    if len(json.dumps(body.model_dump())) > _MAX_SETTINGS_BYTES:
+    payload = _settings_payload(body)
+    if len(json.dumps(payload)) > _MAX_SETTINGS_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
     analyst = await db.get(Analyst, caller.id)
     if analyst is None:
@@ -133,6 +152,38 @@ async def write_analyst_settings(
         # profile row) — nothing to write to. 404 rather than a silent 200 that would
         # tell the client the save stuck when it didn't.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No analyst profile — settings not saved.")
-    analyst.settings = body.model_dump()
+    analyst.settings = payload
+    analyst.settings_revision += 1
     await db.commit()
-    return body
+    return _settings_out(analyst)
+
+
+@router.patch("/analyst", response_model=AnalystSettings)
+async def patch_analyst_settings(
+    body: AnalystSettingsPatch,
+    caller: CallerIdentity = Depends(get_identity),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Revision-checked partial update; the replacement PUT remains compatible."""
+    if not rate_limit.hit(f"settings:{caller.id}", max_attempts=_WRITES_PER_MINUTE, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Settings rate limit reached — try again in a minute.")
+    analyst = await db.get(Analyst, caller.id)
+    if analyst is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No analyst profile — settings not saved.")
+    if body.expected_revision != analyst.settings_revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, {
+            "message": "Settings changed elsewhere.",
+            "current": _settings_out(analyst).model_dump(),
+        })
+    current = _settings_out(analyst)
+    changes = body.model_dump(exclude={"expected_revision"}, exclude_none=True)
+    next_settings = current.model_copy(update=changes)
+    if next_settings.role_view not in _ROLE_VIEWS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "role_view must be one of: analyst, pm, qa.")
+    payload = _settings_payload(next_settings)
+    if len(json.dumps(payload)) > _MAX_SETTINGS_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
+    analyst.settings = payload
+    analyst.settings_revision += 1
+    await db.flush()
+    return _settings_out(analyst)

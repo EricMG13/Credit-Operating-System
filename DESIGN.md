@@ -25,6 +25,13 @@ colors:
   paper: "#f7f5ee"
   paper-ink: "#16161e"
   paper-meta: "#5c5c66"
+  paper-note: "#6c6c76"
+  paper-rule-strong: "#6f6c62"
+  paper-subhead: "#44444e"
+  paper-link: "#1f4fa0"
+  paper-soft: "#6a6a72"
+  paper-warning: "#a24310"
+  paper-watermark: "#be5410"
   paper-critical: "#b91c1c"
 typography:
   display:
@@ -204,6 +211,17 @@ CAOS is flat by default and uses tonal layering before shadow. Depth is created 
 - **Style:** Concept navigation is compact chip navigation with inline SVG marks. Compact headers show only the active label; inactive concepts rely on icon plus tooltip.
 - **Typography:** Mono, small, tabular, and uppercase where the surrounding header requires it.
 - **State:** Active equals Accent fill. Hover brightens text and border without changing layout.
+
+### Enterprise Workbench Anatomy
+
+Every route uses the same ordered contract: identity and source status, exactly one page-level primary action, optional collapsible decision context, one dominant work region, contextual evidence, and an optional sticky finalization bar. Surface kinds preserve specialist behavior: worklists own batch/filter anatomy; analytical objects own conclusion state; Model, Query, and Report Studio retain their editor overflow.
+
+- **Decision states:** `loading`, `ready`, `observed-empty`, `stale`, `partial`, `offline`, `error`, and `unavailable` are visually and semantically distinct. “No material change” is legal only for a successful timestamped `observed-empty` response.
+- **Authority:** Every ready conclusion carries observation time, origin, method, approval/ratification, and freshness. `LIVE` describes source origin only.
+- **Worklists:** Shared toolbar order is title/count, search, filters, selection/batch state, then actions. Five actions are visible at most; lower-frequency actions move to overflow.
+- **Utilities:** Simulation, layout, export and other low-frequency controls live in a labeled utility drawer. Escape closes it and focus returns to its trigger.
+- **Evidence Atlas:** Claim lineage, sources, recovery, glossary and downstream consumers share one contextual inspector. Native editor evidence panes remain valid; never show a duplicate inspector.
+- **Role composition:** Always label the presentation preference `View: Analyst / PM / QA`. It never grants permission or approval authority.
 
 ### Panel
 

@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
@@ -70,7 +71,7 @@ export function RankedChanges() {
     const cycling = draft?.refreshing;
     return (
       <div className="px-3 py-4 flex items-center gap-2">
-        <ProvenanceChip prov={{ origin: "LIVE", detail: draft?.marking }} />
+        <ConclusionAuthority prov={{ origin: "LIVE", method: "MODELLED", detail: draft?.marking }} />
         <span className="tabular text-caos-xs text-caos-muted">
           {cycling ? "cycle running — no changes yet" : "no ranked changes to report"}
         </span>
@@ -97,7 +98,7 @@ export function RankedChanges() {
         return (
           <div key={row.key} className="px-3 py-[6px] border-b border-caos-border/50">
             <div className="flex items-center gap-2">
-              <ProvenanceChip prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+              <ConclusionAuthority prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
               {impact ? (
                 <span
                   className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"

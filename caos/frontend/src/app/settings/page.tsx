@@ -11,7 +11,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
@@ -19,7 +19,7 @@ import { ScopeLabel } from "@/components/shared/ScopeLabel";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
-import { getAnalystSettings, getSettings, saveAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
+import { getAnalystSettings, getSettings, patchAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
@@ -189,6 +189,15 @@ function Settings() {
       .then((s) => {
         setAnalystSettings(s);
         setSendersRaw((s.email_intelligence?.approved_senders || []).join("\n"));
+        const workspace = s.workspace || {};
+        const serverPrefs = workspace.research_prefs;
+        if (serverPrefs && typeof serverPrefs === "object") {
+          setPrefs({ ...DEFAULT_PREFS, ...(serverPrefs as Partial<ResearchPrefs>) });
+        }
+        if (typeof workspace.model_mode === "string" && ["test", "lite", "balanced", "max"].includes(workspace.model_mode)) {
+          setMode(workspace.model_mode as ModelMode);
+        }
+        if (typeof workspace.query_model === "string") setQueryModel(workspace.query_model);
         setAnalystLoaded(true);
       })
       .catch(() => setAnalystLoadErr(true));
@@ -228,7 +237,13 @@ function Settings() {
     setAnalystSettings(next);
     setAnalystErr(null);
     setAnalystRetry(null);
-    saveAnalystSettings(next).then(() => {
+    patchAnalystSettings(analystSettings.revision ?? 0, {
+      model_lanes: next.model_lanes,
+      email_intelligence: next.email_intelligence,
+      role_view: next.role_view,
+      workspace: next.workspace,
+    }).then((savedSettings) => {
+      setAnalystSettings(savedSettings);
       setAnalystSaved(true);
       window.setTimeout(() => setAnalystSaved(false), 2000);
     }).catch((e) => {
@@ -280,10 +295,31 @@ function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const saveAll = () => {
+    if (!analystLoaded) return;
+    savePrefs(prefs);
+    saveMode(mode);
+    localStorage.setItem("caos_query_model", queryModel);
+    saveAnalyst({
+      ...analystSettings,
+      workspace: {
+        ...(analystSettings.workspace || {}),
+        research_prefs: prefs,
+        model_mode: mode,
+        query_model: queryModel,
+      },
+    });
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2000);
+  };
+
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
+      primaryAction={<button type="button" onClick={saveAll} disabled={!analystLoaded} className="caos-primary-action focus-ring disabled:opacity-40">Save changes</button>}
+      utilityLabel="Settings utilities"
+      utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
       contextualControls={
         cfg ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
@@ -620,7 +656,7 @@ function Settings() {
           {tab === "portfolios" ? <PortfoliosPanel /> : null}
         </div>
       </div>
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 

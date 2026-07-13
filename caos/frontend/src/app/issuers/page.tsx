@@ -19,9 +19,11 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { BatchBar } from "@/components/shared/BatchBar";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
+import { contextHref, useAnalysisContext, type AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
 
 export default function IssuersPage() {
   return (
@@ -42,6 +44,7 @@ const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sec
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
+  const analysis = useAnalysisContext({ name: "Coverage universe" });
   const router = useRouter();
   const { openProfile } = useIssuerProfileOverlay();
   const [issuers, setIssuers] = useState<Issuer[]>([]);
@@ -73,6 +76,7 @@ function IssuersDirectory() {
   // BatchBar selection (WP-10). Pruned against `issuers` below so a stale id
   // never survives a reload/search that drops that row from the register.
   const [selected, setSelected] = useState<string[]>([]);
+  const hydratedContext = useRef<string | null>(null);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -121,6 +125,68 @@ function IssuersDirectory() {
     const q = new URLSearchParams(window.location.search).get("q");
     if (q) setQuery(q);
   }, []);
+
+  // Restore and persist only the validated directory state. Legacy context
+  // `filters`/`selected` remain readable server-side, but this route writes the
+  // discriminated `issuers` surface contract from now on.
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || hydratedContext.current === context.id) return;
+    hydratedContext.current = context.id;
+    const saved = context.surface_state.issuers;
+    if (!new URLSearchParams(window.location.search).get("q") && saved?.query) setQuery(saved.query);
+    if (saved?.selected_ids) setSelected(saved.selected_ids);
+    if (saved?.filters) setFilters(saved.filters as FilterState);
+    if (saved?.sort) {
+      const [col, dir] = saved.sort.split(":");
+      if (SORTABLE.has(col) && (dir === "asc" || dir === "desc")) setSort({ col, dir });
+    }
+  }, [analysis.context]);
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || hydratedContext.current !== context.id) return;
+    const issuerIds = Array.from(new Set([...context.issuer_ids, ...selected]));
+    const persistedFilters = Object.fromEntries(
+      Object.entries(filters).filter((entry): entry is [string, string[]] => Array.isArray(entry[1])),
+    ) as NonNullable<AnalysisSurfaceStateEntry["filters"]>;
+    const nextSurface = {
+      query: query || null,
+      selected_ids: selected,
+      sort: sort ? `${sort.col}:${sort.dir}` : null,
+      view: "directory",
+      filters: persistedFilters,
+    };
+    if (
+      issuerIds.length === context.issuer_ids.length
+      && issuerIds.every((id, index) => id === context.issuer_ids[index])
+      && JSON.stringify(context.surface_state.issuers ?? {}) === JSON.stringify(nextSurface)
+    ) return;
+    const timer = window.setTimeout(() => {
+      void analysis.patch({
+        issuer_ids: issuerIds,
+        surface_state: {
+          ...context.surface_state,
+          issuers: nextSurface,
+        },
+      }).catch(() => {});
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [analysis, filters, query, selected, sort]);
+
+  const openIssuer = (issuerId: string) => {
+    const context = analysis.context;
+    if (context) {
+      void analysis.patch({
+        issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
+        surface_state: {
+          ...context.surface_state,
+          issuers: { ...(context.surface_state.issuers ?? {}), active_id: issuerId, selected_ids: selected },
+        },
+      }).catch(() => {});
+    }
+    openProfile(issuerId);
+  };
 
   // Drop any selected id that's no longer in the register (search/reload
   // swapped the row set out from under it) — a batch action must never run
@@ -218,13 +284,13 @@ function IssuersDirectory() {
         <ConceptNav compact />
         <span className="h-4 w-px bg-caos-border shrink-0" />
         <Link
-          href="/sponsors"
+          href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           SPONSORS
         </Link>
         <Link
-          href="/upload"
+          href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           UPLOAD
@@ -234,7 +300,7 @@ function IssuersDirectory() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
         <>
           <span className="flex items-center gap-2 shrink-0">
@@ -285,7 +351,7 @@ function IssuersDirectory() {
           <ConceptNav />
           <span className="h-4 w-px bg-caos-border shrink-0" />
           <Link
-            href="/upload"
+            href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
             className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
           >
             UPLOAD DOCUMENTS
@@ -294,6 +360,12 @@ function IssuersDirectory() {
       }
       narrowContract={narrowContract}
     >
+      <WorkbenchToolbar
+        title="Coverage register"
+        description="Filter, select and route covered names without losing issuer context."
+        count={summaryLabel}
+        viewLabel="Shared worklist"
+      />
       {/* degraded banner — registry fetch failed; demo coverage shown is NOT live */}
       {degraded ? (
         <div
@@ -477,7 +549,7 @@ function IssuersDirectory() {
                       href={issuerProfileHref(issuer)}
                       onClick={(e) => {
                         e.preventDefault();
-                        openProfile(issuer.id);
+                        openIssuer(issuer.id);
                       }}
                       aria-label={`Open profile for ${issuer.name}`}
                       className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
@@ -514,7 +586,9 @@ function IssuersDirectory() {
                   <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
                   <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
                     <button
-                      onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
+                      onClick={() => router.push(analysis.context
+                        ? contextHref("/upload", analysis.context.id, { issuer: issuer.id })
+                        : "/upload?issuer=" + encodeURIComponent(issuer.id))}
                       aria-label={`Upload documents for ${issuer.name}`}
                       className="inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
                     >
@@ -534,11 +608,11 @@ function IssuersDirectory() {
           onClose={() => setShowForm(false)}
           onCreated={(issuer) => {
             setIssuers((prev) => [...prev, issuer]);
-            openProfile(issuer.id);
+            openIssuer(issuer.id);
           }}
         />
       ) : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 

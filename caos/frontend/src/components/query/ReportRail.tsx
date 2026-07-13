@@ -70,7 +70,7 @@ export function ReportRail({ sections, onRemove, onExport, onClear, onOpenChunk 
         ) : (
           <ul className="p-2 flex flex-col gap-2">
             {sections.map((s) => (
-              <li key={s.id} className="rounded-md border border-caos-border bg-caos-bg p-2.5" style={{ borderLeft: `2px solid ${KIND_COLOR[s.kind]}` }}>
+              <li key={s.id} className="rounded-md border bg-caos-bg p-2.5" style={{ borderColor: `${KIND_COLOR[s.kind]}66` }}>
                 <div className="flex items-center gap-1.5">
                   <span className="tabular text-caos-3xs uppercase tracking-wider font-mono" style={{ color: KIND_COLOR[s.kind] }}>{kindLabel(s.kind)}</span>
                   <button

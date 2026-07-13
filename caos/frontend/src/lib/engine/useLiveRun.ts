@@ -49,6 +49,8 @@ export interface LiveRunState {
   // click-to-source; empty when no live run exists.
   liveEvidence: Record<string, LiveEvidence>;
   runId: string | null;
+  /** Source observation time for decision-state disclosure. */
+  asOf?: string | null;
   committeeStatus: string | null;
   // CP-5C semantic committee-review findings for this run (empty when the
   // council is disabled or no live run exists).
@@ -68,7 +70,7 @@ export interface LiveRunState {
 type LiveRunValue = Omit<LiveRunState, "phase">;
 
 const EMPTY: LiveRunValue = {
-  liveOuts: {}, liveStatus: {}, liveEvidence: {}, runId: null, committeeStatus: null,
+  liveOuts: {}, liveStatus: {}, liveEvidence: {}, runId: null, asOf: null, committeeStatus: null,
   council: [], loading: false,
 };
 
@@ -119,7 +121,7 @@ export function useLiveRun(issuerId: string): LiveRunState {
         council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
       }
       return {
-        liveOuts, liveStatus, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
+        liveOuts, liveStatus, liveEvidence, runId: latest.id, asOf: latest.as_of_date ?? latest.created_at, committeeStatus: latest.committee_status,
         council, loading: false,
       };
     },

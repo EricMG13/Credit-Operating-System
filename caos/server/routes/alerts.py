@@ -15,6 +15,7 @@ alert_key is always allowed regardless of the state it opens at.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,7 +24,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import AlertState, get_db
+from database import AlertEvent, AlertState, get_db
+from engine import pipeline
 from identity import CallerIdentity, get_identity
 
 router = APIRouter()
@@ -71,6 +73,109 @@ class AlertStateOut(BaseModel):
     resolution_note: Optional[str]
 
     model_config = {"from_attributes": True}
+
+
+class AlertEventOut(BaseModel):
+    id: str
+    alert_key: str
+    issuer_id: Optional[str]
+    run_id: Optional[str]
+    kind: str
+    title: str
+    impact: str
+    evidence: dict
+    authority: dict
+    state: str
+    assignee: Optional[str]
+    note: Optional[str]
+    resolved_at: Optional[datetime]
+    resolution_note: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AlertEventPatch(BaseModel):
+    state: str = Field(min_length=1, max_length=16)
+    assignee: Optional[str] = Field(default=None, max_length=120)
+    note: Optional[str] = Field(default=None, max_length=2000)
+    resolution_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+def _alert_event_out(row: AlertEvent, state_row: Optional[AlertState]) -> AlertEventOut:
+    return AlertEventOut(
+        id=row.id,
+        alert_key=row.alert_key,
+        issuer_id=row.issuer_id,
+        run_id=row.run_id,
+        kind=row.kind,
+        title=row.title,
+        impact=row.impact,
+        evidence=row.evidence or {},
+        authority=row.authority or {},
+        state=state_row.state if state_row else "open",
+        assignee=state_row.assignee if state_row else None,
+        note=state_row.note if state_row else None,
+        resolved_at=state_row.resolved_at if state_row else None,
+        resolution_note=state_row.resolution_note if state_row else None,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _draft_alerts(draft: dict) -> list[dict]:
+    def impact_label(value: object) -> str:
+        try:
+            severity = float(value or 0)
+        except (TypeError, ValueError):
+            return "unknown"
+        return f"{severity:.1f}σ" if math.isfinite(severity) else "unknown"
+
+    generated_at = draft.get("generated_at")
+    rows: list[dict] = []
+    for section in draft.get("sections") or []:
+        issuer_id = section.get("issuer_id")
+        issuer_name = section.get("issuer_name") or "Unknown issuer"
+        for claim in section.get("claims") or []:
+            kind = str(claim.get("anomaly_kind") or "model-claim")
+            rows.append({
+                "key": f"{generated_at or 'unknown'}:{issuer_id or '_unknown'}:{kind}:claim",
+                "issuer_id": issuer_id,
+                "kind": kind,
+                "title": str(claim.get("text") or f"{issuer_name} model claim"),
+                "impact": impact_label(claim.get("anomaly_severity")),
+                "method": "modelled",
+                "source_ids": list(dict.fromkeys([
+                    *(claim.get("chunk_ids") or []),
+                    *(claim.get("fact_ids") or []),
+                ])),
+                "evidence": {
+                    "issuer_name": issuer_name,
+                    "severity": claim.get("anomaly_severity"),
+                    "chunk_ids": claim.get("chunk_ids") or [],
+                    "fact_ids": claim.get("fact_ids") or [],
+                },
+            })
+        for bullet in section.get("deterministic_bullets") or []:
+            kind = str(bullet.get("kind") or "derived-anomaly")
+            metric = bullet.get("metric") or "bullet"
+            direction = f" {bullet.get('direction')}" if bullet.get("direction") else ""
+            rows.append({
+                "key": f"{generated_at or 'unknown'}:{issuer_id or '_unknown'}:{kind}:{metric}",
+                "issuer_id": issuer_id,
+                "kind": kind,
+                "title": f"{issuer_name} · {kind} {metric}{direction}".strip(),
+                "impact": impact_label(bullet.get("severity")),
+                "method": "derived",
+                "source_ids": [bullet["chunk_id"]] if bullet.get("chunk_id") else [],
+                "evidence": {
+                    "issuer_name": issuer_name,
+                    "severity": bullet.get("severity"),
+                    "metric": bullet.get("metric"),
+                    "direction": bullet.get("direction"),
+                    "context": bullet.get("context") or {},
+                },
+            })
+    return rows
 
 
 @router.post("/state", response_model=AlertStateOut)
@@ -132,3 +237,106 @@ async def list_alert_states(
         q = q.where(AlertState.alert_key == alert_key)
     rows = await db.execute(q)
     return [AlertStateOut.model_validate(r) for r in rows.scalars().all()]
+
+
+@router.post("/refresh", response_model=List[AlertEventOut])
+async def refresh_alert_events(
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Materialize the latest completed Watchtower draft into durable events."""
+    if not rate_limit.hit(f"alert-refresh:{caller.id}", max_attempts=12, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert refresh rate limit reached.")
+    draft = await pipeline.latest_draft(db)
+    if not draft:
+        return []
+    generated_at = draft.get("generated_at")
+    try:
+        as_of = datetime.fromisoformat(generated_at.replace("Z", "+00:00")) if generated_at else datetime.now(timezone.utc)
+    except (TypeError, ValueError):
+        as_of = datetime.now(timezone.utc)
+    existing = {
+        row.alert_key: row for row in (await db.execute(select(AlertEvent).where(
+            AlertEvent.alert_key.in_([item["key"] for item in _draft_alerts(draft)] or ["__none__"])
+        ))).scalars().all()
+    }
+    events: list[AlertEvent] = []
+    for item in _draft_alerts(draft):
+        row = existing.get(item["key"])
+        if row is None:
+            row = AlertEvent(
+                alert_key=item["key"],
+                issuer_id=item["issuer_id"],
+                kind=item["kind"],
+                title=item["title"],
+                impact=item["impact"],
+                evidence=item["evidence"],
+                authority={
+                    "origin": "live",
+                    "method": item["method"],
+                    "freshness": "current",
+                    "as_of": as_of.isoformat(),
+                    "source_ids": item["source_ids"],
+                    "run_id": None,
+                    "version_id": None,
+                    "confidence": None,
+                    "approval_state": "draft",
+                    "analyst_override": None,
+                },
+                created_by=caller.id,
+                created_at=as_of,
+                updated_at=as_of,
+            )
+            db.add(row)
+            await db.flush()
+            row.authority = {**row.authority, "version_id": row.id}
+        events.append(row)
+    states = {
+        row.alert_key: row for row in (await db.execute(select(AlertState).where(
+            AlertState.alert_key.in_([row.alert_key for row in events] or ["__none__"])
+        ))).scalars().all()
+    }
+    return [_alert_event_out(row, states.get(row.alert_key)) for row in events]
+
+
+@router.get("/events", response_model=List[AlertEventOut])
+async def list_alert_events(
+    event_state: Optional[str] = Query(default=None, alias="state", max_length=16),
+    db: AsyncSession = Depends(get_db, scope="function"),
+    _caller: CallerIdentity = Depends(get_identity),
+):
+    events = (await db.execute(select(AlertEvent).order_by(
+        AlertEvent.created_at.desc()
+    ).limit(_LIST_CAP))).scalars().all()
+    states = {
+        row.alert_key: row for row in (await db.execute(select(AlertState).where(
+            AlertState.alert_key.in_([row.alert_key for row in events] or ["__none__"])
+        ))).scalars().all()
+    }
+    output = [_alert_event_out(row, states.get(row.alert_key)) for row in events]
+    return [row for row in output if event_state is None or row.state == event_state]
+
+
+@router.patch("/events/{event_id}", response_model=AlertEventOut)
+async def patch_alert_event(
+    event_id: str,
+    body: AlertEventPatch,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    event = await db.get(AlertEvent, event_id)
+    if event is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
+    state_row = await upsert_alert_state(
+        AlertStateUpsert(
+            alert_key=event.alert_key,
+            state=body.state,
+            assignee=body.assignee,
+            note=body.note,
+            resolution_note=body.resolution_note,
+        ),
+        db=db,
+        caller=caller,
+    )
+    persisted = await db.get(AlertState, state_row.id)
+    return _alert_event_out(event, persisted)

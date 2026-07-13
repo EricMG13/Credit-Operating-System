@@ -108,7 +108,7 @@ function ModelCommentary({
       </div>
 
       {overlay.commentary && (
-        <div className="text-caos-sm text-caos-text leading-relaxed font-sans border-l-2 pl-2.5" style={{ borderColor: `${MODEL_HUE}66` }}>
+        <div className="text-caos-sm text-caos-text leading-relaxed font-sans rounded border p-2.5" style={{ borderColor: `${MODEL_HUE}55`, backgroundColor: `${MODEL_HUE}08` }}>
           {overlay.commentary}
         </div>
       )}
@@ -234,7 +234,7 @@ function AnswerNotes({ graph }: { graph: GraphResult | null }) {
           </div>
           <ul className="flex flex-col gap-1.5">
             {graph.caveats.map((c, i) => (
-              <li key={i} className="text-caos-2xs text-caos-muted font-mono leading-normal border-l-2 border-caos-warning/40 pl-2">
+              <li key={i} className="text-caos-2xs text-caos-muted font-mono leading-normal rounded border border-caos-warning/30 bg-caos-warning/5 px-2 py-1">
                 {c}
               </li>
             ))}
@@ -284,7 +284,7 @@ function NodeCard({ node, onClear, onOpenChunk }: { node: GraphNode; onClear: ()
         {node.analyst_excerpt && (
           <div>
             <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Analyst excerpt</div>
-            <blockquote className="text-caos-xs text-caos-text/90 leading-relaxed border-l-2 border-caos-accent/50 pl-2.5 font-sans">
+            <blockquote className="text-caos-xs text-caos-text/90 leading-relaxed rounded border border-caos-accent/40 bg-caos-accent/5 p-2.5 font-sans">
               {node.analyst_excerpt}
             </blockquote>
           </div>

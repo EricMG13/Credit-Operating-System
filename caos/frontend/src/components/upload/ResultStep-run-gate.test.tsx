@@ -23,7 +23,7 @@ afterEach(() => {
 const ISSUER: Issuer = { id: "i1", name: "Acme Co" };
 
 const BASE_PROPS = {
-  outcomes: [{ name: "a.pdf", result: { document_id: "d1", issuer_id: "i1", minio_key: "k", chunks_created: 3, message: "ok" } }],
+  outcomes: [{ name: "a.pdf", result: { document_id: "d1", source_manifest_id: "sm1", issuer_id: "i1", minio_key: "k", chunks_created: 3, message: "ok" } }],
   selectedIssuer: ISSUER,
   modeMeta: { k: "full", code: "R-IC", label: "Full IC Committee", desc: "" },
   okCount: 1,
