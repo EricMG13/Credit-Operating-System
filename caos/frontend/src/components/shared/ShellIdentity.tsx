@@ -1,17 +1,9 @@
 "use client";
 
-// The repeated identity cluster for concept sub-headers: "← Directory"
-// back-link, the ConceptNav switcher, then an optional CP-code tag and page
-// title. Previously copy-pasted (Monitor, Upload) or missing entirely
-// (Reports). The title gets `min-w-0 truncate` so under header squeeze the
-// TEXT shrinks instead of hard-clipping trailing chrome like Settings and the
-// analyst badge (RT-2026-07-11-60).
-
-import Link from "next/link";
 import { ConceptNav } from "./ConceptNav";
 
 function Divider() {
-  return <div className="h-4 w-px bg-caos-border" aria-hidden="true" />;
+  return <div className="h-4 w-px shrink-0 bg-caos-border" aria-hidden="true" />;
 }
 
 export function ShellIdentity({
@@ -19,6 +11,8 @@ export function ShellIdentity({
   badges,
   title,
   children,
+  showConceptNav = true,
+  titleAs: Title = "span",
 }: {
   /** Small uppercase CP-code tag, e.g. "CP-MON" or "CP-0 · L0". */
   tag?: string;
@@ -29,17 +23,14 @@ export function ShellIdentity({
   title?: React.ReactNode;
   /** Nice-to-have identity content after the title; first to be clipped. */
   children?: React.ReactNode;
+  /** Overlays already sit inside a routed surface and do not repeat global concept navigation. */
+  showConceptNav?: boolean;
+  /** Preserve the route's document outline when the identity is also its visible heading. */
+  titleAs?: "span" | "h1" | "h2";
 }) {
   return (
-    <>
-      <Link
-        href="/issuers"
-        className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap focus-ring"
-      >
-        ← Directory
-      </Link>
-      <Divider />
-      <ConceptNav compact />
+    <div className="flex min-w-0 items-center gap-3">
+      {showConceptNav ? <ConceptNav compact /> : null}
       {tag && (
         <>
           <Divider />
@@ -50,9 +41,9 @@ export function ShellIdentity({
       )}
       {badges}
       {title && (
-        <span className="text-caos-text font-medium whitespace-nowrap min-w-0 truncate">{title}</span>
+        <Title className="text-caos-sm font-semibold text-caos-text whitespace-nowrap min-w-0 truncate m-0">{title}</Title>
       )}
       {children}
-    </>
+    </div>
   );
 }

@@ -11,7 +11,7 @@ export function ModalBackdrop({
   children,
 }: {
   onClose: () => void;
-  align?: "center" | "end";
+  align?: "center" | "end" | "top";
   padded?: boolean;
   className?: string;
   children: ReactNode;
@@ -20,7 +20,7 @@ export function ModalBackdrop({
     <div
       className={
         "fixed inset-0 z-modal flex " +
-        (align === "end" ? "justify-end" : "items-center justify-center") +
+        (align === "end" ? "justify-end" : align === "top" ? "items-start justify-center pt-[12vh]" : "items-center justify-center") +
         (padded ? " p-6" : "") +
         (className ? " " + className : "")
       }

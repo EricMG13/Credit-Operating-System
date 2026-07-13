@@ -37,7 +37,7 @@ import {
 } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import Link from "next/link";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromModelEngine } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
@@ -553,19 +553,15 @@ function ModelBuilder() {
   return (
     <EnterprisePage kind="editor"
       identity={
-        <>
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Directory
-          </Link>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          {isReference ? (
+        <ShellIdentity
+          tag="MODEL"
+          badges={isReference ? (
             <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
           ) : eng.runId ? (
             <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
           ) : null}
-          <span className="text-caos-xl text-caos-text font-medium truncate min-w-0">{issuerName} — cash-flow model</span>
+          title={`${issuerName} — cash-flow model`}
+        >
           <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} />
           {/* Save status — paired with the provenance badge since both describe model state */}
           {restoreError ? (
@@ -618,7 +614,7 @@ function ModelBuilder() {
           ) : savedAt ? (
             <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
           ) : null}
-        </>
+        </ShellIdentity>
       }
       primaryAction={
         <button

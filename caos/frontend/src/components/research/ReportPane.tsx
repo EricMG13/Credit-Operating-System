@@ -12,6 +12,7 @@ import { Panel } from "@/components/shared/Panel";
 import { labelCls } from "@/components/shared/styles";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { AuthorityBlock } from "@/components/shared/AuthorityBlock";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { fromResearchResult } from "@/lib/provenance";
 import type { ResearchResult, ResearchProgress } from "@/lib/api";
 
@@ -163,25 +164,14 @@ function RunningView({
 
 function ErrorView({ error, hasPrev, onRestorePrev }: { error: string; hasPrev: boolean; onRestorePrev?: () => void }) {
   return (
-    <div role="alert" className="caos-enter h-full overflow-auto px-6 py-8">
-      <div className="w-full max-w-sm mx-auto">
-        <div className="border-b pb-2 mb-4" style={{ borderColor: "var(--caos-critical)" }}>
-          <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-critical-bright)" }}>Research failed</span>
-        </div>
-        <p className="text-caos-sm text-caos-text leading-snug">{error}</p>
-        <p className="text-caos-2xs text-caos-muted leading-snug mt-3">Adjust the brief and run again.</p>
-        {/* A failed rerun must not leave the analyst with nothing — the prior
-            report is retained in state and one click from here (H5). */}
-        {hasPrev && onRestorePrev && (
-          <button
-            type="button"
-            onClick={onRestorePrev}
-            className="tabular text-caos-xs mt-4 px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
-          >
-            View previous report
-          </button>
-        )}
-      </div>
+    <div className="caos-enter h-full overflow-auto px-6 py-8">
+      <SurfaceState
+        kind="error"
+        title="Research failed"
+        detail={`${error} Adjust the brief and run again.`}
+        className="w-full max-w-sm mx-auto"
+        primaryAction={hasPrev && onRestorePrev ? <button type="button" onClick={onRestorePrev} className="caos-action-primary focus-ring">View previous report</button> : undefined}
+      />
     </div>
   );
 }
@@ -266,23 +256,25 @@ function EmptyView() {
   return (
     <div className="h-full overflow-auto px-6 py-8">
       <div className="w-full max-w-sm mx-auto">
-        <div className="flex items-baseline justify-between border-b border-caos-border pb-2 mb-4">
-          <span className="tabular text-caos-xl text-caos-text">No report yet</span>
-          <span className="tabular text-caos-2xs text-caos-muted">DRAFT</span>
-        </div>
-        <p className="text-caos-sm text-caos-muted leading-snug mb-5">
-          Fill the brief, then run. The finished report files here as a paper tear-sheet.
-        </p>
-        <div className={labelCls + " mb-1"}>The deliverable</div>
-        <ol className="flex flex-col">
-          {DELIVERABLE.map(([h, d], i) => (
-            <li key={h} className="list-none flex items-baseline gap-3 py-2 border-b border-caos-border/50 last:border-0">
-              <span className="tabular text-caos-2xs text-caos-muted w-5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
-              <span className="tabular text-caos-sm text-caos-text shrink-0">{h}</span>
-              <span className="text-caos-2xs text-caos-muted flex-1 min-w-0 text-right truncate">{d}</span>
-            </li>
-          ))}
-        </ol>
+        <SurfaceState
+          kind="empty"
+          title="No report yet"
+          detail="Complete the brief and run research. The finished deliverable files here as a paper tear-sheet."
+          supporting={
+            <div>
+              <div className={labelCls + " mb-1"}>Expected deliverable</div>
+              <ol className="flex flex-col">
+                {DELIVERABLE.map(([h, d], i) => (
+                  <li key={h} className="list-none flex items-baseline gap-3 py-2 border-b border-caos-border/50 last:border-0">
+                    <span className="tabular text-caos-2xs text-caos-muted w-5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="tabular text-caos-sm text-caos-text shrink-0">{h}</span>
+                    <span className="text-caos-2xs text-caos-muted flex-1 min-w-0 text-right truncate">{d}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          }
+        />
       </div>
     </div>
   );

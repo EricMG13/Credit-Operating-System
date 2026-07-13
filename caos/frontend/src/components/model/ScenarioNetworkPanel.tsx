@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { propagateScenario, type ScenarioPropagationResult } from "@/lib/api";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 
 const STATUS = {
   computed: { glyph: "success" as const, label: "COMPUTED", color: "var(--caos-success)" },
@@ -31,23 +32,32 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
 
   return (
     <section className="border-t border-caos-border pt-2" aria-labelledby="scenario-network-title">
-      <div className="flex items-center gap-2 flex-wrap">
-        <h3 id="scenario-network-title" className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mr-auto">
-          Scenario network · cross-module propagation
-        </h3>
-        <label className="tabular text-caos-2xs text-caos-muted">
-          EBITDA %
-          <input type="number" min={-90} max={50} value={ebitdaPct} onChange={(e) => setEbitdaPct(Number(e.target.value))} className="ml-1 w-14 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
-        </label>
-        <label className="tabular text-caos-2xs text-caos-muted">
-          RATE BP
-          <input type="number" min={-500} max={1000} value={rateBps} onChange={(e) => setRateBps(Number(e.target.value))} className="ml-1 w-16 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
-        </label>
-        <button type="button" onClick={run} disabled={!runId || busy} className="tabular text-caos-2xs min-h-[24px] px-2 rounded border border-caos-accent text-caos-accent disabled:opacity-40 transition-caos focus-ring">
-          {busy ? "PROPAGATING…" : "PROPAGATE"}
-        </button>
-      </div>
-      {!runId ? <div className="tabular text-caos-xs text-caos-muted mt-2">A completed run is required to propagate across modules.</div> : null}
+      <h3 id="scenario-network-title" className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+        Scenario network · cross-module propagation
+      </h3>
+      {!runId ? (
+        <SurfaceState
+          kind="unavailable"
+          title="Completed run required"
+          detail="Run the issuer analysis before propagating a scenario across modules."
+          compact
+          className="mt-2"
+        />
+      ) : (
+        <div className="mt-2 flex items-center justify-end gap-2 flex-wrap">
+          <label className="tabular text-caos-2xs text-caos-muted">
+            EBITDA %
+            <input type="number" min={-90} max={50} value={ebitdaPct} onChange={(e) => setEbitdaPct(Number(e.target.value))} className="ml-1 w-14 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
+          </label>
+          <label className="tabular text-caos-2xs text-caos-muted">
+            RATE BP
+            <input type="number" min={-500} max={1000} value={rateBps} onChange={(e) => setRateBps(Number(e.target.value))} className="ml-1 w-16 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
+          </label>
+          <button type="button" onClick={run} disabled={busy} className="tabular text-caos-2xs min-h-[24px] px-2 rounded border border-caos-accent text-caos-accent disabled:opacity-40 transition-caos focus-ring">
+            {busy ? "PROPAGATING…" : "PROPAGATE"}
+          </button>
+        </div>
+      )}
       {error ? <div role="alert" className="tabular text-caos-xs mt-2" style={{ color: "var(--caos-critical)" }}>Couldn’t propagate this scenario. Retry without changing the current model.</div> : null}
       {result ? (
         <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1" aria-label="Scenario propagation chain">

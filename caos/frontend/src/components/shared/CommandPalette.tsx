@@ -16,6 +16,8 @@ import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 import { useAsk } from "./Ask";
 import { useRoleView } from "./RoleViewProvider";
 import type { RoleView } from "@/lib/api";
+import { ModalBackdrop } from "./ModalBackdrop";
+import { SurfaceState } from "./SurfaceState";
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -25,12 +27,20 @@ export function CommandPalette() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setOpen((v) => !v);
+        if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+        setOpen(!open);
       }
     };
+    const onModalOpen = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "palette") setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    window.addEventListener("caos:modal-open", onModalOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("caos:modal-open", onModalOpen);
+    };
+  }, [open]);
 
   if (!open) return null;
   return <PalettePanel onClose={() => setOpen(false)} />;
@@ -45,6 +55,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
 
   const [query, setQuery] = useState("");
   const [issuers, setIssuers] = useState<IssuerRow[]>([]);
+  const [issuerError, setIssuerError] = useState(false);
   const [active, setActive] = useState(0);
 
   // Issuer search — 2+ chars, 150ms debounce, top 6 (GlobalIssuerSearch's
@@ -53,6 +64,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
     const q = query.trim();
     if (q.length < 2) {
       setIssuers([]);
+      setIssuerError(false);
       return;
     }
     let stale = false;
@@ -68,9 +80,13 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
               sub: [i.ticker, i.sector].filter(Boolean).join(" · "),
             })),
           );
+          setIssuerError(false);
         })
         .catch(() => {
-          if (!stale) setIssuers([]);
+          if (!stale) {
+            setIssuers([]);
+            setIssuerError(true);
+          }
         });
     }, 150);
     return () => {
@@ -132,20 +148,21 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-start justify-center pt-[12vh] bg-black/50">
+    <ModalBackdrop onClose={onClose} align="top">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-[560px] max-w-[92vw] max-h-[64vh] flex flex-col rounded-md border border-caos-border bg-caos-panel shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        className="caos-enter w-[560px] max-w-[92vw] max-h-[64vh] flex flex-col rounded-md border border-caos-border bg-caos-panel overflow-hidden"
+        style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="flex items-center gap-2 border-b border-caos-border px-3">
           <span aria-hidden="true" className="tabular text-caos-xs text-caos-muted">
             ⌘K
           </span>
           <input
-            autoFocus
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-listbox"
@@ -161,6 +178,11 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
           </span>
         </div>
         <ul id="palette-listbox" role="listbox" aria-label="Results" className="flex-1 overflow-y-auto py-1">
+          {issuerError ? (
+            <li role="none" className="px-2 py-1">
+              <SurfaceState kind="offline" title="Issuer lookup unavailable" detail="Page and action commands remain available." compact />
+            </li>
+          ) : null}
           {rows.map((row, i) => (
             <li
               key={row.kind + (row.kind === "page" ? row.href : row.kind === "issuer" ? row.id : row.kind === "action" ? row.id : "ask")}
@@ -216,6 +238,6 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </ul>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

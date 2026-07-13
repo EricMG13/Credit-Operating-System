@@ -14,7 +14,7 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
-import { RecoveryState } from "@/components/shared/RecoveryState";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
   getSponsors, getSponsorTrackRecord,
@@ -139,16 +139,24 @@ function SponsorsView() {
         {/* sponsor register */}
         <Panel title="Sponsors · by coverage" className="w-80 shrink-0">
           {sponsors === null ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Loading…</p>
+            <div className="p-3"><SurfaceState kind="loading" title="Loading sponsor register" compact /></div>
           ) : sponsorsError ? (
-            <div className="p-3"><RecoveryState title="Sponsor register unavailable" detail="The service could not be reached. No conclusion was drawn from the missing response." onRetry={loadSponsors} /></div>
+            <div className="p-3">
+              <SurfaceState
+                kind="offline"
+                title="Sponsor register unavailable"
+                detail="The service could not be reached. No conclusion was drawn from the missing response."
+                primaryAction={<button type="button" onClick={loadSponsors} className="caos-action-primary focus-ring">Retry</button>}
+              />
+            </div>
           ) : sponsors.length === 0 ? (
-            <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <p className="tabular text-caos-sm text-caos-muted m-0">No sponsors on file.</p>
-              <p className="tabular text-caos-2xs text-caos-muted m-0">
-                Set “Sponsor / PE owner” when creating an issuer — track records aggregate CP-2D reviews across a sponsor’s names.
-              </p>
-              <Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="mt-2 self-start caos-secondary-action focus-ring no-underline">Open issuer directory</Link>
+            <div className="p-3">
+              <SurfaceState
+                kind="empty"
+                title="No sponsors on file"
+                detail="Set Sponsor / PE owner on an issuer. Track records aggregate observed CP-2D reviews across that sponsor’s covered names."
+                primaryAction={<Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="caos-secondary-action focus-ring no-underline">Open issuer directory</Link>}
+              />
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-caos-border/30">
@@ -182,11 +190,19 @@ function SponsorsView() {
             : undefined}
         >
           {!selected ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Select a sponsor.</p>
+            <div className="p-3"><SurfaceState kind="empty" title="Select a sponsor" detail="Choose a covered sponsor to inspect recurring governance flags and source health." compact /></div>
           ) : recordLoading ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Loading…</p>
+            <div className="p-3"><SurfaceState kind="loading" title={`Loading ${selected}`} detail="Retrieving the persisted cross-name CP-2D record." compact /></div>
           ) : recordError || !record ? (
-            <div className="p-3"><RecoveryState title="Sponsor record unavailable" detail="The selected sponsor record could not be loaded. Your current sponsor selection is preserved." preservedWork={selected} onRetry={() => setRecordRetry((n) => n + 1)} /></div>
+            <div className="p-3">
+              <SurfaceState
+                kind="unavailable"
+                title="Sponsor record unavailable"
+                detail="The selected sponsor record could not be loaded. The current sponsor selection is preserved."
+                supporting={<p className="tabular text-caos-xs text-caos-text">Preserved: {selected}</p>}
+                primaryAction={<button type="button" onClick={() => setRecordRetry((n) => n + 1)} className="caos-action-primary focus-ring">Retry</button>}
+              />
+            </div>
           ) : (
             <TrackRecord record={record} onOpenIssuer={openSponsorIssuer} contextId={analysis.context?.id} />
           )}

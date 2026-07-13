@@ -59,6 +59,46 @@
       "label": {
         "displayName": "Mono Label",
         "purpose": "Captions, ids, dates, ratings, and tabular financial metadata."
+      },
+      "output-title": {
+        "displayName": "Filed Output Title",
+        "purpose": "21px paper-only report and research deliverable title. Never workspace chrome."
+      },
+      "output-section": {
+        "displayName": "Filed Output Section",
+        "purpose": "14px paper-only section hierarchy for print and filed output."
+      },
+      "output-body": {
+        "displayName": "Filed Output Body",
+        "purpose": "13px paper-only narrative copy with print-readable leading."
+      },
+      "output-meta": {
+        "displayName": "Filed Output Meta",
+        "purpose": "8.5px mono paper-only mastheads, dates, ids, and source metadata."
+      },
+      "output-table-label": {
+        "displayName": "Filed Output Table Label",
+        "purpose": "7.8px mono paper-only compact table headers."
+      },
+      "appendix-micro-scale": {
+        "displayName": "Full Model Appendix Micro Scale",
+        "purpose": "Fit-to-page exception: 14px title, 7px metadata, 6.5px submetadata, and 5.2 to 5.9px table text."
+      },
+      "emergency-scale": {
+        "displayName": "CSS Independent Emergency Scale",
+        "purpose": "Root error boundary only: 1.125rem title, 0.75rem body, and 0.875rem action when application CSS is unavailable."
+      },
+      "mobile-readable-min": {
+        "displayName": "Mobile Readable Minimum",
+        "purpose": "12px forced minimum for compact labels at phone breakpoints."
+      },
+      "narrative-subhead": {
+        "displayName": "Narrative Subhead",
+        "purpose": "0.95rem semantic heading inside rendered Markdown narrative."
+      },
+      "output-watermark": {
+        "displayName": "Filed Output Watermark",
+        "purpose": "26px mono watermark inside filed paper output only."
       }
     },
     "shadows": [

@@ -27,9 +27,11 @@ it("renders computed and degraded nodes with text status, not color alone", asyn
 });
 
 describe("missing run", () => {
-  it("disables propagation and explains the prerequisite", () => {
+  it("compacts unavailable controls and explains the prerequisite", () => {
     render(<ScenarioNetworkPanel issuerId="i" runId={null} />);
-    expect((screen.getByRole("button", { name: "PROPAGATE" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/completed run is required/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "PROPAGATE" })).toBeNull();
+    expect(screen.queryByRole("spinbutton")).toBeNull();
+    expect(screen.getByText(/completed run required/i)).toBeTruthy();
+    expect(screen.getByText(/run the issuer analysis/i)).toBeTruthy();
   });
 });

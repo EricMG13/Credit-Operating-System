@@ -61,6 +61,102 @@ typography:
     fontWeight: 500
     lineHeight: 1.5
     letterSpacing: "0.08em"
+  output-title:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "21px"
+    fontWeight: 650
+    lineHeight: 1.2
+  output-section:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 650
+    lineHeight: 1.3
+  output-body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.6
+  output-meta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "8.5px"
+    fontWeight: 500
+    lineHeight: 1.45
+    letterSpacing: "0.08em"
+  output-table-label:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "7.8px"
+    fontWeight: 600
+    lineHeight: 1.25
+  appendix-title:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 650
+    lineHeight: 1.1
+  appendix-meta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "7px"
+    fontWeight: 500
+    lineHeight: 1.1
+  appendix-submeta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "6.5px"
+    fontWeight: 500
+    lineHeight: 1.1
+  appendix-table-head:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.2px"
+    fontWeight: 600
+    lineHeight: 1.05
+  appendix-table-body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "5.7px"
+    fontWeight: 400
+    lineHeight: 1.08
+  appendix-number:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.3px"
+    fontWeight: 500
+    lineHeight: 1.08
+  appendix-emphasis:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "5.9px"
+    fontWeight: 600
+    lineHeight: 1.08
+  appendix-indent-label:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.4px"
+    fontWeight: 500
+    lineHeight: 1.08
+  emergency-title:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "1.125rem"
+    fontWeight: 700
+    lineHeight: 1.2
+  emergency-action:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "0.875rem"
+    fontWeight: 600
+    lineHeight: 1.2
+  emergency-body:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: 1.5
+  mobile-readable-min:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.5
+  narrative-subhead:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "0.95rem"
+    fontWeight: 600
+    lineHeight: 1.3
+  output-watermark:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "26px"
+    fontWeight: 700
+    lineHeight: 1
 rounded:
   sm: "2px"
   md: "6px"
@@ -164,11 +260,17 @@ The palette is a restrained dark desk: black workspace, cool panels, hairline bo
 - **Body** (400, 10.5px, 1.5): Dense workspace copy, cells, rail text, and tool bodies.
 - **Label** (500, 9px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
 
+### Filed Output Scale
+
+Report Studio, Query exhibits, print views, and research deliverables use a deliberate paper scale rather than workspace labels: **Output Title** (650, 21px), **Output Section** (650, 14px), **Output Body** (400, 13px, 1.6), **Output Meta** (500, 8.5px, mono), **Output Table Label** (600, 7.8px, mono), and a 26px filed-copy watermark. The full-model appendix is an intentional fit-to-page exception with a 14px title, 7px metadata, 6.5px submetadata, and a 5.2–5.9px table scale. These sizes are valid only inside paper/output roots; they must not leak into navigation, buttons, panel headers, or analytical tables. On phone layouts, 12px is the minimum forced size for compact labels. Narrative Markdown may use a 0.95rem semantic subhead. The CSS-independent fatal error boundary separately uses 1.125rem title, 0.75rem body, and 0.875rem action text so it remains legible if the application stylesheet fails.
+
 ### Named Rules
 
 **The Numeric Truth Rule.** Financial values, ids, ratings, dates, and confidence scores use mono tabular styling so columns scan and decimals align.
 
 **The No Display Labels Rule.** Product labels, buttons, table headers, and nav chips never use display sizing or decorative typography.
+
+**The Filed Output Exception.** Paper output may use the explicit filed-output scale above to preserve print hierarchy and committee readability. A larger paper title is not a workspace display label.
 
 ## 4. Elevation
 

@@ -416,3 +416,19 @@ Decision under review: replace the stale deployment grounding with a code-backed
 ### Critic reopen conditions (2026-07-13)
 
 Reopen if a reference/demo artifact is described as live, if an open PR is counted as merged, if a prerequisite-gated control is mislabeled dead, if a control label overstates its server-side effect, if the two failing `main` E2E assertions disappear from the release gate without a green rerun, or if any phase checkbox is closed from documentation evidence alone rather than current code plus its stated verification.
+
+## All-Surface Impeccable Lifecycle Deployment — Critic Reopen (2026-07-13)
+
+Decision under review: apply the approved critique, system-convergence, surface-refinement, production-readiness, and release passes to every analyst route and global overlay while retaining Query, Sector Review, and RV Screener as visual goldens.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-116 | Saboteur | A global style sweep can make every route look alike while erasing the materially different work modes of worklists, analytical dossiers, spreadsheets, and paper output. | High | Resolved in plan | Shared changes are limited to chrome, state grammar, identity, focus, and action hierarchy. `EnterprisePage` surface kinds retain overflow ownership; Model keeps its spreadsheet and Report Studio keeps its paper output. |
+| RT-2026-07-13-117 | New Hire | Introducing a shared `SurfaceState` can become another generic abstraction that hides route-specific recovery requirements. | High | Resolved in plan | The component owns presentation only. Callers supply exact state kind, message, authority, and recovery actions; no component infers success, live origin, or actionability from missing data. |
+| RT-2026-07-13-118 | Saboteur | Compacting Deep-Dive chrome can accidentally hide the full analysis body or remove expert controls under the guise of simplification. | High | Resolved in plan | Summary continues to preserve KPIs, tables, charts, and analysis. Only unavailable controls and low-frequency chrome compact; specialist controls remain directly reachable and keyboard paths are regression-tested. |
+| RT-2026-07-13-119 | Performance Auditor | Chasing raw DOM counts could virtualize Report Studio's print tree or Model's editable grid in ways that break printing, formulas, paste, focus, or assistive technology. | High | Resolved in plan | Optimizations require measured interaction or commit cost. Print completeness, spreadsheet semantics, keyboard focus, paste, and screen-reader behavior are hard gates; no optimization lands on node-count reduction alone. |
+| RT-2026-07-13-120 | Accessibility Auditor | Converging overlays can create nested focus traps or floating controls that intercept finalization actions, repeating the previously found ASK/Sector collision. | High | Resolved in plan | Global overlays retain one active modal owner, restore focus, close on Escape, use the semantic z-index scale, and are tested against sticky finalization bars at desktop, phone, and 200% zoom. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a shared visual change alters a route's work model, if missing data is rendered as observed-empty, if Deep-Dive Summary loses analysis content, if print/model behavior regresses for a DOM-count win, or if any overlay traps focus or occludes a page-level action.

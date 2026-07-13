@@ -384,11 +384,7 @@ function ReportStudio() {
   return (
     <EnterprisePage kind="editor"
       identity={
-        <>
-          {/* Reports was the one surface with no concept nav or Directory
-              back-link at all — ShellIdentity closes that gap. */}
-          <ShellIdentity tag="CP-RENDER" />
-          <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap min-w-0 truncate">Report Studio — committee deliverables</span>
+        <ShellIdentity tag="CP-RENDER" title="Report Studio — committee deliverables">
           {caveatKind === "reference" && eng.runId ? (
             // FE-5: buildReports incorporates eng.anchor when a live run exists on
             // the reference issuer, but the debate/recovery/covenant tabs and the
@@ -468,7 +464,7 @@ function ReportStudio() {
               </button>
             </span>
           ) : null}
-        </>
+        </ShellIdentity>
       }
       primaryAction={
         <button

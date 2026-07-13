@@ -46,7 +46,7 @@ export function Panel({
       className={"bg-caos-panel border border-caos-border rounded-md flex flex-col min-h-0 " + className}
       style={collapsed ? { flex: "none", height: "auto" } : undefined}
     >
-      <div className={`h-8 shrink-0 px-3 flex items-center gap-2 ${collapsed ? "" : "border-b border-caos-border"}`}>
+      <div className={`h-8 shrink-0 px-3 flex items-center gap-2 bg-caos-elevated/20 ${collapsed ? "" : "border-b border-caos-border"}`}>
         {collapsible && (
           <button
             type="button"
@@ -65,7 +65,7 @@ export function Panel({
             </svg>
           </button>
         )}
-        <Heading className="text-caos-md font-semibold tracking-[0.12em] uppercase text-caos-muted m-0">{title}</Heading>
+        <Heading className="tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text m-0">{title}</Heading>
         <div className="flex-1" />
         {right}
       </div>
@@ -86,4 +86,3 @@ export function Panel({
     </div>
   );
 }
-

@@ -22,6 +22,7 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
@@ -813,35 +814,12 @@ export function Profile({
     <EnterprisePage kind="object"
       heightClass={isOverlay ? "h-full" : "h-screen"}
       identity={
-        <>
-          {!isOverlay ? (
-            <>
-              <Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
-                <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-                <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
-              </Link>
-              <span className="h-4 w-px bg-caos-border shrink-0" />
-            </>
-          ) : (
-            <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
-              Issuer Profile
-            </span>
-          )}
-          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 14 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
-          <h2 className="text-caos-text font-medium leading-none truncate min-w-[64px] m-0" style={{ fontSize: 14 }} title={issuer.name} aria-label={`${issuer.ticker ? issuer.ticker.toUpperCase() + " " : ""}${issuer.name} — issuer profile`}>{issuer.name}</h2>
-          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
-            {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
-          </span>
-          {ratings.length ? (
-            <span className="flex items-center gap-1 shrink-0">
-              {ratings.map((r) => (
-                <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
-                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
-                </span>
-              ))}
-            </span>
-          ) : null}
-          {latest_run ? (
+        <ShellIdentity
+          showConceptNav={!isOverlay}
+          tag={isOverlay ? "ISSUER PROFILE" : issuer.ticker?.toUpperCase() || "—"}
+          title={issuer.name}
+          titleAs="h2"
+          badges={latest_run ? (
             <span className="flex items-center gap-1 shrink-0">
               <span title={STATUS_TOOLTIP[latest_run.committee_status] || ""}>
                 <Tag sev={COMMITTEE_SEV[latest_run.committee_status] ?? "low"}>{latest_run.committee_status}</Tag>
@@ -856,10 +834,21 @@ export function Profile({
                 </span>
               ) : null}
             </span>
-          ) : (
-            <Tag sev="low">no run</Tag>
-          )}
-        </>
+          ) : <Tag sev="low">no run</Tag>}
+        >
+          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
+            {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
+          </span>
+          {ratings.length ? (
+            <span className="flex items-center gap-1 shrink-0">
+              {ratings.map((r) => (
+                <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
+                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
+                </span>
+              ))}
+            </span>
+          ) : null}
+        </ShellIdentity>
       }
       primaryAction={
         <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
@@ -868,9 +857,7 @@ export function Profile({
       }
       status={profileAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Latest run {profileAsOf}</span> : null}
       contextualControls={
-        !isOverlay ? (
-          <ConceptNav compact />
-        ) : onClose ? (
+        isOverlay && onClose ? (
           <CloseButton onClick={onClose} title="Close (Esc)" />
         ) : null
       }

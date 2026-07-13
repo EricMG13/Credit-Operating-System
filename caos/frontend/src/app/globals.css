@@ -105,6 +105,24 @@ body {
 .caos-enterprise-page {
   min-width: 0;
   isolation: isolate;
+  background: var(--caos-bg);
+}
+
+/* Shared terminal framing. RV Screener and Sector Review established the
+   intended visual register: compact 6px geometry, a clear pane boundary, and
+   tonal layering instead of card shadows. Keep this in the shared surface
+   wrapper so older routes inherit the same frame without route-local clones. */
+.caos-enterprise-page :is(.rounded, .rounded-lg) {
+  border-radius: var(--radius-md);
+}
+
+.caos-enterprise-page :is(.bg-caos-panel.border-caos-border, .bg-caos-panel\/60.border-caos-border, .bg-caos-panel\/50.border-caos-border) {
+  box-shadow: none;
+}
+
+.caos-enterprise-page :is(button, a, input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 /* Compact navigation is an intentional horizontal scroller below the desktop

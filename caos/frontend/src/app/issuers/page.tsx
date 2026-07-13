@@ -20,6 +20,8 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
@@ -302,41 +304,20 @@ function IssuersDirectory() {
   return (
     <EnterprisePage kind="worklist"
       identity={
-        <>
-          <span className="flex items-center gap-2 shrink-0">
+        <ShellIdentity
+          badges={!loading && demo ? (
             <span
-              className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold"
-              style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
-            >
-              C
-            </span>
-            {/* Wordmark + version are decorative brand chrome — lowest priority for
-                horizontal space next to the 7-item full-label ConceptNav; drop
-                them before the functional coverage-summary stat ever squeezes. */}
-            <span className="hidden 2xl:inline text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
-              CREDIT OS
-            </span>
-            <span className="hidden 2xl:inline tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
-              v2.2
-            </span>
-          </span>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap shrink-0">
-            Issuer Register
-          </span>
-          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0">
-            {summaryLabel}
-          </span>
-          {!loading && demo ? (
-            <span
-              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden 2xl:inline"
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
               style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
               title="No live coverage yet — these are sample issuers, not real coverage"
             >
               Demo coverage
             </span>
           ) : null}
-        </>
+          title="Issuer register"
+        >
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">{summaryLabel}</span>
+        </ShellIdentity>
       }
       primaryAction={
         <button
@@ -348,13 +329,17 @@ function IssuersDirectory() {
       }
       contextualControls={
         <>
-          <ConceptNav />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
+          <Link
+            href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
+            className="caos-secondary-action no-underline focus-ring"
+          >
+            Sponsors
+          </Link>
           <Link
             href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
-            className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+            className="caos-secondary-action no-underline focus-ring"
           >
-            UPLOAD DOCUMENTS
+            Upload documents
           </Link>
         </>
       }
@@ -461,43 +446,34 @@ function IssuersDirectory() {
               ))}
             </div>
           ) : issuers.length === 0 && query ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for &ldquo;{query}&rdquo;</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
-              </p>
-              <button
-                onClick={() => setQuery("")}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-              >
-                CLEAR SEARCH
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title={`No matches for “${query}”`}
+                detail="Search covers issuer name, ticker, sector, sub-sector, country, and FIGI."
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setQuery("")} className="caos-action-primary focus-ring">Clear search</button>}
+              />
             </div>
           ) : issuers.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No issuers yet</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                Add your first issuer, then drop its deal documents and pick a run mode to start a run.
-              </p>
-              <button
-                onClick={() => setShowForm(true)}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-              >
-                + NEW ISSUER
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title="No issuers yet"
+                detail="Add an issuer, ingest its deal documents, then select a run mode to establish the first observed analysis."
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setShowForm(true)} className="caos-action-primary focus-ring">New issuer</button>}
+              />
             </div>
           ) : shownIssuers.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No rows match the active column filters</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                {issuers.length} issuer{issuers.length === 1 ? "" : "s"} in the register are hidden by the filters set on one or more columns.
-              </p>
-              <button
-                onClick={() => setFilters({})}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
-              >
-                CLEAR FILTERS
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title="No rows match the active filters"
+                detail={`${issuers.length} issuer${issuers.length === 1 ? " is" : "s are"} hidden by one or more column filters.`}
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setFilters({})} className="caos-action-primary focus-ring">Clear filters</button>}
+              />
             </div>
           ) : (
             <div role="grid" className="text-caos-xl">

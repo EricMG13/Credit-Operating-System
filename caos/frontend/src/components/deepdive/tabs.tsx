@@ -90,7 +90,7 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
         <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
         {d.rounds.map((r, i) => {
           const p = PERSONA[r.who];
           return (
@@ -122,33 +122,37 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
 
       <div className="rounded border border-caos-border bg-caos-bg">
         <SectionHeader title={<><span className="text-caos-accent">⚖</span> {cfg.matrixTitle}</>} right={cfg.matrixCode} />
-        <div className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
-          {["Contested claim", cfg.weightHeader, cfg.verdictHeader, "Evidence"].map((h) => (
-            <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
-          ))}
-        </div>
-        {d.weighting.map((w, i) => (
-          <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
-            <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
-            <span className="flex items-center gap-1.5" aria-label={`${cfg.proLabel} ${(w.bull * 100).toFixed(0)} versus ${cfg.conLabel} ${(w.bear * 100).toFixed(0)}`}>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
-              <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
-                <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
-                <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
-              </span>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
-            </span>
-            <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
-            <span className="flex flex-wrap gap-1">
-              {w.ev.split(" · ").map((tok) => {
-                const eid = tok.split(" ")[0];
-                return EVIDENCE[eid]
-                  ? <EvChip key={eid} id={eid} onOpen={onOpenEvidence} />
-                  : <span key={tok} className="tabular text-caos-xs text-caos-accent">{tok}</span>;
-              })}
-            </span>
+        <div className="overflow-x-auto" tabIndex={0} aria-label={`${cfg.matrixTitle} table`}>
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[minmax(180px,1.1fr)_minmax(190px,1fr)_minmax(220px,1.4fr)_120px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
+              {["Contested claim", cfg.weightHeader, cfg.verdictHeader, "Evidence"].map((h) => (
+                <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
+              ))}
+            </div>
+            {d.weighting.map((w, i) => (
+              <div key={i} className="grid grid-cols-[minmax(180px,1.1fr)_minmax(190px,1fr)_minmax(220px,1.4fr)_120px] gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
+                <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
+                <span className="flex items-center gap-1.5" aria-label={`${cfg.proLabel} ${(w.bull * 100).toFixed(0)} versus ${cfg.conLabel} ${(w.bear * 100).toFixed(0)}`}>
+                  <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
+                  <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
+                    <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
+                    <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
+                  </span>
+                  <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
+                </span>
+                <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
+                <span className="flex flex-wrap gap-1">
+                  {w.ev.split(" · ").map((tok) => {
+                    const eid = tok.split(" ")[0];
+                    return EVIDENCE[eid]
+                      ? <EvChip key={eid} id={eid} onOpen={onOpenEvidence} />
+                      : <span key={tok} className="tabular text-caos-xs text-caos-accent">{tok}</span>;
+                  })}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
       <OutputRegister key={cfg.id + layout} id={cfg.id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
     </div>

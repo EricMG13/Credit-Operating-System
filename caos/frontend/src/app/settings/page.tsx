@@ -25,6 +25,7 @@ import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
 import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
 import { PortfoliosPanel } from "@/components/settings/PortfoliosPanel";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 
 export default function SettingsPage() {
   return (
@@ -611,20 +612,14 @@ function Settings() {
           >
             <div className="p-3">
               {cfgErr ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3">
-                  <span className="flex items-center gap-2 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>
-                    ✗ Couldn’t load workspace configuration.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadCfg}
-                    className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
-                  >
-                    Retry
-                  </button>
-                </div>
+                <SurfaceState
+                  kind="offline"
+                  title="Workspace configuration unavailable"
+                  detail="The deployment configuration could not be read. No local preference or server setting was changed."
+                  primaryAction={<button type="button" onClick={loadCfg} className="caos-action-primary focus-ring">Retry</button>}
+                />
               ) : !cfg ? (
-                <p className="tabular text-caos-md text-caos-muted">Loading…</p>
+                <SurfaceState kind="loading" title="Loading workspace configuration" compact />
               ) : (
                 <div className="flex flex-col gap-4">
                   {configGroups(cfg).map((g) => (

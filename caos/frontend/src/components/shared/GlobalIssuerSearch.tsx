@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getIssuers } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
+import { SurfaceState } from "./SurfaceState";
 
 export function GlobalIssuerSearch() {
   const { openProfile } = useIssuerProfileOverlay();
@@ -75,10 +76,8 @@ export function GlobalIssuerSearch() {
         {hasText ? "RET" : "ALT+S"}
       </span>
       {open && error && rows.length === 0 ? (
-        <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border bg-caos-panel shadow-lg overflow-hidden" style={{ borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)" }}>
-          <div role="alert" className="px-2.5 py-1.5 text-caos-sm" style={{ color: "var(--caos-critical)" }}>
-            Search unavailable — check your connection and retry.
-          </div>
+        <div className="absolute left-0 bottom-11 z-overlay w-80 rounded-md border border-caos-border bg-caos-panel p-2 shadow-pop overflow-hidden">
+          <SurfaceState kind="offline" title="Issuer search unavailable" detail="Check the connection, then edit the query to retry." compact />
         </div>
       ) : open && rows.length > 0 ? (
         <div className="absolute left-0 bottom-11 z-overlay w-72 rounded border border-caos-border bg-caos-panel shadow-lg overflow-hidden">

@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { COVERAGE, PORTFOLIO, simAlertsToday } from "@/lib/command/data";
 import { ATLF_COVERAGE_ROW, worstStatus } from "@/lib/command/coverage";
 import { PORTFOLIO_AVG_DM_LABEL } from "@/lib/command/stats";
@@ -175,24 +175,17 @@ function CommandCenter() {
   return (
     <EnterprisePage kind="overview"
       identity={
-        <>
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Directory
-          </Link>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          {/* Honesty chip BEFORE the truncating sleeve label so squeeze eats
-              the label text, never the not-live marker (same rule as
-              ShellIdentity badges). */}
+        <ShellIdentity
+          badges={
           <span
             className="tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap shrink-0 text-caos-muted"
             title="Sample US HY sleeve for the Phase-1 showcase — not live positions."
           >
             Sample — not live
           </span>
-          <span className="text-caos-md text-caos-muted truncate min-w-0 hidden 2xl:inline">US HY sleeve</span>
-        </>
+          }
+          title="US HY sleeve"
+        />
       }
       primaryAction={
         <a href="#ranked-changes" className="caos-primary-action no-underline focus-ring">Open top change</a>

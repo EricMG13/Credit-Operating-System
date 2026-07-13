@@ -12,7 +12,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
@@ -243,10 +243,11 @@ function DeepDive() {
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
-  // ~1280px so it doesn't crush the analysis column. The evidence rail is left
+  // ~1440px so the central analysis keeps a usable instrument width before the
+  // verdict rail claims 352px. The evidence rail is left
   // user-controlled (default collapsed, see above) — width goes to analysis.
   useEffect(() => {
-    const NARROW = 1280;
+    const NARROW = 1440;
     let narrow = window.innerWidth < NARROW;
     if (narrow) setDecisionOpen(false);
     const onResize = () => {
@@ -447,14 +448,7 @@ function DeepDive() {
     <EvidenceSyncProvider>
     <EnterprisePage kind="object"
       identity={
-        <>
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Directory
-          </Link>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
+        <ShellIdentity tag="DEEP-DIVE" title={dealLabel}>
           {issuerErr && !isReference ? (
             <button
               onClick={() => setIssuerAttempt((a) => a + 1)}
@@ -486,7 +480,7 @@ function DeepDive() {
               no run for {code} · run analysis to populate
             </span>
           )}
-        </>
+        </ShellIdentity>
       }
       primaryAction={
         <button

@@ -135,6 +135,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       window.dispatchEvent(new Event("caos:query-focus"));
       return;
     }
+    window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
     setPrefill(text ?? null);
     setOpen(true);
   }, []);
@@ -144,29 +145,45 @@ export function AskProvider({ children }: { children: ReactNode }) {
       if (pathname.startsWith("/query")) {
         window.dispatchEvent(new Event("caos:query-focus"));
       } else {
-        setOpen((v) => !v);
+        if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
+        setOpen(!open);
       }
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     const onAskToggle = () => fire();
+    const onModalOpen = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "ask") setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("caos:ask-toggle", onAskToggle);
+    window.addEventListener("caos:modal-open", onModalOpen);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("caos:ask-toggle", onAskToggle);
+      window.removeEventListener("caos:modal-open", onModalOpen);
     };
-  }, [pathname]);
+  }, [pathname, open]);
 
   // Clear the one-shot prefill when Ask closes so a later plain open is clean.
   useEffect(() => {
     if (!open) setPrefill(null);
   }, [open]);
 
+  const setOpenCoordinated = useCallback((next: boolean) => {
+    if (next) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
+    setOpen(next);
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
+    setOpen(!open);
+  }, [open]);
+
   const value = useMemo(
-    () => ({ open, setOpen, toggle: () => setOpen((v) => !v), openWith, prefill }),
-    [open, openWith, prefill],
+    () => ({ open, setOpen: setOpenCoordinated, toggle, openWith, prefill }),
+    [open, setOpenCoordinated, toggle, openWith, prefill],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -408,14 +425,14 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   }, [text, caps, run]);
 
   return (
-    <ModalBackdrop onClose={onClose} align="end" className="transition-opacity duration-200">
+    <ModalBackdrop onClose={onClose} align="end">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Ask with Query"
         onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full transition-all duration-300 flex flex-col overflow-hidden ${
+        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full flex flex-col overflow-hidden ${
           hasQueried
             ? "max-w-4xl"
             : "max-w-md p-4 gap-3.5"
@@ -444,7 +461,6 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                 placeholder="Ask across coverage — e.g. Map peers by credit profile"
                 aria-label="Query coverage"
                 className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
-                autoFocus
               />
               <button
                 onClick={submit}
