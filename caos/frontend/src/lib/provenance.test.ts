@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fromSeedFlag, fromModelEngine, fromReportCaveat } from "./provenance";
+import { fromSeedFlag, fromModelEngine, fromReportCaveat, impliedMethod } from "./provenance";
 
 describe("provenance mappers (RT-2026-07-11-65)", () => {
   it("seed flags: seed→DEMO, live→LIVE, unknown→null (caller keeps bespoke rendering)", () => {
@@ -35,5 +35,13 @@ describe("provenance mappers (RT-2026-07-11-65)", () => {
     ]) {
       expect(p?.freshness).toBeUndefined();
     }
+  });
+});
+
+describe("impliedMethod (printed-block fallback)", () => {
+  it("LIVE defaults DERIVED; fixtures default MODELLED", () => {
+    expect(impliedMethod("LIVE")).toBe("DERIVED");
+    expect(impliedMethod("REFERENCE")).toBe("MODELLED");
+    expect(impliedMethod("DEMO")).toBe("MODELLED");
   });
 });

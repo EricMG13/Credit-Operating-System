@@ -14,9 +14,29 @@
 // NEVER inferred. An omitted axis renders nothing — absence of freshness must
 // not read as CURRENT.
 
+// Seam policy (design remediation 2026-07-15): (1) decision-bearing surfaces
+// suppress seeded values when live is empty — the Command pattern; (2) where a
+// seeded replay/showcase IS the surface's content, every seeded number in
+// shared chrome is labeled at the value level (Replay/DEMO + tooltip), never a
+// bare figure beside a live-derived zero.
+
 export type ProvOrigin = "LIVE" | "REFERENCE" | "DEMO";
 export type ProvFreshness = "CURRENT" | "DUE" | "STALE" | "UNKNOWN";
+
+/** Method semantics: REPORTED = a figure lifted from a source disclosure;
+ *  DERIVED = a deterministic transform of reported data (roll-ups, ratios);
+ *  MODELLED = an LLM or analytical estimate. Callers that KNOW the method must
+ *  set it explicitly — `impliedMethod` exists only as the printed-block
+ *  fallback when a producer never declared one. */
 export type ProvMethod = "REPORTED" | "DERIVED" | "MODELLED";
+
+/** Fallback when a caller never set method: LIVE figures default DERIVED
+ *  (deterministic transform of reported data); REFERENCE/DEMO fixtures default
+ *  MODELLED. One rule, so Command and Monitor can never disagree on the
+ *  fallback vocabulary. */
+export function impliedMethod(origin: ProvOrigin): ProvMethod {
+  return origin === "LIVE" ? "DERIVED" : "MODELLED";
+}
 
 export interface Provenance {
   origin: ProvOrigin;

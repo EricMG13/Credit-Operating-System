@@ -15,7 +15,7 @@
 // the SAME three-axis grammar renders in the paper's own mono/ink vocabulary
 // instead of transplanting a dark terminal chip onto cream paper.
 
-import type { Provenance } from "@/lib/provenance";
+import { impliedMethod, type Provenance } from "@/lib/provenance";
 
 export function AuthorityBlock({
   prov,
@@ -43,7 +43,7 @@ export function AuthorityBlock({
         // narrative is MODELLED even when the run is LIVE — an LLM synthesis,
         // never a literal reported figure). Only fall back to the
         // origin-implied default when the caller didn't set one.
-        `METHOD: ${prov.method ?? (prov.origin === "LIVE" ? "DERIVED" : "MODELLED")}`,
+        `METHOD: ${prov.method ?? impliedMethod(prov.origin)}`,
         `APPROVAL: ${approval || qaNote || "UNRATIFIED"}`,
         prov.freshness ? `FRESHNESS: ${prov.freshness}` : null,
         runId ? `RUN: ${runId.slice(0, 8)}` : null,

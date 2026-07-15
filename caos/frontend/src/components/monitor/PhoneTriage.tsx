@@ -21,7 +21,7 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, formatImpact, requiredActionFor, type AlertRow } from "@/lib/alerts/inbox";
+import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
 
 // Touch targets are 44px on phone (vs 32px desktop) — Sam's persona
@@ -141,7 +141,7 @@ export function PhoneTriage() {
 
       <div className="rounded border border-caos-border bg-caos-panel p-3 flex flex-col gap-2.5">
         <div className="flex items-center gap-2 flex-wrap">
-          <ConclusionAuthority prov={{ origin: "LIVE", method: current.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+          <ConclusionAuthority prov={rowProvenance(current)} />
           {impact ? (
             <span
               className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"

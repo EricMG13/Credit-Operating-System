@@ -306,7 +306,7 @@ export function FileStep({
               </select>
             </label>
             <label className="grid gap-1 tabular text-caos-xs text-caos-muted">
-              Method
+              Method{/* option vocabulary binds to ProvMethod/ProvOrigin in lib/provenance.ts — keep in sync */}
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value as "reported" | "derived" | "modelled")}

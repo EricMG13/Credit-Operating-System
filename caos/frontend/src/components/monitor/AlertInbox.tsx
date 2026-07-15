@@ -16,7 +16,7 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, formatImpact, type AlertRow } from "@/lib/alerts/inbox";
+import { draftToAlertRows, formatImpact, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import {
   getAlertEvents,
   getAlertStates,
@@ -109,7 +109,7 @@ function Row({
           aria-label={`Select ${row.event}`}
           className="min-h-8 min-w-8 caos-target disabled:opacity-40"
         />
-        <ConclusionAuthority prov={{ origin: "LIVE", method: row.method === "MODELLED" ? "MODELLED" : "DERIVED" }} />
+        <ConclusionAuthority prov={rowProvenance(row)} />
         {impact ? (
           <span
             className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"

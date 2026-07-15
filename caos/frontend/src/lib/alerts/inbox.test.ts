@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { draftToAlertRows, formatImpact } from "./inbox";
+import { draftToAlertRows, formatImpact, rowProvenance } from "./inbox";
 import type { AutonomyDraft } from "@/lib/api";
 
 function draft(overrides: Partial<AutonomyDraft> = {}): AutonomyDraft {
@@ -120,5 +120,12 @@ describe("formatImpact", () => {
     expect(formatImpact({ severity: NaN })).toBeNull();
     expect(formatImpact({ severity: Infinity })).toBeNull();
     expect(formatImpact({ severity: -Infinity })).toBeNull();
+  });
+});
+
+describe("rowProvenance", () => {
+  it("carries the row method through under a LIVE origin", () => {
+    expect(rowProvenance({ method: "MODELLED" })).toEqual({ origin: "LIVE", method: "MODELLED" });
+    expect(rowProvenance({ method: "DERIVED" })).toEqual({ origin: "LIVE", method: "DERIVED" });
   });
 });

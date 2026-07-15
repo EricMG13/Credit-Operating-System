@@ -95,3 +95,12 @@ export function requiredActionFor(row: Pick<AlertRow, "reason">): string {
 export function formatImpact(row: Pick<AlertRow, "severity">): string | null {
   return Number.isFinite(row.severity) ? `${row.severity.toFixed(1)}σ` : null;
 }
+
+/** Provenance for one alert row's authority chip. All drafted alert rows are
+ *  LIVE by construction (they exist only inside a fetched autonomy draft);
+ *  method carries through from the row (MODELLED claim vs DERIVED bullet).
+ *  One derivation, so Command and Monitor render identical chips for the same
+ *  draft row. */
+export function rowProvenance(row: Pick<AlertRow, "method">): { origin: "LIVE"; method: AlertRow["method"] } {
+  return { origin: "LIVE", method: row.method };
+}
