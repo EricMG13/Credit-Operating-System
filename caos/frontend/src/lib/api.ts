@@ -592,10 +592,15 @@ export const queryCapabilities = (): Promise<CapabilitiesResult> =>
   api.get("/api/query/capabilities").then((r) => r.data);
 
 // Run one capability → a positioned node-link graph. `theme` is a free-text risk
-// theme for the shared-theme walk (BM25 corpus overlay); ignored by every other
-// capability, so callers may pass it unconditionally.
-export const queryGraph = (capabilityId: string, issuerId?: string, theme?: string): Promise<GraphResult> =>
-  api.post("/api/query/graph", { capability_id: capabilityId, issuer_id: issuerId, theme }).then((r) => r.data);
+// theme for the shared-theme walk (BM25 corpus overlay); `issuerIdB` is the
+// second issuer for the head-to-head walk. Both are ignored by every other
+// capability, so callers may pass them unconditionally.
+export const queryGraph = (
+  capabilityId: string, issuerId?: string, theme?: string, issuerIdB?: string,
+): Promise<GraphResult> =>
+  api.post("/api/query/graph", {
+    capability_id: capabilityId, issuer_id: issuerId, theme, issuer_id_b: issuerIdB,
+  }).then((r) => r.data);
 
 // LLM-route free text → up to 3 registry candidates with reasons. Contract: any
 // failure returns { candidates: [], source: "keyword" } and the caller uses its

@@ -106,6 +106,61 @@ test.describe("Query — walk to committee exhibit", () => {
     expect(download.suggestedFilename()).toMatch(/\.csv$/);
   });
 
+  // C7: head-to-head issuer comparison. Opens the walk from the "Position the
+  // credit" rail group, picks two distinct issuers via the inline pickers, and
+  // asserts a fresh synthesis + table render — the walk answers a real query
+  // end-to-end (the plan's C7 exit bar).
+  //
+  // Issuer names come from the real /api/issuers list, not hardcoded demo
+  // names ("Atlas"/"Acme") — CI's E2E server boots with CAOS_DEMO_SEED unset
+  // (demo seeding is off by default), so those fixture issuers are not
+  // guaranteed to exist; whatever coverage is actually present (from this
+  // server's own seed or an earlier spec's bootstrap flow) is what's used.
+  test("head-to-head: pick two issuers and compare", async ({ page, request }) => {
+    const issuersResp = await request.get("/api/issuers/");
+    const issuers = await issuersResp.json();
+    if (!Array.isArray(issuers) || issuers.length < 2) {
+      test.skip(true, "fewer than 2 issuers in coverage — head-to-head needs two to compare.");
+      return;
+    }
+    const firstWord = (name: string) => {
+      const w = name.split(" ")[0];
+      return w.length >= 2 ? w : name.slice(0, Math.min(4, name.length));
+    };
+    const [nameA, nameB] = [issuers[0].name, issuers[1].name];
+    const termA = firstWord(nameA);
+    const termB = firstWord(nameB);
+
+    await page.goto("/query/");
+    await waitForFirstAnswer(page);
+
+    await page.getByRole("tab", { name: /Position the credit/ }).click();
+    const walkBtn = page.getByRole("button", { name: "How do these two names compare head-to-head?" });
+    if ((await walkBtn.count()) === 0) {
+      test.skip(true, "head-to-head walk not runnable offline — no headline metric facts seeded.");
+      return;
+    }
+    await walkBtn.click();
+    await waitForFirstAnswer(page);
+
+    const issuerA = page.getByRole("textbox", { name: "Issuer A" });
+    const issuerB = page.getByRole("textbox", { name: "Issuer B" });
+    await expect(issuerA).toBeVisible({ timeout: 15000 });
+
+    await issuerA.fill(termA);
+    await page.getByRole("button", { name: new RegExp(termA) }).first().click();
+    await issuerB.fill(termB);
+    await page.getByRole("button", { name: new RegExp(termB) }).first().click();
+
+    await page.getByRole("button", { name: "Compare", exact: true }).click();
+    await waitForFirstAnswer(page);
+
+    const title = page.getByRole("heading", { level: 2 });
+    await expect(title).toBeVisible({ timeout: 15000 });
+    expect(((await title.textContent()) ?? "").trim()).toMatch(/ vs /);
+    await expect(page.getByText(/^Query failed —/)).toHaveCount(0);
+  });
+
   // E2E-4c: ratifying a model-overlay link. Needs a model lane that produces
   // overlay edges AND at least one ratifiable proposal whose endpoints are in
   // the current graph. Reachable offline only when demo-fallback synthesizes an

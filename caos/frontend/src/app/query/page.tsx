@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { GroupLauncher } from "@/components/query/GroupLauncher";
+import { IssuerPicker } from "@/components/query/IssuerPicker";
 import { EvidenceDock } from "@/components/query/EvidenceDock";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { InsightFeed } from "@/components/query/InsightFeed";
@@ -94,6 +95,9 @@ function QueryWorkspace() {
   // new question (text edit) clears it so the classifier re-decides fresh.
   const [laneOverride, setLaneOverride] = useState<QueryLane | null>(null);
   const [theme, setTheme] = useState(""); // free-text risk theme for the shared-theme walk
+  // Two issuers picked for the head-to-head walk.
+  const [h2hA, setH2hA] = useState<{ id: string; name: string } | null>(null);
+  const [h2hB, setH2hB] = useState<{ id: string; name: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   // Note tone: Routed/Routing read as info (accent/muted, no "!"); only real
   // misses and failures read as a warning.
@@ -255,7 +259,8 @@ function QueryWorkspace() {
   // route must never overwrite a newer run; picking a walk directly also
   // supersedes any pending route.
   const routeSeq = useRef(0);
-  const run = useCallback((capId: string, capMode?: string, toast = false, themeArg?: string) => {
+  const run = useCallback((capId: string, capMode?: string, toast = false, themeArg?: string,
+                           issuerIdArg?: string, issuerIdBArg?: string) => {
     // Ignore out-of-order results: a slow earlier queryGraph must not clobber a
     // newer one (graph/error/running guarded on the latest sequence).
     const seq = ++runSeq.current;
@@ -277,7 +282,7 @@ function QueryWorkspace() {
     // Every run opens on its native view — a leftover Scatter/Lineage from the
     // previous graph must never be the first render of a new one.
     if (capMode) setView(nativeView(capId, capMode));
-    queryGraph(capId, undefined, themeArg)
+    queryGraph(capId, issuerIdArg, themeArg, issuerIdBArg)
       .then((g) => {
         if (seq !== runSeq.current) return;
         setGraph(g);
@@ -1050,6 +1055,27 @@ function QueryWorkspace() {
                       Apply
                     </button>
                   </div>
+                </div>
+              )}
+              {activeId === "head-to-head" && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted shrink-0">
+                    Compare
+                  </span>
+                  <IssuerPicker id="h2h-issuer-a" label="Issuer A" placeholder="Issuer A"
+                    onPick={(iss) => setH2hA({ id: iss.id, name: iss.name })} />
+                  <span className="tabular text-caos-2xs text-caos-muted shrink-0">vs</span>
+                  <IssuerPicker id="h2h-issuer-b" label="Issuer B" placeholder="Issuer B"
+                    onPick={(iss) => setH2hB({ id: iss.id, name: iss.name })} />
+                  <button
+                    type="button"
+                    onClick={() => h2hA && h2hB
+                      && run("head-to-head", activeCap?.mode, false, undefined, h2hA.id, h2hB.id)}
+                    disabled={!h2hA || !h2hB || h2hA.id === h2hB.id || running}
+                    className="tabular text-caos-2xs uppercase tracking-wider px-2 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-caos focus-ring shrink-0"
+                  >
+                    Compare
+                  </button>
                 </div>
               )}
             </div>

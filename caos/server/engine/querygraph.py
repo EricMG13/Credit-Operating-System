@@ -93,6 +93,7 @@ GROUPS: List[dict] = [
         _cap("contagion", "Contagion query", "contagion", {"theme": "energy"}, "facts"),
         _cap("sponsor-graph", "Sponsor / counterparty graph", "provenance", {"focus": "sponsor"}, "sponsor_names"),
         _cap("covenant-register", "Covenant register", "concentration", {"by": "covenant"}, "covenant"),
+        _cap("head-to-head", "Head-to-head comparison", "concentration", {"by": "head_to_head"}, "facts"),
     ]},
     {"id": "metric", "label": "Metric x time", "icon": "timeline", "caps": [
         _cap("distribution", "Distribution / percentile", "concentration", {"by": "percentile"}, "facts"),
@@ -467,7 +468,8 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 
 
 # ── Builder: concentration (clustered / scatter / rollup views) ──────────────
-async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict) -> dict:  # noqa: C901  # pre-existing multi-view builder; split per-view when reworked
+async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict,  # noqa: C901  # pre-existing multi-view builder; split per-view when reworked
+                         issuer_id_b: Optional[str] = None) -> dict:
     if by in ("industry", "country"):
         return await _cluster_by_field(session, by, cap)
     if by == "rating":
@@ -492,6 +494,8 @@ async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str
         return await _gate_lane(session, cap)
     if by == "covenant":
         return await _covenant_register(session, cap)
+    if by == "head_to_head":
+        return await _head_to_head(session, issuer_id, issuer_id_b, cap)
     return _empty(cap, "Concentration", f"unknown view {by!r}")
 
 
@@ -1014,6 +1018,153 @@ async def _covenant_register(session: AsyncSession, cap: dict) -> dict:
     return _result(cap, "Covenant register", nodes, edges, meta, cav)
 
 
+def _fmt_metric(value: float, unit: str) -> str:
+    if unit == "x":
+        return f"{value:g}x"
+    if unit == "%":
+        return f"{value:g}%"
+    if unit == "$M":
+        return f"${value:g}M"
+    return f"{value:g}"
+
+
+def _collapse_headline(facts: Sequence[MetricFact]) -> Dict[str, float]:
+    """Latest-wins per metric_key over one issuer's headline facts (same
+    ``better_fact`` tiering the profile route and ``_profile_values`` use)."""
+    best: Dict[str, MetricFact] = {}
+    for f in facts:
+        if better_fact(best.get(f.metric_key), f):
+            best[f.metric_key] = f
+    return {k: f.value for k, f in best.items()}
+
+
+async def _h2h_signals(session: AsyncSession, issuer_id: str) -> dict:
+    """CP-3/CP-2B/CP-4C headline fields off one issuer's latest complete run —
+    the same module-lookup pattern as the Issuer Profile route's
+    ``_profile_signals``, scoped to exactly the fields C7 compares (not
+    imported from routes.issuers to keep engine/ independent of routes/)."""
+    run = (await session.execute(
+        select(Run).where(Run.issuer_id == issuer_id, Run.status == "complete")
+        .order_by(Run.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if run is None:
+        return {}
+    mods = {m.module_id: m for m in (await session.execute(
+        select(ModuleOutput).where(ModuleOutput.run_id == run.id,
+                                    ModuleOutput.module_id.in_(("CP-3", "CP-2B", "CP-4C")))
+    )).scalars().all()}
+    relval = (mods["CP-3"].runtime_output or {}) if "CP-3" in mods else {}
+    downside = (mods["CP-2B"].runtime_output or {}) if "CP-2B" in mods else {}
+    cov = (mods["CP-4C"].runtime_output or {}) if "CP-4C" in mods else {}
+    return {
+        "recommendation": relval.get("recommendation"),
+        "composite_percentile": relval.get("composite_percentile"),
+        "fragility": downside.get("fragility"),
+        "shock_to_breach_pct": downside.get("shock_to_breach_pct"),
+        "covenant_structure": cov.get("covenant_structure"),
+        "leverage_covenant_x": cov.get("leverage_covenant_x"),
+        "current_net_leverage": cov.get("current_net_leverage"),
+    }
+
+
+def _h2h_metric_sub(facts: Dict[str, float], key: str) -> Optional[str]:
+    if key not in facts:
+        return None
+    spec = CATALOG_BY_KEY.get(key)
+    return _fmt_metric(facts[key], spec.unit if spec else "")
+
+
+def _h2h_rv_sub(sig: dict) -> Optional[str]:
+    pct, rec = sig.get("composite_percentile"), sig.get("recommendation")
+    if not is_finite_number(pct):
+        return None
+    return f"{pct:g}th pctile" + (f" · {rec}" if rec else "")
+
+
+def _h2h_frag_sub(sig: dict) -> Optional[str]:
+    frag, shock = sig.get("fragility"), sig.get("shock_to_breach_pct")
+    if not frag:
+        return None
+    return frag + (f" · breach at -{shock:g}% EBITDA" if is_finite_number(shock) else "")
+
+
+def _h2h_cov_sub(sig: dict) -> Optional[str]:
+    lev_cov, cur = sig.get("leverage_covenant_x"), sig.get("current_net_leverage")
+    if not is_finite_number(lev_cov):
+        return "cov-lite" if sig.get("covenant_structure") else None
+    head = f" · {lev_cov - cur:g}x headroom" if is_finite_number(cur) else ""
+    return f"{lev_cov:g}x cov{head}"
+
+
+def _h2h_rows(facts_a: Dict[str, float], facts_b: Dict[str, float],
+             sig_a: dict, sig_b: dict) -> List[Tuple[str, Optional[str], Optional[str]]]:
+    rows: List[Tuple[str, Optional[str], Optional[str]]] = [
+        (CATALOG_BY_KEY[k].label if k in CATALOG_BY_KEY else k,
+         _h2h_metric_sub(facts_a, k), _h2h_metric_sub(facts_b, k))
+        for k in sorted(set(facts_a) | set(facts_b))
+    ]
+    rows.append(("CP-3 relative value", _h2h_rv_sub(sig_a), _h2h_rv_sub(sig_b)))
+    rows.append(("CP-2B downside fragility", _h2h_frag_sub(sig_a), _h2h_frag_sub(sig_b)))
+    rows.append(("CP-4C covenant", _h2h_cov_sub(sig_a), _h2h_cov_sub(sig_b)))
+    return [(label, sa, sb) for label, sa, sb in rows if sa is not None or sb is not None]
+
+
+async def _head_to_head(session: AsyncSession, issuer_id_a: Optional[str],
+                        issuer_id_b: Optional[str], cap: dict) -> dict:
+    """Two issuers, side by side: headline metric_facts, CP-3 relative-value
+    percentile, CP-2B downside fragility, CP-4C covenant snapshot. One "sector"
+    group node per compared row, two "issuer" member nodes underneath (the same
+    shape ``_covenant_register`` uses) — no new node schema, so the existing
+    table/graph renderers need no changes to show it."""
+    if not issuer_id_a or not issuer_id_b:
+        return _empty(cap, "Head-to-head comparison", "Pick two issuers to compare.")
+    if issuer_id_a == issuer_id_b:
+        return _empty(cap, "Head-to-head comparison", "Pick two different issuers.")
+    issuers = {i.id: i for i in (await session.execute(
+        select(Issuer).where(Issuer.id.in_((issuer_id_a, issuer_id_b)))
+    )).scalars().all()}
+    if issuer_id_a not in issuers or issuer_id_b not in issuers:
+        return _empty(cap, "Head-to-head comparison", "Issuer not found.")
+    name_a, name_b = issuers[issuer_id_a].name, issuers[issuer_id_b].name
+
+    facts_a = _collapse_headline((await session.execute(
+        select(MetricFact).where(MetricFact.issuer_id == issuer_id_a,
+                                  MetricFact.headline.is_(True),
+                                  MetricFact.provenance != "demo_fixture")
+    )).scalars().all())
+    facts_b = _collapse_headline((await session.execute(
+        select(MetricFact).where(MetricFact.issuer_id == issuer_id_b,
+                                  MetricFact.headline.is_(True),
+                                  MetricFact.provenance != "demo_fixture")
+    )).scalars().all())
+    sig_a = await _h2h_signals(session, issuer_id_a)
+    sig_b = await _h2h_signals(session, issuer_id_b)
+    rows = _h2h_rows(facts_a, facts_b, sig_a, sig_b)
+
+    title = f"{name_a} vs {name_b}"
+    if not rows:
+        return _empty(cap, title, "Neither issuer has comparable facts yet.")
+
+    centers = _grid_centers(len(rows))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (label, sub_a, sub_b), (cx, cy) in zip(rows, centers):
+        gid = f"h2h:{label}"
+        nodes.append(_node(gid, label, "sector", cx, cy, group=label))
+        members = [m for m in (
+            (f"{issuer_id_a}:{label}", name_a, sub_a),
+            (f"{issuer_id_b}:{label}", name_b, sub_b),
+        ) if m[2] is not None]
+        for (mid, mname, sub), (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            nodes.append(_node(mid, mname, "issuer", mx, my, group=label, compact=True, sub=sub))
+            edges.append(_edge(gid, mid, kind="member"))
+
+    meta = [f"{len(rows)} compared rows", f"{name_a} vs {name_b}"]
+    cav = ["Leverage / EBITDA-based figures may mix reported and modeled bases "
+           "between the two issuers — not directly comparable across rows."]
+    return _result(cap, title, nodes, edges, meta, cav)
+
+
 # ── Builder: provenance (layered DAGs over a run) ────────────────────────────
 async def _latest_run(session: AsyncSession, issuer_id: Optional[str],
                       prefer_claims: bool = False) -> Optional[Run]:
@@ -1421,7 +1572,8 @@ async def _append_accepted_links(session: AsyncSession, graph: dict) -> dict:
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 async def build_graph(session: AsyncSession, capability_id: str,
                       issuer_id: Optional[str] = None,
-                      theme: Optional[str] = None) -> dict:
+                      theme: Optional[str] = None,
+                      issuer_id_b: Optional[str] = None) -> dict:
     cap = CAP_BY_ID.get(capability_id)
     if cap is None:
         raise KeyError(capability_id)
@@ -1437,7 +1589,8 @@ async def build_graph(session: AsyncSession, capability_id: str,
         else:
             graph = await _contagion(session, cap["params"].get("theme"), cap)
     elif mode == "concentration":
-        graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap)
+        graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap,
+                                     issuer_id_b)
     elif mode == "provenance":
         graph = await _provenance(session, cap["params"].get("focus", "trace"), issuer_id, cap)
     else:
