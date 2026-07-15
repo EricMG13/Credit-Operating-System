@@ -169,15 +169,22 @@ export const markNotificationSeen = (notificationId: string): Promise<Notificati
 // analyst's work at the wrong tier). Every app key is "caos"-prefixed by convention.
 export const clearWorkspaceStorage = () => {
   if (typeof window === "undefined") return;
-  try {
-    for (const k of Object.keys(localStorage)) {
-      if (k.startsWith("caos")) localStorage.removeItem(k);
+  const clearCaosKeys = (storage: Storage) => {
+    const keys = new Set<string>();
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key) keys.add(key);
     }
+    for (const key of Object.keys(storage)) keys.add(key);
+    for (const key of keys) {
+      if (key.startsWith("caos")) storage.removeItem(key);
+    }
+  };
+  try {
+    clearCaosKeys(localStorage);
   } catch { /* private mode / quota — nothing to clear */ }
   try {
-    for (const k of Object.keys(sessionStorage)) {
-      if (k.startsWith("caos")) sessionStorage.removeItem(k);
-    }
+    clearCaosKeys(sessionStorage);
   } catch { /* private mode / quota — nothing to clear */ }
   try {
     const url = new URL(window.location.href);
@@ -551,20 +558,6 @@ export interface IngestionResult {
   source_manifest_id: string;
 }
 
-export interface SourceManifestDTO {
-  id: string;
-  issuer_id: string;
-  origin: "live" | "reference" | "demo";
-  method: "reported" | "derived" | "modelled";
-  status: string;
-  files: Array<Record<string, unknown>>;
-  authority: Record<string, unknown>;
-  created_at: string;
-}
-
-export const getSourceManifest = (id: string): Promise<SourceManifestDTO> =>
-  api.get(`/api/ingestion/manifests/${id}`).then((r) => r.data);
-
 export const uploadDocument = (formData: FormData): Promise<IngestionResult> =>
   api.post("/api/ingestion/upload/document", formData, {
     headers: { "Content-Type": "multipart/form-data" },
@@ -753,7 +746,7 @@ export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
-import type { AcceptedLink, AnswerResult, CapabilitiesResult, GraphResult, InsightBrief, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
+import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
 
 // The capability rail: which graph edges are runnable now (+ grey reasons).
 export const queryCapabilities = (): Promise<CapabilitiesResult> =>
