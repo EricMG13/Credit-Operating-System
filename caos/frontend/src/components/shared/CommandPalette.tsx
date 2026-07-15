@@ -1,13 +1,13 @@
 "use client";
 
 // The global ⌘K command palette: pages (workflow-grouped from lib/nav),
-// issuers (same debounced search contract as GlobalIssuerSearch), global
+// issuers (using the shared debounced issuer-search contract), global
 // actions, and an ever-present `Ask CAOS: "<text>"` passthrough row that
 // routes typed text into the Ask launcher via openWith() — the old ⌘K→Ask
 // muscle memory keeps working for question-shaped input (RT-2026-07-11-62).
 // Alt+K still opens Ask directly (ConceptHotkeys, unchanged).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { staticRows, type PaletteRow, type IssuerRow } from "@/lib/palette";
@@ -23,25 +23,35 @@ import { useNavigationAttempt } from "./NavigationGuardProvider";
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
 
-  // ⌘K / Ctrl+K — owned here (Firefox's native ⌘K needs preventDefault).
+  // ⌘K / Ctrl+K and the shared explicit-open event are owned here. Alt+S
+  // dispatches the latter from ConceptHotkeys so issuer lookup and page/action
+  // search stay one surface instead of competing global search widgets.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
-        setOpen(!open);
+        setOpen((current) => {
+          if (!current) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+          return !current;
+        });
       }
+    };
+    const onOpen = () => {
+      window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+      setOpen(true);
     };
     const onModalOpen = (event: Event) => {
       if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "palette") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("caos:command-palette-open", onOpen);
     window.addEventListener("caos:modal-open", onModalOpen);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("caos:command-palette-open", onOpen);
       window.removeEventListener("caos:modal-open", onModalOpen);
     };
-  }, [open]);
+  }, []);
 
   if (!open) return null;
   return <PalettePanel onClose={() => setOpen(false)} />;
@@ -49,6 +59,7 @@ export function CommandPalette() {
 
 function PalettePanel({ onClose }: { onClose: () => void }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
+  const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const attemptNavigation = useNavigationAttempt();
   const { openProfile } = useIssuerProfileOverlay();
@@ -60,7 +71,11 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
   const [issuerError, setIssuerError] = useState(false);
   const [active, setActive] = useState(0);
 
-  // Issuer search — 2+ chars, 150ms debounce, top 6 (GlobalIssuerSearch's
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Issuer search — 2+ chars, 150ms debounce, top 6 (the prior standalone search's
   // contract); errors degrade to no issuer rows, never a broken palette.
   useEffect(() => {
     const q = query.trim();
@@ -165,6 +180,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
             ⌘K
           </span>
           <input
+            ref={inputRef}
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-listbox"

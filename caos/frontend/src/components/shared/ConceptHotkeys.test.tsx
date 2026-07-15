@@ -40,6 +40,21 @@ function renderHotkeys({ dirty = false }: { dirty?: boolean } = {}) {
 }
 
 describe("ConceptHotkeys", () => {
+  it("opens the unified palette with Alt+S and ignores editable targets", () => {
+    const listener = vi.fn();
+    window.addEventListener("caos:command-palette-open", listener);
+    renderHotkeys();
+
+    fireEvent.keyDown(window, { key: "s", altKey: true });
+    expect(listener).toHaveBeenCalledOnce();
+
+    for (const element of [document.createElement("input"), document.createElement("textarea"), document.createElement("select")]) {
+      fireEvent.keyDown(element, { key: "s", altKey: true });
+    }
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener("caos:command-palette-open", listener);
+  });
+
   it("dispatches caos:subview-cycle event on Alt+Comma", () => {
     const listener = vi.fn();
     window.addEventListener("caos:subview-cycle", listener);

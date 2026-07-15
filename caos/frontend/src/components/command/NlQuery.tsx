@@ -14,6 +14,7 @@ import { barSpecFor, narrate } from "@/lib/query/viz";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useModalA11y } from "@/lib/use-modal-a11y";
@@ -171,8 +172,8 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
                   <td className="tabular text-caos-md text-caos-muted py-1.5 pr-2 align-top">{i + 1}</td>
                   <td className="py-1.5 pr-2 align-top">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</span>
-                      {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
+                      <IssuerLink issuer={{ id: row.issuer.id }} className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</IssuerLink>
+                      {row.issuer.ticker ? <IssuerLink issuer={{ id: row.issuer.id }} className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</IssuerLink> : null}
                       <Pill text={badge.text} color={badge.color} title={badge.title} />
                       <GateBadge qa={qa} />
                     </div>
@@ -231,8 +232,8 @@ function SemanticView({ res, onOpenCite }: { res: SemanticResult | SynthesisResu
         <div key={row.issuer.id} className="rounded border border-caos-border/70 bg-caos-bg/40">
           <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-caos-border/50 min-w-0">
             <span className="tabular text-caos-md text-caos-muted shrink-0">{i + 1}</span>
-            <span className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</span>
-            {row.issuer.ticker ? <span className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</span> : null}
+            <IssuerLink issuer={{ id: row.issuer.id }} className="text-caos-md text-caos-text truncate min-w-0">{row.issuer.name}</IssuerLink>
+            {row.issuer.ticker ? <IssuerLink issuer={{ id: row.issuer.id }} className="tabular text-caos-2xs text-caos-muted">{row.issuer.ticker}</IssuerLink> : null}
             {row.issuer.industry ? <span className="tabular text-caos-2xs text-caos-muted">· {row.issuer.industry}</span> : null}
             <div className="flex-1" />
             {synth

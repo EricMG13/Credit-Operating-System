@@ -4,7 +4,6 @@ import { AuthProvider } from "@/components/shared/AuthProvider";
 import { RoleViewProvider } from "@/components/shared/RoleViewProvider";
 import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
 import { AskProvider, AskLauncher } from "@/components/shared/Ask";
-import { GlobalIssuerSearch } from "@/components/shared/GlobalIssuerSearch";
 import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import { CommandPalette } from "@/components/shared/CommandPalette";
@@ -53,12 +52,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <WorkflowRail />
               {/* Primary-content landmark (WCAG 1.3.1); pages keep their own h-screen layout. */}
               <main id="main-content" className="caos-workspace-main"><RouteHeading />{children}</main>
-            </div>
-            {/* bottom-24 (not bottom-16): the collapsed 48x36 hit-area otherwise
-                overlaps bottom-row content on routes with dense bottom chrome
-                (Query's walk launcher, Command's QA panel) — critique P2. */}
-            <div className="fixed bottom-24 left-3 min-[1180px]:left-[228px] z-overlay hidden lg:block">
-              <GlobalIssuerSearch />
             </div>
             <AskLauncher />
             <IssuerProfileOverlay />

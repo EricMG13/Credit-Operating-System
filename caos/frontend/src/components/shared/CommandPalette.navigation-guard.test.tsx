@@ -36,6 +36,18 @@ afterEach(() => {
 });
 
 describe("CommandPalette navigation guard", () => {
+  it("opens and focuses the same palette when Alt+S dispatches the shared event", async () => {
+    render(
+      <NavigationGuardProvider>
+        <CommandPalette />
+      </NavigationGuardProvider>,
+    );
+
+    window.dispatchEvent(new Event("caos:command-palette-open"));
+    const combobox = await screen.findByRole("combobox");
+    expect(document.activeElement).toBe(combobox);
+  });
+
   it("does not bypass a dirty Model Builder when executing a page command", async () => {
     render(
       <NavigationGuardProvider>

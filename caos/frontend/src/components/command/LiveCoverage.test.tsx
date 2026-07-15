@@ -50,18 +50,27 @@ describe("LiveCoverage", () => {
 
     // Click to select
     fireEvent.click(rowEl);
-    expect(handleSelect).toHaveBeenCalledWith("AURC");
+    expect(handleSelect).toHaveBeenCalledWith("i1");
 
     handleSelect.mockClear();
 
     // Press Enter to select
     fireEvent.keyDown(rowEl, { key: "Enter", code: "Enter" });
-    expect(handleSelect).toHaveBeenCalledWith("AURC");
+    expect(handleSelect).toHaveBeenCalledWith("i1");
 
     handleSelect.mockClear();
 
     // Press Space to select
     fireEvent.keyDown(rowEl, { key: " ", code: "Space" });
-    expect(handleSelect).toHaveBeenCalledWith("AURC");
+    expect(handleSelect).toHaveBeenCalledWith("i1");
+  });
+
+  it("opens ticker and name links without activating the row", () => {
+    const handleSelect = vi.fn();
+    render(<LiveCoverage rows={[row()]} onSelect={handleSelect} />);
+
+    fireEvent.click(screen.getByRole("link", { name: "AURC" }));
+    fireEvent.keyDown(screen.getByRole("link", { name: "Aurora Cables" }), { key: "Enter" });
+    expect(handleSelect).not.toHaveBeenCalled();
   });
 });
