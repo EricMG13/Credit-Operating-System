@@ -488,6 +488,17 @@ export function ResultStep({
           {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
         </div>
       )}
+      {!uploading && selectedIssuer && runOutcome?.state === "queued" ? (
+        <div className="flex items-center gap-2 border-b border-caos-border px-3 py-2">
+          <span className="tabular text-caos-xs text-caos-muted">Exact run {runOutcome.runId.slice(0, 8)}</span>
+          <Link
+            href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runOutcome.runId)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
+            className="caos-action-secondary ml-auto no-underline focus-ring"
+          >
+            Open Execution Graph
+          </Link>
+        </div>
+      ) : null}
       {/* Vaulting a document never starts a run by itself — this is the explicit
           trigger. modeMeta is descriptive metadata on the vaulted documents
           today (not yet threaded into the engine route), so the run itself is
@@ -507,7 +518,7 @@ export function ResultStep({
                 RUN {runCreated.status.toUpperCase()} · {runCreated.id.slice(0, 8)}
               </span>
               <Link
-                href={`/pipeline?issuer=${selectedIssuer.id}${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
+                href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runCreated.id)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
                 className="focus-ring ml-auto no-underline tabular text-caos-md px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
                 VIEW IN PIPELINE →

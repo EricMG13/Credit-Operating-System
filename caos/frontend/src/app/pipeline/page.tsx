@@ -70,11 +70,16 @@ function PipelineVisualizer() {
   const searchParams = useSearchParams();
   const issuerParam = searchParams.get("issuer");
   const runParam = searchParams.get("run");
+  const viewParam = searchParams.get("view");
   const analysis = useAnalysisContext({ name: "Pipeline run review" });
   const [latestLiveIssuer, setLatestLiveIssuer] = useState<string | null>(null);
   const [runRows, setRunRows] = useState<RunListItemDTO[]>([]);
   const [runRowsError, setRunRowsError] = useState(false);
   const [view, setView] = useViewPreference("graph");
+
+  useEffect(() => {
+    if (viewParam === "graph" || viewParam === "lanes") setView(viewParam);
+  }, [setView, viewParam]);
 
   useEffect(() => {
     const onCycle = (e: Event) => {
@@ -288,15 +293,17 @@ function PipelineVisualizer() {
           OPEN SELECTED RUN
         </Link>
       }
+      contextualControls={
+        <Link
+          href={analysis.context ? contextHref("/upload", analysis.context.id, { issuer: issuerId }) : `/upload?issuer=${encodeURIComponent(issuerId)}`}
+          className="caos-action-secondary no-underline focus-ring"
+        >
+          Document intake
+        </Link>
+      }
       utilityLabel="Run display controls"
       utilityControls={
         <>
-          <Link
-            href={analysis.context ? contextHref("/upload", analysis.context.id, { issuer: issuerId }) : `/upload?issuer=${encodeURIComponent(issuerId)}`}
-            className="caos-action-secondary no-underline focus-ring"
-          >
-            DOCUMENT INTAKE
-          </Link>
           {/* CP-X route template switcher (demo mode only) */}
           {!useLive ? (
             <ToggleGroup

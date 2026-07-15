@@ -318,6 +318,68 @@ def test_positions_cursor_filters_sort_and_tenancy(portfolio_client, monkeypatch
     )
 
 
+def test_command_snapshot_uses_only_exact_portfolio_bound_posture(portfolio_client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from config import get_settings
+    from database import AsyncSessionLocal, Issuer, ModuleOutput, PortfolioPosition, Run
+    from identity import get_identity
+    from main import app
+
+    _seed_books()
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    app.dependency_overrides[get_identity] = _identity("team-a")
+
+    async def seed():
+        async with AsyncSessionLocal() as db:
+            issuer = await db.get(Issuer, "command-issuer")
+            if issuer is None:
+                issuer = Issuer(id="command-issuer", name="Command Issuer", ticker="CMD", team_id="team-a")
+                db.add(issuer)
+            position = await db.get(PortfolioPosition, "lab-pos-1")
+            assert position is not None
+            position.issuer_id = issuer.id
+            now = datetime.now(timezone.utc)
+            bound = await db.get(Run, "command-bound-run")
+            if bound is None:
+                bound = Run(
+                    id="command-bound-run", issuer_id=issuer.id, portfolio_id="lab-team-a",
+                    analyst_id="portfolio-team-a-analyst", status="complete",
+                    qa_status="Passed", committee_status="Committee Ready",
+                    created_at=now - timedelta(days=2), completed_at=now - timedelta(days=2),
+                )
+                db.add(bound)
+                db.add(ModuleOutput(
+                    run_id=bound.id, module_id="CP-3", module_name="RV",
+                    runtime_output={"recommendation": "OVERWEIGHT"},
+                ))
+            unbound = await db.get(Run, "command-newer-unbound-run")
+            if unbound is None:
+                unbound = Run(
+                    id="command-newer-unbound-run", issuer_id=issuer.id, portfolio_id=None,
+                    analyst_id="portfolio-team-a-analyst", status="complete",
+                    qa_status="Passed", committee_status="Committee Ready",
+                    created_at=now, completed_at=now,
+                )
+                db.add(unbound)
+                db.add(ModuleOutput(
+                    run_id=unbound.id, module_id="CP-3", module_name="RV",
+                    runtime_output={"recommendation": "UNDERWEIGHT"},
+                ))
+            await db.commit()
+
+    asyncio.run(seed())
+    response = portfolio_client.get("/api/portfolios/lab-team-a/command")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    item = next(row for row in payload["positions"] if row["id"] == "lab-pos-1")
+    assert item["posture"] == "OVERWEIGHT"
+    assert item["run_id"] == "command-bound-run"
+    assert payload["posture_counts"]["UNKNOWN"] == 2
+    assert payload["position_count"] == 3
+    assert portfolio_client.get("/api/portfolios/lab-team-b/command").status_code == 404
+
+
 def test_positions_cursor_round_trips_255_character_sort_boundary(
     portfolio_client, monkeypatch
 ):

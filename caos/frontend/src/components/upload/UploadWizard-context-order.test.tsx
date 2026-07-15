@@ -34,9 +34,11 @@ const harness = vi.hoisted(() => {
     updated_at: "2026-07-13T00:00:00Z",
   } satisfies AnalysisContext;
   const patch = vi.fn();
+  const push = vi.fn();
   return {
     context,
     patch,
+    push,
     analysis: { context, patch },
     createRun: vi.fn(),
     uploadDocument: vi.fn(),
@@ -45,6 +47,7 @@ const harness = vi.hoisted(() => {
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => ({ get: () => null }),
+  useRouter: () => ({ push: harness.push }),
 }));
 
 vi.mock("react-dropzone", () => ({
@@ -153,5 +156,8 @@ describe("UploadWizard manual run context ordering", () => {
     expect(harness.createRun).toHaveBeenCalledWith(
       "issuer-1", undefined, undefined, undefined, "context-1",
     );
+    await waitFor(() => expect(harness.push).toHaveBeenCalledWith(
+      "/pipeline?issuer=issuer-1&run=run-1&view=graph&context=context-1",
+    ));
   });
 });

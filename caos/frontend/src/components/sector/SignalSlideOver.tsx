@@ -53,7 +53,8 @@ export function SignalSlideOver({
             {signal.issuers.map((issuer) => (
               <IssuerLink
                 key={`${signal.id}-${issuer.name}`}
-                query={issuer.name}
+                issuer={issuer.issuer_id ? { id: issuer.issuer_id } : undefined}
+                query={issuer.issuer_id ? undefined : issuer.name}
                 className="rounded border border-caos-border px-1.5 py-px tabular text-caos-2xs uppercase tracking-wider text-caos-accent hover:text-caos-text hover:border-caos-accent transition-caos"
               >
                 {issuer.ticker || issuer.name} / {issuer.exposure}

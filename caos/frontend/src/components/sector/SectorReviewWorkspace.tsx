@@ -10,6 +10,7 @@ import { BatchBar } from "@/components/shared/BatchBar";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { EvidenceInspector } from "@/components/shared/EvidenceInspector";
 import { RecoveryState } from "@/components/shared/RecoveryState";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 import { SignalSlideOver } from "./SignalSlideOver";
 import { downloadSignalsCsv } from "./signalsCsv";
 import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge, fmtAsOf } from "./shared";
@@ -487,19 +488,26 @@ export function SectorReviewWorkspace() {
                               <span className="text-caos-sm font-medium text-caos-text truncate flex-1 min-w-0">
                                 {signal.headline}
                               </span>
-                              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0 w-32 truncate text-right">
-                                {signal.issuers[0] ? (signal.issuers[0].ticker || signal.issuers[0].name) : "—"}
-                                {signal.issuers.length > 1 ? ` +${signal.issuers.length - 1}` : ""}
-                              </span>
-                              <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-12 text-right">
-                                <span className="sr-only">Materiality score </span>
-                                {Math.round(signal.materiality_score * 100)}
-                              </span>
-                              <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-24 text-right">
-                                <span className="sr-only">Signal date </span>
-                                {fmtAsOf.format(new Date(signal.signal_date))}
-                              </span>
                             </button>
+                            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0 w-32 truncate text-right">
+                              {signal.issuers[0]?.issuer_id ? (
+                                <IssuerLink
+                                  issuer={{ id: signal.issuers[0].issuer_id }}
+                                >
+                                  {signal.issuers[0].ticker || signal.issuers[0].name}{signal.issuers.length > 1 ? ` +${signal.issuers.length - 1}` : ""}
+                                </IssuerLink>
+                              ) : signal.issuers[0] ? (
+                                <>{signal.issuers[0].ticker || signal.issuers[0].name}{signal.issuers.length > 1 ? ` +${signal.issuers.length - 1}` : ""}</>
+                              ) : "—"}
+                            </span>
+                            <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-12 text-right">
+                              <span className="sr-only">Materiality score </span>
+                              {Math.round(signal.materiality_score * 100)}
+                            </span>
+                            <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-24 text-right">
+                              <span className="sr-only">Signal date </span>
+                              {fmtAsOf.format(new Date(signal.signal_date))}
+                            </span>
                           </div>
                         );
                       })}

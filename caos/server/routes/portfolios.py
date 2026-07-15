@@ -36,7 +36,8 @@ import portfolio_ingest
 import rate_limit
 from config import get_settings
 from database import (
-    Issuer, Portfolio, PortfolioConstraint, PortfolioPosition, PortfolioStressRun, get_db,
+    Issuer, ModuleOutput, Portfolio, PortfolioConstraint, PortfolioPosition,
+    PortfolioStressRun, Run, get_db,
 )
 from engine import portfolio as pf
 from identity import CallerIdentity, get_identity, require_write_role
@@ -689,6 +690,98 @@ async def get_analytics(
         for row in latest
     ]
     return analytics
+
+
+@router.get("/{portfolio_id}/command")
+async def get_command_snapshot(
+    portfolio_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Persisted holdings plus exact portfolio-bound CP-3 posture for Command.
+
+    A position without an exact issuer link or a completed run explicitly bound
+    to this portfolio remains UNKNOWN. Borrower text is never used to infer the
+    analytical issuer or to borrow posture from a standalone run.
+    """
+    portfolio = require_portfolio_access(caller, await db.get(Portfolio, portfolio_id))
+    positions = await _position_rows(db, portfolio.id)
+    issuer_ids = sorted({row.issuer_id for row in positions if row.issuer_id})
+
+    latest_by_issuer: Dict[str, Run] = {}
+    if issuer_ids:
+        ranked = (
+            select(
+                Run.id.label("run_id"),
+                func.row_number().over(
+                    partition_by=Run.issuer_id,
+                    order_by=(
+                        Run.completed_at.desc().nullslast(),
+                        Run.created_at.desc().nullslast(),
+                        Run.id.desc(),
+                    ),
+                ).label("rn"),
+            )
+            .where(
+                Run.status == "complete",
+                Run.portfolio_id == portfolio.id,
+                Run.issuer_id.in_(issuer_ids),
+            )
+            .subquery()
+        )
+        runs = list((await db.execute(
+            select(Run).where(Run.id.in_(select(ranked.c.run_id).where(ranked.c.rn == 1)))
+        )).scalars().all())
+        latest_by_issuer = {row.issuer_id: row for row in runs}
+
+    run_ids = [row.id for row in latest_by_issuer.values()]
+    cp3_by_run: Dict[str, Dict[str, Any]] = {}
+    if run_ids:
+        module_rows = (await db.execute(
+            select(ModuleOutput.run_id, ModuleOutput.runtime_output).where(
+                ModuleOutput.run_id.in_(run_ids),
+                ModuleOutput.module_id == "CP-3",
+            )
+        )).all()
+        cp3_by_run = {run_id: output or {} for run_id, output in module_rows}
+
+    posture_counts = {
+        "OVERWEIGHT": 0,
+        "NEUTRAL": 0,
+        "UNDERWEIGHT": 0,
+        "UNKNOWN": 0,
+    }
+    items: List[Dict[str, Any]] = []
+    for position in positions:
+        run = latest_by_issuer.get(position.issuer_id or "")
+        raw_posture = cp3_by_run.get(run.id, {}).get("recommendation") if run else None
+        posture = raw_posture if raw_posture in posture_counts else "UNKNOWN"
+        posture_counts[posture] += 1
+        item = _position_payload(position)
+        item.update({
+            "posture": posture,
+            "run_id": run.id if run else None,
+            "qa_status": run.qa_status if run else None,
+            "committee_status": run.committee_status if run else None,
+        })
+        items.append(item)
+
+    normalized_as_of = pf.normalize_portfolio_as_of(portfolio.as_of_date)
+    authority = _authority(portfolio, method="reported-holdings-plus-bound-cp3-v1")
+    authority["source_ids"] = [portfolio.id, *sorted(run_ids)]
+    return {
+        "portfolio": {
+            "id": portfolio.id,
+            "name": portfolio.name,
+            "kind": portfolio.kind,
+            "as_of_date": portfolio.as_of_date,
+        },
+        "positions": items,
+        "posture_counts": posture_counts,
+        "position_count": len(items),
+        "as_of": normalized_as_of.date().isoformat() if normalized_as_of else None,
+        "authority": authority,
+    }
 
 
 class StressRunCreate(BaseModel):

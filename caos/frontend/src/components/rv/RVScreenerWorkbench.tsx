@@ -10,6 +10,7 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
 import { MarketWorkbookImport } from "@/components/rv/MarketWorkbookImport";
+import { SlideOver } from "@/components/shared/SlideOver";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { headStat } from "@/components/shared/headStat";
 import { toErrorMessage } from "@/lib/api";
@@ -121,6 +122,7 @@ export function RVScreenerWorkbench() {
   const view: View = urlState.view === "distribution" || urlState.view === "compare" ? urlState.view : "table";
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [findingsKey, setFindingsKey] = useState(0);
 
@@ -215,9 +217,9 @@ export function RVScreenerWorkbench() {
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted">{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
       status={<span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
       primaryAction={<button type="button" onClick={reviewTop} disabled={!context || busy} className="caos-primary-action focus-ring disabled:opacity-40">{busy ? "Running…" : screen ? "Review top candidate" : "Run screen"}</button>}
-      contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), "var(--caos-success)")}{headStat("Screen only", String(screen?.counts["screen-only"] ?? 0), "var(--caos-warning)")}{headStat("Snapshot", screen?.snapshot_source_label ?? screen?.authority.origin ?? "—")}{headStat("Freshness", String(screen?.snapshot_freshness?.state ?? screen?.authority.freshness ?? "—"))}</>}
+      contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), "var(--caos-success)")}{headStat("Screen only", String(screen?.counts["screen-only"] ?? 0), "var(--caos-warning)")}{headStat("Snapshot", screen?.snapshot_source_label ?? screen?.authority.origin ?? "—")}{headStat("Freshness", String(screen?.snapshot_freshness?.state ?? screen?.authority.freshness ?? "—"))}<button type="button" onClick={() => setImportOpen(true)} className="caos-action-secondary focus-ring">Import pricing</button></>}
       utilityLabel="RV utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><MarketWorkbookImport onCommitted={(value) => { void runScreen(value.snapshot_id); }} /><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><button type="button" onClick={() => contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} disabled={!screen} className="caos-action-secondary focus-ring disabled:opacity-40">Save current screen</button></div>}
+      utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><button type="button" onClick={() => contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} disabled={!screen} className="caos-action-secondary focus-ring disabled:opacity-40">Save current screen</button></div>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <main className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
@@ -239,6 +241,14 @@ export function RVScreenerWorkbench() {
           {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
         </aside>}
         />
+        {importOpen ? (
+          <SlideOver title="Import immutable pricing snapshot" onClose={() => setImportOpen(false)}>
+            <MarketWorkbookImport onCommitted={(value) => {
+              setImportOpen(false);
+              void runScreen(value.snapshot_id);
+            }} />
+          </SlideOver>
+        ) : null}
       </main>
     </EnterprisePage>
   );

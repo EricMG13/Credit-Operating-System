@@ -6,6 +6,7 @@ import { Panel } from "@/components/shared/Panel";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useNavigationGuard } from "@/components/shared/NavigationGuardProvider";
+import { ScenarioNetworkPanel } from "@/components/model/ScenarioNetworkPanel";
 import {
   calculateModelV2,
   commitModelV2Workbook,
@@ -403,6 +404,7 @@ export function ModelV2Workbench({ issuerId, contextId, initialResponse }: Model
   const [scenarioNodeQuery, setScenarioNodeQuery] = useState("");
   const [scenarioValue, setScenarioValue] = useState("");
   const [scenarioPreview, setScenarioPreview] = useState<ScenarioPreview | null>(null);
+  const [scenarioMode, setScenarioMode] = useState<"model" | "network">("model");
   const [history, setHistory] = useState<ModelV2OverrideEvent[]>([]);
   const [checkpoints, setCheckpoints] = useState<ModelV2Checkpoint[]>([]);
   const [checkpointLabel, setCheckpointLabel] = useState("Analyst checkpoint");
@@ -1646,10 +1648,14 @@ export function ModelV2Workbench({ issuerId, contextId, initialResponse }: Model
 
           {record && payload.ui_preferences.show_scenarios ? (
             <Panel
-              title="Transient sensitivity"
+              title="Scenario modes"
               right={<span className="text-caos-2xs uppercase tracking-wider text-caos-muted">Server only · not saved</span>}
             >
-              <div className="grid gap-3 p-3 lg:grid-cols-[minmax(12rem,0.6fr)_minmax(16rem,1fr)_minmax(10rem,0.5fr)_auto] lg:items-end">
+              <div role="tablist" aria-label="Scenario mode" className="m-3 mb-0 flex flex-wrap gap-1 rounded border border-caos-border bg-caos-bg p-1">
+                <button type="button" role="tab" aria-selected={scenarioMode === "model"} onClick={() => setScenarioMode("model")} className={scenarioMode === "model" ? "caos-action-primary focus-ring" : "caos-action-secondary focus-ring"}>Model scenario</button>
+                <button type="button" role="tab" aria-selected={scenarioMode === "network"} onClick={() => setScenarioMode("network")} className={scenarioMode === "network" ? "caos-action-primary focus-ring" : "caos-action-secondary focus-ring"}>Cross-module propagation</button>
+              </div>
+              <div hidden={scenarioMode !== "model"} className="grid gap-3 p-3 lg:grid-cols-[minmax(12rem,0.6fr)_minmax(16rem,1fr)_minmax(10rem,0.5fr)_auto] lg:items-end">
                 <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
                   Find scenario node
                   <input
@@ -1765,6 +1771,10 @@ export function ModelV2Workbench({ issuerId, contextId, initialResponse }: Model
                     </table>
                   </div>
                 ) : null}
+              </div>
+              <div hidden={scenarioMode !== "network"} className="p-3">
+                <p className="mb-2 text-caos-xs leading-relaxed text-caos-muted">Propagates EBITDA and rate shocks through the exact completed source run. It does not mutate this draft, its override queue, checkpoints, or reports.</p>
+                <ScenarioNetworkPanel issuerId={issuerId} runId={record.source_run_id} />
               </div>
             </Panel>
           ) : null}

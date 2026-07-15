@@ -424,7 +424,6 @@ export function Sheet({
             <div
               key={row.id}
               role="row"
-              onDoubleClick={() => collapsible && onToggleRow?.(row.id!)}
               className="flex group"
               style={{ background: isHl ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}
             >
@@ -454,18 +453,23 @@ export function Sheet({
               >
                 {collapsible ? (
                   <button
+                    type="button"
                     onClick={() => onToggleRow?.(row.id!)}
                     aria-label={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
                     aria-expanded={!collapsed}
                     title={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
-                    className="tabular text-caos-3xs text-caos-accent focus-ring"
+                    className="flex min-w-0 items-baseline gap-1.5 rounded text-left focus-ring"
                   >
-                    {collapsed ? "▸" : "▾"}
+                    <span className="tabular text-caos-3xs text-caos-accent" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                    <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                      {row.l}
+                    </span>
                   </button>
-                ) : null}
-                <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
-                  {row.l}
-                </span>
+                ) : (
+                  <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                    {row.l}
+                  </span>
+                )}
                 {row.sub ? <span className="tabular text-caos-3xs text-caos-muted ml-auto whitespace-nowrap">{row.sub}</span> : null}
               </div>
               {colDefs.map((c) => renderCell(row.id!, c, { bold: row.bold, pct: row.pct, shade: row.shade, line: row.line, isHl }))}

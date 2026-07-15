@@ -409,6 +409,7 @@ function ScenarioBuilder({
 // correct, not a stale column.
 export function ScenarioPanel({ model, downside, issuerId = "", runId = null, onCollapse }: { model: Model; downside?: DownsidePathway | null; issuerId?: string; runId?: string | null; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
+  const [mode, setMode] = useState<"model" | "network">("model");
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
   return (
     <Panel
@@ -419,22 +420,32 @@ export function ScenarioPanel({ model, downside, issuerId = "", runId = null, on
       ) : undefined}
     >
       <div className="p-2.5 flex flex-col gap-3.5">
-        <ScenarioComparison sc={sc} active={active?.label ?? null} />
-        {downside ? (
-          <>
-            <div className="border-t border-caos-border" />
-            <DownsideFragility downside={downside} />
-          </>
-        ) : null}
-        <div className="border-t border-caos-border" />
-        <Tornado sc={sc} />
-        <div className="border-t border-caos-border" />
-        <ScenarioBuilder
-          active={active}
-          onApply={(deltas, label, rationale) => setActive({ deltas, label, rationale })}
-          onReset={() => setActive(null)}
-        />
-        <ScenarioNetworkPanel issuerId={issuerId} runId={runId} />
+        <div role="tablist" aria-label="Scenario mode" className="grid grid-cols-2 gap-1 rounded border border-caos-border bg-caos-bg p-1">
+          <button type="button" role="tab" aria-selected={mode === "model"} onClick={() => setMode("model")} className={mode === "model" ? "caos-action-primary focus-ring" : "caos-action-secondary focus-ring"}>Model scenario</button>
+          <button type="button" role="tab" aria-selected={mode === "network"} onClick={() => setMode("network")} className={mode === "network" ? "caos-action-primary focus-ring" : "caos-action-secondary focus-ring"}>Cross-module propagation</button>
+        </div>
+        <div hidden={mode !== "model"} className="grid gap-3.5">
+          <p className="text-caos-xs leading-relaxed text-caos-muted">Temporary model-case deltas recalculate this cash-flow lens only. They are not saved to the model.</p>
+          <ScenarioComparison sc={sc} active={active?.label ?? null} />
+          {downside ? (
+            <>
+              <div className="border-t border-caos-border" />
+              <DownsideFragility downside={downside} />
+            </>
+          ) : null}
+          <div className="border-t border-caos-border" />
+          <Tornado sc={sc} />
+          <div className="border-t border-caos-border" />
+          <ScenarioBuilder
+            active={active}
+            onApply={(deltas, label, rationale) => setActive({ deltas, label, rationale })}
+            onReset={() => setActive(null)}
+          />
+        </div>
+        <div hidden={mode !== "network"}>
+          <p className="text-caos-xs leading-relaxed text-caos-muted">Propagates EBITDA and rate shocks through one exact completed analytical run. It never mutates model inputs or reports.</p>
+          <ScenarioNetworkPanel issuerId={issuerId} runId={runId} />
+        </div>
       </div>
     </Panel>
   );

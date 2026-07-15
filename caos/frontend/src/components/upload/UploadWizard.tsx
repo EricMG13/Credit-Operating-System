@@ -7,7 +7,7 @@
 // and classification is CP-0's job.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import { appendIngestionContext, createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
@@ -27,6 +27,7 @@ interface UploadWizardProps {
 }
 
 export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
+  const router = useRouter();
   const analysis = useAnalysisContext({ name: "Document intake" });
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
@@ -210,12 +211,21 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           );
           runQueuedRef.current = true;
           setRunOutcome({ state: "queued", runId: run.id });
+          let contextLinked = true;
           if (activeContext) {
             const legacyArtifacts = { ...activeContext.artifacts };
             delete legacyArtifacts.artifact_refs;
-            await analysis.patch({
-              artifacts: { ...legacyArtifacts, issuer_run_id: run.id },
-            }).catch(() => setError("Run queued, but the analysis context could not be linked."));
+            try {
+              await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
+            } catch {
+              contextLinked = false;
+              setError("Run queued, but the analysis context could not be linked. Use the exact Execution Graph link below.");
+            }
+          }
+          if (contextLinked) {
+            const params = new URLSearchParams({ issuer: selectedIssuer.id, run: run.id, view: "graph" });
+            if (activeContext?.id) params.set("context", activeContext.id);
+            router.push(`/pipeline?${params.toString()}`);
           }
         } catch (err: unknown) {
           const status = (err as { response?: { status?: number } })?.response?.status;
@@ -260,10 +270,21 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         selectedIssuer.id, undefined, portfolioId || undefined, undefined, activeContext?.id,
       );
       setRunCreated(run);
+      let contextLinked = true;
       if (activeContext) {
         const legacyArtifacts = { ...activeContext.artifacts };
         delete legacyArtifacts.artifact_refs;
-        await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
+        try {
+          await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
+        } catch {
+          contextLinked = false;
+          setRunError("Run queued, but the analysis context could not be linked. Use the exact Execution Graph link.");
+        }
+      }
+      if (contextLinked) {
+        const params = new URLSearchParams({ issuer: selectedIssuer.id, run: run.id, view: "graph" });
+        if (activeContext?.id) params.set("context", activeContext.id);
+        router.push(`/pipeline?${params.toString()}`);
       }
     } catch (err) {
       setRunError(toErrorMessage(err, "Could not create the run"));

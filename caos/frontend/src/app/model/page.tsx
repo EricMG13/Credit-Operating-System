@@ -659,16 +659,20 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         </span>
       }
       contextualControls={
-        <ModelHistoryControls
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onUndo={undo}
-          onRedo={redo}
-          checkpoints={checkpoints}
-          onCheckpoint={checkpoint}
-          onRestore={restoreCheckpoint}
-          onDelete={deleteCheckpoint}
-        />
+        <span className="flex items-center gap-2">
+          <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring">Open assumptions</button>
+          <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring">Open scenarios</button>
+          <ModelHistoryControls
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+            checkpoints={checkpoints}
+            onCheckpoint={checkpoint}
+            onRestore={restoreCheckpoint}
+            onDelete={deleteCheckpoint}
+          />
+        </span>
       }
       utilityLabel="Model tools"
       utilityControls={

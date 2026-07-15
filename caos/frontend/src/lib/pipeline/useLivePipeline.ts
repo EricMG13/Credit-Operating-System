@@ -133,8 +133,20 @@ function useExactPipelineStatus(runId: string | null): LatestRunStatus<LivePipel
   useEffect(() => {
     if (!runId) return;
     let cancelled = false;
+    let loading = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     setState({ value: null, phase: "loading", latest: null });
-    (async () => {
+
+    const schedule = () => {
+      if (cancelled || timer || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => {
+        timer = null;
+        void load();
+      }, 2_000);
+    };
+    const load = async () => {
+      if (cancelled || loading) return;
+      loading = true;
       try {
         const run = await getRun(runId);
         const latest = {
@@ -148,15 +160,32 @@ function useExactPipelineStatus(runId: string | null): LatestRunStatus<LivePipel
         };
         if (run.status !== "complete") {
           if (!cancelled) setState({ value: null, phase: "in_flight", latest });
+          if (run.status === "queued" || run.status === "running") schedule();
           return;
         }
         const value = await buildPipeline(latest);
         if (!cancelled) setState({ value, phase: "complete", latest });
       } catch {
         if (!cancelled) setState({ value: null, phase: "error", latest: null });
+      } finally {
+        loading = false;
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [runId]);
 
   return state;

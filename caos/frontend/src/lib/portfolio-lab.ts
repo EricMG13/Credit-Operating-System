@@ -53,6 +53,29 @@ export interface PortfolioPositionPage {
   authority: AuthorityEnvelope;
 }
 
+export type CommandPosture = "OVERWEIGHT" | "NEUTRAL" | "UNDERWEIGHT" | "UNKNOWN";
+
+export interface CommandPortfolioPosition extends PortfolioPosition {
+  posture: CommandPosture;
+  run_id: string | null;
+  qa_status: string | null;
+  committee_status: string | null;
+}
+
+export interface CommandPortfolioSnapshot {
+  portfolio: {
+    id: string;
+    name: string;
+    kind: string;
+    as_of_date: string | null;
+  };
+  positions: CommandPortfolioPosition[];
+  posture_counts: Record<CommandPosture, number>;
+  position_count: number;
+  as_of: string | null;
+  authority: AuthorityEnvelope;
+}
+
 export interface PortfolioConstraint {
   code: string | null;
   category: string | null;
@@ -133,6 +156,9 @@ export interface StressRunPage {
 }
 
 export const portfolioLabApi = {
+  getCommandSnapshot: (portfolioId: string) =>
+    api.get<CommandPortfolioSnapshot>(`/api/portfolios/${portfolioId}/command`)
+      .then((response) => response.data),
   getPositions: (portfolioId: string, filters: PortfolioPositionFilters = {}) =>
     api.get<PortfolioPositionPage>(`/api/portfolios/${portfolioId}/positions`, { params: filters })
       .then((response) => response.data),

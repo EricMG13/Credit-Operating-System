@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export function Panel({
   title,
@@ -22,6 +22,7 @@ export function Panel({
   onCollapse?: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   // Only a body that actually clips needs to be a keyboard-focusable scroll
   // region — measure real overflow so a panel whose content fits isn't an inert
@@ -47,26 +48,26 @@ export function Panel({
       style={collapsed ? { flex: "none", height: "auto" } : undefined}
     >
       <div className={`h-8 shrink-0 px-3 flex items-center gap-2 bg-caos-elevated/20 ${collapsed ? "" : "border-b border-caos-border"}`}>
-        {collapsible && (
-          <button
-            type="button"
-            onClick={() => {
-              if (onCollapse) {
-                onCollapse();
-              } else {
-                setCollapsed(!collapsed);
-              }
-            }}
-            className="w-5 h-5 -ml-1 rounded flex items-center justify-center text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring cursor-pointer"
-            aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true" className="w-3.5 h-3.5 stroke-current" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d={collapsed ? "m4 6 4 4 4-4" : "m4 10 4-4 4 4"} />
-            </svg>
-          </button>
-        )}
-        <Heading className="tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text m-0">{title}</Heading>
-        <div className="flex-1" />
+        <Heading className="m-0 min-w-0 flex-1 tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text">
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (onCollapse) onCollapse();
+                else setCollapsed((current) => !current);
+              }}
+              className="-ml-1 flex h-7 w-full min-w-0 items-center gap-1 rounded px-1 text-left transition-caos hover:bg-caos-elevated/50 focus-ring"
+              aria-expanded={!collapsed}
+              aria-controls={bodyId}
+              aria-label={collapsed ? `Expand ${title} panel` : `Collapse ${title} panel`}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5 shrink-0 stroke-current text-caos-muted" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d={collapsed ? "m4 6 4 4 4-4" : "m4 10 4-4 4 4"} />
+              </svg>
+              <span className="truncate">{title}</span>
+            </button>
+          ) : title}
+        </Heading>
         {right}
       </div>
       {/* Body is keyboard-focusable ONLY when it actually clips, so a scrollable
@@ -75,6 +76,7 @@ export function Panel({
           order. Labeled by the panel title so the focused region is announced. */}
       {!collapsed && (
         <div
+          id={bodyId}
           ref={bodyRef}
           tabIndex={scrollable ? 0 : undefined}
           aria-label={scrollable ? title : undefined}

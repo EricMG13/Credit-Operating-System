@@ -28,7 +28,7 @@ function GapRow({ row, badge, badgeColor }: { row: IngestionGapRow; badge: strin
           {badge}
         </span>
         <IssuerLink
-          query={row.issuer_name}
+          issuer={{ id: row.issuer_id }}
           title={`Open ${row.issuer_name} profile`}
           className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
         >
@@ -55,7 +55,7 @@ function CoverageRow({ row }: { row: CoverageOriginRow }) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 px-3 py-[6px] items-center border-b border-caos-border/50">
       <IssuerLink
-        query={row.issuer_name}
+        issuer={{ id: row.issuer_id }}
         title={`Open ${row.issuer_name} profile`}
         className="tabular text-caos-md text-caos-accent truncate hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
       >

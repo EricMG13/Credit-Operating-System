@@ -813,8 +813,12 @@ function ReportStudio() {
         </div>
       }
       contextualControls={
-        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-          {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · {Math.round(zoom * 100)}%
+        <span className="flex items-center gap-2">
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+            {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · {Math.round(zoom * 100)}%
+          </span>
+          <button type="button" onClick={() => setEditMode(!editMode)} disabled={!canEditComposition} className="caos-action-secondary focus-ring disabled:opacity-40">{editMode ? "Finish editing" : "Edit report"}</button>
+          {live.runId ? <button type="button" onClick={() => setDecisionOpen(true)} disabled={live.committeeStatus !== "Committee Ready"} className="caos-action-secondary focus-ring disabled:opacity-40">Open IC decision</button> : null}
         </span>
       }
       narrowContract={narrowContract}

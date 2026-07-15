@@ -7,6 +7,7 @@ import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
@@ -140,11 +141,12 @@ function QueryResult({ run }: { run: QueryRun | null }) {
               <tbody>
                 {rows.slice(0, 100).map((row, index) => {
                   const issuer = rowIssuer(row);
+                  const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
                   const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
                   const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
                   const rankValue = row.rank_value === undefined ? "" : `${rankLabel} ${formatMetricValue(row.rank_value)}${rankUnit}`;
                   const details = [issuerMeta, rankValue].filter(Boolean).join(" · ") || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
-                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{label}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
+                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
                 })}
               </tbody>
             </table>

@@ -53,7 +53,10 @@ export function OutputRegister({
   return (
     <div className="rounded border border-caos-border bg-caos-bg">
       <button
+        type="button"
         onClick={toggleOpen}
+        aria-expanded={open}
+        aria-controls={`${id}-required-outputs`}
         className="w-full px-3 py-2 flex items-center gap-2.5 text-left hover:bg-caos-elevated/40 transition-caos"
       >
         <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted whitespace-nowrap">
@@ -67,7 +70,7 @@ export function OutputRegister({
         <span className="text-caos-muted text-caos-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open ? (
-        <div className="grid grid-cols-2 gap-x-5 px-3 py-1.5 border-t border-caos-border">
+        <div id={`${id}-required-outputs`} className="grid grid-cols-2 gap-x-5 px-3 py-1.5 border-t border-caos-border">
           {steps.map((s, i) => (
             <button
               key={i}

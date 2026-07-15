@@ -7,6 +7,7 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import {
   analysisApi,
@@ -184,7 +185,12 @@ function PositionsTable({
         <tbody>
           {page.items.map((position) => (
             <tr key={position.id} className={page.total > 50 ? "portfolio-lab__virtual-row" : undefined} data-selected={selectedId === position.id}>
-              <th scope="row"><button type="button" onClick={() => onSelect(position)} aria-label={`Select ${position.borrower_name}`} aria-pressed={selectedId === position.id}>{position.borrower_name}</button></th>
+              <th scope="row">
+                <div className="flex items-center gap-2">
+                  {position.issuer_id ? <IssuerLink issuer={{ id: position.issuer_id }}>{position.borrower_name}</IssuerLink> : position.borrower_name}
+                  <button type="button" onClick={() => onSelect(position)} aria-label={`Select ${position.borrower_name}`} aria-pressed={selectedId === position.id}>Inspect</button>
+                </div>
+              </th>
               <td>{position.loan_name ?? position.ticker ?? "—"}</td><td>{position.sector ?? "—"}</td>
               <td>{position.rating_moody ?? position.rating_sp ?? "—"}</td><td>{position.par_usd == null ? "—" : money.format(position.par_usd)}</td>
               <td>{numberText(position.price)}</td><td>{position.maturity ?? "—"}</td>
