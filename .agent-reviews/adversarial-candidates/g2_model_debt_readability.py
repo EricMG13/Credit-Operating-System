@@ -1,3 +1,18 @@
+"""Review artifact — winning G2 readability candidate.
+
+Replaces caos/server/model_engine_v2.py:774-1229 inside
+ModelEngineV2.calculate(); see .agent-reviews/adversarial-codebase-tournament.md.
+The wrapper below exists only so this excerpt parses as standalone Python; it
+reproduces the enclosing block nesting (class -> calculate -> for period ->
+for instrument, point), not production logic. Candidate content is unchanged
+below the wrapper.
+"""
+
+
+class ModelEngineV2:
+    def calculate(self, payload, *, evaluated_at=None):
+        for period in payload.periods:
+            for instrument, point in schedule_rows:
                 def calculated(
                     field: str,
                     original: Optional[Decimal],
