@@ -138,7 +138,7 @@ describe("IC Book workbench", () => {
     mocks.createAgenda.mockResolvedValueOnce({ ...agenda, id: "agenda-2", status: "draft" });
     render(<ICBookWorkbench />);
     await screen.findByRole("table", { name: "Committee agenda" });
-    const form = screen.getByRole("heading", { name: "Add agenda item" }).closest("form");
+    const form = screen.getByRole("form", { name: "Add agenda item" });
     expect(form).toBeTruthy();
     fireEvent.change(within(form!).getByLabelText("Meeting time"), { target: { value: "2026-07-21T10:00" } });
     fireEvent.change(within(form!).getByLabelText("Thesis"), { target: { value: "Committee thesis" } });
@@ -160,7 +160,7 @@ describe("IC Book workbench", () => {
       : [{ id: "run-2", committee_status: "Committee Ready" }]);
     mocks.createAgenda.mockResolvedValueOnce({ ...agenda, id: "agenda-2", issuer_id: "issuer-2", status: "draft" });
     render(<ICBookWorkbench />);
-    const form = (await screen.findByRole("heading", { name: "Add agenda item" })).closest("form")!;
+    const form = await screen.findByRole("form", { name: "Add agenda item" });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe("run-1"));
     fireEvent.change(within(form).getByLabelText("Issuer"), { target: { value: "issuer-2" } });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe(""));
@@ -182,7 +182,7 @@ describe("IC Book workbench", () => {
       { id: "portfolio-2", name: "Credit Fund II" },
     ]);
     render(<ICBookWorkbench />);
-    const form = (await screen.findByRole("heading", { name: "Add agenda item" })).closest("form")!;
+    const form = await screen.findByRole("form", { name: "Add agenda item" });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe("run-1"));
     fireEvent.change(within(form).getByLabelText("Portfolio"), { target: { value: "portfolio-2" } });
     expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe("");
