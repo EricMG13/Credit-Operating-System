@@ -94,6 +94,18 @@ describe("StepOutputGrid", () => {
     expect(screen.queryByText("Fixture body 1")).toBeNull();
   });
 
+  it("summary mode preserves source workflow order in one semantic sequence", () => {
+    seedConsolidationFixture(3);
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="summary" onOpenEvidence={() => {}} />);
+
+    const sequence = screen.getByRole("list", { name: /sequential workflow summary/i });
+    const items = Array.from(sequence.querySelectorAll("li")).map((item) => item.textContent);
+    expect(items).toHaveLength(3);
+    expect(items[0]).toContain("Coverage step 1");
+    expect(items[1]).toContain("Coverage step 2");
+    expect(items[2]).toContain("Coverage step 3");
+  });
+
   it("keeps dense mode unconsolidated", () => {
     seedConsolidationFixture();
     render(<StepOutputGrid id={CONSOLIDATED_ID} mode="dense" onOpenEvidence={() => {}} />);

@@ -1,13 +1,13 @@
 "use client";
 
 // The global ⌘K command palette: pages (workflow-grouped from lib/nav),
-// issuers (same debounced search contract as GlobalIssuerSearch), global
+// issuers (using the shared debounced issuer-search contract), global
 // actions, and an ever-present `Ask CAOS: "<text>"` passthrough row that
 // routes typed text into the Ask launcher via openWith() — the old ⌘K→Ask
 // muscle memory keeps working for question-shaped input (RT-2026-07-11-62).
 // Alt+K still opens Ask directly (ConceptHotkeys, unchanged).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { staticRows, type PaletteRow, type IssuerRow } from "@/lib/palette";
@@ -16,20 +16,41 @@ import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 import { useAsk } from "./Ask";
 import { useRoleView } from "./RoleViewProvider";
 import type { RoleView } from "@/lib/api";
+import { ModalBackdrop } from "./ModalBackdrop";
+import { SurfaceState } from "./SurfaceState";
+import { useNavigationAttempt } from "./NavigationGuardProvider";
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
 
-  // ⌘K / Ctrl+K — owned here (Firefox's native ⌘K needs preventDefault).
+  // ⌘K / Ctrl+K and the shared explicit-open event are owned here. Alt+S
+  // dispatches the latter from ConceptHotkeys so issuer lookup and page/action
+  // search stay one surface instead of competing global search widgets.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setOpen((v) => !v);
+        setOpen((current) => {
+          if (!current) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+          return !current;
+        });
       }
     };
+    const onOpen = () => {
+      window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+      setOpen(true);
+    };
+    const onModalOpen = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "palette") setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("caos:command-palette-open", onOpen);
+    window.addEventListener("caos:modal-open", onModalOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("caos:command-palette-open", onOpen);
+      window.removeEventListener("caos:modal-open", onModalOpen);
+    };
   }, []);
 
   if (!open) return null;
@@ -38,21 +59,29 @@ export function CommandPalette() {
 
 function PalettePanel({ onClose }: { onClose: () => void }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
+  const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const attemptNavigation = useNavigationAttempt();
   const { openProfile } = useIssuerProfileOverlay();
   const { openWith } = useAsk();
   const { setRoleView } = useRoleView();
 
   const [query, setQuery] = useState("");
   const [issuers, setIssuers] = useState<IssuerRow[]>([]);
+  const [issuerError, setIssuerError] = useState(false);
   const [active, setActive] = useState(0);
 
-  // Issuer search — 2+ chars, 150ms debounce, top 6 (GlobalIssuerSearch's
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Issuer search — 2+ chars, 150ms debounce, top 6 (the prior standalone search's
   // contract); errors degrade to no issuer rows, never a broken palette.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
       setIssuers([]);
+      setIssuerError(false);
       return;
     }
     let stale = false;
@@ -68,9 +97,13 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
               sub: [i.ticker, i.sector].filter(Boolean).join(" · "),
             })),
           );
+          setIssuerError(false);
         })
         .catch(() => {
-          if (!stale) setIssuers([]);
+          if (!stale) {
+            setIssuers([]);
+            setIssuerError(true);
+          }
         });
     }, 150);
     return () => {
@@ -105,7 +138,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
     (row: PaletteRow) => {
       onClose();
       if (row.kind === "page") {
-        router.push(row.href);
+        attemptNavigation(() => router.push(row.href));
       } else if (row.kind === "issuer") {
         openProfile(row.id);
       } else if (row.kind === "ask") {
@@ -115,7 +148,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
         else setRoleView(row.id.replace("role-", "") as RoleView);
       }
     },
-    [onClose, router, openProfile, openWith, setRoleView],
+    [attemptNavigation, onClose, router, openProfile, openWith, setRoleView],
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -132,20 +165,22 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-modal flex items-start justify-center pt-[12vh] bg-black/50">
+    <ModalBackdrop onClose={onClose} align="top">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-[560px] max-w-[92vw] max-h-[64vh] flex flex-col rounded-md border border-caos-border bg-caos-panel shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        className="caos-enter w-[560px] max-w-[92vw] max-h-[64vh] flex flex-col rounded-md border border-caos-border bg-caos-panel overflow-hidden"
+        style={{ boxShadow: "var(--shadow-modal)" }}
       >
         <div className="flex items-center gap-2 border-b border-caos-border px-3">
           <span aria-hidden="true" className="tabular text-caos-xs text-caos-muted">
             ⌘K
           </span>
           <input
-            autoFocus
+            ref={inputRef}
             role="combobox"
             aria-expanded="true"
             aria-controls="palette-listbox"
@@ -161,6 +196,11 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
           </span>
         </div>
         <ul id="palette-listbox" role="listbox" aria-label="Results" className="flex-1 overflow-y-auto py-1">
+          {issuerError ? (
+            <li role="none" className="px-2 py-1">
+              <SurfaceState kind="offline" title="Issuer lookup unavailable" detail="Page and action commands remain available." compact />
+            </li>
+          ) : null}
           {rows.map((row, i) => (
             <li
               key={row.kind + (row.kind === "page" ? row.href : row.kind === "issuer" ? row.id : row.kind === "action" ? row.id : "ask")}
@@ -216,6 +256,6 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </ul>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

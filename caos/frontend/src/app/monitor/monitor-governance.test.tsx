@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
-  it("renders '— no data' cells and an offline Governance queue when every backend is unreachable", async () => {
+  it("renders decision-safe empty states and an offline Governance queue when every backend is unreachable", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
     getAlertStates.mockRejectedValue(new Error("network error"));
     getPortfolio.mockRejectedValue(new Error("network error"));
@@ -43,12 +43,12 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
 
     render(<MonitorPage />);
 
-    // Analyst role view opens the decision header collapsed by default —
-    // expand it before asserting the four cells.
+    // Decision context is visible on arrival for the primary analyst persona.
     const header = await screen.findByLabelText("Decision header");
-    fireEvent.click(header.querySelector("button")!);
-    expect(screen.getAllByText("— no data").length).toBeGreaterThan(0);
-    expect(screen.getByText("Governance · CP-5 / CP-0 / Staleness")).toBeTruthy();
+    expect(header.textContent).toContain("Watchtower endpoint unavailable");
+    expect(header.textContent).not.toContain("No material change");
+    expect(header.textContent).not.toContain("No action required");
+    expect(screen.getByText("Governance summary")).toBeTruthy();
   });
 
   it("populates the decision header from a live autonomy draft and shows the shared governance categories", async () => {
@@ -91,14 +91,12 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
 
     render(<MonitorPage />);
 
-    await waitFor(() => expect(screen.getByText(/EBITDA margin compressed sharply vs peers/)).toBeTruthy());
-
     const header = screen.getByLabelText("Decision header");
-    fireEvent.click(header.querySelector("button")!);
-    expect(screen.getByText("compare to peers")).toBeTruthy();
+    await waitFor(() => expect(header.textContent).toContain("EBITDA margin compressed sharply vs peers"));
+    expect(header.textContent).toContain("compare to peers");
 
-    expect(screen.getByText("Governance · CP-5 / CP-0 / Staleness")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Expand Governance/i }));
+    fireEvent.click(screen.getByRole("tab", { name: "Governance" }));
+    expect(screen.getByText("Governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
     expect(screen.getByText("QA Queue · CP-5 open findings")).toBeTruthy();
     expect(screen.getByText("Failed Gates · committee gate")).toBeTruthy();
     expect(screen.getByText("Mixed Origin · reference + live run")).toBeTruthy();

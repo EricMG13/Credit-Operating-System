@@ -1,7 +1,7 @@
 // One provenance grammar for every surface — three orthogonal axes:
 //
 //   Origin:    LIVE / REFERENCE / DEMO   (where the figures come from)
-//   Freshness: CURRENT / STALE / UNKNOWN (how old they are)
+//   Freshness: CURRENT / DUE / STALE / UNKNOWN (how old they are)
 //   Method:    REPORTED / DERIVED / MODELLED (how they were produced)
 //
 // Replaces the per-surface vocabularies (Research's DEMO/●LIVE chips, Query's
@@ -15,7 +15,7 @@
 // not read as CURRENT.
 
 export type ProvOrigin = "LIVE" | "REFERENCE" | "DEMO";
-export type ProvFreshness = "CURRENT" | "STALE" | "UNKNOWN";
+export type ProvFreshness = "CURRENT" | "DUE" | "STALE" | "UNKNOWN";
 export type ProvMethod = "REPORTED" | "DERIVED" | "MODELLED";
 
 export interface Provenance {

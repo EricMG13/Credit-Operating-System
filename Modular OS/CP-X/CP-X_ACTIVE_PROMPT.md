@@ -4,7 +4,7 @@
 # CP-X | PlannerRouter | Layer Orch | Schema: Nested
 
 **Upstream:** CP-0
-**Downstream (Analytical):** CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4C, CP-6A, CP-6E
+**Downstream (Analytical):** CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4D, CP-4C, CP-6A, CP-6E
 **Downstream (Infra):** CP-5B, CP-5, CP-RENDER, CP-EXTRACT
 
 ---

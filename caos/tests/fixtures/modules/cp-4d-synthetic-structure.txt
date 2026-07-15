@@ -1,0 +1,6 @@
+SYNTHETIC TEST DOCUMENT — NOT PRODUCTION EVIDENCE
+Issuer: Fixture Holdings Ltd
+As of: 2025-12-31
+Parent: Fixture Holdings Ltd; borrower: Fixture Finance Ltd.
+Guarantee schedule names Fixture Operating Ltd.
+Security agreement, intercreditor agreement, and restricted-group schedule: not provided.

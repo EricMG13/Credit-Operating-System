@@ -13,6 +13,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { AnalystBadge } from "./AnalystBadge";
 import { RoleViewSwitch } from "./RoleViewSwitch";
 import { NAV_GROUPS, routeMatches } from "@/lib/nav";
@@ -47,6 +48,14 @@ const ICONS: Record<string, Icon> = {
     <rect x="1.6" y="1.6" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="1.6" width="4.3" height="4.3" rx="1" />
     <rect x="1.6" y="8.1" width="4.3" height="4.3" rx="1" /><rect x="8.1" y="8.1" width="4.3" height="4.3" rx="1" />
   </>),
+  portfolio: svg(<>
+    <path d="M2 3.2h10v8H2zM4.2 3.2V2h5.6v1.2" />
+    <path d="M2 6.2h10M5.3 6.2v5.1M8.7 6.2v5.1" />
+  </>),
+  decisions: svg(<>
+    <path d="M3 1.8h6.3l1.7 1.7v8.7H3z" />
+    <path d="M9.3 1.8v2h1.8M5 6h4M5 8.3h4M5 10.6h2.4" />
+  </>),
   pipeline: svg(<>
     <path d="M7 3.2v3M7 6.2H3.4v3.4M7 6.2h3.6v3.4" />
     <circle cx="7" cy="2.2" r="1.1" /><circle cx="3.4" cy="11" r="1.1" /><circle cx="10.6" cy="11" r="1.1" />
@@ -58,6 +67,10 @@ const ICONS: Record<string, Icon> = {
   research: svg(<>
     <path d="M5.5 1.8v3.3L2.5 10.8a1 1 0 0 0 .9 1.5h7.2a1 1 0 0 0 .9-1.5L8.5 5.1V1.8" />
     <path d="M4.5 1.8h5M4.4 8.2h5.2" />
+  </>),
+  sponsors: svg(<>
+    <circle cx="4" cy="5" r="2" /><circle cx="10" cy="5" r="2" />
+    <path d="M1.5 11c.5-2 1.6-3 3.3-3s2.8 1 3.2 3M6 11c.5-1.8 1.5-2.7 3-2.7 1.8 0 3 .9 3.5 2.7" />
   </>),
   query: svg(<>
     <circle cx="7" cy="3.2" r="1.5" /><circle cx="3.2" cy="10.2" r="1.5" /><circle cx="10.8" cy="10.2" r="1.5" />
@@ -82,14 +95,27 @@ const ICONS: Record<string, Icon> = {
 
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
+  const [analysisContextId, setAnalysisContextId] = useState<string | null>(null);
+  useEffect(() => {
+    setAnalysisContextId(new URLSearchParams(window.location.search).get("context"));
+    const onContext = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (detail?.id) setAnalysisContextId(detail.id);
+    };
+    window.addEventListener("caos:analysis-context", onContext);
+    return () => window.removeEventListener("caos:analysis-context", onContext);
+  }, [pathname]);
+  const preserveContext = (href: string) => analysisContextId
+    ? `${href}${href.includes("?") ? "&" : "?"}context=${encodeURIComponent(analysisContextId)}`
+    : href;
   const Gear = ICONS.settings;
   const settingsActive = pathname.startsWith("/settings");
   return (
-    <span className="flex items-center gap-1 shrink-0">
+    <span className="caos-compact-nav items-center gap-1 min-w-0 max-w-full overflow-x-auto caos-no-scrollbar">
       <nav
         id="concept-nav"
         aria-label="Concepts"
-        className="flex items-center gap-1"
+        className="flex items-center gap-1 shrink-0"
         title="Tip: hold ALT + ← / → to switch concepts"
       >
         {NAV_GROUPS.map((g, gIdx) => {
@@ -121,18 +147,18 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
                 return (
                   <Link
                     key={s.href}
-                    href={s.href}
+                    href={preserveContext(s.href)}
                     title={s.label + " — " + g.label}
                     aria-label={s.label}
                     aria-current={active ? "page" : undefined}
                     className={
                       "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring " +
                       (active
-                        ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
+                        ? "bg-caos-elevated text-caos-accent border-caos-accent font-semibold"
                         : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
                     }
                   >
-                    <Glyph className={active ? "text-caos-bg" : ""} />
+                    <Glyph className={active ? "text-caos-accent" : ""} />
                     {/* Labels: always in the directory (non-compact). Dense
                         concept headers label only the active chip; the rest
                         are icon + tooltip. */}
@@ -147,18 +173,18 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
       {/* Settings is utility chrome, not a concept — kept outside the Concepts nav. */}
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <Link
-        href="/settings"
+        href={preserveContext("/settings")}
         title="Settings"
         aria-label="Settings"
         aria-current={settingsActive ? "page" : undefined}
         className={
           "no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring " +
           (settingsActive
-            ? "bg-caos-accent text-caos-bg border-caos-accent font-semibold"
+            ? "bg-caos-elevated text-caos-accent border-caos-accent font-semibold"
             : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
         }
       >
-        <Gear className={settingsActive ? "text-caos-bg" : ""} />
+        <Gear className={settingsActive ? "text-caos-accent" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
       {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation only. */}

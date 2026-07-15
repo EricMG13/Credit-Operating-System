@@ -5,7 +5,7 @@ import Link from "next/link";
 import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
 import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
-import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { DEMO_UNIVERSE } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
@@ -42,9 +42,21 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
   const openProfile = (id: string) => {
     const clean = id.trim();
     if (!clean) return;
+    window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "issuer-profile" } }));
     setIssuerId(clean);
     setIsOpen(true);
   };
+
+  useEffect(() => {
+    const onModalOpen = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "issuer-profile") {
+        setIsOpen(false);
+        setIssuerId(null);
+      }
+    };
+    window.addEventListener("caos:modal-open", onModalOpen);
+    return () => window.removeEventListener("caos:modal-open", onModalOpen);
+  }, []);
 
   // Resolve a free-text ticker/name (e.g. a Command Center row that only knows
   // a portfolio code) to an issuer id via search, then open. Falls back to the
@@ -187,33 +199,21 @@ function IssuerProfileModal({ issuerId, data, loading, error, onClose }: {
         style={{ boxShadow: "var(--shadow-modal)" }}
       >
         {loading ? (
-          <div className="h-full flex items-center justify-center bg-caos-bg">
-            <span className="tabular text-caos-lg text-caos-muted">Loading profile…</span>
+          <div className="h-full flex items-center justify-center bg-caos-bg p-6">
+            <SurfaceState kind="loading" title="Loading issuer profile" detail="Retrieving the current house view, run history, and evidence health." className="w-full max-w-md" />
           </div>
         ) : error || !data ? (
-          <div className="h-full flex flex-col items-center justify-center gap-3 bg-caos-bg text-center p-6">
-            <StatusGlyph kind="warning" size={20} />
-            <p className="text-caos-2xl text-caos-text font-medium">{error || "No data."}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={onClose}
-                className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-              >
-                CLOSE
-              </button>
-              {/* Forward path out of a failed load (e.g. a demo-sleeve row whose
-                  id is a portfolio code, not a registry id) — Deep-Dive resolves
-                  codes, so it works where the profile read-model 404s. */}
-              {issuerId ? (
-                <Link
-                  href={"/deepdive?issuer=" + encodeURIComponent(issuerId)}
-                  onClick={onClose}
-                  className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-                >
-                  OPEN DEEP-DIVE
-                </Link>
-              ) : null}
-            </div>
+          <div className="h-full flex items-center justify-center bg-caos-bg p-6">
+            <SurfaceState
+              kind="error"
+              title={error || "Issuer profile unavailable"}
+              detail="The overlay could not establish a current profile. No conclusion was drawn from the missing response."
+              className="w-full max-w-md"
+              primaryAction={issuerId ? (
+                <Link href={"/deepdive?issuer=" + encodeURIComponent(issuerId)} onClick={onClose} className="caos-action-primary no-underline focus-ring">Open Deep-Dive</Link>
+              ) : undefined}
+              secondaryAction={<button type="button" onClick={onClose} className="caos-action-secondary focus-ring">Close</button>}
+            />
           </div>
         ) : (
           <Profile id={issuerId!} data={data} isOverlay={true} onClose={onClose} />

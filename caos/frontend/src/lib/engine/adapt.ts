@@ -193,6 +193,15 @@ function tableFrom(title: string, arr: Record<string, unknown>[]): OutSection | 
   };
 }
 
+function tableFromAll(title: string, arr: Record<string, unknown>[]): OutSection | null {
+  const cols = Object.keys(arr[0]).filter((k) => !SKIP_COL.test(k));
+  if (!cols.length) return null;
+  return {
+    type: "table", title, cols: cols.map(humanize),
+    rows: arr.map((o) => cols.map((c) => num(o[c]))),
+  };
+}
+
 function kvTable(title: string, obj: Record<string, unknown>): OutSection | null {
   const entries = Object.entries(obj).filter(([, v]) => isKpiScalar(v) || v == null);
   if (!entries.length) return null;
@@ -272,12 +281,54 @@ function adaptCp4c(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { 
   return { kpis, sections: adaptGeneric(rt).sections };
 }
 
+function adaptSpecialized(
+  moduleId: "CP-2G" | "CP-4D",
+  rt: Record<string, unknown>,
+): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
+  const keys = moduleId === "CP-2G"
+    ? [
+        "source_register", "transition_risks", "social_event_risks",
+        "materiality_assessments", "sustainability_linked_instruments",
+        "demand_access_implications", "credit_implications", "gaps",
+      ]
+    : [
+        "source_gate_register", "entity_register", "guarantee_matrix",
+        "collateral_matrix", "structural_priority", "leakage_routes",
+        "priming_exposures", "gaps",
+      ];
+  const sections: OutSection[] = [];
+  const basis = typeof rt.status_basis === "string" ? rt.status_basis : null;
+  if (basis) sections.push({ type: "text", title: `${moduleId} · Source-gate basis`, body: basis });
+  for (const key of keys) {
+    const rows = rt[key];
+    if (isObjArray(rows)) {
+      const section = tableFromAll(`${moduleId} · ${humanize(key)}`, rows);
+      if (section) sections.push(section);
+    }
+  }
+  const overallKey = moduleId === "CP-2G" ? "overall_credit_view" : "overall_structural_view";
+  if (typeof rt[overallKey] === "string") {
+    sections.push({ type: "text", title: `${moduleId} · ${humanize(overallKey)}`, body: String(rt[overallKey]) });
+  }
+  const status = typeof rt.module_status === "string" ? rt.module_status : "Unavailable";
+  const statusSev = status === "Blocked" ? "critical" : status === "Completed with Limitations" ? "warning" : "ok";
+  const sourceRows = rt[keys[0]];
+  const kpis = [
+    { l: "Module status", v: status, sev: statusSev },
+    { l: "Source rows", v: num(Array.isArray(sourceRows) ? sourceRows.length : 0) },
+    { l: "Open gaps", v: num(Array.isArray(rt.gaps) ? rt.gaps.length : 0), sev: Array.isArray(rt.gaps) && rt.gaps.length ? "warning" : undefined },
+  ];
+  return { kpis, sections };
+}
+
 /** Map a canonical module payload into the existing ModuleOutput shape. */
 export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
   const rt = detail.runtime_output || {};
   const base =
     detail.module_id === "CP-0" ? adaptCp0(rt) :
     detail.module_id === "CP-1" ? adaptCp1(rt) :
+    detail.module_id === "CP-2G" ? adaptSpecialized("CP-2G", rt) :
+    detail.module_id === "CP-4D" ? adaptSpecialized("CP-4D", rt) :
     detail.module_id === "CP-4C" ? adaptCp4c(rt) :
     adaptGeneric(rt);
 

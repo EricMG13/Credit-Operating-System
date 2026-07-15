@@ -261,6 +261,21 @@ Round 2 did not reopen RT-2026-07-02-01 or RT-2026-07-02-02 because the current 
 
 None.
 
+## Residual Design Rebuild Continuation — Critic Pass (2026-07-12)
+
+Decision under review: resume the residual-gap plan in the attached reconnaissance after the completed G1-G8 work, beginning with the partially written Coverage Control Plane and then the Scenario Network, IC Decision Room, and Thesis Memory.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-12-01 | 2026-07-12 | Complete the in-progress ingestion-gap endpoint as the first G14 slice | The partial implementation caps the cross-tenant OCR document-id query before applying issuer visibility, so another team's rows can consume the cap and hide a caller's own OCR gaps. The frontend API contract is also absent, leaving the current tree uncompilable. | High | Resolved | Replace the global id scan with a tenancy-scoped correlated existence query, add the typed API client, and keep endpoint/component tests in the same slice. |
+| RT-2026-07-12-02 | 2026-07-12 | Propagate every scenario node, including portfolio loss | G9 can accidentally smuggle in the vetoed G12 positions/OMS architecture or fabricate a position-weighted loss when no linked portfolio data exists. | High | Resolved | Scenario propagation reuses only existing run and portfolio-fit fields. Any unavailable portfolio input returns `NO_DATA` or downstream `DEGRADED`; it does not create positions, OMS state, or synthetic exposure. G12 remains deferred unless the user explicitly overrides the product boundary. |
+| RT-2026-07-12-03 | 2026-07-12 | Add IC decisions and versioned thesis memory in one rollout | A mutable live report or thesis read could drift after approval and falsely imply that the committee approved later evidence. | High | Resolved | Decisions store an immutable snapshot and document hash, votes append rather than rewrite the snapshot, and material-change reopen creates an audit event plus a new thesis version. No endpoint updates a prior snapshot in place. |
+| RT-2026-07-12-04 | 2026-07-12 | Finish the full Control Plane described in G14 | Entitlement visibility and full audit-history UI have no defined source contract and overlap the explicitly deferred G15 scope. | Medium | Accepted | This continuation ships live ingestion gaps, origin rollup, and analyst ownership only. Entitlements and expanded audit history remain deferred and are rendered nowhere until a real policy/source exists. |
+
+## Critic Reopen Check (2026-07-12)
+
+The continuation is allowed only while each implementation preserves the resolutions above. Any scenario code that invents portfolio exposure, any decision update path that mutates a snapshot, or any entitlement schema is a stop-and-escalate condition.
+
 ## Design Rebuild Phases 1+2 — Critic Pass (2026-07-11)
 
 Decision under review: the approved Phases 1+2 implementation plan for the persona-led design rebuild (workflow-grouped nav, role views, provenance grammar, decision header, shell consolidation, ⌘K palette; then per-surface restructuring per `.agent-reviews/design-rebuild-handoff.md`). Branch `feat/design-rebuild-p1` off `origin/main@9326fc92`.
@@ -275,3 +290,548 @@ Decision under review: the approved Phases 1+2 implementation plan for the perso
 | RT-2026-07-11-65 | 2026-07-11 | WP4 legacy→grammar mapping (SEEDED, REFERENCE, sample, illustrative → Origin axis) | Inconsistent mapping would relabel seeded output — violating the non-negotiable "never relabel seeded/reference/fallback as live" and potentially inflating DEMO fixtures to REFERENCE credibility. | High | Resolved | Mapping rule fixed and recorded: current copy saying demo/sample/illustrative → `DEMO`; curated reference fixtures/templates (Deep-Dive/Pipeline reference issuer, Reports reference templates) → `REFERENCE`; `LIVE` requires a live run id/engine flag, never inferred. Omitted axes render nothing (no fake `CURRENT`). Mapper unit tests assert no legacy label maps to LIVE. |
 | RT-2026-07-11-66 | 2026-07-11 | Phase-2 WP-0 new `alert_states` table for ack/assign | New table for two fields smells like scope creep; `qa_flags` already exists as a write-path. | Low | Resolved | Reuse rejected deliberately: `qa_flags` lacks state/assignee semantics and shares the CP-5 QA queue — mixing alert acks in would pollute a governance surface with triage noise. Table is 7 columns cloning the proven `qa.py` pattern; cycle-scoped `alert_key` makes re-fired anomalies correctly reset to open. Smallest honest persistence. |
 | RT-2026-07-11-67 | 2026-07-11 | Building on `origin/main` while the user's local `main` and two pre-deployment docs remain behind/diverged | Later merge of this branch could tangle with the user's unreconciled doc WIP. | Low | Accepted, flagged not fixed | User explicitly chose this split (build on refreshed code; docs stay theirs to reconcile). Doc files are never staged by this work; branch tracks `origin/main`; the docs conflict resolves whenever the user reconciles, independent of this branch. |
+
+## Decision Workbench Consolidation — Critic Pass (2026-07-12)
+
+Decision under review: apply both user-supplied wireframe batches and the 2026-07-12 Impeccable critique across the current frontend while preserving the shipped analytical substrate.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-12-68 | 2026-07-12 | Add a persistent desktop workflow rail at the root layout | Every route already embeds `ConceptNav`; rendering both creates duplicate landmarks, duplicate role controls, and a narrower modeling canvas. | High | Resolved | The root rail owns full desktop navigation. Embedded `ConceptNav` becomes the compact/tablet fallback and is suppressed when the persistent rail is active. Role view appears once per viewport contract. The model body keeps horizontal overflow and its existing editor implementation. |
+| RT-2026-07-12-69 | 2026-07-12 | Make the wireframes the new visual language | The wireframes are mid-fi and rely on very small mono text, clipped right rails, and empty black space. Literal reproduction would worsen accessibility and repeat the critique's hierarchy defects. | High | Resolved | Treat them as spatial and workflow contracts only. Production styling follows `DESIGN.md`: readable sans for prose, mono for numerics/metadata, 10px desktop operational floor, AA contrast, deliberate panel rhythm, and responsive evidence drawers. |
+| RT-2026-07-12-70 | 2026-07-12 | Expose `LIVE` prominently throughout the new authority system | Transport freshness can be mistaken for analytical approval, especially beside generated Watchtower output. | High | Resolved | Conclusion authority is always composite: origin, method, approval, freshness. Standalone `LIVE` is limited to feed/source origin and never implies ratification. |
+| RT-2026-07-12-71 | 2026-07-12 | Apply role-specific layouts across all pages | Separate role implementations would drift, duplicate business logic, and risk turning presentation preference into access control. | High | Resolved | Role views are composition-only selectors over the same read model. Shared components reorder or disclose existing fields; no role-specific endpoint, calculation, or authorization branch is added. |
+| RT-2026-07-12-72 | 2026-07-12 | Finish every proposed net-new feature while redesigning the shell | Combining Portfolio Decision Lab, entitlement control plane, sponsor network, and shell migration expands the blast radius beyond verifiable UI work and could invent missing source contracts. | High | Resolved | This pass connects already-shipped decision, thesis, scenario, Watchtower, and governance components. It does not invent entitlements, OMS/positions, or new compute. Incomplete source contracts remain explicit unavailable states. |
+| RT-2026-07-12-73 | 2026-07-12 | Apply global panel styling to achieve the reference look | `Panel` is a high-risk shared primitive affecting Deep-Dive, Command, and Model. API or overflow changes could break analytical flows. | High | Resolved | Preserve the `Panel` API and scroll measurement. Prefer shell tokens and CSS-level hierarchy; any Panel markup change must retain focusable-overflow behavior and pass primitives, Deep-Dive, Command, and Model tests. |
+
+### Critic reopen conditions
+
+Stop and revise if the implementation duplicates navigation/role controls at desktop, hides modeling functionality, labels generated output as ratified/live, introduces a role-specific compute path, or requires an entitlement/OMS contract that does not exist.
+
+## Workbench + Atlas Enterprise Remediation — Critic Pass (2026-07-13)
+
+Decision under review: migrate the complete frontend to a shared enterprise page anatomy and explicit decision/recovery state grammar while preserving the institutional terminal and shipped analytical substrate.
+
+| ID | Date | Decision under review | Objection | Impact | Status | Resolution |
+|----|------|----------------------|-----------|--------|--------|------------|
+| RT-2026-07-13-74 | 2026-07-13 | Replace nullable decision values with explicit states | A mechanical wrapper could relabel every existing `undefined` as a successful empty observation, preserving the exact dangerous ambiguity this migration exists to remove. | High | Resolved | `observed-empty` is an explicit state that requires `asOf` and authority. Missing legacy props adapt to `unavailable`, never to “No material change.” Routes may claim no material change only after a successful source response. |
+| RT-2026-07-13-75 | 2026-07-13 | Put every route inside one enterprise page component | Full-screen tools (Model, Query graph, Report Studio) have materially different overflow and finalization needs. A rigid wrapper would create nested scroll containers and regress the editors. | High | Resolved | The shared contract standardizes chrome and state semantics but keeps surface kinds (`worklist`, `object`, `analytical`, `editor`, `wizard`). Editors retain their current workspace body and overflow ownership; finalization and evidence regions are opt-in slots. |
+| RT-2026-07-13-76 | 2026-07-13 | Standardize all tables and worklists | Replacing the bespoke Model sheet or virtualized Command grid with a generic table would remove spreadsheet behavior and degrade large-dataset performance. | High | Resolved | The workbench contract applies to list/worklist surfaces only. Model remains a spreadsheet instrument. Command keeps virtualization and receives shared toolbar/count/action anatomy without changing its data engine. |
+| RT-2026-07-13-77 | 2026-07-13 | Collapse secondary controls into utility drawers | Hiding replay, scenario, or layout controls can slow expert users and break trained keyboard paths. | Medium | Resolved | Only low-frequency controls move; keyboard accelerators and direct primary actions remain. Drawers use labeled sections, disclose current state in the trigger, close on Escape, and restore focus. |
+| RT-2026-07-13-78 | 2026-07-13 | Continue showing `AN / PM / QA` in the global rail | The abbreviations can be interpreted as authorization or governance authority, particularly when QA view exposes gates. | High | Resolved | The visible control is renamed `View: Analyst / PM / QA`, and supporting copy states “presentation only — permissions unchanged.” Approval controls continue to derive solely from existing authorization and data contracts. |
+| RT-2026-07-13-79 | 2026-07-13 | Add one evidence inspector to every surface | Always-visible evidence would steal width from tables and editors and duplicate route-native evidence panes. | Medium | Resolved | Evidence is a shared semantic component, not an always-mounted third pane. Routes with native evidence reuse it; worklists open the inspector contextually; narrow layouts use a drawer. No page renders two evidence inspectors. |
+| RT-2026-07-13-80 | 2026-07-13 | Migrate every route in one pass | A big-bang shell/state change makes regressions difficult to isolate and could leave half-migrated routes with incompatible state contracts. | High | Resolved | Land compatibility-first shared primitives, then migrate analyst, PM, and QA/publishing route groups. Legacy props remain supported as `unavailable` adapters until every route is explicit; removal occurs only after route tests and screenshot gates pass. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if any failure renders as “No material change,” any editor gains an extra scroll owner, any presentation view changes permissions, any list migration removes virtualization/spreadsheet behavior, or any surface displays duplicate evidence regions.
+
+## Workbench + Atlas — Final Adversarial Reopen Check (2026-07-13)
+
+| ID | Perspective | Objection | Impact | Status | Resolution |
+|----|-------------|-----------|--------|--------|------------|
+| RT-2026-07-13-81 | Saboteur | Static browser verification proves recovery/layout behavior but not a live backend handoff preserving every cross-route filter and selection. | Low | Accepted | Component and integration tests cover the state contracts; record a backend-connected Playwright journey as release hardening, not as a prerequisite for this API-neutral UI migration. |
+| RT-2026-07-13-82 | New Hire | Route-local mappings into the shared decision-state contract may drift in timestamp and authority handling. | Low | Accepted | Keep mappings explicit while domain semantics differ; extract only when identical mappings recur. Central types and rendered contracts already prevent nullable ambiguity. |
+| RT-2026-07-13-83 | Security Auditor | The opt-in Playwright identity stub could be mistaken for an authorization test. | Low | Resolved | The stub lives only in local scripts, intercepts one browser context, requires `BYPASS_AUTH=1`, and is documented as post-auth surface verification rather than policy validation. |
+
+Final verdict: **CLEAN** — no critical or warning findings. Full report: `.agent-reviews/adversarial-workbench-atlas-2026-07-13.md`.
+
+## Query + Sector Review + RV Full-Stack Redesign — Critic Pass (2026-07-13)
+
+Decision under review: retain three focused analytical routes while introducing shared analyst-owned context, versioned CP-SR/RV/Query runs, explicit ratification, and normalized source adapters.
+
+| ID | Perspective | Objection | Impact | Status | Resolution |
+|----|-------------|-----------|--------|--------|------------|
+| RT-2026-07-13-84 | Saboteur | A migration that continues ranking market outliers as actionable while recovery, downside, instrument identity, or portfolio impact is missing would preserve the highest-risk false-positive behavior under new chrome. | High | Resolved | The RV contract separates `actionable`, `screen_only`, and `unavailable`. Only current market evidence, cohort n≥2, exact instrument identity, downside/recovery, and portfolio impact can produce `actionable`; every missing gate is returned explicitly. |
+| RT-2026-07-13-85 | New Hire | Three new route implementations could repeat the current monoliths and create another incompatible context model per concept. | High | Resolved | Shared domain contracts live outside route components; routes compose context, runs, findings, and authority through typed clients/hooks. Existing route paths remain stable and compatibility adapters stay until parity tests pass. |
+| RT-2026-07-13-86 | Security Auditor | Persisting shared contexts and findings creates an IDOR surface and could expose one analyst's sensitive investigation to another. | High | Resolved | Every context, finding, ratification, and run is analyst-scoped at query time; foreign IDs return 404. Question text is stored server-side, never in the URL, and client storage becomes a non-authoritative cache only. |
+| RT-2026-07-13-87 | Saboteur | Treating today's reference JSON and seed sector signals as normalized inputs could quietly upgrade them to live evidence. | High | Resolved | Imports preserve `DEMO`/`REFERENCE` origin. Reference snapshots may render and support screen-only exploration but cannot be published, ratified as live, or satisfy an actionable RV gate. |
+| RT-2026-07-13-88 | New Hire | Sector Review, RV, and Query currently use different sector labels and can hand off incompatible universes. | High | Resolved | One canonical taxonomy plus alias map is applied at ingestion. Cross-route handoffs pass an analyst-owned `AnalysisContext` containing canonical sector, instrument, snapshot, and run identifiers; mismatches render `partial`, never silently recompute. |
+| RT-2026-07-13-89 | Saboteur | A failed refresh could replace the last ratified review with an empty/error draft or make downstream consumers read an in-progress version. | High | Resolved | Published review versions are immutable. Refresh creates a separate draft job; downstream consumers read only the latest ratified published version. Failed/cancelled jobs preserve the prior published artifact. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if reference/demo data becomes actionable, any foreign analyst ID is distinguishable from a missing ID, a draft run replaces a published artifact, any route silently drops the shared context, or a missing RV evidence gate still renders “Cheap,” “Add,” or an actionable recommendation.
+
+## Query + Sector Review + RV — Final Adversarial Review (2026-07-13)
+
+Scope: the implemented analysis contracts, migrations, owned context/findings APIs, versioned Query/Sector/RV routes, three replacement workbenches, and the live Sector → RV → Query → Findings → Report Studio journey.
+
+| ID | Perspective | Finding | Severity | Status | Resolution / disposition |
+|----|-------------|---------|----------|--------|--------------------------|
+| RT-2026-07-13-90 | Saboteur | The floating Ask launcher intercepted Sector Review's sticky `Request refresh` action, making the primary workflow unclickable despite correct visual placement. | Warning | Resolved | The launcher now clears sector finalization bars. The real Playwright click path passes at desktop, tablet, phone and 200% zoom. |
+| RT-2026-07-13-91 | Saboteur | First-load taxonomy inserts raced under simultaneous context creation and could fail with a uniqueness error. | Warning | Resolved | Canonical taxonomy seeding moved into migration `0047`; runtime workers treat it as immutable reference data and fail explicitly when migrations are missing. |
+| RT-2026-07-13-92 | New Hire | Query's generic row adapter rendered nested metric results as `Result 1` and hid the rank's financial meaning. | Warning | Resolved | The adapter now recognizes the legacy nested issuer envelope and displays issuer, ticker, industry, metric label, value and unit. |
+| RT-2026-07-13-93 | Security Auditor | Findings accepted a client-authored `AuthorityEnvelope`, allowing an authenticated analyst to forge `LIVE`/`RATIFIED` metadata disconnected from the cited run. | Critical after Saboteur corroboration | Resolved | Findings now require an owned source run, resolve authority server-side, start draft, and reject ratification unless the source is current, live and source-backed. Foreign or mismatched runs return 404. |
+| RT-2026-07-13-94 | New Hire | `routes/sector.py` now contains both legacy compatibility routes and CP-SR V2 and remains an 1,100-line change hotspot. | Warning | Accepted | Compatibility cannot be retired until downstream parity is proven. The V2 frontend is isolated in a 204-line dossier and shared contracts are separate; split the backend module when legacy endpoints are removed. |
+| RT-2026-07-13-95 | Saboteur | Sector display-version allocation is serialized only by normal request flow; concurrent multi-worker refreshes can allocate the same display version because version is still embedded in the payload rather than protected by a unique database column. | Warning | Accepted | Run IDs remain unique and published artifacts are not overwritten, so decision integrity is preserved. Add a dedicated context/version column and uniqueness constraint before enabling high-concurrency scheduled refreshes. |
+| RT-2026-07-13-96 | Security Auditor | Context `filters`/`selected` and finding `evidence` remain opaque JSON objects; field-level schema validation is deliberately deferred to adapter-specific contracts. | Note | Accepted | Auth ownership, request-size middleware and write-rate limits bound the current exposure. Promote adapter payloads to discriminated schemas as external vendors are added. |
+
+Final verdict: **CONCERNS** — no open critical finding. Two contained warnings remain: legacy Sector module concentration and multi-worker display-version allocation. Neither can publish reference data, cross analyst boundaries, or overwrite a prior published review.
+
+## Remaining Surfaces Full Redesign — Critic Pass (2026-07-13)
+
+Decision under review: redesign every concept and contextual surface except the already-migrated Query, Sector Review, and RV Screener, while extending the Workbench + Evidence Atlas contracts across the full application.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-97 | Saboteur | A visual migration could preserve the existing live/reference/demo mixtures and merely make lower-authority content look more credible. | High | Resolved in plan | Actionability, publication, ratification, and ranking gates explicitly reject `DEMO`, `REFERENCE`, and seeded artifacts. Reference work moves into a separate reference workspace rather than the live worklist. |
+| RT-2026-07-13-98 | New Hire | Extending `AnalysisContext` to every route could produce one unmaintainable mega-object whose optional fields mean different things on each surface. | High | Resolved in plan | Keep a small owned context identity plus typed, surface-specific references (issuer run, model checkpoint, report version, alert, sponsor event). Adapters declare required references and render `partial` on mismatch; they do not silently recompute. |
+| RT-2026-07-13-99 | Security Auditor | Report edits, model inputs, and settings can survive an SSO/profile principal change because browser state is cleared on explicit logout but not necessarily when `/me` resolves to a different analyst. | High | Resolved in plan | Decision-bearing state becomes analyst-owned server state. Browser caches are keyed to the active principal and cleared before rendering when the principal id changes. |
+| RT-2026-07-13-100 | Saboteur | A state-dependent primary action can move or change unexpectedly and cause an analyst to commit the wrong operation under time pressure. | Medium | Resolved in plan | The primary action keeps one stable finalization-bar location. Only its label, disabled state, and recovery semantics change; destructive transitions require a reviewable summary and preserve the prior immutable version. |
+| RT-2026-07-13-101 | New Hire | Rebuilding all remaining routes risks replacing current monoliths with one shared shell monolith and tightly coupling Model, Report Studio, and worklists. | High | Resolved in plan | Shared contracts standardize authority, context, jobs, worklists, evidence, and finalization only. Model retains spreadsheet ownership, Report Studio retains paper/editor ownership, and route adapters remain separate from domain components. |
+| RT-2026-07-13-102 | Security Auditor | Sponsor events, alerts, research briefs, and report claims can expose MNPI or analyst intent if findings/context ids are accepted without owner checks. | High | Resolved in plan | Every context, finding, source manifest, model checkpoint, report draft, sponsor event review, and alert assignment is analyst/tenant-scoped at query time; foreign ids resolve as not found. |
+| RT-2026-07-13-103 | Saboteur | Blocking Report Studio export on every imperfect source could strand an IC deadline and encourage screenshots or manual copying outside the audit trail. | Medium | Resolved in plan | The finalization bar names the exact blockers and recovery routes while keeping the prior approved PDF available. Any future waiver requires an explicit permission and immutable exception record; the UI will not invent a client-only bypass. |
+| RT-2026-07-13-104 | New Hire | Thirteen surfaces plus shared contracts is too broad for a big-bang release and makes parity impossible to prove. | High | Resolved in plan | Delivery is compatibility-first and staged: foundation; intake/identity; analyst instruments; operations/PM; publishing/policy; ASK; retirement. Legacy paths are removed only after route-level parity and end-to-end context tests pass. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if any reference/demo artifact enters a live decision gate, if the shared context becomes an untyped property bag, if principal changes do not clear/re-key caches, if a route gains a second page-level primary action, if Model or Report Studio lose their specialized interaction models, or if ASK bypasses the versioned Query run and findings contracts.
+
+## Remaining Surfaces — Final Adversarial Reopen Check (2026-07-13)
+
+| ID | Perspective | Finding | Severity | Status | Resolution / disposition |
+|----|-------------|---------|----------|--------|--------------------------|
+| RT-2026-07-13-105 | Saboteur | Model and Deep-Dive technically reflowed at 390px but still exposed workstation authoring controls, contradicting the phone-triage-only contract and encouraging unsafe partial edits. | Warning | Resolved | Both routes now render read-only authority/posture summaries with context-preserving Query/Pipeline/desk handoffs below 640px. The complete instruments remain unchanged from tablet upward. |
+| RT-2026-07-13-106 | Saboteur | The new Model primary action initially required an analysis context before saving, so a context outage could block the pre-existing mutable draft save and strand edits. | Critical after compatibility review | Resolved | Save checkpoint now persists the working SavedModel first, preserving legacy error/conflict behavior, then creates an immutable checkpoint when context is ready. Focused conflict tests and the full 673-test frontend suite pass. |
+| RT-2026-07-13-107 | New Hire | Report Studio exposed paper, source, editing, zoom, QA, export and submission controls alongside the page action, obscuring the one-primary-action hierarchy. | Warning | Resolved | The header now shows compact editorial state plus the single publish action. Every prior control remains in a labeled utility drawer and existing keyboard zoom shortcuts remain active. |
+| RT-2026-07-13-108 | Security Auditor | New private source, model and report artifacts could survive analyst erasure even though their owning context is deleted. | Critical | Resolved | erase_analyst_data deletes report versions/drafts, model checkpoints and source manifests dependency-first, then contexts and principal data. The full 1,457-test server suite passes, including the updated GDPR contract. |
+| RT-2026-07-13-109 | Saboteur | Pipeline module exits could silently drop the selected run/context and reopen a different analytical artifact. | Warning | Resolved | CP-0, Deep-Dive and Report Studio exits now carry issuer, run and owned context. The 75-case responsive gate and browser captures verify route stability. |
+
+Final verdict: **CLEAN** — no open critical or warning finding. Reopen if any compatibility adapter is removed before its row in the parity matrix is re-verified against production data.
+
+## Pre-Deployment Plan Reconciliation — Critic Pass (2026-07-13)
+
+Decision under review: replace the stale deployment grounding with a code-backed inventory of every currently discoverable unwired user-facing control, production-data seam, and phase-gate status.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-110 | Saboteur | Calling every disabled control “unwired” would bury real dead ends beneath valid prerequisite gates such as empty Query input, missing selection, in-flight writes, and committee-readiness checks. | High | Resolved in plan | The register separates dead/no-op, intentionally state-gated, local/reference-only, and backend-unwired controls. Only the latter two become remediation rows; valid gates remain documented as wired. |
+| RT-2026-07-13-111 | New Hire | A feature can have a migration, API, and rendered button yet still be unusable in production because its only source is reference data or a required dependency is always missing. | High | Resolved in plan | Status is judged end-to-end. RV remains screen-only while its snapshot is reference and risk-budget/recovery/downside inputs are absent; Sector Review and Report Studio remain incomplete while CP-SR/CP-RENDER are spec-only. |
+| RT-2026-07-13-112 | Saboteur | Marking open-PR work complete would make `main` look safer than it is and could erase the only visible deployment blockers. | High | Resolved in plan | The document records three separate ledgers: `origin/main`, the committed two-commit branch delta, and uncommitted working-tree implementation. Open PRs are never counted as merged capability. |
+| RT-2026-07-13-113 | Security Auditor | Treating presentation views (`Analyst`/`PM`/`QA`) as roles would imply authorization that the server does not enforce. | High | Resolved in plan | Roles-lite remains open. The current selector is recorded as composition-only, and admin/read-only enforcement stays an explicit E2 gate. |
+| RT-2026-07-13-114 | New Hire | A “latest status” rewrite based only on source greps could declare the application deployable while the current remote CI is red. | High | Resolved in plan | The top-level gate records the exact failing main-branch Playwright assertions alongside the locally green suite. Local verification does not override the required green `main` run. |
+| RT-2026-07-13-115 | Saboteur | A control can have a non-empty handler yet still misrepresent its effect; Upload’s mode selector persists metadata while the queued engine run always takes the full route. | High | Resolved in plan | UW-23/C12 require the selected mode to become an immutable validated server plan, or require all routing claims to be removed. The scan therefore checks semantic effect as well as literal no-op handlers. |
+
+### Critic reopen conditions (2026-07-13)
+
+Reopen if a reference/demo artifact is described as live, if an open PR is counted as merged, if a prerequisite-gated control is mislabeled dead, if a control label overstates its server-side effect, if the two failing `main` E2E assertions disappear from the release gate without a green rerun, or if any phase checkbox is closed from documentation evidence alone rather than current code plus its stated verification.
+
+## CAOS Applicable Updates — Phase 1C freshness critic pass (2026-07-14)
+
+Decision under review: introduce one source-aware freshness policy and reporting-profile contract before replacing the existing surface-specific staleness heuristics.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-166 | Credit analyst | Missing fiscal-period, publication, or market as-of metadata could be treated as recent merely because the file was uploaded recently. | High | Resolved in contract | `unknown` is the mandatory result when source-effective metadata is missing or invalid. Upload time is observation metadata only and never substitutes for a reporting period or market as-of. |
+| RT-2026-07-14-167 | Saboteur | Fixed day arithmetic can misclassify month-end, leap-year, quarterly, semiannual, annual, or private-company reporting cycles. | High | Resolved in contract | Calendar-period advancement is cadence-aware, evaluated in UTC, and covered at month-end, leap-year, exact-boundary, and timezone edges. Private/event-driven and unknown cadence do not receive an invented due date. |
+| RT-2026-07-14-168 | Data-governance reviewer | A restated document or replaced source version could leave a derived run, checkpoint, or report labelled current even though its inputs changed. | High | Resolved in contract | Derived freshness compares the bound source identity/version set with the lineage parents used at creation. A proven mismatch is stale; missing lineage is unknown, never current. |
+| RT-2026-07-14-169 | Security auditor | A consolidated freshness endpoint could reveal the existence or timestamps of foreign issuers, contexts, reports, or source artifacts. | High | Resolved in contract | Freshness reads reuse issuer/team/analyst authorization, resolve foreign identifiers as 404, and never traverse lineage outside the caller's owned context. |
+| RT-2026-07-14-170 | New hire | One universal age threshold would conflate prices, reported accounts, ratings, legal documents, runs, and derived artifacts. | High | Resolved in contract | The evaluator uses explicit source kinds and independent clocks. Event-driven sources remain current only when their version is known and unchanged; they do not inherit a quarterly clock. |
+| RT-2026-07-14-171 | Release engineer | Replacing every existing stale label at once could change production decisions without a rollback path. | High | Resolved in rollout | Schema and metadata writes are additive. New reads and route adapters are gated by `CAOS_LINEAGE_V2_ENABLED`; flag-off preserves the current staleness behavior while stored source metadata remains available for a later retry. |
+
+### Critic reopen conditions (Phase 1C)
+
+Reopen if upload time is proposed as a market/reporting as-of fallback, if a new source kind is introduced without an explicit clock, if a derived artifact lacks a stable source fingerprint or lineage comparison, if freshness reads cross an existing authorization boundary, or if the policy/version vocabulary changes without a migration and compatibility test.
+
+## All-Surface Impeccable Lifecycle Deployment — Critic Reopen (2026-07-13)
+
+Decision under review: apply the approved critique, system-convergence, surface-refinement, production-readiness, and release passes to every analyst route and global overlay while retaining Query, Sector Review, and RV Screener as visual goldens.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-116 | Saboteur | A global style sweep can make every route look alike while erasing the materially different work modes of worklists, analytical dossiers, spreadsheets, and paper output. | High | Resolved in plan | Shared changes are limited to chrome, state grammar, identity, focus, and action hierarchy. `EnterprisePage` surface kinds retain overflow ownership; Model keeps its spreadsheet and Report Studio keeps its paper output. |
+| RT-2026-07-13-117 | New Hire | Introducing a shared `SurfaceState` can become another generic abstraction that hides route-specific recovery requirements. | High | Resolved in plan | The component owns presentation only. Callers supply exact state kind, message, authority, and recovery actions; no component infers success, live origin, or actionability from missing data. |
+| RT-2026-07-13-118 | Saboteur | Compacting Deep-Dive chrome can accidentally hide the full analysis body or remove expert controls under the guise of simplification. | High | Resolved in plan | Summary continues to preserve KPIs, tables, charts, and analysis. Only unavailable controls and low-frequency chrome compact; specialist controls remain directly reachable and keyboard paths are regression-tested. |
+| RT-2026-07-13-119 | Performance Auditor | Chasing raw DOM counts could virtualize Report Studio's print tree or Model's editable grid in ways that break printing, formulas, paste, focus, or assistive technology. | High | Resolved in plan | Optimizations require measured interaction or commit cost. Print completeness, spreadsheet semantics, keyboard focus, paste, and screen-reader behavior are hard gates; no optimization lands on node-count reduction alone. |
+| RT-2026-07-13-120 | Accessibility Auditor | Converging overlays can create nested focus traps or floating controls that intercept finalization actions, repeating the previously found ASK/Sector collision. | High | Resolved in plan | Global overlays retain one active modal owner, restore focus, close on Escape, use the semantic z-index scale, and are tested against sticky finalization bars at desktop, phone, and 200% zoom. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a shared visual change alters a route's work model, if missing data is rendered as observed-empty, if Deep-Dive Summary loses analysis content, if print/model behavior regresses for a DOM-count win, or if any overlay traps focus or occludes a page-level action.
+
+## Persona, Intelligence, Portfolio Lab, and IC Book — Critic Gate (2026-07-13)
+
+Decision under review: complete the approved persona-composition and one-table architecture, add Portfolio Lab and IC Book as the only new top-level concepts, and introduce a shared cited-insight layer without weakening deterministic credit controls.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-121 | Saboteur | Re-implementing the workbench plan wholesale would duplicate the already-landed Workbench and Evidence Atlas contracts and could regress the 673 frontend and 1,457 server test baselines. | High | Resolved in implementation strategy | Reconcile current code against the approved contracts first. Extend existing primitives and migrate only missing surfaces; do not create parallel shells, role providers, evidence panes, or analysis-context models. |
+| RT-2026-07-13-122 | Security Auditor | Presentation lenses could leak into portfolio, committee, or insight authorization and make PM/QA labels appear to confer mutation authority. | High | Resolved in contract | `RoleViewProvider` remains presentation-only. All portfolio, agenda, vote, ratification, and rejection mutations resolve the authenticated server principal and server role; foreign resources return not found. |
+| RT-2026-07-13-123 | Saboteur | A literal one-table rule could hide exact data behind charts or force Model and Report Studio into inappropriate generic list layouts. | High | Resolved in contract | Enforce one visible table scroll owner only on list/worklist compositions. Model retains spreadsheet semantics, Report Studio retains document semantics, and every chart exposes an accessible tabular fallback without mounting a second visible table. |
+| RT-2026-07-13-124 | Performance Auditor | Portfolio analytics could ship every position and chart series in one payload, creating slow filters, high memory use, and misleading stale aggregates on large books. | High | Resolved in API design | Positions are separately paginated/sorted/filtered; analytics return bounded aggregate series with `as_of`, authority, and missing dependencies. The UI virtualizes long position lists and fingerprints filters independently from aggregate refreshes. |
+| RT-2026-07-13-125 | Security Auditor | AI-generated committee or portfolio prose could forge citations, repeat prompt-injected source text, or directly change decision-bearing state. | High | Resolved in insight boundary | Insights use an owned, closed source set, server-derived authority, claim-level evidence ids, numeric validation, untrusted-content wrapping, bounded output, and deterministic fallback. AI has no write tools; proposed changes require preview, explicit confirmation, and a deterministic domain endpoint. |
+| RT-2026-07-13-126 | Saboteur | A failed automatic refresh could replace a ratified brief with an empty or partial result immediately before an IC meeting. | High | Resolved in persistence model | Insight versions are immutable and fingerprinted. Background refresh creates a new queued/running artifact; readers retain the last ratified or ready artifact until the replacement is ready. Error/partial artifacts never overwrite prior ratified content. |
+| RT-2026-07-13-127 | New Hire | Adding Portfolio Lab, IC Book, QA Control, Covenant Lab, Calendar, and Market views together would recreate navigation overload. | Medium | Resolved in information architecture | Only `/portfolios` and `/decisions` become top-level concepts. QA, covenant, catalyst, and market capabilities remain modes or inspectors within existing routes until production data and workflow volume justify promotion. |
+| RT-2026-07-13-128 | Accessibility Auditor | Responsive inspectors and visualization fallbacks could create duplicate focus targets, nested scroll owners, or charts whose meaning is carried only by color. | High | Resolved in component acceptance gates | One inspector is active per route, drawers restore focus and close on Escape, one table owns scrolling, reduced motion is honored, status uses text/glyphs, and every visualization provides an accessible summary plus an on-demand equivalent data view. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a persona changes data access, a list route renders two visible table scroll owners, a failed insight replaces a ratified artifact, AI writes domain state, portfolio analytics lose their as-of/authority envelope, a third new top-level concept is added, or responsive drawers duplicate evidence/focus ownership.
+
+## Portfolio Lab Backend Contracts — Critic Pass (2026-07-13)
+
+Decision under review: add exact-team portfolio tenancy, paginated positions,
+deterministic analytics/stress snapshots, and server-role mutation gates without
+changing the tenancy-disabled shared-desk contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-129 | Security Auditor | Adding a team column only to the primary portfolio routes would leave indirect references, run auto-binding, RV screening, and CP-3C able to cross tenant boundaries. | High | Resolved in implementation strategy | One exact-team by-id helper and one query scoper gate every direct and indirect portfolio seam. Foreign identifiers resolve as 404; tenancy-off behavior remains a no-op. |
+| RT-2026-07-13-130 | Saboteur | Persisting only stress outputs would make a result impossible to reproduce after holdings change, while recalculating reads would mutate committee evidence. | High | Resolved in persistence contract | Each stress run stores immutable canonical inputs, outputs, authority, and a fingerprint over the exact sorted holdings snapshot plus inputs. Reads never recompute or update it. |
+| RT-2026-07-13-131 | New Hire | A cursor encoded from a mutable sort field can skip or duplicate positions when values tie. | High | Resolved in API contract | The cursor is an opaque bounded offset into a deterministic allow-listed ordering with an id tie-breaker; tests pin no duplicates across pages. |
+| RT-2026-07-13-132 | Security Auditor | UI role-view controls could be mistaken for authorization and allow a server-side read-only principal to mutate holdings, stresses, votes, or decisions. | High | Resolved in authorization contract | A reusable identity-role helper rejects server principals in read-only roles before every portfolio and decision mutation. Presentation role view is never consulted. |
+| RT-2026-07-13-133 | Saboteur | NaN, infinity, or a zero NAV can leak invalid JSON or silently corrupt concentration and stress percentages. | High | Resolved in computation contract | Every holdings multiply/divide uses `is_finite_number`; invalid inputs become explicit missing dependencies, finite par can backstop an invalid price, and zero denominators produce `None`. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if any portfolio id is dereferenced without the shared gate, if
+tenancy-disabled cross-analyst reads/writes regress, if a stored stress snapshot is
+recomputed on read, if a read-only server principal can mutate portfolio/decision
+state, or if any response can contain NaN or infinity.
+
+## IC Book Agenda and Finalization — Critic Pass (2026-07-13)
+
+Decision under review: add mutable committee preparation around the existing
+immutable decision and vote record, then finalize the preparation into a frozen
+committee artifact in one transaction.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-134 | Security Auditor | An agenda id accepted without issuer, portfolio, and owner checks could expose a different team's thesis or permit cross-tenant finalization. | High | Resolved in contract | Agenda reads and writes derive scope from the authenticated principal and linked resources. Foreign identifiers return 404; presentation lens is never consulted. |
+| RT-2026-07-13-135 | Saboteur | A two-step finalize path could create a decision while leaving the agenda editable, or mark the agenda decided without creating the immutable snapshot. | High | Resolved in transaction boundary | Readiness validation, snapshot freezing, decision creation, and agenda linkage execute inside one database transaction. Any failed validation or write leaves both artifacts unchanged. |
+| RT-2026-07-13-136 | New Hire | Copying agenda fields into a decision without the exact run, report, evidence, and portfolio references would make committee history look complete while severing lineage. | High | Resolved in snapshot contract | Finalization records the canonical agenda fields and freezes each supplied artifact reference plus its authority/fingerprint. Missing required dependencies fail explicitly before creation. |
+| RT-2026-07-13-137 | Saboteur | Adding filters or pagination by rewriting the existing issuer-only list could break Monitor and Decision Room clients. | High | Resolved in compatibility contract | Existing `issuer_id` calls and list response remain valid. New filters, stable sorting, pagination metadata, and by-id lookup are additive and receive compatibility tests. |
+| RT-2026-07-13-138 | Accessibility Auditor | Agenda and decision history displayed together can violate the one-table rule and duplicate inspector focus on narrow screens. | High | Resolved in composition contract | Agenda and history are mutually exclusive datasets in one dominant table region. A single decision inspector becomes a drawer at narrow breakpoints, restores focus, and exposes votes, dissent, evidence, expiry, and reopen history as structured lists. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if finalization can partially commit, if a finalized agenda can be
+edited, if a foreign agenda or linked artifact is distinguishable from missing, if
+existing decision clients change shape, or if agenda and history tables are visible
+at the same time.
+
+## Phase 1B Transactional Lineage and Reconciliation — Critic Pass (2026-07-13)
+
+Decision under review: bind producer refs and derivation edges inside existing
+transactions, then add a bounded operator reconciler over authoritative history.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-161 | Saboteur | A producer that serializes a stale context JSON object can erase refs written by a sibling producer that completed first. | High | Resolved in implementation | All v2 producers lock and reload the owned context, merge refs by `(kind,id,version)`, retain unrelated keys and legacy scalars, and flush within the caller transaction. Typed ordering is canonical. |
+| RT-2026-07-13-162 | Security Auditor | Accepting a context id on ingestion or run creation can become an ownership or cross-team existence oracle. | High | Resolved in implementation | V2-enabled requests validate owner and issuer membership through non-enumerable 404 responses before domain persistence. Flag-off and omitted-context requests retain the v1 path. |
+| RT-2026-07-13-163 | Saboteur | Backfilling run inputs from the context's present contents would fabricate provenance for documents attached after the run began. | High | Resolved in implementation | Run input edges are captured only at run creation. The reconciler upgrades the run ref but records unresolved history rather than synthesizing run-input edges. |
+| RT-2026-07-13-164 | Security Auditor | A reconciliation script could silently rewrite legacy history, cross tenant boundaries, or partially mutate an unbounded dataset. | High | Resolved in implementation | The service pages over every context, resolves persisted owners separately, uses bounded tenancy-off fallbacks, fails closed on tenancy-on owner gaps, adds only proven v2 refs/edges, never deletes, and commits once per context only in apply mode. Dry-run and verify roll back. |
+| RT-2026-07-13-165 | Saboteur | A uniqueness loser could leave insight edges even though its insight row rolled back. | High | Resolved in implementation | Insight edges are written only after the nested flush succeeds. A uniqueness loser resolves the winner without writing; any later edge failure rolls the outer request transaction back with the new insight. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a helper commits, if producer lineage can survive without its
+domain row, if reconciliation invents run inputs, if verify mutates state, or if a
+foreign context/artifact produces a distinguishable response.
+
+## Report Studio Live Rendering and Binary Export — Critic Pass (2026-07-13)
+
+Decision under review: bind Report Studio to live module output and immutable report
+versions, then export committee-ready versions as real PDF and XLSX files.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-139 | Saboteur | Reusing the Atlas Forge report template for another issuer can present fixture narrative and covenant claims as live analysis. | High | Resolved in contract | Non-reference issuers render only their own adapted module outputs and authority. The reference template remains visibly marked and is never publishable as a live version. |
+| RT-2026-07-13-140 | Security Auditor | A binary export endpoint could become an IDOR or let mutable client payloads bypass the immutable publication gate. | High | Resolved in contract | Export reloads an analyst-owned, published, live-origin `ReportVersion` and renders only its frozen canonical document. Unsupported formats and unpublishable versions fail closed. |
+| RT-2026-07-13-141 | New Hire | An XLSX that is merely JSON renamed with an `.xlsx` suffix would pass a superficial download check but fail in Excel and destroy number semantics. | High | Resolved in verification gate | The server emits OpenXML with typed cells, styled headers, frozen panes and source metadata; tests reopen it with an independent parser and assert workbook structure and representative values. |
+| RT-2026-07-13-142 | Accessibility Auditor | Replacing browser print with a hidden download-only action can remove the inspected document preview and keyboard-accessible print path. | Medium | Resolved in interaction design | The paper preview and print path remain. Published-version PDF/XLSX downloads are additive, labelled controls with explicit version state and do not introduce a surrounding data table. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a non-reference issuer sees fixture narrative, if export reads a
+mutable draft or foreign version, if a downloaded workbook cannot be reopened as
+OpenXML, if export drops the authority/version identifiers, or if print preview is
+removed.
+
+## Persona, Intelligence, Portfolio Lab, and IC Book — Implementation Closure (2026-07-13)
+
+The implementation did not reopen any high-impact objection in RT-121 through
+RT-142. The shared shell remains adapter-based; presentation lenses are absent
+from authorization; Portfolio Lab and IC Book are the only added top-level
+concepts; insight writes remain advisory and deterministic-domain mediated; and
+portfolio/committee resources are principal-scoped.
+
+Closure evidence:
+
+- Frontend: 734 Vitest assertions, lint, production build, 27 current-stack
+  Playwright cases, three production-shell login cases, four dedicated workbench
+  verifiers, and the 85-case route/responsive/200%-zoom layout gate pass.
+- Accessibility: the local axe runner reports zero violation nodes across all 17
+  migrated product routes, including the issuer profile fixture.
+- Server: 1,489 sandbox-safe tests plus all eight AV socket tests pass; seven
+  environment-dependent cases remain explicitly skipped. Migrations upgrade to
+  0051, downgrade to 0048, and re-upgrade to 0051 cleanly.
+- Export and integrity: XLSX is independently reopened as OpenXML; PDF snapshot,
+  immutable agenda finalization, stress fingerprinting, finite-number guards,
+  tenant isolation, insight grounding, ratification, and lease behavior are
+  covered by the passing contract suites.
+
+Residual tooling note: the GitNexus index reports current at commit `37a1f01`,
+but symbol impact and final `detect-changes` cannot open its pending LadybugDB WAL
+because `lbug.shadow` is absent. No WAL data was deleted; exhaustive source/diff
+review and the full verification matrix are the fallback required by AGENTS.md.
+
+## CAOS Applicable Updates — Phase 0 critic pass (2026-07-13)
+
+Decision: adopt the bounded execution contract in
+`docs/superpowers/plans/2026-07-13-caos-applicable-updates.md`; Phase 0 freezes
+source contracts and default-off gates without changing runtime behavior.
+
+| ID | Date | Decision / Plan | Objection | Impact | Status | Evidence / resolved commitment |
+| --- | --- | --- | --- | --- | --- | --- |
+| RT-2026-07-13-143 | 2026-07-13 | Applicable Updates rollout | A coupled rollout makes one defect block or contaminate unrelated capabilities. | High | Resolved | The contract defines bounded, independently deployable phases with per-phase acceptance and rollback gates. |
+| RT-2026-07-13-144 | 2026-07-13 | Lineage v2 | Lineage written after the business transaction can diverge; broad reads can leak cross-scope evidence. | High | Resolved in contract | Lineage is transactional with its source write and every read/write preserves existing authorization and tenancy scope. |
+| RT-2026-07-13-145 | 2026-07-13 | Market/model XLSX import | A hostile workbook can evaluate formulas, follow links, spoof cached values, or mutate state during preview. | High | Resolved in contract | `.xlsx` only, quarantine and bounded parsing, no formula evaluation, cached-value/as-of validation, preview has no writes, and ambiguity fails closed. |
+| RT-2026-07-13-146 | 2026-07-13 | Model engine v2 | Parallel production calculators can silently produce inconsistent committee numbers. | High | Resolved in contract | Exactly one production calculator is canonical; rollout changes routing under a default-off flag and parity goldens. |
+| RT-2026-07-13-147 | 2026-07-13 | Analyst model overrides | Untyped edits without actor/reason provenance can bypass model discipline and leave dependent outputs stale. | High | Resolved in contract | Overrides are typed, authorized, immutable-audited, and atomically trigger dependency-aware downstream recomputation. |
+| RT-2026-07-13-148 | 2026-07-13 | CP-2G/CP-4D integration | Runtime adapters can drift from supplied prompts/schemas and become impossible to disable safely. | High | Resolved | Supplied bytes are vendored with SHA-256 manifests; compatibility goldens and independent default-off flags gate each module. |
+| RT-2026-07-13-149 | 2026-07-13 | Persistence evolution | Destructive migrations or one-shot backfills make rollback unsafe and can strand partial data. | High | Resolved in contract | Migrations are additive; backfills are resumable/idempotent; rollback disables routing and uses forward correction without deleting analyst evidence. |
+| RT-2026-07-13-150 | 2026-07-13 | Notifications | In-memory or globally addressed alerts disappear on restart or disclose another analyst's activity. | High | Resolved in contract | Notifications are durable, authorization checked, and analyst scoped; delivery can be disabled without deleting the ledger. |
+| RT-2026-07-13-151 | 2026-07-13 | All new UI | Accessibility deferred to the end can make dense evidence/import interactions unusable by keyboard or color-dependent. | High | Resolved in contract | WCAG 2.1 AA, keyboard operation, visible focus, semantic status labels, reduced motion, and axe evidence are gates in every UI-bearing phase. |
+
+### Critic reopen conditions (Applicable Updates)
+
+Reopen before proceeding if any phase cannot deploy/roll back independently; a
+lineage event can diverge from its authorized source transaction; XLSX processing
+evaluates formulas or accepts ambiguous/stale caches; more than one calculator is
+production-authoritative; an override lacks type/audit/recomputation; a prompt or
+schema changes without compatibility proof and a flag; a migration is destructive
+or a backfill non-resumable; notifications are ephemeral or cross analyst scope;
+or any interaction fails the accessibility gates.
+
+## Pre-Deployment Program Coverage Review — Critic Pass (2026-07-13)
+
+Decision under review: retain the eight-phase pre-deployment program, but close
+coverage holes before treating its final gate as an enterprise-transfer claim.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-152 | Release engineer | H1 can build from a mutable checkout and auto-migrate on boot without first naming the exact release commit, image digest, schema head, or pre-migration restore point. A rollback may therefore rebuild different bytes or discover too late that the old image cannot read the new schema. | High | Resolved in plan | Add an immutable release-candidate manifest, clean-tree/main-tip gate, final-image scan, production-schema preflight, immediate off-host backup, migration rehearsal, rollback threshold, and evidence bundle before H1. |
+| RT-2026-07-13-153 | Incident commander | G2 asks CAOS's own Monitor/AlertSink to report CAOS failure. A dead app, host, ingress, DB, or full disk cannot reliably alert through itself. | High | Resolved in plan | Require an independent external availability path plus host/container/disk/certificate/backup monitoring, a tested notification route, severity model, owner, and SLO/error-budget decision. Product Monitor remains a separate credit-workflow control. |
+| RT-2026-07-13-154 | Disaster-recovery operator | G6 is marked done when an optional `BACKUP_SYNC_CMD` hook merely exists; an unset or failing hook still means total loss on host failure. Restore evidence also does not prove backup age, encryption, or alerting. | High | Resolved in plan | Split mechanism-present from deployment-configured: final gate requires encrypted off-host destination, observed successful sync, freshness check, failure alert, and restore from the off-host copy at realistic pilot volume. |
+| RT-2026-07-13-155 | Product owner | Four spec-only modules are listed as blockers in the reconciliation, but no blocking phase item owns the decision to implement them or map their promises to equivalent live services. CP-SR is also placed in the non-blocking expansion backlog while Sector Review is treated as a production surface. | High | Resolved in plan | Add a blocking promise-resolution item mapping CP-SR/CP-MON/CP-RENDER/CP-EXTRACT to implemented modules or explicit equivalent services, with user-visible scope and tests; Sector Review cannot pass on reference synthesis alone. |
+| RT-2026-07-13-156 | Data-governance reviewer | The plan covers GDPR erasure but not record-class retention, backup deletion propagation, legal hold, data classification, vendor data handling/residency, or the fate of uploaded documents and immutable committee records. | High | Resolved in plan | Add a data-governance gate and handover artifacts covering retention/deletion by record class, backup expiry, legal hold, vendor/DPA decisions, and accepted exceptions. |
+| RT-2026-07-13-157 | QA lead | One concept-link happy path plus per-surface tests does not constitute persona UAT across analyst, PM/CIO, and Research/QA workflows, degraded states, exports, narrow layouts, and supported browsers. | High | Resolved in plan | Add a signed persona-critical UAT matrix on the immutable release candidate, with seeded/reference content prohibited from masquerading as live evidence. |
+| RT-2026-07-13-158 | Host administrator | Application/container hardening is detailed, but the release gate does not own host firewall/SSH, Docker daemon access, OS patch level, time sync, volume permissions, disk encryption/capacity, log rotation, or certificate expiry. | High | Resolved in plan | Add a host-readiness checklist and evidence artifact; only 80/443 are public, administrative access is controlled, and capacity/rotation/expiry thresholds are monitored. |
+| RT-2026-07-13-159 | Saboteur | F1 says to reset the production registry while retaining golden/corpus issuers. That can put test fixtures in the live analyst workspace and conflicts with demo-seed-off launch behavior. | High | Resolved in plan | Scope F to an isolated beta environment and keep goldens/corpus offline; production starts empty unless a separately approved migration imports real pilot data. |
+| RT-2026-07-13-160 | Program auditor | The final `grep -c "^- [ ]"` test can never prove readiness because the same document intentionally keeps non-blocking C7-C9 and expansion X-items open, while H4's activation bullets are not checkbox rows. | High | Resolved in plan | Replace the raw checkbox count with a blocker-only closure ledger covering blocking A-H and the new coverage-gap register; preserve non-blocking backlog items without confusing the release verdict. |
+
+### Critic reopen conditions (Pre-Deployment Program)
+
+Reopen if a release can be built from an unclean or unpinned checkout; a schema
+change reaches the pilot without a rehearsed data-safe recovery path; off-host
+backup or external alerting remains optional at sign-off; any spec-only module's
+user promise has no blocking owner; beta fixtures can enter production; the
+handover omits retention/vendor/host operations; persona UAT is unsigned; or
+readiness is inferred from an undifferentiated checkbox count.
+
+## Phase 2 Secure Market Workbook — Critic Pass (2026-07-14)
+
+Decision under review: add a stateless preview/revalidated commit boundary for
+analyst-supplied Bloomberg-style `.xlsx` files and create immutable, owned market
+snapshots without weakening the Phase 1 lineage or tenancy contracts.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-172 | Security auditor | A preview that vaults the upload or creates a database token is already a state mutation; a commit that trusts preview rows or client-returned warnings can bypass later validation. | High | Resolved in contract | Preview is read-only. Commit receives the workbook again, verifies the preview SHA-256, rescans and reparses it under the same bounded policy, and derives rows and issues server-side before any write. |
+| RT-2026-07-14-173 | Saboteur | The existing globally unique market payload hash can cause a second analyst uploading identical bytes to receive the first analyst's snapshot, leaking its existence and authority. | High | Resolved in contract | Imported snapshots are analyst-owned and every import/read/screen lookup is owner-scoped with foreign IDs returning 404. The stored idempotency fingerprint is authority-scoped while the unsalted workbook SHA-256 remains audit metadata; retries converge only inside the owning analyst scope. |
+| RT-2026-07-14-174 | Data-governance reviewer | A broad market workbook cannot safely be assigned to an arbitrary issuer-owned `Document`: a user authorized for that issuer could then retrieve prices for issuers or teams elsewhere in the file. | High | Resolved in contract | The raw workbook is represented once by an analyst-owned market source record and manifest with no invented issuer anchor. Exact FIGI or explicit authorized mappings may link individual normalized rows to issuers; the binary remains analyst-scoped. |
+| RT-2026-07-14-175 | Database reviewer | Writing the vault file before the database transaction can leave an orphan when commit fails, while writing it after commit can leave a snapshot whose evidence bytes never landed. | High | Resolved in implementation contract | Commit performs a deterministic atomic vault write, creates source, manifest, snapshot, instruments, issue ledger, and lineage in one explicit database transaction, and removes only a newly-created vault object if that transaction fails. Idempotent retries reuse an already-valid owned object. |
+| RT-2026-07-14-176 | Hostile-input tester | A ZIP with traversal names, duplicate members, extreme compression, macros, external relationships, too many sheets/cells, or oversized strings can bypass a simple `PK`/`xl/` sniff and exhaust or influence the parser. | High | Resolved in contract | A pre-open OOXML gate rejects encrypted, duplicate, traversing, macro/external-link and over-budget packages; workbook sheet/row/column/cell/string/formula budgets are enforced before normalization. ClamAV remains scan-before-parse and fails closed whenever configured. |
+| RT-2026-07-14-177 | Credit analyst | Automatic borrower-name matching, implicit Bid/Ask selection, or upload-time dating can silently bind the wrong issuer or market observation. | High | Resolved in contract | Issuer linkage is exact FIGI or explicit authorized issuer ID only. Sheet, noncanonical headers, Bid/Ask-to-price choice, currency and as-of constants require explicit mapping; upload time never supplies market as-of and inconsistent/future row dates block commit. |
+| RT-2026-07-14-178 | Spreadsheet specialist | Loading a formula workbook with `data_only=True` alone hides formulas; loading it with formulas alone cannot prove cached values. External references can also appear in relationships or formula text. | High | Resolved in contract | The parser opens independent formula and cached-value views, inspects package relationships and formula text, never calculates, and records every formula-bearing mapped cell. Any required formula without an acceptable finite cached value blocks commit. |
+
+### Critic reopen conditions (Phase 2)
+
+Reopen if preview writes state; commit accepts client-normalized rows; a duplicate
+can cross analyst scope; the raw workbook is assigned an invented issuer; any
+formula is evaluated; external relationships, macros, or workbook budgets are
+relaxed; upload time becomes market as-of; issuer matching uses borrower text; or
+the raw source, manifest, snapshot, instruments, issue ledger, and lineage can
+diverge across a failed commit.
+
+## Phase 3 Canonical Model Engine v2 — Critic Pass (2026-07-14)
+
+Decision under review: introduce a default-off, pure server-side ModelEngineV2
+and additive ModelDraftV2 contract, then make that server result the only live
+issuer calculation authority while retaining the TypeScript Atlas Forge model
+solely as a clearly labelled reference fixture.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-179 | Credit model reviewer | Running the current TypeScript calculator beside the new server engine for live issuers creates two plausible but divergent committee answers. | High | Resolved and verified | Atlas Forge is the only issuer permitted to load the TypeScript reference calculator, independent of flag state. Flag-on live issuers consume only server V2; flag-off live issuers fail closed instead of inheriting fixture values. No live shadow comparison is introduced. |
+| RT-2026-07-14-180 | Database reviewer | Timestamp check-then-update permits concurrent saves that both pass and silently lose one analyst edit. | High | Resolved in contract | ModelDraftV2 has an integer revision. Every mutation uses one `UPDATE ... WHERE id/owner/revision = expected` statement and requires exactly one affected row; conflicts return 409 with the authorized current revision. First creation relies on the unique owner/issuer key and never falls back to last-write-wins. |
+| RT-2026-07-14-181 | Model-risk reviewer | “Edit any cell” can replace a derived value without showing the displaced formula, propagate stale dependents, or erase unrelated overrides during scenario reset. | High | Resolved and verified | Overrides are typed graph-node replacements. Calculation always starts from canonical inputs, applies active replacements, recomputes dependents, retains original formula/value and an immutable audit record, and emits invariant warnings. Derived overrides require reason, actor, before/after, scope, source, and a timezone-aware future expiry. Scenario reset changes scenario inputs only. |
+| RT-2026-07-14-182 | Credit analyst | Missing live debt terms could silently inherit Atlas Forge balances, margins, or rates and make a fabricated forecast look complete. | High | Resolved in contract | Live calculations accept only sourced/imported inputs. Missing required inputs produce an explicit `insufficient_inputs` result with null dependent outputs and named gaps; reference constants are unreachable from the server engine. |
+| RT-2026-07-14-183 | Spreadsheet security reviewer | A model workbook can carry macros, links, volatile formulas, stale caches, ambiguous row labels, or formulas crafted to become executable after export. | High | Resolved in contract | Reuse the bounded OOXML/AV gate, accept `.xlsx` only, never evaluate formulas, treat formula text as informational, fail closed on active content/external links/ambiguity, neutralize exported text cells against formula injection, and revalidate the original bytes during commit. |
+| RT-2026-07-14-184 | Contract reviewer | The Phase 0 model-workbook note names `Historical`, `Forecast`, `Debt`, and `Outputs`, while the approved Phase 3 public contract names `Model`, `Debt Schedule`, `Overrides`, and `Sources/Audit`. Implementing both would create incompatible v1 formats. | High | Resolved before implementation | The approved Phase 3 logical contract is authoritative. The physical workbook uses the five literal valid names plus `Sources - Audit`; its logical sheet ID and product label remain `Sources/Audit`. Stable row IDs and period keys remain canonical. |
+| RT-2026-07-14-185 | Authorization reviewer | Draft, calculation, import-preview, checkpoint, or export lookups by raw ID can disclose another analyst's issuer/model existence. | High | Resolved in contract | Every lookup is analyst- and issuer-authorized, uses `require_issuer`, scopes by owner in SQL, and returns 404 for foreign objects. Preview is stateless; commit repeats authorization and validation inside the transaction. |
+| RT-2026-07-14-186 | Lineage reviewer | Checkpoints and reports can bind the draft payload while exports bind a later recalculation, so identical labels conceal different numbers. | High | Resolved in contract | Every calculation carries engine version, canonical input fingerprint, calculation hash, and revision. Checkpoint, report, and workbook exports bind the same immutable calculation envelope; restores create a new draft revision and calculation rather than mutating history. |
+| RT-2026-07-14-187 | Release engineer | A flag rollback after a destructive schema rewrite could strand existing models or require dual-writing two incompatible payloads. | High | Resolved in contract | Migration is additive. Existing `SavedModel` remains the flag-off compatibility path; V2 uses new nullable/additive tables and columns. Disabling the flag stops V2 routing without deleting drafts, calculations, overrides, or audit evidence. |
+| RT-2026-07-14-188 | UX/accessibility reviewer | A browser-only unload prompt misses internal Next.js navigation, while aggressive interception can trap keyboard users or silently autosave. | Medium | Resolved in contract | A persisted analyst preference controls both `beforeunload` and internal-link interception. The dialog is keyboard/focus safe, clearly offers stay or discard-and-leave, and never autosaves. Clean drafts never prompt. |
+| RT-2026-07-14-189 | OOXML verifier | The approved literal worksheet title `Sources/Audit` is impossible: Excel forbids `/` in worksheet names, so an exporter using it cannot save a valid `.xlsx`. | High | Resolved before implementation | Use physical title `Sources - Audit` and logical ID/label `sources_audit` / `Sources/Audit`. Preview and round-trip tests require this exact mapping and reject alternate or duplicate audit sheets. |
+| RT-2026-07-14-190 | Release/model-risk reviewer | A flag-off live issuer could fall through to the synthetic fixture calculator and display plausible Atlas Forge values under a real issuer. | High | Resolved and verified | Route authority is fail-closed for every live issuer unless V2 is explicitly enabled and returned with the V2 authority marker. Resolver and rendered-route tests prove the reference calculator is reachable only for the explicit Atlas Forge ID. |
+| RT-2026-07-14-191 | Scale-control reviewer | Defaulting an omitted model or close-format workbook currency/unit to USD/millions can create a 1,000x wrong read. | High | Resolved and verified | `ModelDraftPayload` and `LegacyWorkbookMapping` require explicit supported monetary identity. CP-1, API, mapping, workbook and UI paths reject missing, empty, null, conflicting or unsupported values; close-format templates begin blank and require analyst entry. |
+| RT-2026-07-14-192 | Credit model reviewer | Negative effective cash interest increases free cash flow under the positive-expense formula and can overstate coverage/cash generation. | High | Resolved and verified | Explicit, derived-override and debt-schedule negative cash interest becomes unavailable with a named gap; coverage and free cash flow degrade to null. Zero remains separately identified as undefined coverage. |
+| RT-2026-07-14-193 | Debt-model reviewer | An untied actual roll-forward or discontinuous actual opening can still look ready; overlapping YTD/LTM windows can also create false discontinuity alarms. | High | Resolved and verified | Material actual residuals make the result partial. Later sourced openings are compared only across contiguous month-end-aware intervals; sourced values remain visible, while genuine discontinuities add a warning and named gap. Same-end and overlapping comparison shapes remain independent. |
+| RT-2026-07-14-194 | Governance reviewer | An override can expire after checkpoint/preview while a report or pending mutation still publishes the stale reviewed result. | High | Resolved and verified | Every effective expiring override blocks new report preview/publication at or after expiry. The workbench invalidates pending/scenario previews locally before refresh, including refresh failure, and disables commit/checkpoint/export until recalculation is explicitly saved. Existing published versions remain immutable. |
+| RT-2026-07-14-195 | Availability reviewer | A valid maximum-size graph can render hundreds of thousands of table cells/options and freeze Model Builder. | Medium | Resolved and verified | Calculation nodes render in 100-row pages with period/text filters; the sensitivity picker renders at most 200 searchable options. A 350-node DOM regression proves off-page nodes remain reachable without mounting the full graph. |
+| RT-2026-07-14-196 | Source-contract reviewer | CP-1 synthesis and binder assumptions can lose fiscal calendar, currency or scale and silently convert non-calendar/GBP disclosures into calendar/USD millions. | High | Resolved and verified | Synthesized, EDGAR and reported CP-1 emit explicit currency/unit; missing or ambiguous identity fails closed. Fiscal-profile-aware FY/Q/YTD parsing handles Qn-before-FY and end-of-month arithmetic. GBP identity survives model, workbook, checkpoint and frozen report surfaces. |
+| RT-2026-07-14-197 | Audit reviewer | The workbench hides actor/time/before/after details even though the append-only audit records contain them. | Medium | Resolved and verified | Model history now exposes actor/time, before/after, displaced formula/value, reason, scope, source, expiry, action and revision. Checkpoints freeze draft ID/revision and reports freeze checkpoint identity, so the applicable append-only events remain addressable without duplicating the event store. |
+
+### Critic reopen conditions (Phase 3)
+
+Reopen if any live issuer number can come from the TypeScript fixture calculator;
+revision writes are not a single database CAS; a derived override lacks immutable
+audit data or downstream recomputation; missing inputs receive reference defaults;
+workbook formulas execute or ambiguous mappings auto-bind; foreign object access
+does not return 404; checkpoint/report/export fingerprints can diverge; rollback
+requires deleting V2 evidence; currency/unit can be inferred or defaulted; an
+expired override can feed a new preview/publication; or unsaved navigation silently
+saves or traps focus.
+
+## Phase 4 CP-4D and CP-2G — Critic Pass (2026-07-15)
+
+Decision under review: add CP-4D and CP-2G as independently flagged analytical
+modules using the supplied prompt methodology, while retaining CAOS persistence,
+authorization, confidence, evidence, and report governance as authoritative.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-198 | Release engineer | Registering either module in the static plan without connecting its existing flag would change every run while the flag is off and defeat independent rollback. | High | Resolved in contract | Module specs carry an explicit feature flag. Planning receives the enabled-flag set and omits disabled modules from execution while keeping their contracts addressable in the registry. Flag-off route plans remain byte-for-byte equivalent to the pre-Phase-4 plan. |
+| RT-2026-07-15-199 | Prompt-governance reviewer | The current live synthesizer loads only the Active Prompt; CP-4D and CP-2G require their complete REF, schema, system, and common-preamble context. A partial load can silently change analytical rules. | High | Resolved in contract | Add a deterministic manifest-verifying bundle loader. It loads the common preamble, Active Prompt, ordered REF files, schema reference, and system reference; hashes relative paths plus exact bytes; rejects missing, extra, or mismatched module files; and never falls back to Active Prompt-only loading for these modules. |
+| RT-2026-07-15-200 | Platform architect | The supplied packs contain M365/OneDrive/DOCX export instructions and reference shared files that are absent from the supplied corpus. Executing or inventing those rules would create a second governance/export authority. | High | Resolved before implementation | Keep the supplied directories byte-locked and fingerprinted, then append a CAOS runtime overlay that prohibits filesystem, M365, OneDrive, and document-export actions and requires structured tool output only. CAOS confidence, evidence, persistence, and reporting contracts remain canonical; no numeric-confidence or missing export policy is invented. |
+| RT-2026-07-15-201 | Source-gate reviewer | Thin disclosure can be mistaken for evidence of no structural or ESG risk, creating a false clean conclusion. | High | Resolved in contract | CP-4D blocks without affirmative entity-perimeter and guarantee evidence and limits when security/intercreditor evidence is incomplete. CP-2G zero-source input is Blocked; partial or unknown disclosure is Completed with Limitations. CP-2G Not Applicable requires affirmative sourced inventory, all assessed factors Immaterial to Credit, and no sustainability-linked instrument. Absence alone never proves Not Applicable. |
+| RT-2026-07-15-202 | Orchestration reviewer | Making CP-4D or CP-2G a new hard dependency can block legacy CP-4C, CP-3B, or CP-6A runs and make an optional module failure a platform-wide failure. | High | Resolved in contract | CP-4D and CP-2G have hard upstream source dependencies but only soft downstream ordering. CP-4C and CP-6A degrade when either is disabled, absent, blocked, or malformed. CP-3B keeps its current execution position and may consume only a nullable, versioned CP-4D handoff on a later run. CP-2G is marked non-run-blocking. |
+| RT-2026-07-15-203 | Schema reviewer | A generic object tool can accept invented labels, incomplete registers, numeric leakage guesses, or an unsupported CP-2G module ID. | High | Resolved in contract | Add concrete versioned Pydantic runtime schemas and cross-field validators. Extend module-ID validation only for literal `CP-2G`; keep CP-4D under the existing D range. Enforce exact status/materiality/priority/severity vocabularies, named structural gaps/stranded value, CP-2G Not Applicable invariants, finite numbers, and a complete explicit gaps ledger. |
+| RT-2026-07-15-204 | Evidence-lineage reviewer | Model output can cite search snippets, external unfetched documents, or another analyst's evidence and appear fully sourced. | High | Resolved in contract | Source gates and binders use only retrieved, authorized CAOS chunks. Every material claim carries evidence IDs that the existing runner resolves to owned chunks; unresolved evidence remains a limitation or blocks the source gate. Search hits and filenames alone never establish execution, guarantees, collateral, materiality, or linked-debt mechanics. |
+| RT-2026-07-15-205 | Prompt-injection reviewer | Legal and sustainability documents are untrusted text and can instruct the synthesizer to ignore the methodology or perform tool/file actions. | High | Resolved in contract | The CAOS overlay explicitly treats retrieved text as evidence, never instructions; the live call exposes only the pinned structured-output tool; no file/network/export tool is available; runtime output is schema-validated before persistence. |
+| RT-2026-07-15-206 | Product-integrity reviewer | Adding rich ATLF or other seeded CP-4D/CP-2G findings would make invented risks look like live analytical evidence. | High | Resolved in contract | Do not add production/reference findings. Offline fallback is source-gated and emits the complete schema with empty registers, explicit limitations/gaps, and Insufficient Information states. Frontend reference routes render explicitly unavailable unless a real persisted module result exists. |
+| RT-2026-07-15-207 | IC-methodology reviewer | CP-6A can over-weight an optional module, infer a score from malformed severity text, or change legacy verdicts when the new handoff is absent. | High | Resolved in contract | CP-6A reads only the versioned module handoff, validates its enums and finite values, emits bounded evidence-attributed signals, and otherwise records no score. Absent/blocked/malformed optional outputs preserve the legacy verdict and surface a limitation. |
+| RT-2026-07-15-208 | Runtime-capacity reviewer | Loading every reference on every attempt can exceed prompt budgets and make retries nondeterministic. | Medium | Resolved in contract | Validate and load the bundle once per module execution, use a fixed file order, apply explicit bounded retrieval context separately, and reuse that exact in-memory bundle for corrective retry. Cross-run caching is deliberately avoided so an on-disk hash mismatch cannot be masked by stale process state. A bundle over the explicit byte cap fails closed rather than dropping references. |
+| RT-2026-07-15-209 | Corpus-maintenance reviewer | Registry, CP-X routing, Pipeline, Deep-Dive, Research, onboarding, and consistency tools can drift and expose different module orders or promises. | High | Resolved in contract | Update every canonical route/reference surface and add consistency tests covering registry IDs, execution order, prompt manifests, frontend module maps, and documentation. Vendored module bytes remain unchanged; any prompt-pack hash change reopens this gate. |
+
+### Critic reopen conditions (Phase 4)
+
+Reopen if a disabled module changes the flag-off plan; any module runs from only
+its Active Prompt; bundle verification is bypassed; M365/file export instructions
+become executable; a thin or absent source pack becomes a clean/Not-Applicable
+finding; optional modules hard-block CP-4C, CP-3B, CP-6A, or the overall run; a
+runtime schema accepts noncanonical enums or unsupported numeric confidence;
+unresolved or foreign evidence satisfies a source gate; synthetic findings appear
+in production/reference UI; CP-6A changes its legacy verdict when the new handoff
+is absent; or the corpus, server registry, and frontend route maps disagree.
+
+## Phase 5 Workflow and Navigation Contracts — Critic Pass (2026-07-15)
+
+Decision under review: consolidate global issuer lookup into the command palette,
+bind Command to authorized persisted holdings, make exact queued runs observable,
+and add durable analyst-scoped completion events without changing Watchtower or
+model-calculation authority.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-210 | Interaction reviewer | A shared issuer link inside an activating row can both open the profile and activate the detail strip, while wrapping the whole row in a link creates invalid nested controls. | High | Resolved in contract | Ticker/name remain exact-ID `IssuerLink` anchors that stop propagation. The row remainder is a separate keyboard-operable grid row using its stable position or issuer ID; Enter/Space mirror pointer activation. |
+| RT-2026-07-15-211 | Portfolio-risk reviewer | Joining holdings to an unbound or merely name-matched run can display another sleeve's posture as if it belongs to the selected book. | High | Resolved in contract | Command uses authorized persisted holdings and only the newest complete run whose exact `issuer_id` and `portfolio_id` match the selected portfolio. Missing links or bound runs are `UNKNOWN`; borrower-name fuzzy matching is prohibited. |
+| RT-2026-07-15-212 | Authorization reviewer | A notification or portfolio cursor can disclose another analyst's run, import, issuer, or book, even if the target object itself is otherwise protected. | High | Resolved in contract | Portfolio reads retain `require_portfolio_access`. Notification writes copy the terminal object's owning analyst; reads and seen mutations scope in SQL to the authenticated analyst and foreign IDs return 404. Cursor payloads reveal no foreign object and are bounded. |
+| RT-2026-07-15-213 | Transaction reviewer | Emitting a completion toast after committing the run can lose the event on process death; emitting before the terminal state can publish success that later rolls back. | High | Resolved in contract | The idempotent `NotificationEvent` row is added in the same database transaction as the terminal run/failure mutation. Its unique key is derived from event kind and immutable object ID; retries converge on one event. |
+| RT-2026-07-15-214 | Frontend reliability reviewer | Replaying notification history on first mount floods the analyst with old completion toasts, while polling every hidden tab wastes reads and can duplicate events across refreshes. | Medium | Resolved in contract | The first visible read establishes a cursor without toasting history. Subsequent visibility-aware cursor reads deduplicate by event ID, render linked toasts once, and expose a separate seen mutation. Watchtower alerts remain a different domain feed. |
+| RT-2026-07-15-215 | Pipeline reviewer | Navigating to an issuer's latest run after upload can show a different run than the one just queued, and a one-shot exact-run read strands the graph in “in progress.” | High | Resolved in contract | Upload navigation carries exact issuer, context, run ID, and `view=graph`. Exact-run loading polls queued/running status until complete or failed without falling back to latest-run or reference output. |
+| RT-2026-07-15-216 | Accessibility reviewer | Making an entire shared panel header a button can nest toolbar controls, break heading semantics, or turn sortable column headers into accidental disclosure toggles. | High | Resolved in contract | Only `collapsible` section shells gain a title-region button with `aria-expanded`/`aria-controls`; right-side controls stay siblings. Non-collapsible panels and sortable/filterable table headers remain unchanged. |
+| RT-2026-07-15-217 | Model-risk reviewer | Combining formula scenario editing and cross-module propagation in one stateful panel makes it unclear which values are saved and allows reset in one mode to erase the other. | High | Resolved in contract | The panel exposes two named modes—Model scenario and Cross-module propagation—with separate component state and purpose copy. Model reset cannot mutate propagation inputs/results, and propagation never writes the model draft. |
+| RT-2026-07-15-218 | Release engineer | Replacing sample Command content with an incomplete live read could silently fall back to plausible fixtures on network failure or require destructive rollback. | High | Resolved in contract | Command renders distinct loading, unavailable, no-portfolio, and empty-holdings states; it never falls back to sample positions. Server additions and notification migration are additive, and disabling/removing the new reads leaves existing domain data intact. |
+| RT-2026-07-15-219 | Navigation reviewer | Remapping Alt+S by simulating Cmd+K or bypassing the navigation/modal coordinator can produce two open overlays or skip unsaved-edit protection. | Medium | Resolved in contract | Alt+S dispatches one explicit palette-open event owned by `CommandPalette`; the palette retains the modal coordinator and its existing guarded page navigation. Editable targets remain excluded. |
+
+### Critic reopen conditions (Phase 5)
+
+Reopen if a ticker/name click also activates its row; portfolio posture accepts an
+unbound run or fuzzy borrower match; foreign portfolio/notification objects are
+distinguishable from 404; a terminal state and its completion event can commit
+separately; initial history produces toasts; exact-run polling can switch run IDs
+or fall back to reference data; a disclosure button nests another control; either
+scenario mode mutates the other's state; sample holdings return as a live fallback;
+or Alt+S opens a surface other than the guarded command palette.
+
+## PR #193 Quality-Gate Compatibility — Critic Pass (2026-07-15)
+
+Decision under review: preserve the C901 and Fallow duplication gates for new or
+worsening debt while allowing this branch's pre-gate findings through checked,
+bounded baselines.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-220 | Code-quality reviewer | A broad ignore or disabled C901 check would let unrelated complexity regressions merge unnoticed. | High | Resolved in contract | The gate remains enabled at threshold 10. Only exact path-and-symbol baseline entries are accepted; every new finding and every increase above the recorded complexity fails. |
+| RT-2026-07-15-221 | Maintenance reviewer | A permanent baseline can accumulate obsolete exceptions after functions are simplified, renamed, or removed. | Medium | Resolved in contract | When a baseline-owned file changes, entries that no longer map to an active C901 finding fail as stale and must be removed in the same change. |
+| RT-2026-07-15-222 | CI portability reviewer | Newline-delimited filenames are split by `xargs`, so the tracked `Modular OS/...` checker is interpreted as two nonexistent paths. | High | Resolved in contract | A Python subprocess receives an explicit argument list from NUL-delimited Git output; spaces and other shell-significant filename characters are never reparsed. |
+| RT-2026-07-15-223 | Governance reviewer | A baseline generated from arbitrary Ruff output can hide malformed findings or silently drift from the configured threshold. | High | Resolved in contract | The checker validates the baseline schema, rejects duplicates and nonpositive limits, parses only C901 JSON, requires the configured threshold, and fails closed on malformed Ruff output or subprocess errors. |
+| RT-2026-07-15-224 | Duplication reviewer | Raising token/line thresholds or excluding broad directories would hide new copy-paste regressions as well as the inherited clone set. | High | Resolved in contract | Keep Fallow's existing detection mode and thresholds. Its native baseline records only the 38 exact clone groups on this branch; `--ci` continues to fail on any unrecorded clone. |
+| RT-2026-07-15-225 | Baseline-integrity reviewer | A hand-authored clone allowlist could drift from Fallow's matcher and silently accept groups the tool did not actually observe. | High | Resolved and verified | The baseline is generated and consumed by the same pinned Fallow 3.5.1 native format. A local CI-equivalent run returns zero results with the baseline and 38 groups without it. |
+
+### Critic reopen conditions (PR #193 complexity gate)
+
+Reopen if C901 is disabled globally; an exception is not keyed to an exact path and
+symbol; complexity can rise above its recorded maximum; stale entries survive a
+change to their owning file; Ruff errors are treated as success; file paths pass
+through whitespace-delimited shell expansion; Fallow thresholds or scope are
+relaxed; or an unrecorded clone does not fail the duplication step.
+
+## Phase 6 Legibility and Responsive Density — Critic Pass (2026-07-15)
+
+Decision under review: improve legibility and responsive behavior on analytical
+surfaces without weakening information density, changing analytical values, or
+breaking the Report appendix's single-landscape-page contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-226 | Design-system reviewer | Globally brightening muted text or inflating the type scale would flatten hierarchy, reduce terminal density, and make secondary metadata compete with decisions. | High | Resolved in contract | Remediation is semantic-role based: decision-bearing values, interactive labels, table headings, and chart annotations receive stronger ink/weight; secondary provenance and timestamps retain the existing AA-compliant muted token. |
+| RT-2026-07-15-227 | Accessibility reviewer | A chart that exposes exact values only on hover remains unusable by keyboard, touch, zoom, print, and assistive technology. | High | Resolved in contract | Each changed analytical chart carries a title, concise accessible summary, source identifiers, legible direct/tooltip values, and a keyboard-operable equivalent data table using the shared `SemanticVisualization` contract. |
+| RT-2026-07-15-228 | Credit analyst | Reflowing workflow steps into masonry or columns can scramble analytical order and separate a conclusion from its evidence/open-output action. | High | Resolved in contract | Summary is one source-ordered compact sequence. Report uses a responsive consolidated grid; Dense uses auto-fit cards and wrapping, with horizontal scrolling reserved for genuine tabular evidence. Stable step IDs and output actions remain intact. |
+| RT-2026-07-15-229 | Pipeline operator | Making the DAG fit by shrinking node labels or hiding the inspector can make the exact run harder to diagnose at narrow widths. | High | Resolved in contract | Layout adapts before typography: the inspector stacks/collapses at explicit breakpoints, node labels keep their effective size, and the graph retains controlled two-axis navigation, focus, and an exact-run status context. |
+| RT-2026-07-15-230 | Model-risk reviewer | Styling only positive values as key totals makes adverse or negative cases visually disappear and can imply different calculation semantics. | High | Resolved in contract | Key-account emphasis is row-role based and sign-independent. Period separators use stable period-group metadata; neither styling change alters values, formulas, overrides, or engine fingerprints. |
+| RT-2026-07-15-231 | Report-production reviewer | Broad whitespace or oversized appendix text can push the full model grid onto another page, while label-derived separators can drift when display copy changes. | High | Resolved in contract | The Report DSL carries explicit column-group starts. Narrow gutters/rules and stronger paper ink preserve the full-grid single-landscape-page geometry; print tests guard pagination and all groups from Q through Downside. |
+| RT-2026-07-15-232 | Interaction reviewer | Promoting every action creates toolbar noise, while leaving frequent decision actions as faint text or disclosure-only controls keeps them undiscoverable. | Medium | Resolved in contract | Only frequent decision-bearing actions receive primary/secondary action treatment and visible focus. Low-frequency utilities remain under disclosure, preserving Phase 5 interaction contracts. |
+| RT-2026-07-15-233 | Regression reviewer | CSS-only visual changes can pass unit tests while clipping at 200% zoom, overflowing at target widths, ignoring reduced motion, or altering print output. | High | Resolved in contract | Acceptance includes axe, keyboard/focus, reduced-motion, 200% zoom, 390/700/900/1100/1440px responsive checks, and Report print inspection in addition to type, unit, lint, and build gates. |
+
+### Critic reopen conditions (Phase 6)
+
+Reopen if secondary metadata and decision text are changed through one global
+token; an analytical chart lacks an equivalent table or explicit sources; visual
+layout changes reorder workflow steps or hide evidence; the Pipeline DAG fits by
+shrinking labels; key-total emphasis depends on sign; appendix grouping is parsed
+from display labels or breaks the single-page full grid; low-frequency actions
+crowd the primary toolbar; or any changed route fails zoom, focus, motion,
+responsive, accessibility, or print gates.
+
+## Phase 7 Integrated Verification and Controlled Release — Critic Pass (2026-07-15)
+
+Decision under review: prove the cross-phase artifact chain, rehearse reversible
+flag transitions, and publish a release decision without treating local or CI
+evidence as authorization to change production configuration.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-234 | Model-risk reviewer | Independent green tests can still bind a report, workbook, or checkpoint to a different run or model calculation than the source and market artifacts shown upstream. | High | Resolved in contract | Add one release journey that carries exact issuer, context, manifest, document, market snapshot, run, CP-4D/CP-2G output, draft, calculation, checkpoint and report identities through the chain and asserts representative model figures in the exported workbook. |
+| RT-2026-07-15-235 | Authorization reviewer | A positive journey does not prove that foreign artifact, lineage, import, model, notification, report and module-output identifiers remain non-enumerable. | High | Resolved in contract | Maintain an explicit endpoint matrix mapped to negative tests. Every protected Phase 1-5 object has an owned read/mutation plus foreign-object 404 coverage; missing coverage blocks release. |
+| RT-2026-07-15-236 | Database reliability reviewer | A downgrade rehearsal against retained analyst evidence could destroy or rewrite immutable artifacts merely to prove rollback. | Critical | Resolved in contract | Exercise empty-schema downgrade/re-upgrade only in disposable databases. Evidence-bearing migrations must refuse destructive downgrade; operational rollback disables flags and retains rows/binaries. Forward corrective migrations are the only production schema recovery path. |
+| RT-2026-07-15-237 | Release engineer | Enabling all flags together prevents attribution, can violate dependencies, and makes a failed cohort impossible to unwind safely. | High | Resolved in contract | The runbook orders lineage dual-write, freshness reads, market import, Model Engine v2, CP-4D and CP-2G. Each stage has a bounded cohort, observation criteria, stop condition and flag-only rollback before the next stage. |
+| RT-2026-07-15-238 | Governance reviewer | A successful local rehearsal or green pull request can be misreported as a completed production observation window or authorization to deploy. | High | Resolved in contract | Phase 7 may establish release readiness and a go/no-go record only. Production flag changes, cohort selection and elapsed observation-window acceptance require an authorized operator and external evidence; compatibility paths remain in place meanwhile. |
+| RT-2026-07-15-239 | Workbook security reviewer | Synthetic workbooks can miss Bloomberg cached-formula behavior, while committing proprietary workbook bytes to the repository creates a data-governance incident. | High | Resolved in contract | Keep hostile and formula fixtures synthetic/sanitized. Reference the recorded sanitized real-workbook preview hash and require an authorized environment to repeat preview before default-on; never commit proprietary workbook bytes. |
+| RT-2026-07-15-240 | Test-environment reviewer | Sandbox-denied antivirus sockets, browser launch restrictions, or unavailable Postgres can be mistaken for product failures or silently waived. | High | Resolved in contract | Separate deterministic local gates from environment-dependent gates. Record the exact blocked command and require unrestricted CI/release evidence for ClamAV, Chromium and Postgres; no blocked gate is relabelled as passed. |
+| RT-2026-07-15-241 | Compatibility reviewer | Removing legacy reads or migration compatibility as part of “release completion” eliminates the safe rollback path before the observation window exists. | Critical | Resolved in contract | Phase 7 does not remove compatibility paths. Cleanup is a later, separately reviewed change after a green observation window and successful rollback rehearsal with retained evidence. |
+
+### Critic reopen conditions (Phase 7)
+
+Reopen if the integrated gate substitutes latest or fixture identities for an
+exact bound artifact; any protected object lacks foreign-object denial; a rollback
+deletes evidence; flags can be enabled out of dependency order; a local/CI pass is
+presented as production authorization; proprietary workbook bytes enter the repo;
+an environment-blocked check is called green; a new artifact/source kind appears;
+prompt-pack hashes change; direct Bloomberg transport, macros, external links or
+cross-team sharing enter scope; or compatibility paths are removed before the
+observation window and rollback rehearsal are complete.

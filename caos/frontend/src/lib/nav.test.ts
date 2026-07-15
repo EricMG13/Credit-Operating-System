@@ -11,8 +11,18 @@ describe("nav registry", () => {
     expect(CONCEPT_CYCLE).toEqual(NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href)));
   });
 
-  it("covers all 12 concept routes", () => {
-    expect(CONCEPT_CYCLE).toHaveLength(12);
+  it("uses full product names where short labels lose information scent", () => {
+    const labels = Object.fromEntries(NAV_GROUPS.flatMap((group) => group.items.map((item) => [item.href, item.label])));
+    expect(labels["/command"]).toBe("Command Center");
+    expect(labels["/model"]).toBe("Model Builder");
+    expect(labels["/reports"]).toBe("Report Studio");
+    expect(labels["/monitor"]).toBe("Alert Monitor");
+    expect(labels["/portfolios"]).toBe("Portfolio Lab");
+    expect(labels["/decisions"]).toBe("IC Book");
+  });
+
+  it("covers all 15 workflow routes including the two approved top-level additions", () => {
+    expect(CONCEPT_CYCLE).toHaveLength(15);
     for (const href of [
       "/issuers",
       "/upload",
@@ -20,9 +30,12 @@ describe("nav registry", () => {
       "/query",
       "/sector",
       "/sector-rv",
+      "/sponsors",
       "/command",
       "/deepdive",
       "/model",
+      "/portfolios",
+      "/decisions",
       "/reports",
       "/pipeline",
       "/monitor",
@@ -43,6 +56,7 @@ describe("nav registry", () => {
     expect(activeGroupId("/issuers/profile")).toBe("intake");
     expect(activeGroupId("/sector-rv")).toBe("analyze");
     expect(activeGroupId("/deepdive")).toBe("decide");
+    expect(activeGroupId("/decisions/decision-1")).toBe("decide");
     expect(activeGroupId("/reports")).toBe("publish");
     expect(activeGroupId("/monitor")).toBe("monitor");
     expect(activeGroupId("/settings")).toBeNull();

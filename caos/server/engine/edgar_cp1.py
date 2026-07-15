@@ -468,6 +468,8 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
 
     nf: dict = {
         "basis": "reported_gaap_xbrl",
+        "currency": "USD",
+        "reporting_unit": "millions",
         "ebitda_definition": "operating_income_plus_dna_and_impairments",
         "source": "SEC EDGAR company facts (us-gaap)",
         "normalized_financials": financials,

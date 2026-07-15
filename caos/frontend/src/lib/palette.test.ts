@@ -23,13 +23,13 @@ describe("palette rows", () => {
 
   it("a strong page match outranks the Ask row", () => {
     const rows = staticRows("mod");
-    expect(rows[0]).toMatchObject({ kind: "page", label: "Model" });
+    expect(rows[0]).toMatchObject({ kind: "page", label: "Model Builder" });
     expect(rows.findIndex((r) => r.kind === "ask")).toBeGreaterThan(0);
   });
 
   it("group names match their pages (workflow vocabulary is searchable)", () => {
     const rows = staticRows("decide");
     const labels = rows.filter((r) => r.kind === "page").map((r) => (r as { label: string }).label);
-    expect(labels).toEqual(expect.arrayContaining(["Command", "Deep-Dive", "Model"]));
+    expect(labels).toEqual(expect.arrayContaining(["Command Center", "Deep-Dive", "Model Builder"]));
   });
 });

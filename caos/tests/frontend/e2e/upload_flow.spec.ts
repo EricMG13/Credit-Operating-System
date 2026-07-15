@@ -68,7 +68,7 @@ test.describe("CAOS single-process app", () => {
     // the link's accessible name instead of title.
     await page.getByRole("link", { name: "Deep-Dive", exact: true }).click();
     await expect(page).toHaveURL(/\/deepdive/);
-    await page.getByRole("link", { name: "Command", exact: true }).click();
+    await page.getByRole("link", { name: "Command Center", exact: true }).click();
     await expect(page).toHaveURL(/\/command/);
   });
 

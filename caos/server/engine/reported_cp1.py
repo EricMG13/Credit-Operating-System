@@ -270,6 +270,7 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
             "basis": "reported_disclosure",
             "source": "Issuer disclosure (non-EDGAR: quarterly investor report / earnings)",
             "currency": currency,
+            "reporting_unit": "millions",
             "normalized_financials": nf,
         },
         confidence="Medium",

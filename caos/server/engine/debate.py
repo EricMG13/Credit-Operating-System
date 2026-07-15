@@ -210,6 +210,44 @@ def _ic_signals(up: Dict[str, ModulePayload]) -> Tuple[List[Point], List[Point]]
         elif risk == "LOW" and conc.get("in_portfolio"):
             bull.append(Point("Comfortable portfolio headroom to add or hold the name.", "CP-3C", 1))
 
+    # Optional CP-4D handoff. The module owns the qualitative structural map;
+    # CP-6A consumes only its single validated vulnerability, never raw registers.
+    cp4d = up.get("CP-4D")
+    handoff_4d = (
+        ((cp4d.runtime_output or {}).get("handoffs") or {}).get("cp_6a")
+        if cp4d is not None else None
+    )
+    if isinstance(handoff_4d, dict):
+        severity = handoff_4d.get("leakage_severity")
+        priority = handoff_4d.get("priority_label")
+        weight = 0
+        if is_finite_number(severity):
+            sev = int(severity)
+            weight = 3 if sev == 5 else 2 if sev == 4 else 1 if sev == 3 else 0
+        if priority == "Priming-Exposed (uptier capable)":
+            weight = max(weight, 2)
+        if weight:
+            summary = str(handoff_4d.get("summary") or "Material structural vulnerability.")
+            bear.append(Point(summary, "CP-4D", weight))
+
+    # Optional CP-2G handoff. Direction and materiality drive a bounded,
+    # deterministic point; the model cannot supply its own debate weight.
+    cp2g = up.get("CP-2G")
+    handoff_2g = (cp2g.runtime_output or {}).get("cp6a_handoff") if cp2g is not None else None
+    if isinstance(handoff_2g, dict):
+        materiality = handoff_2g.get("materiality_class")
+        weight = {
+            "Material — Quantified": 3,
+            "Material — Directional": 2,
+            "Watch": 1,
+        }.get(materiality, 0) if isinstance(materiality, str) else 0
+        direction = handoff_2g.get("net_direction")
+        summary = str(handoff_2g.get("summary") or "Material sustainability-linked credit factor.")
+        if weight and direction == "Positive":
+            bull.append(Point(summary, "CP-2G", weight))
+        elif weight and direction == "Negative":
+            bear.append(Point(summary, "CP-2G", weight))
+
     return bull, bear
 
 

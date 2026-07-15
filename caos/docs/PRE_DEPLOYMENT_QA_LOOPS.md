@@ -3,12 +3,12 @@
 > **Purpose:** this document owns **mechanism** — how each "tested regularly"
 > claim in [PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) is actually
 > enforced. The master plan owns **status** (what's done/open) and cites loop
-> IDs (`L1`–`L20`) defined here; it never restates a cadence word without a
+> IDs (`L1`–`L22`) defined here; it never restates a cadence word without a
 > loop ID pointing here. If you're picking up a phase item and its exit gate
 > says "loop doc L6," this is where you find out exactly what that means and
 > whether it exists yet.
 
-**Grounded 2026-07-11 against `origin/main@313ebac`.** Ground truth this
+**Historical grounding: 2026-07-11 against `origin/main@313ebac`.** Ground truth that
 session: `.github/workflows/ci.yml` triggers on `push: branches: [main]` and
 `pull_request` only — **no `schedule:`, no `workflow_dispatch:` anywhere in
 the repo's workflow files.** Two pytest markers referenced by the prior
@@ -16,6 +16,13 @@ version of the master plan (`golden_e2e`, `corpus_run`) **do not exist** —
 `git grep -n "golden_e2e|corpus_run" caos/tests .github caos/server` returns
 zero hits. This document is written from that ground truth, not from the
 prior plan's aspirational cadence table.
+
+> **2026-07-13 mechanism delta:** `.github/workflows/nightly.yml` now exists
+> with both `schedule:` and `workflow_dispatch:` and runs the `golden_e2e`
+> marker. `deploy/restore_drill.sh` also exists. Those two loops are updated
+> below; other status/count claims from the 2026-07-11 grounding still require
+> live re-verification. The master plan's coverage review adds L21/L22 for
+> independent availability/host alerting and backup freshness/off-host recovery.
 
 ---
 
@@ -47,7 +54,7 @@ prior plan's aspirational cadence table.
 | **MANUAL** | A named skill/playbook run at a named trigger (a phase exit, a specific event) — no scheduler, a human or agent session runs it and files the dated artifact. |
 | **HANDOVER** | A calendar cadence that only makes sense post-transfer with a live operational owner; named in the H3 support model, not run during this program. |
 
-## 3. Recurring loops L1–L20
+## 3. Recurring loops L1–L22
 
 | ID | Loop | Mechanism (class) | Cadence | Notes |
 |---|---|---|---|---|
@@ -55,7 +62,7 @@ prior plan's aspirational cadence table.
 | **L2** | Code review | **MANUAL**-convention | per PR | `/code-review` on every PR; `adversarial-reviewer` skill on engine/LLM-lane diffs specifically (it exists — see shortlist doc). |
 | **L3** | Blast radius | **MANUAL**-convention (CLAUDE.md-mandated) | per change | GitNexus `impact` before edit, `detect_changes` before commit. Non-negotiable per repo CLAUDE.md. |
 | **L4** | Golden-master drift | **LIVE** — runs inside the normal `pytest caos/tests/server` collection in the CI server job (`caos/tests/server/golden/test_golden_cp1.py`) | per PR + push | No separate marker or schedule needed — it's just part of the suite. The word "nightly" from the prior plan version is dropped here: there is no nightly run of anything today: see L5/L6 for what a real nightly mechanism requires. |
-| **L5** | Golden E2E (full-chain, both lanes) | **WORK-ITEM** — owned by master-plan **B1**. Requires: (a) register a `golden_e2e` pytest marker (no marker registry exists yet — add one to `pyproject.toml`/`pytest.ini`), (b) write the full-chain test, (c) add to `.github/workflows/nightly.yml` (§5, new file) with `schedule:` + `workflow_dispatch:` | nightly, once landed | Currently does not run at all, on any cadence. |
+| **L5** | Golden E2E (full-chain, both lanes) | **LIVE** — `.github/workflows/nightly.yml` has scheduled + on-demand triggers and runs `pytest -m golden_e2e` with external model keys blanked | nightly + on demand | Require two consecutive green scheduled cycles before citing it at a phase exit. |
 | **L6** | Corpus breadth run | **WORK-ITEM** — owned by master-plan **B5**. Requires: (a) capture fixtures (currently 0 captured against a 61-issuer MANIFEST), (b) register a `corpus_run` marker, (c) full run in `nightly.yml` + a 6-issuer smoke subset added to the existing per-PR server job | nightly (full) + per-PR (smoke subset), once landed | Same "does not run at all today" caveat as L5. |
 | **L7** | Concept-link suite (same-number-everywhere) | **WORK-ITEM** — owned by master-plan **C6**. Add the new Playwright spec to the existing per-PR `e2e` job in `ci.yml` (stronger than a nightly-only run — per-PR catches regressions before merge); also include in `nightly.yml`'s full sweep | per PR (+ nightly full via H2) | Spec doesn't exist yet — see C6. |
 | **L8** | E2E (Playwright page specs) | **LIVE** — `ci.yml` `e2e` job: static export → `run.py` (SQLite, demo-fallback LLM) → `playwright install chromium` → `npm run test:e2e` (9 specs, `global-setup.ts` auth) | per PR | Full sweep also re-runs inside H2's `workflow_dispatch`. |
@@ -69,8 +76,10 @@ prior plan's aspirational cadence table.
 | **L16** | Confidence audit | **MANUAL practice** (not a skill — `confidence-review` does not exist as an installed skill; this is a fresh-context audit thread using `/code-review high` + `adversarial-reviewer` + independent verifier agents, the pattern behind `caos/docs/qa/reports/confidence-audit-2026-07-11.md`) | per phase exit | The prior plan's "+ monthly" is dropped for the same reason as L11 — no monthly actor exists. |
 | **L17** | Goal audit | **MANUAL** — code-grounded whole-system audit (the pattern behind `AUDIT.md`'s reconciliation passes) | per phase exit | |
 | **L18** | Security review | **LIVE** (per-PR subset) — `ci.yml` `security` job: `pip-audit==2.7.3`, `bandit==1.7.10`, `npm audit --audit-level=high`, `gitleaks v8.18.4`. **MANUAL** (full `/security-review`) at E exit + H1. `security-review.yml` (the Claude-powered PR review workflow) is **dormant** without a `CLAUDE_API_KEY` secret configured — confirm whether it's wired before relying on it. **HANDOVER**: quarterly cadence deferred to the H3 support model, post-transfer only | per PR (live subset) + E exit/H1 (manual) + quarterly (post-transfer) | |
-| **L19** | Restore drill | **MANUAL** scripted — master-plan **G1** turns the `backup.sh:13-19` comments into a real script, run at G exit + H1. **HANDOVER**: quarterly cadence deferred to H3, post-transfer only | G exit + H1 (manual) + quarterly (post-transfer) | Today there is no script — only comments. Don't credit this loop until G1 lands. |
+| **L19** | Restore drill | **MANUAL** scripted — `deploy/restore_drill.sh`, run at G exit + H1. **HANDOVER**: quarterly cadence deferred to H3, post-transfer only | G exit + H1 (manual) + quarterly (post-transfer) | Script existence is proven; G8 separately requires a restore from the configured off-host copy at realistic volume. |
 | **L20** | Gap-log triage | **MANUAL**, named owner (the analyst cohort session) | weekly, **during Phase F only** | The one legitimate calendar-style loop in this program — it's bounded to F's duration and has a real weekly actor (the beta cohort), unlike the dropped "monthly"/"quarterly" claims elsewhere. F's exit gate requires dated triage notes. |
+| **L21** | Independent availability and host alerting | **WORK-ITEM** — owned by master-plan **G7**. External ingress/liveness + certificate/DNS and management-plane container/DB/queue/resource probes; notification path must not depend on CAOS | continuous once configured; failure-injection at G/H exits | Store sanitized monitor configuration, alert-delivery evidence, thresholds, owner, and acknowledgement/escalation test in the H3 package. |
+| **L22** | Backup freshness and off-host recovery | **WORK-ITEM** — owned by master-plan **G8**. Observe local backup success, off-host sync success/age, retention, and failure delivery; pair with L19 restore | each backup cycle; remote-only restore at G/H exits | An optional hook or local artifact is not a green loop. The configured target must alert when stale and the H gate must restore after local-copy loss. |
 
 ## 4. Runner infrastructure tiers
 
@@ -88,11 +97,11 @@ grounding doctrine.
 | QA stack (isolated ports :8010/:3010) + Playwright | Built frontend static export + `run.py` server + Chromium (present at `/opt/pw-browsers` in this container) | `performance` playbook legs B/C/D, `design-a11y-ux` playbook, `frontend-functional` playbook's e2e leg |
 | Static export + server | `npm run build` (static export) + `run.py` serving it | `ci.yml`'s `e2e` job (L8); H2's full sweep |
 
-## 5. The new-automation work item (spells out every `WORK-ITEM` row above)
+## 5. Nightly automation — live shell, incremental jobs
 
-**Create `.github/workflows/nightly.yml`** with both `schedule:` (a cron —
-e.g. `0 6 * * *` UTC) and `workflow_dispatch:` triggers. Jobs, each owned by
-the master-plan item that creates its prerequisite:
+**`.github/workflows/nightly.yml` now exists** with both `schedule:` and
+`workflow_dispatch:` triggers. The `golden_e2e` job is live. Add the remaining
+jobs only with the master-plan item that creates its prerequisite:
 
 - `pytest -m golden_e2e` (owned by **B1**) — full-chain golden test, both
   lanes, all 3 issuers.
@@ -108,8 +117,8 @@ the master-plan item that creates its prerequisite:
 dispatch, results archived" full regression sweep at the pre-deployment
 gate — no second workflow file needed.
 
-Do not create `nightly.yml` speculatively ahead of its owning items — each
-job lands with the master-plan item that makes it meaningful (a scheduled
+Do not add jobs speculatively ahead of their owning items — each job lands
+with the master-plan item that makes it meaningful (a scheduled
 run of a test that doesn't exist yet is not useful). The file may be created
 incrementally, one job per landed item, rather than all at once.
 

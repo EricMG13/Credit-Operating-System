@@ -318,3 +318,41 @@ describe("adaptModule — CP-4C covenant register", () => {
     expect(cap.v).not.toContain("BREACH");
   });
 });
+
+describe("adaptModule — CP-4D / CP-2G closed registers", () => {
+  it("renders the complete CP-4D structural register without the generic 12-row truncation", () => {
+    const rows = Array.from({ length: 15 }, (_, i) => ({
+      finding_id: `F-${i + 1}`, claim_or_tranche: `Tranche ${i + 1}`,
+      priority_label: "Insufficient Information", evidence_ids: [`chunk-${i + 1}`],
+    }));
+    const detail = {
+      ...CP1, module_id: "CP-4D", module_name: "RestrictedGroupGuaranteeMap",
+      owned_object: "structural_priority_map", qa_status: "Restricted", claims: [],
+      runtime_output: {
+        module_status: "Completed with Limitations", status_basis: "Security schedule incomplete.",
+        source_gate_register: [{ source: "Credit agreement", status: "Partial" }],
+        structural_priority: rows, gaps: [{ gap_id: "GAP-1", missing_item: "Security schedule" }],
+        overall_structural_view: "Insufficient Information pending the security schedule.",
+      },
+    } as unknown as ModuleDetailDTO;
+    const out = adaptModule(detail);
+    const table = out.sections.find((s) => s.type === "table" && /Structural priority/.test(s.title));
+    expect(table && table.type === "table" ? table.rows : []).toHaveLength(15);
+    expect(out.kpis.find((k) => k.l === "Module status")?.v).toBe("Completed with Limitations");
+  });
+
+  it("renders a Blocked CP-2G as blocked with its explicit gap, never a clean empty view", () => {
+    const detail = {
+      ...CP1, module_id: "CP-2G", module_name: "ESGSustainabilityCreditRisk",
+      owned_object: "esg_credit_risk", qa_status: "Blocked", claims: [],
+      runtime_output: {
+        module_status: "Blocked", status_basis: "No issuer-specific source was retrieved.",
+        source_register: [], gaps: [{ gap_id: "GAP-1", missing_item: "ESG disclosure" }],
+        overall_credit_view: "Insufficient Information — no finding generated.",
+      },
+    } as unknown as ModuleDetailDTO;
+    const out = adaptModule(detail);
+    expect(out.kpis.find((k) => k.l === "Module status")?.sev).toBe("critical");
+    expect(out.sections.some((s) => s.type === "table" && /Gaps/.test(s.title))).toBe(true);
+  });
+});

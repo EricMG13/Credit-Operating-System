@@ -106,6 +106,32 @@ python -c "import secrets;print(secrets.token_urlsafe(32))"  # → SESSION_SECRE
 ```
 **Never commit `.env`.**
 
+### 2.4 Applicable-updates feature gates
+
+The five additive gates ship **false** in `.env.example` and are global to the
+deployment (not cohort-scoped). Do not switch them all on in one release. Use
+the evidence and abort criteria in
+[`APPLICABLE_UPDATES_PHASE7_RELEASE.md`](APPLICABLE_UPDATES_PHASE7_RELEASE.md),
+and advance in this order only:
+
+1. `CAOS_LINEAGE_V2_ENABLED=true` — typed lineage dual-write and authorized
+   freshness reads. Reconcile dry-run/apply/verify before advancing.
+2. `CAOS_MARKET_XLSX_V2_ENABLED=true` — `.xlsx` preview/commit into immutable
+   market snapshots. Use only a sanitized workbook that passed preview.
+3. `CAOS_MODEL_ENGINE_V2_ENABLED=true` — live issuers use the single server
+   calculation authority; Atlas Forge remains the labelled reference fixture.
+4. `CAOS_CP_4D_ENABLED=true` — structural analysis module.
+5. `CAOS_CP_2G_ENABLED=true` — ESG/materiality module, operationally independent
+   from CP-4D and non-blocking by itself.
+
+At each stage, rebuild/restart the app, run the exact post-deploy checks for the
+new surface, and record an observation-window decision. Stop on an unauthorized
+read, dangling lineage, calculation/report fingerprint mismatch, duplicate or
+missing terminal event, workbook fail-open, or material error-rate regression.
+Rollback is config-first: set only the newest flag back to `false` and restart.
+Do not delete v2 rows or imported evidence; compatibility readers remain in
+place until a separately approved cleanup after a green observation window.
+
 > **Why these matter:** `CAOS_DEMO_SEED=false` + `ENVIRONMENT=production`
 > (both fixed in the stack) mean the identity gate fails closed, no demo issuers
 > are seeded, and state lives in the Postgres + vault volumes — external to the
@@ -248,6 +274,12 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
    # (or restore the pre-deploy pg_dump if the migration was destructive)
    ```
    then check out the last-good commit and `up -d --build`.
+   **Evidence-preserving migration rule:** applicable-updates migrations are
+   additive and some downgrades intentionally refuse once evidence exists.
+   Never force that downgrade or delete domain rows to make an old image boot.
+   Disable the newest feature flag and keep the forward-compatible schema, or
+   restore the pre-deploy backup into a separate recovery environment and
+   rehearse the exact rollback there first.
 2. **Config-only faults** (wrong DB URL, missing secret, EDGAR 503, OAuth
    redirect mismatch): fix `.env` / the OAuth client and
    `docker compose up -d` again. No data migration needed — schema self-applies.

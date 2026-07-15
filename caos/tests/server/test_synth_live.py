@@ -11,6 +11,7 @@ and the budget guard that skips the repair when the per-run cap is spent.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,7 +22,9 @@ from engine.synth import (
     SynthesisError,
     _extract_payload,
     _payload_from_data,
+    _payload_tool,
 )
+from model_service import payload_from_cp1
 
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
@@ -88,7 +91,14 @@ def _good_payload():
     return {
         "module_name": "CP-1 Financials",
         "owned_object": "normalized_financials",
-        "runtime_output": {"revenue": 100},
+        "runtime_output": {
+            "currency": "GBP",
+            "reporting_unit": "millions",
+            "normalized_financials": {
+                "revenue": {"FY2024": 100},
+                "adj_ebitda": {"FY2024": 20},
+            },
+        },
         "confidence": "High",
         "limitation_flags": [],
         "downstream_consumers": ["CP-2"],
@@ -152,6 +162,47 @@ async def test_well_formed_tool_use_returns_validated_payload():
     call = synth._client.messages.calls[0]
     assert call["tool_choice"]["name"] == "emit_module_payload"
     assert call["tools"][0]["name"] == "emit_module_payload"
+
+
+@pytest.mark.asyncio
+async def test_synthesized_cp1_currency_and_scale_seed_model_v2_suggestion():
+    synth = _make_synth([_tool_use(_good_payload())])
+
+    payload = await _run(synth)
+
+    runtime_schema = _payload_tool("CP-1")["input_schema"]["properties"][
+        "runtime_output"
+    ]
+    assert {"currency", "reporting_unit", "normalized_financials"}.issubset(
+        runtime_schema["required"]
+    )
+    assert runtime_schema["properties"]["reporting_unit"]["enum"] == [
+        "units", "thousands", "millions", "billions", None,
+    ]
+    system = synth._client.messages.calls[0]["system"][-1]["text"]
+    assert "never assume USD or millions" in system
+
+    draft = payload_from_cp1(
+        SimpleNamespace(
+            id="run-synth-cp1",
+            status="complete",
+            as_of_date="2025-03-31",
+        ),
+        SimpleNamespace(
+            id="output-synth-cp1",
+            run_id="run-synth-cp1",
+            module_id="CP-1",
+            limitation_flags=[],
+            runtime_output=payload.runtime_output,
+        ),
+        reporting_profile=SimpleNamespace(
+            fiscal_year_end_month=12,
+            fiscal_year_end_day=31,
+        ),
+    )
+    assert draft.reporting_currency == "GBP"
+    assert draft.reporting_unit == "millions"
+    assert draft.periods[0].period_key == "FY2024"
 
 
 @pytest.mark.asyncio

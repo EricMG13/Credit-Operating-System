@@ -73,6 +73,39 @@ def test_ic_signals_bull_on_low_leverage_and_growth():
     assert "3.2x" in bull_text and "grew 11% YoY" in bull_text and "1.8 turns" in bull_text
 
 
+def test_optional_cp4d_and_cp2g_handoffs_have_bounded_deterministic_weights():
+    cp4d = ModulePayload(
+        "CP-4D", "RestrictedGroupGuaranteeMap", "structural_priority_map",
+        {"handoffs": {"cp_6a": {
+            "summary": "Open drop-down route can strand guarantor value.",
+            "leakage_severity": 4,
+            "priority_label": "Leakage-Exposed (drop-down capable)",
+        }}},
+    )
+    cp2g = ModulePayload(
+        "CP-2G", "ESGSustainabilityCreditRisk", "esg_credit_risk",
+        {"cp6a_handoff": {
+            "summary": "Quantified remediation capex pressures free cash flow.",
+            "materiality_class": "Material — Quantified",
+            "net_direction": "Negative",
+            "weight": 99,
+        }},
+    )
+    bull, bear = debate._ic_signals({"CP-4D": cp4d, "CP-2G": cp2g})
+    assert bull == []
+    assert [(point.source, point.weight) for point in bear] == [("CP-4D", 2), ("CP-2G", 3)]
+
+
+def test_absent_or_malformed_optional_handoff_preserves_legacy_signals():
+    baseline = debate._ic_signals({"CP-1": _cp1(5.0)})
+    malformed = debate._ic_signals({
+        "CP-1": _cp1(5.0),
+        "CP-4D": ModulePayload("CP-4D", "", "", {"handoffs": {"cp_6a": {"leakage_severity": float("nan")}}}),
+        "CP-2G": ModulePayload("CP-2G", "", "", {"cp6a_handoff": {"weight": 99}}),
+    })
+    assert malformed == baseline
+
+
 # ── deterministic chair ────────────────────────────────────────────────────────
 
 def test_ic_verdict_leans_track_net_score():

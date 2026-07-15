@@ -9,6 +9,7 @@
 
 import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
+import { useEffect, useState } from "react";
 import { useLatestRunStatus, type LatestRunStatus } from "@/lib/engine/useLatestRun";
 import { MODULES, type PlanStep, type SimOutcome } from "./data";
 import type { Sim, SimEvent } from "./sim-engine";
@@ -122,6 +123,76 @@ const buildPipeline = async (latest: { id: string }): Promise<LivePipeline> => {
 // can tell a genuine error / an in-flight run / no-coverage apart instead of
 // collapsing all three to the offline demo ("fail open"). `value` is the live
 // pipeline only on the `complete` phase, null otherwise.
-export function useLivePipelineStatus(issuerId: string): LatestRunStatus<LivePipeline | null> {
-  return useLatestRunStatus<LivePipeline | null>(issuerId, null, null, buildPipeline);
+function useExactPipelineStatus(runId: string | null): LatestRunStatus<LivePipeline | null> {
+  const [state, setState] = useState<LatestRunStatus<LivePipeline | null>>({
+    value: null,
+    phase: "loading",
+    latest: null,
+  });
+
+  useEffect(() => {
+    if (!runId) return;
+    let cancelled = false;
+    let loading = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    setState({ value: null, phase: "loading", latest: null });
+
+    const schedule = () => {
+      if (cancelled || timer || document.visibilityState !== "visible") return;
+      timer = setTimeout(() => {
+        timer = null;
+        void load();
+      }, 2_000);
+    };
+    const load = async () => {
+      if (cancelled || loading) return;
+      loading = true;
+      try {
+        const run = await getRun(runId);
+        const latest = {
+          id: run.id,
+          issuer_id: run.issuer_id,
+          status: run.status,
+          qa_status: run.qa_status,
+          committee_status: run.committee_status,
+          as_of_date: run.as_of_date,
+          created_at: null,
+        };
+        if (run.status !== "complete") {
+          if (!cancelled) setState({ value: null, phase: "in_flight", latest });
+          if (run.status === "queued" || run.status === "running") schedule();
+          return;
+        }
+        const value = await buildPipeline(latest);
+        if (!cancelled) setState({ value, phase: "complete", latest });
+      } catch {
+        if (!cancelled) setState({ value: null, phase: "error", latest: null });
+      } finally {
+        loading = false;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    void load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [runId]);
+
+  return state;
+}
+
+export function useLivePipelineStatus(issuerId: string, runId: string | null = null): LatestRunStatus<LivePipeline | null> {
+  const latest = useLatestRunStatus<LivePipeline | null>(issuerId, null, null, buildPipeline);
+  const exact = useExactPipelineStatus(runId);
+  return runId ? exact : latest;
 }

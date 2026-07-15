@@ -9,6 +9,7 @@ import { fmt } from "@/components/model/model-format";
 import { cellTextColor } from "@/components/model/cell-style";
 import type { ModelAnchor } from "@/lib/engine/modelAnchor";
 import type { G2Spec } from "@/components/charts/G2Chart";
+import type { VisualizationColumn, VisualizationKind } from "@/components/charts/SemanticVisualization";
 
 // Concept D state (severity / cell overrides) — when passed, deliverable
 // figures recompute on the edited model.
@@ -35,12 +36,19 @@ export interface TableRow {
   lbl0?: string;
 }
 
+export interface TableColumnGroup {
+  /** Zero-based index in `cols` where this stable model period group begins. */
+  start: number;
+  key: "Q" | "YTD" | "HIST" | "LTM" | "PF" | "BASE" | "DOWN";
+  label: string;
+}
+
 export type Section = (
-  | { t: "table"; title?: string; sub?: string; cols: string[]; align: number[]; rows: TableRow[]; note?: string }
+  | { t: "table"; title?: string; sub?: string; cols: string[]; align: number[]; rows: TableRow[]; note?: string; columnGroups?: TableColumnGroup[] }
   | { t: "profile"; title?: string; rows: [string, string][]; boldLast?: 1 }
   | { t: "text"; title?: string; subhead?: string; body: string; label?: string; labelBody?: string }
   | { t: "list"; title?: string; subhead?: string; items: string[] }
-  | { t: "chart"; title?: string; sub?: string; h?: number; note?: string; spec: G2Spec }
+  | { t: "chart"; title: string; sub?: string; h?: number; note?: string; kind: VisualizationKind; unit?: string; sourceIds: string[]; accessibleSummary: string; columns: VisualizationColumn[]; spec: G2Spec }
   | { t: "cols"; title?: string; w?: number[]; items: Section[][] }
 ) & { page?: string };
 
@@ -74,6 +82,25 @@ const fm = (v: number | null | undefined): string => {
 const fp = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : (v * 100).toFixed(1) + "%");
 const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
 const APPENDIX_PCT_BLUE = "#2f64b7";
+const MODEL_GROUP_LABELS: Record<TableColumnGroup["key"], string> = {
+  Q: "Quarterly",
+  YTD: "YTD",
+  HIST: "Historic",
+  LTM: "LTM",
+  PF: "Pro forma",
+  BASE: "Base",
+  DOWN: "Downside",
+};
+
+function modelTableGroups(columns: Model["columns"]): TableColumnGroup[] {
+  const groups: TableColumnGroup[] = [];
+  columns.forEach((column, index) => {
+    if (index === 0 || columns[index - 1].group !== column.group) {
+      groups.push({ start: index + 1, key: column.group, label: MODEL_GROUP_LABELS[column.group] });
+    }
+  });
+  return groups;
+}
 
 /* ---------- financials grid (FY22…LTM, template layout) ---------- */
 const FIN_KEYS = ["f22", "f23", "f24", "f25", "y0", "y1", "l1"] as const;
@@ -188,7 +215,7 @@ function modelAppendix(model: Model, currency = "USD"): Report {
     icon: "▦",
     srcs: [{ chip: "MODEL", ev: ["E-103"] }],
     sections: [
-      { t: "table", title: "FULL MODEL", sub: `${currency} in Mns except ratios`, cols, align: cols.map((_, i) => i === 0 ? 0 : 1), rows },
+      { t: "table", title: "FULL MODEL", sub: `${currency} in Mns except ratios`, cols, align: cols.map((_, i) => i === 0 ? 0 : 1), rows, columnGroups: modelTableGroups(model.columns) },
     ],
   };
 }
@@ -239,7 +266,7 @@ function creditSnapshot(model: Model): Report {
         { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
         { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
       ] },
-      { t: "chart", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY ($MN)", h: 52, spec: {
+      { t: "chart", kind: "stacked-bar", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY", unit: "$M", sourceIds: ["CP-3B:T3B.2", "E-63"], accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`, columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }], h: 52, spec: {
         type: "interval",
         data: [
           { slot: "stack", cls: "RCF (drawn)", v: rcf },
@@ -259,7 +286,7 @@ function creditSnapshot(model: Model): Report {
         } },
         labels: [{
           text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
-          position: "inside", fontSize: 8,
+          position: "inside", fontSize: 10, fontWeight: 600,
           // overlapHide drops labels that would collide (narrow tranches like RCF /
           // Sub) instead of letting them overlap — exact $ stay in the cap-structure
           // table above. overflowHide alone doesn't stop adjacent-segment collisions.
@@ -324,7 +351,7 @@ function earningsUpdate(): Report {
         { cells: ["Orders / book-to-bill", "1.02x", "1.04x", "0.98x", "1.06x"] },
         { cells: ["Aftermarket mix (rev)", "22.4%", "22.8%", "23.1%", "23.4%"] },
       ], note: "* Q4-25 derived period — management accounts missing (gap G-02)" },
-      { t: "chart", title: "REVENUE & ADJ. EBITDA — TRAILING QUARTERS ($M)", h: 168, spec: {
+      { t: "chart", kind: "bar", title: "REVENUE & ADJ. EBITDA — TRAILING QUARTERS", unit: "$M", sourceIds: ["CP-1B:T6", "E-58", "G-02"], accessibleSummary: "Revenue rises from $688M in Q2-25 to $715M in Q1-26; adjusted EBITDA rises from $103M to $108M. Q4-25 is a derived period.", columns: [{ key: "q", label: "Quarter" }, { key: "m", label: "Measure" }, { key: "v", label: "$M" }], h: 168, spec: {
         type: "interval",
         data: [
           { q: "Q2-25", m: "Revenue", v: 688 }, { q: "Q3-25", m: "Revenue", v: 701 }, { q: "Q4-25*", m: "Revenue", v: 697 }, { q: "Q1-26", m: "Revenue", v: 715 },
@@ -335,7 +362,7 @@ function earningsUpdate(): Report {
         scale: { color: { domain: ["Revenue", "Adj. EBITDA"], range: ["#16161e", "#b45309"] } },
         axis: { x: { title: false }, y: { title: false } },
         legend: { color: { position: "top" } },
-        labels: [{ text: "v", position: "top", fontSize: 8, transform: [{ type: "overlapHide" }] }],
+        labels: [{ text: "v", position: "top", fontSize: 10, fontWeight: 600, transform: [{ type: "overlapHide" }] }],
       } },
       { t: "table", title: "VARIANCE VS ANALYST MODEL", cols: ["Line", "Saved base", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
         { cells: ["Revenue", "722.0", "715.0", "−1.0%", "Fluid Systems volume"] },
@@ -481,7 +508,7 @@ function creditMemo(model: Model): Report {
         { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
         { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
       ] },
-      { page: "Page 3: Capital", t: "chart", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY ($MN)", h: 52, spec: {
+      { page: "Page 3: Capital", t: "chart", kind: "stacked-bar", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY", unit: "$M", sourceIds: ["CP-3B:T3B.2", "E-63"], accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`, columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }], h: 52, spec: {
         type: "interval",
         data: [
           { slot: "stack", cls: "RCF (drawn)", v: rcf },
@@ -501,7 +528,7 @@ function creditMemo(model: Model): Report {
         } },
         labels: [{
           text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
-          position: "inside", fontSize: 8,
+          position: "inside", fontSize: 10, fontWeight: 600,
           transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
         }],
       } },
@@ -511,7 +538,7 @@ function creditMemo(model: Model): Report {
           { cells: ["Base distress", "5.5x × $360M", "100%", "22%", "0%"] },
           { cells: ["Severe", "5.0x × $295M", "75%", "0%", "0%"] },
         ], note: "Market-implied 2L recovery at px 96.4 ≈ 38% under base-distress probability weights" }],
-        [{ t: "chart", title: "RECOVERY BY TRANCHE (% OF PAR)", h: 150, spec: {
+        [{ t: "chart", kind: "bar", title: "RECOVERY BY TRANCHE", unit: "% of par", sourceIds: ["CP-3B:T3B.2", "E-63"], accessibleSummary: "Going-concern recovery is 100% for all shown tranches; base-distress recovery is 100% for first lien, 22% for second lien, and 0% for subordinated debt; severe recovery is 75%, 0%, and 0% respectively.", columns: [{ key: "scen", label: "Scenario" }, { key: "tr", label: "Tranche" }, { key: "rec", label: "Recovery (% of par)" }], h: 150, spec: {
           type: "interval",
           data: [
             { scen: "Going concern", tr: "1L", rec: 100 }, { scen: "Going concern", tr: "2L TL", rec: 100 }, { scen: "Going concern", tr: "Sub", rec: 100 },
@@ -524,7 +551,7 @@ function creditMemo(model: Model): Report {
           scale: { y: { domain: [0, 100] }, color: { domain: ["1L", "2L TL", "Sub"], range: ["#0d9488", "#2563eb", "#7c3aed"] } },
           axis: { x: { title: false }, y: { title: false, labelFormatter: (d: number) => d + "%" } },
           legend: { color: { position: "top" } },
-          labels: [{ text: (d: { rec: number }) => d.rec + "%", position: "inside", fontSize: 8, transform: [{ type: "contrastReverse" }, { type: "overflowHide" }] }],
+          labels: [{ text: (d: { rec: number }) => d.rec + "%", position: "inside", fontSize: 10, fontWeight: 600, transform: [{ type: "contrastReverse" }, { type: "overflowHide" }] }],
         } }],
       ] },
       { page: "Page 3: Capital", t: "text", title: "INVESTMENT THESIS (CP-3)", body: "Carry plus deleveraging, not convergence: at +388bps the 2L TL pays +48–63bps over the fair band (+20–25bps ex-E-44) for risks that are monitorable rather than structural. Base case deleverages to ~4.9x by FY27 on realized add-backs alone (sponsor model demoted to upside). The bear case is real but priced." },
@@ -566,7 +593,7 @@ function creditMemo(model: Model): Report {
       { page: "Page 5: Committee", t: "text", title: "STANDING POSTURE (CP-MON)", body: "ADD-ON-WEAKNESS at 75bps with a standing limit order at +400bps. Path to 125bps max runs through trigger T-1 (Q3-26 certificate ≥ $30M realized add-backs) plus a same-day B3-bucket headroom re-test. Open QA item: E-44 re-anchor (QA-117) — committee pack held until remediation R-1 lands." },
 
       // Page 6: L5 Appendix
-      { page: "Page 6: Appendix", t: "table", title: "FULL MODEL", sub: `USD in Mns except ratios`, cols, align: cols.map((_, i) => i === 0 ? 0 : 1), rows: appendixRows },
+      { page: "Page 6: Appendix", t: "table", title: "FULL MODEL", sub: `USD in Mns except ratios`, cols, align: cols.map((_, i) => i === 0 ? 0 : 1), rows: appendixRows, columnGroups: modelTableGroups(nonQuarterColumns) },
     ],
   };
 }

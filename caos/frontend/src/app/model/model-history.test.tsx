@@ -22,6 +22,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: vi.fn().mockResolvedValue({ features: { model_engine_v2_enabled: false } }),
   getSavedModel: vi.fn().mockResolvedValue(null),
   saveModel: vi.fn(),
   getAnalystSettings: vi.fn(),
@@ -94,7 +95,8 @@ describe("Model Builder · checkpoints (G3)", () => {
     fireEvent.paste(grid, { clipboardData: { getData: () => "10" } });
     await waitFor(() => expect(screen.getByText("MANUAL OVERRIDE")).toBeTruthy());
 
-    fireEvent.click(screen.getByTitle("Save or restore a named snapshot of your overrides"));
+    fireEvent.click(screen.getByRole("button", { name: /Model tools/ }));
+    fireEvent.click(await screen.findByTitle("Save or restore a named snapshot of your overrides"));
     const nameInput = await screen.findByLabelText("Checkpoint name");
     fireEvent.change(nameInput, { target: { value: "First pass" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

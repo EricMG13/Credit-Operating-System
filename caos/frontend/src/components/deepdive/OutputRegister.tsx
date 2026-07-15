@@ -53,7 +53,10 @@ export function OutputRegister({
   return (
     <div className="rounded border border-caos-border bg-caos-bg">
       <button
+        type="button"
         onClick={toggleOpen}
+        aria-expanded={open}
+        aria-controls={`${id}-required-outputs`}
         className="w-full px-3 py-2 flex items-center gap-2.5 text-left hover:bg-caos-elevated/40 transition-caos"
       >
         <span className="tabular text-caos-xs uppercase tracking-wider text-caos-muted whitespace-nowrap">
@@ -67,7 +70,7 @@ export function OutputRegister({
         <span className="text-caos-muted text-caos-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open ? (
-        <div className="grid grid-cols-2 gap-x-5 px-3 py-1.5 border-t border-caos-border">
+        <div id={`${id}-required-outputs`} className="grid grid-cols-1 gap-x-5 px-3 py-1.5 border-t border-caos-border xl:grid-cols-2">
           {steps.map((s, i) => (
             <button
               key={i}
@@ -128,9 +131,9 @@ function reportCards(cards: StepCard[]): RenderCard[] {
 
 /* ---------- inline workflow-step outputs ----------
    Surfaces the per-step analytical output that the register otherwise gates
-   behind a modal. Summary/report cap at 4 columns and consolidate repeated
-   same-prefix/status cards; summary keeps only the narrative step summary.
-   Dense keeps every card unconsolidated. */
+   behind a modal. Summary preserves workflow order in one compact sequence;
+   report consolidates repeated same-prefix/status cards into a responsive
+   grid; dense keeps every card unconsolidated in an auto-fit grid. */
 export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: string; onOpenEvidence: (id: string) => void; mode?: "summary" | "report" | "dense" }) {
   const steps = MODULE_STEPS[id];
   if (!steps) return null;
@@ -139,21 +142,36 @@ export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: str
     .filter((c) => c.data || c.narr);
   if (!cards.length) return null;
   const isSummary = mode === "summary";
-  // column-width is a minimum; multicol stretches the columns to fill the pane.
-  // report also sets column-count to cap at 4 even on an ultrawide display.
-  const containerStyle: React.CSSProperties = mode !== "dense"
-    ? { columns: "280px 4", columnGap: 8 }
-    : { columns: "360px", columnGap: 8 };
-  const cardCls = "rounded border border-caos-border bg-caos-panel/40 p-2 flex flex-col gap-2 overflow-x-auto min-w-0 break-inside-avoid mb-2";
-  const visibleCards = mode !== "dense" ? reportCards(cards) : cards.map((card) => ({ kind: "single" as const, card }));
+  const cardCls = "deepdive-step-card rounded border border-caos-border bg-caos-panel/40 p-2 flex min-w-0 flex-col gap-2";
+  const visibleCards = mode === "report" ? reportCards(cards) : cards.map((card) => ({ kind: "single" as const, card }));
   return (
-    <div className="flex flex-col gap-2">
-      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-0.5">
+    <section className="deepdive-step-grid flex flex-col gap-2" data-mode={mode} aria-label={`${id} workflow steps`}>
+      <div className="tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-text px-0.5">
         {isSummary
           ? `${id} workflow step summary · ${cards.length} of ${steps.length} steps with notes`
           : `${id} workflow step outputs · detailed output for ${cards.length} of ${steps.length} steps`}
       </div>
-      <div style={containerStyle}>
+      {isSummary ? (
+        <ol className="deepdive-step-sequence" aria-label={`${id} sequential workflow summary`}>
+          {cards.map(({ s, narr }, i) => {
+            const sev = stepSev(s);
+            return (
+              <li key={`${s[0]}-${s[1]}`} className="deepdive-step-sequence__item">
+                <span className="deepdive-step-sequence__rail" aria-hidden="true"><Dot sev={sev} /></span>
+                <span className="tabular text-caos-xs font-semibold text-caos-text">{s[0] !== "—" ? s[0] : String(i + 1).padStart(2, "0")}</span>
+                <div className="min-w-0">
+                  <div className="text-caos-md font-semibold leading-snug text-caos-text">{s[1]}</div>
+                  <div className="mt-0.5 text-caos-md leading-relaxed text-caos-text/90">
+                    {narr ? narr.body : "No narrative summary is available for this step."}
+                    {narr?.ev && narr.ev.length ? <span className="ml-1.5 inline-flex gap-1 align-middle">{narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</span> : null}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+      <div className="deepdive-step-cards" data-mode={mode}>
         {visibleCards.map((item, i) => {
           if (item.kind === "group") {
             return (
@@ -190,12 +208,13 @@ export function StepOutputGrid({ id, onOpenEvidence, mode = "dense" }: { id: str
                   {narr.ev && narr.ev.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</span> : null}
                 </div>
               ) : null}
-              {data && !isSummary ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : null}
+              {data ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : null}
             </div>
           );
         })}
       </div>
-    </div>
+      )}
+    </section>
   );
 }
 

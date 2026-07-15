@@ -141,7 +141,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     await run.click();
 
     // Live badge renders (not the DEMO badge) — the demo:false provenance path.
-    await expect(page.getByText("● LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
+    // Status meaning is now conveyed by the explicit text label rather than a
+    // decorative bullet, preserving the same provenance assertion.
+    await expect(page.getByText("LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText("DEMO", { exact: true })).toHaveCount(0);
 
     // The report + its cited sources render, and the demo footer never shows —

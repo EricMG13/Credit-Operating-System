@@ -22,6 +22,7 @@ export function AuthorityBlock({
   unknownText,
   runId,
   qaNote,
+  approval,
 }: {
   prov: Provenance | null;
   /** Rendered verbatim when prov is null. Required in practice — every
@@ -29,6 +30,9 @@ export function AuthorityBlock({
   unknownText?: string;
   runId?: string | null;
   qaNote?: string | null;
+  /** Explicit conclusion authority. Defaults to the caller's QA note, then
+   * UNRATIFIED — origin/freshness never imply committee approval. */
+  approval?: string | null;
 }) {
   const unknown = !prov;
 
@@ -40,9 +44,9 @@ export function AuthorityBlock({
         // never a literal reported figure). Only fall back to the
         // origin-implied default when the caller didn't set one.
         `METHOD: ${prov.method ?? (prov.origin === "LIVE" ? "DERIVED" : "MODELLED")}`,
+        `APPROVAL: ${approval || qaNote || "UNRATIFIED"}`,
         prov.freshness ? `FRESHNESS: ${prov.freshness}` : null,
         runId ? `RUN: ${runId.slice(0, 8)}` : null,
-        qaNote,
       ]
         .filter(Boolean)
         .join(" · ")

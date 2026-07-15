@@ -20,6 +20,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: vi.fn().mockResolvedValue({ features: { model_engine_v2_enabled: false } }),
   getSavedModel: vi.fn().mockResolvedValue(null),
   saveModel: vi.fn().mockRejectedValue({
     isAxiosError: true,
@@ -36,6 +37,7 @@ describe("Model Builder · save conflict (409)", () => {
   it("shows a role=alert SAVED ELSEWHERE state, not the generic SAVE FAILED", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
     fireEvent.click(save);
     await waitFor(() => {
       const alert = screen.getByRole("alert");
@@ -47,6 +49,7 @@ describe("Model Builder · save conflict (409)", () => {
   it("clicking the conflict badge clears it (reload affordance)", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
     fireEvent.click(save);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("SAVED ELSEWHERE");

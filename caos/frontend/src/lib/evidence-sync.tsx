@@ -10,7 +10,7 @@
 // The default context is inert (no-op setter), so EvChip works unchanged on
 // pages that don't mount the provider — the sync only activates under it.
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 interface EvidenceSync {
   /** The focused evidence id (E-xx), or null. */
@@ -24,8 +24,9 @@ export function useEvidenceSync() {
   return useContext(Ctx);
 }
 
-export function EvidenceSyncProvider({ children }: { children: ReactNode }) {
-  const [active, setActive] = useState<string | null>(null);
+export function EvidenceSyncProvider({ children, initialActive = null }: { children: ReactNode; initialActive?: string | null }) {
+  const [active, setActive] = useState<string | null>(initialActive);
+  useEffect(() => setActive(initialActive), [initialActive]);
   const value = useMemo(() => ({ active, setActive }), [active]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

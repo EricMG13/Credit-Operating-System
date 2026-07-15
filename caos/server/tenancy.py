@@ -27,7 +27,7 @@ from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
-from database import Issuer, Run
+from database import Issuer, Portfolio, Run
 from identity import CallerIdentity
 
 
@@ -60,6 +60,44 @@ def scope_issuers(stmt, caller: CallerIdentity):
     if not tenancy_enabled():
         return stmt
     return stmt.where(or_(Issuer.team_id.is_(None), Issuer.team_id == caller.team_id))
+
+
+def portfolio_visible(
+    caller_or_team: CallerIdentity | str | None, portfolio: Optional[Portfolio]
+) -> bool:
+    """Exact-team portfolio visibility; tenancy-off remains the shared desk."""
+    if portfolio is None:
+        return False
+    if not tenancy_enabled():
+        return True
+    team_id = (
+        caller_or_team.team_id
+        if isinstance(caller_or_team, CallerIdentity)
+        else caller_or_team
+    )
+    return portfolio.team_id == team_id
+
+
+def require_portfolio_access(
+    caller_or_team: CallerIdentity | str | None, portfolio: Optional[Portfolio]
+) -> Portfolio:
+    """Return an accessible portfolio or a non-enumerable 404."""
+    if not portfolio_visible(caller_or_team, portfolio):
+        raise HTTPException(404, "Portfolio not found")
+    return portfolio
+
+
+def scope_portfolios(stmt, caller: CallerIdentity):
+    """Scope a Portfolio SELECT to the caller's exact team when enabled."""
+    if not tenancy_enabled():
+        return stmt
+    if caller.team_id is None:
+        return stmt.where(Portfolio.team_id.is_(None))
+    return stmt.where(Portfolio.team_id == caller.team_id)
+
+
+def new_portfolio_team(caller: CallerIdentity) -> Optional[str]:
+    return caller.team_id if tenancy_enabled() else None
 
 
 async def require_run_access(caller: CallerIdentity, run: Optional[Run], db: AsyncSession) -> Run:

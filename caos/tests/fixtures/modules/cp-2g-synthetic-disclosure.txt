@@ -1,0 +1,6 @@
+SYNTHETIC TEST DOCUMENT — NOT PRODUCTION EVIDENCE
+Issuer: Fixture Energy Ltd
+As of: 2025-12-31
+Self-reported Scope 1 emissions: 100 tCO2e.
+Scope 2 methodology and assurance status: not provided.
+Sustainability-linked margin ratchet: 5 bps; governing instrument not attached.

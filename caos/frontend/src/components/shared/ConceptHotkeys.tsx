@@ -1,12 +1,13 @@
 "use client";
 
-// Global shortcuts: hold ALT and press ←/→ to cycle concepts; S focuses issuer
-// search; K opens Ask; C broadcasts collapse/open panes. Mounted once in the root
+// Global shortcuts: hold ALT and press ←/→ to cycle concepts; S opens the unified
+// command palette; K opens Ask; C broadcasts collapse/open panes. Mounted once in the root
 // layout. Inactive while typing in inputs/textareas/contenteditables.
 
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CONCEPT_CYCLE } from "@/lib/nav";
+import { useNavigationAttempt } from "./NavigationGuardProvider";
 
 // Alt+←/→ stops come from the shared nav registry — cycle order is the visual
 // nav order by construction (this file used to keep its own diverging list).
@@ -25,6 +26,7 @@ function isEditable(el: EventTarget | null): boolean {
 
 export function ConceptHotkeys() {
   const router = useRouter();
+  const attemptNavigation = useNavigationAttempt();
   const pathname = usePathname();
   const pathRef = useRef(pathname);
   pathRef.current = pathname;
@@ -36,7 +38,7 @@ export function ConceptHotkeys() {
 
       if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
         e.preventDefault();
-        if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:issuer-search-focus"));
+        if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:command-palette-open"));
         if (e.key.toLowerCase() === "k") {
           if (pathRef.current?.startsWith("/query")) {
             window.dispatchEvent(new Event("caos:query-focus"));
@@ -64,13 +66,13 @@ export function ConceptHotkeys() {
             ? 0
             : CONCEPTS.length - 1
           : (cur + dir + CONCEPTS.length) % CONCEPTS.length;
-      router.push(CONCEPTS[next]);
+      attemptNavigation(() => router.push(CONCEPTS[next]));
     };
     window.addEventListener("keydown", down);
     return () => {
       window.removeEventListener("keydown", down);
     };
-  }, [router]);
+  }, [attemptNavigation, router]);
 
   return null;
 }

@@ -6,7 +6,8 @@
 import { Suspense } from "react";
 import { UploadWizard } from "@/components/upload/UploadWizard";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 
 // The MNPI handling notice must survive every breakpoint — it is a policy
@@ -29,7 +30,7 @@ function MnpiChip() {
 export default function UploadPage() {
   return (
     <RequireAuth>
-      <ResponsiveShell
+      <EnterprisePage kind="wizard"
         identity={
           <ShellIdentity tag="CP-0 · L0" title="Document Intake — Pipeline L0 source readiness">
             <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate hidden 2xl:inline">
@@ -37,16 +38,19 @@ export default function UploadPage() {
             </span>
           </ShellIdentity>
         }
+        primaryAction={<a href="#intake-workspace" className="caos-primary-action focus-ring no-underline">Ingest</a>}
         contextualControls={<MnpiChip />}
         narrowContract={{ essentialControls: <MnpiChip /> }}
       >
         {/* wizard — the <main> landmark lives in the root layout */}
-        <div className="flex-1 min-h-0 overflow-auto p-2">
+        <div id="intake-workspace" className="caos-persona-route upload-workbench flex-1 min-h-0 overflow-auto p-2" tabIndex={-1}>
+          <PersonaWorkbench surface="upload" primary={
           <Suspense fallback={null}>
             <UploadWizard />
           </Suspense>
+          } />
         </div>
-      </ResponsiveShell>
+      </EnterprisePage>
     </RequireAuth>
   );
 }

@@ -32,7 +32,7 @@ export default function GlobalError({
             maxWidth: "28rem",
             padding: "1.75rem",
             border: "1px solid #34384a",
-            borderRadius: "0.5rem",
+            borderRadius: "6px",
             background: "#11131d",
           }}
         >
@@ -68,7 +68,7 @@ export default function GlobalError({
               color: "#0a0a0f",
               background: "#63a1ff",
               border: "1px solid #63a1ff",
-              borderRadius: "0.25rem",
+              borderRadius: "6px",
               cursor: "pointer",
             }}
           >

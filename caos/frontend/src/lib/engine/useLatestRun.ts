@@ -5,7 +5,7 @@
 // creates a run) and cancel-safe (a stale issuerId can't clobber a newer load).
 
 import { useEffect, useState } from "react";
-import { listRuns } from "@/lib/api";
+import { getRun, listRuns } from "@/lib/api";
 import type { RunListItemDTO } from "@/lib/engine/types";
 
 // Load phase, so a caller (e.g. the Pipeline page) can tell a genuine *error*
@@ -26,13 +26,13 @@ export interface LatestRunStatus<T> {
   latest: RunListItemDTO | null;
 }
 
-// Status-aware loader: same load as useLatestRun, but also reports the phase and
-// the latest run record. useLatestRun is a thin value-only wrapper over this.
+// Shared status-aware loader that also reports the phase and latest run record.
 export function useLatestRunStatus<T>(
   issuerId: string,
   initial: T,
   empty: T,
   build: (latest: RunListItemDTO) => Promise<T>,
+  exactRunId?: string | null,
 ): LatestRunStatus<T> {
   const [state, setState] = useState<LatestRunStatus<T>>({
     value: initial, phase: "loading", latest: null,
@@ -46,7 +46,12 @@ export function useLatestRunStatus<T>(
     setState({ value: initial, phase: "loading", latest: null });
     (async () => {
       try {
-        const runs = await listRuns(issuerId);
+        const runs: RunListItemDTO[] = exactRunId
+          ? [await getRun(exactRunId).then((run) => {
+              if (run.issuer_id !== issuerId) throw new Error("Run issuer mismatch");
+              return { ...run, created_at: null };
+            })]
+          : await listRuns(issuerId);
         const complete = runs.find((r) => r.status === "complete");
         if (!complete) {
           // Latest run record by created_at, regardless of status, so the caller
@@ -68,21 +73,10 @@ export function useLatestRunStatus<T>(
     return () => {
       cancelled = true;
     };
-    // build/empty are recreated each render by callers; issuerId is the only real input.
+    // build/empty are recreated each render by callers; issuer/run identity are
+    // the only real inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issuerId]);
+  }, [exactRunId, issuerId]);
 
   return state;
-}
-
-// Value-only loader (unchanged contract): the three live hooks that only need
-// the adapted value keep using this. Returns `initial` while loading and `empty`
-// on no-run / in-flight / error, exactly as before.
-export function useLatestRun<T>(
-  issuerId: string,
-  initial: T,
-  empty: T,
-  build: (latest: RunListItemDTO) => Promise<T>,
-): T {
-  return useLatestRunStatus(issuerId, initial, empty, build).value;
 }

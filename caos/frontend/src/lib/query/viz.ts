@@ -58,7 +58,7 @@ export function barSpecFor(res: NlQueryResult): G2Spec | null {
     },
     axis: { x: { title: false }, y: { title: false } },
     legend: { color: { position: "top" } },
-    labels: [{ text: (d: { value: number }) => fmtMetric(d.value, col.unit), position: "right", fontSize: 9, dx: 2 }],
+    labels: [{ text: (d: { value: number }) => fmtMetric(d.value, col.unit), position: "right", fontSize: 10.5, fontWeight: 600, dx: 2 }],
     tooltip: { items: [{ channel: "y", valueFormatter: (v: number) => fmtMetric(v, col.unit) }] },
   };
 }

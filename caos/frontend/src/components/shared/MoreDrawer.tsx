@@ -100,15 +100,16 @@ export function MoreDrawer({
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap"
+        aria-label={`Open ${triggerLabel}`}
+        className="caos-utility-trigger tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring whitespace-nowrap"
       >
-        ⋯ {triggerLabel}
+        <span aria-hidden="true">⋯</span> <span className="caos-utility-trigger-label">{triggerLabel}</span>
       </button>
       {open && (
         <div
           ref={panelRef}
           role="dialog"
-          aria-label="Contextual controls"
+          aria-label={triggerLabel}
           onKeyDown={onKeyDown}
           className="absolute right-0 top-[calc(100%+4px)] z-overlay w-64 rounded-md border border-caos-border bg-caos-panel p-2 flex flex-col gap-1"
           style={{ boxShadow: "var(--shadow-pop)" }}

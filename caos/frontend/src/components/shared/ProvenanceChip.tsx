@@ -43,11 +43,11 @@ export function ProvenanceChip({ prov, className = "" }: { prov: Provenance; cla
         <span
           className={CHIP}
           style={
-            prov.freshness === "STALE"
+            prov.freshness === "STALE" || prov.freshness === "DUE"
               ? {
-                  color: "var(--caos-warning)",
-                  borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)",
-                  background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)",
+                  color: prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)",
+                  borderColor: `color-mix(in srgb, ${prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)"} 40%, transparent)`,
+                  background: `color-mix(in srgb, ${prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)"} 8%, transparent)`,
                 }
               : { color: "var(--caos-muted)", borderColor: "var(--caos-border)" }
           }

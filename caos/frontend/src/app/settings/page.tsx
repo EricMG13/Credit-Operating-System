@@ -11,7 +11,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
@@ -19,12 +19,15 @@ import { ScopeLabel } from "@/components/shared/ScopeLabel";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
-import { getAnalystSettings, getSettings, saveAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
+import { getAnalystSettings, getSettings, patchAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
 import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
 import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
 import { PortfoliosPanel } from "@/components/settings/PortfoliosPanel";
+import { SurfaceState } from "@/components/shared/SurfaceState";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { readWarnOnUnsavedLeave, writeWarnOnUnsavedLeave } from "@/lib/model-builder-preferences";
 
 export default function SettingsPage() {
   return (
@@ -189,6 +192,15 @@ function Settings() {
       .then((s) => {
         setAnalystSettings(s);
         setSendersRaw((s.email_intelligence?.approved_senders || []).join("\n"));
+        const workspace = s.workspace || {};
+        const serverPrefs = workspace.research_prefs;
+        if (serverPrefs && typeof serverPrefs === "object") {
+          setPrefs({ ...DEFAULT_PREFS, ...(serverPrefs as Partial<ResearchPrefs>) });
+        }
+        if (typeof workspace.model_mode === "string" && ["test", "lite", "balanced", "max"].includes(workspace.model_mode)) {
+          setMode(workspace.model_mode as ModelMode);
+        }
+        if (typeof workspace.query_model === "string") setQueryModel(workspace.query_model);
         setAnalystLoaded(true);
       })
       .catch(() => setAnalystLoadErr(true));
@@ -228,7 +240,13 @@ function Settings() {
     setAnalystSettings(next);
     setAnalystErr(null);
     setAnalystRetry(null);
-    saveAnalystSettings(next).then(() => {
+    patchAnalystSettings(analystSettings.revision ?? 0, {
+      model_lanes: next.model_lanes,
+      email_intelligence: next.email_intelligence,
+      role_view: next.role_view,
+      workspace: next.workspace,
+    }).then((savedSettings) => {
+      setAnalystSettings(savedSettings);
       setAnalystSaved(true);
       window.setTimeout(() => setAnalystSaved(false), 2000);
     }).catch((e) => {
@@ -267,6 +285,13 @@ function Settings() {
   ) : analystSaved ? (
     <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span>
   ) : null;
+  const warnOnUnsavedLeave = readWarnOnUnsavedLeave(analystSettings);
+  const changeWarnOnUnsavedLeave = (enabled: boolean) => {
+    saveAnalyst({
+      ...analystSettings,
+      workspace: writeWarnOnUnsavedLeave(analystSettings.workspace || {}, enabled),
+    });
+  };
 
   // ── Workspace config (server snapshot) ──
   const [cfg, setCfg] = useState<WorkspaceSettings | null>(null);
@@ -280,10 +305,31 @@ function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const saveAll = () => {
+    if (!analystLoaded) return;
+    savePrefs(prefs);
+    saveMode(mode);
+    localStorage.setItem("caos_query_model", queryModel);
+    saveAnalyst({
+      ...analystSettings,
+      workspace: {
+        ...(analystSettings.workspace || {}),
+        research_prefs: prefs,
+        model_mode: mode,
+        query_model: queryModel,
+      },
+    });
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2000);
+  };
+
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
+      primaryAction={<button type="button" onClick={saveAll} disabled={!analystLoaded} className="caos-primary-action focus-ring disabled:opacity-40">Save changes</button>}
+      utilityLabel="Settings utilities"
+      utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
       contextualControls={
         cfg ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
@@ -294,7 +340,8 @@ function Settings() {
       narrowContract={{ essentialControls: null }}
     >
       {/* body */}
-      <div className="flex-1 min-h-0 overflow-auto p-2">
+      <div className="caos-persona-route settings-workbench flex-1 min-h-0 overflow-auto p-2">
+      <PersonaWorkbench surface="settings" primary={<div>
         <div className="max-w-3xl mx-auto flex flex-col gap-2">
           <div
             role="tablist"
@@ -351,6 +398,36 @@ function Settings() {
                 pins the mode it ran at. Applies to this browser.
               </p>
               <ModelModeToggle value={mode} onChange={changeMode} />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Model builder safeguards"
+            right={
+              <span className="flex items-center gap-2">
+                <ScopeLabel scope="profile" />
+                {analystStatusTag}
+              </span>
+            }
+          >
+            <div className="p-3">
+              <label className="flex items-start justify-between gap-4 rounded border border-caos-border bg-caos-bg/50 p-3">
+                <span className="min-w-0">
+                  <span className="block tabular text-caos-md font-semibold text-caos-text">Warn before leaving unsaved model edits</span>
+                  <span className="mt-1 block text-caos-xs leading-relaxed text-caos-muted">
+                    Guards internal navigation and browser exit while Model Engine v2 edits are pending locally. Leaving never autosaves.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Warn before leaving unsaved model edits"
+                  checked={warnOnUnsavedLeave}
+                  disabled={!analystLoaded}
+                  onChange={(event) => changeWarnOnUnsavedLeave(event.target.checked)}
+                  className="mt-1 h-4 w-4 shrink-0 focus-ring disabled:opacity-40"
+                />
+              </label>
             </div>
           </Panel>
 
@@ -575,20 +652,14 @@ function Settings() {
           >
             <div className="p-3">
               {cfgErr ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3">
-                  <span className="flex items-center gap-2 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>
-                    ✗ Couldn’t load workspace configuration.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadCfg}
-                    className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
-                  >
-                    Retry
-                  </button>
-                </div>
+                <SurfaceState
+                  kind="offline"
+                  title="Workspace configuration unavailable"
+                  detail="The deployment configuration could not be read. No local preference or server setting was changed."
+                  primaryAction={<button type="button" onClick={loadCfg} className="caos-action-primary focus-ring">Retry</button>}
+                />
               ) : !cfg ? (
-                <p className="tabular text-caos-md text-caos-muted">Loading…</p>
+                <SurfaceState kind="loading" title="Loading workspace configuration" compact />
               ) : (
                 <div className="flex flex-col gap-4">
                   {configGroups(cfg).map((g) => (
@@ -619,8 +690,9 @@ function Settings() {
           ) : null}
           {tab === "portfolios" ? <PortfoliosPanel /> : null}
         </div>
+      </div>} />
       </div>
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 

@@ -1,5 +1,5 @@
-<!-- CP-COMMON PREAMBLE v3.3 | 2026-06-08 | Audit F-2: module_manifest re-synced to v2 Canonical taxonomy; L7 + infra added; Feeds:TBD resolved -->
-<cp_common_preamble version="v3.3">
+<!-- CP-COMMON PREAMBLE v3.4 | 2026-07-15 | CP-2G and CP-4D route metadata added; CAOS runtime overlay remains authoritative for export -->
+<cp_common_preamble version="v3.4">
 <priority_legend>
 | Priority | Meaning | On Violation |
 |----------|---------|--------------|
@@ -23,11 +23,13 @@
 | CP-2D | L2 | GovernanceSponsorScore | CP-6A |
 | CP-2E | L2 | LiquidityCashFlowBridge | CP-3, CP-3D, CP-6A |
 | CP-2F | L2 | MacroFXHedgingSensitivity | CP-6A |
+| CP-2G | L2 | ESGSustainabilityCreditRisk | CP-6A |
 | CP-3 | L3 | RelativeValueSecuritySelection | CP-3B, CP-3C, CP-6A, CP-6E |
 | CP-3B | L3 | RecoveryInstrumentPreference | CP-6A |
 | CP-3C | L3 | PortfolioFitPositionSizing | CP-6E |
 | CP-3D | L3 | RefinancingLMERisk | CP-4, CP-6A |
 | CP-4 | L4 | LegalCovenantInterpreter | CP-4C, CP-6A |
+| CP-4D | L4 | RestrictedGroupGuaranteeMap | CP-4C, CP-6A, CP-3B (next run) |
 | CP-4C | L4 | CovenantCapacityCalculator | CP-6A, CP-6E |
 | CP-5B | L5 | EvidenceTraceValidator | CP-5 |
 | CP-5 | L5 | ResearchIntegrityQA | Gates upstream outputs |

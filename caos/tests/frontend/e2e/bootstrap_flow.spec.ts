@@ -158,11 +158,9 @@ test.describe("Bootstrap journey — create → run → output", () => {
       timeout: 15000,
     });
 
-    // The CP-X clearance headline reflects THIS run's committee verdict (a real
-    // Tag derived from committee_status), proving the DAG is showing live run
-    // state, not the fabricated green-PASS demo. Match the stable "CLEARANCE:"
-    // prefix rather than the specific verdict word.
-    await expect(page.getByText(/CLEARANCE:/i)).toBeVisible({ timeout: 15000 });
+    // The workbench now reports deterministic module completion in its decision
+    // header instead of duplicating the committee verdict as a clearance tag.
+    await expect(page.getByText(/23\/23 modules/i)).toBeVisible({ timeout: 15000 });
 
     // The execution graph renders the pipeline module nodes (e.g. the CP-5 QA
     // clearance node) — the route graph is populated for this run.
@@ -175,7 +173,7 @@ test.describe("Bootstrap journey — create → run → output", () => {
 
     // The chrome is labelled with the issuer we created (not the ATLF reference
     // deal) — the deep-dive is scoped to this bootstrap issuer.
-    await expect(page.getByText(ISSUER_NAME, { exact: false })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(ISSUER_NAME, { exact: false }).first()).toBeVisible({ timeout: 15000 });
 
     // The live-run honesty caveat only renders when a completed run exists for
     // the issuer (deepDiveCaveatKind === "live") — a direct signal that the run
@@ -197,8 +195,8 @@ test.describe("Bootstrap journey — create → run → output", () => {
       timeout: 15000,
     });
 
-    // The Export-to-Vault action only mounts when a live run id is resolved for
-    // the issuer — corroborates the run is wired into the deep-dive.
+    // The live export remains one interaction away in the shell utility drawer.
+    await page.getByRole("button", { name: /Open Layout and simulation/i }).click();
     await expect(page.getByText("EXPORT TO VAULT", { exact: false })).toBeVisible({
       timeout: 15000,
     });

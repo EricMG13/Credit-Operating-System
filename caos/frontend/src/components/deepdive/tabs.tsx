@@ -17,7 +17,8 @@ import { Dot, Tag } from "@/components/pipeline/atoms";
 import { StatCard } from "@/components/shared/StatCard";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 import { fmtNum, fmtPct } from "@/lib/format";
-import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
+import { type G2Spec } from "@/components/charts/G2Chart";
+import { SemanticVisualization } from "@/components/charts/SemanticVisualization";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
 import { OutputRegister, StepOutputGrid } from "./OutputRegister";
@@ -90,7 +91,7 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
         <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
         {d.rounds.map((r, i) => {
           const p = PERSONA[r.who];
           return (
@@ -122,33 +123,37 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
 
       <div className="rounded border border-caos-border bg-caos-bg">
         <SectionHeader title={<><span className="text-caos-accent">⚖</span> {cfg.matrixTitle}</>} right={cfg.matrixCode} />
-        <div className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
-          {["Contested claim", cfg.weightHeader, cfg.verdictHeader, "Evidence"].map((h) => (
-            <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
-          ))}
-        </div>
-        {d.weighting.map((w, i) => (
-          <div key={i} className="grid grid-cols-[220px_220px_1fr_130px] gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
-            <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
-            <span className="flex items-center gap-1.5" aria-label={`${cfg.proLabel} ${(w.bull * 100).toFixed(0)} versus ${cfg.conLabel} ${(w.bear * 100).toFixed(0)}`}>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
-              <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
-                <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
-                <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
-              </span>
-              <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
-            </span>
-            <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
-            <span className="flex flex-wrap gap-1">
-              {w.ev.split(" · ").map((tok) => {
-                const eid = tok.split(" ")[0];
-                return EVIDENCE[eid]
-                  ? <EvChip key={eid} id={eid} onOpen={onOpenEvidence} />
-                  : <span key={tok} className="tabular text-caos-xs text-caos-accent">{tok}</span>;
-              })}
-            </span>
+        <div className="overflow-x-auto" tabIndex={0} aria-label={`${cfg.matrixTitle} table`}>
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[minmax(180px,1.1fr)_minmax(190px,1fr)_minmax(220px,1.4fr)_120px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
+              {["Contested claim", cfg.weightHeader, cfg.verdictHeader, "Evidence"].map((h) => (
+                <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
+              ))}
+            </div>
+            {d.weighting.map((w, i) => (
+              <div key={i} className="grid grid-cols-[minmax(180px,1.1fr)_minmax(190px,1fr)_minmax(220px,1.4fr)_120px] gap-x-3 px-3 py-1.5 items-center border-b border-caos-border/50 hover:bg-caos-elevated/50 transition-caos">
+                <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
+                <span className="flex items-center gap-1.5" aria-label={`${cfg.proLabel} ${(w.bull * 100).toFixed(0)} versus ${cfg.conLabel} ${(w.bear * 100).toFixed(0)}`}>
+                  <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-success)" }}><span aria-hidden="true">▲</span>{(w.bull * 100).toFixed(0)}</span>
+                  <span className="flex-1 h-[5px] rounded-full overflow-hidden flex" style={{ background: "var(--caos-border)" }}>
+                    <span style={{ width: w.bull * 100 + "%", background: "var(--caos-success)" }}></span>
+                    <span style={{ width: w.bear * 100 + "%", background: "var(--caos-critical)" }}></span>
+                  </span>
+                  <span className="tabular text-caos-xs flex items-center gap-0.5" style={{ color: "var(--caos-critical-bright)" }}>{(w.bear * 100).toFixed(0)}<span aria-hidden="true">▼</span></span>
+                </span>
+                <span className="text-caos-md leading-snug" style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}>{w.verdict}</span>
+                <span className="flex flex-wrap gap-1">
+                  {w.ev.split(" · ").map((tok) => {
+                    const eid = tok.split(" ")[0];
+                    return EVIDENCE[eid]
+                      ? <EvChip key={eid} id={eid} onOpen={onOpenEvidence} />
+                      : <span key={tok} className="tabular text-caos-xs text-caos-accent">{tok}</span>;
+                  })}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
       <OutputRegister key={cfg.id + layout} id={cfg.id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />
     </div>
@@ -167,34 +172,35 @@ function recoveries(ev: number): Record<string, number> {
 
 /* G2 v5 specs (antv-g2-chart skill) — static data, module-level so refs stay stable */
 const TR_LABELS: Record<string, string> = { "1l": "1L (RCF+TLB)", "2l": "2L TL ◆", sub: "Sub Notes" };
+const RECOVERY_CHART_DATA = RECOVERY.flatMap((s) => {
+  const r = recoveries(s.ev);
+  return ["1l", "2l", "sub"].map((k) => ({ scenario: s.scen, tranche: TR_LABELS[k], rec: Math.round(r[k] * 100) }));
+});
 const RECOVERY_CHART_SPEC: G2Spec = {
   type: "interval",
-  data: RECOVERY.flatMap((s) => {
-    const r = recoveries(s.ev);
-    return ["1l", "2l", "sub"].map((k) => ({ scenario: s.scen, tranche: TR_LABELS[k], rec: r[k] }));
-  }),
   encode: { x: "scenario", y: "rec", color: "tranche" },
   transform: [{ type: "dodgeX" }],
   coordinate: { transform: [{ type: "transpose" }] },
   scale: {
-    y: { domain: [0, 1] },
+    y: { domain: [0, 100] },
     color: { domain: Object.values(TR_LABELS), range: [TRANCHE_HEX["1l"], TRANCHE_HEX["2l"], TRANCHE_HEX.sub] },
   },
   axis: {
     x: { title: false },
-    y: { title: false, labelFormatter: (d: number) => (d * 100).toFixed(0) + "%" },
+    y: { title: false, labelFormatter: (d: number) => d.toFixed(0) + "%" },
   },
   legend: { color: { position: "top" } },
   labels: [{
-    text: (d: { rec: number }) => (d.rec * 100).toFixed(0) + "%",
+    text: (d: { rec: number }) => d.rec.toFixed(0) + "%",
     position: "inside",
-    fontSize: 9,
+    fontSize: 10.5,
+    fontWeight: 600,
     transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
   }],
 };
+const CAPSTACK_CHART_DATA = CAPSTACK.map((c) => ({ slot: "stack", cls: c.cls, claim: c.claim }));
 const CAPSTACK_CHART_SPEC: G2Spec = {
   type: "interval",
-  data: CAPSTACK.map((c) => ({ slot: "stack", cls: c.cls, claim: c.claim })),
   encode: { x: "slot", y: "claim", color: "cls" },
   transform: [{ type: "stackY" }],
   coordinate: { transform: [{ type: "transpose" }] },
@@ -207,7 +213,8 @@ const CAPSTACK_CHART_SPEC: G2Spec = {
   labels: [{
     text: (d: { cls: string; claim: number }) => "$" + d.claim.toLocaleString(),
     position: "inside",
-    fontSize: 8.5,
+    fontSize: 10.5,
+    fontWeight: 600,
     transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
   }],
 };
@@ -253,9 +260,20 @@ export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvide
             <span className="tabular text-caos-lg text-right text-caos-text font-semibold">{fmtNum(total)}</span>
             <span className="tabular text-caos-sm text-right text-caos-muted">5.7x</span>
           </div>
-          <div className="px-2 pb-1 border-t border-caos-border/50">
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-1 pt-1.5">Seniority stack · claims incl. equity ($M)</div>
-            <G2Chart spec={CAPSTACK_CHART_SPEC} height={52} />
+          <div className="px-2 pb-2 pt-2 border-t border-caos-border/50">
+            <SemanticVisualization
+              height={72}
+              spec={{
+                kind: "stacked-bar",
+                title: "Seniority stack · claims including equity",
+                unit: "$M",
+                sourceIds: ["CP-3B:T3B.2", "E-63"],
+                accessibleSummary: "The stack shows $120M RCF, $1,850M first-lien term loan, $900M second-lien term loan, $400M subordinated notes, and implied equity above the debt claims.",
+                data: CAPSTACK_CHART_DATA,
+                tabularFallback: { label: "Seniority stack data", columns: [{ key: "cls", label: "Claim" }, { key: "claim", label: "$M" }], data: CAPSTACK_CHART_DATA },
+                chart: CAPSTACK_CHART_SPEC,
+              }}
+            />
           </div>
         </div>
 
@@ -268,8 +286,20 @@ export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvide
               <span className="text-caos-xs text-caos-muted ml-auto">{s.note}</span>
             </div>
           ))}
-          <div className="px-2 pt-1">
-            <G2Chart spec={RECOVERY_CHART_SPEC} height={192} />
+          <div className="px-2 pt-2">
+            <SemanticVisualization
+              height={192}
+              spec={{
+                kind: "bar",
+                title: "Recovery waterfall by tranche and scenario",
+                unit: "% of par",
+                sourceIds: ["CP-3B:T3B.2", "E-63"],
+                accessibleSummary: "Second-lien recovery is 100% in the upside case, 21% in base stress, and 0% in severe stress; first lien remains 100% in upside and base stress and falls to 75% in severe stress.",
+                data: RECOVERY_CHART_DATA,
+                tabularFallback: { label: "Recovery waterfall data", columns: [{ key: "scenario", label: "Scenario" }, { key: "tranche", label: "Tranche" }, { key: "rec", label: "Recovery (% of par)" }], data: RECOVERY_CHART_DATA },
+                chart: RECOVERY_CHART_SPEC,
+              }}
+            />
           </div>
           <div className="px-3 py-1.5 text-caos-sm text-caos-muted">
             Market-implied 2L recovery at px 96.4 ≈ <span className="tabular text-caos-text">38%</span> under base-distress probability weights — wide of model in severe only.
@@ -424,6 +454,8 @@ export function ModuleView({
   const isLive = !!liveOut;
   const st = sim.mods[id]?.state || "idle";
   if (!out || !meta) {
+    const missingAnalyticalReference = !!meta && allowSeededFallback && meta.layer !== "INFRA";
+    const openPipeline = !allowSeededFallback || missingAnalyticalReference;
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
         <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
@@ -433,7 +465,9 @@ export function ModuleView({
               ? meta.name + " has no issuer-specific output available. Run or re-run the issuer, then inspect CP-5 for any gate reason."
               : "This module id is not part of the CP-X route graph."
             : meta
-              ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
+              ? missingAnalyticalReference
+                ? meta.name + " has no synthetic reference finding. Run it for an issuer to produce a source-gated output."
+                : meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
               : "This module id is not part of the CP-X route graph."}
         </div>
         {meta ? (
@@ -441,10 +475,10 @@ export function ModuleView({
           // fixed by running the issuer (Pipeline), not by opening the
           // reference committee pack (Report Studio).
           <Link
-            href={!allowSeededFallback ? "/pipeline" : "/reports"}
+            href={openPipeline ? "/pipeline" : "/reports"}
             className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
           >
-            {!allowSeededFallback ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
+            {openPipeline ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
           </Link>
         ) : null}
       </div>

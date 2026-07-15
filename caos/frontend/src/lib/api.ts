@@ -128,6 +128,39 @@ export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
 
+// Routine background-work events are deliberately separate from Watchtower
+// alerts. The signed cursor is opaque to the browser and analyst-bound by the
+// server; the notification provider uses its first read only as a high-water
+// mark so historical completions never replay as fresh toasts.
+export interface NotificationEventDTO {
+  id: string;
+  kind: "run_complete" | "run_failed" | string;
+  subject_kind: string;
+  subject_id: string;
+  issuer_id: string | null;
+  title: string;
+  body: string | null;
+  href: string | null;
+  seen_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationFeedDTO {
+  items: NotificationEventDTO[];
+  next_cursor: string | null;
+}
+
+export const listNotifications = (cursor?: string | null): Promise<NotificationFeedDTO> =>
+  api.get("/api/notifications", {
+    params: cursor ? { cursor } : undefined,
+    timeout: 8000,
+  }).then((r) => r.data);
+
+export const markNotificationSeen = (notificationId: string): Promise<NotificationEventDTO> =>
+  api.patch(`/api/notifications/${encodeURIComponent(notificationId)}/seen`, undefined, {
+    timeout: 8000,
+  }).then((r) => r.data);
+
 // Clear all browser-local workspace state on logout. On a shared workstation the
 // next analyst must not inherit the prior one's chat transcripts (caos-chat-*),
 // Report Studio committee-deliverable edits (caos-e-*), model inputs (caos-d-*),
@@ -136,11 +169,41 @@ export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
 // analyst's work at the wrong tier). Every app key is "caos"-prefixed by convention.
 export const clearWorkspaceStorage = () => {
   if (typeof window === "undefined") return;
-  try {
-    for (const k of Object.keys(localStorage)) {
-      if (k.startsWith("caos")) localStorage.removeItem(k);
+  const clearCaosKeys = (storage: Storage) => {
+    const keys = new Set<string>();
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key) keys.add(key);
     }
+    for (const key of Object.keys(storage)) keys.add(key);
+    for (const key of keys) {
+      if (key.startsWith("caos")) storage.removeItem(key);
+    }
+  };
+  try {
+    clearCaosKeys(localStorage);
   } catch { /* private mode / quota — nothing to clear */ }
+  try {
+    clearCaosKeys(sessionStorage);
+  } catch { /* private mode / quota — nothing to clear */ }
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("context")) {
+      url.searchParams.delete("context");
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }
+  } catch { /* non-browser test harness */ }
+};
+
+const PRINCIPAL_STORAGE_KEY = "caos.principal.id";
+
+/** Re-key browser caches before a newly resolved principal is rendered. */
+export const bindWorkspacePrincipal = (principalId: string) => {
+  if (typeof window === "undefined") return;
+  let prior: string | null = null;
+  try { prior = localStorage.getItem(PRINCIPAL_STORAGE_KEY); } catch {}
+  if (prior && prior !== principalId) clearWorkspaceStorage();
+  try { localStorage.setItem(PRINCIPAL_STORAGE_KEY, principalId); } catch {}
 };
 
 // Email + password account lane (alongside edge SSO). register creates the account
@@ -301,9 +364,80 @@ export interface DailyDigest {
   ccc_watch: DigestWatchRow[];
   qa: Record<string, number>;
   activity_24h: Record<string, number>;
+  freshness?: DigestFreshnessSummary;
 }
 export const getDigest = (): Promise<DailyDigest> =>
   api.get("/api/digest/daily").then((r) => r.data);
+
+export type FreshnessState = "current" | "due" | "stale" | "unknown";
+export type FreshnessSourceKind = "reported_financials" | "price" | "rating" | "legal_document" | "run" | "derived_artifact";
+export interface FreshnessEvaluation {
+  state: FreshnessState;
+  source_kind: FreshnessSourceKind;
+  observed_at: string | null;
+  effective_period_end: string | null;
+  expected_next_at: string | null;
+  due_at: string | null;
+  age_days: number | null;
+  reason: string;
+  policy_version: string;
+}
+export interface DigestFreshnessSummary {
+  policy_version: string;
+  source_kind: "run";
+  counts: Record<FreshnessState, number>;
+  rows: Array<{ issuer_id: string; name: string; run_id: string | null; evaluation: FreshnessEvaluation }>;
+}
+export interface IssuerFreshnessResponse {
+  issuer_id: string;
+  evaluated_at: string;
+  evaluations: FreshnessEvaluation[];
+}
+export interface RunFreshnessResponse {
+  run_id: string;
+  evaluated_at: string;
+  evaluation: FreshnessEvaluation;
+}
+export interface ContextFreshnessResponse {
+  context_id: string;
+  evaluated_at: string;
+  artifacts: Array<{
+    artifact: { kind: string; id: string; version: string | null };
+    evaluation: FreshnessEvaluation;
+  }>;
+}
+export const getIssuerFreshness = (id: string, signal?: AbortSignal): Promise<IssuerFreshnessResponse> =>
+  api.get(`/api/issuers/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
+export const getRunFreshness = (id: string, signal?: AbortSignal): Promise<RunFreshnessResponse> =>
+  api.get(`/api/runs/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
+export const getContextFreshness = (id: string, signal?: AbortSignal): Promise<ContextFreshnessResponse> =>
+  api.get(`/api/analysis/contexts/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
+
+export interface IngestionGapRow {
+  document_id: string;
+  issuer_id: string;
+  issuer_name: string;
+  file_name: string;
+  doc_type: string;
+  uploaded_at: string;
+  detail: string;
+}
+export interface CoverageOriginRow {
+  issuer_id: string;
+  issuer_name: string;
+  analyst_owner: string | null;
+  origins: Array<"NATIVE" | "OCR" | "NO_TEXT">;
+  document_count: number;
+}
+export interface IngestionGapsResponse {
+  as_of: string;
+  truncated: boolean;
+  zero_chunk: IngestionGapRow[];
+  ocr_lane: IngestionGapRow[];
+  coverage: CoverageOriginRow[];
+}
+export const getIngestionGaps = (): Promise<IngestionGapsResponse> =>
+  api.get("/api/digest/ingestion-gaps").then((r) => r.data);
 
 // ─── Issuer Q&A chat ──────────────────────────────────────────────────────
 export interface ChatMessage {
@@ -412,17 +546,34 @@ export const askSectorTopic = (signal_id: string, question: string): Promise<Sec
 // The server parses, virus-scans, and chunks the file inside the request, so a
 // real filing can run well past the 20s default. Give ingestion a generous
 // 5-min ceiling (still bounded, so a truly hung API can't strand the wizard).
-export const uploadDocument = (formData: FormData) =>
+export interface IngestionResult {
+  document_id: string;
+  issuer_id: string;
+  minio_key: string;
+  run_mode: string;
+  chunks_created: number;
+  message: string;
+  warning?: string | null;
+  ratings_updated?: number | null;
+  source_manifest_id: string;
+}
+
+export const uploadDocument = (formData: FormData): Promise<IngestionResult> =>
   api.post("/api/ingestion/upload/document", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 300_000,
   }).then((r) => r.data);
 
-export const uploadPricingSheet = (formData: FormData) =>
+export const uploadPricingSheet = (formData: FormData): Promise<IngestionResult> =>
   api.post("/api/ingestion/upload/pricing-sheet", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 300_000,
   }).then((r) => r.data);
+
+export const appendIngestionContext = (formData: FormData, contextId?: string): FormData => {
+  if (contextId) formData.append("context_id", contextId);
+  return formData;
+};
 
 export interface VaultMemoResult {
   note: string;
@@ -448,8 +599,8 @@ export interface PortfolioSummary {
   kind: string;
   as_of_date?: string | null;
   n_positions: number;
-  total_nav: number;
-  total_par: number;
+  total_nav: number | null;
+  total_par: number | null;
   breaches: number;
   watches: number;
   created_at?: string | null;
@@ -504,12 +655,22 @@ import type {
 // fire several of these in a row (e.g. the Issuers directory BatchBar) pass one.
 export const createRun = (
   issuerId: string, asOfDate?: string, portfolioId?: string, idempotencyKey?: string,
+  contextId?: string,
 ): Promise<RunSummaryDTO> =>
   api.post(
     "/api/runs",
-    { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId },
+    buildRunCreatePayload(issuerId, asOfDate, portfolioId, contextId),
     idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : undefined,
   ).then((r) => r.data);
+
+export const buildRunCreatePayload = (
+  issuerId: string, asOfDate?: string, portfolioId?: string, contextId?: string,
+) => ({
+  issuer_id: issuerId,
+  as_of_date: asOfDate,
+  portfolio_id: portfolioId,
+  context_id: contextId,
+});
 
 export const listRuns = (issuerId?: string): Promise<RunListItemDTO[]> =>
   api.get("/api/runs", { params: issuerId ? { issuer_id: issuerId } : {} }).then((r) => r.data);
@@ -585,7 +746,7 @@ export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
   api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
-import type { AcceptedLink, AnswerResult, CapabilitiesResult, GraphResult, InsightBrief, OverlayEdge, OverlayResult, RouteResult } from "@/lib/query/graph";
+import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
 
 // The capability rail: which graph edges are runnable now (+ grey reasons).
 export const queryCapabilities = (): Promise<CapabilitiesResult> =>
@@ -602,53 +763,6 @@ export const queryGraph = (
     capability_id: capabilityId, issuer_id: issuerId, theme, issuer_id_b: issuerIdB,
   }).then((r) => r.data);
 
-// LLM-route free text → up to 3 registry candidates with reasons. Contract: any
-// failure returns { candidates: [], source: "keyword" } and the caller uses its
-// local keyword router — never worse than the deterministic path.
-export const queryRoute = (text: string): Promise<RouteResult> =>
-  api.post("/api/query/route", { text }).then((r) => r.data);
-
-// The model overlay for one deterministic graph — citation-gated proposed links
-// + labeled commentary. Persisted server-side; cached by graph hash. The heavy
-// lane runs 30–60s live (cache hits are instant), so this one call outlives the
-// 20s default timeout; the server's own lane cap is 120s.
-export const queryOverlay = (capabilityId: string, issuerId?: string): Promise<OverlayResult> =>
-  api.post(
-    "/api/query/overlay",
-    { capability_id: capabilityId, issuer_id: issuerId },
-    { timeout: 130_000 },
-  ).then((r) => r.data);
-
-// Phase 3 — analyst ratification. Accept is the analyst-initiated write that
-// turns a model proposal into stored, attributed graph data; retract undoes it.
-export const listQueryLinks = (): Promise<{ links: AcceptedLink[] }> =>
-  api.get("/api/query/links").then((r) => r.data);
-
-export const acceptQueryLink = (
-  edge: OverlayEdge,
-  capabilityId: string,
-  model: string | null,
-): Promise<AcceptedLink & { created: boolean }> =>
-  api.post("/api/query/links", {
-    source_issuer_id: edge.source,
-    target_issuer_id: edge.target,
-    capability_id: capabilityId,
-    rationale: edge.rationale,
-    chunk_ids: edge.chunk_ids,
-    confidence: edge.confidence,
-    model: model ?? "",
-  }).then((r) => r.data);
-
-export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =>
-  api.delete(`/api/query/links/${encodeURIComponent(linkId)}`).then((r) => r.data);
-
-// The proactive Desk Brief — cited, AI-written insight cards over what changed in
-// the book. Returns instantly (persisted brief or deterministic highlights);
-// `refreshing:true` means a background regeneration is in flight, so poll. `force`
-// requests a fresh build (rate-limited, LLM spend).
-export const queryInsights = (force = false): Promise<InsightBrief> =>
-  api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
-
 // The analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
 // Non-empty → a per-analyst brief (cache row keyed by analyst_id); empty → the
 // shared book-level brief. PUT replaces the full set idempotently.
@@ -656,16 +770,6 @@ export const getWatchlist = (): Promise<{ issuer_ids: string[] }> =>
   api.get("/api/query/watchlist").then((r) => r.data);
 export const saveWatchlist = (issuer_ids: string[]): Promise<{ issuer_ids: string[] }> =>
   api.put("/api/query/watchlist", { issuer_ids }).then((r) => r.data);
-
-// A grounded AI answer beside a walk — cited prose written from vault chunks (+
-// the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,
-// cache hits instant), so it outlives the 20s default timeout.
-export const queryAnswer = (question: string, capabilityId?: string, issuerId?: string): Promise<AnswerResult> =>
-  api.post(
-    "/api/query/answer",
-    { question, capability_id: capabilityId, issuer_id: issuerId },
-    { timeout: 130_000 },
-  ).then((r) => r.data);
 
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.
@@ -680,6 +784,67 @@ export interface ScenarioSpec {
 
 export const scenarioFromNL = (text: string): Promise<ScenarioSpec> =>
   api.post("/api/scenario/nl", { text }).then((r) => r.data);
+
+export type ScenarioNodeStatus = "computed" | "degraded" | "no-data";
+export interface ScenarioPropagationNode {
+  node: "stress" | "liquidity" | "covenant" | "recovery" | "rv" | "portfolio" | "recommendation" | "report";
+  status: ScenarioNodeStatus;
+  value: number | null;
+  label: string;
+  basis: string;
+}
+export interface ScenarioPropagationResult {
+  shock: { issuer_id: string; run_id: string; ebitda_pct: number; rate_bps: number };
+  nodes: ScenarioPropagationNode[];
+}
+export const propagateScenario = (body: {
+  issuer_id: string;
+  run_id: string;
+  ebitda_pct: number;
+  rate_bps: number;
+}): Promise<ScenarioPropagationResult> =>
+  api.post("/api/scenario/propagate", body).then((r) => r.data);
+
+export interface DecisionVote {
+  id: string; member: string; vote: "approve" | "dissent" | "abstain";
+  dissent_note: string | null; created_at: string;
+}
+export interface IcDecision {
+  id: string; issuer_id: string; run_id: string; report_id: string | null;
+  action: "approve" | "decline" | "revisit"; status: "active" | "reopened";
+  conditions: string[]; expiry: string | null; snapshot: Record<string, unknown>;
+  snapshot_sha256: string; created_by: string | null; reopened_at: string | null;
+  reopen_alert_key: string | null; created_at: string; votes: DecisionVote[];
+}
+export const getDecisions = (issuerId: string): Promise<IcDecision[]> =>
+  api.get("/api/decisions", { params: { issuer_id: issuerId } }).then((r) => r.data);
+export const createDecision = (body: {
+  issuer_id: string; run_id: string; report_id?: string | null;
+  action: "approve" | "decline" | "revisit"; conditions?: string[];
+  expiry?: string | null; snapshot?: Record<string, unknown>;
+}): Promise<IcDecision> => api.post("/api/decisions", body).then((r) => r.data);
+export const voteDecision = (id: string, vote: "approve" | "dissent" | "abstain", dissentNote?: string): Promise<IcDecision> =>
+  api.post(`/api/decisions/${id}/votes`, { vote, dissent_note: dissentNote }).then((r) => r.data);
+export const reopenDecision = (id: string, triggerAlertKey: string): Promise<IcDecision> =>
+  api.post(`/api/decisions/${id}/reopen`, { trigger_alert_key: triggerAlertKey }).then((r) => r.data);
+
+export interface ThesisPrediction {
+  id: string; metric: string; horizon: string; predicted: number; realized: number | null;
+}
+export interface ThesisVersion {
+  id: string; issuer_id: string; version: number; thesis_md: string;
+  trigger: "manual" | "decision" | "alert" | "model_override";
+  linked_decision_id: string | null; linked_alert_key: string | null;
+  created_by: string | null; created_at: string; predictions: ThesisPrediction[];
+}
+export const getThesisVersions = (issuerId: string): Promise<ThesisVersion[]> =>
+  api.get("/api/thesis", { params: { issuer_id: issuerId } }).then((r) => r.data);
+export const createThesisVersion = (body: {
+  issuer_id: string; thesis_md: string; trigger?: ThesisVersion["trigger"];
+  predictions?: Array<{ metric: string; horizon: string; predicted: number }>;
+}): Promise<ThesisVersion> => api.post("/api/thesis", body).then((r) => r.data);
+export const realizeThesisPrediction = (id: string, realized: number): Promise<ThesisPrediction> =>
+  api.patch(`/api/thesis/predictions/${id}`, { realized }).then((r) => r.data);
 
 // ─── SEC EDGAR retrieval lane (free, no key; gated on EDGAR_USER_AGENT) ───────
 // Endpoints 503 until EDGAR_USER_AGENT is configured server-side.
@@ -834,8 +999,11 @@ export const deepResearch = async (
   onProgress?: (p: ResearchProgress | null) => void,
   onJobId?: (id: string) => void, // fires the durable id so the page can persist it for reattach
   signal?: AbortSignal,
+  contextId?: string,
 ): Promise<ResearchResult> => {
-  const { id } = (await api.post("/api/research", brief)).data as { id: string };
+  const { id } = (await api.post("/api/research", brief, {
+    params: contextId ? { context_id: contextId } : undefined,
+  })).data as { id: string };
   onJobId?.(id); // persist before the (multi-minute) poll, so a reload can reattach
   return _pollResearch(id, onProgress, signal);
 };
@@ -895,6 +1063,15 @@ export interface WorkspaceSettings {
   deep_research: { effort: string; max_searches: number; max_tokens: number };
   retrieval: { edgar_enabled: boolean; markitdown_enabled: boolean };
   workspace: { environment: string; demo_seed: boolean; max_upload_mb: number; run_concurrency: number };
+  features: {
+    lineage_v2_enabled: boolean;
+    market_xlsx_v2_enabled: boolean;
+    /** Compatibility alias used by staged workspace-settings deployments. */
+    model_engine_v2?: boolean;
+    model_engine_v2_enabled: boolean;
+    cp_4d_enabled?: boolean;
+    cp_2g_enabled?: boolean;
+  };
 }
 export const getSettings = (): Promise<WorkspaceSettings> =>
   api.get("/api/settings").then((r) => r.data);
@@ -908,11 +1085,17 @@ export interface AnalystSettings {
   role_view?: RoleView;
   /** Deep-Dive pins/recents, standing-view affirmations — see updateAnalystWorkspace. */
   workspace?: Record<string, unknown>;
+  revision?: number;
 }
 export const getAnalystSettings = (): Promise<AnalystSettings> =>
   api.get("/api/settings/analyst").then((r) => r.data);
 export const saveAnalystSettings = (data: AnalystSettings): Promise<AnalystSettings> =>
   api.put("/api/settings/analyst", data).then((r) => r.data);
+export const patchAnalystSettings = (
+  expectedRevision: number,
+  patch: Partial<Omit<AnalystSettings, "revision">>,
+): Promise<AnalystSettings> =>
+  api.patch("/api/settings/analyst", { expected_revision: expectedRevision, ...patch }).then((r) => r.data);
 
 // ─── Analyst workspace (Deep-Dive pins/recents/affirmations) ──────────────
 // PUT /api/settings/analyst REPLACES the whole blob — every write here reads
@@ -922,8 +1105,7 @@ export const updateAnalystWorkspace = async (
   patch: (workspace: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<AnalystSettings> => {
   const current = await getAnalystSettings();
-  const next = { ...current, workspace: patch(current.workspace || {}) };
-  return saveAnalystSettings(next);
+  return patchAnalystSettings(current.revision ?? 0, { workspace: patch(current.workspace || {}) });
 };
 
 export interface SavedModelDTO {
@@ -946,6 +1128,253 @@ export const saveModel = (
   api
     .put(`/api/models/${issuerId}`, { payload, expected_updated_at: expectedUpdatedAt ?? undefined })
     .then((r) => r.data);
+
+export interface ModelCheckpointDTO {
+  id: string;
+  issuer_id: string;
+  context_id: string;
+  issuer_run_id: string | null;
+  parent_checkpoint_id: string | null;
+  label: string;
+  payload_hash: string;
+  payload: Record<string, unknown>;
+  authority: Record<string, unknown>;
+  created_at: string;
+}
+export const getModelCheckpoints = (issuerId: string): Promise<ModelCheckpointDTO[]> =>
+  api.get(`/api/models/${issuerId}/checkpoints`).then((r) => r.data);
+export const createModelCheckpoint = (issuerId: string, body: {
+  context_id: string;
+  label?: string;
+  issuer_run_id?: string;
+  parent_checkpoint_id?: string;
+  expected_updated_at?: string | null;
+}): Promise<ModelCheckpointDTO> =>
+  api.post(`/api/models/${issuerId}/checkpoints`, body).then((r) => r.data);
+export const restoreModelCheckpoint = (
+  checkpointId: string,
+  expectedUpdatedAt?: string | null,
+): Promise<SavedModelDTO> =>
+  api.post(`/api/models/checkpoints/${checkpointId}/restore`, {
+    expected_updated_at: expectedUpdatedAt ?? undefined,
+  }).then((r) => r.data);
+
+// ─── Canonical Model Engine v2 ───────────────────────────────────────────
+import type {
+  ModelV2CalculateRequest,
+  ModelV2Calculation,
+  ModelV2Checkpoint,
+  ModelV2CheckpointCreateRequest,
+  ModelV2CheckpointRestoreRequest,
+  ModelV2DraftRecord,
+  ModelV2OverrideEvent,
+  ModelV2OverrideBatchRequest,
+  ModelV2OverrideMutationRequest,
+  ModelV2OverrideReplayRequest,
+  ModelV2ReadResponse,
+  ModelV2SaveRequest,
+  ModelV2LegacyWorkbookMapping,
+  ModelV2WorkbookCommit,
+  ModelV2WorkbookExport,
+  ModelV2WorkbookPreview,
+} from "@/lib/engine/modelV2";
+
+const modelV2Path = (issuerId: string): string =>
+  `/api/models/v2/${encodeURIComponent(issuerId)}`;
+
+export const getModelV2 = (
+  issuerId: string,
+  exactRunId?: string,
+  signal?: AbortSignal,
+): Promise<ModelV2ReadResponse> =>
+  api.get<ModelV2ReadResponse>(modelV2Path(issuerId), {
+    params: exactRunId ? { run_id: exactRunId } : undefined,
+    signal,
+  }).then((r) => r.data);
+
+export const calculateModelV2 = (
+  issuerId: string,
+  body: ModelV2CalculateRequest,
+  signal?: AbortSignal,
+): Promise<ModelV2Calculation> =>
+  api.post<ModelV2Calculation>(`${modelV2Path(issuerId)}/calculate`, body, { signal }).then((r) => r.data);
+
+export const saveModelV2 = (
+  issuerId: string,
+  body: ModelV2SaveRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.put<ModelV2DraftRecord>(modelV2Path(issuerId), body).then((r) => r.data);
+
+export const getModelV2History = (
+  issuerId: string,
+  signal?: AbortSignal,
+): Promise<ModelV2OverrideEvent[]> =>
+  api.get<ModelV2OverrideEvent[]>(`${modelV2Path(issuerId)}/history`, { signal }).then((r) => r.data);
+
+export const mutateModelV2Override = (
+  issuerId: string,
+  body: ModelV2OverrideMutationRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(`${modelV2Path(issuerId)}/overrides`, body).then((r) => r.data);
+
+export const mutateModelV2OverridesBatch = (
+  issuerId: string,
+  body: ModelV2OverrideBatchRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(`${modelV2Path(issuerId)}/overrides/batch`, body).then((r) => r.data);
+
+export const replayModelV2Override = (
+  issuerId: string,
+  eventId: string,
+  body: ModelV2OverrideReplayRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(
+    `${modelV2Path(issuerId)}/history/${encodeURIComponent(eventId)}/replay`,
+    body,
+  ).then((r) => r.data);
+
+export const getModelV2Checkpoints = (
+  issuerId: string,
+  signal?: AbortSignal,
+): Promise<ModelV2Checkpoint[]> =>
+  api.get<ModelV2Checkpoint[]>(`${modelV2Path(issuerId)}/checkpoints`, { signal }).then((r) => r.data);
+
+export const createModelV2Checkpoint = (
+  issuerId: string,
+  body: ModelV2CheckpointCreateRequest,
+): Promise<ModelV2Checkpoint> =>
+  api.post<ModelV2Checkpoint>(`${modelV2Path(issuerId)}/checkpoints`, body).then((r) => r.data);
+
+export const restoreModelV2Checkpoint = (
+  issuerId: string,
+  checkpointId: string,
+  body: ModelV2CheckpointRestoreRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(
+    `${modelV2Path(issuerId)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+    body,
+  ).then((r) => r.data);
+
+export const exportModelV2Workbook = (
+  issuerId: string,
+): Promise<ModelV2WorkbookExport> =>
+  api.get<Blob>(`${modelV2Path(issuerId)}/workbook/export`, { responseType: "blob" }).then((response) => {
+    const disposition = String(response.headers["content-disposition"] ?? "");
+    const revisionHeader = response.headers["x-caos-model-revision"];
+    const parsedRevision = Number(revisionHeader);
+    return {
+      blob: response.data,
+      filename: disposition.match(/filename="([^"]+)"/)?.[1] ?? `caos-model-${issuerId}.xlsx`,
+      revision: Number.isInteger(parsedRevision) && parsedRevision >= 0 ? parsedRevision : null,
+    };
+  });
+
+export const previewModelV2Workbook = (body: {
+  issuerId: string;
+  file: File;
+  expectedRevision: number;
+  mapping?: ModelV2LegacyWorkbookMapping | null;
+}): Promise<ModelV2WorkbookPreview> => {
+  const form = new FormData();
+  form.append("file", body.file);
+  form.append("mapping", body.mapping ? JSON.stringify(body.mapping) : "");
+  form.append("expected_revision", String(body.expectedRevision));
+  return api.post<ModelV2WorkbookPreview>(
+    `${modelV2Path(body.issuerId)}/workbook/import/preview`,
+    form,
+  ).then((response) => response.data);
+};
+
+export const commitModelV2Workbook = (body: {
+  issuerId: string;
+  file: File;
+  preview: ModelV2WorkbookPreview;
+  mapping?: ModelV2LegacyWorkbookMapping | null;
+}): Promise<ModelV2WorkbookCommit> => {
+  const form = new FormData();
+  form.append("file", body.file);
+  form.append("mapping", body.mapping ? JSON.stringify(body.mapping) : "");
+  form.append("expected_revision", String(body.preview.expected_revision));
+  form.append("preview_sha256", body.preview.workbook_sha256);
+  form.append("preview_token", body.preview.preview_token ?? "");
+  return api.post<ModelV2WorkbookCommit>(
+    `${modelV2Path(body.issuerId)}/workbook/import/commit`,
+    form,
+  ).then((response) => response.data);
+};
+
+export interface ReportDraftDTO {
+  id: string;
+  context_id: string;
+  payload: Record<string, unknown>;
+  revision: number;
+  updated_at: string;
+}
+export interface ReportVersionDTO {
+  id: string;
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id: string | null;
+  status: string;
+  payload: Record<string, unknown>;
+  document_sha256: string;
+  authority: Record<string, unknown>;
+  created_at: string;
+}
+export interface ReportVersionPreviewDTO extends ReportVersionDTO {
+  status: "preview";
+  preview_sha256: string;
+}
+export const getReportDraft = (contextId: string): Promise<ReportDraftDTO | null> =>
+  api.get(`/api/reports/drafts/${contextId}`).then((r) => r.data);
+export const saveReportDraft = (
+  contextId: string,
+  payload: Record<string, unknown>,
+  expectedRevision?: number,
+): Promise<ReportDraftDTO> =>
+  api.put(`/api/reports/drafts/${contextId}`, {
+    payload,
+    expected_revision: expectedRevision,
+  }).then((r) => r.data);
+export const listReportVersions = (contextId: string): Promise<ReportVersionDTO[]> =>
+  api.get("/api/reports/versions", { params: { context_id: contextId } }).then((r) =>
+    (r.data as Array<Omit<ReportVersionDTO, "payload">>).map((version) => ({
+      ...version,
+      payload: {},
+    })),
+  );
+export const getReportVersion = (versionId: string): Promise<ReportVersionDTO> =>
+  api.get(`/api/reports/versions/${encodeURIComponent(versionId)}`).then((r) => r.data);
+export const previewReportVersion = (body: {
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id?: string;
+  payload: Record<string, unknown>;
+}): Promise<ReportVersionPreviewDTO> =>
+  api.post("/api/reports/versions/preview", body).then((r) => r.data);
+export const publishReportVersion = (body: {
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id?: string;
+  payload: Record<string, unknown>;
+  preview_sha256: string;
+}): Promise<ReportVersionDTO> =>
+  api.post("/api/reports/versions", body).then((r) => r.data);
+export const exportReportVersionBinary = (
+  versionId: string,
+  format: "pdf" | "xlsx",
+): Promise<{ blob: Blob; filename: string }> =>
+  api.post(`/api/reports/versions/${versionId}/export`, null, {
+    params: { format },
+    responseType: "blob",
+  }).then((response) => {
+    const disposition = String(response.headers["content-disposition"] ?? "");
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `caos-report-${versionId}.${format}`;
+    return { blob: response.data as Blob, filename };
+  });
 
 // ─── Autonomy draft (Watchtower — Sentinel→Anomaly→Analyst→Reporter DAG) ───
 export interface AutonomyClaim {
@@ -1020,3 +1449,37 @@ export const setAlertState = (
     .then((r) => r.data);
 export const getAlertStates = (alertKey?: string): Promise<AlertStateDTO[]> =>
   api.get("/api/alerts/state", { params: alertKey ? { alert_key: alertKey } : {} }).then((r) => r.data);
+
+export interface AlertEventDTO {
+  id: string;
+  alert_key: string;
+  issuer_id: string | null;
+  run_id: string | null;
+  kind: string;
+  title: string;
+  impact: string;
+  evidence: Record<string, unknown>;
+  authority: Record<string, unknown>;
+  state: "open" | "ack" | "resolved";
+  assignee: string | null;
+  note: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
+  api.post("/api/alerts/refresh").then((r) => r.data);
+export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
+  api.get("/api/alerts/events", { params: state ? { state } : {} }).then((r) => r.data);
+export const patchAlertEvent = (
+  id: string,
+  state: AlertEventDTO["state"],
+  opts?: { assignee?: string; note?: string; resolutionNote?: string },
+): Promise<AlertEventDTO> =>
+  api.patch(`/api/alerts/events/${id}`, {
+    state,
+    assignee: opts?.assignee,
+    note: opts?.note,
+    resolution_note: opts?.resolutionNote,
+  }).then((r) => r.data);

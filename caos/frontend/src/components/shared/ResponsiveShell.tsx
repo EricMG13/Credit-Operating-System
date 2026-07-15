@@ -21,16 +21,22 @@ import { useBreakpoint } from "@/lib/useBreakpoint";
  */
 export function ResponsiveShell({
   identity,
+  status,
   primaryAction,
   contextualControls,
+  utilityControls,
+  utilityLabel,
   narrowContract,
   children,
   className = "",
   heightClass = "h-screen",
 }: {
   identity: React.ReactNode;
+  status?: React.ReactNode;
   primaryAction?: React.ReactNode;
   contextualControls?: React.ReactNode;
+  utilityControls?: React.ReactNode;
+  utilityLabel?: string;
   narrowContract: NarrowContract;
   children: React.ReactNode;
   className?: string;
@@ -52,8 +58,11 @@ export function ResponsiveShell({
     <div className={`${heightClass} flex flex-col bg-caos-bg ${className}`}>
       <SubHeader
         identity={identity}
+        status={status}
         primaryAction={primaryAction}
         contextualControls={headerContextual}
+        utilityControls={utilityControls}
+        utilityLabel={utilityLabel}
         aria-label="Concept header"
       />
       {children}

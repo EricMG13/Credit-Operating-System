@@ -6,17 +6,23 @@
 // (GET /api/sponsors); live-only with an honest empty state — no seeded demo
 // fallback, since a fabricated sponsor history would be worse than none.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
   getSponsors, getSponsorTrackRecord,
   type SponsorIssuerRow, type SponsorSummary, type SponsorTrackRecord,
 } from "@/lib/api";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 
 export default function SponsorsPage() {
   return (
@@ -27,62 +33,135 @@ export default function SponsorsPage() {
 }
 
 function SponsorsView() {
-  // null = loading; [] = loaded-empty (or unreachable backend — same honest state).
+  const analysis = useAnalysisContext({ name: "Sponsor review" });
+  const { openProfile } = useIssuerProfileOverlay();
+  // null = loading; [] = loaded-empty. Transport failure is separate: an
+  // unreachable register must never read as "no sponsors".
   const [sponsors, setSponsors] = useState<SponsorSummary[] | null>(null);
+  const [sponsorsError, setSponsorsError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [record, setRecord] = useState<SponsorTrackRecord | null>(null);
   const [recordLoading, setRecordLoading] = useState(false);
+  const [recordError, setRecordError] = useState(false);
+  const [recordRetry, setRecordRetry] = useState(0);
 
-  useEffect(() => {
+  const loadSponsors = useCallback(() => {
     let stale = false;
+    setSponsors(null);
+    setSponsorsError(false);
     getSponsors()
       .then((rows) => {
         if (stale) return;
         setSponsors(rows);
-        setSelected(rows[0]?.sponsor ?? null);
+        const saved = analysis.context?.artifacts.sponsor_id
+          ?? analysis.context?.surface_state.sponsors?.active_id;
+        setSelected(saved && rows.some((row) => row.sponsor === saved) ? saved : rows[0]?.sponsor ?? null);
       })
-      .catch(() => { if (!stale) setSponsors([]); });
+      .catch(() => { if (!stale) { setSponsors([]); setSponsorsError(true); } });
     return () => { stale = true; };
-  }, []);
+  }, [
+    analysis.context?.artifacts.sponsor_id,
+    analysis.context?.surface_state.sponsors?.active_id,
+  ]);
+
+  useEffect(() => {
+    return loadSponsors();
+  }, [loadSponsors]);
 
   useEffect(() => {
     if (!selected) { setRecord(null); return; }
     let stale = false;
     setRecordLoading(true);
+    setRecordError(false);
     getSponsorTrackRecord(selected)
       .then((r) => { if (!stale) setRecord(r); })
-      .catch(() => { if (!stale) setRecord(null); })
+      .catch(() => { if (!stale) { setRecord(null); setRecordError(true); } })
       .finally(() => { if (!stale) setRecordLoading(false); });
     return () => { stale = true; };
-  }, [selected]);
+  }, [selected, recordRetry]);
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || !selected) return;
+    if (
+      context.artifacts.sponsor_id === selected
+      && context.surface_state.sponsors?.active_id === selected
+    ) return;
+    void analysis.patch({
+      artifacts: { ...context.artifacts, sponsor_id: selected },
+      surface_state: {
+        ...context.surface_state,
+        sponsors: { ...(context.surface_state.sponsors ?? {}), active_id: selected, view: "track-record" },
+      },
+    }).catch(() => {});
+  }, [analysis, selected]);
+
+  const openSponsorIssuer = (issuerId: string) => {
+    const context = analysis.context;
+    if (context) {
+      void analysis.patch({
+        issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
+        surface_state: {
+          ...context.surface_state,
+          sponsors: { ...(context.surface_state.sponsors ?? {}), selected_ids: [issuerId] },
+        },
+      }).catch(() => {});
+    }
+    openProfile(issuerId);
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <div className="h-10 shrink-0 border-b border-caos-border bg-caos-panel/60 flex items-center gap-3 px-4">
-        <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap no-underline">
-          ← Directory
-        </Link>
-        <div className="h-4 w-px bg-caos-border" />
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Sponsor Track Records</span>
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate">
-          {sponsors === null ? "loading…" : `${sponsors.length} sponsor${sponsors.length === 1 ? "" : "s"} · CP-2D governance roll-up`}
+    <EnterprisePage kind="worklist"
+      identity={<ShellIdentity tag="CP-2D" title="Sponsor Track Records" />}
+      primaryAction={
+        <button
+          type="button"
+          disabled={!selected}
+          onClick={() => document.getElementById("sponsor-record")?.focus()}
+          className="caos-primary-action focus-ring disabled:opacity-40"
+        >
+          Review selected sponsor
+        </button>
+      }
+      contextualControls={
+        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">
+          {sponsors === null ? "Loading register" : sponsorsError ? "Register unavailable" : `${sponsors.length} sponsors`}
         </span>
-        <div className="flex-1" />
-        <ConceptNav />
-      </div>
+      }
+      narrowContract={{ essentialControls: null }}
+    >
+      <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="sponsors" primary={<div className="h-full min-h-0 flex flex-col">
+      <WorkbenchToolbar
+        title="Sponsor coverage"
+        description="Select a sponsor to inspect cross-name governance and ownership history."
+        count={sponsors === null ? "Loading" : sponsorsError ? "Unavailable" : `${sponsors.length} sponsors`}
+        viewLabel="Shared worklist"
+      />
 
-      <div className="flex-1 min-h-0 p-2 flex gap-2">
+      <DominantTableRegion ownerId="sponsor-register" label="Sponsor coverage register" className="flex-1 min-h-0">
+      <div className="h-full min-h-0 flex gap-2">
         {/* sponsor register */}
         <Panel title="Sponsors · by coverage" className="w-80 shrink-0">
           {sponsors === null ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Loading…</p>
+            <div className="p-3"><SurfaceState kind="loading" title="Loading sponsor register" compact /></div>
+          ) : sponsorsError ? (
+            <div className="p-3">
+              <SurfaceState
+                kind="offline"
+                title="Sponsor register unavailable"
+                detail="The service could not be reached. No conclusion was drawn from the missing response."
+                primaryAction={<button type="button" onClick={loadSponsors} className="caos-action-primary focus-ring">Retry</button>}
+              />
+            </div>
           ) : sponsors.length === 0 ? (
-            <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <p className="tabular text-caos-sm text-caos-muted m-0">No sponsors on file.</p>
-              <p className="tabular text-caos-2xs text-caos-muted m-0">
-                Set “Sponsor / PE owner” when creating an issuer — track records aggregate CP-2D reviews across a sponsor’s names.
-              </p>
+            <div className="p-3">
+              <SurfaceState
+                kind="empty"
+                title="No sponsors on file"
+                detail="Set Sponsor / PE owner on an issuer. Track records aggregate observed CP-2D reviews across that sponsor’s covered names."
+                primaryAction={<Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="caos-secondary-action focus-ring no-underline">Open issuer directory</Link>}
+              />
             </div>
           ) : (
             <div className="flex flex-col divide-y divide-caos-border/30">
@@ -107,29 +186,42 @@ function SponsorsView() {
         </Panel>
 
         {/* track record */}
+        <div id="sponsor-record" tabIndex={-1} className="flex-1 min-w-0 focus:outline-none">
         <Panel
           title={selected ? `Track record · ${selected}` : "Track record"}
-          className="flex-1 min-w-0"
+          className="h-full"
           right={record?.avg_governance_risk_score != null
             ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}</span>
             : undefined}
         >
           {!selected ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Select a sponsor.</p>
+            <div className="p-3"><SurfaceState kind="empty" title="Select a sponsor" detail="Choose a covered sponsor to inspect recurring governance flags and source health." compact /></div>
           ) : recordLoading ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Loading…</p>
-          ) : !record ? (
-            <p className="px-3 py-2.5 tabular text-caos-sm text-caos-muted m-0">Couldn’t load this sponsor’s record.</p>
+            <div className="p-3"><SurfaceState kind="loading" title={`Loading ${selected}`} detail="Retrieving the persisted cross-name CP-2D record." compact /></div>
+          ) : recordError || !record ? (
+            <div className="p-3">
+              <SurfaceState
+                kind="unavailable"
+                title="Sponsor record unavailable"
+                detail="The selected sponsor record could not be loaded. The current sponsor selection is preserved."
+                supporting={<p className="tabular text-caos-xs text-caos-text">Preserved: {selected}</p>}
+                primaryAction={<button type="button" onClick={() => setRecordRetry((n) => n + 1)} className="caos-action-primary focus-ring">Retry</button>}
+              />
+            </div>
           ) : (
-            <TrackRecord record={record} />
+            <TrackRecord record={record} onOpenIssuer={openSponsorIssuer} contextId={analysis.context?.id} />
           )}
         </Panel>
+        </div>
       </div>
-    </div>
+      </DominantTableRegion>
+      </div>} />
+      </div>
+    </EnterprisePage>
   );
 }
 
-function TrackRecord({ record }: { record: SponsorTrackRecord }) {
+function TrackRecord({ record, onOpenIssuer, contextId }: { record: SponsorTrackRecord; onOpenIssuer: (issuerId: string) => void; contextId?: string }) {
   const flags = Object.entries(record.flag_counts).sort((a, b) => b[1] - a[1]);
   return (
     <div className="flex flex-col">
@@ -160,18 +252,30 @@ function TrackRecord({ record }: { record: SponsorTrackRecord }) {
         ))}
       </div>
       <div className="divide-y divide-caos-border/30">
-        {record.issuers.map((row) => <IssuerRow key={row.issuer_id} row={row} />)}
+        {record.issuers.map((row) => <IssuerRow key={row.issuer_id} row={row} onOpen={onOpenIssuer} />)}
+      </div>
+      <div className="grid gap-2 border-t border-caos-border p-3 lg:grid-cols-2">
+        <div className="rounded border border-caos-border bg-caos-bg/40 p-2">
+          <p className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Source health</p>
+          <p className="mt-1 text-caos-sm text-caos-text">
+            {record.issuers.filter((row) => row.run_id).length}/{record.issuer_count} names have a completed CP-2D run · {record.issuers.filter((row) => row.qa_status === "Blocked").length} blocked
+          </p>
+        </div>
+        <div className="rounded border border-caos-border bg-caos-bg/40 p-2">
+          <p className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Monitoring thresholds</p>
+          <p className="mt-1 text-caos-sm text-caos-muted">Sponsor-level thresholds are not stored in CP-2D. Route recurring flags to the issuer alert inbox.</p>
+          <Link href={contextId ? contextHref("/monitor", contextId) : "/monitor"} className="mt-1 inline-block text-caos-xs text-caos-accent focus-ring">Open Monitor →</Link>
+        </div>
       </div>
     </div>
   );
 }
 
-function IssuerRow({ row }: { row: SponsorIssuerRow }) {
-  const { openProfile } = useIssuerProfileOverlay();
+function IssuerRow({ row, onOpen }: { row: SponsorIssuerRow; onOpen: (issuerId: string) => void }) {
   return (
     <div className="grid grid-cols-[minmax(180px,2fr)_90px_110px_1fr_90px] gap-x-3 px-3 py-1.5 items-baseline">
       <button
-        onClick={() => openProfile(row.issuer_id)}
+        onClick={() => onOpen(row.issuer_id)}
         className="text-left text-caos-lg text-caos-text hover:text-caos-accent transition-caos focus-ring truncate"
         title={`Open ${row.name} profile`}
       >

@@ -126,6 +126,7 @@ def _set_cookie(response: Response, analyst: Analyst) -> None:
     token = make_session_token(
         {
             "id": analyst.id, "name": analyst.name, "email": analyst.email or "",
+            "role": analyst.role or "analyst",
             # Revocation epoch — must match the row at verify time (identity.py).
             "v": analyst.token_version,
             "iat": now, "exp": now + _COOKIE_MAX_AGE,
@@ -144,7 +145,7 @@ def _set_cookie(response: Response, analyst: Analyst) -> None:
 def _profile_response(analyst: Analyst) -> MeResponse:
     return MeResponse(
         id=analyst.id, email=analyst.email or "", full_name=analyst.name,
-        role="analyst", is_active=True, source="profile",
+        role=analyst.role or "analyst", is_active=True, source="profile",
     )
 
 

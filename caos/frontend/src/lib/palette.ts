@@ -4,7 +4,7 @@
 // ranked FIRST when the input doesn't strongly match a page/action, so the
 // old ⌘K→type→Enter Ask muscle memory still lands in Ask (RT-2026-07-11-62).
 // Issuer rows are appended by the component (async search, same contract as
-// GlobalIssuerSearch).
+// the unified command palette).
 
 import { NAV_GROUPS } from "./nav";
 
