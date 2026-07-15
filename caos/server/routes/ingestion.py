@@ -32,7 +32,7 @@ from database import (
     AnalysisContextRecord, Document, DocumentChunk, Issuer, SourceManifest,
     get_db, AsyncSessionLocal, register_rollback_cleanup,
 )
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from lineage_service import write_lineage_edge
 from tenancy import require_issuer, scope_issuers
 
@@ -297,7 +297,7 @@ async def upload_document(
     source_published_at: Optional[datetime] = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
@@ -405,7 +405,7 @@ async def upload_pricing_sheet(
     source_published_at: Optional[datetime] = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
@@ -478,7 +478,7 @@ async def upload_memo(  # noqa: C901
     memo_type: str = Form("memo"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Analyst-authored commentary (market/research notes) into the Obsidian
     vault's ``Analyst-Memos/`` — the folder ``sync_analyst_memos`` scans and the

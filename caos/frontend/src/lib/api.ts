@@ -254,6 +254,7 @@ export interface ProfileRun {
   completed_at: string | null;
 }
 export interface ProfileMetric {
+  run_id?: string | null;
   metric_key: string;
   period: string;
   value: number;
@@ -265,6 +266,8 @@ export interface ProfileMetric {
   source_claim_id: string | null;
   source_evidence_id: string | null;
   document_chunk_id: string | null;
+  created_at?: string | null;
+  source_run_as_of?: string | null;
 }
 export interface BusinessFact {
   fact_area: string;
@@ -283,6 +286,7 @@ export interface EarningsSummary {
 export interface IssuerProfile {
   issuer: Issuer;
   latest_run: ProfileRun | null;
+  signal_run_id?: string | null;
   runs: ProfileRun[];
   metrics: ProfileMetric[];
   // Free-form roll-ups (nullable values) — Deep-Dive owns module detail.
@@ -796,6 +800,13 @@ export interface ScenarioPropagationNode {
 export interface ScenarioPropagationResult {
   shock: { issuer_id: string; run_id: string; ebitda_pct: number; rate_bps: number };
   nodes: ScenarioPropagationNode[];
+  source: {
+    run_status: string;
+    qa_status: string;
+    committee_status: string;
+    included_modules: string[];
+    excluded_modules: string[];
+  } | null;
 }
 export const propagateScenario = (body: {
   issuer_id: string;

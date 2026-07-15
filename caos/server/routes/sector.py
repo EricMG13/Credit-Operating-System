@@ -36,7 +36,7 @@ from database import (
     aware_utc,
     get_db,
 )
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
 from sector_taxonomy import CANONICAL_SECTORS, canonical_sector_id
 from sector_logic import sector_materiality_score, sector_signal_dedup_hash
 
@@ -289,6 +289,7 @@ def _read_guard(caller: CallerIdentity) -> None:
 
 
 def _write_guard(caller: CallerIdentity) -> None:
+    require_write_role(caller)
     if not rate_limit.hit(
         f"sector-write:{caller.id}",
         max_attempts=_WRITE_MAX_PER_MINUTE,
@@ -556,7 +557,7 @@ async def read_feeds(
 async def update_feeds(
     body: SectorFeedUpdate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
     existing = {
@@ -632,7 +633,7 @@ async def read_review(
 async def refresh_review(
     body: SectorRefreshRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
     return await _review_response(
@@ -917,7 +918,7 @@ def _build_review_payload(
 async def create_sector_review(
     body: SectorReviewCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
     context = await _owned_analysis_context(db, body.context_id, caller.id)
@@ -1025,7 +1026,7 @@ async def ratify_sector_review(
     review_id: str,
     body: SectorRatificationRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
     row = await _owned_review(db, review_id, caller.id)
@@ -1068,7 +1069,7 @@ async def ratify_sector_review(
 async def publish_sector_review(
     review_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
     row = await _owned_review(db, review_id, caller.id)

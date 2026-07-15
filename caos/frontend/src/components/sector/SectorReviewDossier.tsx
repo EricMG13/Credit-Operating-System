@@ -47,8 +47,8 @@ function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
   };
 }
 
-function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode): DecisionDatumState {
-  if (!review) return { kind: "unavailable", message: "No versioned sector review in this context." };
+function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode, fallback = "No versioned sector review in this context."): DecisionDatumState {
+  if (!review) return { kind: "unavailable", message: fallback };
   const authority = decisionAuthority(review.authority);
   if (review.status === "partial") return { kind: "partial", value, missingSources: review.missing_dependencies, asOf: review.as_of, authority };
   if (review.status === "stale") return { kind: "stale", value, asOf: review.as_of, authority };
@@ -159,10 +159,10 @@ export function SectorReviewDossier() {
   const selected = review?.sections.find((section) => section.id === selectedSection) ?? review?.sections[0] ?? null;
   const compare = history.find((item) => item.id === compareVersion) ?? null;
   const decisionState: DecisionContextState = {
-    whatChanged: reviewDatum(review, review?.what_changed),
-    whyItMatters: reviewDatum(review, review?.why_it_matters),
-    requiredAction: reviewDatum(review, review?.required_action),
-    evidenceHealth: reviewDatum(review, review?.evidence_health),
+    whatChanged: reviewDatum(review, review?.what_changed, "No change observation — no versioned review in this context."),
+    whyItMatters: reviewDatum(review, review?.why_it_matters, "No impact assessment yet — run a review to establish one."),
+    requiredAction: reviewDatum(review, review?.required_action, "No required action — no review to act on."),
+    evidenceHealth: reviewDatum(review, review?.evidence_health, "No evidence register — no review has been run."),
   };
   const context = contextState.context;
   const finalAction = !review || review.status === "partial" || review.status === "stale"
@@ -187,8 +187,8 @@ export function SectorReviewDossier() {
           surface="sector-review"
           decision={<DecisionHeader state={decisionState} defaultOpen />}
           context={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50" aria-label="Canonical sectors">
-          <div className="border-b border-caos-border px-3 py-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Sectors</h2><p className="mt-1 text-caos-2xs text-caos-muted">Selection and feed subscription are independent.</p></div>
-          <ul className="p-1.5">{taxonomy.map((sector) => { const subscribed = feeds.find((feed) => feed.sector === sector.label)?.enabled ?? true; const active = context?.sector_id === sector.id; return <li key={sector.id} className={`mb-1 rounded-sm border ${active ? "border-caos-accent bg-caos-info-surface" : "border-transparent"}`}><button type="button" onClick={() => void selectSector(sector.id)} className="w-full px-2 py-2 text-left focus-ring"><span className="flex items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{sector.label}</span>{active && !review ? <span className="ml-auto h-1.5 w-1.5 rounded-full bg-caos-warning" aria-label="Review required" /> : null}</span><span className="mt-1 block tabular text-caos-2xs uppercase text-caos-muted">{active ? review?.status ?? "not reviewed" : "select"}</span></button><button type="button" onClick={() => void toggleFeed(sector.label)} aria-pressed={subscribed} className="mx-2 mb-2 tabular text-caos-2xs text-caos-muted focus-ring">{subscribed ? "✓ subscribed" : "+ subscribe"}</button></li>; })}</ul>
+          <div className="border-b border-caos-border px-3 py-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Sectors</h2></div>
+          <ul className="p-1.5">{taxonomy.map((sector) => { const subscribed = feeds.find((feed) => feed.sector === sector.label)?.enabled ?? true; const active = context?.sector_id === sector.id; return <li key={sector.id} className={`mb-1 rounded-sm border ${active ? "border-caos-accent bg-caos-info-surface" : "border-transparent"}`}><button type="button" onClick={() => void selectSector(sector.id)} className="w-full px-2 py-2 text-left focus-ring"><span className="flex items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{sector.label}</span>{active && !review ? <span className="ml-auto h-1.5 w-1.5 rounded-full bg-caos-warning" aria-label="Review required" /> : null}</span><span className="mt-1 block tabular text-caos-2xs uppercase text-caos-muted">{active ? review?.status ?? "not reviewed" : "select"}</span></button><button type="button" role="switch" onClick={() => void toggleFeed(sector.label)} aria-checked={subscribed} className="mx-2 mb-2 flex items-center gap-1.5 tabular text-caos-2xs uppercase tracking-wider text-caos-muted focus-ring"><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${subscribed ? "bg-caos-success" : "bg-caos-idle"}`} />Alerts {subscribed ? "on" : "off"}</button></li>; })}</ul>
         </aside>}
           primary={<section className="min-h-0 h-full overflow-hidden flex flex-col border border-caos-border" aria-label="Sector dossier">
           <nav className="flex shrink-0 overflow-x-auto border-b border-caos-border bg-caos-panel/70 p-1" aria-label="Sector dossier sections"><select aria-label="Active sector" value={context?.sector_id ?? ""} onChange={(event) => void selectSector(event.target.value)} className="mr-1 min-w-36 rounded-sm border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring xl:hidden">{taxonomy.map((sector) => <option value={sector.id} key={sector.id}>{sector.label}</option>)}</select>{TABS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => updateUrlState({ tab: item.id === (roleView === "qa" ? "sources" : "overview") ? null : item.id })} className={`min-h-8 whitespace-nowrap rounded-sm px-3 tabular text-caos-xs focus-ring ${tab === item.id ? "bg-caos-info-surface text-caos-text" : "text-caos-muted hover:text-caos-text"}`}>{item.label}</button>)}</nav>

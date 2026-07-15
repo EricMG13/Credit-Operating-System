@@ -18,7 +18,7 @@ from analysis_contracts import ArtifactRef
 from config import get_settings
 from context_lineage import bind_context_artifacts
 from database import AnalysisContextRecord, Issuer, ModelCheckpoint, Run, SavedModel, get_db
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from lineage_service import write_lineage_edge
 from tenancy import require_issuer
 
@@ -124,6 +124,7 @@ async def list_model_checkpoints(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
+    require_issuer(caller, await db.get(Issuer, issuer_id))
     rows = (await db.execute(
         select(ModelCheckpoint).where(
             ModelCheckpoint.issuer_id == issuer_id,
@@ -137,15 +138,15 @@ async def list_model_checkpoints(
 async def create_model_checkpoint(
     issuer_id: str,
     body: ModelCheckpointCreate,
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
+    require_issuer(caller, await db.get(Issuer, issuer_id))
     if not rate_limit.hit(f"model-checkpoints:{caller.id}", max_attempts=15, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Checkpoint rate limit reached.")
     context = await _owned_context(db, body.context_id, caller.id)
     lineage_enabled = get_settings().caos_lineage_v2_enabled
     if lineage_enabled:
-        require_issuer(caller, await db.get(Issuer, issuer_id))
         if issuer_id not in (context.issuer_ids or []):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
     elif context.issuer_ids and issuer_id not in context.issuer_ids:
@@ -246,12 +247,13 @@ async def create_model_checkpoint(
 async def restore_model_checkpoint(
     checkpoint_id: str,
     body: ModelCheckpointRestore,
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     checkpoint = await db.get(ModelCheckpoint, checkpoint_id)
     if checkpoint is None or checkpoint.analyst_id != caller.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Model checkpoint not found.")
+    require_issuer(caller, await db.get(Issuer, checkpoint.issuer_id))
     saved = (await db.execute(select(SavedModel).where(
         SavedModel.issuer_id == checkpoint.issuer_id,
         SavedModel.analyst_id == caller.id,
@@ -285,6 +287,7 @@ async def get_saved_model(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
+    require_issuer(caller, await db.get(Issuer, issuer_id))
     row = (await db.execute(
         select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)
     )).scalar_one_or_none()
@@ -300,7 +303,7 @@ async def get_saved_model(
 async def save_model(
     issuer_id: str,
     body: SavedModelBody,
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(f"models:{caller.id}", max_attempts=_SAVES_PER_MINUTE, window_seconds=60):
@@ -310,8 +313,7 @@ async def save_model(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             "Model payload too large to save.",
         )
-    if await db.get(Issuer, issuer_id) is None:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
     now = datetime.now(timezone.utc)
     row = (await db.execute(
         select(SavedModel).where(SavedModel.issuer_id == issuer_id, SavedModel.analyst_id == caller.id)

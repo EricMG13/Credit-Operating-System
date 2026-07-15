@@ -446,7 +446,7 @@ export function Profile({
   isOverlay?: boolean;
   onClose?: () => void;
 }) {
-  const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
+  const { issuer, latest_run, signal_run_id, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
   const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
   const activeFreshnessArtifact = analysis.context?.artifacts.model_checkpoint_id
     ?? analysis.context?.artifacts.report_version_id;
@@ -491,6 +491,15 @@ export function Profile({
   // render; missing ones degrade to an empty state.
   const series = useMemo(() => buildSeries(metrics), [metrics]);
   const headline = useMemo(() => buildHeadline(metrics), [metrics]);
+  const retainedHeadline = useMemo(
+    () => Boolean(signal_run_id && headline.some((m) => m.run_id && m.run_id !== signal_run_id)),
+    [headline, signal_run_id],
+  );
+  const snapshotAsOf = useMemo(() => {
+    if (!retainedHeadline) return latest_run?.as_of_date ?? null;
+    const dates = [...new Set(headline.map((m) => m.source_run_as_of).filter(Boolean))];
+    return dates.length === 1 ? dates[0] : null;
+  }, [headline, latest_run?.as_of_date, retainedHeadline]);
 
   // Build both granularities so the toggle shows only when there's something to
   // switch to, and each side draws only its own periods (annual vs quarterly).
@@ -644,7 +653,7 @@ export function Profile({
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
-          <Panel title={"Credit snapshot" + (latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : "")} right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Derived</span>}>
+          <Panel title={"Credit snapshot" + (snapshotAsOf ? " · as of " + snapshotAsOf : "")} right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Derived</span>}>
             <div className="px-3 py-2.5 flex flex-col gap-2">
               <p className="text-caos-sm text-caos-text/90 leading-relaxed m-0">{deskRead}</p>
               <Empty>No headline metrics yet — run an analysis to populate the snapshot.</Empty>
@@ -657,8 +666,9 @@ export function Profile({
                   the empty-state branch's <Panel> — heading level must not flip
                   with data state, and must not break the page's flat h2 rhythm. */}
               <h2 className="text-caos-md font-semibold tracking-[0.12em] uppercase text-caos-muted m-0">
-                Credit snapshot{latest_run?.as_of_date ? " · as of " + latest_run.as_of_date : ""}
+                Credit snapshot{snapshotAsOf ? " · as of " + snapshotAsOf : ""}
               </h2>
+              {retainedHeadline ? <Tag sev="warning">Last QA-passed</Tag> : null}
               {snapshotProv ? <Tag sev={PROV[snapshotProv].sev}>{PROV[snapshotProv].label}</Tag> : null}
               <div className="flex-1" />
               <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider shrink-0">Derived</span>

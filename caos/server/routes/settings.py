@@ -18,7 +18,7 @@ import rate_limit
 from config import get_settings
 from database import Analyst, get_db
 from deepresearch import _EFFORT, _MAX_SEARCHES, _MAX_TOKENS as _DR_MAX_TOKENS
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from llm import llm_configured
 
 router = APIRouter()
@@ -140,7 +140,7 @@ async def read_analyst_settings(
 @router.put("/analyst", response_model=AnalystSettings)
 async def write_analyst_settings(
     body: AnalystSettings,
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(f"settings:{caller.id}", max_attempts=_WRITES_PER_MINUTE, window_seconds=60):
@@ -168,7 +168,7 @@ async def write_analyst_settings(
 @router.patch("/analyst", response_model=AnalystSettings)
 async def patch_analyst_settings(
     body: AnalystSettingsPatch,
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Revision-checked partial update; the replacement PUT remains compatible."""

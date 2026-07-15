@@ -43,6 +43,19 @@ describe("cp1ToAnchor", () => {
     expect(cp1ToAnchor({ ...CP1, module_id: "CP-0" })).toBeNull();
   });
 
+  it("rejects a QA-Blocked CP-1 instead of labelling it live", () => {
+    expect(cp1ToAnchor({ ...CP1, qa_status: "Blocked", committee_status: "Blocked" })).toBeNull();
+  });
+
+  it("rejects synthetic demo-fixture financials for a non-reference issuer", () => {
+    expect(cp1ToAnchor({
+      ...CP1,
+      limitation_flags: [
+        "Financials are synthetic Atlas Forge demo-fixture data served because no model key is configured.",
+      ],
+    })).toBeNull();
+  });
+
   it("returns null when normalized_financials is absent (→ seeded fallback)", () => {
     expect(cp1ToAnchor({ ...CP1, runtime_output: {} })).toBeNull();
   });

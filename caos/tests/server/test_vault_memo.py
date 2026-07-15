@@ -2,7 +2,6 @@
 /api/ingestion/upload/memo route, including the sync into analyst_links and the
 Query graph read-back."""
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -126,11 +125,8 @@ def test_memo_title_sanitizes_traversal_and_illegal_chars():
 # ── route ────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-memo")
-    os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{tmp / 'test.db'}")
-    os.environ.setdefault("CAOS_STORAGE_DIR", str(tmp / "storage"))
-    from main import app  # imported after env is set (conftest already set the shared DB)
+def client():
+    from main import app
 
     with TestClient(app) as c:
         yield c

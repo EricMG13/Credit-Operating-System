@@ -8,9 +8,7 @@ demo fallback path.
 from __future__ import annotations
 
 import io
-import os
 import sys
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -21,12 +19,10 @@ sys.path.insert(0, str(SERVER_DIR))
 
 
 @pytest.fixture(scope="session")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""
-    from main import app  # imported after env is set
+def client():
+    # conftest establishes the canonical process-wide DB, storage, and model
+    # environment before any server module is imported.
+    from main import app
 
     with TestClient(app) as c:
         yield c
@@ -329,10 +325,14 @@ def test_upload_rejects_unknown_run_mode(client):
 
 
 def test_upload_pricing_sheet_xlsx_defaults_full_run(client):
+    from openpyxl import Workbook
+
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
+    workbook = Workbook()
+    workbook.active.append(["Metric", "Value"])
+    workbook.active.append(["EBITDA", 100])
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("xl/workbook.xml", "<workbook/>")
+    workbook.save(buf)
     r = client.post(
         "/api/ingestion/upload/pricing-sheet",
         data={"issuer_id": issuer_id},

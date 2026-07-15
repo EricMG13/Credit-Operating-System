@@ -18,6 +18,7 @@ parsing, tier-model selection, and UNTRUSTED-chunk wrapping.
 from __future__ import annotations
 
 import json
+import math
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -190,6 +191,16 @@ async def test_rerank_score_count_mismatch_passthrough(monkeypatch):
     assert [h.chunk_id for h in out] == ["c1", "c2"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("score", [math.nan, math.inf, -math.inf])
+async def test_rerank_nonfinite_injected_score_is_atomic_passthrough(monkeypatch, score):
+    """A custom/injected scorer cannot bypass the orchestration boundary."""
+    _enable_rerank(monkeypatch, scores_fn=lambda _query, chunks: [score] * len(chunks))
+    hits = [_hit("c1", "alpha", 0.9), _hit("c2", "beta", 0.5)]
+    out = await rerank(db=None, query="alpha", hits=hits, k=2)
+    assert out is hits
+
+
 # ── _score_pairs_llm: parsing + tier model + untrusted wrapping ───────────────
 
 
@@ -247,6 +258,22 @@ async def test_score_pairs_llm_raises_on_missing_scores_key(monkeypatch):
         await _score_pairs_llm("q", [_hit("c1", "text")])
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("encoded", ["NaN", "Infinity", "-Infinity", "1e999"])
+async def test_score_pairs_llm_rejects_string_encoded_nonfinite(monkeypatch, encoded):
+    _enable_rerank(monkeypatch)
+    monkeypatch.setattr(
+        rerank_mod.llm_client,
+        "create",
+        lambda *a, **k: _async_return(_FakeResp(json.dumps({"scores": [encoded]}))),
+    )
+    monkeypatch.setattr(
+        rerank_mod.llm_client, "anthropic_client", lambda: SimpleNamespace()
+    )
+    with pytest.raises(ValueError, match="finite"):
+        await _score_pairs_llm("q", [_hit("c1", "text")])
+
+
 async def _async_return(value):
     return value
 
@@ -258,6 +285,8 @@ def test_clamp01_bounds():
     assert _clamp01(0.0) == 0.0
     assert _clamp01(1.0) == 1.0
     assert _clamp01(0.42) == 0.42
+    with pytest.raises(ValueError, match="finite"):
+        _clamp01(math.nan)
 
 
 # ── retrieve_corpus wiring ────────────────────────────────────────────────────

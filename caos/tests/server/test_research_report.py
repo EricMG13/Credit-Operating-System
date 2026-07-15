@@ -7,7 +7,6 @@ GET by id poll).
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -681,11 +680,7 @@ async def test_lease_set_failure_still_marks_report_failed(seeded_db, monkeypatc
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-rr")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""  # demo/fixture fallback
+def client():
     from main import app
 
     with TestClient(app) as c:

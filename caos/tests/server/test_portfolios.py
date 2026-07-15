@@ -9,7 +9,6 @@ registered issuer soft-links and refreshes that issuer's rating.
 from __future__ import annotations
 
 import io
-import os
 import sys
 from pathlib import Path
 
@@ -23,11 +22,7 @@ _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-portfolios")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""
+def client():
     from main import app
 
     with TestClient(app) as c:

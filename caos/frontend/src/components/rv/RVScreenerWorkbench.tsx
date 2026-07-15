@@ -58,12 +58,25 @@ function rvDatum(screen: RVScreenRun | null, value: React.ReactNode): DecisionDa
   return { kind: "ready", value, asOf: fmtUtcDateTime(screen.authority.as_of ?? screen.updated_at), authority: decisionAuthority(screen.authority) };
 }
 
+// Format a provenance value for display — never leak raw JSON into the pitch.
+// Known shapes get desk formatting; unknown objects flatten to one level of k: v.
+function formatPitchValue(item: unknown): string {
+  if (item && typeof item === "object" && !Array.isArray(item)) {
+    const o = item as Record<string, unknown>;
+    if ("bid" in o && "ask" in o) return `${display(o.bid)} / ${display(o.ask)}`;
+    if ("low" in o && "high" in o) return `${display(o.low)}–${display(o.high)}`;
+    return Object.entries(o).map(([k, v]) => `${k.replaceAll("_", " ")}: ${display(v)}`).join(" · ");
+  }
+  if (Array.isArray(item)) return item.map((v) => display(v)).join(" · ");
+  return display(item);
+}
+
 function PitchBlock({ title, value }: { title: string; value: unknown }) {
   const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return (
     <section className="rounded-md border border-caos-border bg-caos-bg/30 p-3">
       <h3 className="tabular text-caos-2xs font-semibold uppercase tracking-widest text-caos-muted">{title}</h3>
-      <dl className="mt-2 space-y-1">{Object.entries(data).map(([key, item]) => <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-caos-xs"><dt className="text-caos-muted">{key.replaceAll("_", " ")}</dt><dd className="tabular text-right text-caos-text">{item && typeof item === "object" ? JSON.stringify(item) : display(item)}</dd></div>)}</dl>
+      <dl className="mt-2 space-y-1">{Object.entries(data).map(([key, item]) => <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-caos-xs"><dt className="text-caos-muted">{key.replaceAll("_", " ")}</dt><dd className="tabular text-right text-caos-text">{formatPitchValue(item)}</dd></div>)}</dl>
     </section>
   );
 }

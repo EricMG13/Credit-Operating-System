@@ -26,7 +26,7 @@ import ingest
 import rate_limit
 from config import get_settings
 from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from tenancy import require_issuer
 
 router = APIRouter()
@@ -173,7 +173,7 @@ async def vault_exhibit(
     body: VaultExhibitRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Fetch an EDGAR exhibit and vault it through the standard ingest path,
     turning a pointer into an E-xx-eligible primary source for the issuer."""

@@ -198,6 +198,36 @@ def test_build_cp1_sums_da_components_when_no_combined_tag():
     assert p.runtime_output["xbrl_concepts"]["d_and_a"] == "Depreciation+AmortizationOfIntangibleAssets"
 
 
+def test_build_cp1_prefers_fresh_da_components_over_stale_combined_tag():
+    facts = {"facts": {"us-gaap": {
+        **_flow("Revenues", [("2025-01-01", "2025-12-31", 1_000_000_000, 2025, "a25", "2026-02-01")]),
+        **_flow("OperatingIncomeLoss", [("2025-01-01", "2025-12-31", 200_000_000, 2025, "a25", "2026-02-01")]),
+        **_flow("DepreciationDepletionAndAmortization", [("2023-01-01", "2023-12-31", 10_000_000, 2023, "a23", "2024-02-01")]),
+        **_flow("Depreciation", [("2025-01-01", "2025-12-31", 100_000_000, 2025, "a25", "2026-02-01")]),
+        **_flow("AmortizationOfIntangibleAssets", [("2025-01-01", "2025-12-31", 50_000_000, 2025, "a25", "2026-02-01")]),
+        **_inst("LongTermDebt", [("2025-12-31", 900_000_000, 2025, "a25", "2026-02-01")]),
+    }}}
+
+    p = build_cp1_payload("Concept Switch Co", facts)
+    nf = p.runtime_output["normalized_financials"]
+    assert p.runtime_output["xbrl_concepts"]["d_and_a"] == "Depreciation+AmortizationOfIntangibleAssets"
+    assert nf["adj_ebitda"]["FY2025"] == 350.0
+    assert nf["net_leverage_adj_ltm"] == pytest.approx(900 / 350, abs=0.01)
+
+
+def test_build_cp1_prefers_fresh_revenue_concept_over_stale_precedence_tag():
+    facts = {"facts": {"us-gaap": {
+        **_flow("RevenueFromContractWithCustomerExcludingAssessedTax", [
+            ("2023-01-01", "2023-12-31", 800_000_000, 2023, "a23", "2024-02-01")]),
+        **_flow("Revenues", [
+            ("2025-01-01", "2025-12-31", 1_000_000_000, 2025, "a25", "2026-02-01")]),
+    }}}
+
+    p = build_cp1_payload("Revenue Switch Co", facts)
+    assert p.runtime_output["xbrl_concepts"]["revenue"] == "Revenues"
+    assert p.runtime_output["normalized_financials"]["revenue"] == {"FY2025": 1000.0}
+
+
 def test_build_cp1_skips_stale_debt_tag():
     # Debt tagged only years before the EBITDA period (filer switched concepts) →
     # leverage must NOT be computed off the stale figure (the Viasat 2019 trap).

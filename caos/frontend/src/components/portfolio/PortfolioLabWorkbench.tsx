@@ -399,7 +399,7 @@ export function PortfolioLabWorkbench() {
   const decision = (
     <header className="portfolio-lab__decision-header">
       <div><span className="portfolio-lab__eyebrow">{roleView === "pm" ? "Portfolio posture" : roleView === "qa" ? "Evidence & compliance" : "Sizing workbench"}</span><h1>{portfolio?.name ?? "Portfolio Lab"}</h1></div>
-      <dl><div><dt>As of</dt><dd>{analytics?.as_of ?? portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{positions?.total ?? portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{analytics?.authority.approval_state ?? "Loading"}</dd></div></dl>
+      <dl><div><dt>As of</dt><dd>{analytics?.as_of ?? portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{positions?.total ?? portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{!portfolioId ? "No portfolio" : analytics?.authority.approval_state ?? (analyticsError ? "Unavailable" : "Loading")}</dd></div></dl>
     </header>
   );
 
@@ -431,7 +431,7 @@ export function PortfolioLabWorkbench() {
       </div>
       <div id="portfolio-dataset-panel" role="tabpanel" aria-labelledby={`portfolio-tab-${dataset}`}>
         <DominantTableRegion ownerId="portfolio-lab-main" label={`${dataset === "positions" ? "Portfolio positions" : "Portfolio constraints"} table`} data-total-rows={dataset === "positions" ? positions?.total : analytics?.compliance.length}>
-          {!portfolioId && portfolioListError ? <div className="portfolio-lab__empty" role="alert">{portfolioListError}</div> : !portfolioId && portfolioListLoaded ? <div className="portfolio-lab__empty">No portfolios are configured. Create or import one in Settings.</div> : loading && !positions ? <LoadingTable /> : error && !positions ? <div className="portfolio-lab__empty" role="alert">{error}</div> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <div className="portfolio-lab__empty" role="status">No positions match the active filters.</div> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <div className="portfolio-lab__empty" role="status">No portfolio constraints are configured.</div> : supportError ? <div className="portfolio-lab__empty" role="status">Constraint analytics unavailable. Positions remain accessible.</div> : <LoadingTable />}
+          {!portfolioId && portfolioListError ? <div className="portfolio-lab__empty" role="alert">{portfolioListError}</div> : !portfolioId && portfolioListLoaded ? <div className="portfolio-lab__empty">No portfolios are configured. <Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Create or import one in Settings</Link>.</div> : loading && !positions ? <LoadingTable /> : error && !positions ? <div className="portfolio-lab__empty" role="alert">{error}</div> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <div className="portfolio-lab__empty" role="status">No positions match the active filters.</div> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <div className="portfolio-lab__empty" role="status">No portfolio constraints are configured.</div> : supportError ? <div className="portfolio-lab__empty" role="status">Constraint analytics unavailable. Positions remain accessible.</div> : <LoadingTable />}
         </DominantTableRegion>
       </div>
       {dataset === "positions" && positions?.next_cursor ? <button type="button" className="portfolio-lab__next" onClick={() => update({ cursor: positions.next_cursor, selected: null })}>Next positions</button> : null}
@@ -441,7 +441,7 @@ export function PortfolioLabWorkbench() {
   const context = (
     <section className="portfolio-lab__context" aria-label="Portfolio visualization">
       <label>View<select value={chart} onChange={(event) => update({ chart: event.target.value as ChartMode })}><option value="concentration">Concentration</option><option value="ratings">Ratings</option><option value="maturity">Maturity wall</option><option value="risk">Risk budget</option><option value="stress">Stress history</option></select></label>
-      {chartSpec ? <SemanticVisualization spec={chartSpec} /> : analyticsError ? <p role="status">{analyticsError} The positions workflow remains live.</p> : <p role="status">Loading portfolio analytics…</p>}
+      {!portfolioId ? <p role="status">No portfolio selected — analytics unavailable.</p> : chartSpec ? <SemanticVisualization spec={chartSpec} /> : analyticsError ? <p role="status">{analyticsError} The positions workflow remains live.</p> : <p role="status">Loading portfolio analytics…</p>}
     </section>
   );
 

@@ -33,7 +33,8 @@ logger = logging.getLogger("caos.edgar")
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 
-# us-gaap concept fallbacks (first present wins).
+# us-gaap concept fallbacks. The freshest usable annual series wins; declaration
+# order preserves semantic authority when candidates reach the same latest year.
 _REVENUE = ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
             "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet")
 _OP_INCOME = ("OperatingIncomeLoss",)
@@ -132,32 +133,42 @@ def _annual_series(units: Sequence[dict], kind: str, max_years: int = 5) -> Dict
 
 
 def _series(us_gaap: dict, names: Sequence[str], kind: str) -> Tuple[Optional[str], Dict[int, Tuple[float, str]]]:
-    """First present concept's annual series → (concept_name, {year: (val, accn)})."""
-    for name in names:
+    """Freshest concept's annual series → (concept_name, {year: (val, accn)}).
+
+    Filers switch equivalent XBRL tags over time. Selecting the first tag with
+    any history can strand the canonical series years behind a fresher fallback.
+    Keep one concept (no semantic splicing), ranked by latest year; declared
+    precedence preserves the intended semantic breadth when candidates are equally
+    current. Coverage length is only a final same-concept-quality tie-break.
+    """
+    best: Optional[Tuple[Tuple[int, int, int], str, Dict[int, Tuple[float, str]]]] = None
+    for priority, name in enumerate(names):
         data = (us_gaap.get(name) or {}).get("units", {}).get("USD")
         if data:
             series = _annual_series(data, kind)
             if series:
-                return name, series
-    return None, {}
+                candidate = ((max(series), -priority, len(series)), name, series)
+                if best is None or candidate[0] > best[0]:
+                    best = candidate
+    return (best[1], best[2]) if best is not None else (None, {})
 
 
 def _da_series(us_gaap: dict) -> Tuple[Optional[str], Dict[int, Tuple[float, str]]]:
-    """D&A annual series → (label, {year: (val, accn)}). Prefer a combined D&A
-    concept; otherwise sum the components (depreciation + intangible amortization),
-    which is how many filers (e.g. Viasat) report it rather than a single D&A line."""
-    name, series = _series(us_gaap, _DA, "flow")
-    if series:
-        return name, series
+    """D&A annual series, choosing the freshest direct or component-derived lane."""
+    name, direct = _series(us_gaap, _DA, "flow")
     _, dep = _series(us_gaap, _DEPRECIATION, "flow")
     _, amort = _series(us_gaap, _AMORTIZATION, "flow")
-    if not dep and not amort:
-        return None, {}
-    combined: Dict[int, Tuple[float, str]] = {}
+    components: Dict[int, Tuple[float, str]] = {}
     for y in sorted(set(dep) | set(amort)):
         val = (dep[y][0] if y in dep else 0.0) + (amort[y][0] if y in amort else 0.0)
-        combined[y] = (val, dep[y][1] if y in dep else amort[y][1])
-    return "Depreciation+AmortizationOfIntangibleAssets", combined
+        components[y] = (val, dep[y][1] if y in dep else amort[y][1])
+    if not direct:
+        return ("Depreciation+AmortizationOfIntangibleAssets", components) if components else (None, {})
+    if not components:
+        return name, direct
+    if max(components) > max(direct):
+        return "Depreciation+AmortizationOfIntangibleAssets", components
+    return name, direct
 
 
 def _latest(series: Dict[int, Tuple[float, str]], year: int) -> Optional[Tuple[float, str]]:

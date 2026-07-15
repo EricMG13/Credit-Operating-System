@@ -49,9 +49,18 @@ class PropagationNode(BaseModel):
     basis: str
 
 
+class PropagationSource(BaseModel):
+    run_status: str
+    qa_status: str
+    committee_status: str
+    included_modules: List[str]
+    excluded_modules: List[str]
+
+
 class PropagationResult(BaseModel):
     shock: ShockInput
     nodes: List[PropagationNode]
+    source: Optional[PropagationSource] = None
 
 
 def _node(
@@ -64,7 +73,12 @@ def _node(
     return PropagationNode(node=node, status=status, value=value, label=label, basis=basis)
 
 
-def propagate(shock: ShockInput, payload: Dict[str, dict]) -> PropagationResult:
+def propagate(
+    shock: ShockInput,
+    payload: Dict[str, dict],
+    *,
+    source: Optional[PropagationSource] = None,
+) -> PropagationResult:
     cp1 = payload.get("CP-1") or {}
     nf = cp1.get("normalized_financials") if isinstance(cp1, dict) else {}
     nf = nf if isinstance(nf, dict) else {}
@@ -170,4 +184,4 @@ def propagate(shock: ShockInput, payload: Dict[str, dict]) -> PropagationResult:
         "report", NodeStatus.COMPUTED, 1.0, "Report stale — refresh required",
         "Any non-zero propagated shock invalidates the current report snapshot",
     ))
-    return PropagationResult(shock=shock, nodes=nodes)
+    return PropagationResult(shock=shock, nodes=nodes, source=source)

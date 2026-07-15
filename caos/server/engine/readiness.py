@@ -19,6 +19,7 @@ from typing import Optional, Set
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import get_settings
 from database import Document, DocumentChunk, Issuer
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
@@ -113,7 +114,10 @@ async def synthesize_source_readiness(session: AsyncSession, issuer: Issuer) -> 
     n = len(docs)
     missing = [c for c in _CATEGORIES if c not in present]
     coverage = round(len(present) / len(_CATEGORIES), 2)
-    edgar = bool((issuer.ticker or "").strip())
+    # Mirror CP-1's executable EDGAR predicate. A ticker alone is only a possible
+    # mapping; without the configured SEC fair-access user agent the source lane
+    # is deliberately disabled and CP-0 must not promise XBRL grounding.
+    edgar = bool((issuer.ticker or "").strip() and get_settings().edgar_user_agent.strip())
 
     if n == 0:
         confidence = "Insufficient Information"

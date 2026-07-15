@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Document, DocumentChunk, engine, DocumentChunkEmbedding
 from config import get_settings
+from retrieval_types import CorpusHit, Hit
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _K1 = 1.5  # term-frequency saturation
@@ -38,13 +39,6 @@ _CORPUS_SCAN_CAP = 5000
 
 def tokenize(text: str) -> List[str]:
     return _TOKEN_RE.findall(text.lower())
-
-
-@dataclass(frozen=True)
-class Hit:
-    chunk_id: str
-    text: str
-    score: float
 
 
 @dataclass(frozen=True)
@@ -290,15 +284,6 @@ async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
         )
     ).all()
     return await asyncio.to_thread(build_index, [(r[0], r[1]) for r in rows])
-
-
-@dataclass(frozen=True)
-class CorpusHit(Hit):
-    """A BM25/Vector hit attributed to its issuer and source document — for cross-issuer
-    semantic query, where the same retrieval ranks chunks from many issuers."""
-
-    issuer_id: str = ""
-    doc: str = ""  # source file_name
 
 
 async def retrieve_corpus(  # noqa: C901

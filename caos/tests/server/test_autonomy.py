@@ -139,12 +139,7 @@ async def test_run_cycle_first_run_is_full_scan(monkeypatch):
 # ── API route (real cycle, keyless) ──────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    import os
-    tmp = tmp_path_factory.mktemp("caos")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ.setdefault("CAOS_DEMO_SEED", "true")
+def client():
     from main import app
     with TestClient(app) as c:
         yield c

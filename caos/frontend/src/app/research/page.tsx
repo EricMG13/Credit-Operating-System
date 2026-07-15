@@ -370,8 +370,8 @@ function Research() {
     <EnterprisePage kind="analytical"
       identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
       primaryAction={
-        <button type="button" onClick={run} disabled={!canRun || running} className="caos-primary-action focus-ring disabled:opacity-40">
-          {running ? "Researching…" : "Run research"}
+        <button type="button" onClick={() => { if (canRun && !running) run(); }} aria-disabled={!canRun || running} title={canRun || running ? undefined : "Enter a sector or issuer above"} className="caos-primary-action focus-ring">
+          {running ? "Researching…" : llmConfigured === false ? "Run example research" : "Run deep research"}
         </button>
       }
       contextualControls={

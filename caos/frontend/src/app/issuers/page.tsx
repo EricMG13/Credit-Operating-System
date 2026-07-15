@@ -43,7 +43,7 @@ export default function IssuersPage() {
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
 const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
-const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
+const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
 
 // fallow-ignore-next-line complexity
@@ -206,7 +206,6 @@ function IssuersDirectory() {
     sector: (i) => issuerSector(i) || "—",
     sub_sector: (i) => i.sub_sector || "—",
     country: (i) => i.country || "—",
-    action: () => "UPLOAD",
   }), []);
   const filteredIssuers = useColumnFilters(issuers, filters, filterVals);
 
@@ -330,20 +329,21 @@ function IssuersDirectory() {
         </button>
       }
       contextualControls={
-        <>
-          <Link
-            href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
-            className="caos-secondary-action no-underline focus-ring"
-          >
-            Sponsors
-          </Link>
-          <Link
-            href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
-            className="caos-secondary-action no-underline focus-ring"
-          >
-            Upload documents
-          </Link>
-        </>
+        <Link
+          href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
+          className="caos-secondary-action no-underline focus-ring"
+        >
+          Upload documents
+        </Link>
+      }
+      utilityLabel="Directory utilities"
+      utilityControls={
+        <Link
+          href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
+          className="caos-secondary-action no-underline focus-ring w-full justify-start"
+        >
+          Open Sponsors
+        </Link>
       }
       narrowContract={narrowContract}
     >
@@ -492,10 +492,10 @@ function IssuersDirectory() {
                     className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target"
                   />
                 </span>
-                {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
+                {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country"].map((h, i) => (
                   <FilterHeader
                      key={i}
-                     label={h || "Action"}
+                     label={h}
                      col={FILTER_KEYS[i]}
                      rows={issuers}
                      getValue={filterVals[FILTER_KEYS[i]]}
@@ -510,6 +510,8 @@ function IssuersDirectory() {
                      {h}
                    </FilterHeader>
                 ))}
+                {/* Action column: no filter — the value is a constant UPLOAD button. */}
+                <span role="columnheader" className="tabular text-caos-xs uppercase tracking-wider text-caos-muted" />
               </div>
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book

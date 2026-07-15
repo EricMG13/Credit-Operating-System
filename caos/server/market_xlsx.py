@@ -12,20 +12,19 @@ import io
 import json
 import math
 import re
-import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
-from pathlib import PurePosixPath
 from typing import Any, Literal, Optional
-from xml.etree import ElementTree
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+import xlsx_safety
+from xlsx_safety import XlsxPackageError, validate_xlsx_package
 
 
-MAX_PACKAGE_MEMBERS = 5_000
-MAX_PACKAGE_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
-MAX_PACKAGE_MEMBER_BYTES = 64 * 1024 * 1024
-MAX_COMPRESSION_RATIO = 100
+MAX_PACKAGE_MEMBERS = xlsx_safety.MAX_PACKAGE_MEMBERS
+MAX_PACKAGE_UNCOMPRESSED_BYTES = xlsx_safety.MAX_PACKAGE_UNCOMPRESSED_BYTES
+MAX_PACKAGE_MEMBER_BYTES = xlsx_safety.MAX_PACKAGE_MEMBER_BYTES
+MAX_COMPRESSION_RATIO = xlsx_safety.MAX_COMPRESSION_RATIO
 MAX_SHEETS = 20
 MAX_ROWS_PER_SHEET = 25_000
 MAX_COLUMNS_PER_SHEET = 128
@@ -173,65 +172,10 @@ def require_xlsx_filename(filename: str) -> None:
 
 
 def _validate_package(content: bytes) -> None:
-    if not content.startswith(b"PK\x03\x04"):
-        raise MarketWorkbookError("invalid_ooxml", "Uploaded file is not an OOXML .xlsx workbook.")
     try:
-        package = zipfile.ZipFile(io.BytesIO(content))
-    except (zipfile.BadZipFile, OSError) as exc:
-        raise MarketWorkbookError("invalid_ooxml", "Uploaded file is not a valid OOXML package.") from exc
-    with package:
-        members = package.infolist()
-        if len(members) > MAX_PACKAGE_MEMBERS:
-            raise MarketWorkbookError("package_member_limit", "Workbook package contains too many members.")
-        names = [member.filename for member in members]
-        if len(set(names)) != len(names):
-            raise MarketWorkbookError("duplicate_package_member", "Workbook package contains duplicate members.")
-        if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
-            raise MarketWorkbookError("invalid_ooxml", "Workbook package is missing required OOXML parts.")
-        total_uncompressed = 0
-        for member in members:
-            path = PurePosixPath(member.filename)
-            if path.is_absolute() or ".." in path.parts or "\\" in member.filename:
-                raise MarketWorkbookError("unsafe_package_path", "Workbook package contains an unsafe member path.")
-            if member.flag_bits & 0x1:
-                raise MarketWorkbookError("encrypted_package", "Encrypted workbook packages are not supported.")
-            if member.file_size > MAX_PACKAGE_MEMBER_BYTES:
-                raise MarketWorkbookError("package_member_size_limit", "Workbook package member is too large.")
-            total_uncompressed += member.file_size
-            if total_uncompressed > MAX_PACKAGE_UNCOMPRESSED_BYTES:
-                raise MarketWorkbookError("package_size_limit", "Workbook expands beyond the safe processing limit.")
-            if member.file_size >= 1_000_000:
-                ratio = member.file_size / max(1, member.compress_size)
-                if ratio > MAX_COMPRESSION_RATIO:
-                    raise MarketWorkbookError("compression_ratio_limit", "Workbook compression ratio exceeds the safe limit.")
-            lowered = member.filename.lower()
-            if (
-                "vbaproject" in lowered
-                or lowered.startswith("xl/externallinks/")
-                or lowered.startswith("xl/embeddings/")
-                or lowered.startswith("xl/querytables/")
-                or lowered == "xl/connections.xml"
-            ):
-                raise MarketWorkbookError("active_or_external_content", "Macros, embedded objects, queries, and external links are not supported.")
-        content_types = package.read("[Content_Types].xml").lower()
-        if b"macroenabled" in content_types or b"vbaproject" in content_types:
-            raise MarketWorkbookError("active_or_external_content", "Macro-enabled workbooks are not supported.")
-        for member in members:
-            if not member.filename.lower().endswith(".rels"):
-                continue
-            try:
-                relationship_xml = package.read(member)
-                lowered_xml = relationship_xml.lower()
-                if b"<!doctype" in lowered_xml or b"<!entity" in lowered_xml:
-                    raise MarketWorkbookError("invalid_relationships", "Workbook relationships contain a forbidden document type.")
-                root = ElementTree.fromstring(relationship_xml)
-            except MarketWorkbookError:
-                raise
-            except (ElementTree.ParseError, RuntimeError, KeyError) as exc:
-                raise MarketWorkbookError("invalid_relationships", "Workbook relationships are malformed.") from exc
-            for relationship in root.iter():
-                if relationship.attrib.get("TargetMode", "").lower() == "external":
-                    raise MarketWorkbookError("external_relationship", "External workbook relationships are not supported.")
+        validate_xlsx_package(content)
+    except XlsxPackageError as exc:
+        raise MarketWorkbookError(exc.code, exc.message) from exc
 
 
 def _is_blank(value: object) -> bool:

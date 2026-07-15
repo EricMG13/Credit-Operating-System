@@ -22,6 +22,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import ratings
+from xlsx_safety import validate_xlsx_package
 
 # ── Holdings ─────────────────────────────────────────────────────────────────
 _HOLD_COLS = {
@@ -69,6 +70,7 @@ def _num(v: Any) -> Optional[float]:
 
 def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str, Any]]:
     """Holdings sheet → position dicts for rows the CLO actually holds (par > 0)."""
+    validate_xlsx_package(content)
     try:
         from openpyxl import load_workbook
 

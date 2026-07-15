@@ -152,3 +152,97 @@ def test_issuer_name_uniqueness_uses_exact_tenancy_scope(monkeypatch):
         assert c.post("/api/issuers/", json={"name": name}).status_code == 409
 
     app.dependency_overrides.clear()
+
+
+def test_tenancy_isolates_research_reports_watchlists_and_accepted_links(monkeypatch):
+    """Relationship artifacts inherit visibility from every issuer endpoint."""
+    import asyncio
+
+    from config import get_settings
+    from database import AsyncSessionLocal, IssuerResearchReport, Run
+    from identity import get_identity
+    from main import app
+
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+
+    async def _seed_report(issuer_id: str) -> tuple[str, str]:
+        async with AsyncSessionLocal() as db:
+            run = Run(
+                issuer_id=issuer_id,
+                analyst_id="analyst-team-a",
+                status="complete",
+            )
+            db.add(run)
+            await db.flush()
+            report = IssuerResearchReport(
+                issuer_id=issuer_id,
+                run_id=run.id,
+                analyst_id="analyst-team-a",
+                status="complete",
+                payload={"summary": "team-a only"},
+            )
+            db.add(report)
+            await db.commit()
+            return run.id, report.id
+
+    try:
+        with TestClient(app) as c:
+            app.dependency_overrides[get_identity] = _as_team("team-a")
+            issuer_a = c.post(
+                "/api/issuers/", json={"name": "Tenant Link A"}
+            ).json()["id"]
+            issuer_b = c.post(
+                "/api/issuers/", json={"name": "Tenant Link B"}
+            ).json()["id"]
+            _, report_id = asyncio.run(_seed_report(issuer_a))
+
+            accepted = c.post(
+                "/api/query/links",
+                json={
+                    "source_issuer_id": issuer_a,
+                    "target_issuer_id": issuer_b,
+                    "capability_id": "peer-set",
+                },
+            )
+            assert accepted.status_code == 200, accepted.text
+            link_id = accepted.json()["id"]
+            watchlist = c.put(
+                "/api/query/watchlist", json={"issuer_ids": [issuer_a, issuer_b]}
+            )
+            assert watchlist.status_code == 200, watchlist.text
+
+            assert c.get(f"/api/issuers/{issuer_a}/research-report").status_code == 200
+            assert c.get(f"/api/issuers/{issuer_a}/research-report/{report_id}").status_code == 200
+            assert any(
+                row["id"] == link_id for row in c.get("/api/query/links").json()["links"]
+            )
+
+            app.dependency_overrides[get_identity] = _as_team("team-b")
+            assert c.get(f"/api/issuers/{issuer_a}/research-report").status_code == 404
+            assert c.get(
+                f"/api/issuers/{issuer_a}/research-report/{report_id}"
+            ).status_code == 404
+            assert c.post(
+                f"/api/issuers/{issuer_a}/research-report"
+            ).status_code == 404
+            assert all(
+                row["id"] != link_id for row in c.get("/api/query/links").json()["links"]
+            )
+            assert c.delete(f"/api/query/links/{link_id}").status_code == 404
+            assert c.post(
+                "/api/query/links",
+                json={
+                    "source_issuer_id": issuer_a,
+                    "target_issuer_id": issuer_b,
+                    "capability_id": "peer-set",
+                },
+            ).status_code == 404
+            assert c.put(
+                "/api/query/watchlist", json={"issuer_ids": [issuer_a]}
+            ).status_code == 422
+            assert issuer_a not in c.get("/api/query/watchlist").json()["issuer_ids"]
+
+            app.dependency_overrides[get_identity] = _as_team("team-a")
+            assert c.delete(f"/api/query/links/{link_id}").status_code == 200
+    finally:
+        app.dependency_overrides.clear()

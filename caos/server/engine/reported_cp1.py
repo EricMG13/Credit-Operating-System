@@ -97,7 +97,7 @@ def _all_leverage(text: str) -> List[Tuple[float, str]]:
     for pat in _LEVERAGE_PATTERNS:
         for m in pat.finditer(text):
             v = float(m.group(1))
-            if 0.5 <= v <= 15.0 and v not in seen:
+            if 0.5 <= v <= 15.0 and v not in seen and not _is_limit(text, m.start()):
                 seen.add(v)
                 found.append((m.start(), v, " ".join(text[max(0, m.start() - 18): m.end()].split())))
     found.sort(key=lambda x: x[0])
@@ -180,6 +180,42 @@ def _pick_recent(chunks: Sequence[Tuple[str, str]], extract):
     return (best[1], best[2]) if best else None
 
 
+def _pick_for_disclosure(
+    chunks: Sequence[Tuple[str, str]], extract, *, anchor_cid: str, anchor_recency: float,
+):
+    """Pick a metric compatible with the selected leverage disclosure.
+
+    Same-chunk values are strongest. When the leverage chunk carries a reporting
+    date, values from the same dated period or an undated supporting table are
+    accepted; an explicitly different dated period is never blended in. Without
+    a dated anchor, only same-chunk values are defensible because the retrieval
+    result does not expose a document identity that could safely join two undated
+    chunks.
+
+    Returns ``((value, chunk_id) | None, incompatible_dated_value_seen)``.
+    """
+    best = None  # (compatibility tier, recency, inverse order, value, cid)
+    incompatible_dated = False
+    for order, (cid, text) in enumerate(chunks):
+        value = extract(text)
+        if value is None:
+            continue
+        recency = _recency(text)
+        if cid == anchor_cid:
+            tier = 3
+        elif anchor_recency > 0 and recency == anchor_recency:
+            tier = 2
+        elif anchor_recency > 0 and recency == 0:
+            tier = 1
+        else:
+            incompatible_dated = incompatible_dated or recency > 0
+            continue
+        candidate = (tier, recency, -order, value, cid)
+        if best is None or candidate[:3] > best[:3]:
+            best = candidate
+    return ((best[3], best[4]) if best else None), incompatible_dated
+
+
 def extract_reported_metrics(
     chunks: Sequence[Tuple[str, str]]
 ) -> Optional[Dict[str, object]]:
@@ -193,16 +229,45 @@ def extract_reported_metrics(
     # Other leverage measures disclosed in the same (headline) chunk — the broader
     # total beside the covenant figure, etc. Captured, not chosen between.
     chunk_text = next((t for c, t in chunks if c == lev_cid), "")
+    anchor_recency = _recency(chunk_text)
     additional = [(v, ph) for v, ph in _all_leverage(chunk_text) if v != lev_val]
-    eb = _pick_recent(chunks, lambda t: _amount(_EBITDA_AMOUNT, t))
-    rv = _pick_recent(chunks, lambda t: _amount(_TOTAL_REVENUE_AMOUNT, t))
+    eb, eb_incompatible = _pick_for_disclosure(
+        chunks, lambda t: _amount(_EBITDA_AMOUNT, t),
+        anchor_cid=lev_cid, anchor_recency=anchor_recency,
+    )
+    rv, rv_incompatible = _pick_for_disclosure(
+        chunks, lambda t: _amount(_TOTAL_REVENUE_AMOUNT, t),
+        anchor_cid=lev_cid, anchor_recency=anchor_recency,
+    )
     if rv is None:
-        rv = _pick_recent(chunks, lambda t: _amount(_REVENUE_AMOUNT, t))
+        rv, fallback_incompatible = _pick_for_disclosure(
+            chunks, lambda t: _amount(_REVENUE_AMOUNT, t),
+            anchor_cid=lev_cid, anchor_recency=anchor_recency,
+        )
+        rv_incompatible = rv_incompatible or fallback_incompatible
+    coherence_flags: List[str] = []
+    if eb is None and eb_incompatible:
+        coherence_flags.append(
+            "Adjusted EBITDA omitted because the available disclosure is from a different "
+            "reporting period than the selected leverage disclosure."
+        )
+    if rv is None and rv_incompatible:
+        coherence_flags.append(
+            "Revenue omitted because the available disclosure is from a different reporting "
+            "period than the selected leverage disclosure."
+        )
+    if eb is not None and rv is not None and eb[0][1] != rv[0][1]:
+        coherence_flags.append(
+            f"Revenue omitted because its disclosed currency ({rv[0][1]}) does not match "
+            f"the selected payload currency ({eb[0][1]})."
+        )
+        rv = None
     return {
         "net_leverage": leverage,
         "additional_leverage": additional or None,
         "adj_ebitda": (*eb[0], eb[1]) if eb else None,
         "revenue": (*rv[0], rv[1]) if rv else None,
+        "coherence_flags": coherence_flags,
     }
 
 
@@ -278,6 +343,7 @@ async def build_reported_cp1_payload(issuer_name: str, retrieve: RetrieveFn) -> 
             "Figures are issuer-disclosed headline metrics (quarterly investor report / earnings release), "
             "taken as reported — not independently re-derived from the primary financial "
             "statements, and not covenant-adjusted. For non-US/IFRS issuers with no SEC XBRL.",
+            *metrics.get("coherence_flags", []),
         ],
         downstream_consumers=["CP-1B", "CP-1C", "CP-2", "CP-4C"],
         claims=claims,

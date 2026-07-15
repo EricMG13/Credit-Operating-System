@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from engine.scenario_network import NodeStatus, ShockInput, propagate
+from types import SimpleNamespace
+
+from engine.scenario_network import NodeStatus, PropagationSource, ShockInput, propagate
 import pytest
+from fastapi import HTTPException
 
 
 def _payload(ebitda=100.0):
@@ -50,3 +53,40 @@ def test_near_total_shock_never_divides_by_zero():
 def test_noop_shock_is_rejected():
     with pytest.raises(ValueError):
         ShockInput(issuer_id="i", run_id="r", ebitda_pct=0, rate_bps=0)
+
+
+@pytest.mark.parametrize(
+    ("status", "qa_status"),
+    [("running", "Pending"), ("complete", "Blocked")],
+)
+def test_scenario_route_rejects_ineligible_runs(status, qa_status):
+    from routes.scenario import _accepted_scenario_payload
+
+    run = SimpleNamespace(status=status, qa_status=qa_status, committee_status="Blocked")
+    with pytest.raises(HTTPException) as exc:
+        _accepted_scenario_payload(run, [])
+    assert exc.value.status_code == 409
+
+
+def test_scenario_payload_excludes_blocked_modules_and_reports_source_status():
+    from routes.scenario import _accepted_scenario_payload
+
+    run = SimpleNamespace(status="complete", qa_status="Restricted", committee_status="Restricted")
+    outputs = [
+        SimpleNamespace(module_id="CP-1", qa_status="Passed", runtime_output={"x": 1}),
+        SimpleNamespace(module_id="CP-2E", qa_status="Blocked", runtime_output={"x": 2}),
+    ]
+    payload, source = _accepted_scenario_payload(run, outputs)
+
+    assert payload == {"CP-1": {"x": 1}}
+    assert source == PropagationSource(
+        run_status="complete",
+        qa_status="Restricted",
+        committee_status="Restricted",
+        included_modules=["CP-1"],
+        excluded_modules=["CP-2E"],
+    )
+    result = propagate(
+        ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.2), payload, source=source
+    )
+    assert result.source == source

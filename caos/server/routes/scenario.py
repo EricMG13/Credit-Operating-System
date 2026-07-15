@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import ModuleOutput, Run, get_db
-from engine.scenario_network import PropagationResult, ShockInput, propagate
+from engine.scenario_network import PropagationResult, PropagationSource, ShockInput, propagate
 from identity import CallerIdentity, get_identity
 from scenario import ScenarioError, translate_scenario
 from tenancy import require_run_access
@@ -26,6 +26,37 @@ _SCENARIO_MAX_PER_MINUTE = 20
 
 class ScenarioRequest(BaseModel):
     text: str = Field(min_length=1, max_length=500)
+
+
+def _accepted_scenario_payload(run: Run, outputs) -> tuple[dict[str, dict], PropagationSource]:
+    """Return only scenario-eligible module outputs plus visible source status."""
+    if run.status != "complete":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Scenario propagation requires a completed run.",
+        )
+    if run.qa_status == "Blocked" or run.committee_status == "Blocked":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Scenario propagation is unavailable for a QA-Blocked run.",
+        )
+    included: list[str] = []
+    excluded: list[str] = []
+    payload: dict[str, dict] = {}
+    for row in outputs:
+        if row.qa_status == "Blocked":
+            excluded.append(row.module_id)
+            continue
+        included.append(row.module_id)
+        payload[row.module_id] = row.runtime_output if isinstance(row.runtime_output, dict) else {}
+    source = PropagationSource(
+        run_status=run.status,
+        qa_status=run.qa_status,
+        committee_status=run.committee_status,
+        included_modules=sorted(included),
+        excluded_modules=sorted(excluded),
+    )
+    return payload, source
 
 
 @router.post("/nl")
@@ -68,5 +99,5 @@ async def scenario_propagate(
     outputs = (await db.execute(
         select(ModuleOutput).where(ModuleOutput.run_id == body.run_id)
     )).scalars().all()
-    payload = {row.module_id: (row.runtime_output or {}) for row in outputs}
-    return propagate(body, payload)
+    payload, source = _accepted_scenario_payload(run, outputs)
+    return propagate(body, payload, source=source)

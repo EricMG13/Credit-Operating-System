@@ -236,3 +236,17 @@ async def get_identity(
         source="proxy",
         team_id=(persisted_analyst.team_id if persisted_analyst is not None else None),
     )
+
+
+async def get_write_identity(
+    caller: CallerIdentity = Depends(get_identity),
+) -> CallerIdentity:
+    """Resolve an authenticated caller and require domain-write capability.
+
+    Mutation routes should depend on this boundary instead of remembering an
+    ad-hoc role check inside the handler. FastAPI reuses the nested
+    ``get_identity`` result, so routes that also need the caller do not perform
+    a second profile lookup.
+    """
+    require_write_role(caller)
+    return caller

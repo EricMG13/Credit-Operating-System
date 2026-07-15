@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import AlertEvent, AlertState, get_db
 from engine import pipeline
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 
 router = APIRouter()
 
@@ -182,7 +182,7 @@ def _draft_alerts(draft: dict) -> list[dict]:
 async def upsert_alert_state(
     body: AlertStateUpsert,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     if not rate_limit.hit(f"alert-state:{caller.id}", max_attempts=_WRITES_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert-state rate limit reached — try again in a minute.")
@@ -242,7 +242,7 @@ async def list_alert_states(
 @router.post("/refresh", response_model=List[AlertEventOut])
 async def refresh_alert_events(
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Materialize the latest completed Watchtower draft into durable events."""
     if not rate_limit.hit(f"alert-refresh:{caller.id}", max_attempts=12, window_seconds=60):
@@ -322,7 +322,7 @@ async def patch_alert_event(
     event_id: str,
     body: AlertEventPatch,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     event = await db.get(AlertEvent, event_id)
     if event is None:

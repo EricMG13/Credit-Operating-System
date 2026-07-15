@@ -7,8 +7,9 @@ real completed run populates metrics + the signal/coverage roll-ups.
 
 from __future__ import annotations
 
-import os
+import asyncio
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -21,11 +22,7 @@ sys.path.insert(0, str(SERVER_DIR))
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-profile")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""  # demo/fixture fallback — no external calls
+def client():
     from main import app
 
     with TestClient(app) as c:
@@ -83,6 +80,70 @@ def test_profile_after_run_populates(client):
     assert isinstance(body["business"], list)
     assert isinstance(body["sponsor"], dict)
     assert isinstance(body["strengths"], list) and isinstance(body["weaknesses"], list)
+
+
+def test_profile_labels_retained_facts_and_excludes_blocked_signals(client):
+    iid = client.post("/api/issuers/", json={"name": "Last Good Profile Co"}).json()["id"]
+
+    async def seed():
+        from database import AsyncSessionLocal, MetricFact, ModuleOutput, Run
+
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            accepted = Run(
+                issuer_id=iid,
+                status="complete",
+                qa_status="Passed",
+                committee_status="Committee Ready",
+                as_of_date="2025-12-31",
+                created_at=now - timedelta(days=1),
+                completed_at=now - timedelta(days=1),
+            )
+            blocked = Run(
+                issuer_id=iid,
+                status="complete",
+                qa_status="Blocked",
+                committee_status="Blocked",
+                as_of_date="2026-03-31",
+                created_at=now,
+                completed_at=now,
+            )
+            db.add_all([accepted, blocked])
+            await db.flush()
+            db.add(MetricFact(
+                issuer_id=iid,
+                run_id=accepted.id,
+                module_id="CP-1",
+                metric_key="net_leverage",
+                period="FY2025",
+                value=4.2,
+                unit="x",
+                headline=True,
+                qa_status="Passed",
+                provenance="run",
+            ))
+            db.add(ModuleOutput(
+                run_id=blocked.id,
+                module_id="CP-2E",
+                module_name="LiquidityRunway",
+                # A dependent can remain Restricted even though the run-level
+                # foundation is Blocked; the profile must still reject it.
+                qa_status="Restricted",
+                committee_status="Restricted",
+                runtime_output={"months_liquidity_covers_interest": 1.0},
+            ))
+            await db.commit()
+            return accepted.id, blocked.id
+
+    accepted_id, blocked_id = asyncio.run(seed())
+    body = client.get(f"/api/issuers/{iid}/profile").json()
+
+    assert body["signal_run_id"] == blocked_id
+    assert body["signals"]["runway_months"] is None
+    metric = next(m for m in body["metrics"] if m["metric_key"] == "net_leverage")
+    assert metric["run_id"] == accepted_id
+    assert metric["source_run_as_of"] == "2025-12-31"
+    assert metric["created_at"]
 
 
 def test_issuer_ratings_collected_from_ingest(client):

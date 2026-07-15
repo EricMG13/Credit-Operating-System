@@ -358,6 +358,11 @@ def payload_from_cp1(
 
     if run.status != "complete" or cp1.run_id != run.id or cp1.module_id != "CP-1":
         raise ModelSourceError("A completed exact CP-1 output is required.")
+    if (
+        getattr(cp1, "qa_status", None) == "Blocked"
+        or getattr(cp1, "committee_status", None) == "Blocked"
+    ):
+        raise ModelSourceError("A QA-Blocked CP-1 output cannot seed a live model.")
     if DEMO_FIXTURE_LIMITATION in (cp1.limitation_flags or []):
         raise ModelSourceError("Synthetic demo-fixture financials cannot seed a live model.")
     runtime = cp1.runtime_output if isinstance(cp1.runtime_output, dict) else {}

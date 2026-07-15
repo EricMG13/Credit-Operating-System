@@ -36,9 +36,9 @@ from database import (
 )
 from engine import queryanswer, querygraph, queryinsights, queryoverlay
 from engine.metrics import catalog_dicts
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from routes.analysis import _validate_context_subjects
-from tenancy import block_if_tenancy_unscoped, require_issuer
+from tenancy import block_if_tenancy_unscoped, require_issuer, scope_issuers
 from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
 
 logger = logging.getLogger("caos")
@@ -172,9 +172,13 @@ async def get_watchlist(
 ):
     """The analyst's watchlist — the issuers their Desk Brief is scoped to."""
     _read_rate_guard(caller)
+    visible_issuer_ids = scope_issuers(select(Issuer.id), caller)
     rows = (await db.execute(
         select(AnalystWatchlist.issuer_id)
-        .where(AnalystWatchlist.analyst_id == caller.id)
+        .where(
+            AnalystWatchlist.analyst_id == caller.id,
+            AnalystWatchlist.issuer_id.in_(visible_issuer_ids),
+        )
         .order_by(AnalystWatchlist.added_at)
     )).scalars().all()
     return WatchlistResponse(issuer_ids=list(rows))
@@ -184,7 +188,7 @@ async def get_watchlist(
 async def replace_watchlist(
     body: WatchlistUpdate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Replace the analyst's watchlist with the given issuer set (idempotent).
 
@@ -204,7 +208,9 @@ async def replace_watchlist(
     # nothing and silently degrade the panel.
     if target:
         valid = set((await db.execute(
-            select(Issuer.id).where(Issuer.id.in_(list(target)))
+            scope_issuers(
+                select(Issuer.id).where(Issuer.id.in_(list(target))), caller
+            )
         )).scalars().all())
         unknown = target - valid
         if unknown:
@@ -384,12 +390,16 @@ async def list_accepted_links(
 ):
     """All analyst-ratified links — backs the accept/undo state in the overlay UI."""
     _read_rate_guard(caller)
+    visible_issuer_ids = scope_issuers(select(Issuer.id), caller)
     rows = (await db.execute(
         select(
             QueryAcceptedLink.id, QueryAcceptedLink.issuer_a, QueryAcceptedLink.issuer_b,
             QueryAcceptedLink.capability_id, QueryAcceptedLink.rationale, QueryAcceptedLink.chunk_ids,
             QueryAcceptedLink.confidence, QueryAcceptedLink.model, QueryAcceptedLink.analyst_id,
             QueryAcceptedLink.created_at
+        ).where(
+            QueryAcceptedLink.issuer_a.in_(visible_issuer_ids),
+            QueryAcceptedLink.issuer_b.in_(visible_issuer_ids),
         ).limit(1000)
     )).all()
     return {
@@ -410,7 +420,7 @@ async def list_accepted_links(
 async def accept_link(
     body: AcceptLinkRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Ratify one model-proposed issuer↔issuer link. Analyst-initiated write —
     the LLM lane never calls this. Idempotent per pair (normalized, undirected):
@@ -425,9 +435,15 @@ async def accept_link(
     a, b = sorted((body.source_issuer_id, body.target_issuer_id))
     if a == b:
         raise HTTPException(status_code=422, detail="A link needs two distinct issuers.")
-    issuers = (await db.execute(select(Issuer.id).where(Issuer.id.in_([a, b])))).scalars().all()
-    if len(set(issuers)) != 2:
-        raise HTTPException(status_code=404, detail="Both endpoints must be known issuers.")
+    issuers = (await db.execute(select(Issuer).where(Issuer.id.in_([a, b])))).scalars().all()
+    issuers_by_id = {issuer.id: issuer for issuer in issuers}
+    try:
+        require_issuer(caller, issuers_by_id.get(a))
+        require_issuer(caller, issuers_by_id.get(b))
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=404, detail="Both endpoints must be known issuers."
+        ) from exc
     existing = (await db.execute(
         select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
     )).scalars().first()
@@ -462,7 +478,7 @@ async def accept_link(
 async def retract_link(
     link_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Retract a ratified link — it stops being drawn on the next graph build.
 
@@ -486,6 +502,11 @@ async def retract_link(
     )).scalars().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Link not found.")
+    try:
+        require_issuer(caller, await db.get(Issuer, row.issuer_a))
+        require_issuer(caller, await db.get(Issuer, row.issuer_b))
+    except HTTPException as exc:
+        raise HTTPException(status_code=404, detail="Link not found.") from exc
     await db.delete(row)
     await db.commit()
     return {"deleted": link_id}
@@ -706,7 +727,7 @@ def _result_source_ids(result: dict) -> list[str]:
 async def create_query_run(
     body: QueryRunCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Run one explicit lane and persist both its result and recovery state.
 
@@ -854,7 +875,7 @@ async def get_query_run(
 async def cancel_query_run(
     run_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     row = (await db.execute(select(AnalysisQueryRun).where(
         AnalysisQueryRun.id == run_id,

@@ -1425,3 +1425,21 @@ def test_cp1_binder_rejects_non_reference_demo_fixture_marker() -> None:
     )
     with pytest.raises(ModelSourceError, match="demo-fixture"):
         payload_from_cp1(run, cp1)
+
+
+@pytest.mark.parametrize("status_field", ["qa_status", "committee_status"])
+def test_cp1_binder_rejects_blocked_output(status_field: str) -> None:
+    run = SimpleNamespace(id="run-blocked", status="complete", as_of_date="2026-03-31")
+    cp1 = SimpleNamespace(
+        id="cp1-blocked",
+        run_id=run.id,
+        module_id="CP-1",
+        qa_status="Passed",
+        committee_status="Committee Ready",
+        limitation_flags=[],
+        runtime_output={},
+    )
+    setattr(cp1, status_field, "Blocked")
+
+    with pytest.raises(ModelSourceError, match="Blocked"):
+        payload_from_cp1(run, cp1)

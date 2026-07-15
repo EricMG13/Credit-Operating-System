@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from database import NotificationEvent, get_db
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 
 router = APIRouter()
 _CURSOR_VERSION = 1
@@ -130,7 +130,7 @@ async def list_notifications(
 async def mark_notification_seen(
     notification_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ) -> NotificationOut:
     row = (
         await db.execute(select(NotificationEvent).where(

@@ -6,7 +6,6 @@ separate table from engine qa_findings so it can never gate a run.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -20,12 +19,8 @@ ATLF = "a71f0000-0000-0000-0000-000000000001"
 
 
 @pytest.fixture(scope="session")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-qa-flags")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""
-    from main import app  # imported after env is set
+def client():
+    from main import app
 
     with TestClient(app) as c:
         yield c

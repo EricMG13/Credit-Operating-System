@@ -885,3 +885,95 @@ Reopen if the webpack fallback is removed; the development filesystem cache is
 enabled without a bounded-size proof; the unrestricted Turbopack build fails; the
 static route inventory or staged artifact differs; `/api/*` is absent from the dev
 routes manifest; or a sandbox-only port denial is reported as an application bug.
+
+## Adversarial Review Remediation — Critic Pass (2026-07-15)
+
+Decision under review: close the remaining tenant-isolation, server-role,
+workbook-resource, reranker-integrity, and test-isolation findings without
+weakening read-only analytical workflows or established import error contracts.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-265 | Tenancy reviewer | Scoping accepted links by only one issuer still leaks the existence or relationship of a foreign issuer through the other endpoint. | Critical | Resolved and verified | Creation requires both issuers to be visible. Listing and deletion require both stored endpoints to remain visible and return a non-enumerable 404 for foreign links; integration tests cover reports, links, and watchlists across teams. |
+| RT-2026-07-15-266 | Authorization reviewer | Applying a write dependency to every POST would incorrectly block read-style natural-language queries, translations, and previews for viewers. | High | Resolved and verified | Persistent/enqueueing handlers use the server write identity or an ownership-first write guard. Viewer mutation probes return 403 while chat and scenario POST reads remain available. |
+| RT-2026-07-15-267 | Workbook security reviewer | A shared ZIP validator can silently change Market Workbook error codes or still permit worksheet dimensions that cause unbounded iteration after decompression. | Critical | Resolved and verified | One pre-parse gate now enforces path/member/expanded-size/ratio/active-content/dimension/cell limits across generic ingest, portfolio, ratings, Market, and Model paths. Resource-bomb and nominal cross-parser tests pass. |
+| RT-2026-07-15-268 | Retrieval integrity reviewer | Valid JSON strings such as `"NaN"`, `"Infinity"`, or overflow exponents bypass a JSON-only check and can poison sorting and confidence metadata. | High | Resolved and verified | Both the LLM parser and orchestration boundary require finite numeric scores; invalid or mismatched batches fall back atomically. String-encoded and injected non-finite regressions pass, and the retrieval import graph is cycle-free. |
+| RT-2026-07-15-269 | Test reliability reviewer | Changing environment variables after cached settings and route modules are imported creates a second, ineffective storage/database configuration inside the same process. | High | Resolved and verified | Server tests now use conftest's pre-import process configuration, and ingest resolves cached settings per operation. The server suite passed with antivirus socket tests rerun outside the sandbox. |
+
+### Critic reopen conditions (adversarial review remediation)
+
+Reopen if a relationship can be listed or deleted while either issuer is foreign;
+a viewer can reach any persistent domain mutation; a read-only analytical POST is
+blocked merely because it uses POST; any XLSX parser opens a package before shared
+resource validation or iterates attacker-declared dimensions without a cap; a
+non-finite reranker score reaches sorting or metadata; or a test fixture mutates
+cached process settings after application modules have imported them.
+
+## Pre-Deployment Plan 2026-07-15 Reconciliation — Critic Pass (2026-07-15)
+
+Decision under review: execute A8 (plan re-grounding) from branch
+`codex/112@76daeecf`, close C7/C9/A8 and UW-04/08/09/UF-05/12/14, add C14
+(flag-wave disposition), and re-anchor C5/C11/C3-seam onto the merged
+0055/0056/0058 stores.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-270 | Evidence reviewer | Closing UW rows from subagent verdicts risks over-crediting — agents historically inflate or misread fix status. | High | Resolved and verified | Every FIXED verdict was re-verified first-hand before any flip: zero `Sample|useSharedDayRun` hits in command/page.tsx, ExcelJS import + stamped sheets in export.ts, reports.py composition + `publishCommitteeVersion`, `database.py:249` role column. STILL-TRUE rows were left open. |
+| RT-2026-07-15-271 | Release auditor | Marking A8 done from a feature branch (not a bare `origin/main` checkout) could smuggle unreviewed drift into "current" claims. | High | Accepted with bounded claim | The 3 branch-only commits are individually inventoried in the reconciliation block and the A8 note names the scope; the block also mandates re-running A8 at the next major landing (C8/E3 merges or any flag enablement). |
+| RT-2026-07-15-272 | Program-scope reviewer | Adding C14 could duplicate APPLICABLE_UPDATES_PHASE7_RELEASE.md's authority and create two competing rollout ledgers. | Medium | Resolved in design | C14 explicitly leaves mechanism (stages, entry evidence, abort, rollback) to the release record and owns only the program decision: signed flag disposition, sign-off wiring into H5/H3, and the H0 manifest recording the frozen flag state. |
+| RT-2026-07-15-273 | Duplication reviewer | Re-anchoring C5/C11/C3-seam onto the wave's stores could still be ignored at pickup, producing parallel `market_quotes`/scenario/alert stores. | High | Resolved in contract | Each item now carries an explicit do-not-duplicate instruction naming the merged table/route to build on (`market_snapshots`+market_import.py; `model_override_events` replay; `notification_events` idempotent feed). The L-item pickup plans must reconcile naming against these stores before writing schema. |
+
+### Critic reopen conditions (plan reconciliation)
+
+Reopen if a UW/UF row is closed without first-hand anchor verification; a
+"current" plan claim cites this reconciliation after the C8/E3 merges or any
+flag-stage change without a fresh A8 pass; a C5/C11/C3-seam implementation
+plan introduces a second store overlapping 0055/0056/0058; or a flag ships to
+the transfer candidate in a state that differs from C14's signed disposition.
+
+## CP-1 Money-Path Remediation — Critic Pass (2026-07-15)
+
+Decision under review: close the eight CP-1 source, model-admission, QA-read,
+and provenance findings without suppressing usable Restricted analysis or
+mixing evidence from unrelated disclosures.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-274 | Model-governance reviewer | Rejecting every Restricted CP-1 would disable legitimate analyst use merely because a run carries a material caveat. | High | Resolved and verified | Legacy and v2 model admission reject `Blocked` and explicit demo-fixture CP-1 outputs while preserving Restricted reference sources. Regression coverage passes in both model lanes. |
+| RT-2026-07-15-275 | XBRL reviewer | Replacing concept precedence with naive merging could splice semantically different GAAP tags into one historical series; using history length before semantic precedence can also narrow a current impairment concept. | High | Resolved and verified | Selection uses latest fiscal year, then declared semantic precedence, then coverage; D&A compares direct and component lanes by freshness. Freshness regressions and the existing golden corpus pass. |
+| RT-2026-07-15-276 | Disclosure-accounting reviewer | Requiring every reported metric to come from one text chunk would drop valid table rows split from the dated narrative in the same report. | High | Resolved and verified | The extractor accepts same-period or undated supporting chunks, rejects explicitly different dates and currencies, filters covenant caps, and records omissions as limitations. Reported-disclosure regressions pass. |
+| RT-2026-07-15-277 | Read-model reviewer | Simply hiding retained facts after a Blocked rerun would discard the intentional last-QA-passed snapshot and leave the profile empty. | High | Resolved and verified | Profile facts expose their source run and as-of, retained values are labelled Last QA-passed, and Blocked run/module signals are excluded. Backend and rendered profile regressions pass. |
+| RT-2026-07-15-278 | Scenario reviewer | A run-level pass alone is insufficient because individual modules can still be Blocked after CP-5. | High | Resolved and verified | Propagation requires a completed non-Blocked run, excludes Blocked modules, and returns visible accepted/excluded source status. Route, engine, and rendered panel regressions pass. |
+| RT-2026-07-15-279 | Readiness reviewer | Calling a ticker-only issuer EDGAR-ready overpromises a source that execution cannot use when the SEC user agent is disabled. | Medium | Resolved and verified | CP-0 now requires both ticker and configured SEC user agent before declaring EDGAR available; configured and disabled readiness regressions pass. |
+
+### Critic reopen conditions (CP-1 money-path remediation)
+
+Reopen if demo-fixture figures can be labelled LIVE; a Blocked CP-1 can seed a
+model or scenario; XBRL selection prefers a stale tag over a fresher equivalent;
+reported CP-1 combines explicitly different reporting dates or currencies;
+covenant caps appear as actual leverage; profile facts lack source-run age; or
+CP-0 promises EDGAR grounding while the execution predicate is false.
+
+## 2026-07-15 — Frontend design-fault remediation (85-fault critique sweep)
+
+Decision under review: resolve all 85 faults from the 2026-07-15 adversarial
+critique via 6 systemic workstreams (S1 date util, S2 lexicon, S3 nav/breakpoint,
+S4 SubHeader overflow, S5 seam labeling, S6 interaction semantics) + 6 surface
+phases, ~23 commits on codex/111. Plan: ~/.claude/plans/construct-plan-to-resolve-elegant-brook.md.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-280 | Desk-user reviewer | Moving the rail cutoff 1180→1280 removes the sidebar for users currently at 1180–1279 — a visible regression band. | High | Resolved in design | That band is broken today (rail + collapsed contextual controls simultaneously). Compact nav + full-label Concepts drawer replace it coherently; contract test pins CSS↔JS to one constant so the band cannot silently reopen. |
+| RT-2026-07-15-281 | Layout reviewer | Measured SubHeader collapse (ResizeObserver) risks collapse↔expand oscillation: collapsing frees width, which triggers re-expansion. | High | Resolved in design | Hysteresis: record the width that was needed at collapse; re-expand only when clientWidth exceeds it. Pure `nextCollapseState` function unit-tested against the oscillation table; jsdom guard for missing ResizeObserver. |
+| RT-2026-07-15-282 | QA reviewer | Changing every as-of string to UTC format could break tests or downstream scripts grepping old formats. | Medium | Resolved in design; verification pending | Grep confirmed no test or validate-*.mjs asserts the old formats. Producers-format-only keeps DecisionHeader/SemanticVisualization dumb; per-file revert possible. |
+| RT-2026-07-15-283 | Governance reviewer | Relabeling Monitor seeded stats "Replay" without touching data could still mislead if a future live path reuses the label. | Medium | Accepted risk | Labels attach at the seeded callsites only; live-path stats keep unprefixed labels. Critical stat switches to live computation whenever live rows exist. Reopen if a live counter ever renders under a Replay label. |
+| RT-2026-07-15-284 | Regression reviewer | IC Book full CSS migration (~12 controls to caos-action-*) can regress form usability in one shot on a governance surface. | Medium | Resolved in design | Phased last (P6) after shared patterns proven on other surfaces; axe + manual create/edit walk in verification; bespoke table/inspector CSS deliberately retained. |
+| RT-2026-07-15-285 | Repo reviewer | 23 commits on a tree carrying heavy parallel server WIP risks staging user files. | High | Resolved in design | Frontend-only scope; explicit-path staging per commit; git status/diff re-checked by the main thread before each commit; redteam.md appended but never staged. |
+| RT-2026-07-15-286 | Product reviewer | Query headline synthesis (frontend-composed sentence) could overclaim vs what the lane computed — the exact fault class being fixed. | High | Resolved in design | Metric-lane sentence is deterministic from rank fields actually rendered; Δ-keyword caveat chip marks level-vs-change mismatch; question renders as eyebrow, never as answer. Reopen if a synthesized sentence names a metric not present in the result table. |
+
+### Critic reopen conditions (design remediation)
+
+Reopen if: nav is unreachable at any viewport width; a page primary action can
+render offscreen at ≥1024px; a seeded number cohabits unlabeled with a live zero;
+any as-of stamp renders raw ISO-with-microseconds; or the critique re-run scores
+any P0/P1 in the resolved fault classes.

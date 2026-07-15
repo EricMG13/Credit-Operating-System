@@ -14,15 +14,14 @@ import shlex
 import subprocess
 import tempfile
 import uuid
-import zipfile
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile
 
 from config import get_settings
+from xlsx_safety import PACKAGE_LIMIT_CODES, XlsxPackageError, validate_xlsx_package
 
-settings = get_settings()
 logger = logging.getLogger("caos.ingest")
 
 _PDF_MAGIC = b"%PDF-"
@@ -41,6 +40,9 @@ NO_CHUNKS_WARNING = (
 )
 
 _READ_CHUNK = 1024 * 1024  # 1 MB
+_MAX_XLSX_NONEMPTY_CELLS = 500_000
+_MAX_XLSX_CELL_TEXT = 4_096
+_MAX_XLSX_EXTRACTED_CHARS = 8_000_000
 
 
 async def read_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
@@ -49,6 +51,7 @@ async def read_capped(file: UploadFile, *, max_bytes: int | None = None) -> byte
     Reading the whole body before checking would let an oversized request
     occupy its full size in memory before the 413.
     """
+    settings = get_settings()
     configured_limit = settings.max_upload_mb * 1024 * 1024
     limit = configured_limit if max_bytes is None else min(configured_limit, max_bytes)
     buf = bytearray()
@@ -71,19 +74,23 @@ def sniff_pdf(content: bytes) -> None:
 
 
 def sniff_xlsx(content: bytes) -> None:
-    if not content.startswith(_OOXML_MAGIC):
-        raise HTTPException(400, "Uploaded file is not a valid .xlsx workbook.")
     try:
-        with zipfile.ZipFile(io.BytesIO(content)) as zf:
-            names = zf.namelist()
-    except zipfile.BadZipFile as e:
-        raise HTTPException(400, "Uploaded file is not a valid .xlsx workbook.") from e
-    if not any(n.startswith("xl/") for n in names):
-        raise HTTPException(400, "ZIP container is not an Excel workbook (no xl/ entries).")
+        validate_xlsx_package(content)
+    except XlsxPackageError as exc:
+        if exc.code in PACKAGE_LIMIT_CODES:
+            raise HTTPException(413, exc.message) from exc
+        if content.startswith(_OOXML_MAGIC) and exc.code == "invalid_ooxml":
+            raise HTTPException(
+                400, "ZIP container is not an Excel workbook (missing OOXML parts)."
+            ) from exc
+        if exc.code == "invalid_ooxml":
+            raise HTTPException(400, "Uploaded file is not a valid .xlsx workbook.") from exc
+        raise HTTPException(400, exc.message) from exc
 
 
 def store(content: bytes, file_name: str) -> str:
     """Write the raw file into the vault; returns the storage key."""
+    settings = get_settings()
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(file_name).name) or "upload.bin"
     key = f"{uuid.uuid4().hex}/{safe}"
     path = Path(settings.caos_storage_dir) / key
@@ -94,6 +101,7 @@ def store(content: bytes, file_name: str) -> str:
 
 def remove_uncommitted(key: str) -> None:
     """Remove only a unique object created by a failed ingestion transaction."""
+    settings = get_settings()
     parts = Path(key).parts
     if len(parts) != 2 or re.fullmatch(r"[0-9a-f]{32}", parts[0]) is None:
         raise ValueError("Refusing to remove an invalid ingestion vault key.")
@@ -114,6 +122,7 @@ def _markitdown_text(content: bytes, filename: str) -> Optional[str]:
     runs out-of-process — the server keeps its own interpreter. Returns the
     Markdown, or None to fall back to the built-in extractors (also on any
     failure/timeout, so a misconfigured command never blocks an upload)."""
+    settings = get_settings()
     cmd = settings.markitdown_cmd
     if not cmd:
         return None
@@ -144,6 +153,7 @@ def _ocrmypdf_text(content: bytes) -> str:
     runs out-of-process and stays out of the server image. Writes the recognized
     text to a sidecar file and returns it; returns "" on any failure/timeout/
     missing command so a scanned upload still vaults, just produces no chunks."""
+    settings = get_settings()
     cmd = settings.ocrmypdf_cmd
     if not cmd:
         return ""
@@ -195,6 +205,10 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> tuple[str,
 
 
 def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
+    # Validate before either extraction engine sees attacker-controlled XML.
+    # Routes call sniff_xlsx after AV scanning too; this local gate keeps direct
+    # parser callers from bypassing the same package/resource policy.
+    sniff_xlsx(content)
     md = _markitdown_text(content, filename)
     if md is not None:
         return md
@@ -206,12 +220,28 @@ def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
     except Exception:
         return ""
     lines: List[str] = []
+    nonempty_cells = 0
+    extracted_chars = 0
     for ws in wb.worksheets:
         lines.append(f"# Sheet: {ws.title}")
         for row in ws.iter_rows(values_only=True):
-            cells = [str(c) for c in row if c is not None]
+            cells = []
+            for cell in row:
+                if cell is None:
+                    continue
+                nonempty_cells += 1
+                if nonempty_cells > _MAX_XLSX_NONEMPTY_CELLS:
+                    raise HTTPException(413, "Workbook contains too many non-empty cells.")
+                value = str(cell)
+                if len(value) > _MAX_XLSX_CELL_TEXT:
+                    value = value[:_MAX_XLSX_CELL_TEXT]
+                extracted_chars += len(value)
+                if extracted_chars > _MAX_XLSX_EXTRACTED_CHARS:
+                    raise HTTPException(413, "Workbook extracted text exceeds the safe limit.")
+                cells.append(value)
             if cells:
                 lines.append("\t".join(cells))
+    wb.close()
     return "\n".join(lines)
 
 

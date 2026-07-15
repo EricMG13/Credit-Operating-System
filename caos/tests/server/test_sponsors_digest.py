@@ -10,7 +10,6 @@ exact only for data this module creates.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -27,11 +26,7 @@ from routes.issuers import _domino_map  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("caos-sponsor-digest")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'test.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    os.environ["ANTHROPIC_API_KEY"] = ""  # deterministic regex/fixture paths only
+def client():
     from main import app
 
     with TestClient(app) as c:

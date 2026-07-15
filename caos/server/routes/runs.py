@@ -42,7 +42,7 @@ from database import (
     PortfolioPosition, QAFinding, Run, get_db,
 )
 from engine.report import assemble_report, committee_export_allowed
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from lineage_service import write_lineage_edge
 from tenancy import (
     require_issuer,
@@ -329,7 +329,7 @@ async def create_run(
     body: RunCreate,
     request: Request,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
 ):
     if not rate_limit.hit(f"runs:{caller.id}", max_attempts=_RUNS_MAX_PER_MINUTE, window_seconds=60):
@@ -679,7 +679,7 @@ async def export_committee_report(
 async def export_to_vault(
     run_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     """Write this run to the Obsidian-style vault as Markdown (hub + spoke).
 

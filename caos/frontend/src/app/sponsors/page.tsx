@@ -194,7 +194,9 @@ function SponsorsView() {
             ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}</span>
             : undefined}
         >
-          {!selected ? (
+          {sponsors !== null && sponsors.length === 0 && !sponsorsError ? (
+            <div className="p-3"><SurfaceState kind="empty" title="Add sponsors first" detail="Set a Sponsor / PE owner on a covered issuer — track records build from covered names." compact /></div>
+          ) : !selected ? (
             <div className="p-3"><SurfaceState kind="empty" title="Select a sponsor" detail="Choose a covered sponsor to inspect recurring governance flags and source health." compact /></div>
           ) : recordLoading ? (
             <div className="p-3"><SurfaceState kind="loading" title={`Loading ${selected}`} detail="Retrieving the persisted cross-name CP-2D record." compact /></div>

@@ -13,6 +13,7 @@ import io
 import os
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -96,7 +97,7 @@ def test_document_upload_oversized_413(rob_client, monkeypatch):
     test doesn't ship a real 250MB body)."""
     import ingest
 
-    monkeypatch.setattr(ingest.settings, "max_upload_mb", 1)
+    monkeypatch.setattr(ingest.get_settings(), "max_upload_mb", 1)
     r = _upload_document(rob_client, "huge.pdf", b"%PDF-1.4" + b"\0" * (1024 * 1024 + 64))
     assert r.status_code == 413, r.text
     assert "exceeds the 1 MB limit" in r.json()["detail"]
@@ -132,7 +133,7 @@ def test_document_upload_db_failure_removes_uncommitted_vault_object(
     import ingest
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    monkeypatch.setattr(ingest.settings, "caos_storage_dir", str(tmp_path))
+    monkeypatch.setattr(ingest.get_settings(), "caos_storage_dir", str(tmp_path))
 
     async def fail_flush(_session, *_args, **_kwargs):
         raise RuntimeError("forced document flush failure")
@@ -142,6 +143,27 @@ def test_document_upload_db_failure_removes_uncommitted_vault_object(
         _upload_document(rob_client, "rollback-proof.pdf", _tiny_pdf())
 
     assert [path for path in tmp_path.rglob("*") if path.is_file()] == []
+
+
+def test_ingest_storage_settings_are_resolved_per_operation(tmp_path, monkeypatch):
+    """A cache reset/config swap cannot leave ingest writing to an import-time root."""
+    import ingest
+
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    current = {"root": first}
+    monkeypatch.setattr(
+        ingest,
+        "get_settings",
+        lambda: SimpleNamespace(caos_storage_dir=str(current["root"])),
+    )
+
+    first_key = ingest.store(b"first", "evidence.pdf")
+    current["root"] = second
+    second_key = ingest.store(b"second", "evidence.pdf")
+
+    assert (first / first_key).read_bytes() == b"first"
+    assert (second / second_key).read_bytes() == b"second"
 
 
 @pytest.mark.asyncio

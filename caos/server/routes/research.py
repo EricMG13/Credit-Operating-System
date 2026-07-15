@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from database import AnalysisContextRecord, ResearchJob, get_db
 from deepresearch import ResearchBrief, Source
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 
 logger = logging.getLogger("caos")
 router = APIRouter()
@@ -52,7 +52,7 @@ async def create_research(
     brief: ResearchBrief,
     request: Request,
     context_id: Optional[str] = Query(default=None, max_length=36),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     if not rate_limit.hit(

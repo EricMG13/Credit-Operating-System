@@ -50,13 +50,12 @@ from database import (
     get_db,
 )
 from engine import queryinsights
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, require_write_role
 from lineage_service import write_lineage_edge
 from routes.analysis import _guard, _validate_artifact_refs, _validate_context_subjects
 
 router = APIRouter()
 
-_READ_ONLY_ROLES = {"viewer", "read-only", "read_only", "readonly"}
 _GENERATION_RETRIES = 3
 
 
@@ -77,8 +76,7 @@ class _SourceArtifact:
 
 def _require_write(caller: CallerIdentity) -> None:
     """Use only authenticated principal capability, never presentation role_view."""
-    if (caller.role or "").strip().lower() in _READ_ONLY_ROLES:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Read-only callers cannot mutate insights.")
+    require_write_role(caller)
 
 
 async def _owned_context(

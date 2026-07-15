@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from config import get_settings
 from conftest import wait_for_run
 from engine.fixtures import REFERENCE_ISSUER_ID
 from engine.readiness import _categorize
@@ -74,7 +75,8 @@ def test_atlf_cp0_grounded_in_real_docs(client):
     assert cp0["qa_status"] == "Passed" and cp0["committee_status"] == "Committee Ready"
 
 
-def test_fresh_issuer_cp0_reports_no_docs(client):
+def test_fresh_issuer_cp0_reports_no_docs(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "CAOS tests ops@example.test")
     iss = client.post("/api/issuers/", json={"name": "Fresh Co", "ticker": "FRESHX"}).json()
     run = wait_for_run(client, client.post("/api/runs", json={"issuer_id": iss["id"]}).json()["id"])
     cp0 = client.get(f"/api/runs/{run['id']}/modules/CP-0").json()
@@ -85,3 +87,13 @@ def test_fresh_issuer_cp0_reports_no_docs(client):
     assert any(g["id"] == "G-EDGAR" for g in ro["gap_log"])
     # no ATLF content leaking into a different issuer
     assert "atlas" not in str(ro).lower()
+
+
+def test_ticker_does_not_claim_edgar_when_execution_is_disabled(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "")
+    iss = client.post("/api/issuers/", json={"name": "EDGAR Disabled Co", "ticker": "OFFX"}).json()
+    run = wait_for_run(client, client.post("/api/runs", json={"issuer_id": iss["id"]}).json()["id"])
+
+    ro = client.get(f"/api/runs/{run['id']}/modules/CP-0").json()["runtime_output"]
+    assert ro["edgar_available"] is False
+    assert not any(g["id"] == "G-EDGAR" for g in ro["gap_log"])

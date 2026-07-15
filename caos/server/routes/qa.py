@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from database import AnalystQaFlag, get_db
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 
 router = APIRouter()
 
@@ -50,7 +50,7 @@ class QaFlagOut(BaseModel):
 async def create_flag(
     body: QaFlagCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     if not rate_limit.hit(f"qa-flags:{caller.id}", max_attempts=_FLAGS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Flag rate limit reached — try again in a minute.")

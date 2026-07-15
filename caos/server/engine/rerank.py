@@ -28,13 +28,14 @@ relevance probability directly on the same scale as MMR's redundancy term
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import replace
 from typing import Any, List, Optional, Sequence
 
 from config import get_settings
 from engine import llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
-from retrieval import CorpusHit
+from retrieval_types import CorpusHit
 
 logger = logging.getLogger("caos.rerank")
 
@@ -55,11 +56,14 @@ def _text_of(resp) -> str:
 def _clamp01(x: float) -> float:
     """Clamp to the MMR-comparable [0,1] band. Guards against a model emitting a
     score just outside the range (e.g. 1.0001) without crashing the lane."""
-    if x < 0.0:
+    score = float(x)
+    if not math.isfinite(score):
+        raise ValueError("rerank score must be finite")
+    if score < 0.0:
         return 0.0
-    if x > 1.0:
+    if score > 1.0:
         return 1.0
-    return x
+    return score
 
 
 async def _score_pairs_llm(
@@ -89,10 +93,15 @@ async def _score_pairs_llm(
     raw = obj.get("scores")
     if not isinstance(raw, list):
         raise ValueError("rerank reply missing 'scores' list")
-    # float() rejects non-finite literals (NaN/inf) only if the model emits them
-    # as strings; first_json_object's parse already refused bare NaN/Infinity
-    # tokens via its _reject_non_finite hook. This guards string-encoded ones.
-    return [float(s) for s in raw]
+    scores: List[float] = []
+    for value in raw:
+        if isinstance(value, bool):
+            raise ValueError("rerank score must be numeric")
+        score = float(value)
+        if not math.isfinite(score):
+            raise ValueError("rerank score must be finite")
+        scores.append(score)
+    return scores
 
 
 async def rerank(
@@ -140,19 +149,19 @@ async def rerank(
 
     try:
         scores = await _score_pairs_llm(query, head)
+        if len(scores) != len(head):
+            logger.warning(
+                "Rerank returned %d scores for %d hits; degrading to passthrough.",
+                len(scores), len(head),
+            )
+            return hits
+        # Validate again at the orchestration boundary so injected/custom score
+        # providers cannot bypass the real LLM parser's finite-number contract.
+        reranked = [replace(h, score=_clamp01(s)) for h, s in zip(head, scores)]
+        reranked.sort(key=lambda h: h.score, reverse=True)
     except Exception as exc:  # noqa: BLE001 — fault-isolated by design
         logger.warning("Rerank LLM call failed (%s); degrading to passthrough.", repr(exc))
         return hits
-
-    if len(scores) != len(head):
-        logger.warning(
-            "Rerank returned %d scores for %d hits; degrading to passthrough.",
-            len(scores), len(head),
-        )
-        return hits
-
-    reranked = [replace(h, score=_clamp01(float(s))) for h, s in zip(head, scores)]
-    reranked.sort(key=lambda h: h.score, reverse=True)
 
     # Keep top-`k` of the re-ranked head; append the untouched tail after.
     # The caller's `k` is the pack budget — we keep `k` from the head so the

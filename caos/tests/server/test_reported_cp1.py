@@ -57,7 +57,9 @@ def test_leverage_ignores_a_covenant_cap_and_picks_the_actual():
         "The group must maintain maximum net leverage of 6.0x. Net leverage was 4.2x at period end.",
         "Permitted net leverage of 6.0x; the group reported net leverage of 4.2x.",
     ):
-        assert extract_reported_metrics([("c", t)])["net_leverage"][0] == 4.2
+        metrics = extract_reported_metrics([("c", t)])
+        assert metrics["net_leverage"][0] == 4.2
+        assert metrics["additional_leverage"] is None
 
 
 def test_leverage_keeps_actual_covenant_basis_metric():
@@ -69,9 +71,9 @@ def test_leverage_keeps_actual_covenant_basis_metric():
 
 def test_extract_amounts_currency_and_scale():
     m = extract_reported_metrics([("c", "Total Net Debt to EBITDA of 5.0x. Adjusted EBITDA was "
-                                        "£901.7 million. Total revenue of €2.6 billion.")])
+                                        "£901.7 million. Total revenue of £2.6 billion.")])
     assert m["adj_ebitda"][:2] == (901.7, "£")
-    assert m["revenue"][:2] == (2600.0, "€")  # billion → million (×1000)
+    assert m["revenue"][:2] == (2600.0, "£")  # billion → million (×1000)
 
 
 def test_amount_from_to_growth_picks_the_current_not_the_prior():
@@ -96,6 +98,19 @@ def test_extract_prefers_most_recent_filing():
     newer = "Results to 31 March 2026. Net Debt to EBITDA of 5.86x. Term Loan maturing 2034."
     assert extract_reported_metrics([("old", older), ("new", newer)])["net_leverage"] == (5.86, "new")
     assert extract_reported_metrics([("new", newer), ("old", older)])["net_leverage"] == (5.86, "new")  # order-independent
+
+
+def test_extract_omits_metrics_from_an_older_reporting_period():
+    m = extract_reported_metrics([
+        ("new", "Results to 31 March 2026. Net leverage was 4.2x."),
+        ("old", "Results to 31 March 2025. Adjusted EBITDA of £400 million. "
+                "Total revenue of £2,000 million."),
+    ])
+
+    assert m["net_leverage"] == (4.2, "new")
+    assert m["adj_ebitda"] is None
+    assert m["revenue"] is None
+    assert len(m["coherence_flags"]) == 2
 
 
 def _retrieve(text):
@@ -179,10 +194,16 @@ def test_build_reported_cp1_leverage_only():
     assert validate_payload(p) == []
 
 
-def test_build_reported_cp1_mixed_currency_prefers_ebitda():
-    # When EBITDA (£) and revenue (€) disclose different currencies, EBITDA's wins.
+def test_build_reported_cp1_mixed_currency_omits_the_conflicting_metric():
+    # One payload currency must never relabel another metric's disclosed currency.
     p = asyncio.run(build_reported_cp1_payload(
         "X", _retrieve("Net leverage of 4.0x. Adjusted EBITDA of £900.0 million. "
                        "Total revenue of €2,000.0 million.")))
     assert p is not None and p.runtime_output["currency"] == "£"
+    assert p.runtime_output["normalized_financials"] == {
+        "net_leverage_adj_ltm": 4.0,
+        "adj_ebitda": {"Reported": 900.0},
+    }
+    assert not any(c.claim_id == "C-RPT-REV" for c in p.claims)
+    assert any("currency" in flag.lower() for flag in p.limitation_flags)
     assert validate_payload(p) == []

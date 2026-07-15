@@ -51,7 +51,7 @@ from database import (
     Run,
     get_db,
 )
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from freshness import FreshnessEvaluation, evaluate_freshness
 from context_lineage import LEGACY_REF_FIELDS, merge_artifact_refs
 from sector_taxonomy import canonical_sector_id
@@ -423,7 +423,7 @@ async def get_taxonomy(
 async def create_context(
     body: ContextCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     await _ensure_taxonomy(db)
@@ -812,7 +812,7 @@ async def patch_context(
     context_id: str,
     body: ContextPatch,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     row = await _owned_context(db, context_id, caller.id)
@@ -976,7 +976,7 @@ async def _trusted_finding_authority(
 async def create_finding(
     body: FindingCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     await _owned_context(db, body.context_id, caller.id)
@@ -1030,7 +1030,7 @@ async def patch_finding(
     finding_id: str,
     body: FindingPatch,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     row = (await db.execute(select(AnalysisFinding).where(

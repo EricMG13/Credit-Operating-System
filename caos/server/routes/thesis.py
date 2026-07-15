@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Decision, Issuer, ThesisPrediction, ThesisVersion, get_db
 from engine.periods import is_finite_number
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity
 from tenancy import require_issuer
 
 router = APIRouter()
@@ -114,7 +114,7 @@ async def _out(db: AsyncSession, row: ThesisVersion) -> ThesisVersionOut:
 async def create_thesis(
     body: ThesisVersionIn,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     row = await create_thesis_version(db, body, caller)
     return await _out(db, row)
@@ -157,7 +157,7 @@ async def realize_prediction(
     prediction_id: str,
     body: RealizedIn,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     if not is_finite_number(body.realized):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Realized value must be finite")

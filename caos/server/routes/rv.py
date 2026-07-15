@@ -28,7 +28,7 @@ from database import (
     RVScreenRun,
     get_db,
 )
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
 from freshness import evaluate_freshness
 from sector_taxonomy import canonical_sector_id
 from tenancy import require_portfolio_access, tenancy_enabled
@@ -49,6 +49,8 @@ _WRITE_MAX_PER_MINUTE = 30
 
 
 def _guard(caller: CallerIdentity, *, write: bool) -> None:
+    if write:
+        require_write_role(caller)
     maximum = _WRITE_MAX_PER_MINUTE if write else _READ_MAX_PER_MINUTE
     lane = "rv-write" if write else "rv-read"
     if not rate_limit.hit(f"{lane}:{caller.id}", max_attempts=maximum, window_seconds=60):
@@ -319,7 +321,7 @@ async def list_market_snapshots(
 async def create_rv_screen(
     body: RVScreenCreate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     context = await _owned_context(db, body.context_id, caller.id)
@@ -509,7 +511,7 @@ async def ratify_rv_candidate(
     run_id: str,
     body: RVRatificationRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
     row = await _owned_run(db, run_id, caller.id)

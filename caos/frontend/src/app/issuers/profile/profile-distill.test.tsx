@@ -114,6 +114,28 @@ const data: IssuerProfile = {
 };
 
 describe("Profile (distilled)", () => {
+  it("labels a retained last-QA-passed snapshot with its own as-of date", () => {
+    const retained: IssuerProfile = {
+      ...data,
+      latest_run: {
+        ...data.latest_run!, id: "run-blocked", qa_status: "Blocked",
+        committee_status: "Blocked", as_of_date: "2026-09-30",
+      },
+      signal_run_id: "run-blocked",
+      metrics: data.metrics.map((metric) => ({
+        ...metric,
+        run_id: "run-accepted",
+        source_run_as_of: "2026-06-30",
+        created_at: "2026-07-01T00:00:00Z",
+      })),
+    };
+
+    render(<Profile id="iss-1" data={retained} />);
+    expect(screen.getByText("Last QA-passed")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Credit snapshot · as of 2026-06-30/i })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /Credit snapshot · as of 2026-09-30/i })).toBeNull();
+  });
+
   it("rebinds exact freshness when the active profile artifact changes", async () => {
     freshnessState.checkpointId = "checkpoint-1";
     const view = render(<Profile id="iss-1" data={data} />);

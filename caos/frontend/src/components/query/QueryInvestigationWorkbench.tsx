@@ -124,19 +124,31 @@ function QueryResult({ run }: { run: QueryRun | null }) {
   const rankColumn = columns.find((column) => stringValue(column.key) === rankKey);
   const rankLabel = stringValue(rankColumn?.label) ?? rankKey ?? "Rank";
   const rankUnit = stringValue(rankColumn?.unit) ?? "";
+  // Lead with a conclusion, not an echo of the question. When the backend
+  // supplies no synthesis, compose a deterministic sentence from what the table
+  // actually shows; the question renders as an eyebrow above, never as the answer.
+  const composed = rows.length ? `Top ${rows.length} by ${rankLabel}${rankUnit ? ` (${rankUnit})` : ""}` : null;
+  const headline = answer ?? composed ?? run.question;
+  // The metric lane ranks by level. If the question asks about change/trend and
+  // the result carries no delta marker, say so rather than implying it answered.
+  const asksDelta = /deteriorat|worsen|improv|chang|trend|declin/i.test(run.question);
+  const hasDelta = run.result.rank_is_delta === true || /delta|change|Δ/i.test(rankLabel);
+  const levelCaveat = asksDelta && !hasDelta;
   return (
     <div className="min-h-0 overflow-auto p-3">
       <div className="rounded-md border border-caos-border bg-caos-panel p-3">
         <div className="flex flex-wrap items-center gap-2">
           <AnalysisStateBadge state={run.status} />
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Native {run.selected_lane} view</span>
+          {levelCaveat ? <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning" title="This lane ranks by current level, not by period-over-period change. Δ metrics are not yet available.">△ ranked by level, not change</span> : null}
         </div>
-        <h2 className="mt-2 text-base font-semibold leading-snug text-caos-text">{answer ?? run.question}</h2>
+        {headline !== run.question ? <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{run.question}</p> : null}
+        <h2 className="mt-1 text-base font-semibold leading-snug text-caos-text">{headline}</h2>
         {rows.length ? (
           <div className="mt-3 overflow-auto border-t border-caos-border">
             <table className="w-full border-collapse text-left tabular text-caos-xs">
               <thead className="sticky top-0 bg-caos-panel text-caos-muted">
-                <tr><th className="px-2 py-2">#</th><th className="px-2 py-2">Observation</th><th className="px-2 py-2">Details</th></tr>
+                <tr><th className="px-2 py-2">#</th><th className="px-2 py-2">Observation</th><th className="px-2 py-2 text-right">{rankLabel}{rankUnit ? ` (${rankUnit})` : ""}</th><th className="px-2 py-2">Details</th></tr>
               </thead>
               <tbody>
                 {rows.slice(0, 100).map((row, index) => {
@@ -144,9 +156,9 @@ function QueryResult({ run }: { run: QueryRun | null }) {
                   const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
                   const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
                   const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
-                  const rankValue = row.rank_value === undefined ? "" : `${rankLabel} ${formatMetricValue(row.rank_value)}${rankUnit}`;
-                  const details = [issuerMeta, rankValue].filter(Boolean).join(" · ") || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
-                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
+                  const rankCell = row.rank_value === undefined ? "—" : `${formatMetricValue(row.rank_value)}${rankUnit}`;
+                  const details = issuerMeta || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
+                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}</td><td className="px-2 py-2 text-right text-caos-text">{rankCell}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
                 })}
               </tbody>
             </table>
@@ -227,7 +239,7 @@ export function QueryInvestigationWorkbench() {
   const decisionState: DecisionContextState = {
     whatChanged: datum(run, run ? `Query completed via ${run.selected_lane}` : null, missing),
     whyItMatters: datum(run, run?.question ?? null, missing),
-    requiredAction: datum(run, run?.status === "ready" ? "Inspect citations and pin the finding" : "Choose a recovery lane", missing),
+    requiredAction: datum(run, run?.status === "ready" ? (run.authority.source_ids.length === 0 ? "Attach citations before pinning — keep this draft" : "Inspect citations and pin the finding") : "Choose a recovery lane", missing),
     evidenceHealth: datum(run, run ? `${run.authority.source_ids.length} cited sources · ${run.authority.freshness}` : null, missing),
   };
 
@@ -259,7 +271,7 @@ export function QueryInvestigationWorkbench() {
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Query</span>{context ? <span className="tabular text-caos-2xs text-caos-muted">{context.name}</span> : null}</>}
       status={contextState.loading ? <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span> : contextState.error ? <span className="text-caos-xs text-caos-critical">{contextState.error}</span> : <span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
       primaryAction={<button type="button" onClick={() => void runQuery()} disabled={!context || !question.trim() || running} className="caos-primary-action focus-ring disabled:opacity-40">{running ? "Running…" : "Run Query"}</button>}
-      contextualControls={<>{headStat("Lane", lane)}{headStat("History", String(history.length))}{headStat("Findings", context ? "Shared" : "—")}</>}
+      contextualControls={<>{headStat("Lane", lane)}{headStat("History", `${history.length} runs`)}</>}
       utilityLabel="Query utilities"
       utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3><ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
       narrowContract={narrow}
@@ -275,7 +287,7 @@ export function QueryInvestigationWorkbench() {
             {manualLane ? <button type="button" className="tabular text-caos-2xs text-caos-accent focus-ring" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
           </div>
           <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
-          <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className="rounded-sm border border-caos-border px-2 py-1 text-left text-caos-xs text-caos-muted hover:text-caos-text focus-ring">{starter}</button>)}</div>
+          {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
           {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
         </section>}
           primary={<section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>}

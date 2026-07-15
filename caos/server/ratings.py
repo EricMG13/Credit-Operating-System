@@ -20,6 +20,8 @@ from __future__ import annotations
 import io
 from typing import Dict, List, Optional, Tuple
 
+from xlsx_safety import XlsxPackageError, validate_xlsx_package
+
 # Moody's scale senior→junior; the S&P/Fitch scale is index-aligned so a missing
 # Moody's rating translates positionally. Idealized rating factors drive WARF.
 MOODY = ("aaa", "aa1", "aa2", "aa3", "a1", "a2", "a3", "baa1", "baa2", "baa3",
@@ -126,6 +128,15 @@ def extract_ratings_from_workbook(content: bytes, max_rows: int = 20000) -> List
     for each row carrying a parseable rating. Returns [] on any parse failure so a
     malformed workbook never breaks the upload. ``max_rows`` bounds a single sheet
     (the upload is already size-capped upstream)."""
+    try:
+        validate_xlsx_package(content)
+    except XlsxPackageError as exc:
+        # Preserve the extractor's optional/best-effort contract for bytes that
+        # are not a workbook at all. Valid OOXML that violates a safety policy
+        # still raises so no direct caller can bypass the shared gate.
+        if exc.code == "invalid_ooxml":
+            return []
+        raise
     try:
         from openpyxl import load_workbook
 

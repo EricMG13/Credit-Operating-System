@@ -22,7 +22,7 @@ from database import (
 from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from freshness import POLICY_VERSION, FreshnessEvaluation, ReportingCadence, evaluate_freshness
-from identity import CallerIdentity, get_identity, require_write_role
+from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
 from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
 
 router = APIRouter()
@@ -294,7 +294,7 @@ async def put_reporting_profile(
     issuer_id: str,
     body: ReportingProfileUpdate,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
 ):
     require_issuer(caller, await db.get(Issuer, issuer_id))
     if not rate_limit.hit(
@@ -502,6 +502,7 @@ class RunBrief(BaseModel):
 
 
 class MetricFactOut(BaseModel):
+    run_id: Optional[str]
     metric_key: str
     period: str
     value: float
@@ -513,13 +514,24 @@ class MetricFactOut(BaseModel):
     source_claim_id: Optional[str]
     source_evidence_id: Optional[str]
     document_chunk_id: Optional[str]
+    created_at: datetime
+    source_run_as_of: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="after")
+    @classmethod
+    def _created_at_utc(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class IssuerProfileResponse(BaseModel):
     issuer: IssuerResponse
     latest_run: Optional[RunBrief]
+    # Exact completed run used for signals/QA. Metric rows carry their own run ID
+    # because retention intentionally preserves last-QA-passed facts after a
+    # Blocked rerun rather than pretending both sources are the same snapshot.
+    signal_run_id: Optional[str]
     runs: List[RunBrief]
     # Headline + historical periods for every metric_key, oldest→newest per key,
     # so the UI renders both the snapshot (headline rows) and the trend sparklines
@@ -679,12 +691,17 @@ async def get_issuer_profile(
     latest_run = runs[0] if runs else None
     latest_complete = next((r for r in runs if r.status == "complete"), None)
 
-    # Headline facts are last-writer-wins per metric_key (runner supersedes prior
-    # runs'), so the metric store already reflects the latest run — no run filter.
+    # Facts intentionally retain the last QA-passed write when a new run is
+    # Blocked. Keep them, but expose each source run/as-of below so that retention
+    # is visible rather than being presented as the latest run's output.
     facts = list((await db.execute(
         select(MetricFact).where(MetricFact.issuer_id == issuer_id)
         .order_by(MetricFact.metric_key, MetricFact.period).limit(500)
     )).scalars().all())
+    fact_run_ids = {f.run_id for f in facts if f.run_id}
+    fact_run_as_of = dict((await db.execute(
+        select(Run.id, Run.as_of_date).where(Run.id.in_(fact_run_ids))
+    )).all()) if fact_run_ids else {}
 
     doc_count = (await db.execute(
         select(func.count()).select_from(Document).where(Document.issuer_id == issuer_id)
@@ -700,7 +717,17 @@ async def get_issuer_profile(
         mod_rows = (await db.execute(
             select(ModuleOutput).where(ModuleOutput.run_id == latest_complete.id)
         )).scalars().all()
-        mods = {m.module_id: m for m in mod_rows}
+        # CP-5 may block individual outputs after synthesis. Never read those raw
+        # values into the glance surface; the retained metric-fact lane below is
+        # the deliberate last-good fallback and is labelled with its own run.
+        run_blocked = (
+            latest_complete.qa_status == "Blocked"
+            or latest_complete.committee_status == "Blocked"
+        )
+        mods = {} if run_blocked else {
+            m.module_id: m for m in mod_rows
+            if m.qa_status != "Blocked" and m.committee_status != "Blocked"
+        }
         signals = _profile_signals(mods)
         # CP-1A business/transaction fact register; CP-2D sponsor/governance review.
         business = ((mods["CP-1A"].runtime_output or {}).get("facts") or []) if "CP-1A" in mods else []
@@ -742,8 +769,14 @@ async def get_issuer_profile(
     return IssuerProfileResponse(
         issuer=IssuerResponse.model_validate(issuer),
         latest_run=RunBrief.model_validate(latest_run) if latest_run else None,
+        signal_run_id=latest_complete.id if latest_complete else None,
         runs=[RunBrief.model_validate(r) for r in runs],
-        metrics=[MetricFactOut.model_validate(f) for f in facts],
+        metrics=[
+            MetricFactOut.model_validate(f).model_copy(update={
+                "source_run_as_of": fact_run_as_of.get(f.run_id),
+            })
+            for f in facts
+        ],
         signals=signals,
         coverage=coverage,
         findings=findings,
@@ -927,12 +960,10 @@ async def create_research_report(
     issuer_id: str,
     brief: ResearchReportBrief = ResearchReportBrief(),
     request: Request = None,  # type: ignore[assignment]  # FastAPI injects by type; default is dead code but keeps the optional-param shape consistent
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_write_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     # Must have a completed run
     latest_complete = (await db.execute(
@@ -1012,9 +1043,7 @@ async def get_latest_research_report(
 ):
     """Return the latest research report for this issuer, or 404 if none.
     Sets is_stale when the report's run_id != latest complete run_id."""
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     # Latest complete run (for staleness check)
     latest_complete = (await db.execute(
@@ -1053,9 +1082,7 @@ async def get_research_report(
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     """Poll a specific research report job by id."""
-    issuer = await db.get(Issuer, issuer_id)
-    if not issuer:
-        raise HTTPException(404, "Issuer not found")
+    require_issuer(caller, await db.get(Issuer, issuer_id))
 
     report = await db.get(IssuerResearchReport, report_id)
     if report is None or report.issuer_id != issuer_id:

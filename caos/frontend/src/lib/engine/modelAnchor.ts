@@ -38,6 +38,13 @@ function latestPeriod(series: Record<string, unknown>): string {
  *  runtime_output.normalized_financials fields as adapt.ts `adaptCp1`. */
 export function cp1ToAnchor(detail: ModuleDetailDTO): ModelAnchor | null {
   if (detail.module_id !== "CP-1") return null;
+  // A completed run may still carry a CP-5 Blocked output, and the keyless
+  // non-reference fallback persists synthetic ATLF figures with an explicit
+  // demo-fixture limitation. Neither is an eligible live model authority.
+  if (detail.qa_status === "Blocked" || detail.committee_status === "Blocked") return null;
+  if (detail.limitation_flags.some((flag) => /synthetic atlas forge demo-fixture/i.test(flag))) {
+    return null;
+  }
   const fin = (detail.runtime_output?.normalized_financials as Record<string, unknown>) || null;
   if (!fin) return null;
 
