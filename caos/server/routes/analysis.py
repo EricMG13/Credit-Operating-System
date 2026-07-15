@@ -75,13 +75,20 @@ def _guard(caller: CallerIdentity, *, write: bool) -> None:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Analysis workspace rate limit reached.")
 
 
-async def _owned_context(db: AsyncSession, context_id: str, analyst_id: str) -> AnalysisContextRecord:
-    row = (await db.execute(
-        select(AnalysisContextRecord).where(
-            AnalysisContextRecord.id == context_id,
-            AnalysisContextRecord.analyst_id == analyst_id,
-        )
-    )).scalar_one_or_none()
+async def _owned_context(
+    db: AsyncSession,
+    context_id: str,
+    analyst_id: str,
+    *,
+    for_update: bool = False,
+) -> AnalysisContextRecord:
+    stmt = select(AnalysisContextRecord).where(
+        AnalysisContextRecord.id == context_id,
+        AnalysisContextRecord.analyst_id == analyst_id,
+    )
+    if for_update:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    row = (await db.execute(stmt)).scalar_one_or_none()
     if row is None:
         # Deliberately hide whether another analyst owns this identifier.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
@@ -102,6 +109,7 @@ async def _ensure_taxonomy(db: AsyncSession) -> None:
 def _context(row: AnalysisContextRecord) -> AnalysisContext:
     return AnalysisContext(
         id=row.id,
+        revision=row.revision,
         name=row.name,
         sector_id=row.sector_id,
         sub_segments=row.sub_segments or [],
@@ -196,6 +204,7 @@ class ContextPatch(BaseModel):
     surface_state: Optional[AnalysisSurfaceState] = None
     filters: Optional[dict] = None
     selected: Optional[dict] = None
+    expected_revision: Optional[int] = Field(default=None, ge=1)
 
 
 async def _validate_artifact_refs(
@@ -815,8 +824,14 @@ async def patch_context(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
-    row = await _owned_context(db, context_id, caller.id)
+    row = await _owned_context(db, context_id, caller.id, for_update=True)
     changes = body.model_dump(exclude_unset=True)
+    expected_revision = changes.pop("expected_revision", None)
+    if expected_revision is not None and row.revision != expected_revision:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Analysis context changed (current revision {row.revision}). Refresh and retry.",
+        )
     if "sector_id" in changes:
         await _ensure_taxonomy(db)
         raw = changes["sector_id"]
@@ -874,6 +889,7 @@ async def patch_context(
         )
     for key, value in changes.items():
         setattr(row, key, value)
+    row.revision += 1
     row.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return _context(row)

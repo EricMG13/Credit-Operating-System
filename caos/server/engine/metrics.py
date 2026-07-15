@@ -391,7 +391,9 @@ def cp1_completeness_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
 # reachable from this call site (peer_outlier_finding runs off a different
 # module). Swap for a peer-band once that's wired here. 8.0x is beyond where a
 # broadly-syndicated leveraged loan is underwritten at close; real distressed
-# names can still exceed it, which is exactly why this stays MINOR/advisory.
+# names can still exceed it (golden FUN — Six Flags — runs a real 8.09x), which
+# is why the finding is only a MATERIAL gate for LLM-asserted figures and stays
+# MINOR/advisory on the deterministic lanes.
 _LEVERAGE_SANITY_CEILING = 8.0
 
 
@@ -410,18 +412,24 @@ def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding
     whether the figures agree with each other, only whether the asserted number
     itself is plausible for a leveraged-loan issuer.
 
-    The finding is MATERIAL: a legitimately distressed issuer may breach the
-    band, but committee release then requires explicit verification rather than
-    silently accepting an extreme LLM assertion. Checks ``abs(lev)`` so an
-    implausible net-CASH position is caught symmetrically."""
+    Severity is lane-aware. On the live LLM lane (payload.llm_synthesized) the
+    finding is MATERIAL: a legitimately distressed issuer may breach the band,
+    but committee release then requires explicit verification rather than
+    silently accepting an extreme LLM assertion. On the deterministic
+    EDGAR/reported/fixture lanes the figure is filing-derived — there is no
+    assertion to distrust, and a real distressed issuer legitimately exceeds any
+    fixed band (golden FUN runs a true 8.09x) — so it stays MINOR/advisory
+    rather than restricting a correct run. Checks ``abs(lev)`` so an implausible
+    net-CASH position is caught symmetrically."""
     if cp1 is None:
         return None
     nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
     lev = nf.get("net_leverage_adj_ltm")
     if not is_finite_number(lev) or abs(lev) <= _LEVERAGE_SANITY_CEILING:
         return None
+    severity = "MATERIAL" if cp1.llm_synthesized else "MINOR"
     return Finding(
-        finding_id="CP-1-LEV-MAGNITUDE", severity="MATERIAL", lane=6, module_id="CP-1",
+        finding_id="CP-1-LEV-MAGNITUDE", severity=severity, lane=6, module_id="CP-1",
         description=(
             f"Asserted net leverage {lev:g}x falls outside the "
             f"±{_LEVERAGE_SANITY_CEILING:g}x plausibility band for a leveraged-loan "
@@ -444,8 +452,9 @@ def cp1_grounding_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     analyst supplies the missing evidence; the automated gate fails closed.
 
     Set by engine.synth._ground_cp1_headline_figures at synthesis time; empty
-    (never fires) for the deterministic EDGAR/reported/fixture paths and for any
-    live run where no documents were retrieved."""
+    (never fires) for the deterministic EDGAR/reported/fixture paths. A live run
+    where no documents were retrieved flags every present primitive — no
+    evidence is an evidence failure, not a bypass."""
     if cp1 is None or not cp1.ungrounded_headline_figures:
         return None
     fields = ", ".join(cp1.ungrounded_headline_figures)

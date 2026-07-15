@@ -254,6 +254,7 @@ class InsightPage(BaseModel):
 
 class AnalysisContext(BaseModel):
     id: str
+    revision: int
     name: str
     sector_id: Optional[str] = None
     sub_segments: list[str] = Field(default_factory=list)

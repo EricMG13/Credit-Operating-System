@@ -50,6 +50,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const [runOutcome, setRunOutcome] = useState<RunQueueOutcome | null>(null);
   // Guards a failed-file retry from double-queuing (the loop re-runs runUpload).
   const runQueuedRef = useRef(false);
+  // Keep one key across ambiguous network failures; clear it only after the
+  // server has returned a definite run so a later deliberate run is distinct.
+  const runIdempotencyKeyRef = useRef<string | null>(null);
 
   // Live per-file batch progress: which file (1-based) is in flight and its
   // name, so the primary action reads "UPLOADING 3/12 — filename…" instead of a
@@ -207,8 +210,13 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         setRunOutcome({ state: "queuing" });
         try {
           const run = await createRun(
-            selectedIssuer.id, undefined, portfolioId || undefined, undefined, activeContext?.id,
+            selectedIssuer.id,
+            undefined,
+            portfolioId || undefined,
+            runIdempotencyKeyRef.current ??= crypto.randomUUID(),
+            activeContext?.id,
           );
+          runIdempotencyKeyRef.current = null;
           runQueuedRef.current = true;
           setRunOutcome({ state: "queued", runId: run.id });
           let contextLinked = true;
@@ -267,8 +275,13 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         analysis.context, selectedIssuer.id, analysis.patch,
       );
       const run = await createRun(
-        selectedIssuer.id, undefined, portfolioId || undefined, undefined, activeContext?.id,
+        selectedIssuer.id,
+        undefined,
+        portfolioId || undefined,
+        runIdempotencyKeyRef.current ??= crypto.randomUUID(),
+        activeContext?.id,
       );
+      runIdempotencyKeyRef.current = null;
       setRunCreated(run);
       let contextLinked = true;
       if (activeContext) {

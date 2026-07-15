@@ -125,7 +125,7 @@ async def test_v2_checkpoint_report_and_xlsx_preserve_exact_calculation_identity
     )
     async with AsyncSessionLocal() as db:
         db.add_all([
-            Run(
+                Run(
                 id=run_id,
                 issuer_id=issuer_id,
                 analyst_id=analyst_id,
@@ -133,7 +133,11 @@ async def test_v2_checkpoint_report_and_xlsx_preserve_exact_calculation_identity
                 qa_status="Passed",
                 committee_status="Committee Ready",
                 as_of_date="2026-06-30",
-                completed_at=created_at,
+                    completed_at=created_at,
+                    input_manifest_ids=[manifest_id],
+                    input_document_ids=[],
+                    input_corpus_sha256="f" * 64,
+                    input_snapshot_state="approved",
             ),
             SourceManifest(
                 id=manifest_id,
@@ -142,8 +146,12 @@ async def test_v2_checkpoint_report_and_xlsx_preserve_exact_calculation_identity
                 origin="live",
                 method="upload",
                 status="ready",
-                files=[],
-                authority={},
+                    files=[{
+                        "document_id": "report-source-document",
+                        "sha256": "e" * 64,
+                        "malware_scan": "clean",
+                    }],
+                    authority={"approval_state": "ratified"},
                 created_at=created_at,
             ),
             AnalysisContextRecord(
@@ -473,7 +481,7 @@ async def test_v2_checkpoint_report_and_xlsx_preserve_exact_calculation_identity
                 },
             })
             assert rebound.status_code == 409
-            assert "not a frozen input parent" in rebound.json()["detail"]
+            assert "fully approved immutable input snapshot" in rebound.json()["detail"]
             app.dependency_overrides[get_identity] = lambda: CallerIdentity(
                 id="foreign-report-analyst",
                 email="foreign@firm.test",

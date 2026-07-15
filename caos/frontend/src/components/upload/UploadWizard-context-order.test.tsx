@@ -154,7 +154,7 @@ describe("UploadWizard manual run context ordering", () => {
 
     await waitFor(() => expect(harness.createRun).toHaveBeenCalledTimes(1));
     expect(harness.createRun).toHaveBeenCalledWith(
-      "issuer-1", undefined, undefined, undefined, "context-1",
+      "issuer-1", undefined, undefined, expect.any(String), "context-1",
     );
     await waitFor(() => expect(harness.push).toHaveBeenCalledWith(
       "/pipeline?issuer=issuer-1&run=run-1&view=graph&context=context-1",

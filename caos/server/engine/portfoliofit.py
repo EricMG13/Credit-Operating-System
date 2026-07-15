@@ -8,13 +8,17 @@ ingested), so those are flagged, not invented. No documents, no LLM.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from engine.periods import is_finite_number
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
+
+logger = logging.getLogger("caos.engine")
 
 _FIT = {
     "OVERWEIGHT": ("core", "full target size"),
@@ -85,7 +89,19 @@ async def _live_concentration(session: AsyncSession, portfolio_id: str, issuer) 
         ).where(PortfolioPosition.portfolio_id == portfolio_id)
     )).all()
     if not prows:
-        return None
+        return {
+            "in_portfolio": False,
+            "held_pct_nav": 0.0,
+            "n_positions": 0,
+            "sector": None,
+            "sector_pct_nav": None,
+            "single_name_cap": None,
+            "single_name_headroom": None,
+            "sector_cap": None,
+            "sector_headroom": None,
+            "concentration_risk": None,
+            "data_status": "empty-book",
+        }
     positions: List[Dict[str, Any]] = [{
         "issuer_id": p.issuer_id, "borrower_name": p.borrower_name, "sector": p.sector,
         "ranking": p.ranking, "rating_moody": p.rating_moody, "rating_sp": p.rating_sp,
@@ -98,6 +114,23 @@ async def _live_concentration(session: AsyncSession, portfolio_id: str, issuer) 
     )).all()
     constraints = [{"category": c.category, "limit_value": c.limit_value} for c in crows]
     return assess_issuer_fit(positions, constraints, issuer_id=issuer.id, issuer_name=issuer.name)
+
+
+def _blocked_portfolio_read(reason: str) -> ModulePayload:
+    """Return an explicit gate for a bound-book access/calculation failure."""
+    return ModulePayload(
+        module_id="CP-3C",
+        module_name="PortfolioFitPositionSizing",
+        owned_object="portfolio_fit_analysis",
+        runtime_output={
+            "module_status": "Blocked",
+            "status_basis": reason,
+            "note": "Bound portfolio concentration could not be read.",
+        },
+        confidence="Insufficient Information",
+        limitation_flags=[reason],
+        downstream_consumers=["CP-6E"],
+    )
 
 
 async def synthesize_portfolio_fit(
@@ -124,11 +157,22 @@ async def synthesize_portfolio_fit(
     if session is not None and portfolio_id and issuer is not None:
         try:
             conc = await _live_concentration(session, portfolio_id, issuer)
-        except Exception:  # a portfolio read must never abort the sizing read
-            conc = None
+        except SQLAlchemyError:
+            # runner._attempt_synth must abort the run attempt so the shared
+            # AsyncSession is rolled back before it is reused.
+            raise
+        except Exception as exc:  # noqa: BLE001 — access/calculation faults become an explicit gate
+            logger.exception("bound portfolio concentration read failed")
+            return _blocked_portfolio_read(
+                f"Bound portfolio concentration read failed: {type(exc).__name__}."
+            )
     if conc is not None:
         fit["concentration"] = conc
-        fit["note"] = "Concentration computed live from the bound portfolio's holdings."
+        fit["note"] = (
+            "Bound portfolio is empty; concentration is explicitly unavailable."
+            if conc.get("data_status") == "empty-book"
+            else "Concentration computed live from the bound portfolio's holdings."
+        )
         risk = conc.get("concentration_risk")
         if risk in ("HIGH", "MODERATE"):
             tail = (f", sector {conc['sector']} at {conc['sector_pct_nav']}% of NAV"

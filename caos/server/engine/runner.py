@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import delete
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
@@ -188,6 +189,26 @@ def _apply_blocked_upstream_cascade(
             row.limitation_flags = list(row.limitation_flags or []) + [flag]
 
 
+def _provider_degradation_finding(degraded: bool) -> Finding | None:
+    """Turn a provider fallback into a CP-5 gate input, not just UI copy."""
+    if not degraded:
+        return None
+    return Finding(
+        finding_id="PROVIDER-FALLBACK",
+        severity="MATERIAL",
+        lane=8,
+        module_id="CP-1",
+        description=(
+            "One or more LLM calls used a cheaper fallback after a provider "
+            "rate limit or overload; the run was not produced under its pinned "
+            "model route."
+        ),
+        required_remediation=(
+            "Re-run when the pinned provider route is healthy before committee release."
+        ),
+    )
+
+
 async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  # 283-line orchestrator; decompose (QA phase + fact projection) when next touched
     """Execute the slice for ``run`` in place; sets status and gate roll-up.
 
@@ -223,7 +244,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
     # P4-2: build the issuer's BM25 index once, then score every retrieve() call
     # (per module + per claim) against it — the corpus is tokenized once, not
     # re-tokenized on every call.
-    issuer_index = await build_issuer_index(session, run.issuer_id)
+    issuer_index = await build_issuer_index(
+        session, run.issuer_id, document_ids=run.input_document_ids
+    )
 
     async def retrieve(query: str, k: int = 5):
         return rank_with_index(issuer_index, query, k)
@@ -272,6 +295,16 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
                 return await resolve_binding(ctx)
             except SynthesisError as e:
                 return e
+            except SQLAlchemyError:
+                if module_id in _SESSION_SYNTH:
+                    # The shared AsyncSession may now require rollback. Do not
+                    # convert this into a persistable Blocked payload and keep
+                    # using a poisoned transaction; abort the run attempt so the
+                    # executor's failure path rolls it back.
+                    logger.exception("session-bound synth database failure for %s", module_id)
+                    raise
+                logger.exception("unexpected database error for pure synth %s", module_id)
+                return SynthesisError("unexpected database error during synthesis")
             except Exception as e:  # noqa: BLE001 — isolate the fault to this module
                 logger.exception("unexpected synth error for %s", module_id)
                 return SynthesisError(f"unexpected synth error: {e}")
@@ -421,6 +454,29 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             f = provider(upstream.get(module_id))
             if f is not None:
                 findings.append(f)
+        if run.input_snapshot_state == "unapproved" or (
+            run.input_snapshot_state in {None, "empty"} and synthesizer.name == "live"
+        ):
+            findings.append(Finding(
+                finding_id="RUN-INPUT-AUTHORITY",
+                severity="MATERIAL",
+                lane=7,
+                # CP-1 is the first committee-bearing consumer. A CP-0-only
+                # finding is persisted but never participates in the analytical
+                # module gate or run roll-up.
+                module_id="CP-1",
+                description=(
+                    "The run input corpus is not fully covered by ready, "
+                    "analyst-ratified source manifests."
+                ),
+                required_remediation=(
+                    "Ratify the exact source manifests and create a new run so "
+                    "its immutable input snapshot can be committee-released."
+                ),
+            ))
+        provider_fallback = _provider_degradation_finding(run_budget.degraded)
+        if provider_fallback is not None:
+            findings.append(provider_fallback)
         # #10: the keyless fixture path serves the ATLF demo numbers for ANY issuer.
         # For a non-demo issuer that is fabricated data persisted under provenance
         # "run"-adjacent — flag it as a MATERIAL finding (→ Restricted) and surface a

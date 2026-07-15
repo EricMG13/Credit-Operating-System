@@ -101,15 +101,21 @@ def new_portfolio_team(caller: CallerIdentity) -> Optional[str]:
 
 
 async def require_run_access(caller: CallerIdentity, run: Optional[Run], db: AsyncSession) -> Run:
-    """Gate a run by its issuer's team; 404 (as "Run not found") if the run is missing
-    or its issuer isn't visible to the caller. One extra indexed lookup only when
-    tenancy is enabled."""
+    """Gate a run by analyst ownership unless team sharing is explicitly enabled.
+
+    A non-enumerable 404 covers both missing and foreign runs. Team/desk sharing
+    remains available as an opt-in deployment policy and still respects issuer
+    tenancy; it is never inferred merely because tenancy enforcement is off.
+    """
     if run is None:
         raise HTTPException(404, "Run not found")
-    if tenancy_enabled():
-        issuer = await db.get(Issuer, run.issuer_id)
-        if not issuer_visible(caller, issuer):
-            raise HTTPException(404, "Run not found")
+    if run.analyst_id == caller.id:
+        return run
+    if not get_settings().caos_cross_analyst_run_sharing_enabled:
+        raise HTTPException(404, "Run not found")
+    issuer = await db.get(Issuer, run.issuer_id)
+    if not issuer_visible(caller, issuer):
+        raise HTTPException(404, "Run not found")
     return run
 
 

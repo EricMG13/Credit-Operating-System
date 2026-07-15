@@ -58,6 +58,7 @@ from engine import llm_client, presets, querygraph
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from engine.metrics import headline_fact_predicates
+from engine.periods import is_finite_number
 
 logger = logging.getLogger("caos")
 
@@ -140,6 +141,8 @@ async def _delta_entries(db: AsyncSession, issuer_ids: Optional[Sequence[str]] =
         if len(vals) < 2:
             continue
         (latest, unit, name, chunk_id), (prior, *_rest) = vals[0], vals[1]
+        if not (is_finite_number(latest) and is_finite_number(prior)):
+            continue
         delta = round(latest - prior, 1)
         if delta == 0:
             continue

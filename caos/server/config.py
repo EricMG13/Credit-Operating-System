@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # then scoped to the caller's Analyst.team_id (issuers with a NULL team_id stay
     # shared/global). Assign teams by setting Analyst.team_id / Issuer.team_id.
     caos_tenancy_enabled: bool = False
+    # Runs contain analyst-attributed work product. Cross-analyst reads/writes
+    # require an explicit deployment choice even on a single coverage desk.
+    caos_cross_analyst_run_sharing_enabled: bool = False
 
     # Applicable Updates program gates. Each capability is independently
     # deployable and defaults OFF so absent environment variables preserve the
@@ -125,6 +128,9 @@ class Settings(BaseSettings):
 
     embedding_model: str = "text-embedding-004"
     embedding_dim: int = 768
+    # Source documents may contain MNPI or contractual confidential information.
+    # External synthesis/embedding egress is opt-in even when provider keys exist.
+    caos_document_egress_enabled: bool = False
 
     # LLM re-rank (engine/rerank.py) — the precision half of the dropped-claim-rate
     # alarm fix. Re-ranks the top-`rerank_window` retrieved chunks AFTER RRF fusion,
@@ -205,6 +211,9 @@ class Settings(BaseSettings):
     clamav_host: str = ""
     clamav_port: int = 3310
     clamav_timeout_s: int = 30
+    # Controlled deployments can require the scanner; otherwise uploads remain
+    # draft with a truthful ``not_configured`` authority verdict.
+    clamav_required: bool = False
 
     # Within a run, independent analytical modules (same CP-X dependency layer)
     # synthesize concurrently — the LLM-backed ones (CP-1A, CP-4C, …) then run in

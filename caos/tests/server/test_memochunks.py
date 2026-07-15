@@ -246,11 +246,9 @@ async def test_retrieve_corpus_includes_analyst_memos(seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_warmup_embeddings_dedups_shared_chunk_hashes(seeded_db, monkeypatch):
-    """warmup_embeddings_task must dedup by chunk_hash before inserting — a memo
-    linking N issuers creates N DocumentChunk rows sharing the same chunk_hash,
-    and the embedding table is keyed by (model, chunk_hash) (unique), so inserting
-    N copies would trip the constraint. One embed per hash covers every copy."""
+async def test_warmup_embeddings_never_egresses_analyst_memos(seeded_db, monkeypatch):
+    """Analyst commentary remains BM25-only even when external embedding egress
+    is explicitly enabled for issuer source documents."""
     from config import get_settings
     from engine.embeddings import warmup_embeddings_task
     from database import DocumentChunkEmbedding
@@ -272,20 +270,17 @@ async def test_warmup_embeddings_dedups_shared_chunk_hashes(seeded_db, monkeypat
         # Mock embeddings so it's deterministic and doesn't call the API.
         settings = get_settings()
         monkeypatch.setattr(settings, "embedding_model", "test-mock")
+        monkeypatch.setattr(settings, "caos_document_egress_enabled", True)
+        monkeypatch.setattr(settings, "gemini_api_key", "test-key")
 
         import engine.embeddings as emb_mod
         async def _fake_get_embeddings(texts):
             return [[0.1] * settings.embedding_dim for _ in texts]
         monkeypatch.setattr(emb_mod, "get_embeddings", _fake_get_embeddings)
 
-        # The dedup fix: warmup completes without the unique-constraint violation
-        # that N-shared-hash chunk rows would otherwise trip.
-        inserted = await warmup_embeddings_task(db)
-        assert inserted > 0
+        await warmup_embeddings_task(db)
 
-        # Each memo chunk_hash has exactly ONE embedding row (not one per chunk row).
-        # The memo links 2 issuers → 2 DocumentChunk rows per unique hash; the dedup
-        # ensures warmup inserts one embedding per hash, not two (the constraint trip).
+        # No memo hash may be sent/persisted under the provider model.
         memo_chunks = (await db.execute(
             select(DocumentChunk).where(DocumentChunk.document_id.in_(memo_doc_ids))
         )).scalars().all()
@@ -299,7 +294,7 @@ async def test_warmup_embeddings_dedups_shared_chunk_hashes(seeded_db, monkeypat
                     DocumentChunkEmbedding.chunk_hash == h,
                 )
             )).scalars().all()
-            assert len(rows) == 1, f"hash {h[:8]} has {len(rows)} embeddings (expected 1)"
+            assert rows == [], f"memo hash {h[:8]} was externally embedded"
 
 
 def test_readiness_excludes_analyst_memos():

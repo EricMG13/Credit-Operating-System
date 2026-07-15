@@ -24,13 +24,25 @@ def _path_for(key: str) -> Path:
     return path
 
 
+def _safe_basename(filename: str, *, limit: int = 240) -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename).name)
+    if safe in {"", ".", ".."}:
+        safe = "market.xlsx"
+    if len(safe.encode("utf-8")) <= limit:
+        return safe
+    raw_suffix = Path(safe).suffix
+    suffix = raw_suffix[:16]
+    stem = safe[: -len(raw_suffix)] if raw_suffix else safe
+    return f"{stem[: limit - len(suffix)]}{suffix}"
+
+
 def store_atomic(content: bytes, filename: str) -> str:
     """Write one unique source object atomically and return its vault key."""
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename).name) or "market.xlsx"
+    safe = _safe_basename(filename)
     key = f"market/{uuid.uuid4().hex}/{safe}"
     final_path = _path_for(key)
     final_path.parent.mkdir(parents=True, exist_ok=False)
-    temporary = final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.tmp")
+    temporary = final_path.parent / ".upload.tmp"
     try:
         with temporary.open("xb") as handle:
             handle.write(content)
@@ -43,12 +55,15 @@ def store_atomic(content: bytes, filename: str) -> str:
         finally:
             os.close(directory_fd)
     except Exception:
-        temporary.unlink(missing_ok=True)
-        final_path.unlink(missing_ok=True)
-        try:
-            final_path.parent.rmdir()
-        except OSError:
-            pass
+        for cleanup in (
+            lambda: temporary.unlink(missing_ok=True),
+            lambda: final_path.unlink(missing_ok=True),
+            final_path.parent.rmdir,
+        ):
+            try:
+                cleanup()
+            except OSError:
+                pass
         raise
     return key
 

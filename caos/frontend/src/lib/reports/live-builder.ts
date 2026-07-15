@@ -270,7 +270,7 @@ export function buildLiveReports(input: LiveReportInput): Report[] {
     sections.push(...output.sections.map(reportSection));
   }
   return [{
-    id: "live-committee-pack",
+    id: `live-committee-pack:${input.runId}`,
     title: "Live IC Credit Memo",
     file: `${input.issuerId}-IC-Credit-Memo`,
     subtitle: `${input.issuerId} · run ${input.runId} · ${input.asOf ?? "as-of unavailable"}`,

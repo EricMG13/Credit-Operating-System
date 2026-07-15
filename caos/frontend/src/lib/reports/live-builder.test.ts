@@ -9,6 +9,7 @@ describe("live Report Studio composition", () => {
       liveOuts: { "CP-1": { kpis: [{ l: "Net leverage", v: "5.2x" }], sections: [{ type: "text", title: "Credit view", body: "Deleveraging continues.", ev: ["E-1"] }] } },
     });
     expect(reports).toHaveLength(1);
+    expect(reports[0].id).toBe("live-committee-pack:run-1");
     expect(reports[0].subtitle).toContain("run run-1");
     expect(reports[0].srcs[0]).toEqual({ chip: "CP-1", ev: ["E-1"] });
     expect(JSON.stringify(reports[0])).not.toContain("Atlas Forge");

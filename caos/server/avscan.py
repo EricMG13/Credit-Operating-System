@@ -18,6 +18,7 @@ import asyncio
 import logging
 import socket
 import struct
+from typing import Literal
 
 from fastapi import HTTPException
 
@@ -78,15 +79,21 @@ def _scan_sync(host: str, port: int, timeout: float, content: bytes) -> None:
         raise HTTPException(503, "Malware scan inconclusive — upload rejected.")
 
 
-async def scan(content: bytes) -> None:
-    """Scan an upload when a clamd host is configured; otherwise a no-op.
+ScanVerdict = Literal["clean", "not_configured"]
+
+
+async def scan(content: bytes) -> ScanVerdict:
+    """Scan an upload and return the verdict recorded in its authority manifest.
 
     Blocking socket I/O runs off-thread so a slow scan never stalls the single
     event loop (same pattern as the CPU-bound parsers in ingest.py).
     """
     s = get_settings()
     if not s.clamav_host:
-        return  # scanner not configured → no-op
+        if getattr(s, "clamav_required", False):
+            raise HTTPException(503, "Malware scanner is required but not configured.")
+        return "not_configured"
     await asyncio.to_thread(
         _scan_sync, s.clamav_host, s.clamav_port, float(s.clamav_timeout_s), content
     )
+    return "clean"

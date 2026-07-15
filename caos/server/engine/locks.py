@@ -23,6 +23,8 @@ semantics (skip if another worker holds it) call ``try_advisory_lock`` directly.
 from __future__ import annotations
 
 import hashlib
+import logging
+import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -30,6 +32,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import engine as db_engine
+
+logger = logging.getLogger("caos.engine.locks")
 
 # SQLite fallback: the set of held keys in this process. Sync between check and
 # add (no await) so two coroutines can't interleave a double-acquire. Correct
@@ -95,7 +99,23 @@ async def advisory_lock(db: AsyncSession, key: int) -> AsyncIterator[bool]:
         yield acquired
     finally:
         if acquired:
+            body_error_active = sys.exc_info()[0] is not None
             try:
                 await release_advisory_lock(db, key)
-            except Exception:  # noqa: BLE101 — release failure must not mask the body's error
-                pass
+            except Exception:  # noqa: BLE001 — invalidate the physical lock-owning session
+                release_error = sys.exc_info()[1]
+                logger.exception("Failed to release PostgreSQL advisory lock key=%s", key)
+                if _is_postgres():
+                    try:
+                        connection = await db.connection()
+                        await connection.invalidate()
+                    except Exception:  # noqa: BLE001 — retain the original unlock error
+                        logger.exception(
+                            "Failed to invalidate connection after advisory unlock failure key=%s",
+                            key,
+                        )
+                # Never replace an exception already leaving the protected body.
+                # With a successful body, expose the release failure after the
+                # tainted physical connection has been invalidated.
+                if not body_error_active and release_error is not None:
+                    raise release_error

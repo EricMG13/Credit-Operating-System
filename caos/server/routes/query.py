@@ -18,7 +18,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from analysis_contracts import AuthorityEnvelope, QueryRun
 from database import (
     AnalysisContextRecord,
     AnalysisQueryRun,
+    Analyst,
     AnalystWatchlist,
     Document,
     DocumentChunk,
@@ -203,6 +204,21 @@ async def replace_watchlist(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Watchlist update rate limit reached — try again in a minute.",
         )
+    # A complete-replacement PUT must serialize on one stable owner before it
+    # reads the existing set.  Profile-backed callers lock their Analyst row;
+    # proxy/local identities without a profile use the same per-principal
+    # transaction advisory lane on Postgres.
+    locked_owner = (await db.execute(
+        select(Analyst.id).where(Analyst.id == caller.id).with_for_update()
+    )).scalar_one_or_none()
+    bind = db.get_bind()
+    if locked_owner is None and bind is not None and bind.dialect.name == "postgresql":
+        from engine.locks import key_from_str
+
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": key_from_str(f"query-watchlist:{caller.id}")},
+        )
     target = set(body.issuer_ids)
     # Reject any id that isn't a real issuer — a bad id would scope the brief to
     # nothing and silently degrade the panel.
@@ -227,13 +243,8 @@ async def replace_watchlist(
             await db.delete(r)
     for iid in sorted(target - existing_ids):
         db.add(AnalystWatchlist(analyst_id=caller.id, issuer_id=iid))
-    await db.commit()
-    rows = (await db.execute(
-        select(AnalystWatchlist.issuer_id)
-        .where(AnalystWatchlist.analyst_id == caller.id)
-        .order_by(AnalystWatchlist.added_at)
-    )).scalars().all()
-    return WatchlistResponse(issuer_ids=list(rows))
+    await db.flush()
+    return WatchlistResponse(issuer_ids=sorted(target))
 
 
 class AnswerRequest(BaseModel):

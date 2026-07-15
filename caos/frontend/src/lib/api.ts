@@ -652,11 +652,9 @@ import type {
 // API-client surface for POST /api/runs, used by UploadWizard. portfolioId is
 // optional: omit to let the server auto-bind the book that holds the issuer
 // (CP-3C concentration); pass one to evaluate against a specific book.
-// idempotencyKey is optional too: the server (routes/runs.py) reads an
+// idempotencyKey is optional too: the server persists the
 // Idempotency-Key header to dedupe a dropped-response retry against a run it
-// already created, rather than creating a duplicate. UploadWizard's calls
-// omit it (its own dedup is the 409 active-run check); batch callers that
-// fire several of these in a row (e.g. the Issuers directory BatchBar) pass one.
+// already created, rather than creating a duplicate across app replicas.
 export const createRun = (
   issuerId: string, asOfDate?: string, portfolioId?: string, idempotencyKey?: string,
   contextId?: string,

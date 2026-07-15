@@ -14,7 +14,7 @@ import type { Issuer } from "@/types/issuers";
 // rate-limits POST /api/runs per analyst, so firing these concurrently would
 // just trade a slow batch for a 429 storm). A fresh Idempotency-Key per issuer
 // lets a dropped-response retry land on the SAME run instead of creating a
-// duplicate (routes/runs.py _idempotency_lookup) — one key per issuer, since
+// duplicate (routes/runs.py durable idempotency lookup) — one key per issuer, since
 // each issuer's run is a genuinely distinct request, not a retry of another.
 export function runPipelineAction(n: number): BatchAction {
   return {

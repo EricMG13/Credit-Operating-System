@@ -204,23 +204,6 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> tuple[str,
     return ocr_text, bool(ocr_text.strip())
 
 
-def _bounded_xlsx_cell(
-    cell: object, nonempty_cells: int, extracted_chars: int
-) -> tuple[str | None, int, int]:
-    if cell is None:
-        return None, nonempty_cells, extracted_chars
-    nonempty_cells += 1
-    if nonempty_cells > _MAX_XLSX_NONEMPTY_CELLS:
-        raise HTTPException(413, "Workbook contains too many non-empty cells.")
-    value = str(cell)
-    if len(value) > _MAX_XLSX_CELL_TEXT:
-        value = value[:_MAX_XLSX_CELL_TEXT]
-    extracted_chars += len(value)
-    if extracted_chars > _MAX_XLSX_EXTRACTED_CHARS:
-        raise HTTPException(413, "Workbook extracted text exceeds the safe limit.")
-    return value, nonempty_cells, extracted_chars
-
-
 def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
     # Validate before either extraction engine sees attacker-controlled XML.
     # Routes call sniff_xlsx after AV scanning too; this local gate keeps direct
@@ -244,11 +227,18 @@ def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
         for row in ws.iter_rows(values_only=True):
             cells = []
             for cell in row:
-                value, nonempty_cells, extracted_chars = _bounded_xlsx_cell(
-                    cell, nonempty_cells, extracted_chars
-                )
-                if value is not None:
-                    cells.append(value)
+                if cell is None:
+                    continue
+                nonempty_cells += 1
+                if nonempty_cells > _MAX_XLSX_NONEMPTY_CELLS:
+                    raise HTTPException(413, "Workbook contains too many non-empty cells.")
+                value = str(cell)
+                if len(value) > _MAX_XLSX_CELL_TEXT:
+                    value = value[:_MAX_XLSX_CELL_TEXT]
+                extracted_chars += len(value)
+                if extracted_chars > _MAX_XLSX_EXTRACTED_CHARS:
+                    raise HTTPException(413, "Workbook extracted text exceeds the safe limit.")
+                cells.append(value)
             if cells:
                 lines.append("\t".join(cells))
     wb.close()

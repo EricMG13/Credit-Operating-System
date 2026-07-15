@@ -3,24 +3,19 @@
 A run is queued on create and executed by the async run executor (run_executor.py);
 clients poll GET /runs/{id} to completion. These endpoints create and inspect runs.
 
-Authorization — single-team model, by design (SECURITY.md §2, S-4). Every
-authenticated analyst can read and write every run; the read/inspect/export
-handlers below take ``caller`` (for rate-limiting and run attribution) but
-deliberately DO NOT filter by ``caller.id``. This is a deliberate fit for one
-coverage team sharing one workspace, not an oversight. If the trust model ever
-widens to multiple teams/tenants (e.g. ``CAOS_EMAIL_DOMAIN`` admitting more than
-one team), per-caller authorization MUST be added here — gate each ``run_id`` on
-whether ``caller`` may access that run's issuer (and add tenant scoping to
-``list_runs``). Until that requirement is real it is left unbuilt rather than
-guessed; ``test_runs_idor`` pins the current cross-analyst-read behaviour so a
-change to it is a conscious decision.
+Authorization is analyst-private by default. Every by-id route goes through
+``require_run_access`` and list results are owner-scoped. A deployment may opt
+into shared-desk reads with ``CAOS_CROSS_ANALYST_RUN_SHARING_ENABLED``; issuer
+team tenancy remains the boundary in that mode.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
-import time
+import re
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -44,6 +39,7 @@ from database import (
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity, get_write_identity
 from lineage_service import write_lineage_edge
+from run_inputs import snapshot_run_inputs
 from tenancy import (
     require_issuer,
     require_portfolio_access,
@@ -74,45 +70,12 @@ def _create_run_lock() -> asyncio.Lock:
     return _CREATE_RUN_LOCK
 
 
-# Idempotency (#17): the active-run 409 above only dedupes WHILE a run is
-# active — a client retrying create_run after the network dropped the response
-# but the request already committed (or after a genuinely fast run already
-# reached a terminal state) sees no active run and creates a real duplicate.
-# An optional client-supplied Idempotency-Key dedupes those retries for a short
-# window. In-process dict, mutations only ever happen inside _create_run_lock()
-# (single event loop → no extra lock needed); bounded like rate_limit.py's
-# _windows so a client spraying random keys can't grow this unboundedly.
-# ponytail: per-process, matches _CREATE_RUN_LOCK's own multi-replica caveat.
-_IDEMPOTENCY_TTL_SECONDS = 600
-_IDEMPOTENCY_MAX_ENTRIES = 4096
-_idempotency_cache: "dict[tuple[str, str], tuple[str, float]]" = {}
+_IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
-def _idempotency_lookup(caller_id: str, key: Optional[str]) -> Optional[str]:
-    if not key:
-        return None
-    entry = _idempotency_cache.get((caller_id, key))
-    if entry is None:
-        return None
-    run_id, inserted_at = entry
-    if time.monotonic() - inserted_at >= _IDEMPOTENCY_TTL_SECONDS:
-        del _idempotency_cache[(caller_id, key)]
-        return None
-    return run_id
-
-
-def _idempotency_store(caller_id: str, key: Optional[str], run_id: str) -> None:
-    if not key:
-        return
-    now = time.monotonic()
-    if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:
-        expired = [k for k, (_, t) in _idempotency_cache.items() if now - t >= _IDEMPOTENCY_TTL_SECONDS]
-        for k in expired:
-            del _idempotency_cache[k]
-        if len(_idempotency_cache) >= _IDEMPOTENCY_MAX_ENTRIES:  # still full: evict oldest
-            oldest = min(_idempotency_cache, key=lambda k: _idempotency_cache[k][1])
-            del _idempotency_cache[oldest]
-    _idempotency_cache[(caller_id, key)] = (run_id, now)
+def _idempotency_request_hash(body: "RunCreate") -> str:
+    canonical = json.dumps(body.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 _RUNS_MAX_PER_MINUTE = 12
@@ -171,6 +134,9 @@ class RunSummary(BaseModel):
     prompt_version: Optional[str]
     error: Optional[str] = None
     tokens_used: Optional[int] = None
+    input_manifest_ids: Optional[list[str]] = None
+    input_corpus_sha256: Optional[str] = None
+    input_snapshot_state: Optional[str] = None
     modules: List[ModuleStatus]
 
 
@@ -319,6 +285,9 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
         as_of_date=run.as_of_date, analyst_id=run.analyst_id,
         model_id=run.model_id, prompt_version=run.prompt_version,
         error=run.error, tokens_used=run.tokens_used,
+        input_manifest_ids=run.input_manifest_ids,
+        input_corpus_sha256=run.input_corpus_sha256,
+        input_snapshot_state=run.input_snapshot_state,
         modules=[ModuleStatus.model_validate(m) for m in modules],
     )
 
@@ -336,6 +305,12 @@ async def create_run(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
 
     require_issuer(caller, await db.get(Issuer, body.issuer_id))
+    if idempotency_key is not None and not _IDEMPOTENCY_KEY_RE.fullmatch(idempotency_key):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Idempotency-Key must be 1-128 letters, digits, '.', '_', ':' or '-'.",
+        )
+    request_hash = _idempotency_request_hash(body) if idempotency_key else None
     explicit_portfolio = (
         require_portfolio_access(caller, await db.get(Portfolio, body.portfolio_id))
         if body.portfolio_id
@@ -351,11 +326,18 @@ async def create_run(
         # A client retrying the SAME logical request (network drop after commit,
         # or the prior run already reached a terminal state) — the active-run
         # check below can't catch this since nothing may be active anymore.
-        cached_run_id = _idempotency_lookup(caller.id, idempotency_key)
-        if cached_run_id is not None:
-            cached_run = await db.get(Run, cached_run_id)
-            if cached_run is not None:
-                return await _summary(db, cached_run)
+        if idempotency_key is not None:
+            prior = (await db.execute(select(Run).where(
+                Run.analyst_id == caller.id,
+                Run.idempotency_key == idempotency_key,
+            ))).scalar_one_or_none()
+            if prior is not None:
+                if prior.idempotency_request_hash != request_hash:
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        "Idempotency-Key was already used for a different run request.",
+                    )
+                return await _summary(db, prior)
 
         settings = get_settings()
 
@@ -399,6 +381,8 @@ async def create_run(
         run = Run(
             issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
             portfolio_id=portfolio_id,
+            idempotency_key=idempotency_key,
+            idempotency_request_hash=request_hash,
             # Pin the mode the X-Model-Mode dependency resolved for this request, so
             # the background runner (and any re-claim) uses the same tier.
             model_mode=presets.current_mode(),
@@ -406,6 +390,7 @@ async def create_run(
         db.add(run)
         try:
             await db.flush()
+            input_refs = None
             if body.context_id and settings.caos_lineage_v2_enabled:
                 context = (await db.execute(select(AnalysisContextRecord).where(
                     AnalysisContextRecord.id == body.context_id,
@@ -436,7 +421,20 @@ async def create_run(
                         transform_version="2",
                         enabled=True,
                     )
+            snapshot = await snapshot_run_inputs(
+                db,
+                issuer_id=body.issuer_id,
+                analyst_id=caller.id,
+                input_refs=input_refs,
+            )
+            run.input_document_ids = snapshot.document_ids
+            run.input_manifest_ids = snapshot.manifest_ids
+            run.input_corpus_sha256 = snapshot.corpus_sha256
+            run.input_snapshot_state = snapshot.state
             await db.commit()  # persist the queued run so the executor can see it
+        except LookupError as exc:
+            await db.rollback()
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
         except IntegrityError:
             # Belt-and-suspenders: the SELECT-then-INSERT above is already
             # serialized by _create_run_lock() within THIS process, but the DB-
@@ -445,8 +443,14 @@ async def create_run(
             # per-process lock can't coordinate. Same 409 the in-process check
             # above already gives — not a 500.
             await db.rollback()
+            if idempotency_key is not None:
+                prior = (await db.execute(select(Run).where(
+                    Run.analyst_id == caller.id,
+                    Run.idempotency_key == idempotency_key,
+                ))).scalar_one_or_none()
+                if prior is not None and prior.idempotency_request_hash == request_hash:
+                    return await _summary(db, prior)
             raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
-        _idempotency_store(caller.id, idempotency_key, run.id)
 
     await request.app.state.executor.enqueue(run.id)
     return await _summary(db, run)
@@ -472,6 +476,8 @@ async def list_runs(
     if tenancy_enabled():
         # Only runs whose issuer is visible to the caller's team.
         stmt = stmt.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
+    if not get_settings().caos_cross_analyst_run_sharing_enabled:
+        stmt = stmt.where(Run.analyst_id == caller.id)
     stmt = stmt.limit(limit).offset(offset)
     rows = (await db.execute(stmt)).all()
     return [RunListItem.model_validate(r) for r in rows]

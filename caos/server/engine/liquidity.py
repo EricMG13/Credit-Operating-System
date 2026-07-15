@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest_annual
+from engine.periods import is_finite_number, latest_annual, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -77,20 +77,35 @@ def _interest_runway_months(
     interest number we divide by, so the two outputs reconcile. (round() is
     banker's/half-even, matching CP-1 presentation.)
     """
-    if not is_finite_number(disclosed_liquidity) or cp1 is None:
+    if (
+        not is_finite_number(disclosed_liquidity)
+        or disclosed_liquidity < 0
+        or cp1 is None
+    ):
         return None, None
 
     nf = (cp1.runtime_output or {}).get("normalized_financials") or {}
     ebitda, coverage = latest_annual(nf.get("adj_ebitda") or {}), nf.get("interest_coverage_ltm")
 
-    if not (is_finite_number(ebitda) and is_finite_number(coverage) and coverage):
+    if not (
+        is_finite_number(ebitda)
+        and ebitda > 0
+        and is_finite_number(coverage)
+        and coverage > 0
+    ):
         return None, None
 
     annual_cash_interest = round(ebitda / coverage, 1)
-    if not annual_cash_interest:
+    if not is_finite_number(annual_cash_interest) or annual_cash_interest <= 0:
         return None, None
 
-    return annual_cash_interest, round(disclosed_liquidity * 12 / annual_cash_interest, 1)
+    runway = safe_div(disclosed_liquidity * 12, annual_cash_interest)
+    if runway is None or runway < 0:
+        return None, None
+    rounded_runway = round(runway, 1)
+    if not is_finite_number(rounded_runway) or rounded_runway < 0:
+        return None, None
+    return annual_cash_interest, rounded_runway
 
 
 async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:
@@ -114,6 +129,14 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
                   if f["source"] != _MATURITY_WALL and is_finite_number(f["amount_musd"])]
     total = round(sum(f["amount_musd"] for f in quantified), 1) if quantified else None
     cash_interest, runway = _interest_runway_months(total, cp1)
+    limitation_flags: List[str] = []
+    confidence = "High" if quantified else "Medium"
+    if quantified and runway is None:
+        limitation_flags.append(
+            "Interest runway unavailable: disclosed liquidity must be non-negative "
+            "and CP-1 annual EBITDA / coverage must be finite and strictly positive."
+        )
+        confidence = "Insufficient Information"
 
     summary = (f"~${total:g}M of disclosed liquidity across {len(quantified)} quantified source(s)"
                if quantified else f"{len(found)} liquidity source(s) disclosed (amounts not parsed)")
@@ -130,7 +153,9 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
             "months_liquidity_covers_interest": runway,
             "register_basis": "keyword scan of ingested financial / agreement chunks",
         },
-        confidence="High" if quantified else "Medium", downstream_consumers=["CP-6A"],
+        confidence=confidence,
+        limitation_flags=limitation_flags,
+        downstream_consumers=["CP-6A"],
         claims=[ClaimSpec(
             claim_id="C-LIQ1",
             claim_text=f"Liquidity sources: {summary}.",

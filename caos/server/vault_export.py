@@ -435,6 +435,13 @@ _scan_cooldown_seconds = 10.0
 _sync_lock = None
 
 
+def _set_committed_vault_fingerprint(max_mtime: float, file_count: int) -> None:
+    """Advance the process-local scan hint after its DB transaction commits."""
+    global _last_vault_mtime, _last_vault_file_count
+    _last_vault_mtime = max_mtime
+    _last_vault_file_count = file_count
+
+
 def _scan_memo_files(vault_path: Path) -> "tuple[list[Path], float, int]":
     """Sync vault walk + per-file mtime, off-loaded from the event loop via
     asyncio.to_thread. Returns (memo paths, newest mtime, count), excluding the
@@ -472,7 +479,7 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
     resolved links into the analyst_links table (syncing additions and deletions).
     """
     from sqlalchemy import select, delete, insert
-    from database import Issuer, AnalystLink
+    from database import AnalystLink, Issuer, register_after_commit
     from config import get_settings
     import asyncio
     import re
@@ -507,8 +514,10 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
         if not md_files:
             if _last_vault_file_count > 0:
                 await session.execute(delete(AnalystLink))
-                _last_vault_file_count = 0
-                _last_vault_mtime = 0.0
+                register_after_commit(
+                    session,
+                    lambda: _set_committed_vault_fingerprint(0.0, 0),
+                )
                 return 1
             return 0
 
@@ -552,8 +561,10 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
         if parsed_links:
             await session.execute(insert(AnalystLink).values(parsed_links))
 
-        _last_vault_mtime = max_mtime
-        _last_vault_file_count = file_count
+        register_after_commit(
+            session,
+            lambda: _set_committed_vault_fingerprint(max_mtime, file_count),
+        )
         return len(parsed_links)
 
 

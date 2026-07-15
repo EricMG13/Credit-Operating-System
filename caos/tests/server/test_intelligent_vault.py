@@ -130,14 +130,23 @@ async def test_structure_aware_chunking():
 
 
 @pytest.mark.asyncio
-async def test_document_embeddings_and_warmup(seeded_db):
+async def test_document_embeddings_and_warmup(seeded_db, monkeypatch):
     from engine.embeddings import get_embeddings, embed_chunks_for_document, warmup_embeddings_task
     from database import DocumentChunk, DocumentChunkEmbedding
+    from config import get_settings
+    import engine.embeddings as emb_mod
     
-    # Test batch mock embedding generation
+    # Missing explicit egress consent/key is BM25-only; no fake vectors are made.
     vecs = await get_embeddings(["chunk one", "chunk two"])
-    assert len(vecs) == 2
-    assert len(vecs[0]) == 768
+    assert vecs == []
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_document_egress_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+
+    async def _fake_get_embeddings(texts):
+        return [[0.1] * settings.embedding_dim for _ in texts]
+
+    monkeypatch.setattr(emb_mod, "get_embeddings", _fake_get_embeddings)
     
     async with AsyncSessionLocal() as db:
         # Get a seeded issuer and add a document with some chunks
@@ -220,6 +229,13 @@ async def test_hybrid_retrieval_and_rrf_fusion(seeded_db, monkeypatch):
     # Mock settings to have a configured gemini_api_key so hybrid search activates
     settings = get_settings()
     monkeypatch.setattr(settings, "gemini_api_key", "test-key-123")
+    monkeypatch.setattr(settings, "caos_document_egress_enabled", True)
+    import engine.embeddings as emb_mod
+
+    async def _fake_get_embeddings(texts):
+        return [[0.1] * settings.embedding_dim for _ in texts]
+
+    monkeypatch.setattr(emb_mod, "get_embeddings", _fake_get_embeddings)
 
     async with AsyncSessionLocal() as db:
         # Get a seeded issuer and add a document with some chunks

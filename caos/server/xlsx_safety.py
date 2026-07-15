@@ -63,192 +63,140 @@ def _declared_dimension(xml: bytes) -> tuple[int, int] | None:
     return int(cell.group(2)), _column_number(cell.group(1))
 
 
-def _open_package(content: bytes) -> zipfile.ZipFile:
+def validate_xlsx_package(content: bytes) -> None:
+    """Reject unsafe, active, or resource-unbounded XLSX packages pre-parse."""
     if not content.startswith(b"PK\x03\x04"):
         raise XlsxPackageError(
             "invalid_ooxml", "Uploaded file is not an OOXML .xlsx workbook."
         )
     try:
-        return zipfile.ZipFile(io.BytesIO(content))
+        package = zipfile.ZipFile(io.BytesIO(content))
     except (zipfile.BadZipFile, OSError) as exc:
         raise XlsxPackageError(
             "invalid_ooxml", "Uploaded file is not a valid OOXML package."
         ) from exc
 
-
-def _validate_manifest(members: list[zipfile.ZipInfo]) -> None:
-    if len(members) > MAX_PACKAGE_MEMBERS:
-        raise XlsxPackageError(
-            "package_member_limit", "Workbook package contains too many members."
-        )
-    names = [member.filename for member in members]
-    if len(set(names)) != len(names):
-        raise XlsxPackageError(
-            "duplicate_package_member",
-            "Workbook package contains duplicate members.",
-        )
-    if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
-        raise XlsxPackageError(
-            "invalid_ooxml", "Workbook package is missing required OOXML parts."
-        )
-
-
-def _unsafe_member_path(filename: str) -> bool:
-    path = PurePosixPath(filename)
-    return path.is_absolute() or ".." in path.parts or "\\" in filename
-
-
-def _active_member_name(filename: str) -> bool:
-    lowered = filename.lower()
-    return (
-        "vbaproject" in lowered
-        or lowered.startswith("xl/externallinks/")
-        or lowered.startswith("xl/embeddings/")
-        or lowered.startswith("xl/querytables/")
-        or lowered == "xl/connections.xml"
-    )
-
-
-def _validate_member_metadata(member: zipfile.ZipInfo) -> None:
-    if _unsafe_member_path(member.filename):
-        raise XlsxPackageError(
-            "unsafe_package_path",
-            "Workbook package contains an unsafe member path.",
-        )
-    if member.flag_bits & 0x1:
-        raise XlsxPackageError(
-            "encrypted_package", "Encrypted workbook packages are not supported."
-        )
-    if member.file_size > MAX_PACKAGE_MEMBER_BYTES:
-        raise XlsxPackageError(
-            "package_member_size_limit", "Workbook package member is too large."
-        )
-
-
-def _validate_member_content(member: zipfile.ZipInfo) -> None:
-    if member.file_size >= 1_000_000:
-        ratio = member.file_size / max(1, member.compress_size)
-        if ratio > MAX_COMPRESSION_RATIO:
-            raise XlsxPackageError(
-                "compression_ratio_limit",
-                "Workbook compression ratio exceeds the safe limit.",
-            )
-    if _active_member_name(member.filename):
-        raise XlsxPackageError(
-            "active_or_external_content",
-            "Macros, embedded objects, queries, and external links are not supported.",
-        )
-
-
-def _validate_members(members: list[zipfile.ZipInfo]) -> list[zipfile.ZipInfo]:
-    total_uncompressed = 0
-    worksheet_members = []
-    for member in members:
-        _validate_member_metadata(member)
-        total_uncompressed += member.file_size
-        if total_uncompressed > MAX_PACKAGE_UNCOMPRESSED_BYTES:
-            raise XlsxPackageError(
-                "package_size_limit",
-                "Workbook expands beyond the safe processing limit.",
-            )
-        _validate_member_content(member)
-        lowered = member.filename.lower()
-        if lowered.startswith("xl/worksheets/") and lowered.endswith(".xml"):
-            worksheet_members.append(member)
-    if len(worksheet_members) > MAX_WORKSHEETS:
-        raise XlsxPackageError(
-            "worksheet_count_limit", "Workbook contains too many worksheets."
-        )
-    return worksheet_members
-
-
-def _validate_content_types(package: zipfile.ZipFile) -> None:
-    content_types = package.read("[Content_Types].xml").lower()
-    if b"macroenabled" in content_types or b"vbaproject" in content_types:
-        raise XlsxPackageError(
-            "active_or_external_content", "Macro-enabled workbooks are not supported."
-        )
-
-
-def _validate_relationship(package: zipfile.ZipFile, member: zipfile.ZipInfo) -> None:
-    try:
-        relationship_xml = package.read(member)
-        lowered_xml = relationship_xml.lower()
-        if b"<!doctype" in lowered_xml or b"<!entity" in lowered_xml:
-            raise XlsxPackageError(
-                "invalid_relationships",
-                "Workbook relationships contain a forbidden document type.",
-            )
-        root = ElementTree.fromstring(relationship_xml)
-    except XlsxPackageError:
-        raise
-    except (ElementTree.ParseError, RuntimeError, KeyError) as exc:
-        raise XlsxPackageError(
-            "invalid_relationships", "Workbook relationships are malformed."
-        ) from exc
-    for relationship in root.iter():
-        if relationship.attrib.get("TargetMode", "").lower() == "external":
-            raise XlsxPackageError(
-                "external_relationship",
-                "External workbook relationships are not supported.",
-            )
-
-
-def _validate_relationships(
-    package: zipfile.ZipFile, members: list[zipfile.ZipInfo]
-) -> None:
-    for member in members:
-        if member.filename.lower().endswith(".rels"):
-            _validate_relationship(package, member)
-
-
-def _worksheet_counts(
-    package: zipfile.ZipFile, member: zipfile.ZipInfo
-) -> tuple[int, int]:
-    worksheet_xml = package.read(member)
-    declared = _declared_dimension(worksheet_xml)
-    dimension_cells = 0
-    if declared is not None:
-        rows, columns = declared
-        if (
-            rows > MAX_DECLARED_ROWS_PER_SHEET
-            or columns > MAX_DECLARED_COLUMNS_PER_SHEET
-        ):
-            raise XlsxPackageError(
-                "worksheet_dimension_limit",
-                "Worksheet declared dimensions exceed the safe processing limit.",
-            )
-        dimension_cells = rows * columns
-    return dimension_cells, len(_CELL_TAG_RE.findall(worksheet_xml))
-
-
-def _validate_worksheets(
-    package: zipfile.ZipFile, worksheet_members: list[zipfile.ZipInfo]
-) -> None:
-    dimension_cells = 0
-    xml_cell_records = 0
-    for member in worksheet_members:
-        member_dimensions, member_cells = _worksheet_counts(package, member)
-        dimension_cells += member_dimensions
-        if dimension_cells > MAX_DECLARED_DIMENSION_CELLS:
-            raise XlsxPackageError(
-                "workbook_dimension_limit",
-                "Workbook declared dimensions exceed the safe processing limit.",
-            )
-        xml_cell_records += member_cells
-        if xml_cell_records > MAX_XML_CELL_RECORDS:
-            raise XlsxPackageError(
-                "cell_limit", "Workbook contains too many worksheet cell records."
-            )
-
-
-def validate_xlsx_package(content: bytes) -> None:
-    """Reject unsafe, active, or resource-unbounded XLSX packages pre-parse."""
-    package = _open_package(content)
     with package:
         members = package.infolist()
-        _validate_manifest(members)
-        worksheet_members = _validate_members(members)
-        _validate_content_types(package)
-        _validate_relationships(package, members)
-        _validate_worksheets(package, worksheet_members)
+        if len(members) > MAX_PACKAGE_MEMBERS:
+            raise XlsxPackageError(
+                "package_member_limit", "Workbook package contains too many members."
+            )
+        names = [member.filename for member in members]
+        if len(set(names)) != len(names):
+            raise XlsxPackageError(
+                "duplicate_package_member",
+                "Workbook package contains duplicate members.",
+            )
+        if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
+            raise XlsxPackageError(
+                "invalid_ooxml", "Workbook package is missing required OOXML parts."
+            )
+
+        total_uncompressed = 0
+        worksheet_members = []
+        for member in members:
+            path = PurePosixPath(member.filename)
+            if path.is_absolute() or ".." in path.parts or "\\" in member.filename:
+                raise XlsxPackageError(
+                    "unsafe_package_path",
+                    "Workbook package contains an unsafe member path.",
+                )
+            if member.flag_bits & 0x1:
+                raise XlsxPackageError(
+                    "encrypted_package", "Encrypted workbook packages are not supported."
+                )
+            if member.file_size > MAX_PACKAGE_MEMBER_BYTES:
+                raise XlsxPackageError(
+                    "package_member_size_limit", "Workbook package member is too large."
+                )
+            total_uncompressed += member.file_size
+            if total_uncompressed > MAX_PACKAGE_UNCOMPRESSED_BYTES:
+                raise XlsxPackageError(
+                    "package_size_limit",
+                    "Workbook expands beyond the safe processing limit.",
+                )
+            if member.file_size >= 1_000_000:
+                ratio = member.file_size / max(1, member.compress_size)
+                if ratio > MAX_COMPRESSION_RATIO:
+                    raise XlsxPackageError(
+                        "compression_ratio_limit",
+                        "Workbook compression ratio exceeds the safe limit.",
+                    )
+            lowered = member.filename.lower()
+            if lowered.startswith("xl/worksheets/") and lowered.endswith(".xml"):
+                worksheet_members.append(member)
+            if (
+                "vbaproject" in lowered
+                or lowered.startswith("xl/externallinks/")
+                or lowered.startswith("xl/embeddings/")
+                or lowered.startswith("xl/querytables/")
+                or lowered == "xl/connections.xml"
+            ):
+                raise XlsxPackageError(
+                    "active_or_external_content",
+                    "Macros, embedded objects, queries, and external links are not supported.",
+                )
+
+        if len(worksheet_members) > MAX_WORKSHEETS:
+            raise XlsxPackageError(
+                "worksheet_count_limit", "Workbook contains too many worksheets."
+            )
+
+        content_types = package.read("[Content_Types].xml").lower()
+        if b"macroenabled" in content_types or b"vbaproject" in content_types:
+            raise XlsxPackageError(
+                "active_or_external_content", "Macro-enabled workbooks are not supported."
+            )
+
+        for member in members:
+            if not member.filename.lower().endswith(".rels"):
+                continue
+            try:
+                relationship_xml = package.read(member)
+                lowered_xml = relationship_xml.lower()
+                if b"<!doctype" in lowered_xml or b"<!entity" in lowered_xml:
+                    raise XlsxPackageError(
+                        "invalid_relationships",
+                        "Workbook relationships contain a forbidden document type.",
+                    )
+                root = ElementTree.fromstring(relationship_xml)
+            except XlsxPackageError:
+                raise
+            except (ElementTree.ParseError, RuntimeError, KeyError) as exc:
+                raise XlsxPackageError(
+                    "invalid_relationships", "Workbook relationships are malformed."
+                ) from exc
+            for relationship in root.iter():
+                if relationship.attrib.get("TargetMode", "").lower() == "external":
+                    raise XlsxPackageError(
+                        "external_relationship",
+                        "External workbook relationships are not supported.",
+                    )
+
+        dimension_cells = 0
+        xml_cell_records = 0
+        for member in worksheet_members:
+            worksheet_xml = package.read(member)
+            declared = _declared_dimension(worksheet_xml)
+            if declared is not None:
+                rows, columns = declared
+                if (
+                    rows > MAX_DECLARED_ROWS_PER_SHEET
+                    or columns > MAX_DECLARED_COLUMNS_PER_SHEET
+                ):
+                    raise XlsxPackageError(
+                        "worksheet_dimension_limit",
+                        "Worksheet declared dimensions exceed the safe processing limit.",
+                    )
+                dimension_cells += rows * columns
+                if dimension_cells > MAX_DECLARED_DIMENSION_CELLS:
+                    raise XlsxPackageError(
+                        "workbook_dimension_limit",
+                        "Workbook declared dimensions exceed the safe processing limit.",
+                    )
+            xml_cell_records += len(_CELL_TAG_RE.findall(worksheet_xml))
+            if xml_cell_records > MAX_XML_CELL_RECORDS:
+                raise XlsxPackageError(
+                    "cell_limit", "Workbook contains too many worksheet cell records."
+                )

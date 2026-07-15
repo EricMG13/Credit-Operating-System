@@ -95,8 +95,12 @@ function ReportStudio() {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const exactRunId = searchParams.get("run");
+  const requestedContextId = searchParams.get("context");
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  const analysis = useAnalysisContext({ name: "Committee report workspace" });
+  const analysis = useAnalysisContext({
+    name: "Committee report workspace",
+    context_id: requestedContextId,
+  });
 
   // Report Studio reads only the DB-saved Model Builder state. Unsaved browser
   // edits in /model do not affect committee output.
@@ -179,16 +183,33 @@ function ReportStudio() {
   const [publishState, setPublishState] = useState<"idle" | "publishing" | "published" | "error">("idle");
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const versionPayloadRequests = useRef(new Set<string>());
+  const workspaceScope = `${analysis.context?.id ?? "loading"}:${issuerId}:${exactRunId ?? "latest"}`;
+  const targetRunId = exactRunId ?? live.runId;
+
+  useEffect(() => {
+    setActiveId("snapshot");
+    setOmit({});
+    setEdits({});
+    setServerPreview(null);
+    setPreviewIntent(null);
+    setDraftRevision(null);
+    setServerDraftReady(false);
+    setPublishState("idle");
+    setPublishMessage(null);
+    versionPayloadRequests.current.clear();
+  }, [workspaceScope]);
 
   useEffect(() => {
     const contextId = analysis.context?.id;
-    if (!contextId || isReference) { setVersions([]); return; }
+    if (!contextId || isReference || !targetRunId) { setVersions([]); return; }
     let cancelled = false;
     listReportVersions(contextId)
-      .then((rows) => { if (!cancelled) setVersions(rows); })
+      .then((rows) => {
+        if (!cancelled) setVersions(rows.filter((version) => version.run_id === targetRunId));
+      })
       .catch(() => { if (!cancelled) setPublishMessage("Published versions unavailable; the live draft remains open."); });
     return () => { cancelled = true; };
-  }, [analysis.context?.id, isReference]);
+  }, [analysis.context?.id, isReference, targetRunId]);
 
   useEffect(() => {
     const summary = versions.find((version) => version.id === activeId);
@@ -200,7 +221,8 @@ function ReportStudio() {
       .finally(() => versionPayloadRequests.current.delete(summary.id));
   }, [activeId, versions]);
 
-  // restore persisted workspace state
+  // Persist only display preference. Report selection, omissions, and analyst
+  // edits are sensitive, context-bound draft state and belong on the server.
   const reportParam = searchParams.get("report");
   const deepLinkedVersionId = reportParam && versions.some((version) => version.id === reportParam)
     ? reportParam
@@ -208,31 +230,25 @@ function ReportStudio() {
   // fallow-ignore-next-line complexity
   useEffect(() => {
     try {
-      const a = localStorage.getItem("caos-e-active");
-      if (a && reports.some((r) => r.id === a)) setActiveId(a);
       const z = parseFloat(localStorage.getItem("caos-e-zoom") || "");
       if (ZOOMS.includes(z)) setZoom(z);
-      const o = JSON.parse(localStorage.getItem("caos-e-omit") || "{}");
-      if (o && typeof o === "object") setOmit(o);
-      const e = JSON.parse(localStorage.getItem("caos-e-edits") || "{}");
-      if (e && typeof e === "object") setEdits(e);
     } catch { /* first visit */ }
-    // Deep link (?report=) beats the remembered workspace tab — a module-export
-    // jump from Deep-Dive must land on its exhibit, not last session's.
-    if (reportParam && reports.some((r) => r.id === reportParam)) setActiveId(reportParam);
     setHydrated(true);
-  }, [reports, reportParam]);
+  }, []);
+
+  useEffect(() => {
+    if (reportParam && reports.some((report) => report.id === reportParam)) {
+      setActiveId(reportParam);
+    }
+  }, [reportParam, reports]);
 
   // Consolidate persisted settings into a single effect block
   useEffect(() => {
     if (!hydrated) return;
     try {
-      localStorage.setItem("caos-e-active", activeId);
       localStorage.setItem("caos-e-zoom", String(zoom));
-      localStorage.setItem("caos-e-omit", JSON.stringify(omit));
-      localStorage.setItem("caos-e-edits", JSON.stringify(edits));
     } catch {}
-  }, [hydrated, activeId, zoom, omit, edits]);
+  }, [hydrated, zoom]);
 
   useEffect(() => {
     const contextId = analysis.context?.id;
@@ -244,6 +260,7 @@ function ReportStudio() {
         if (cancelled) return;
         setDraftRevision(draft?.revision ?? null);
         const payload = draft?.payload ?? {};
+        if (payload.issuer_id !== issuerId) return;
         // A frozen-version deep link is an explicit navigation instruction.
         // Never let a slower mutable-draft response replace it.
         if (!deepLinkedVersionId && typeof payload.active_id === "string") setActiveId(payload.active_id);
@@ -256,7 +273,7 @@ function ReportStudio() {
       .catch(() => setPublishMessage("Server draft unavailable; local edits remain intact."))
       .finally(() => { if (!cancelled) setServerDraftReady(true); });
     return () => { cancelled = true; };
-  }, [analysis.context?.id, deepLinkedVersionId]);
+  }, [analysis.context?.id, deepLinkedVersionId, issuerId, workspaceScope]);
 
   useEffect(() => {
     const contextId = analysis.context?.id;
@@ -805,7 +822,13 @@ function ReportStudio() {
             </button>
           ) : null}
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => window.print()} disabled={!rep} className="caos-action-secondary focus-ring disabled:opacity-40">Print / save PDF</button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              disabled={!selectedPublishedVersion}
+              title={selectedPublishedVersion ? "Print immutable published version" : "Publish an immutable committee version before printing"}
+              className="caos-action-secondary focus-ring disabled:opacity-40"
+            >Print / save PDF</button>
             <button type="button" onClick={() => void downloadVersion("pdf")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable PDF" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download PDF</button>
             <button type="button" onClick={() => void downloadVersion("xlsx")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable XLSX" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download XLSX</button>
           {live.runId ? (
@@ -889,7 +912,7 @@ function ReportStudio() {
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {decisionOpen && live.runId ? <DecisionRoomDrawer issuerId={issuerId} runId={live.runId} reportId={rep?.id ?? activeId} onClose={() => setDecisionOpen(false)} /> : null}
-      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} editableSectionCount={isFrozenPreview ? frozenReviewedSectionCount ?? undefined : undefined} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
+      {rep && selectedPublishedVersion ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={false} authority={authority} /> : null}
     </EnterprisePage>
   );
 }

@@ -123,6 +123,45 @@ async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stale_claim_cannot_execute_or_clobber_newer_attempt(seeded_db, monkeypatch):
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    import run_executor
+
+    calls = 0
+
+    async def should_not_run(session, run):
+        nonlocal calls
+        calls += 1
+
+    monkeypatch.setattr(run_executor, "execute_run", should_not_run)
+
+    async with AsyncSessionLocal() as session:
+        run = Run(
+            issuer_id=REFERENCE_ISSUER_ID,
+            analyst_id="lease-fence",
+            status="complete",
+            attempts=2,
+            worker_id="new-worker",
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await run_executor.execute_run_by_id(
+        run_id,
+        expected_attempt=1,
+        expected_worker_id="old-worker",
+    )
+
+    async with AsyncSessionLocal() as session:
+        row = await session.get(Run, run_id)
+        assert row.status == "complete"
+        assert row.attempts == 2
+    assert calls == 0
+
+
+@pytest.mark.asyncio
 async def test_notification_render_failure_uses_minimal_event_and_run_stays_terminal(
     seeded_db, monkeypatch
 ):
@@ -338,9 +377,9 @@ async def test_two_workers_claim_one_run_once(seeded_db):
 
     try:
         w1, w2 = QueueWorker(), QueueWorker()
-        id1 = await w1._claim_one()
-        id2 = await w2._claim_one()
-        claimed = [x for x in (id1, id2) if x == run_id]
+        claim1 = await w1._claim_one()
+        claim2 = await w2._claim_one()
+        claimed = [x for x in (claim1, claim2) if x and x[0] == run_id]
         assert len(claimed) == 1, "exactly one worker may claim the run"
     finally:
         # _claim_one leaves the run "running" (claimed, never executed) —
@@ -481,15 +520,8 @@ def test_duplicate_active_run_rejected(api_client, monkeypatch):
     wait_for_run(api_client, again.json()["id"])  # drain
 
 
-def test_runs_idor_single_team_read_is_intentional(api_client):
-    """Authorization is single-team by design (SECURITY.md §2, S-4): every analyst
-    may read every run. This pins that behaviour so widening the trust model to
-    multiple teams becomes a conscious change (it must add per-caller authz to
-    runs.py) rather than silently inheriting a cross-team read.
-
-    A run owned by a DIFFERENT analyst is still fully readable by this caller via
-    get_run / get_qa / list_runs — no per-caller filter. If you are here because you
-    added tenant scoping, update this test deliberately."""
+def test_runs_are_analyst_private_by_default(api_client):
+    """Foreign analyst runs are non-enumerable unless desk sharing is explicit."""
     import asyncio
 
     from conftest import wait_for_run
@@ -512,19 +544,14 @@ def test_runs_idor_single_team_read_is_intentional(api_client):
     asyncio.run(_reassign())
 
     got = api_client.get(f"/api/runs/{run_id}")
-    assert got.status_code == 200, got.text
-    assert got.json()["analyst_id"] == "someone-else@firm.com"  # foreign run, still served
-
-    assert api_client.get(f"/api/runs/{run_id}/qa").status_code == 200
+    assert got.status_code == 404
+    assert api_client.get(f"/api/runs/{run_id}/qa").status_code == 404
     listed = api_client.get("/api/runs").json()
-    assert any(r["id"] == run_id for r in listed)  # surfaces in the unscoped list too
+    assert all(r["id"] != run_id for r in listed)
 
 
-def test_export_to_vault_idor_single_team_write_is_intentional(api_client, tmp_path, monkeypatch):
-    """export_to_vault is a destructive-adjacent WRITE (a filesystem Markdown
-    mirror), not just a read — pinned separately from the read-only IDOR test
-    above since a write deserves its own explicit regression signal. Same
-    single-team rationale (SECURITY.md §2, S-4, runs.py module docstring)."""
+def test_export_to_vault_rejects_foreign_run(api_client, tmp_path, monkeypatch):
+    """A foreign run cannot be mirrored to the caller's filesystem vault."""
     import asyncio
 
     from conftest import wait_for_run
@@ -550,8 +577,7 @@ def test_export_to_vault_idor_single_team_write_is_intentional(api_client, tmp_p
     asyncio.run(_reassign())
 
     resp = api_client.post(f"/api/runs/{run_id}/vault")
-    assert resp.status_code == 200, resp.text  # foreign-owned run, still exportable
-    assert resp.json()["written"]
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -608,16 +634,10 @@ async def test_shutdown_cancellation_marks_run_failed(seeded_db, monkeypatch):
 # or after a genuinely fast run already reached a terminal state, sees no
 # active run and would otherwise create a real duplicate.
 
-def _reset_idempotency_cache():
-    import routes.runs as runs_module
-    runs_module._idempotency_cache.clear()
-
-
 def test_idempotency_key_returns_same_run_on_retry(api_client):
     from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
 
-    _reset_idempotency_cache()
     headers = {"Idempotency-Key": "test-key-1"}
     r1 = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID}, headers=headers)
     assert r1.status_code == 201, r1.text
@@ -633,7 +653,6 @@ def test_no_idempotency_key_creates_a_new_run_each_time(api_client):
     from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
 
-    _reset_idempotency_cache()
     r1 = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
     run_id_1 = r1.json()["id"]
     wait_for_run(api_client, run_id_1)
@@ -644,33 +663,41 @@ def test_no_idempotency_key_creates_a_new_run_each_time(api_client):
     assert run_id_2 != run_id_1
 
 
-def test_idempotency_lookup_expires_after_ttl(monkeypatch):
-    import routes.runs as runs_module
+def test_idempotency_key_reuse_for_different_request_conflicts(api_client):
+    from conftest import wait_for_run
+    from engine.fixtures import REFERENCE_ISSUER_ID
 
-    _reset_idempotency_cache()
-    monkeypatch.setattr(runs_module, "_IDEMPOTENCY_TTL_SECONDS", 0)  # expire immediately
-    runs_module._idempotency_store("analyst-a", "key-1", "run-1")
-    assert runs_module._idempotency_lookup("analyst-a", "key-1") is None
-    assert "key-1" not in [k[1] for k in runs_module._idempotency_cache]  # swept on lookup
+    headers = {"Idempotency-Key": "different-request-key"}
+    first = api_client.post(
+        "/api/runs",
+        json={"issuer_id": REFERENCE_ISSUER_ID, "as_of_date": "2026-01-01"},
+        headers=headers,
+    )
+    assert first.status_code == 201, first.text
+    wait_for_run(api_client, first.json()["id"])
+
+    conflict = api_client.post(
+        "/api/runs",
+        json={"issuer_id": REFERENCE_ISSUER_ID, "as_of_date": "2026-01-02"},
+        headers=headers,
+    )
+    assert conflict.status_code == 409
+    assert "different run request" in conflict.text
 
 
-def test_idempotency_lookup_scoped_per_analyst():
-    import routes.runs as runs_module
+def test_idempotency_key_is_bounded_and_validated(api_client):
+    from engine.fixtures import REFERENCE_ISSUER_ID
 
-    _reset_idempotency_cache()
-    runs_module._idempotency_store("analyst-a", "shared-key", "run-a")
-    assert runs_module._idempotency_lookup("analyst-b", "shared-key") is None
-    assert runs_module._idempotency_lookup("analyst-a", "shared-key") == "run-a"
+    response = api_client.post(
+        "/api/runs",
+        json={"issuer_id": REFERENCE_ISSUER_ID},
+        headers={"Idempotency-Key": "contains spaces"},
+    )
+    assert response.status_code == 422
 
 
-def test_idempotency_cache_bounded_evicts_oldest(monkeypatch):
-    import routes.runs as runs_module
-
-    _reset_idempotency_cache()
-    monkeypatch.setattr(runs_module, "_IDEMPOTENCY_MAX_ENTRIES", 3)
-    for i in range(5):
-        runs_module._idempotency_store(f"analyst-{i}", "k", f"run-{i}")
-    assert len(runs_module._idempotency_cache) <= 3
-    # The earliest entries were evicted; the most recent survives.
-    assert runs_module._idempotency_lookup("analyst-4", "k") == "run-4"
-    _reset_idempotency_cache()
+def test_run_model_has_durable_idempotency_columns():
+    cols = Run.__table__.columns
+    assert "idempotency_key" in cols
+    assert "idempotency_request_hash" in cols
+    assert any(index.name == "uq_runs_analyst_idempotency" for index in Run.__table__.indexes)

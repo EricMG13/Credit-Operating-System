@@ -34,6 +34,7 @@ from sqlalchemy.ext.compiler import compiles
 logger = logging.getLogger("caos.database")
 
 _ROLLBACK_CLEANUPS_KEY = "caos_rollback_cleanups"
+_AFTER_COMMIT_CALLBACKS_KEY = "caos_after_commit_callbacks"
 
 
 def register_rollback_cleanup(session: AsyncSession, cleanup: Callable[[], None]) -> None:
@@ -48,6 +49,16 @@ def register_rollback_cleanup(session: AsyncSession, cleanup: Callable[[], None]
     session.info.setdefault(_ROLLBACK_CLEANUPS_KEY, []).append(cleanup)
 
 
+def register_after_commit(session: AsyncSession, callback: Callable[[], None]) -> None:
+    """Run a synchronous cache/state update only after the transaction commits.
+
+    This is for non-authoritative process hints whose value must never advance
+    ahead of durable database state.  Callback failures are logged after commit
+    and cannot turn a successful write into a misleading transaction failure.
+    """
+    session.info.setdefault(_AFTER_COMMIT_CALLBACKS_KEY, []).append(callback)
+
+
 async def _run_rollback_cleanups(session: AsyncSession) -> None:
     callbacks = session.info.pop(_ROLLBACK_CLEANUPS_KEY, [])
     for cleanup in reversed(callbacks):
@@ -55,6 +66,15 @@ async def _run_rollback_cleanups(session: AsyncSession) -> None:
             await asyncio.to_thread(cleanup)
         except Exception:
             logger.exception("Failed to run transaction rollback cleanup")
+
+
+async def _run_after_commit_callbacks(session: AsyncSession) -> None:
+    callbacks = session.info.pop(_AFTER_COMMIT_CALLBACKS_KEY, [])
+    for callback in callbacks:
+        try:
+            callback()
+        except Exception:
+            logger.exception("Failed to run post-commit state callback")
 
 
 class SafeVector(TypeDecorator):
@@ -333,6 +353,12 @@ class Run(Base):
         # Serves the worker claim poll (status filter + created_at order, every
         # poll tick) and the status='complete' board scans (migrations/0034).
         Index("ix_runs_status_created_at", "status", "created_at"),
+        Index(
+            "uq_runs_analyst_idempotency",
+            "analyst_id",
+            "idempotency_key",
+            unique=True,
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -340,6 +366,10 @@ class Run(Base):
     parent_run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"))
     status: Mapped[str] = mapped_column(String(16), default="queued")  # queued|running|complete|failed
     analyst_id: Mapped[Optional[str]] = mapped_column(String(255))
+    # Durable POST /runs retry identity. The request hash prevents a caller from
+    # accidentally reusing a key for a different logical request.
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
+    idempotency_request_hash: Mapped[Optional[str]] = mapped_column(String(64))
     as_of_date: Mapped[Optional[str]] = mapped_column(String(32))
     # Reproducibility: pin the model and methodology version each run saw.
     model_id: Mapped[Optional[str]] = mapped_column(String(64))
@@ -348,6 +378,15 @@ class Run(Base):
     # background runner applies the same TEST/LITE/BALANCED/MAX tier the creating
     # request chose, including across a re-claim. NULL = the default mode.
     model_mode: Mapped[Optional[str]] = mapped_column(String(16))
+    # Immutable execution corpus captured when the run is created. NULL denotes
+    # a legacy pre-snapshot row; an empty list is an intentional empty corpus.
+    # The worker must never rebuild a new run's inputs from the issuer's current
+    # documents because uploads can arrive while the run is queued/running.
+    input_document_ids: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    input_manifest_ids: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    input_corpus_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # approved|unapproved|empty. Legacy NULL is handled explicitly by the runner.
+    input_snapshot_state: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     # Portfolio this run is evaluated against (CP-3C reads it for the live
     # concentration register); NULL = a standalone run with no portfolio context.
     # Soft ref (plain string, no FK) — avoids a SQLite ALTER-ADD-FK on the existing,
@@ -699,6 +738,9 @@ class AnalysisContextRecord(Base):
     surface_state: Mapped[dict] = mapped_column(JSON, default=dict)
     filters: Mapped[dict] = mapped_column(JSON, default=dict)
     selected: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Optimistic-concurrency token for analyst UI patches. Producer-side
+    # artifact binders already take row locks; this closes stale browser writes.
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -1749,6 +1791,7 @@ async def get_db():
             yield session
             route_completed = True
             await session.commit()
+            await _run_after_commit_callbacks(session)
             session.info.pop(_ROLLBACK_CLEANUPS_KEY, None)
         # Cancellation inherits from BaseException, not Exception. A client
         # disconnect before the route returns must still roll back and release
@@ -1762,6 +1805,7 @@ async def get_db():
                 # transaction became durable. Retain external objects rather
                 # than risk committed rows pointing at deleted bytes.
                 session.info.pop(_ROLLBACK_CLEANUPS_KEY, None)
+                session.info.pop(_AFTER_COMMIT_CALLBACKS_KEY, None)
             raise
 
 

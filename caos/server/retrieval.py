@@ -262,7 +262,11 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
     return rrf_fusion(bm25_hits, vector_hits, limit=k)
 
 
-async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
+async def build_issuer_index(
+    db: AsyncSession,
+    issuer_id: str,
+    document_ids: Optional[Sequence[str]] = None,
+) -> Bm25Index:
     """Fetch an issuer's document chunks and build the BM25 index once. The runner
     builds this at the start of a run and reuses it across every ``retrieve()``
     call, so the corpus is tokenized once rather than per call (P4-2).
@@ -274,15 +278,18 @@ async def build_issuer_index(db: AsyncSession, issuer_id: str) -> Bm25Index:
     RT-2026-07-07-14. The filter is narrow (analyst-memo only) so the
     CONFIDENCE_AUDIT-2026-06-26 behavior — uploaded credit agreements / OMs on an
     EDGAR issuer are reachable by reconcile — is preserved for all other doc_types."""
-    rows = (
-        await db.execute(
-            select(DocumentChunk.id, DocumentChunk.text)
-            .join(Document, Document.id == DocumentChunk.document_id)
-            .where(Document.issuer_id == issuer_id)
-            .where(Document.doc_type != "analyst-memo")
-            .limit(_CORPUS_SCAN_CAP)
-        )
-    ).all()
+    if document_ids == []:
+        return await asyncio.to_thread(build_index, [])
+    stmt = (
+        select(DocumentChunk.id, DocumentChunk.text)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(Document.issuer_id == issuer_id)
+        .where(Document.doc_type != "analyst-memo")
+    )
+    if document_ids is not None:
+        stmt = stmt.where(Document.id.in_(document_ids))
+    stmt = stmt.limit(_CORPUS_SCAN_CAP)
+    rows = (await db.execute(stmt)).all()
     return await asyncio.to_thread(build_index, [(r[0], r[1]) for r in rows])
 
 

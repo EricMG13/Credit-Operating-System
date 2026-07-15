@@ -143,6 +143,7 @@ describe("Report Studio frozen publication preview", () => {
     expect(screen.getByRole("button", { name: "Publish reviewed preview" })).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Open Report utilities" }));
+    expect((screen.getByRole("button", { name: "Print / save PDF" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "EDIT DOCUMENT" }));
     expect(screen.getByRole("textbox", { name: "Edit report field s0.r0.v" })).not.toBeNull();
     expect(screen.queryByRole("textbox", { name: "Edit report field s1.r0.v" })).toBeNull();
@@ -164,5 +165,8 @@ describe("Report Studio frozen publication preview", () => {
       model_checkpoint_id: "checkpoint-1",
       preview_sha256: reviewedPreview.preview_sha256,
     })));
+    await waitFor(() => expect(
+      (screen.getByRole("button", { name: "Print / save PDF" }) as HTMLButtonElement).disabled,
+    ).toBe(false));
   });
 });

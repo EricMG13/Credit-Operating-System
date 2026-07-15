@@ -10,6 +10,7 @@ Covers the four red-team gates (RT-2026-07-07-22..25):
 from __future__ import annotations
 
 import asyncio
+import math
 
 import pytest
 from fastapi.testclient import TestClient
@@ -111,6 +112,20 @@ def test_build_pack_scopes_deltas_to_watchlist():
             unscoped = await queryinsights.build_pack(db, None)
             unscoped_deltas = [e for e in unscoped if e.kind == "delta"]
             assert {e.issuer_id for e in unscoped_deltas} >= {"d1", "d2"}
+    asyncio.run(_run())
+
+
+@pytest.mark.usefixtures("seeded_db")
+@pytest.mark.parametrize("corrupt", [math.nan, math.inf, -math.inf])
+def test_desk_brief_skips_nonfinite_persisted_delta(corrupt):
+    async def _run():
+        async with AsyncSessionLocal() as db:
+            await _add_issuer(db, "nf1", "Nonfinite One")
+            await _add_delta(db, "nf1", "net_leverage", 4.0, corrupt)
+            await db.commit()
+            entries = await queryinsights._delta_entries(db, ["nf1"])
+            assert entries == []
+
     asyncio.run(_run())
 
 

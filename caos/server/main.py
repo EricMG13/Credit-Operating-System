@@ -40,6 +40,29 @@ access_logger = logging.getLogger("caos.access")
 settings = get_settings()
 
 
+def _observe_warmup_completion(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    try:
+        error = task.exception()
+    except asyncio.CancelledError:
+        return
+    if error is not None:
+        logger.error(
+            "Embeddings warmup task terminated unexpectedly",
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+
+async def _cancel_and_drain(task: asyncio.Task) -> None:
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("CAOS starting (environment=%s)", settings.environment)
@@ -130,9 +153,13 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to run embeddings warmup task")
 
-    asyncio.create_task(run_warmup())
+    app.state.embeddings_warmup_task = asyncio.create_task(
+        run_warmup(), name="caos-embeddings-warmup"
+    )
+    app.state.embeddings_warmup_task.add_done_callback(_observe_warmup_completion)
 
     yield
+    await _cancel_and_drain(app.state.embeddings_warmup_task)
     await app.state.pipeline_executor.stop()
     await app.state.research_report_executor.stop()
     await app.state.research_executor.stop()

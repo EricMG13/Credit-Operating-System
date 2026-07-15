@@ -43,16 +43,56 @@ async def _emit_terminal_notification(session, run: Run) -> None:
         await emit_run_terminal_notification_fallback(session, run)
 
 
-async def execute_run_by_id(run_id: str) -> None:
-    """Run one run in its own session; mark it failed on any error."""
+async def execute_run_by_id(
+    run_id: str,
+    *,
+    expected_attempt: int | None = None,
+    expected_worker_id: str | None = None,
+) -> None:
+    """Run one claimed attempt in its own session.
+
+    Queue workers pass the immutable ``(attempts, worker_id)`` claim token. A
+    lease-expired worker may finish after another worker has reclaimed the row;
+    the token prevents that stale attempt from committing or marking the newer
+    attempt failed. Local in-process execution has no claim token because it is
+    single-process and has no reclaimer.
+    """
     async with AsyncSessionLocal() as session:
         run = await session.get(Run, run_id)
         if run is None:
             logger.warning("execute_run_by_id: run %s vanished", run_id)
             return
+        if expected_attempt is not None and (
+            run.status != "running"
+            or run.attempts != expected_attempt
+            or run.worker_id != expected_worker_id
+        ):
+            logger.warning(
+                "discarding stale run claim %s attempt=%s worker=%s",
+                run_id,
+                expected_attempt,
+                expected_worker_id,
+            )
+            return
         committed = False
         try:
             await execute_run(session, run)
+            if expected_attempt is not None:
+                # Read scalar columns directly so the identity map cannot hide a
+                # lease re-claim committed by another worker.
+                with session.no_autoflush:
+                    owner = (await session.execute(
+                        select(Run.attempts, Run.worker_id).where(Run.id == run_id)
+                    )).one_or_none()
+                if owner != (expected_attempt, expected_worker_id):
+                    await session.rollback()
+                    logger.warning(
+                        "discarding stale run result %s attempt=%s worker=%s",
+                        run_id,
+                        expected_attempt,
+                        expected_worker_id,
+                    )
+                    return
             await _emit_terminal_notification(session, run)
             await session.commit()
             committed = True
@@ -69,11 +109,23 @@ async def execute_run_by_id(run_id: str) -> None:
                 logger.warning("run %s cancelled after commit (vault export interrupted) — run unaffected", run_id)
                 raise
             logger.warning("run %s cancelled during shutdown — marking failed", run_id)
-            await _mark_run_failed(session, run_id, "worker shutdown during execution")
+            await _mark_run_failed(
+                session,
+                run_id,
+                "worker shutdown during execution",
+                expected_attempt=expected_attempt,
+                expected_worker_id=expected_worker_id,
+            )
             raise
         except Exception as e:  # noqa: BLE001 — last-resort guard so a run is never stranded
             logger.exception("run %s failed in executor", run_id)
-            await _mark_run_failed(session, run_id, str(e)[:2000])
+            await _mark_run_failed(
+                session,
+                run_id,
+                str(e)[:2000],
+                expected_attempt=expected_attempt,
+                expected_worker_id=expected_worker_id,
+            )
 
 
 async def _maybe_export_to_vault(session, run_id: str) -> None:
@@ -99,12 +151,34 @@ async def _maybe_export_to_vault(session, run_id: str) -> None:
         logger.exception("vault export failed for run %s (run unaffected)", run_id)
 
 
-async def _mark_run_failed(session, run_id: str, reason: str) -> None:
+async def _mark_run_failed(
+    session,
+    run_id: str,
+    reason: str,
+    *,
+    expected_attempt: int | None = None,
+    expected_worker_id: str | None = None,
+) -> None:
     """Roll back and mark a run failed; never raises (last-resort recovery)."""
     try:
         await session.rollback()
-        run = await session.get(Run, run_id)
+        run = (await session.execute(
+            select(Run).where(Run.id == run_id).with_for_update()
+        )).scalar_one_or_none()
         if run is not None:
+            if run.status in {"complete", "failed"}:
+                return
+            if expected_attempt is not None and (
+                run.attempts != expected_attempt
+                or run.worker_id != expected_worker_id
+            ):
+                logger.warning(
+                    "stale attempt cannot fail run %s attempt=%s worker=%s",
+                    run_id,
+                    expected_attempt,
+                    expected_worker_id,
+                )
+                return
             run.status = "failed"
             run.error = reason
             run.lease_expires_at = None
@@ -250,7 +324,7 @@ class QueueWorker:
             )
             await s.commit()
 
-    async def _claim_one(self) -> str | None:
+    async def _claim_one(self) -> tuple[str, int, str] | None:
         max_attempts = self._settings.caos_run_max_attempts
         lease = timedelta(seconds=self._settings.caos_run_lease_seconds)
         async with AsyncSessionLocal() as s:
@@ -282,7 +356,7 @@ class QueueWorker:
                 row.claimed_at = _now()
                 row.lease_expires_at = _now() + lease
                 row.worker_id = self._worker_id
-                return row.id
+                return row.id, row.attempts, self._worker_id
 
     async def _run_loop(self) -> None:
         poll = self._settings.caos_run_poll_seconds
@@ -293,10 +367,15 @@ class QueueWorker:
                 await self._heartbeat()
                 await self._reap_orphans()
                 while len(self._inflight) < cap:
-                    run_id = await self._claim_one()
-                    if run_id is None:
+                    claim = await self._claim_one()
+                    if claim is None:
                         break
-                    task = asyncio.create_task(execute_run_by_id(run_id))
+                    run_id, attempt, worker_id = claim
+                    task = asyncio.create_task(execute_run_by_id(
+                        run_id,
+                        expected_attempt=attempt,
+                        expected_worker_id=worker_id,
+                    ))
                     self._inflight.add(task)
                     self._inflight_ids.add(run_id)
                     task.add_done_callback(self._inflight.discard)

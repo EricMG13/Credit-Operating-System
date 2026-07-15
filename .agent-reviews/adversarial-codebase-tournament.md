@@ -840,4 +840,289 @@ Baseline result: **16 passed, 2 warnings in 2.28s**.
 
 ### Tournament result
 
+Incumbent: defended tenant authorization, the deliberately separate newest and
+latest-complete run semantics, last-good fact retention, run/module QA blocking,
+source-run as-of labeling, shared `better_fact` precedence, bounded queries, and
+the complete response schema used by the issuer UI.
+
+Anonymous bracket:
+
+1. **A vs B — B won.** B kept validation order and exact queries while avoiding
+   redundant result-list copies, streaming module/finding/source-as-of rows, and
+   making object lifetimes explicit.
+2. **Prior winner A vs Readability B — A won.** B was shorter but retained the
+   redundant materializations; A had better peak-space behavior without changing
+   CP outputs, fact precedence, signal-run selection, or response order.
+3. **Challenger A vs Incumbent B — A won.** A preserved the complete external
+   contract while reducing intermediate collections and releasing ORM objects
+   before final response construction.
+
+**Winner: Snippet A (Memory)**, replacing
+`caos/server/routes/issuers.py:678-788` (the existing route decorator at line
+677 remains unchanged).
+
+Justification:
+
+- It removes duplicate bounded-result copies and consumes one-use module,
+  finding, and source-date results as iterables.
+- It preserves tenant resolution, SQL ordering/limits, current-versus-usable run
+  separation, blocked-signal suppression, last-good facts, and provenance.
+- The prebuilt response rows and explicit release points reduce peak retention
+  without hiding the financially sensitive selection rules.
+
+### Orchestrator verification
+
+- Scratch file: `/tmp/caos-g7-memory-019f67d3/routes/issuers.py`; production
+  source was not changed. `py_compile` passed and the scratch diff is confined
+  to the target function. A namespace-package shim let the scratch route replace
+  only `routes.issuers` while all other route modules came from production.
+- Focused/caller command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g7-memory-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g7-memory-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g7-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_issuer_profile.py caos/tests/server/test_tenancy.py -q`
+- Result: **16 passed, 2 warnings in 2.34s**. This covers public HTTP behavior,
+  tenant 404s, no-run empties, completed-run rollups, blocked-signal exclusion,
+  retained fact source dates, ratings ingestion, and deterministic covenant/
+  strength rules.
+- Full server result with the scratch path: **1,826 passed, 9 skipped, 10
+  failed in 81.16s**. Seven were the known AV loopback restriction; the external
+  AV control returned **8 passed in 0.17s**. Three additional failures were
+  differentially audited rather than attributed to the candidate.
+- Differential control command ran the FUN golden plus two CP-1 grounding cases
+  once with production `PYTHONPATH` and once with the scratch path on fresh
+  databases. Both environments returned the identical result: the two grounding
+  cases passed and FUN failed because current code reports
+  `qa_status=Restricted` while the golden expects `Passed`. Thus the candidate
+  introduced no additional failing assertion.
+- Financial/provenance spot-check: the focused last-good test retained an
+  accepted FY2025 leverage fact (`4.2x`) with its accepted run ID and
+  `source_run_as_of=2025-12-31`, while a newer blocked complete run remained the
+  signal-run ID and its one-month liquidity output was suppressed to `None`.
+
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g7_get_issuer_profile_memory.py`; it is
+not applied to production source by this review.
+
+## G8 — Reports/exports/charts
+
+### Target and impact set
+
+Target: `caos/server/report_exports.py::render_report_xlsx`, source lines
+256-595 (GitNexus envelope 255-594).
+
+- Exact UID: `Function:caos/server/report_exports.py:render_report_xlsx`.
+- Upstream impact: MEDIUM, 9 direct dependants and one process: the live
+  `routes/reports.py::export_report_version` route plus eight focused XLSX tests.
+- Downstream impact: MEDIUM, 12 dependencies (11 direct, 1 at depth 2).
+  Direct helpers are `_display`, `_xlsx_text`, `_xlsx_scalar`,
+  `_model_reporting_metadata`, `_instrument_currencies`,
+  `_model_override_rows`, `_rows`, `_safe_sheet_name`, `_reviewed_report`,
+  `_reviewed_rows`, and `_style_xlsx_header`.
+
+Contract: preserve the keyword-only signature and returned workbook bytes;
+sheet names/order, cell values/types/styles, model and debt fields, currencies
+and units, override event-time status, immutable authority/hashes, reviewed
+composition precedence, audit sources, formula-injection neutralization,
+formula-free structural reopen, and route content/hash headers.
+
+### G8 financial invariants
+
+- The renderer copies one frozen report payload; it never recalculates revenue,
+  EBITDA, interest, debt, cash, leverage, coverage, FCF, or debt roll-forwards.
+- Model cells preserve exact typed values. Debt opening/closing/average,
+  benchmark/margin/coupon/fee/PIK/hedge/FX/cash-interest components and
+  roll-forward residual remain in the labeled reporting unit, while converted
+  debt is separately labeled with reporting currency/scale.
+- Override rows are evaluated at the report event and retain active/inactive
+  state, value, reason, scope, source, expiry, displaced formula, and displaced
+  value. The renderer does not replay an override.
+- Reviewed report composition replaces superseded raw module prose but never
+  removes the independently frozen model, debt, gap/warning, or source audit.
+- Version ID, document SHA-256, authority, freshness, model fingerprints/hash,
+  draft revision, and source IDs remain visible and tied to the exact export.
+- Every analyst-controlled text surface is formula-neutralized, numeric/boolean
+  cells stay typed, and a reopened workbook must contain Cover and Module
+  Summary and no formula cells.
+- Yield/day-count conventions are not recalculated here. Any such fields are
+  inert frozen values; the protected cashflow invariant is exact debt and
+  interest component round-trip, including PIK and roll-forward residual.
+
+### Baseline verification
+
+Command:
+`DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g8-baseline-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g8-baseline-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_report_exports.py caos/tests/server/test_model_v2_report_identity.py -q`
+
+Baseline result: **18 passed, 4 warnings in 3.21s**.
+
+### Tournament result
+
+Incumbent: defended mutation order, immutable report identity, reviewed-prose
+precedence, exact typed model/debt/override values, sheet order and safe names,
+formula neutralization, audit sources, and the save/reopen/formula scan.
+
+Anonymous bracket:
+
+1. **A vs B — B won.** B kept the established control flow, streamed module
+   summaries, deferred/released auxiliary structures, and avoided the duplicate
+   XLSX buffer; A's method aliases were less direct despite its speed evidence.
+2. **Prior winner A vs Readability B — A won.** B was byte-identical to the
+   incumbent and offered no improvement; A lowered allocation without changing
+   workbook structure or the keyword/bytes contract.
+3. **Challenger A vs Incumbent B — A won.** A removed repeated style-object and
+   flattened-row allocations while preserving all identity, financial, audit,
+   and formula-free validation behavior.
+
+**Winner: Snippet A (Memory)**, replacing
+`caos/server/report_exports.py:256-595`.
+
+Justification:
+
+- It streams `_rows`, shares immutable OpenPyXL style objects, defers the debt
+  currency map, and releases the rendered override ledger.
+- It reopens the existing output buffer rather than cloning the complete XLSX
+  package, while retaining the mandatory-sheet and no-formula checks.
+- Exact model/debt/override values, sheet order, styles, authority, hashes,
+  security neutralization, and returned bytes are preserved.
+
+### Orchestrator verification
+
+- Scratch file: `/tmp/caos-g8-memory-019f67d3/report_exports.py`; production
+  source was not changed. `py_compile` passed and the diff is confined to the
+  target function.
+- Focused/caller command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g8-memory-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g8-memory-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g8-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_report_exports.py caos/tests/server/test_model_v2_report_identity.py -q`
+- Result: **18 passed, 4 warnings in 8.14s**. Direct rendering, live export
+  route, immutable hash, tenant/tamper controls, reviewed composition, exact
+  model identity, partial/gap output, and formula-injection cases all passed.
+- Same-process orchestrator comparison on the model-v2 payload produced exactly
+  equal bytes (`13,434` each) and the same SHA-256
+  `7528c6d5440990d68179f5f985a5fed4740cd08afe52f81e58062063218a607b`.
+  Five five-render samples gave a median candidate/incumbent runtime ratio of
+  **0.689**.
+- Full server result with the scratch path: **1,824 passed, 9 skipped, 15 failed
+  in 84.19s** during active parallel WIP. The candidate-target tests remained
+  clean. A fresh differential control reran the six still-existing non-AV failed
+  selectors with production and scratch paths: both returned the identical four
+  current failures and two passes. Two full-run test names disappeared/changed
+  before the control, further confirming concurrent test edits rather than a
+  report-renderer regression. The current external AV control returned **9
+  passed in 0.18s**.
+- Financial spot-check: the model-v2 XLSX retained GBP/millions headers; exact
+  opening, closing, average, benchmark, margin, PIK, converted debt and
+  roll-forward residual cells; active/inactive event-time overrides; calculation
+  hash; and zero formula cells after reopening.
+
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g8_render_report_xlsx_memory.py`; it is
+not applied to production source by this review.
+
+## G9 — Shared frontend shell
+
+### Target and impact set
+
+Target: `caos/frontend/src/components/shared/NavigationGuardProvider.tsx::NavigationGuardProvider`,
+source lines 53-222 (GitNexus envelope 52-221).
+
+- Exact UID:
+  `Function:caos/frontend/src/components/shared/NavigationGuardProvider.tsx:NavigationGuardProvider`.
+- Upstream impact: **HIGH**, 8 dependants (6 direct, 2 at depth 2), one affected
+  RootLayout process, and four frontend modules. Direct graph/native callers
+  include `app/layout.tsx::RootLayout` and the model, hotkey, navigation-guard,
+  and command-palette test harnesses.
+- Downstream impact: LOW, 6 symbols (3 direct, 2 at depth 2, 1 at depth 3), one
+  RootLayout process, and two modules. Direct dependencies are `historyIndex`,
+  `withHistoryIndex`, and `NavigationConfirmDialog`; the function also owns the
+  browser-history wrappers and pending-navigation state.
+- Native consumers outside the function graph are
+  `ModelV2Workbench.tsx::useNavigationGuard`, `ConceptHotkeys` and
+  `CommandPalette` via `useNavigationAttempt`, plus root layout installation.
+
+Contract: preserve the exported component/context boundary; guard registration
+and snapshot semantics; synchronous discard callbacks; pending-attempt
+exclusivity; `beforeunload` lifecycle; same-origin anchor exclusions and pushed
+URL; Back/Forward index tagging, bounce, resume, and forward-stack preservation;
+history cleanup/restoration; and modal focus/Escape/ARIA behavior.
+
+### G9 invariants
+
+- Clean or disabled guards never install `beforeunload` and programmatic
+  navigation proceeds synchronously. Dirty enabled guards always require a
+  user-owned confirmation; no autosave occurs.
+- A queued request snapshots its active guards. A transient rerender/unmount
+  during history bounce cannot erase the discard callback that owned the
+  original navigation attempt.
+- Discard callbacks run before navigation, synchronously and independently; one
+  faulty callback cannot trap the user or suppress other discards.
+- Modified clicks, downloads, non-self targets, cross-origin links, and
+  same-document pathname/search links retain native behavior. Ordinary
+  same-origin route links preserve pathname, search, and hash in `router.push`.
+- SPA history entries retain caller state plus a monotonic internal index. Back
+  and Forward are bounced to the current entry before the dialog opens and are
+  resumed exactly once only after discard, preserving the forward stack.
+- Cleanup removes listeners and restores `pushState`/`replaceState` only if the
+  provider still owns those wrappers.
+- The confirmation is an accessible modal: labeled/described dialog, focus
+  trap, visible actions, Escape/backdrop means Stay, and focus restoration.
+- No financial calculation occurs here. The financially relevant invariant is
+  that unsaved model/report overrides are never silently saved or discarded.
+
+### Baseline verification
+
+Command from `caos/frontend`:
+`npm test -- src/components/shared/NavigationGuardProvider.test.tsx src/components/shared/ConceptHotkeys.test.tsx src/components/shared/CommandPalette.navigation-guard.test.tsx src/app/model/model-v2-workbench.test.tsx`
+
+Baseline result: **4 files passed, 40 tests passed in 3.87s**.
+
+### Tournament result
+
+Pending anonymous bracket and orchestrator scratch verification.
+
+## G10 — QA/bench/scripts/tooling
+
+### Target and impact set
+
+Target: `caos/scripts/check_complexity_delta.py::main`, source lines 209-229
+(GitNexus envelope 208-228).
+
+- Exact UID: `Function:caos/scripts/check_complexity_delta.py:main`.
+- Upstream impact: LOW, one direct file entry-point caller.
+- Downstream impact: MEDIUM, 10 symbols (5 direct, 4 at depth 2, 1 at depth 3)
+  in Scripts. Direct dependencies are `_arguments`, `_changed_python_paths`,
+  `_load_baseline`, `_run_ruff`, and `_assess_findings`.
+- Native callers add `.github/workflows/ci.yml:80`, where pull requests invoke
+  the script after a full-history checkout, and focused unit tests in
+  `caos/tests/server/test_complexity_delta.py`.
+
+Contract: preserve argument parsing, base-ref diff scope, baseline path
+resolution, fail-closed exception handling, helper call order/data flow, exact
+stdout/stderr messages, and exit codes: `0` clean, `1` policy findings, `2`
+unsafe inputs/tool errors.
+
+### G10 invariants
+
+- Only Python paths changed between the requested base and `HEAD` are assessed;
+  `.venv` and `.goal` remain excluded and paths with spaces remain atomic.
+- The schema-validated baseline is exact path+symbol debt, not a blanket waiver:
+  new, worse, lower/stale, and removed findings are all reported as policy
+  problems.
+- Ruff output is accepted only for return codes 0/1, valid JSON-list C901
+  findings, the configured threshold, repository-contained paths, and unique
+  path/symbol keys. Ambiguity fails closed with exit 2.
+- The ordered helper pipeline and outputs are CI contracts. A findings result
+  must print the heading plus every problem and return 1; a clean result reports
+  bounded finding and changed-path counts and returns 0.
+- No financial math occurs here. The financial safety invariant is indirect:
+  this gate must not silently waive new complexity in engine functions that
+  implement yields, covenants, finite guards, or cashflow waterfalls.
+
+### Baseline verification
+
+- Unit command:
+  `PYTHONPATH=caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_complexity_delta.py -q`
+  returned **2 passed in 0.02s**.
+- Real CI-equivalent command:
+  `caos/server/.venv311/bin/python caos/scripts/check_complexity_delta.py --base-ref origin/main --ruff caos/server/.venv311/bin/ruff`
+  returned exit **1** and the exact current-WIP policy finding:
+  `complexity increased: caos/server/routes/runs.py::create_run (13 > 12)`.
+
+### Tournament result
+
 Pending anonymous bracket and orchestrator scratch verification.

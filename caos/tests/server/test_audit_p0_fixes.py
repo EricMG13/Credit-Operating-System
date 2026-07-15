@@ -57,6 +57,16 @@ async def test_openrouter_fallback_marks_run_degraded(monkeypatch):
     assert b.degraded is True   # ← the fix (gemini path got the identical change)
 
 
+def test_provider_fallback_is_a_material_cp1_gate_finding():
+    from engine.runner import _provider_degradation_finding
+
+    finding = _provider_degradation_finding(True)
+    assert finding is not None
+    assert finding.module_id == "CP-1"
+    assert finding.severity == "MATERIAL"
+    assert _provider_degradation_finding(False) is None
+
+
 # ── #9: provider JSON parse is fail-closed on NaN/Infinity ────────────────────
 def test_openrouter_tool_args_reject_non_finite():
     """OpenRouter tool-call arguments carry the CP-1 payload; a NaN in them must not

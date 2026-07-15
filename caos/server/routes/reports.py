@@ -42,6 +42,7 @@ from model_service import (
 )
 from report_composition import ReportCompositionIntent, materialize_reviewed_report
 from report_exports import render_report_pdf, render_report_xlsx
+from run_inputs import manifest_is_approved
 from tenancy import require_run_access
 
 router = APIRouter()
@@ -360,6 +361,7 @@ class _PreparedReport:
     run: Run
     checkpoint: ModelCheckpoint
     manifest: SourceManifest
+    manifests: tuple[SourceManifest, ...]
     payload: dict
     canonical: str
     document_sha256: str
@@ -419,19 +421,48 @@ async def _prepare_report(
         raise HTTPException(status.HTTP_409_CONFLICT, "Reference or demo sources cannot be published.")
     if manifest.issuer_id != run.issuer_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source manifest not found.")
+    input_manifest_ids = {
+        str(manifest_id) for manifest_id in (run.input_manifest_ids or [])
+        if isinstance(manifest_id, str) and manifest_id
+    }
+    if (
+        run.input_snapshot_state != "approved"
+        or not run.input_corpus_sha256
+        or not input_manifest_ids
+        or manifest.id not in input_manifest_ids
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The report run does not carry a fully approved immutable input snapshot.",
+        )
+    input_manifests = tuple((await db.execute(select(SourceManifest).where(
+        SourceManifest.id.in_(input_manifest_ids),
+        SourceManifest.issuer_id == run.issuer_id,
+        SourceManifest.analyst_id == caller.id,
+    ))).scalars().all())
+    if (
+        {item.id for item in input_manifests} != input_manifest_ids
+        or not all(manifest_is_approved(item) for item in input_manifests)
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Every source manifest in the run snapshot must remain ready and ratified.",
+        )
     if lineage_enabled:
-        exact_input_edge = (await db.execute(select(LineageEdge.id).where(
+        exact_input_edges = set((await db.execute(select(LineageEdge.parent_id).where(
             LineageEdge.context_id == context.id,
             LineageEdge.analyst_id == caller.id,
             LineageEdge.artifact_kind == "issuer_run",
             LineageEdge.artifact_id == f"issuer_run:{run.id}",
             LineageEdge.parent_kind == "source_manifest",
-            LineageEdge.parent_id == f"source_manifest:{manifest.id}",
-        ).limit(1))).scalar_one_or_none()
-        if exact_input_edge is None:
+        ))).scalars().all())
+        expected_parents = {
+            f"source_manifest:{manifest_id}" for manifest_id in input_manifest_ids
+        }
+        if not expected_parents.issubset(exact_input_edges):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "The active source manifest is not a frozen input parent of this exact run.",
+                "The run lineage does not contain every manifest in its frozen input snapshot.",
             )
     if body.thesis_version_id:
         thesis = await db.get(ThesisVersion, body.thesis_version_id)
@@ -483,6 +514,8 @@ async def _prepare_report(
         },
         "document": canonical_document,
         "source_manifest_id": manifest.id,
+        "source_manifest_ids": sorted(input_manifest_ids),
+        "input_corpus_sha256": run.input_corpus_sha256,
         "model_payload_hash": checkpoint.payload_hash,
     }
     if model_snapshot is not None:
@@ -497,6 +530,7 @@ async def _prepare_report(
         run=run,
         checkpoint=checkpoint,
         manifest=manifest,
+        manifests=input_manifests,
         payload=payload,
         canonical=canonical,
         document_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
@@ -696,6 +730,7 @@ async def create_report_version(
     run = prepared.run
     checkpoint = prepared.checkpoint
     manifest = prepared.manifest
+    manifests = prepared.manifests
     payload = prepared.payload
     model_snapshot = prepared.model_snapshot
     lineage_enabled = get_settings().caos_lineage_v2_enabled
@@ -717,7 +752,7 @@ async def create_report_version(
                 now=now, reason="report_lineage_pending"
             ).model_dump(mode="json"),
             "as_of": now.isoformat(),
-            "source_ids": [manifest.id, run.id, checkpoint.id],
+            "source_ids": [*[item.id for item in manifests], run.id, checkpoint.id],
             "run_id": run.id,
             "version_id": None,
             "confidence": None,
@@ -749,7 +784,7 @@ async def create_report_version(
         parent_refs = [
             ArtifactRef(kind="issuer_run", id=run.id),
             ArtifactRef(kind="model_checkpoint", id=checkpoint.id, version=checkpoint.payload_hash),
-            ArtifactRef(kind="source_manifest", id=manifest.id),
+            *[ArtifactRef(kind="source_manifest", id=item.id) for item in manifests],
         ]
         await bind_context_artifacts(
             db,

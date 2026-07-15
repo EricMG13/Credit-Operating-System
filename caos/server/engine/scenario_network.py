@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from engine.capstructure import recovery_waterfall
 from engine.periods import is_finite_number, latest_annual, safe_div
@@ -63,6 +63,26 @@ class PropagationResult(BaseModel):
     source: Optional[PropagationSource] = None
 
 
+class _ScenarioTranche(BaseModel):
+    """Validated legacy CP-3B row before it reaches recovery arithmetic."""
+
+    model_config = ConfigDict(extra="allow")
+
+    tranche: str = Field(min_length=1)
+    code: str = Field(min_length=1)
+    seniority_rank: int = Field(ge=0)
+    amount_musd: float = Field(gt=0, allow_inf_nan=False)
+
+
+def _validated_tranches(value: object) -> Optional[List[dict]]:
+    if not isinstance(value, list) or not value:
+        return None
+    try:
+        return [_ScenarioTranche.model_validate(row).model_dump() for row in value]
+    except (ValidationError, TypeError):
+        return None
+
+
 def _node(
     node: PropagationNodeName,
     status: NodeStatus,
@@ -107,8 +127,11 @@ def propagate(
     if is_finite_number(annual_interest) and is_finite_number(net_debt):
         candidate = annual_interest + net_debt * shock.rate_bps / 10_000
         stressed_interest = candidate if is_finite_number(candidate) and candidate > 0 else None
-    runway = safe_div(liquidity * 12, stressed_interest) if is_finite_number(liquidity) else None
-    runway = round(runway, 1) if runway is not None else None
+    runway = (
+        safe_div(liquidity * 12, stressed_interest)
+        if is_finite_number(liquidity) and liquidity >= 0 else None
+    )
+    runway = round(runway, 1) if runway is not None and runway >= 0 else None
     nodes.append(_node(
         "liquidity",
         NodeStatus.COMPUTED if runway is not None else NodeStatus.DEGRADED,
@@ -135,9 +158,10 @@ def propagate(
     ))
 
     cp3b = payload.get("CP-3B") or {}
-    tranches = cp3b.get("tranches") if isinstance(cp3b, dict) else None
+    raw_tranches = cp3b.get("tranches") if isinstance(cp3b, dict) else None
+    tranches = _validated_tranches(raw_tranches)
     recovery: Optional[float] = None
-    if stressed_ebitda is not None and isinstance(tranches, list) and tranches:
+    if stressed_ebitda is not None and tranches:
         stressed_rows = recovery_waterfall(tranches, stressed_ebitda * 5.0)
         recoveries = [r.get("recovery_pct") for r in stressed_rows]
         finite_recoveries = [float(v) for v in recoveries if is_finite_number(v)]

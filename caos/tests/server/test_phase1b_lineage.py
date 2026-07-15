@@ -1136,3 +1136,12 @@ async def test_reconciler_missing_owner_modes_cursor_and_cli_exit(
         await db.execute(delete(Issuer).where(Issuer.id == issuer_id))
         await db.execute(delete(Analyst).where(Analyst.id == portfolio_owner))
         await db.commit()
+@pytest.fixture(autouse=True)
+def _verified_ingestion_scan(monkeypatch):
+    """Publication tests model a deployment with a successful malware scan."""
+    import routes.ingestion as ingestion_route
+
+    async def clean_scan(_content: bytes):
+        return "clean"
+
+    monkeypatch.setattr(ingestion_route.avscan, "scan", clean_scan)

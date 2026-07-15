@@ -9,7 +9,7 @@ import uuid
 from sqlalchemy import select, insert
 
 from config import get_settings
-from database import DocumentChunk, DocumentChunkEmbedding
+from database import Document, DocumentChunk, DocumentChunkEmbedding
 
 logger = logging.getLogger("caos.embeddings")
 
@@ -27,15 +27,17 @@ def get_mock_embedding(text: str, dim: int = 768) -> List[float]:
 
 async def get_embeddings(texts: List[str]) -> List[List[float]]:
     """Batch-embeds texts using Gemini's text-embedding-004.
-    
-    Falls back to mock embeddings if API key is not configured or fails.
+
+    Missing egress consent/key, provider failure, or malformed output yields no
+    vectors. Mock vectors remain available to unit tests but are never persisted
+    under a real provider model name.
     """
     if not texts:
         return []
 
     settings = get_settings()
-    if not settings.gemini_api_key:
-        return [get_mock_embedding(t, settings.embedding_dim) for t in texts]
+    if not settings.caos_document_egress_enabled or not settings.gemini_api_key:
+        return []
 
     try:
         from engine.gemini import get_client
@@ -46,18 +48,30 @@ async def get_embeddings(texts: List[str]) -> List[List[float]]:
             contents=texts,
         )
         if response and hasattr(response, "embeddings"):
-            return [emb.values for emb in response.embeddings]
+            vectors = [list(embedding.values) for embedding in response.embeddings]
+            if (
+                len(vectors) == len(texts)
+                and all(len(vector) == settings.embedding_dim for vector in vectors)
+                and all(math.isfinite(value) for vector in vectors for value in vector)
+            ):
+                return vectors
+            logger.error("Embedding response shape was invalid; refusing to persist it.")
         else:
-            logger.warning("Empty embeddings response from Gemini. Falling back.")
+            logger.warning("Empty embeddings response from Gemini; no vectors persisted.")
     except Exception:
-        logger.exception("Failed to fetch embeddings from Gemini. Falling back to mock.")
+        logger.exception("Failed to fetch embeddings from Gemini; no vectors persisted.")
 
-    return [get_mock_embedding(t, settings.embedding_dim) for t in texts]
+    return []
 
 
 async def embed_chunks_for_document(db, document_id: str) -> int:
     """Generates and stores embeddings for all chunks of a document that lack them."""
     settings = get_settings()
+    if not settings.caos_document_egress_enabled or not settings.gemini_api_key:
+        return 0
+    document = await db.get(Document, document_id)
+    if document is None or document.doc_type == "analyst-memo":
+        return 0
     model = settings.embedding_model
 
     # Fetch all chunks for this document
@@ -93,6 +107,9 @@ async def embed_chunks_for_document(db, document_id: str) -> int:
         
         # Generate embeddings
         vectors = await get_embeddings(texts)
+        if len(vectors) != len(batch):
+            logger.warning("Embedding batch failed closed; %d chunks remain unembedded.", len(batch))
+            continue
         
         embed_dicts = []
         for chunk, vector in zip(batch, vectors):
@@ -115,15 +132,20 @@ async def embed_chunks_for_document(db, document_id: str) -> int:
 async def warmup_embeddings_task(db) -> int:
     """Scans all DocumentChunks and embeds any that lack embeddings for the active model."""
     settings = get_settings()
+    if not settings.caos_document_egress_enabled or not settings.gemini_api_key:
+        return 0
     model = settings.embedding_model
 
     # Subquery of all embedded chunk hashes for active model
     embedded_stmt = select(DocumentChunkEmbedding.chunk_hash).where(DocumentChunkEmbedding.model == model)
     
     # Select chunks where chunk_hash is not in the embedded list
-    stmt = select(DocumentChunk).where(
+    stmt = select(DocumentChunk).join(
+        Document, Document.id == DocumentChunk.document_id
+    ).where(
         DocumentChunk.chunk_hash.is_not(None),
-        ~DocumentChunk.chunk_hash.in_(embedded_stmt)
+        ~DocumentChunk.chunk_hash.in_(embedded_stmt),
+        Document.doc_type != "analyst-memo",
     )
     rows = (await db.execute(stmt)).scalars().all()
     if not rows:
@@ -151,6 +173,9 @@ async def warmup_embeddings_task(db) -> int:
         texts = [c.text for c in batch]
         
         vectors = await get_embeddings(texts)
+        if len(vectors) != len(batch):
+            logger.warning("Embedding warmup batch failed closed; no mock vectors inserted.")
+            continue
         
         embed_dicts = []
         for chunk, vector in zip(batch, vectors):

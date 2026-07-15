@@ -50,8 +50,8 @@ def compute_pathways(nf: dict) -> Optional[dict]:
     -----------------------------------------------------------
     Reads off how soon a moderate EBITDA decline pushes the credit to >=7.0x:
         HIGH     — already distressed (lev >= 7.0x) OR breaches by a 10% shock
-        MODERATE — breaches by a 20% shock (but not 10%)
-        LOW      — survives a 30% shock without breaching
+        MODERATE — breaches at any later modeled shock (20% or 30%)
+        LOW      — no modeled shock through 30% breaches
     (``lev >= 7.0`` is logically redundant with breach-by-10% — a credit already
     at/above 7.0x trivially clears 7.0x at the first 10% shock — but both are
     kept to state the "already distressed" intent explicitly.)
@@ -89,11 +89,11 @@ def compute_pathways(nf: dict) -> Optional[dict]:
         None,
     )
 
-    # Fragility ladder: already-distressed or breaches by 10% -> HIGH; by 20% ->
-    # MODERATE; survives a 30% shock -> LOW.
+    # Fragility ladder: already-distressed or breaches by 10% -> HIGH; ANY later
+    # modeled breach (20% or 30%) -> MODERATE; only no breach -> LOW.
     if lev >= _BREACH_X or (shock_to_breach is not None and shock_to_breach <= 10):
         fragility = "HIGH"
-    elif shock_to_breach is not None and shock_to_breach <= 20:
+    elif shock_to_breach is not None:
         fragility = "MODERATE"
     else:
         fragility = "LOW"

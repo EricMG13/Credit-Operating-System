@@ -11,10 +11,13 @@ from engine.metrics import leverage_magnitude_finding
 from engine.schemas import ModulePayload
 
 
-def _cp1(lev):
+def _cp1(lev, llm=True):
+    # llm=True models the live-synth lane (the threat this finding gates on);
+    # llm=False models the deterministic EDGAR/reported/fixture lanes.
     return ModulePayload(
         module_id="CP-1", module_name="x", owned_object="o",
         runtime_output={"normalized_financials": {"net_leverage_adj_ltm": lev}},
+        llm_synthesized=llm,
     )
 
 
@@ -38,6 +41,14 @@ def test_large_net_cash_position_flags_symmetrically():
     # as suspect as an implausible net-DEBT claim.
     f = leverage_magnitude_finding(_cp1(-12.0))
     assert f is not None and f.severity == "MATERIAL"
+
+
+def test_deterministic_lane_stays_advisory_minor():
+    # A filing-derived figure is not an LLM assertion — a genuinely distressed
+    # issuer past the band (golden FUN: real 8.09x from EDGAR XBRL) must stay
+    # visible but must NOT restrict a correct deterministic run.
+    f = leverage_magnitude_finding(_cp1(10.0, llm=False))
+    assert f is not None and f.severity == "MINOR"
 
 
 def test_none_payload_no_finding():

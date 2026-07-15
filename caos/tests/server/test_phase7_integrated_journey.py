@@ -65,6 +65,12 @@ def test_phase7_source_market_run_modules_model_report_xlsx_identity(
     from config import get_settings
     from identity import get_identity
     from main import app
+    import routes.ingestion as ingestion_route
+
+    async def clean_scan(_content: bytes):
+        return "clean"
+
+    monkeypatch.setattr(ingestion_route.avscan, "scan", clean_scan)
 
     owner = f"phase7-{uuid4().hex}"
     settings = get_settings()

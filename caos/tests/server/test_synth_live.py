@@ -557,11 +557,15 @@ def test_get_synthesizer_picks_live_with_key_else_fixture(monkeypatch):
     from engine.synth import FixtureSynthesizer, get_synthesizer
 
     monkeypatch.setattr(synth_mod, "get_settings",
-                        lambda: _types.SimpleNamespace(anthropic_api_key="sk-test"))
+                        lambda: _types.SimpleNamespace(
+                            anthropic_api_key="sk-test", caos_document_egress_enabled=True
+                        ))
     assert isinstance(get_synthesizer(), LiveSynthesizer)
 
     monkeypatch.setattr(synth_mod, "get_settings",
-                        lambda: _types.SimpleNamespace(anthropic_api_key=""))
+                        lambda: _types.SimpleNamespace(
+                            anthropic_api_key="", caos_document_egress_enabled=True
+                        ))
     assert isinstance(get_synthesizer(), FixtureSynthesizer)
 
 

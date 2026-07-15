@@ -178,6 +178,10 @@ def _ground_cp1_headline_figures(payload: ModulePayload, hits: list) -> None:
     than silently bypassing the check. Non-USD normalization and computed net debt
     may require an analyst-authored evidence bridge; until that exists the safe
     committee state is Restricted, never an unqualified Ready."""
+    # Every payload passing through here came from the live LLM lane — stamp it
+    # so severity-sensitive findings (leverage_magnitude_finding) can tell an
+    # LLM assertion from a filing-derived deterministic figure.
+    payload.llm_synthesized = True
     if payload.module_id != "CP-1":
         return
     nf = payload.runtime_output.get("normalized_financials") if isinstance(payload.runtime_output, dict) else None
@@ -785,6 +789,7 @@ def _payload_from_data(module_id: str, data: dict) -> ModulePayload:
 
 
 def get_synthesizer() -> Synthesizer:
-    if get_settings().anthropic_api_key:
+    settings = get_settings()
+    if settings.anthropic_api_key and settings.caos_document_egress_enabled:
         return LiveSynthesizer()
     return FixtureSynthesizer()

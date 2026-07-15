@@ -95,6 +95,13 @@ class ModulePayload:
     # one, so this is the complementary check. Empty for every deterministic path
     # (EDGAR/reported/fixture never populate it).
     ungrounded_headline_figures: List[str] = field(default_factory=list)
+    # True when the live LLM synthesizer produced this payload (set alongside the
+    # grounding pass in engine.synth). Not persisted; read by
+    # leverage_magnitude_finding to pick severity — an extreme figure is a MATERIAL
+    # gate only when a model asserted it. On the deterministic EDGAR/reported/
+    # fixture lanes the same figure is filing-derived, so it stays advisory
+    # (golden FUN runs a real 8.09x against the 8.0x band).
+    llm_synthesized: bool = False
 
 
 def _has_non_finite(obj: object) -> bool:

@@ -101,7 +101,7 @@ def _point_at(monkeypatch, host: str, port: int = 3310) -> None:
 async def test_clean_upload_passes(monkeypatch):
     port = _fake_clamd(b"stream: OK\x00")
     _point_at(monkeypatch, "127.0.0.1", port)
-    await avscan.scan(b"a perfectly ordinary credit agreement")  # no raise == clean
+    assert await avscan.scan(b"a perfectly ordinary credit agreement") == "clean"
 
 
 @pytest.mark.asyncio
@@ -128,7 +128,21 @@ async def test_binary_payload_with_nul_runs_scans_cleanly(monkeypatch):
 async def test_unconfigured_host_is_noop(monkeypatch):
     # No host → scan returns immediately without opening any socket.
     _point_at(monkeypatch, "")
-    await avscan.scan(EICAR)  # would be flagged if it ran; no-op means no raise
+    assert await avscan.scan(EICAR) == "not_configured"
+
+
+@pytest.mark.asyncio
+async def test_required_unconfigured_scanner_fails_closed(monkeypatch):
+    monkeypatch.setattr(
+        avscan,
+        "get_settings",
+        lambda: types.SimpleNamespace(
+            clamav_host="", clamav_port=3310, clamav_timeout_s=5, clamav_required=True
+        ),
+    )
+    with pytest.raises(HTTPException) as exc:
+        await avscan.scan(b"data")
+    assert exc.value.status_code == 503
 
 
 @pytest.mark.asyncio

@@ -47,7 +47,7 @@ rechecked when implementation begins.
 | H1 | Relative to the current implementation, a successful non-tool LLM request MUST add no awaited I/O, blocking call, semaphore wait, deep copy/serialization, mask pass, hash pass, cost calculation, DB write, logger-handler call, or OTel SDK call. One shallow outer-container snapshot is allowed only to preserve the exact prompt for the queued event; Z4 requires the complete post-provider tail to be no slower than the current hash-plus-DB tail. | §4.5, §8, tests Z1–Z4 |
 | H2 | Masking, trace construction/export, cost calculation, and embedding refresh MUST execute only after a non-blocking in-memory handoff. | §5, §7, §10 |
 | H3 | The gateway MUST preserve the current provider-native request shape. It MUST NOT rewrite prompt text, roles, cache-control blocks, or forced structured-output tools. | §4.2–§4.4 |
-| H4 | A vault sync transaction MUST never expose a live chunk without its active-model vector. If embedding generation fails, the old live chunk set remains committed and the file is retried. | §10.5 |
+| H4 | A vault sync transaction MUST never expose a live chunk without its active-model vector **when the document is vector-eligible**. If live egress is disabled, the explicit expected state is BM25-only. If an eligible embedding generation fails, the old live chunk set remains committed and the file is retried. | §10.5 |
 | H5 | A cited chunk MUST never be deleted. It is shadowed from retrieval and remains addressable by id. | §10.4, §10.6 |
 | H6 | Generated vault families remain CAOS-canonical; human-authored families are file-canonical. | §9.1 |
 | H7 | Unknown model pricing MUST produce `cost = NULL`, never an invented default. | §6.4 |
@@ -71,8 +71,8 @@ requested work, not telemetry overhead.
 | Model tiers | TEST/LITE/BALANCED/MAX map lanes to `cheap`, `fast`, `strong`, and `top`; configured defaults are DeepSeek Flash, DeepSeek Flash, DeepSeek Pro, and Claude Opus 4.8. | `caos/server/engine/presets.py:56-80,145-188`; `caos/server/config.py:82-127` |
 | Current telemetry | `trace_llm` performs budget accrual, incorrect hard-coded cost calculation, structured logging, and an awaited DB commit on the caller coroutine. | `caos/server/engine/budget.py:81-109,112-181` |
 | Telemetry table | `llm_call_records` exists with run/lane/model/hash/token/cost/status/latency fields. | `caos/server/database.py:1295-1313` |
-| Vectors | Embeddings are keyed uniquely by `(model, chunk_hash)` in pgvector `vector(768)`; retrieval joins through chunk hash and filters by active model. | `caos/server/database.py:1344-1363`; `caos/server/engine/retrieval.py` vector-query branches |
-| Embedding defect | With a Gemini key, an embedding failure falls back to deterministic mock vectors, which callers can persist under the configured live model id. | `caos/server/engine/embeddings.py:17-25,28-55,58-112` |
+| Vectors | Embeddings are keyed uniquely by `(model, chunk_hash)` in pgvector `vector(768)`; retrieval joins through chunk hash and filters by active model. | `caos/server/database.py:1344-1363`; `caos/server/retrieval.py:180-253,315-415,448-536` |
+| Embedding policy | Current code fails closed on missing egress consent/key, provider failure, or malformed vectors; it never persists mock vectors under a live id. It also unconditionally excludes analyst memos from external embedding. The provider call still bypasses the gateway. | `caos/server/engine/embeddings.py:28-74,83-129,132-195`; `caos/server/config.py:129-133` |
 | Vault write/read lanes | CAOS writes generated notes and analyst memos. `sync_analyst_memos` scans files to rebuild links only; it does not re-chunk edited files. | `caos/server/vault_export.py:203-224,314-557`; `caos/server/engine/memochunks.py:69-141`; `caos/server/routes/ingestion.py:475-579` |
 | Chunk recipe | Existing ingestion uses `chunk_text` with a 512-token target and 64-token overlap; chunk identity is SHA-256 of exact chunk text. | `caos/server/ingest.py:276-368`; `caos/server/engine/memochunks.py:111-123` |
 | Citation FKs | Evidence and metric facts can point to `document_chunks.id`; deleting a cited chunk is unsafe. | `caos/server/database.py:513-526,579` |
@@ -83,7 +83,7 @@ requested work, not telemetry overhead.
 ### 2.1 Critical prerequisite: replace the retired embedding model
 
 `config.py` currently defaults to `text-embedding-004` and dimension 768
-(`caos/server/config.py:126-127`). Google lists `text-embedding-004` as shut down
+(`caos/server/config.py:129-130`). Google lists `text-embedding-004` as shut down
 on 2026-01-14 and `gemini-embedding-001` as shut down on 2026-07-14; the replacement
 is `gemini-embedding-2`. `gemini-embedding-2` defaults to 3072 dimensions, so the
 adapter MUST request `output_dimensionality=768` to preserve the existing schema.
@@ -137,8 +137,8 @@ Only these modules are added:
 | `caos/server/engine/mcp_router.py` | One MCP registry/session manager and default-deny dispatch |
 | `caos/server/vault_sync.py` | Leader election, watcher queue, reconcile, chunk/vector convergence |
 
-One additive migration, `0060_agentic_infra_memory_hub.py`, contains all schema
-changes in §5 and §11. The migration directory’s current head is `0059` as of the
+One additive migration, `0061_agentic_infra_memory_hub.py`, contains all schema
+changes in §5 and §11. The migration directory’s current head is `0060` as of the
 evidence date. The implementer MUST re-run `alembic heads`; if head changed, only
 the revision number/down-revision changes—this schema contract does not.
 
@@ -206,7 +206,9 @@ report repair currently reuses it (`research_report.py:923-950,997-998`).
 
 `embed` moves `client.aio.models.embed_content` from `engine/embeddings.py:44` into
 `engine/gemini.py`; the gateway owns telemetry, while the adapter owns the Google
-request shape.
+request shape. `EmbeddingBatch` contains `vectors`, actual `model`,
+`provider="google"`, `origin="live"`, and raw usage for background telemetry; it is
+returned only after the adapter's cardinality/dimension/finite validation in §10.7.
 
 ### 4.2 Canonical prompt envelope and formatting
 
@@ -268,6 +270,22 @@ class ExecutionStep:
     status: Literal["success", "failed"]
     error_class: str | None
     http_status: int | None
+    input_raw: Any | None       # MCP args, or model-turn delta when applicable
+    output_raw: Any | None      # MCP result, tool call, or intermediate model content
+
+@dataclass(frozen=True, slots=True)
+class LLMCallEvent:
+    llm_call_id: str            # UUID; becomes LLMCallRecord.id
+    lane: str
+    run_id: str | None
+    model_mode: str | None
+    requested_model: str
+    prompt_raw: PromptSnapshot  # shallow outer-container snapshot from §4.2
+    completion_raw: Any | None
+    steps: tuple[ExecutionStep, ...]
+    started_ns: int
+    ended_ns: int
+    status: Literal["success", "failed"]
 ```
 
 `create_with_tools` MUST call `_execute_attempt` directly; it MUST NOT call public
@@ -423,7 +441,6 @@ Keep all existing columns in `database.py:1295-1313`. `cost` is USD. Add:
 
 | Column | SQLAlchemy type | Null | Meaning |
 |---|---|---:|---|
-| `interaction_id` | `String(36)`, unique/indexed | no | UUID assigned by gateway; stable correlation key |
 | `provider` | `String(16)` | no | final provider: `anthropic`, `gemini`, `openrouter`, `google` |
 | `requested_model` | `String(128)` | no | model before fallback |
 | `model_mode` | `String(16)` | yes | current preset mode |
@@ -456,9 +473,9 @@ class LLMCallPayload(Base):
         ForeignKey("llm_call_records.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    prompt_masked: Mapped[dict | None] = mapped_column(JSON)
-    completion_masked: Mapped[dict | None] = mapped_column(JSON)
-    execution_path_masked: Mapped[list | None] = mapped_column(JSON)
+    prompt_masked: Mapped[str | None] = mapped_column(Text)
+    completion_masked: Mapped[str | None] = mapped_column(Text)
+    execution_path_masked: Mapped[str | None] = mapped_column(Text)
     masking_version: Mapped[str] = mapped_column(String(32), nullable=False)
     masked_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -467,7 +484,8 @@ class LLMCallPayload(Base):
     )
 ```
 
-Payload rows are one-to-one with records. A new setting
+Each payload text field contains canonical JSON, not arbitrary prose. Payload rows are
+one-to-one with records. A new setting
 `llm_log_payloads: bool = True` is the kill switch: false retains aggregate records
 and OTel metadata but omits payload rows and OTel prompt/completion events.
 
@@ -614,8 +632,9 @@ MASKING_VERSION = "financial-v1"
 def mask_payload(value: Any) -> tuple[Any, int]: ...
 ```
 
-It MUST preserve JSON shape and replace every matching string fragment with a
-non-correlatable class token:
+It MUST preserve JSON shape and replace every non-boolean numeric leaf and every
+numeric string fragment with a non-correlatable class token. Integer/float/Decimal
+leaves become `[MASKED_NUM]`; non-finite floats do too. Booleans are preserved.
 
 | Detection order | Examples | Replacement |
 |---:|---|---|
@@ -624,30 +643,57 @@ non-correlatable class token:
 | 3 | `42.5%`, `(3.0)%` | `[MASKED_PCT]` |
 | 4 | `5.7x`, `5.7×` | `[MASKED_MULT]` |
 | 5 | `+125 bps`, `-75bp` | `[MASKED_BPS]` |
-| 6 | bare comma-grouped or ≥7-digit number not protected below | `[MASKED_NUM]` |
+| 6 | every remaining numeric lexeme, including small/bare figures such as `EBITDA 125` | `[MASKED_NUM]` |
 
-The masker MUST first protect and restore ISO dates/times, `FY2026`-style fiscal
-labels, page/section citations, UUIDs, SHA-256 hashes, model names, token counts in
-telemetry metadata, and already-masked tokens. It MUST recurse through system blocks,
-messages, completions, tool arguments, MCP results, and execution-path string values.
-It MUST be idempotent: `mask(mask(x)) == mask(x)`.
+Protection is exact, not heuristic:
+
+- Entire structured values are protected only at these keys/paths:
+  `model`, `requested_model`, `embedding_model`, `provider`, `lane`, `run_id`,
+  `llm_call_id`, keys ending `_id` or `_hash`, and keys `cik`, `cusip`, `isin`,
+  `accession_number`, `fiscal_year`, `as_of_date`, `period_end`; numeric identifier
+  values at those paths remain identifiers.
+- Within free text, temporarily replace non-overlapping spans matching these grammars
+  with indexed sentinels: existing mask token
+  `\[MASKED_(?:AMT|PCT|MULT|BPS|NUM)\]`; UUID
+  `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`;
+  SHA-256 `\b[0-9a-fA-F]{64}\b`; ISO date/time
+  `\b\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+-]+Z?)?\b`; fiscal label
+  `\bFY\d{2,4}\b`; SEC accession `\b\d{10}-\d{2}-\d{6}\b`; and page/section
+  citation `\b(?:p(?:age)?\.?\s*|section\s+)\d+(?:\.\d+)*\b|§\s*\d+(?:\.\d+)*`.
+- Run class-specific patterns in table order, then replace every remaining numeric
+  lexeme matching `[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?` with
+  `[MASKED_NUM]`, then restore sentinels by index.
+
+Identifiers in unstructured prose that are not covered by an exact grammar may be
+over-masked; false-positive masking is safer than leaking a financial figure. The
+masker MUST recurse through system blocks, messages, completions, every
+`ExecutionStep.input_raw`/`output_raw`, tool arguments, and MCP results. It MUST be
+idempotent: `mask(mask(x)) == mask(x)`. It traverses values only; object keys remain
+unchanged.
 
 Hashed placeholders are forbidden. A stable hash of a low-entropy amount is
 dictionary-reversible and is not required by any use case. Prompt deduplication uses
-the full-prompt SHA-256 in `llm_call_records.prompt_hash`, computed in the writer and
-never exported as payload.
+SHA-256 of canonical **masked** prompt JSON, computed in the writer. Different raw
+amounts that collapse to the same masked prompt intentionally share a hash.
 
 Exception messages are not mask inputs. The gateway captures only exception class
 and numeric HTTP status, preventing a provider error that echoes a prompt from
-crossing the queue.
+crossing the queue. Every provider exception log in migrated callers—including the
+current `logger.exception` at `research_report.py:1000`—MUST become a fixed-field
+background log without `str(exc)`, `repr(exc)`, traceback, or `exc_info`. OTel spans
+MUST be started with `record_exception=False`; code MUST NOT call
+`Span.record_exception`.
 
 ### 7.2 Processing order
 
 For each dequeued event, the writer MUST execute exactly:
 
-1. Canonically JSON-encode the raw prompt envelope and compute `prompt_hash`.
-2. Mask prompt, completion, and execution path.
-3. Truncate each persisted side at 200,000 characters after masking.
+1. Mask prompt, completion, and execution path, including numeric leaves.
+2. Canonically JSON-encode the masked prompt and compute `prompt_hash` from it.
+3. Canonically JSON-encode each masked side. If encoded UTF-8 exceeds 200,000 bytes,
+   store canonical JSON for
+   `{"_truncated":true,"utf8_prefix":"<largest code-point-aligned prefix fitting the budget after wrapper encoding>"}`.
+   This keeps every Text field valid JSON and sets row `truncated=True`.
 4. Normalize usage and compute cost.
 5. Create OTel spans/events from masked/truncated data.
 6. Insert DB rows.
@@ -678,7 +724,7 @@ gen_ai.request.model         = requested_model
 gen_ai.response.model        = final model
 gen_ai.usage.input_tokens    = summed total input
 gen_ai.usage.output_tokens   = summed output
-caos.interaction_id          = UUID
+caos.llm_call_id             = LLMCallRecord.id / event UUID
 caos.lane                    = lane
 caos.run_id                  = run id when present
 caos.model_mode              = preset mode when present
@@ -689,14 +735,15 @@ caos.rate_card_version       = version when matrix-priced
 caos.masking_version         = financial-v1
 ```
 
-Span events, only when `llm_log_payloads=True`:
+Span events, only when `llm_log_payloads=True`, use only the already-masked canonical
+JSON strings from §7.2:
 
 - `caos.prompt.masked` with masked JSON truncated to 16,384 characters.
 - `caos.completion.masked` with masked JSON truncated to 16,384 characters.
 - `caos.execution_path.masked` with masked JSON truncated to 16,384 characters.
 
 Because spans are synthesized in the background, they are root traces in v1. They
-correlate to request/run state by `interaction_id` and `run_id`; capturing a live OTel
+correlate to request/run state by `llm_call_id` and `run_id`; capturing a live OTel
 parent on the request path is explicitly rejected by H1.
 
 Only one new OTel setting is permitted:
@@ -713,7 +760,7 @@ otel_exporter_otlp_endpoint: str = ""  # empty: DB telemetry only, no exporter
 |---|---|---|---|
 | Prompt formatting | Provider-required conversion plus one shallow outer-list snapshot; no nested copy/serialization | None | Golden adapter payload tests; Z4 proves the whole tail is no slower than current |
 | Token budget | Existing ContextVar integer additions | Token normalization and dollar calculation | Existing budget tests unchanged |
-| Telemetry handoff | Metadata-only log + event construction + `put_nowait` | Hash, mask, truncate, cost, OTel, DB | Z1–Z4 |
+| Telemetry handoff | Shallow snapshot + event construction + `put_nowait`; no log handler | Mask, masked hash, valid-JSON truncation, cost, log, OTel, DB | Z1–Z4 |
 | Masking | None | Recursive masker | Masking golden/property tests |
 | OTel | None | Span creation, child spans, exporter | OTel SDK monkeypatch fails if called before dequeue |
 | File detection | None | `awatch` and queue | Request handlers do not import/start watcher work |
@@ -726,9 +773,11 @@ Required latency tests:
   a fake successful `llm_client.create` still returns and leaves one queued event.
 - **Z2:** fill the telemetry queue; a fake successful call still returns, increments
   the drop counter, and performs no await after the provider response.
-- **Z3:** AST/registry test forbids `await`, DB session construction, logging-handler
-  calls, masker, pricing, and OTel imports inside `enqueue_nowait`; grep asserts no
-  provider caller awaits `budget.trace_llm` after migration.
+- **Z3:** instrument the complete post-provider call graph, not only
+  `enqueue_nowait`. Before the telemetry consumer's `queue.get()` returns that exact
+  event, DB session construction, logger handlers, masker, pricing, and every OTel
+  `get_tracer`/`start_span`/`add_event`/`end` method MUST remain uncalled. Grep also
+  asserts no provider caller awaits `budget.trace_llm` after migration.
 - **Z4:** benchmark the post-provider tail with a stalled writer; p95 MUST be ≤ the
   current tail and <1 ms on the same CI runner. The result is a regression guard, not
   a cross-machine performance promise.
@@ -793,6 +842,7 @@ class VaultEvent:
 
 _queue: asyncio.Queue[VaultEvent]
 _reconcile_requested: bool
+_control_wake: asyncio.Event
 ```
 
 `awatch(vault_root, debounce=1600, step=50, recursive=True)` yields event sets. The
@@ -807,12 +857,18 @@ Pin `watchfiles>=1.2,<2` directly even if currently transitive. Operators using
 Docker Desktop/NFS MAY set its documented `WATCHFILES_FORCE_POLLING=true`.
 
 On queue full, set `_reconcile_requested=True`, clear/drain fine-grained events, and
-wake the consumer. Unlike telemetry, vault events are not dropped semantically; a
-full reconcile re-derives state from disk and DB.
+set `_control_wake`. The consumer waits on **either** `queue.get()` or
+`_control_wake.wait()` with `asyncio.wait(FIRST_COMPLETED)`, so overflow can wake an
+empty blocked consumer; it cancels and awaits the losing wait task before the next
+loop. Reconcile returns its dirty path batch directly to the
+consumer; it MUST NOT re-enqueue into the same bounded queue. Clear `_control_wake`
+immediately before scanning and repeat reconcile if it is set again during the scan.
+Unlike telemetry, vault events are not dropped semantically; a full reconcile
+re-derives state from disk and DB.
 
 ### 9.4 Consumer/coalescer
 
-One serial consumer per elected leader:
+One serial watcher consumer per elected leader:
 
 1. Await one event.
 2. Drain immediately available events into `latest_by_rel_path`.
@@ -824,11 +880,25 @@ One serial consumer per elected leader:
 6. Retry transient file/DB/provider errors at 2, 4, 8, 16, and 32 seconds. After five
    failures, log/quarantine in memory until the next event or startup reconcile.
 7. After a memo batch, rebuild the current `AnalystLink` graph once by reusing
-   `sync_analyst_memos` logic, with its full-scan trigger bypassed because the watcher
-   already knows files changed (`vault_export.py:469-557`).
+   `sync_analyst_memos` parsing logic, restricted to `Analyst-Memos/**/*.md`, with its
+   full-scan trigger bypassed because the watcher already knows files changed
+   (`vault_export.py:469-557`). Store both the existing note stem and the new
+   vault-relative path (§11.1); current code stores only a stem and Query hardcodes
+   `Analyst-Memos/{stem}` (`database.py:1202-1211`;
+   `engine/querygraph.py:1510-1532`).
 
 The watcher task restarts with capped 5–60 second backoff after an unexpected error
 and sets `_reconcile_requested=True` before restarting.
+
+The upload route uses the same convergence function but does not wait for the elected
+watcher: after `write_memo` returns, it schedules `sync_file_projection(rel_path)` in
+FastAPI `BackgroundTasks` with its own DB sessions. The HTTP response changes its
+message from a synchronous chunk count to `retrieval sync queued`. Remove the current
+inline link scan/chunk creation at `routes/ingestion.py:535-567`; vector work already
+runs after response there, and all new chunk/vector work remains after response. The
+per-path Postgres lock makes this targeted background task idempotent with a watcher
+event from another worker. This path operates even when `vault_sync_enabled=False`;
+that setting disables manual-edit watching, not upload convergence.
 
 ### 9.5 Reconcile as durability backstop
 
@@ -836,7 +906,8 @@ Run once after leadership acquisition, and again after producer failure or overf
 
 1. Walk only watched directories off-thread.
 2. Compare file SHA-256 with `Document.source_sha256`; enqueue mismatches.
-3. Adopt legacy memo documents by exact stem plus issuer link; if ambiguous, do not
+3. Adopt legacy memo document **projections** (all rows for one family/path) by exact
+   stem plus issuer set; if ambiguous, do not
    guess—log `identity_ambiguous` and quarantine.
 4. Detect DB paths missing on disk and process them as deletes.
 5. If the scan finds zero watched Markdown files while any synced documents exist,
@@ -874,21 +945,30 @@ UNIQUE (doc_type, source_rel_path, issuer_id)
 WHERE source_rel_path IS NOT NULL
 ```
 
-A memo linked to N issuers continues to have N `Document` rows sharing chunk hashes,
-as today (`engine/memochunks.py:69-141`). Upload and watcher code MUST call the same
-`sync_file_projection` function. In Postgres that function takes
+A memo projection is the complete set of `Document` rows sharing
+`(doc_type, source_rel_path)`; its identity includes an issuer-id set, not one row. A
+memo linked to N issuers continues to have N rows sharing chunk hashes, as today
+(`engine/memochunks.py:69-141`). Upload and watcher code MUST call the same
+`sync_file_projection` function. New rows MUST populate existing non-null fields:
+`file_name=Path(rel_path).stem`, `storage_key="memo:" + rel_path`, `doc_type`, and
+`chunk_count`; `uploaded_by` comes from frontmatter or falls back to `vault-sync`.
+
+In Postgres the function takes
 `pg_advisory_xact_lock(hashtext('vault:' || rel_path))`; SQLite uses a process-local
-per-path `asyncio.Lock`. The unique index is the final race backstop.
+per-path `asyncio.Lock`. For a rename, acquire both old and new path locks in lexical
+order before revalidation, preventing an old-path delete from racing the new-path
+adoption. The unique index is the final race backstop.
 
 `source_sha256` is SHA-256 of exact file bytes, not body text. It detects frontmatter,
 link, and title edits as well as body edits.
 
 ### 10.3 Rename and delete
 
-- New path with no identity: if exactly one missing old path has the same
-  `source_sha256` and family, update `source_rel_path`/`file_name`; do not touch chunks
-  or vectors.
-- Zero or multiple hash matches: treat as independent add/delete; never guess.
+- New path with no identity: group missing rows into projections by
+  `(family, old_source_rel_path)`. If exactly one projection has the same
+  `source_sha256` and issuer-id set, lock old/new paths and update every row's
+  `source_rel_path`/`file_name`; do not touch chunks or vectors.
+- Zero or multiple projection matches: treat as independent add/delete; never guess.
 - Missing file: remove uncited chunks and shadow cited chunks. Preserve the Document
   row while any shadowed chunk remains so citation metadata resolves.
 
@@ -903,9 +983,11 @@ For each target document:
    - pop/reuse one live row of that hash;
    - else pop/resurrect one superseded row, clearing `superseded_at`;
    - else stage a new row.
-5. Remaining live rows are removals. If referenced by `EvidenceItem` or `MetricFact`,
-   set `superseded_at=now`; otherwise delete their lineage edges then rows, following
-   the existing dependency order in `engine/memochunks.py:40-66`.
+5. Remaining live rows are removals. A row is cited when referenced by
+   `EvidenceItem`, `MetricFact`, **or** a `LineageEdge.parent_id="chunk:{id}"`.
+   Cited rows get `superseded_at=now`; never delete citation-parent lineage. Uncited
+   rows delete only their own artifact lineage then the row, following the dependency
+   order in `engine/memochunks.py:40-66`.
 6. Update reused rows’ `seq`, document chunk count, file hash/path, sync timestamp,
    and origin.
 
@@ -917,16 +999,26 @@ Deque/multiset handling is mandatory because `document_chunks` has no
 
 To satisfy H4 without holding a DB transaction across a network call:
 
-1. Compute the full diff in memory from a read snapshot.
-2. Determine distinct new/resurrected live hashes lacking `(active_model, hash)`.
+1. Read file bytes and the complete projection in a short-lived read session. Compute
+   the full diff and a projection fingerprint over sorted
+   `(document_id, issuer_id, chunk_id, seq, chunk_hash, superseded_at)` tuples, then
+   close that session before any provider call.
+2. Determine every distinct target live hash lacking `(active_model, hash)`, not only
+   newly changed hashes. In a healthy corpus this reduces to changed hashes; the wider
+   check repairs a pre-existing gap without a separate path.
 3. Outside a transaction, request vectors only for that missing set, in batches of
    100 (the current batch size in `engine/embeddings.py:83-108`).
-4. If any live embedding call fails, commit nothing; requeue the file. With no API
-   key, use effective model `mock-sha256-v1`, never the configured Google model id.
-5. Open the write transaction, acquire the per-path advisory lock, re-read
-   `source_sha256` and existing rows. If either changed, roll back and recompute.
-6. Apply chunk/doc changes and insert vectors with
-   `ON CONFLICT (model, chunk_hash) DO NOTHING` in the same transaction.
+4. Determine vector eligibility from **both** existing
+   `caos_document_egress_enabled` and provider-key availability. If ineligible, commit
+   the chunk diff as BM25-only and request no vectors. If eligible and any embedding
+   call fails or is malformed, commit nothing and requeue the file. Mock vectors stay
+   unit-test-only and are never persisted.
+5. Open a fresh write session/transaction, acquire the per-path advisory lock, re-read
+   current file bytes off-thread, and re-read the complete DB projection. If the file
+   SHA-256 or projection fingerprint differs from step 1, roll back and recompute.
+6. Apply chunk/doc changes and insert validated vectors through the shared
+   `upsert_embeddings` helper with `ON CONFLICT (model, chunk_hash) DO NOTHING` in
+   the same transaction.
 7. Commit once. Retrieval sees either the old complete generation or the new complete
    generation, never chunks without vectors.
 
@@ -942,24 +1034,109 @@ Add `DocumentChunk.superseded_at IS NULL` to every BM25/vector corpus query and 
 chunk-by-id/citation lookup MUST NOT add this predicate; cited historical text must
 remain openable.
 
+SQLite's unscoped BM25 cache version currently uses total document/chunk counts plus
+`max(Document.uploaded_at)` (`retrieval.py:103-116,343-367`), none of which changes
+when a chunk is shadowed/resurrected. Change the version to include live chunk count
+and `max(Document.synced_at)`, and call a small `invalidate_corpus_cache()` after every
+successful sync commit. SQLite is single-process; Postgres uses DB-side FTS and needs
+no cross-worker cache signal.
+
 Extend engine index exclusion from `analyst-memo` to
 `{"analyst-memo", "okf-source-note"}`. Query corpus may retrieve both.
 
-### 10.7 Embedding-model migration
+### 10.7 Embedding adapter and writer contract
 
-1. Change `embedding_model` default to `gemini-embedding-2`.
-2. The Gemini adapter calls `embed_content` with
-   `EmbedContentConfig(output_dimensionality=768)`.
-3. Backfill every distinct live chunk hash under `gemini-embedding-2`; retain all old
-   embedding rows.
-4. Switch retrieval default only after a count check proves every live hash has the
-   new-model row.
-5. Live provider failure raises `EmbeddingUnavailable`; it MUST NOT return a mock.
-6. Keyless development uses `model="mock-sha256-v1"`, provider `local`, origin
-   `deterministic-test`, and retrieval resolves that effective model explicitly.
+`engine/gemini.py` MUST build one Google `types.Content` object per input text, each
+with one text `Part`, and call `embed_content` with
+`EmbedContentConfig(output_dimensionality=768)`. It MUST reject the whole batch when:
 
-This corrects the silent mock-under-live-id defect in
-`engine/embeddings.py:28-55` and keeps the existing 768-dimensional vector column.
+- response embedding count differs from input count;
+- any vector length is not exactly 768; or
+- any component is non-finite.
+
+A malformed batch stages zero rows. Live failure raises `EmbeddingUnavailable` with
+only exception class/status retained for telemetry; it never returns a mock.
+
+One shared helper is mandatory for vault sync, ordinary document/EDGAR upload, and
+startup/backfill:
+
+```python
+async def upsert_embeddings(
+    db: AsyncSession,
+    hash_to_text: Mapping[str, str],
+    *,
+    model: str,
+) -> int: ...
+```
+
+It deduplicates hashes before the API call, queries missing `(model, hash)` rows,
+batches 100, validates via the adapter, and uses dialect-specific conflict-ignore:
+Postgres `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_nothing(...)` and
+SQLite's corresponding dialect insert. Plain generic `insert` is forbidden for this
+table. This replaces current plain inserts in `engine/embeddings.py:124,190`.
+
+`warmup_embeddings_task` takes an explicit target model and acquires a dedicated
+Postgres session advisory lock `hashtext('caos.embedding.warmup.v1')`; only the lock
+holder runs. This corrects the current every-worker startup at `main.py:125-133`.
+
+### 10.8 Egress policy and query failure
+
+The existing `caos_document_egress_enabled=False` gate is authoritative
+(`config.py:131-133`). No API key alone authorizes document text to leave CAOS.
+
+**Design choice, security-visible:** when that existing flag is explicitly true,
+`analyst-memo` and future `okf-source-note` projections become vector-eligible; when
+false, they remain synchronized and searchable by BM25 only. This removes the current
+unconditional memo exclusion at `engine/embeddings.py:73,148` only under explicit
+egress consent. No new egress setting is added.
+
+Refresh/backfill callers propagate `EmbeddingUnavailable` so H4 can roll back/retry.
+Query-time retrieval first computes BM25, then attempts the query vector only when
+egress is enabled and a key exists; it catches `EmbeddingUnavailable` and returns the
+BM25 results. This preserves the current empty-vector BM25 degradation at
+`retrieval.py:209-220,375-386,495-506` without silently creating mock vectors.
+
+### 10.9 Incompatible-space backfill and cutover
+
+One setting currently controls writes and reads, so the simplest race-free rollout is
+a maintenance cutover, not dual-write infrastructure:
+
+1. Deploy adapter/shared-writer support while reads remain pinned to the old model.
+2. Stop all corpus-writing app workers (maintenance window).
+3. Invoke the existing warmup/backfill function with explicit target
+   `gemini-embedding-2`; retain old rows.
+4. Prove coverage with set difference, not counts:
+
+   ```sql
+   SELECT DISTINCT dc.chunk_hash
+   FROM document_chunks dc
+   WHERE dc.superseded_at IS NULL AND dc.chunk_hash IS NOT NULL
+   EXCEPT
+   SELECT e.chunk_hash
+   FROM document_chunk_embeddings e
+   WHERE e.model = 'gemini-embedding-2';
+   ```
+
+   The result MUST be empty for vector-eligible live chunks.
+5. Set `EMBEDDING_MODEL=gemini-embedding-2` and restart workers. Change the code
+   default in the same release so new installations use the live model.
+6. Run the same EXCEPT query after restart. Any row aborts readiness and reruns the
+   backfill before serving vector retrieval.
+
+No corpus writer runs between steps 2 and 5, eliminating the concurrent-insert race
+without a second read/write-model setting or temporary dual-write layer.
+
+Because old incompatible vectors remain in the table, replace the global Postgres
+HNSW index with a partial index for the active space:
+
+```sql
+CREATE INDEX ix_chunk_embeddings_gemini_embedding_2_vector
+ON document_chunk_embeddings USING hnsw (vector vector_cosine_ops)
+WHERE model = 'gemini-embedding-2';
+```
+
+Run `EXPLAIN` and a recall fixture after cutover to confirm the partial index is used;
+a global mixed-model approximate index can under-recall after filter application.
 
 ---
 
@@ -974,8 +1151,9 @@ This corrects the silent mock-under-live-id defect in
 | `documents` | `synced_at` | timezone datetime, nullable | Last successful convergence |
 | `documents` | `sync_origin` | `String(24)`, nullable | `upload`, `vault-manual`, `okf-projection` |
 | `document_chunks` | `superseded_at` | timezone datetime, nullable/indexed | NULL means live/retrievable |
-| `document_chunk_embeddings` | `provider` | `String(16)`, nullable | `google` or `local`; nullable for legacy |
-| `document_chunk_embeddings` | `origin` | `String(24)`, nullable | `live` or `deterministic-test`; nullable for legacy |
+| `document_chunk_embeddings` | `provider` | `String(16)`, nullable | `google`; nullable for legacy |
+| `document_chunk_embeddings` | `origin` | `String(24)`, nullable | `live`; nullable for legacy; mocks are never persisted |
+| `analyst_links` | `source_rel_path` | `String(1024)`, nullable/indexed | Exact vault-relative path; legacy rows may be NULL |
 
 Do not add dimension metadata: `SafeVector(768)` already fixes it in schema
 (`database.py:1352`). Do not add document metadata to the embedding row: one
@@ -1010,7 +1188,10 @@ by joining embedding → chunk → document:
 The standard preserves the existing `(model, chunk_hash)` identity and HNSW cosine
 index (`database.py:1344-1363`).
 
-### 11.3 Migration `0060_agentic_infra_memory_hub.py`
+### 11.3 Migration `0061_agentic_infra_memory_hub.py`
+
+Set `revision="0061"` and `down_revision="0060"` for the current tree. Recheck
+`alembic heads` immediately before implementation as required by §3.
 
 The migration MUST, in order:
 
@@ -1018,8 +1199,24 @@ The migration MUST, in order:
    supply required values. Do not backfill fictional providers for historical rows.
 2. Create `llm_call_payloads` with one-to-one cascade FK.
 3. Add document/chunk/vector fields from §11.1.
-4. Create partial document identity unique index and chunk live-state index.
-5. Leave old embedding rows intact.
+4. Add `analyst_links.source_rel_path`, backfill
+   `Analyst-Memos/{source_note}.md`, and change Query's Obsidian link builder to use
+   the path (falling back to the legacy expression only when NULL).
+5. Create partial document identity unique index, chunk live-state index, and
+   `lineage_edges.parent_id` index. On Postgres, replace the mixed-model HNSW index
+   with the `gemini-embedding-2` partial HNSW index from §10.9; leave SQLite unchanged.
+6. Backfill citation-parent `LineageEdge` rows for every chunk id persisted in
+   `query_accepted_links.chunk_ids`, `query_overlays.payload`,
+   `query_insights.payload`, `query_answers.payload`, and `alert_events.evidence`.
+   Reuse one recursive `extract_chunk_ids` helper. Update each writer to call one
+   `record_citation_edges(artifact_id, chunk_ids)` helper; a registry test MUST fail
+   when a persisted `chunk_ids` writer omits it. `engine/queryanswer.py:423-430`
+   already demonstrates the parent edge shape. Artifact ids are exactly
+   `query-accepted-link:{id}`, `query-overlay:{id}`, `query-insight:{id}`,
+   `query-answer:{id}`, or `alert-event:{id}`; parent is `chunk:{chunk_id}`;
+   `transform="citation"`, `transform_version="1.0"`. Insert idempotently by
+   `(artifact_id, parent_id, transform)`.
+7. Leave old embedding rows intact.
 
 Rollback drops only added indexes/columns/table. It MUST NOT delete corpus rows.
 
@@ -1032,8 +1229,9 @@ FastAPI lifespan start order in each worker:
 1. Initialize telemetry queue and, when configured, OTel provider/BatchSpanProcessor.
 2. Start telemetry writer.
 3. Attempt vault leader election; leader starts watcher/consumer and startup reconcile.
-4. Start existing warmup/executors in their current order unless existing code
-   requires them earlier; vault embedding work remains serial and background.
+4. Start existing executors in their current order. Start embedding warmup only after
+   it acquires its dedicated advisory lock from §10.7; non-holders skip it. Vault
+   embedding work remains serial and background.
 
 Shutdown order:
 
@@ -1095,7 +1293,9 @@ Deployment deltas:
 
 1. Apply provenance/vector schema additions.
 2. Add leader, watcher queue, reconcile, shared upload/watcher sync function.
-3. Backfill `gemini-embedding-2`, verify coverage, then change retrieval default.
+3. Use the maintenance cutover in §10.9: stop writers, backfill
+   `gemini-embedding-2`, prove EXCEPT coverage, change retrieval default, restart, and
+   prove coverage again.
 4. Add Postgres integration tests for advisory locks, partial unique index, citation
    shadowing, embedding-before-commit, and `ON CONFLICT` races.
 
@@ -1120,7 +1320,8 @@ Required vault test matrix:
 
 - For every watched file/issuer document, the ordered multiset of live chunk hashes
   equals `chunk_text(split_note(file).body)`.
-- Every live chunk has exactly one active/effective-model embedding row.
+- Every vector-eligible live chunk has exactly one active-model embedding row; an
+  egress-disabled corpus is explicitly BM25-only.
 - No sync operation deletes an embedding row.
 - No generated `Runs/` or `Issuers/` event changes corpus state.
 - No cited chunk id becomes unresolved.
@@ -1146,9 +1347,9 @@ the named source files, and this checklist:
 |---|---|---|---|
 | Prompt formatting | `llm_client.py`, `gemini.py`, `openrouter.py`, synth/stream callers | Provider shape preserved; forced tools not executed; only the specified shallow outer snapshot; no deep copy/serialization | **VERIFIED after correction** — fresh verifier initially failed the tuple shape, sticky stream model, broadened retries, and synchronous log. Root audit confirmed each against `openrouter.py:37-48`, `synth.py:545-578`, `deepresearch.py:263-331`, `research_report.py:923-1007`, and `llm_client.py:137-270`; §§4.1–4.5/H1/Z3 were corrected. |
 | Cost calculation | `budget.py`, `config.py`, `presets.py`, official price pages | Tier mapping complete; cache bands/date bands/provider override/unknown model exact | **VERIFIED after correction** — fresh verifier initially failed fallback labelling, mixed-source aggregation, pre-enqueue normalization, unknown-TTL cache writes, and obsolete OpenRouter request syntax. Root audit confirmed the code distinctions at `presets.py:73-80,167-188`, `llm_client.py:168-173,235-270`, `budget.py:81-90`, `gemini.py:175-190`, and `openrouter.py:128-132`; §§4.3, 5.2, and 6.1–6.4 were corrected. |
-| Masking | Telemetry schema/order plus mask rules | Nested coverage, protected tokens, idempotence, no raw payload persistence/export, background only | PENDING |
-| Chunk diffing | `vault_export.py`, `memochunks.py`, `ingest.py`, citation FKs | Duplicate-safe, rename/delete/citation behavior exact, multi-worker race controlled, background only | PENDING |
-| Embedding refresh | `embeddings.py`, embedding schema/retrieval, Google model docs | Retired model corrected, 768 explicit, missing-only, no mock/live collision, atomic visibility, background only | PENDING |
+| Masking | Telemetry schema/order plus mask rules | Nested coverage, protected tokens, idempotence, no raw payload persistence/export, background only | **VERIFIED after correction** — fresh verifier initially failed numeric JSON leaves, identifier grammars, raw prompt hashing, JSON truncation, exception tracebacks, and full-call-graph hot-path enforcement. Root audit confirmed current raw hashing/DB tracing at `llm_client.py:93-107` and `budget.py:112-181`, plus `logger.exception` at `research_report.py:1000`; §§4.3, 5.3, 7.1–7.3, and Z3 were corrected. |
+| Chunk diffing | `vault_export.py`, `memochunks.py`, `ingest.py`, citation FKs | Duplicate-safe, rename/delete/citation behavior exact, multi-worker race controlled, background only | **VERIFIED after correction** — fresh verifier initially failed multi-issuer rename identity, nested memo links, overflow wakeup, post-embedding revalidation, JSON-held citations, SQLite cache invalidation, and migration numbering. Root audit confirmed projection rows at `memochunks.py:101-135`, stem-only links at `vault_export.py:438-557`/`database.py:1202-1211`/`engine/querygraph.py:1510-1532`, citation stores at `database.py:1214-1301` plus `engine/queryanswer.py:423-430`, cache version at `retrieval.py:103-116,343-367`, and live `0060_run_input_snapshots.py`; §§9.3–10.6 and 11.1/11.3 were corrected. |
+| Embedding refresh | `embeddings.py`, embedding schema/retrieval, Google model docs | Retired model corrected, 768 explicit, missing-only, no mock/live collision, atomic visibility, background only | **VERIFIED after correction** — fresh verifier initially failed cutover concurrency, Gemini batch validation, query-vs-refresh failure semantics, conflict handling across all writers, document-egress policy, and mixed-model HNSW recall. Root audit confirmed current fail-closed/egress/memo exclusion at `config.py:129-133` and `embeddings.py:28-74`, plain multi-worker inserts at `embeddings.py:124,190` plus `main.py:125-133`, BM25 query degradation at `retrieval.py:209-220,375-386,495-506`, and the global HNSW at `database.py:1355-1363`; §§10.5 and 10.7–10.9 plus migration/lifecycle tests were corrected. |
 
 A final root audit MUST compare each verifier claim to the actual source/tool output;
 agent agreement alone is not evidence. The completed handoff updates this table with
@@ -1166,14 +1367,14 @@ the fresh verifier verdict and any incorporated correction.
    same database boundary as source documents. A retention policy is not requested
    and is not invented here.
 3. **Background root spans do not inherit HTTP trace parents.** This is accepted to
-   keep all OTel SDK work off the request path; `interaction_id`/`run_id` correlate.
+   keep all OTel SDK work off the request path; `llm_call_id`/`run_id` correlate.
 4. **Chunk refresh is surgical by hash, not by semantic paragraph.** The existing
    greedy chunker can shift downstream boundaries after an early edit. Reusing it is
    more important than creating an incompatible “smarter” chunker.
 5. **OKF source sync is reserved, not implemented.** The projection contract prevents
    a future manual note from rewriting original evidence, but no runtime claim is made
    until OKF code exists.
-6. **Historical mock vectors cannot be distinguished by current metadata.** Do not
-   delete them speculatively. Backfilling every live hash under the new model and
-   filtering retrieval by exact model makes them unreachable without destructive
-   archaeology.
+6. **Analyst memo vectors require explicit egress consent.** This is intentionally not
+   inferred from the presence of a Gemini key. With the existing document-egress flag
+   off, vault edits converge text/chunks and BM25 only; H4's vector requirement is
+   inapplicable rather than silently violated.

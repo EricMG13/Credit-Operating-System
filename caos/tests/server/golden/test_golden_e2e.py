@@ -317,6 +317,9 @@ def test_golden_e2e_keyed_llm_lane_vsat(e2e_client, monkeypatch):
         })
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-golden-e2e")
+    # Live synthesis is egress-gated (MNPI opt-in) — a key alone no longer
+    # selects the live lane; the keyed golden must opt in explicitly.
+    monkeypatch.setenv("CAOS_DOCUMENT_EGRESS_ENABLED", "true")
     config.get_settings.cache_clear()
     monkeypatch.setattr(llm_client, "create", _fake_create)
 

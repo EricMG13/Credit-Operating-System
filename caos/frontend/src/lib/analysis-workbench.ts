@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, toErrorMessage } from "@/lib/api";
 
 export type AnalysisJobState =
@@ -125,6 +125,7 @@ export interface AnalysisSurfaceStateEntry {
 
 export interface AnalysisContext {
   id: string;
+  revision: number;
   name: string;
   sector_id: string | null;
   sub_segments: string[];
@@ -147,6 +148,7 @@ export interface AnalysisContext {
 export type AnalysisContextPatch = Omit<Partial<AnalysisContext>, "artifacts" | "surface_state"> & {
   artifacts?: Partial<AnalysisArtifactRefs>;
   surface_state?: AnalysisContext["surface_state"];
+  expected_revision?: number;
 };
 
 export interface Finding {
@@ -413,25 +415,37 @@ function createContextOnce(defaults: { name: string; sector_id?: string }) {
   return created;
 }
 
-export function useAnalysisContext(defaults: { name: string; sector_id?: string }) {
+export function useAnalysisContext(defaults: { name: string; sector_id?: string; context_id?: string | null }) {
   const defaultName = defaults.name;
   const defaultSectorId = defaults.sector_id;
+  const hasExplicitContextId = Object.prototype.hasOwnProperty.call(defaults, "context_id");
+  const requestedContextId = defaults.context_id;
   const [context, setContext] = useState<AnalysisContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
+  const patchGeneration = useRef(0);
 
   useEffect(() => {
+    const generation = ++loadGeneration.current;
+    // Any patch started for the prior context must not publish after a scope
+    // navigation. Clear the old context immediately so consumers cannot render
+    // one issuer's state beneath another issuer/context URL.
+    patchGeneration.current += 1;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError(null);
+      setContext(null);
       try {
         const initialUrl = new URL(window.location.href);
-        const contextId = initialUrl.searchParams.get("context");
+        const contextId = hasExplicitContextId
+          ? requestedContextId ?? null
+          : initialUrl.searchParams.get("context");
         const value = contextId
           ? await analysisApi.getContext(contextId)
           : await createContextOnce({ name: defaultName, sector_id: defaultSectorId });
-        if (cancelled) return;
+        if (cancelled || generation !== loadGeneration.current) return;
         setContext(value);
         window.dispatchEvent(new CustomEvent("caos:analysis-context", { detail: value }));
         if (!contextId) {
@@ -446,19 +460,27 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string 
           window.dispatchEvent(new PopStateEvent("popstate"));
         }
       } catch (reason) {
-        if (!cancelled) setError(toErrorMessage(reason, "Analysis context unavailable."));
+        if (!cancelled && generation === loadGeneration.current) {
+          setError(toErrorMessage(reason, "Analysis context unavailable."));
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && generation === loadGeneration.current) setLoading(false);
       }
     };
     void load();
     return () => { cancelled = true; };
-  }, [defaultName, defaultSectorId]);
+  }, [defaultName, defaultSectorId, hasExplicitContextId, requestedContextId]);
 
   const patch = useCallback(async (changes: AnalysisContextPatch) => {
     if (!context) return null;
-    const value = await analysisApi.patchContext(context.id, changes);
-    setContext(value);
+    const contextId = context.id;
+    const generation = ++patchGeneration.current;
+    const value = await analysisApi.patchContext(contextId, {
+      ...changes,
+      expected_revision: context.revision,
+    });
+    if (generation !== patchGeneration.current) return null;
+    setContext((current) => current?.id === contextId ? value : current);
     return value;
   }, [context]);
 

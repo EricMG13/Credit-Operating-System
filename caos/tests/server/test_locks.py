@@ -133,3 +133,56 @@ async def test_postgres_release_calls_pg_advisory_unlock(monkeypatch):
     await locks.release_advisory_lock(sess, k)
     assert "pg_advisory_unlock" in sess.calls[1]["sql"]
     assert sess.calls[1]["params"] == {"k": k}
+
+
+@pytest.mark.asyncio
+async def test_unlock_failure_invalidates_connection_and_propagates(monkeypatch):
+    monkeypatch.setattr(locks, "_is_postgres", lambda: True)
+
+    class Connection:
+        invalidated = False
+
+        async def invalidate(self):
+            self.invalidated = True
+
+    class Session:
+        def __init__(self):
+            self.connection_object = Connection()
+            self.calls = 0
+
+        async def execute(self, _stmt, _params=None):
+            self.calls += 1
+            if self.calls == 1:
+                return type("Result", (), {"scalar": lambda _self: True})()
+            raise RuntimeError("unlock failed")
+
+        async def connection(self):
+            return self.connection_object
+
+    session = Session()
+    with pytest.raises(RuntimeError, match="unlock failed"):
+        async with locks.advisory_lock(session, 42) as acquired:
+            assert acquired is True
+    assert session.connection_object.invalidated is True
+
+
+@pytest.mark.asyncio
+async def test_unlock_failure_does_not_mask_body_exception(monkeypatch):
+    monkeypatch.setattr(locks, "_is_postgres", lambda: True)
+
+    class Connection:
+        async def invalidate(self):
+            pass
+
+    class Session:
+        async def execute(self, stmt, _params=None):
+            if "pg_try_advisory_lock" in str(stmt):
+                return type("Result", (), {"scalar": lambda _self: True})()
+            raise RuntimeError("unlock failed")
+
+        async def connection(self):
+            return Connection()
+
+    with pytest.raises(ValueError, match="body failed"):
+        async with locks.advisory_lock(Session(), 43):
+            raise ValueError("body failed")

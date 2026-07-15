@@ -145,6 +145,7 @@ async def _vault_document(
     fiscal_period: Optional[str] = None,
     effective_period_end: Optional[date] = None,
     source_published_at: Optional[datetime] = None,
+    malware_scan: avscan.ScanVerdict = "not_configured",
 ) -> IngestionResponse:
     # Gate on the issuer's team: no uploading documents into another team's issuer
     # (no-op when tenancy is off). Also covers the missing-issuer 404.
@@ -209,6 +210,15 @@ async def _vault_document(
         background_tasks.add_task(run_embed_task)
 
     as_of = datetime.now(timezone.utc)
+    # The upload wizard's Authority declaration is an explicit analyst action.
+    # Only a successfully parsed and malware-scanned live/reported source is
+    # ratified at intake. An absent scanner is recorded truthfully and remains
+    # draft, as do reference/demo/derived/modelled/empty artifacts.
+    approval_state = (
+        "ratified"
+        if chunks and origin == "live" and method == "reported" and malware_scan == "clean"
+        else "draft"
+    )
     manifest = SourceManifest(
         analyst_id=caller.id,
         issuer_id=issuer_id,
@@ -223,7 +233,7 @@ async def _vault_document(
             "size_bytes": len(content),
             "chunks_created": len(chunks),
             "extraction": chunk_prov or "native",
-            "malware_scan": "clean",
+            "malware_scan": malware_scan,
             "warning": ingest.NO_CHUNKS_WARNING if not chunks else None,
             "source_kind": source_kind,
             "fiscal_period": fiscal_period,
@@ -241,7 +251,9 @@ async def _vault_document(
             "run_id": None,
             "version_id": None,
             "confidence": 1.0 if chunks else 0.0,
-            "approval_state": "draft",
+            "approval_state": approval_state,
+            "ratified_by": caller.id if approval_state == "ratified" else None,
+            "ratified_at": as_of.isoformat() if approval_state == "ratified" else None,
             "analyst_override": None,
         },
         created_at=as_of,
@@ -305,7 +317,7 @@ async def upload_document(
     async with _upload_semaphore():
         content = await ingest.read_capped(file)
         ingest.sniff_pdf(content)
-        await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
+        malware_scan = await avscan.scan(content)
         # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
         # large upload doesn't block the event loop for every other request.
         text, used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
@@ -327,6 +339,7 @@ async def upload_document(
         fiscal_period=fiscal_period.strip() if fiscal_period and fiscal_period.strip() else None,
         effective_period_end=effective_period_end,
         source_published_at=source_published_at,
+        malware_scan=malware_scan,
     )
 
 
@@ -415,7 +428,7 @@ async def upload_pricing_sheet(
         # Scan BEFORE any parse: sniff_xlsx opens the ZIP central directory (openpyxl/
         # zipfile read attacker-controlled bytes), so the scan must precede it to match
         # SECURITY.md's "scanned before it is parsed". No-op unless CLAMAV_HOST is set.
-        await avscan.scan(content)
+        malware_scan = await avscan.scan(content)
         ingest.sniff_xlsx(content)
         # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
         # upload_document) so a large workbook doesn't stall the single event loop.
@@ -436,6 +449,7 @@ async def upload_pricing_sheet(
         origin=origin, method=method, context_id=context_id,
         source_kind=source_kind_value, fiscal_period=fiscal_period.strip() if fiscal_period and fiscal_period.strip() else None,
         effective_period_end=effective_period_end, source_published_at=source_published_at,
+        malware_scan=malware_scan,
     )
 
     # Structured sheets carry a Ratings column — collect ratings onto issuers.

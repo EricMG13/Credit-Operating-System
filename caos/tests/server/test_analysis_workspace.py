@@ -299,6 +299,36 @@ def test_context_artifact_and_surface_patches_merge_without_erasing_siblings():
     app.dependency_overrides.clear()
 
 
+def test_context_patch_rejects_stale_revision():
+    from identity import get_identity
+    from main import app
+
+    with TestClient(app) as client:
+        app.dependency_overrides[get_identity] = _identity("analysis-cas")
+        context = client.post(
+            "/api/analysis/contexts", json={"name": "Concurrent context"}
+        ).json()
+        assert context["revision"] == 1
+
+        first = client.patch(
+            f"/api/analysis/contexts/{context['id']}",
+            json={"name": "First writer", "expected_revision": 1},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["revision"] == 2
+
+        stale = client.patch(
+            f"/api/analysis/contexts/{context['id']}",
+            json={"name": "Stale writer", "expected_revision": 1},
+        )
+        assert stale.status_code == 409
+        assert client.get(
+            f"/api/analysis/contexts/{context['id']}"
+        ).json()["name"] == "First writer"
+
+    app.dependency_overrides.clear()
+
+
 def test_report_draft_is_owned_revision_checked_and_not_publishable_without_checkpoint():
     from identity import get_identity
     from main import app
