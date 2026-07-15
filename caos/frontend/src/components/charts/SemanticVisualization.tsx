@@ -7,6 +7,7 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 export type VisualizationKind =
   | "line"
   | "slope"
+  | "scatter"
   | "bar"
   | "bullet"
   | "stacked-bar"
@@ -36,6 +37,7 @@ export interface VisualizationSpec<Datum extends VisualizationDatum = Visualizat
   asOf?: string;
   sourceIds: readonly string[];
   accessibleSummary: string;
+  note?: string;
   status?: { label: string; tone: "success" | "warning" | "critical" | "idle" };
   data: unknown[];
   tabularFallback: AccessibleDataTable<Datum>;
@@ -59,6 +61,7 @@ export function SemanticVisualization<Datum extends VisualizationDatum>({
 }) {
   const [showTable, setShowTable] = useState(false);
   const summaryId = useId();
+  const tableId = useId();
   const chartSpec = useMemo(
     () => ({ ...spec.chart, data: spec.data }),
     [spec.chart, spec.data],
@@ -89,6 +92,7 @@ export function SemanticVisualization<Datum extends VisualizationDatum>({
       >
         <G2Chart spec={chartSpec} height={height} mode={mode} />
       </div>
+      {spec.note ? <p className="semantic-visualization__note">{spec.note}</p> : null}
       <div className="semantic-visualization__sources" aria-label="Visualization sources">
         <span>Sources</span>
         <ul>{spec.sourceIds.map((sourceId) => <li key={sourceId}>{sourceId}</li>)}</ul>
@@ -96,32 +100,34 @@ export function SemanticVisualization<Datum extends VisualizationDatum>({
       <button
         type="button"
         aria-expanded={showTable}
+        aria-controls={tableId}
         onClick={() => setShowTable((visible) => !visible)}
         className="semantic-visualization__table-toggle"
       >
         {showTable ? "Hide equivalent table" : "Show equivalent table"}
       </button>
-      {showTable ? (
-        <DominantTableRegion
-          ownerId={`${summaryId}-fallback`}
-          label={`${spec.title} equivalent data`}
-          exemption="accessible-fallback"
-          className="semantic-visualization__table-region"
-        >
-          <table aria-label={spec.tabularFallback.label}>
-            <thead>
-              <tr>{spec.tabularFallback.columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}</tr>
-            </thead>
-            <tbody>
-              {spec.tabularFallback.data.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {spec.tabularFallback.columns.map((column) => <td key={column.key}>{cellText(row[column.key])}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </DominantTableRegion>
-      ) : null}
+      <DominantTableRegion
+        id={tableId}
+        ownerId={`${summaryId}-fallback`}
+        label={`${spec.title} equivalent data`}
+        exemption="accessible-fallback"
+        aria-hidden={!showTable}
+        data-visible={showTable ? "true" : "false"}
+        className="semantic-visualization__table-region"
+      >
+        <table aria-label={spec.tabularFallback.label}>
+          <thead>
+            <tr>{spec.tabularFallback.columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {spec.tabularFallback.data.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {spec.tabularFallback.columns.map((column) => <td key={column.key}>{cellText(row[column.key])}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </DominantTableRegion>
     </figure>
   );
 }

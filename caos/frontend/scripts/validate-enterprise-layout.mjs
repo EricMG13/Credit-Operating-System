@@ -9,7 +9,10 @@ const routes = process.env.ROUTES?.split(',').map((route) => route.trim()).filte
 const defaultViewports = [
   { name: 'desktop', width: 1440, height: 900, zoom: 1 },
   { name: 'laptop', width: 1280, height: 800, zoom: 1 },
+  { name: 'workspace-1100', width: 1100, height: 800, zoom: 1 },
   { name: 'tablet', width: 1024, height: 768, zoom: 1 },
+  { name: 'workspace-900', width: 900, height: 760, zoom: 1 },
+  { name: 'workspace-700', width: 700, height: 760, zoom: 1 },
   { name: 'phone', width: 390, height: 844, zoom: 1 },
   { name: 'zoom200', width: 720, height: 450, zoom: 2 },
 ];

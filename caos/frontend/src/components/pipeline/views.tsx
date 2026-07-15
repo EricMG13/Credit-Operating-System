@@ -67,7 +67,10 @@ export function GraphView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const scale = Math.max(0.62, Math.min(1, box.w / GW, box.h / GH));
+  // Preserve effective label size. At narrower widths the graph becomes a
+  // controlled two-axis canvas instead of shrinking analytical labels until
+  // they are technically present but physically unreadable.
+  const scale = Math.max(0.86, Math.min(1, box.w / GW, box.h / GH));
   const inUp = (n: string) => n === selected || up.has(n);
   const inDown = (n: string) => n === selected || down.has(n);
 
@@ -75,7 +78,13 @@ export function GraphView({
   const scaledH = GH * scale;
 
   return (
-    <div ref={wrapRef} className="relative h-full min-h-[360px] overflow-auto">
+    <div
+      ref={wrapRef}
+      role="region"
+      tabIndex={0}
+      aria-label="Execution graph; scroll horizontally to inspect all module layers"
+      className="pipeline-graph-canvas focus-ring relative h-full min-h-[420px] overflow-auto overscroll-contain"
+    >
       <div className="relative overflow-hidden" style={{ width: scaledW, height: scaledH }}>
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: GW, height: GH, transform: `scale(${scale})` }}>
           <svg width={GW} height={GH} className="absolute inset-0">
@@ -105,8 +114,8 @@ export function GraphView({
         const meta = LAYERS.find((x) => x.id === l);
         return (
           <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }}>
-            <div className="tabular text-caos-xs uppercase tracking-widest text-caos-muted">{l}</div>
-            <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}</div>
+            <div className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">{l}</div>
+            <div className="text-caos-xs text-caos-muted">{meta ? meta.label : ""}</div>
           </div>
         );
       })}
@@ -152,7 +161,7 @@ export function GraphView({
               {inScope && NODE_LIMITS[m.id] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
               {st === "held" ? <span role="img" aria-label="Held" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
             </div>
-            <div className="px-2 text-caos-2xs text-caos-muted truncate leading-tight">{m.name}</div>
+            <div className="px-2 text-caos-xs font-medium text-caos-text/90 truncate leading-tight">{m.name}</div>
             <div className="px-2 pt-[3px]"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>
           </button>
         );

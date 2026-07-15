@@ -92,6 +92,7 @@ describe("GraphView", () => {
     expect(buttons.length).toBe(MODULES.length);
     fireEvent.click(buttons[0]);
     expect(onSelect).toHaveBeenCalledWith(MODULES[0].id);
+    expect(screen.getByRole("region", { name: /scroll horizontally/i })).toBeTruthy();
   });
 
   // Regression for matrix 2.1: `SEV_COLOR[st] + "66"` emitted `var(--caos-…)66`

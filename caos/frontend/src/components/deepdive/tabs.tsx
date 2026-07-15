@@ -17,7 +17,8 @@ import { Dot, Tag } from "@/components/pipeline/atoms";
 import { StatCard } from "@/components/shared/StatCard";
 import { SectionHeader } from "@/components/shared/SectionHeader";
 import { fmtNum, fmtPct } from "@/lib/format";
-import { G2Chart, type G2Spec } from "@/components/charts/G2Chart";
+import { type G2Spec } from "@/components/charts/G2Chart";
+import { SemanticVisualization } from "@/components/charts/SemanticVisualization";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
 import { OutputRegister, StepOutputGrid } from "./OutputRegister";
@@ -171,34 +172,35 @@ function recoveries(ev: number): Record<string, number> {
 
 /* G2 v5 specs (antv-g2-chart skill) — static data, module-level so refs stay stable */
 const TR_LABELS: Record<string, string> = { "1l": "1L (RCF+TLB)", "2l": "2L TL ◆", sub: "Sub Notes" };
+const RECOVERY_CHART_DATA = RECOVERY.flatMap((s) => {
+  const r = recoveries(s.ev);
+  return ["1l", "2l", "sub"].map((k) => ({ scenario: s.scen, tranche: TR_LABELS[k], rec: Math.round(r[k] * 100) }));
+});
 const RECOVERY_CHART_SPEC: G2Spec = {
   type: "interval",
-  data: RECOVERY.flatMap((s) => {
-    const r = recoveries(s.ev);
-    return ["1l", "2l", "sub"].map((k) => ({ scenario: s.scen, tranche: TR_LABELS[k], rec: r[k] }));
-  }),
   encode: { x: "scenario", y: "rec", color: "tranche" },
   transform: [{ type: "dodgeX" }],
   coordinate: { transform: [{ type: "transpose" }] },
   scale: {
-    y: { domain: [0, 1] },
+    y: { domain: [0, 100] },
     color: { domain: Object.values(TR_LABELS), range: [TRANCHE_HEX["1l"], TRANCHE_HEX["2l"], TRANCHE_HEX.sub] },
   },
   axis: {
     x: { title: false },
-    y: { title: false, labelFormatter: (d: number) => (d * 100).toFixed(0) + "%" },
+    y: { title: false, labelFormatter: (d: number) => d.toFixed(0) + "%" },
   },
   legend: { color: { position: "top" } },
   labels: [{
-    text: (d: { rec: number }) => (d.rec * 100).toFixed(0) + "%",
+    text: (d: { rec: number }) => d.rec.toFixed(0) + "%",
     position: "inside",
-    fontSize: 9,
+    fontSize: 10.5,
+    fontWeight: 600,
     transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
   }],
 };
+const CAPSTACK_CHART_DATA = CAPSTACK.map((c) => ({ slot: "stack", cls: c.cls, claim: c.claim }));
 const CAPSTACK_CHART_SPEC: G2Spec = {
   type: "interval",
-  data: CAPSTACK.map((c) => ({ slot: "stack", cls: c.cls, claim: c.claim })),
   encode: { x: "slot", y: "claim", color: "cls" },
   transform: [{ type: "stackY" }],
   coordinate: { transform: [{ type: "transpose" }] },
@@ -211,7 +213,8 @@ const CAPSTACK_CHART_SPEC: G2Spec = {
   labels: [{
     text: (d: { cls: string; claim: number }) => "$" + d.claim.toLocaleString(),
     position: "inside",
-    fontSize: 8.5,
+    fontSize: 10.5,
+    fontWeight: 600,
     transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
   }],
 };
@@ -257,9 +260,20 @@ export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvide
             <span className="tabular text-caos-lg text-right text-caos-text font-semibold">{fmtNum(total)}</span>
             <span className="tabular text-caos-sm text-right text-caos-muted">5.7x</span>
           </div>
-          <div className="px-2 pb-1 border-t border-caos-border/50">
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted px-1 pt-1.5">Seniority stack · claims incl. equity ($M)</div>
-            <G2Chart spec={CAPSTACK_CHART_SPEC} height={52} />
+          <div className="px-2 pb-2 pt-2 border-t border-caos-border/50">
+            <SemanticVisualization
+              height={72}
+              spec={{
+                kind: "stacked-bar",
+                title: "Seniority stack · claims including equity",
+                unit: "$M",
+                sourceIds: ["CP-3B:T3B.2", "E-63"],
+                accessibleSummary: "The stack shows $120M RCF, $1,850M first-lien term loan, $900M second-lien term loan, $400M subordinated notes, and implied equity above the debt claims.",
+                data: CAPSTACK_CHART_DATA,
+                tabularFallback: { label: "Seniority stack data", columns: [{ key: "cls", label: "Claim" }, { key: "claim", label: "$M" }], data: CAPSTACK_CHART_DATA },
+                chart: CAPSTACK_CHART_SPEC,
+              }}
+            />
           </div>
         </div>
 
@@ -272,8 +286,20 @@ export function RecoveryTab({ onOpenEvidence, layout = "report" }: { onOpenEvide
               <span className="text-caos-xs text-caos-muted ml-auto">{s.note}</span>
             </div>
           ))}
-          <div className="px-2 pt-1">
-            <G2Chart spec={RECOVERY_CHART_SPEC} height={192} />
+          <div className="px-2 pt-2">
+            <SemanticVisualization
+              height={192}
+              spec={{
+                kind: "bar",
+                title: "Recovery waterfall by tranche and scenario",
+                unit: "% of par",
+                sourceIds: ["CP-3B:T3B.2", "E-63"],
+                accessibleSummary: "Second-lien recovery is 100% in the upside case, 21% in base stress, and 0% in severe stress; first lien remains 100% in upside and base stress and falls to 75% in severe stress.",
+                data: RECOVERY_CHART_DATA,
+                tabularFallback: { label: "Recovery waterfall data", columns: [{ key: "scenario", label: "Scenario" }, { key: "tranche", label: "Tranche" }, { key: "rec", label: "Recovery (% of par)" }], data: RECOVERY_CHART_DATA },
+                chart: RECOVERY_CHART_SPEC,
+              }}
+            />
           </div>
           <div className="px-3 py-1.5 text-caos-sm text-caos-muted">
             Market-implied 2L recovery at px 96.4 ≈ <span className="tabular text-caos-text">38%</span> under base-distress probability weights — wide of model in severe only.

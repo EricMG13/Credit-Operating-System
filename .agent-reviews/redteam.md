@@ -780,3 +780,30 @@ symbol; complexity can rise above its recorded maximum; stale entries survive a
 change to their owning file; Ruff errors are treated as success; file paths pass
 through whitespace-delimited shell expansion; Fallow thresholds or scope are
 relaxed; or an unrecorded clone does not fail the duplication step.
+
+## Phase 6 Legibility and Responsive Density — Critic Pass (2026-07-15)
+
+Decision under review: improve legibility and responsive behavior on analytical
+surfaces without weakening information density, changing analytical values, or
+breaking the Report appendix's single-landscape-page contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-226 | Design-system reviewer | Globally brightening muted text or inflating the type scale would flatten hierarchy, reduce terminal density, and make secondary metadata compete with decisions. | High | Resolved in contract | Remediation is semantic-role based: decision-bearing values, interactive labels, table headings, and chart annotations receive stronger ink/weight; secondary provenance and timestamps retain the existing AA-compliant muted token. |
+| RT-2026-07-15-227 | Accessibility reviewer | A chart that exposes exact values only on hover remains unusable by keyboard, touch, zoom, print, and assistive technology. | High | Resolved in contract | Each changed analytical chart carries a title, concise accessible summary, source identifiers, legible direct/tooltip values, and a keyboard-operable equivalent data table using the shared `SemanticVisualization` contract. |
+| RT-2026-07-15-228 | Credit analyst | Reflowing workflow steps into masonry or columns can scramble analytical order and separate a conclusion from its evidence/open-output action. | High | Resolved in contract | Summary is one source-ordered compact sequence. Report uses a responsive consolidated grid; Dense uses auto-fit cards and wrapping, with horizontal scrolling reserved for genuine tabular evidence. Stable step IDs and output actions remain intact. |
+| RT-2026-07-15-229 | Pipeline operator | Making the DAG fit by shrinking node labels or hiding the inspector can make the exact run harder to diagnose at narrow widths. | High | Resolved in contract | Layout adapts before typography: the inspector stacks/collapses at explicit breakpoints, node labels keep their effective size, and the graph retains controlled two-axis navigation, focus, and an exact-run status context. |
+| RT-2026-07-15-230 | Model-risk reviewer | Styling only positive values as key totals makes adverse or negative cases visually disappear and can imply different calculation semantics. | High | Resolved in contract | Key-account emphasis is row-role based and sign-independent. Period separators use stable period-group metadata; neither styling change alters values, formulas, overrides, or engine fingerprints. |
+| RT-2026-07-15-231 | Report-production reviewer | Broad whitespace or oversized appendix text can push the full model grid onto another page, while label-derived separators can drift when display copy changes. | High | Resolved in contract | The Report DSL carries explicit column-group starts. Narrow gutters/rules and stronger paper ink preserve the full-grid single-landscape-page geometry; print tests guard pagination and all groups from Q through Downside. |
+| RT-2026-07-15-232 | Interaction reviewer | Promoting every action creates toolbar noise, while leaving frequent decision actions as faint text or disclosure-only controls keeps them undiscoverable. | Medium | Resolved in contract | Only frequent decision-bearing actions receive primary/secondary action treatment and visible focus. Low-frequency utilities remain under disclosure, preserving Phase 5 interaction contracts. |
+| RT-2026-07-15-233 | Regression reviewer | CSS-only visual changes can pass unit tests while clipping at 200% zoom, overflowing at target widths, ignoring reduced motion, or altering print output. | High | Resolved in contract | Acceptance includes axe, keyboard/focus, reduced-motion, 200% zoom, 390/700/900/1100/1440px responsive checks, and Report print inspection in addition to type, unit, lint, and build gates. |
+
+### Critic reopen conditions (Phase 6)
+
+Reopen if secondary metadata and decision text are changed through one global
+token; an analytical chart lacks an equivalent table or explicit sources; visual
+layout changes reorder workflow steps or hide evidence; the Pipeline DAG fits by
+shrinking labels; key-total emphasis depends on sign; appendix grouping is parsed
+from display labels or breaks the single-page full grid; low-frequency actions
+crowd the primary toolbar; or any changed route fails zoom, focus, motion,
+responsive, accessibility, or print gates.

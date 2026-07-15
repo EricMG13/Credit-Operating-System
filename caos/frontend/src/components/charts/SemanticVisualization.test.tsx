@@ -35,10 +35,10 @@ afterEach(cleanup);
 describe("SemanticVisualization", () => {
   it("exposes authority and mounts the equivalent table only on demand", () => {
     const kinds: VisualizationKind[] = [
-      "line", "slope", "bar", "bullet", "stacked-bar", "heatmap", "waterfall",
+      "line", "slope", "scatter", "bar", "bullet", "stacked-bar", "heatmap", "waterfall",
       "maturity-wall", "timeline", "network",
     ];
-    expect(kinds).toHaveLength(10);
+    expect(kinds).toHaveLength(11);
     const spec: VisualizationSpec = {
       kind: "bar",
       title: "Leverage by issuer",

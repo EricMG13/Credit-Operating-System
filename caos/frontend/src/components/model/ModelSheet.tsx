@@ -72,6 +72,7 @@ const COLLAPSE_CHILDREN: Record<string, string[]> = {
   secured: ["rcf", "tlb", "ssn"],
   tdebt: ["rcf", "tlb", "ssn", "sub"],
 };
+const GROUP_GUTTER = 10;
 
 function hiddenRows(collapsedRows: Set<string> | undefined): Set<string> {
   return new Set(
@@ -261,8 +262,9 @@ export function Sheet({
         }}
         title={editable ? "double-click to override" : undefined}
         className="shrink-0 text-right pr-1.5 cursor-cell"
+        data-key-account={opts.bold ? "true" : undefined}
         style={{
-          width: c.w, marginLeft: c.gap ? 8 : 0,
+          width: c.w, marginLeft: c.gap ? GROUP_GUTTER : 0,
           background: cellBackground({ isSel, cellHl, colHl, isHl: !!opts.isHl, shade: !!opts.shade }),
           borderRight: "1px solid var(--caos-border)",
           borderBottom: "1px solid var(--caos-border)",
@@ -277,7 +279,7 @@ export function Sheet({
           />
         ) : (
           <span
-            className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-semibold" : "")}
+            className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-bold" : "")}
             style={{ color, borderBottom: isOv ? "1px dotted var(--caos-warning)" : "none" }}
           >
             {distressGlyph ? (
@@ -330,7 +332,7 @@ export function Sheet({
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
-            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" data-period-group={gr.group} style={{ width: gr.w, marginLeft: gr.gap ? GROUP_GUTTER : 0 }}>
               <div
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "color-mix(in srgb, var(--tranche-2l) 16%, transparent)", transition: "background 160ms" }}
@@ -355,7 +357,7 @@ export function Sheet({
             ) : null}
           </div>
           {colDefs.map((c, colIdx) => (
-            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
+            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" data-period-group-start={c.gap ? c.group : undefined} style={{ width: c.w, marginLeft: c.gap ? GROUP_GUTTER : 0, borderRight: "1px solid var(--caos-border)" }}>
               <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(colIdx)}</span>
               <span
                 className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
@@ -404,7 +406,7 @@ export function Sheet({
                     className="shrink-0 flex items-center"
                     style={{
                       width: c.w,
-                      marginLeft: c.gap ? 8 : 0,
+                      marginLeft: c.gap ? GROUP_GUTTER : 0,
                       borderRight: "1px solid var(--caos-border)",
                       borderBottom: "1px solid var(--caos-border)",
                     }}
@@ -461,12 +463,12 @@ export function Sheet({
                     className="flex min-w-0 items-baseline gap-1.5 rounded text-left focus-ring"
                   >
                     <span className="tabular text-caos-3xs text-caos-accent" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
-                    <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                    <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-bold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
                       {row.l}
                     </span>
                   </button>
                 ) : (
-                  <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                  <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-bold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
                     {row.l}
                   </span>
                 )}

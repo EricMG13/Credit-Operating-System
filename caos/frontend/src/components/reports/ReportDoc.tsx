@@ -7,7 +7,7 @@
 
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
-import { G2Chart } from "@/components/charts/G2Chart";
+import { SemanticVisualization, type VisualizationDatum } from "@/components/charts/SemanticVisualization";
 import { AuthorityBlock } from "./AuthorityBlock";
 import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import type { ProvFreshness } from "@/lib/provenance";
@@ -98,6 +98,7 @@ function RDHead({ p, title, sub, ctx }: { p: string; title?: string; sub?: strin
 
 function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string; ctx: EditCtx }) {
   const al = s.align || [];
+  const groupStarts = new Map(s.columnGroups?.map((group) => [group.start, group]) || []);
   const rows = ctx.hideAddbacks && p === "s0"
     ? s.rows.filter((r) => {
         const first = String(r.cells[0] || "");
@@ -111,7 +112,14 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
         <thead>
           <tr>
             {s.cols.map((c, i) => (
-              <th key={i} className={al[i] ? "rd-r" : ""}><E p={p + ".h" + i} v={c} ctx={ctx} /></th>
+              <th
+                key={i}
+                className={(al[i] ? "rd-r" : "") + (groupStarts.has(i) ? " rd-group-start" : "")}
+                data-column-group={groupStarts.get(i)?.key}
+                title={groupStarts.get(i) ? `${groupStarts.get(i)!.label} period group` : undefined}
+              >
+                <E p={p + ".h" + i} v={c} ctx={ctx} />
+              </th>
             ))}
           </tr>
         </thead>
@@ -125,7 +133,12 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
               }
             >
               {r.cells.map((c, ci) => (
-                <td key={ci} className={al[ci] ? "rd-r rd-num" : ""} style={r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined}>
+                <td
+                  key={ci}
+                  className={(al[ci] ? "rd-r rd-num" : "") + (groupStarts.has(ci) ? " rd-group-start" : "")}
+                  data-column-group={groupStarts.get(ci)?.key}
+                  style={r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined}
+                >
                   {ci === 0 && !c && r.lbl0
                     ? <E p={p + ".r" + ri + ".lbl0"} v={r.lbl0} ctx={ctx} className="rd-lbl0" />
                     : <E p={p + ".r" + ri + ".c" + ci} v={c} ctx={ctx} />}
@@ -187,10 +200,24 @@ function RDList({ s, p, ctx }: { s: Extract<Section, { t: "list" }>; p: string; 
 }
 
 function RDChart({ s, p, ctx }: { s: Extract<Section, { t: "chart" }>; p: string; ctx: EditCtx }) {
+  const { data: chartData = [], ...chart } = s.spec;
+  const data = chartData as VisualizationDatum[];
   return (
     <div className="rd-sec">
-      <RDHead p={p} title={s.title} sub={s.sub} ctx={ctx} />
-      <G2Chart spec={s.spec} height={s.h || 190} mode="paper" />
+      <SemanticVisualization
+        height={s.h || 190}
+        mode="paper"
+        spec={{
+          kind: s.kind,
+          title: s.title,
+          unit: s.unit,
+          sourceIds: s.sourceIds,
+          accessibleSummary: s.accessibleSummary,
+          data,
+          tabularFallback: { label: `${s.title} data`, columns: s.columns, data },
+          chart,
+        }}
+      />
       {s.note ? <div className="rd-note"><E p={p + ".note"} v={s.note} ctx={ctx} /></div> : null}
     </div>
   );

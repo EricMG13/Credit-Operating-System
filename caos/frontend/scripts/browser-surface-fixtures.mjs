@@ -72,13 +72,20 @@ export async function installSurfaceStubs(target, identity) {
   await target.route('**/api/portfolios**', (route) => {
     const path = new URL(route.request().url()).pathname;
     const authority = { origin: 'live', method: 'deterministic-portfolio-v1', freshness: 'current', as_of: '2026-06-30', source_ids: ['portfolio:portfolio-1'], run_id: null, version_id: null, confidence: 1, approval_state: 'draft', analyst_override: null };
+    const position = { id: 'position-1', portfolio_id: 'portfolio-1', issuer_id: 'iss-1', borrower_name: 'VMO2', ticker: 'VMO2', figi: null, loan_name: 'TLB 2029', sector: 'Telecom', sub_sector: null, ranking: '1L', rating_moody: 'B1', rating_sp: 'BB-', par_usd: 10000000, facility_musd: 500, margin_bps: 425, maturity: '2029', price: 98.5, ytm: 8.1, dm: 510, market_value: 9850000, created_at: '2026-06-30T00:00:00Z' };
     let body;
-    if (path.endsWith('/positions')) body = { items: [{ id: 'position-1', portfolio_id: 'portfolio-1', issuer_id: 'iss-1', borrower_name: 'VMO2', ticker: 'VMO2', figi: null, loan_name: 'TLB 2029', sector: 'Telecom', sub_sector: null, ranking: '1L', rating_moody: 'B1', rating_sp: 'BB-', par_usd: 10000000, facility_musd: 500, margin_bps: 425, maturity: '2029', price: 98.5, ytm: 8.1, dm: 510, market_value: 9850000, created_at: '2026-06-30T00:00:00Z' }], total: 1, next_cursor: null, as_of: '2026-06-30', authority };
+    if (path.endsWith('/command')) body = { portfolio: { id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30' }, positions: [{ ...position, posture: 'NEUTRAL', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready' }], posture_counts: { OVERWEIGHT: 0, NEUTRAL: 1, UNDERWEIGHT: 0, UNKNOWN: 0 }, position_count: 1, as_of: '2026-06-30', authority };
+    else if (path.endsWith('/positions')) body = { items: [position], total: 1, next_cursor: null, as_of: '2026-06-30', authority };
     else if (path.endsWith('/analytics')) body = { as_of: '2026-06-30', concentration: { n_positions: 1, n_obligors: 1, total_nav: 9850000, total_par: 10000000, sectors: [{ sector: 'Telecom', mv: 9850000, pct_nav: 100, n_obligors: 1 }], rating_dist: [{ bucket: 'B', mv: 9850000, pct_nav: 100, n_obligors: 1 }], top10: [{ obligor: 'VMO2', mv: 9850000, pct_nav: 100 }], top10_pct_nav: 100, wa_rating: 'B1', wa_margin: 425, wa_price: 98.5, first_lien_pct: 100 }, rating_distribution: { B1: 100 }, maturity_wall: { 2029: 9850000 }, risk_budget: { status_counts: { Breach: 0, Watch: 1, Pass: 0, Info: 0 }, headroom: [] }, liquidity: { priced_nav_pct: 100, wa_price: 98.5, unpriced_positions: 0 }, compliance: [], authority, missing_dependencies: [], latest_stress_runs: [] };
     else if (path.endsWith('/stress-runs')) body = { items: [], total: 0, authority };
     else body = [{ id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30', n_positions: 1, total_nav: 10000000, total_par: 10000000, breaches: 0, watches: 1 }];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
+  await target.route('**/api/settings', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ features: { model_engine_v2: false } }),
+  }));
   const fulfillRuns = (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify([profile.latest_run]),
   });
@@ -88,7 +95,9 @@ export async function installSurfaceStubs(target, identity) {
   await target.route('**/api/runs?**', fulfillRuns);
   await target.route('**/api/analysis/contexts**', (route) => {
     const url = new URL(route.request().url());
-    const body = url.pathname.endsWith('/insights')
+    const body = url.pathname.endsWith('/freshness')
+      ? { context_id: analysisContext.id, evaluated_at: '2026-06-30T10:05:00Z', artifacts: [] }
+      : url.pathname.endsWith('/insights')
       ? { items: [], current: null, next_cursor: null }
       : analysisContext;
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });

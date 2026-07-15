@@ -11,7 +11,7 @@ import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { nlQuery } from "@/lib/api";
 import { fmtMetric } from "@/lib/query/format";
 import { barSpecFor, narrate } from "@/lib/query/viz";
-import { G2Chart } from "@/components/charts/G2Chart";
+import { SemanticVisualization, type VisualizationDatum } from "@/components/charts/SemanticVisualization";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerLink } from "@/components/shared/IssuerLink";
@@ -347,11 +347,43 @@ export function QueryResultsModal({
               {(() => {
                 const spec = barSpecFor(res);
                 if (!spec) return null;
-                const h = Math.max(150, Math.min(280, (spec.data as unknown[]).length * 34 + 56));
+                if (res.mode !== "structured" && res.mode !== "hybrid") return null;
+                const { data: chartRows = [], ...chart } = spec;
+                const data = chartRows as VisualizationDatum[];
+                const h = Math.max(150, Math.min(280, data.length * 34 + 56));
+                const rankedColumn = res.columns.find((column) => column.key === res.rank_by);
+                const provenance = data.map((row) => row.prov);
+                const sourceIds = Array.from(new Set([
+                  "query:metric-store",
+                  ...res.rows.flatMap((row) => {
+                    const citation = row.metrics[res.rank_by]?.citation;
+                    return citation?.evidence_id ? [citation.evidence_id] : citation?.chunk_id ? [`chunk:${citation.chunk_id.slice(0, 8)}`] : [];
+                  }),
+                ]));
+                const status = provenance.includes("demo_fixture")
+                  ? { label: "Fabricated values included", tone: "critical" as const }
+                  : provenance.some((value) => value === "seed" || value === "fixture")
+                  ? { label: "Seeded values included", tone: "warning" as const }
+                  : { label: "Cited metric values", tone: "success" as const };
                 return (
-                  <div className="rounded border border-caos-border/60 bg-caos-bg/30 p-2">
-                    <G2Chart spec={spec} height={h} />
-                  </div>
+                  <SemanticVisualization
+                    height={h}
+                    spec={{
+                      kind: "bar",
+                      title: `${rankedColumn?.label || res.rank_by} by issuer`,
+                      unit: rankedColumn?.unit,
+                      sourceIds,
+                      accessibleSummary: narrate(res),
+                      status,
+                      data,
+                      tabularFallback: {
+                        label: `${rankedColumn?.label || res.rank_by} ranked data`,
+                        columns: [{ key: "name", label: "Issuer" }, { key: "value", label: rankedColumn?.label || "Value" }, { key: "prov", label: "Provenance" }],
+                        data,
+                      },
+                      chart,
+                    }}
+                  />
                 );
               })()}
 

@@ -553,7 +553,7 @@ function PipelineWorkspace({
 }: PipelineWorkspaceProps) {
   return (
     <div className="pipeline-workspace flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
-      <div className="flex flex-col gap-2 min-h-0 min-w-0">
+      <div className="pipeline-workspace__primary flex flex-col gap-2 min-h-0 min-w-0">
         <PanelShell
           title={view === "graph" ? "Execution Graph · CP-X route plan" : "Execution Swimlanes · L0 → Export"}
           className="flex-1"
@@ -589,7 +589,7 @@ function PipelineWorkspace({
           <EventLog events={sim.events} />
         </PanelShell>
       </div>
-      <div className="flex flex-col gap-2 min-h-0">
+      <aside className="pipeline-workspace__inspector flex flex-col gap-2 min-h-0" aria-label="Run module inspection and lineage">
         <PanelShell title="Module Inspector" className="flex-[3]">
           <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} onOpen={openModule} />
         </PanelShell>
@@ -610,7 +610,7 @@ function PipelineWorkspace({
             <LineagePanel drivers={mode.drivers} onPick={pickDriver} onOpenEvidence={setEvModal} />
           )}
         </PanelShell>
-      </div>
+      </aside>
     </div>
   );
 }
