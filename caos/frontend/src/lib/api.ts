@@ -763,53 +763,6 @@ export const queryGraph = (
     capability_id: capabilityId, issuer_id: issuerId, theme, issuer_id_b: issuerIdB,
   }).then((r) => r.data);
 
-// LLM-route free text → up to 3 registry candidates with reasons. Contract: any
-// failure returns { candidates: [], source: "keyword" } and the caller uses its
-// local keyword router — never worse than the deterministic path.
-export const queryRoute = (text: string): Promise<RouteResult> =>
-  api.post("/api/query/route", { text }).then((r) => r.data);
-
-// The model overlay for one deterministic graph — citation-gated proposed links
-// + labeled commentary. Persisted server-side; cached by graph hash. The heavy
-// lane runs 30–60s live (cache hits are instant), so this one call outlives the
-// 20s default timeout; the server's own lane cap is 120s.
-export const queryOverlay = (capabilityId: string, issuerId?: string): Promise<OverlayResult> =>
-  api.post(
-    "/api/query/overlay",
-    { capability_id: capabilityId, issuer_id: issuerId },
-    { timeout: 130_000 },
-  ).then((r) => r.data);
-
-// Phase 3 — analyst ratification. Accept is the analyst-initiated write that
-// turns a model proposal into stored, attributed graph data; retract undoes it.
-export const listQueryLinks = (): Promise<{ links: AcceptedLink[] }> =>
-  api.get("/api/query/links").then((r) => r.data);
-
-export const acceptQueryLink = (
-  edge: OverlayEdge,
-  capabilityId: string,
-  model: string | null,
-): Promise<AcceptedLink & { created: boolean }> =>
-  api.post("/api/query/links", {
-    source_issuer_id: edge.source,
-    target_issuer_id: edge.target,
-    capability_id: capabilityId,
-    rationale: edge.rationale,
-    chunk_ids: edge.chunk_ids,
-    confidence: edge.confidence,
-    model: model ?? "",
-  }).then((r) => r.data);
-
-export const retractQueryLink = (linkId: string): Promise<{ deleted: string }> =>
-  api.delete(`/api/query/links/${encodeURIComponent(linkId)}`).then((r) => r.data);
-
-// The proactive Desk Brief — cited, AI-written insight cards over what changed in
-// the book. Returns instantly (persisted brief or deterministic highlights);
-// `refreshing:true` means a background regeneration is in flight, so poll. `force`
-// requests a fresh build (rate-limited, LLM spend).
-export const queryInsights = (force = false): Promise<InsightBrief> =>
-  api.get("/api/query/insights", { params: force ? { force: true } : undefined }).then((r) => r.data);
-
 // The analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
 // Non-empty → a per-analyst brief (cache row keyed by analyst_id); empty → the
 // shared book-level brief. PUT replaces the full set idempotently.
@@ -817,16 +770,6 @@ export const getWatchlist = (): Promise<{ issuer_ids: string[] }> =>
   api.get("/api/query/watchlist").then((r) => r.data);
 export const saveWatchlist = (issuer_ids: string[]): Promise<{ issuer_ids: string[] }> =>
   api.put("/api/query/watchlist", { issuer_ids }).then((r) => r.data);
-
-// A grounded AI answer beside a walk — cited prose written from vault chunks (+
-// the walk graph). Sentence-gated server-side. Runs the heavy lane (~30–60s live,
-// cache hits instant), so it outlives the 20s default timeout.
-export const queryAnswer = (question: string, capabilityId?: string, issuerId?: string): Promise<AnswerResult> =>
-  api.post(
-    "/api/query/answer",
-    { question, capability_id: capabilityId, issuer_id: issuerId },
-    { timeout: 130_000 },
-  ).then((r) => r.data);
 
 // ─── Scenario builder (NL → driver deltas) ───────────────────────────────────
 // Deltas are in the Drivers' own units (fractions): 0.03 = +3pp, rate 0.02 = +200bps.

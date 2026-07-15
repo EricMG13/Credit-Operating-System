@@ -29,35 +29,6 @@ export function freshnessDetail(evaluation: FreshnessEvaluation): string {
   return `${evaluation.source_kind.replaceAll("_", " ")} · ${evaluation.reason.replaceAll("_", " ")} · ${stamp} · ${evaluation.policy_version}`;
 }
 
-const STATES = new Set<FreshnessState>(["current", "due", "stale", "unknown"]);
-const SOURCE_KINDS = new Set<FreshnessEvaluation["source_kind"]>([
-  "reported_financials", "price", "rating", "legal_document", "run", "derived_artifact",
-]);
-
-/** Parse only a complete policy-backed evaluation from immutable authority. */
-export function freshnessFromAuthority(authority: Record<string, unknown> | null | undefined): FreshnessEvaluation | null {
-  const raw = authority?.freshness_evaluation;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const value = raw as Record<string, unknown>;
-  if (!STATES.has(value.state as FreshnessState)) return null;
-  if (!SOURCE_KINDS.has(value.source_kind as FreshnessEvaluation["source_kind"])) return null;
-  if (typeof value.reason !== "string" || typeof value.policy_version !== "string") return null;
-  const optionalString = (field: string) => value[field] == null || typeof value[field] === "string";
-  if (!["observed_at", "effective_period_end", "expected_next_at", "due_at"].every(optionalString)) return null;
-  if (value.age_days != null && (typeof value.age_days !== "number" || !Number.isFinite(value.age_days))) return null;
-  return {
-    state: value.state as FreshnessState,
-    source_kind: value.source_kind as FreshnessEvaluation["source_kind"],
-    observed_at: value.observed_at as string | null,
-    effective_period_end: value.effective_period_end as string | null,
-    expected_next_at: value.expected_next_at as string | null,
-    due_at: value.due_at as string | null,
-    age_days: value.age_days as number | null,
-    reason: value.reason,
-    policy_version: value.policy_version,
-  };
-}
-
 export function resolvePipelineFreshnessRunId(
   runParam: string | null | undefined,
   liveRunId: string | null | undefined,

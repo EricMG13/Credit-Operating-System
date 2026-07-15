@@ -30,26 +30,3 @@ export interface DecisionContextState {
   requiredAction: DecisionDatumState;
   evidenceHealth: DecisionDatumState;
 }
-
-export function ready(
-  value: ReactNode,
-  asOf: string,
-  authority?: DecisionAuthority,
-): DecisionDatumState {
-  return { kind: "ready", value, asOf, authority };
-}
-
-export function observedEmpty(
-  asOf: string,
-  authority?: DecisionAuthority,
-  message = "No material change observed",
-): DecisionDatumState {
-  return { kind: "observed-empty", message, asOf, authority };
-}
-
-export const unavailableDecisionContext = (): DecisionContextState => ({
-  whatChanged: { kind: "unavailable", message: "Change observation unavailable" },
-  whyItMatters: { kind: "unavailable", message: "Decision impact unavailable" },
-  requiredAction: { kind: "unavailable", message: "Required action unavailable" },
-  evidenceHealth: { kind: "unavailable", message: "Evidence state unavailable" },
-});

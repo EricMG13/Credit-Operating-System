@@ -89,14 +89,6 @@ function duplicateOwnerMessage(owners: readonly HTMLElement[]) {
   return `PersonaWorkbench permits one visible dominant table owner; found ${owners.length}: ${ids}.`;
 }
 
-export function assertSingleDominantTableOwner(workbench: HTMLElement) {
-  const owners = Array.from(
-    workbench.querySelectorAll<HTMLElement>("[data-caos-dominant-table-owner]"),
-  ).filter((owner) => isInvariantVisible(owner, workbench));
-  const violation = duplicateOwnerMessage(owners);
-  if (violation) throw new Error(violation);
-}
-
 function DevelopmentDominantOwnerGuard({ children }: { children: ReactNode }) {
   const ownersRef = useRef(new Map<symbol, HTMLElement>());
   const mountedRef = useRef(false);
