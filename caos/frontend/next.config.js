@@ -1,3 +1,5 @@
+const { PHASE_DEVELOPMENT_SERVER } = require("next/constants");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -25,16 +27,22 @@ const nextConfig = {
     // starts are slower; cache-off is the stable trade.
     turbopackFileSystemCacheForDev: false,
   },
-  // Dev-only convenience: `next dev` proxies /api to the local FastAPI
-  // server. Rewrites are ignored by `next build` in export mode.
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/:path*`,
-      },
-    ];
-  },
 };
 
-module.exports = nextConfig;
+module.exports = (phase) => {
+  if (phase !== PHASE_DEVELOPMENT_SERVER) return nextConfig;
+
+  return {
+    ...nextConfig,
+    // `output: "export"` cannot carry rewrites. Expose the local FastAPI proxy
+    // only to `next dev`, where it is supported and needed by the frontend.
+    async rewrites() {
+      return [
+        {
+          source: "/api/:path*",
+          destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/:path*`,
+        },
+      ];
+    },
+  };
+};

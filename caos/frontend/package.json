@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack",
+    "dev:trace": "NEXT_TURBOPACK_TRACING=1 next dev",
+    "build": "next build",
+    "build:webpack": "next build --webpack",
+    "analyze": "next experimental-analyze --output",
     "lint": "eslint src",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

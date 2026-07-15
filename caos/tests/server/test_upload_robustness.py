@@ -8,6 +8,7 @@ never an unhandled 500. Table-driven so new cases are one row each.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import zipfile
@@ -141,6 +142,47 @@ def test_document_upload_db_failure_removes_uncommitted_vault_object(
         _upload_document(rob_client, "rollback-proof.pdf", _tiny_pdf())
 
     assert [path for path in tmp_path.rglob("*") if path.is_file()] == []
+
+
+@pytest.mark.asyncio
+async def test_dependency_cancellation_runs_registered_rollback_cleanup(monkeypatch):
+    """A disconnected request must not strand its pre-commit vault object."""
+    import database
+
+    class FakeSession:
+        def __init__(self):
+            self.info = {}
+            self.rolled_back = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+        async def commit(self):
+            raise AssertionError("a cancelled route must not commit")
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    session = FakeSession()
+    monkeypatch.setattr(database, "AsyncSessionLocal", lambda: session)
+    cleaned = False
+
+    def cleanup():
+        nonlocal cleaned
+        cleaned = True
+
+    dependency = database.get_db()
+    yielded_session = await anext(dependency)
+    database.register_rollback_cleanup(yielded_session, cleanup)
+
+    with pytest.raises(asyncio.CancelledError):
+        await dependency.athrow(asyncio.CancelledError())
+
+    assert session.rolled_back is True
+    assert cleaned is True
 
 
 # ── pricing-sheet endpoint: container validation ────────────────────────────

@@ -849,6 +849,7 @@ transactional evidence integrity or multi-team isolation.
 | RT-2026-07-15-244 | Tenancy reviewer | A global case-insensitive issuer constraint would leak one team's namespace into another; a nullable-team composite constraint would still allow duplicate shared issuers. | High | Resolved and verified | The invariant uses explicit `uniqueness_scope` (`team_id` or the shared empty scope) plus a Unicode-casefolded key. Migration tests allow the same normalized name in different non-null teams and refuse duplicates inside one team/shared scope. |
 | RT-2026-07-15-245 | Migration operator | Automatically deleting or merging pre-existing duplicate issuers can misbind runs, documents, metrics, and reports during upgrade. | Critical | Resolved in contract | Migration 0059 performs a read-only preflight and fails with the conflicting normalized name/scope before DDL when repair is required. It never chooses a winner or rewrites dependent evidence. Empty/clean upgrade, schema check, downgrade/re-upgrade, and duplicate refusal are tested. |
 | RT-2026-07-15-246 | Data-integrity reviewer | Denormalized identity keys can drift from display name/team and make the unique constraint meaningless, especially through bulk/direct writes or inconsistent Unicode lowering. | High | Resolved with reopen condition | All current issuer writers are ORM construction paths; exhaustive search found no bulk/direct issuer insert outside migrations. ORM insert/update events trim and Python-casefold names and derive scope; migration backfill uses the same Python operation. Reopen this gate before adding any bulk/direct issuer writer. |
+| RT-2026-07-15-247 | Cancellation reviewer | A client disconnect raises `asyncio.CancelledError`, which bypasses an `except Exception` transaction guard and can strand a pre-commit vault object without its document row. | High | Resolved and verified | `get_db` now rolls back and runs pre-commit cleanup on every nonlocal `BaseException`, then re-raises it unchanged. A direct async-generator cancellation test proves rollback and cleanup both occur; the existing commit-time ambiguity rule remains unchanged. |
 
 ### Critic reopen conditions (repository triage remediation)
 
@@ -857,4 +858,26 @@ cleanup runs after commit has started; a new external object is registered witho
 unique ownership and compensating cleanup; issuer identity is written through
 bulk/direct SQL without deriving its normalized key and scope; cross-team names
 share a uniqueness scope; migration 0059 auto-merges existing issuer evidence; or
-the configured Vulture command again reports a source finding.
+the configured Vulture command again reports a source finding; or cancellation
+before route completion bypasses rollback cleanup.
+
+## Turbopack Build and Diagnostics — Critic Pass (2026-07-15)
+
+Decision under review: use Turbopack for the default frontend production build,
+keep the persistent development cache disabled, preserve an explicit webpack
+fallback, and expose the API rewrite only during `next dev`.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-247 | Build reliability reviewer | Turbopack's PostCSS worker creates an internal process that binds a loopback port; restricted sandboxes reject this with `Failed to write app endpoint /page`, so replacing webpack without a fallback can block local verification. | High | Resolved in contract | Keep `build:webpack` as a documented fallback. The default changes only after an unrestricted Turbopack export passes; sandbox `EPERM` remains classified as an environment limitation rather than a source regression. |
+| RT-2026-07-15-248 | Deployment reviewer | A successful compile is insufficient if Turbopack's static export omits a route or produces assets that the FastAPI staging script cannot serve. | High | Resolved in verification plan | Compare the complete route inventory, run the production build, then run `build_frontend.sh` and verify that the fresh `out/` artifact is staged into `caos/server/static`. |
+| RT-2026-07-15-249 | Developer-experience reviewer | Making the rewrite conditional could silently remove `/api/*` proxying from development and leave the app waiting on authentication or data calls. | High | Resolved in verification plan | Gate the rewrite on Next's documented development phase, start `next dev`, and verify the route compiles with the proxy present in the generated routes manifest. Production static export intentionally has no custom-route support. |
+| RT-2026-07-15-250 | Stability reviewer | Re-enabling Turbopack's persistent development cache to improve warm starts would recreate the prior 41–58 GB cache growth and system-wide write-pressure failures. | Critical | Resolved in contract | `experimental.turbopackFileSystemCacheForDev: false` remains unchanged. Production filesystem caching also stays off; optimization comes from the bundler switch, not persistent cache state. |
+| RT-2026-07-15-251 | Performance reviewer | A single warm benchmark can overstate the improvement because webpack and Turbopack cache different work and tracing adds overhead. | Medium | Accepted with bounded claim | Report the observed local timings as diagnostic evidence only, not a universal speed guarantee. Correctness gates and the retained fallback decide the rollout; future CI timings remain the authoritative environment-specific measure. |
+
+### Critic reopen conditions (Turbopack build and diagnostics)
+
+Reopen if the webpack fallback is removed; the development filesystem cache is
+enabled without a bounded-size proof; the unrestricted Turbopack build fails; the
+static route inventory or staged artifact differs; `/api/*` is absent from the dev
+routes manifest; or a sandbox-only port denial is reported as an application bug.

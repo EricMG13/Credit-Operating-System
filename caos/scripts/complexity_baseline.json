@@ -48,7 +48,6 @@
     {"path": "caos/server/routes/committee.py", "symbol": "_readiness_from_refs", "max_complexity": 23},
     {"path": "caos/server/routes/committee.py", "symbol": "_validate_refs", "max_complexity": 16},
     {"path": "caos/server/routes/digest.py", "symbol": "daily_digest", "max_complexity": 12},
-    {"path": "caos/server/routes/ingestion.py", "symbol": "_collect_ratings", "max_complexity": 11},
     {"path": "caos/server/routes/market_import.py", "symbol": "_resolve_issuer_links", "max_complexity": 19},
     {"path": "caos/server/routes/market_import.py", "symbol": "commit_market_snapshot_import", "max_complexity": 16},
     {"path": "caos/server/routes/model_v2.py", "symbol": "_validate_binding", "max_complexity": 13},

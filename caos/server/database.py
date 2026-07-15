@@ -1750,7 +1750,10 @@ async def get_db():
             route_completed = True
             await session.commit()
             session.info.pop(_ROLLBACK_CLEANUPS_KEY, None)
-        except Exception:
+        # Cancellation inherits from BaseException, not Exception. A client
+        # disconnect before the route returns must still roll back and release
+        # any dependency-owned external objects before the cancellation escapes.
+        except BaseException:
             await session.rollback()
             if not route_completed:
                 await _run_rollback_cleanups(session)

@@ -247,6 +247,8 @@ def test_search_blank_query_returns_all(client):
 
 
 def test_upload_pdf_document_and_list(client):
+    from config import get_settings
+
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
     pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     r = client.post(
@@ -259,7 +261,7 @@ def test_upload_pdf_document_and_list(client):
     assert body["issuer_id"] == issuer_id
     assert body["minio_key"]
     assert body["run_mode"] == "earnings"
-    assert (Path(os.environ["CAOS_STORAGE_DIR"]) / body["minio_key"]).is_file()
+    assert (Path(get_settings().caos_storage_dir) / body["minio_key"]).is_file()
 
     docs = client.get(f"/api/issuers/{issuer_id}/documents").json()
     assert any(d["doc_type"] == "Document" and d["run_mode"] == "earnings" for d in docs)

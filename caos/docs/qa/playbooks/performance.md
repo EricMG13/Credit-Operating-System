@@ -103,7 +103,8 @@ via `.in_()`; `sync_analyst_memos` still runs on GET capabilities/graph —
 mtime-gated, watch its cost as the vault grows).
 
 **Frontend bundle & render** — `cd caos/frontend && npm run build`
-(`next build --webpack`, static export to `out/`). Record First Load JS per
+(`next build` with Turbopack, static export to `out/`; use
+`npm run build:webpack` only as the fallback). Record First Load JS per
 route; gate: no route grows > 10% or > 25 kB vs baseline without a named
 cause. `turbopackFileSystemCacheForDev: false` must remain in
 `next.config.js` (dev crash guard). Issuers register keeps native windowing
