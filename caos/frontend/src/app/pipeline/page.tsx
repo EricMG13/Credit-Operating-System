@@ -277,6 +277,10 @@ function PipelineVisualizer() {
                   ]}
                 />
               ) : null}
+              {/* When no live run exists the LIVE/DEMO toggle above doesn't
+                  render, so mark the seeded run id explicitly — it must never
+                  read as a live run beside the worklist's live "0 runs" count. */}
+              {!useLive && !live ? <Tag sev="idle">DEMO</Tag> : null}
               <span className="tabular text-caos-xs text-caos-accent whitespace-nowrap">{runIdLabel}</span>
               {freshnessRunId ? <FreshnessIndicator evaluation={selectedRunFreshness} /> : null}
             </>
@@ -352,7 +356,9 @@ function PipelineVisualizer() {
       <WorkbenchToolbar
         title="Run worklist"
         description="Inspect stage clearance, failures and evidence for the selected analysis run."
-        count={`${runRows.length} runs · ${completed}/${total} modules`}
+        count={useLive
+          ? `${runRows.length} runs · ${completed}/${total} modules`
+          : `${runRows.length} live runs · demo route ${completed}/${total} modules`}
         viewLabel={useLive ? "Live run" : "Demo route"}
       />
       <DominantTableRegion ownerId="pipeline-run-worklist" label="Recent analysis runs" className="shrink-0">
@@ -598,7 +604,7 @@ function PipelineWorkspace({
           className="flex-[2]"
           // The CP-5B driver register is a seeded ATLF fixture; don't stamp
           // "auditability STRONG" over a live run whose lineage it doesn't reflect.
-          right={useLive ? <Tag sev="idle">reference fixture</Tag> : <Tag sev="ok">auditability STRONG</Tag>}
+          right={useLive ? <Tag sev="idle">reference fixture</Tag> : <Tag sev="idle">seeded reference · demo</Tag>}
         >
           {useLive ? (
             <div className="px-3 py-2 text-caos-md text-caos-muted leading-relaxed">

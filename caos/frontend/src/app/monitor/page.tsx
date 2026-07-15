@@ -182,13 +182,16 @@ function Monitor() {
       type="button"
       onClick={() => updateUrlState({ severity: criticalOnly ? null : "critical" })}
       aria-pressed={criticalOnly}
-      title={criticalOnly ? "Show all routed alerts" : "Filter alert rail to critical"}
+      title={
+        (criticalOnly ? "Show all routed alerts. " : "Filter the replay tape to critical. ") +
+        "Seeded demo replay count — not live routed alerts (see the worklist below for live)."
+      }
       className={
         "rounded border px-1.5 py-0.5 -my-0.5 transition-caos focus-ring hover:bg-caos-elevated/70 " +
         (criticalOnly ? "caos-selected bg-caos-elevated border-caos-critical/60" : "border-transparent")
       }
     >
-      {headStat("Critical alerts", String(CRITICAL_ALERTS), "var(--caos-critical)", true)}
+      {headStat("Replay criticals", String(CRITICAL_ALERTS), "var(--caos-critical)", true)}
     </button>
   );
 
@@ -228,7 +231,9 @@ function Monitor() {
               UNRESOLVED tile), and the freed width keeps the identity row's
               honesty chip un-clipped at 1440px. */}
           {criticalFilterButton}
-          {headStat("Alerts today", String(alertsToday), "var(--caos-accent)", true)}
+          <span title="Seeded demo replay count for the simulated day — the live routed-alert count is in the worklist below.">
+            {headStat("Replay today", String(alertsToday), "var(--caos-accent)", true)}
+          </span>
         </>
       }
       status={draftAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {draftAsOf}</span> : null}

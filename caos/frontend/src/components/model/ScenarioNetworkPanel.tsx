@@ -39,7 +39,7 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
         <SurfaceState
           kind="unavailable"
           title="Completed run required"
-          detail="Run the issuer analysis before propagating a scenario across modules."
+          detail="Seeded reference content elsewhere on this page is illustrative. A completed live run is required before a scenario can propagate across live modules."
           compact
           className="mt-2"
         />
@@ -60,7 +60,14 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
       )}
       {error ? <div role="alert" className="tabular text-caos-xs mt-2" style={{ color: "var(--caos-critical)" }}>Couldn’t propagate this scenario. Retry without changing the current model.</div> : null}
       {result ? (
-        <div className="flex gap-1.5 overflow-x-auto mt-2 pb-1" aria-label="Scenario propagation chain">
+        <div className="mt-2">
+          {result.source ? (
+            <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1.5">
+              Source {result.source.qa_status} · {result.source.included_modules.length} accepted modules
+              {result.source.excluded_modules.length ? ` · ${result.source.excluded_modules.length} blocked excluded` : ""}
+            </div>
+          ) : null}
+          <div className="flex gap-1.5 overflow-x-auto pb-1" aria-label="Scenario propagation chain">
           {result.nodes.map((node, index) => {
             const status = STATUS[node.status];
             return (
@@ -77,6 +84,7 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
               </div>
             );
           })}
+          </div>
         </div>
       ) : null}
     </section>
