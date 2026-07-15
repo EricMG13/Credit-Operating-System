@@ -20,6 +20,7 @@ import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/data";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
@@ -101,9 +102,7 @@ function Monitor() {
   // "SIM" while running, "COMPLETE" at end, "PAUSED" only before/at a pause —
   // the old build read "PAUSED" at completion, so the run ended by lying.
   const simState = running ? "SIM" : done ? "COMPLETE" : "PAUSED";
-  const draftAsOf = draft?.generated_at
-    ? new Date(draft.generated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
-    : null;
+  const draftAsOf = draft?.generated_at ? fmtUtcDateTime(draft.generated_at) : null;
   const draftAuthority = draftAsOf ? {
     provenance: { origin: "LIVE" as const, method: "MODELLED" as const, freshness: "CURRENT" as const, detail: "Autonomy draft alert routing.", asOf: draftAsOf },
     approval: draft?.ratified ? "RATIFIED" as const : "UNRATIFIED" as const,

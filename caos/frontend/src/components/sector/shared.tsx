@@ -33,13 +33,6 @@ export const SEVERITY_GLYPH: Record<string, "critical" | "warning" | "idle"> = {
   low: "idle",
 };
 
-export const fmtAsOf = new Intl.DateTimeFormat("en-GB", {
-  day: "2-digit",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZoneName: "short",
-});
 
 export function SourceChip({ source }: { source: SectorSource }) {
   const label = `${source.source_type} / ${source.tier}`;

@@ -14,6 +14,7 @@ import { SlideOver } from "@/components/shared/SlideOver";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { headStat } from "@/components/shared/headStat";
 import { toErrorMessage } from "@/lib/api";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import {
   analysisApi,
   contextHref,
@@ -51,9 +52,9 @@ function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
 function rvDatum(screen: RVScreenRun | null, value: React.ReactNode): DecisionDatumState {
   if (!screen) return { kind: "unavailable", message: "Run the gated screen to establish this observation." };
   if (screen.status === "error") return { kind: "error", message: "RV screen failed." };
-  if (screen.status === "stale") return { kind: "stale", value, asOf: screen.authority.as_of ?? screen.updated_at, authority: decisionAuthority(screen.authority) };
-  if (screen.status === "observed-empty") return { kind: "observed-empty", message: "Successful screen returned no instruments.", asOf: screen.authority.as_of ?? screen.updated_at, authority: decisionAuthority(screen.authority) };
-  return { kind: "ready", value, asOf: screen.authority.as_of ?? screen.updated_at, authority: decisionAuthority(screen.authority) };
+  if (screen.status === "stale") return { kind: "stale", value, asOf: fmtUtcDateTime(screen.authority.as_of ?? screen.updated_at), authority: decisionAuthority(screen.authority) };
+  if (screen.status === "observed-empty") return { kind: "observed-empty", message: "Successful screen returned no instruments.", asOf: fmtUtcDateTime(screen.authority.as_of ?? screen.updated_at), authority: decisionAuthority(screen.authority) };
+  return { kind: "ready", value, asOf: fmtUtcDateTime(screen.authority.as_of ?? screen.updated_at), authority: decisionAuthority(screen.authority) };
 }
 
 function PitchBlock({ title, value }: { title: string; value: unknown }) {
@@ -202,7 +203,7 @@ export function RVScreenerWorkbench() {
     kind: "bar",
     title: "RV candidate classification",
     unit: "instruments",
-    asOf: screen?.authority.as_of ?? undefined,
+    asOf: screen?.authority.as_of ? fmtUtcDateTime(screen.authority.as_of) : undefined,
     sourceIds: screen?.authority.source_ids ?? ["rv-screen"],
     accessibleSummary: screen ? `${screen.candidates.length} instruments: ${distribution.map((item) => `${item.key} ${item.count}`).join(", ")}.` : "Run the screen to populate candidate classification.",
     status: (screen?.counts.actionable ?? 0) > 0 ? { label: "Actionable present", tone: "success" } : { label: "No actionable candidate", tone: "warning" },

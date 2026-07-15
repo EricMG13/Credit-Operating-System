@@ -19,17 +19,13 @@ import {
 import { useTypedUrlState } from "@/lib/typed-url-state";
 import type { Issuer } from "@/types/issuers";
 import type { RunListItemDTO } from "@/lib/engine/types";
+import { fmtUtcDate, fmtUtcDateTime } from "@/lib/format-date";
 
 const URL_KEYS = ["dataset", "status", "issuer", "portfolio", "sort", "direction", "cursor", "selected", "context"] as const;
 type Dataset = "agenda" | "history";
 
-const dateTime = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" });
-const dateOnly = new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeZone: "UTC" });
-
 function formatDate(value: string | null) {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? "—" : dateTime.format(parsed);
+  return fmtUtcDateTime(value);
 }
 
 function toLocalDateTimeInput(value: string) {
@@ -40,7 +36,7 @@ function toLocalDateTimeInput(value: string) {
 
 function formatCalendarDate(value: string | null) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return "—";
-  return dateOnly.format(new Date(`${value}T00:00:00Z`));
+  return fmtUtcDate(`${value}T00:00:00Z`);
 }
 
 function sourceHref(sourceId: string, row: DecisionBookItem) {

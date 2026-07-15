@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { analysisApi, type AuthorityEnvelope, type Finding } from "@/lib/analysis-workbench";
+import { fmtUtcDateTime } from "@/lib/format-date";
 
 export function AnalysisStateBadge({ state }: { state: string }) {
   const glyph = state === "ready" ? "✓" : state === "error" ? "✕" : state === "running" || state === "queued" ? "◌" : "△";
@@ -22,7 +23,7 @@ export function AuthorityLine({ authority }: { authority: AuthorityEnvelope }) {
       <span>{authority.method}</span>
       <span>{authority.freshness}</span>
       <span>{authority.approval_state}</span>
-      {authority.as_of ? <span>as of {new Date(authority.as_of).toLocaleString()}</span> : null}
+      {authority.as_of ? <span>as of {fmtUtcDateTime(authority.as_of)}</span> : null}
       {authority.run_id ? <span>run {authority.run_id.slice(0, 8)}</span> : null}
     </div>
   );

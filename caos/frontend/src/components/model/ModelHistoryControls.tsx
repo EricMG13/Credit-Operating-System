@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import type { ModelCheckpoint } from "@/lib/model/useModelHistory";
+import { fmtLocalDateTime } from "@/lib/format-date";
 
 const BTN =
   "tabular text-caos-xs px-1.5 h-6 min-w-6 rounded border transition-caos focus-ring whitespace-nowrap border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 disabled:opacity-40 disabled:hover:text-caos-muted disabled:hover:border-caos-border disabled:cursor-not-allowed";
@@ -132,7 +133,7 @@ function CheckpointsModal({
               <li key={cp.id} className="flex items-center gap-2 px-3 min-h-9 py-1.5 border-b border-caos-border/50 last:border-0">
                 <span className="tabular text-caos-md text-caos-text truncate flex-1 min-w-0">{cp.name}</span>
                 <span className="tabular text-caos-3xs text-caos-muted whitespace-nowrap">
-                  {new Date(cp.at).toLocaleString([], { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  {fmtLocalDateTime(cp.at)}
                 </span>
                 <button
                   type="button"

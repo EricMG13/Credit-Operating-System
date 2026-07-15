@@ -13,7 +13,8 @@ import { RecoveryState } from "@/components/shared/RecoveryState";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { SignalSlideOver } from "./SignalSlideOver";
 import { downloadSignalsCsv } from "./signalsCsv";
-import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge, fmtAsOf } from "./shared";
+import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge } from "./shared";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import {
   askSectorTopic,
   createQaFlag,
@@ -247,7 +248,7 @@ export function SectorReviewWorkspace() {
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">CP-SR daily intelligence</span>
           <ProvenanceBadge value={review?.provenance || "seed"} />
           <span className="tabular text-caos-xs text-caos-muted">
-            {review ? `As of ${fmtAsOf.format(new Date(review.as_of))}` : "Loading as-of"}
+            {review ? `As of ${fmtUtcDateTime(review.as_of)}` : "Loading as-of"}
           </span>
         </>
       }
@@ -506,7 +507,7 @@ export function SectorReviewWorkspace() {
                             </span>
                             <span className="tabular text-caos-2xs text-caos-muted shrink-0 w-24 text-right">
                               <span className="sr-only">Signal date </span>
-                              {fmtAsOf.format(new Date(signal.signal_date))}
+                              {fmtUtcDateTime(signal.signal_date)}
                             </span>
                           </div>
                         );

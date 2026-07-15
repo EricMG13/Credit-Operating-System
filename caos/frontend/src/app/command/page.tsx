@@ -16,6 +16,7 @@ import { DailyDigestPanel } from "@/components/command/DailyDigestPanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
 import { liveGaps } from "@/lib/command/gaps";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
 import { useDigest } from "@/lib/engine/useDigest";
 import { IssuerStrip } from "@/components/command/views";
@@ -157,9 +158,7 @@ function CommandCenter() {
   const selectedCommandPosition = selected
     ? commandSnapshot?.positions.find((position) => position.id === selected) ?? null
     : null;
-  const digestAsOf = digest?.as_of
-    ? new Date(digest.as_of).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
-    : null;
+  const digestAsOf = digest?.as_of ? fmtUtcDateTime(digest.as_of) : null;
   const digestFreshnessState: FreshnessState | null = digest?.freshness
     ? digest.freshness.counts.stale > 0 ? "stale"
       : digest.freshness.counts.unknown > 0 ? "unknown"
@@ -202,7 +201,7 @@ function CommandCenter() {
           ? {
               kind: "ready",
               value: `${(liveQa ?? []).length + (liveFailed ?? []).length} QA findings · ${(liveGapsItems ?? []).length} source gaps`,
-              asOf: portfolio.fetchedAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }),
+              asOf: fmtUtcDateTime(portfolio.fetchedAt),
               authority: { provenance: { origin: "LIVE", method: "DERIVED", freshness: "CURRENT", detail: "Portfolio QA and source-gap roll-up." }, approval: "UNRATIFIED" },
             }
           : { kind: "unavailable", message: "Governance queue observation unavailable" },

@@ -50,6 +50,7 @@ import { freshnessDetail, toProvFreshness } from "@/lib/freshness";
 import type { FreshnessEvaluation } from "@/lib/api";
 import type { LegacyModelRuntime } from "./LegacyCalculatorBridge";
 import { ModelAuthorityRoute } from "./ModelAuthorityRoute";
+import { fmtLocalDateTime, fmtUtcDateTime } from "@/lib/format-date";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 
@@ -338,7 +339,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     JSON.stringify({ a, o, c: [...c].sort() });
   const currentSnapshot = serializeSavable(assumptions, overrides, collapsedRows);
   const dirty = hasIssuerModel && savedSnapshot.current !== null && currentSnapshot !== savedSnapshot.current;
-  const modelAsOf = eng.asOf ?? (isReference ? "2026-05-31 · reference fixture" : null);
+  const modelAsOf = eng.asOf ? fmtUtcDateTime(eng.asOf) : (isReference ? "2026-05-31 · reference fixture" : null);
   const modelProv = {
     ...fromModelEngine(eng),
     ...(eng.live ? { freshness: toProvFreshness(modelFreshness) } : {}),
@@ -479,7 +480,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       }
       const checkpoint = await createModelCheckpoint(issuerId, {
         context_id: analysis.context.id,
-        label: `Checkpoint ${new Date().toLocaleString()}`,
+        label: `Checkpoint ${fmtLocalDateTime(new Date())}`,
         issuer_run_id: eng.runId ?? undefined,
         parent_checkpoint_id: analysis.context.artifacts.model_checkpoint_id ?? undefined,
         expected_updated_at: saved.updated_at,
@@ -657,7 +658,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               ● UNSAVED
             </span>
           ) : savedAt ? (
-            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {new Date(savedAt).toLocaleString()}</span>
+            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {fmtLocalDateTime(savedAt)}</span>
           ) : null}
         </ShellIdentity>
       }
@@ -719,7 +720,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
                     className="focus-ring flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text"
                   >
                     <span className="truncate">{item.label}</span>
-                    <span className="tabular shrink-0">{new Date(item.created_at).toLocaleDateString()}</span>
+                    <span className="tabular shrink-0">{new Date(item.created_at).toLocaleDateString("en-CA")}</span>
                   </button>
                 ))}
               </div>

@@ -42,7 +42,9 @@ const DELIVERABLE: [string, string][] = [
 ];
 
 // Filing date for the tear-sheet masthead — client-only (report renders post-run),
-// so no static-export hydration mismatch.
+// so no static-export hydration mismatch. Deliberately NOT lib/format-date: the
+// paper register uses its own print format ("15 JUL 2026"), distinct from the
+// workspace UTC desk stamps.
 const fileDate = () =>
   new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).toUpperCase();
 

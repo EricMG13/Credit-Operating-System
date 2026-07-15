@@ -11,7 +11,8 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { SlideOver } from "@/components/shared/SlideOver";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import type { SectorSignal } from "@/lib/api";
-import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge, fmtAsOf } from "./shared";
+import { CATEGORY_LABEL, SEVERITY_COLOR, SEVERITY_GLYPH, SourceChip, ProvenanceBadge } from "./shared";
+import { fmtUtcDateTime } from "@/lib/format-date";
 
 export function SignalSlideOver({
   signal,
@@ -43,7 +44,7 @@ export function SignalSlideOver({
 
         <div className="flex items-center gap-3 tabular text-caos-2xs uppercase tracking-wider text-caos-muted border-y border-caos-border/60 py-1.5">
           <span>Score {Math.round(signal.materiality_score * 100)}</span>
-          <span>{fmtAsOf.format(new Date(signal.signal_date))}</span>
+          <span>{fmtUtcDateTime(signal.signal_date)}</span>
           <span>Confidence {signal.confidence}</span>
         </div>
 

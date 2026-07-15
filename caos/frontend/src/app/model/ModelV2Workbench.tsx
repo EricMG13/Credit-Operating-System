@@ -40,6 +40,7 @@ import type {
   ModelV2WorkbookPreview,
 } from "@/lib/engine/modelV2";
 import { readWarnOnUnsavedLeave } from "@/lib/model-builder-preferences";
+import { fmtLocalDateTime } from "@/lib/format-date";
 
 type PendingMutations = Record<string, ModelV2OverrideBatchMutation>;
 interface PendingPreview {
@@ -276,8 +277,8 @@ function formatOverrideSnapshot(snapshot: ModelV2OverrideSnapshot | null): strin
 }
 
 function formatAuditTime(value: string): string {
-  const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : value;
+  const formatted = fmtLocalDateTime(value);
+  return formatted === "—" ? value : formatted;
 }
 
 function scenarioNodeLabel(node: DisplayNode): string {
@@ -1831,7 +1832,7 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                     <div key={checkpoint.id} className="flex items-center justify-between gap-3 border-b border-caos-border/60 px-2 py-2 last:border-0">
                       <span className="min-w-0 text-caos-xs text-caos-text">
                         <span className="block truncate">{checkpoint.label}</span>
-                        <span className="tabular text-caos-3xs text-caos-muted">REV {checkpoint.draft_revision} · {new Date(checkpoint.created_at).toLocaleString()}</span>
+                        <span className="tabular text-caos-3xs text-caos-muted">REV {checkpoint.draft_revision} · {fmtLocalDateTime(checkpoint.created_at)}</span>
                       </span>
                       <button
                         type="button"

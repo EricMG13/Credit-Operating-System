@@ -17,6 +17,7 @@ import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { isCleared, moduleLiveState } from "@/lib/pipeline/sev";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
@@ -308,7 +309,7 @@ function DeepDive() {
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
-  const decisionAsOf = live.asOf ?? (isReference ? "2026-05-31 · reference fixture" : null);
+  const decisionAsOf = live.asOf ? fmtUtcDateTime(live.asOf) : (isReference ? "2026-05-31 · reference fixture" : null);
   const decisionProvenance = fromReportCaveat(caveatKind, caveatKind === "reference" && !!live.runId);
   const deepAuthority = decisionAsOf && decisionProvenance ? {
     provenance: { ...decisionProvenance, asOf: decisionAsOf },

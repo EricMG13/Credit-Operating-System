@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { analysisApi, type MarketImportCommit, type MarketWorkbookPreview } from "@/lib/analysis-workbench";
 import { toErrorMessage } from "@/lib/api";
+import { fmtUtcDate } from "@/lib/format-date";
 
 type Template = "bloomberg" | "canonical";
 
@@ -89,7 +90,7 @@ export function MarketWorkbookImport({ onCommitted }: { onCommitted?: (value: Ma
         {error ? <p role="alert" className="text-caos-xs text-caos-critical">{error}</p> : null}
         {preview ? <div className="space-y-2 rounded-sm border border-caos-border p-2 text-caos-xs">
           <p className="tabular text-caos-text">{preview.accepted_count.toLocaleString()} accepted · {preview.rejected_count.toLocaleString()} rejected · {preview.warning_count.toLocaleString()} warnings · {preview.blocking_count.toLocaleString()} blocking</p>
-          <p className="text-caos-muted">{preview.selected_sheet ?? "No sheet"} · as-of {preview.as_of ? new Date(preview.as_of).toLocaleDateString() : "unknown"} · {preview.formula_cell_count.toLocaleString()} formula cells</p>
+          <p className="text-caos-muted">{preview.selected_sheet ?? "No sheet"} · as-of {preview.as_of ? fmtUtcDate(preview.as_of) : "unknown"} · {preview.formula_cell_count.toLocaleString()} formula cells</p>
           {preview.issues.length ? <ul className="max-h-28 space-y-1 overflow-auto" aria-label="Workbook validation issues">{preview.issues.slice(0, 20).map((issue, index) => <li key={`${issue.code}-${issue.row ?? "all"}-${index}`} className={issue.severity === "blocking" ? "text-caos-critical" : "text-caos-warning"}>{issue.severity === "blocking" ? "BLOCK" : "WARN"} · {issue.message}</li>)}</ul> : <p className="text-caos-success">No validation issues.</p>}
           <button type="button" onClick={() => void commit()} disabled={preview.blocking_count > 0 || busy !== null || !sourceLabel.trim()} className="caos-primary-action focus-ring disabled:opacity-40">{busy === "commit" ? "Committing…" : "Commit immutable snapshot"}</button>
         </div> : null}

@@ -75,7 +75,7 @@ export function ThesisTimeline({ issuerId, children }: { issuerId: string; child
             <details key={version.id} className="py-2" open={version.version === versions[0]?.version}>
               <summary className="cursor-pointer focus-ring rounded flex items-center gap-2">
                 <span className="tabular text-caos-xs text-caos-text">V{version.version}</span>
-                <span className="tabular text-caos-2xs text-caos-muted">{version.trigger.toUpperCase()} · {new Date(version.created_at).toLocaleDateString()}</span>
+                <span className="tabular text-caos-2xs text-caos-muted">{version.trigger.toUpperCase()} · {new Date(version.created_at).toLocaleDateString("en-CA")}</span>
               </summary>
               <div className="mt-1.5 text-caos-sm text-caos-text/90 whitespace-pre-wrap leading-relaxed">{version.thesis_md}</div>
               {version.predictions.length ? (
