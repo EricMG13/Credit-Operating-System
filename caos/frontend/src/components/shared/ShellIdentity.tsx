@@ -41,7 +41,10 @@ export function ShellIdentity({
       )}
       {badges}
       {title && (
-        <Title className="text-caos-sm font-semibold text-caos-text whitespace-nowrap min-w-0 truncate m-0">{title}</Title>
+        <Title
+          title={typeof title === "string" ? title : undefined}
+          className="text-caos-sm font-semibold text-caos-text whitespace-nowrap min-w-0 truncate m-0"
+        >{title}</Title>
       )}
       {children}
     </div>

@@ -582,8 +582,12 @@ function ReportStudio() {
 
   const narrowContract: NarrowContract = {
     essentialControls: (
-      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-        {Math.round(zoom * 100)}% · {editCount ? `${editCount} edit${editCount === 1 ? "" : "s"}` : "clean draft"}
+      <span className="flex items-center gap-2">
+        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+          ZOOM {Math.round(zoom * 100)}% · {editCount ? `${editCount} edit${editCount === 1 ? "" : "s"}` : "clean draft"}
+        </span>
+        {/* An editor's primary mode switch must never hide only in the drawer. */}
+        <button type="button" onClick={() => setEditMode(!editMode)} disabled={!canEditComposition} className="caos-action-secondary focus-ring disabled:opacity-40">{editMode ? "Finish editing" : "Edit report"}</button>
       </span>
     ),
   };
@@ -816,7 +820,7 @@ function ReportStudio() {
       contextualControls={
         <span className="flex items-center gap-2">
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-            {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · {Math.round(zoom * 100)}%
+            {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · ZOOM {Math.round(zoom * 100)}%
           </span>
           <button type="button" onClick={() => setEditMode(!editMode)} disabled={!canEditComposition} className="caos-action-secondary focus-ring disabled:opacity-40">{editMode ? "Finish editing" : "Edit report"}</button>
           {live.runId ? <button type="button" onClick={() => setDecisionOpen(true)} disabled={live.committeeStatus !== "Committee Ready"} className="caos-action-secondary focus-ring disabled:opacity-40">Open IC decision</button> : null}

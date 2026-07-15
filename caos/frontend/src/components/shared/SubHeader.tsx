@@ -1,8 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MoreDrawer } from "./MoreDrawer";
 import { useBreakpoint } from "@/lib/useBreakpoint";
+
+type CollapseState = { collapsed: boolean; neededWidth: number | null };
+
+/**
+ * Pure collapse decision with hysteresis, so overflow-driven collapse can't
+ * oscillate (collapsing frees width → would re-expand → overflows again).
+ * Collapse when the header overflows; record the width it needed. Only
+ * re-expand once the header is at least that wide again. Exported for tests.
+ */
+export function nextCollapseState(
+  s: CollapseState,
+  m: { scrollWidth: number; clientWidth: number },
+): CollapseState {
+  if (!s.collapsed && m.scrollWidth > m.clientWidth + 1) {
+    return { collapsed: true, neededWidth: m.scrollWidth };
+  }
+  if (s.collapsed && s.neededWidth !== null && m.clientWidth >= s.neededWidth) {
+    return { collapsed: false, neededWidth: null };
+  }
+  return s;
+}
 
 /**
  * The 40px sub-header strip every concept page wears. Replaces the hand-rolled
@@ -50,8 +71,29 @@ export function SubHeader({
   // MoreDrawer open state — owned here so the trigger and panel are siblings.
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // Measured overflow guard: even at the wide breakpoint, a page that passes
+  // too many contextual controls (contract: ≤5) can push the primary action
+  // off-screen. Observe the header and force-collapse into the drawer when it
+  // overflows, with hysteresis so it can't oscillate. This is the backstop —
+  // per-page configs should still respect the ≤5 rule.
+  const headerRef = useRef<HTMLElement>(null);
+  const [collapse, setCollapse] = useState<CollapseState>({ collapsed: false, neededWidth: null });
+  const measure = () => {
+    const el = headerRef.current;
+    if (!el) return;
+    setCollapse((s) => nextCollapseState(s, { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+  };
+  useLayoutEffect(() => {
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    if (headerRef.current) ro.observe(headerRef.current);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextualControls, primaryAction, status]);
+
   // While hydrating, assume wide (SSR-safe — no layout flash on desktop).
-  const showInline = !hydrated || breakpoint === "wide";
+  const showInline = (!hydrated || breakpoint === "wide") && !collapse.collapsed;
   const hasContextual = !!contextualControls;
   const drawerContent = showInline ? utilityControls : (
     <>
@@ -70,11 +112,14 @@ export function SubHeader({
 
   return (
     <header
+      ref={headerRef}
       aria-label={ariaLabel}
       className={`h-12 shrink-0 border-b border-caos-border bg-caos-panel/75 flex items-center gap-3 px-3 md:px-4 ${className}`}
     >
-      {/* Identity — always visible, truncates under squeeze. */}
-      <div className="flex items-center gap-3 min-w-0 overflow-hidden">{identity}</div>
+      {/* Identity — always visible, truncates under squeeze. min-w-28 floors it
+          so overflow is detectable (a 0-width identity would let the primary
+          action be pushed off-screen instead of triggering collapse). */}
+      <div className="flex items-center gap-3 min-w-28 overflow-hidden">{identity}</div>
 
       <div className="flex-1 min-w-0" />
 
