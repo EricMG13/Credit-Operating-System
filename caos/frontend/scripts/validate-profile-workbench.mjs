@@ -41,7 +41,7 @@ for (const viewport of viewports) {
   let tabStatePreserved = true;
   for (const [label, id, heading] of tabs) {
     await page.getByRole("tab", { name: label }).click();
-    await page.getByRole("heading", { name: new RegExp(heading, "i") }).waitFor({ state: "visible" });
+    await page.getByRole("heading", { name: heading, exact: false }).waitFor({ state: "visible" });
     const url = new URL(page.url());
     tabStatePreserved &&= url.searchParams.get("id") === "iss-1";
     tabStatePreserved &&= id === "snapshot" ? !url.searchParams.has("tab") : url.searchParams.get("tab") === id;

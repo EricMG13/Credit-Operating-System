@@ -9,7 +9,7 @@
 
 import type { PortfolioRowDTO } from "@/lib/api";
 import { useMemo, useState, useRef } from "react";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 import { fmtMult } from "@/lib/format";
 import { IssuerLink } from "@/components/shared/IssuerLink";
@@ -52,15 +52,7 @@ export function LiveCoverage({
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted focus-ring rounded outline-none";
   const [filters, setFilters] = useState<FilterState>({});
   const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
+    setFilters((filters) => updateColumnFilter(filters, col, values));
   const vals = useMemo<Record<string, (r: PortfolioRowDTO) => string | number | null | undefined>>(() => ({
     issuer: (r) => r.name,
     sector: (r) => r.sector,

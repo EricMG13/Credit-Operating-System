@@ -8,7 +8,6 @@
 // actually clicked to reach the UNDO state (listQueryLinks fires on mount,
 // before any graph exists, so a mocked GET can't seed it).
 // Run: cd caos/frontend && [BASE=http://localhost:3010] node scripts/a11y-query.mjs
-// fallow-ignore-file unused-file
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');

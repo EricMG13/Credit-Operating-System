@@ -18,7 +18,7 @@ import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
-import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
@@ -242,15 +242,7 @@ function IssuersDirectory() {
     );
   const ratedCount = useMemo(() => issuers.filter((i) => issuerRating(i)).length, [issuers]);
   const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
+    setFilters((filters) => updateColumnFilter(filters, col, values));
 
   const toggleSelect = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));

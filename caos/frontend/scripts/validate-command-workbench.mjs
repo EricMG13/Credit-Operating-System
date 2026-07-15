@@ -47,7 +47,7 @@ for (const viewport of viewports) {
   let urlStatePreserved = true;
   for (const [label, dataset] of [["Changes", "changes"], ["Positions", "positions"], ["Governance", "governance"], ["Live coverage", "coverage"]]) {
     await page.getByRole("tab", { name: label, exact: true }).click();
-    await page.waitForURL(new RegExp(`dataset=${dataset}`));
+    await page.waitForURL((url) => url.searchParams.get("dataset") === dataset);
     urlStatePreserved &&= new URL(page.url()).searchParams.get("dataset") === dataset;
   }
   await page.waitForTimeout(150);

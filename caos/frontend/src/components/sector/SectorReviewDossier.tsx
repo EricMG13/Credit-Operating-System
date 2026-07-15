@@ -5,12 +5,11 @@ import { useEffect, useState } from "react";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
-import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
-import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { headStat } from "@/components/shared/headStat";
+import { SECTOR_REVIEW_TABS, SectorReviewContent, type SectorReviewTab } from "./SectorReviewPanels";
 import { getSectorFeeds, updateSectorFeeds, toErrorMessage, type SectorFeed } from "@/lib/api";
 import {
   analysisApi,
@@ -23,16 +22,6 @@ import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from
 import { useTypedUrlState } from "@/lib/typed-url-state";
 import { fmtUtcDate } from "@/lib/format-date";
 
-type Tab = "overview" | "signals" | "comparables" | "early-warning" | "risks" | "sources";
-
-const TABS: Array<{ id: Tab; label: string }> = [
-  { id: "overview", label: "Overview" },
-  { id: "signals", label: "Signals" },
-  { id: "comparables", label: "Comparables" },
-  { id: "early-warning", label: "Early Warning" },
-  { id: "risks", label: "Risks" },
-  { id: "sources", label: "Sources" },
-];
 const SECTOR_URL_KEYS = ["tab", "section", "compare"] as const;
 
 function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
@@ -56,10 +45,6 @@ function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode, fall
   return { kind: "ready", value, asOf: review.as_of, authority };
 }
 
-function EmptyPanel({ text }: { text: string }) {
-  return <div className="grid h-full place-items-center p-6 text-center text-caos-sm text-caos-muted">{text}</div>;
-}
-
 export function SectorReviewDossier() {
   const { roleView } = useRoleView();
   const contextState = useAnalysisContext({ name: "Telecom sector dossier", sector_id: "telecom" });
@@ -68,7 +53,7 @@ export function SectorReviewDossier() {
   const [feeds, setFeeds] = useState<SectorFeed[]>([]);
   const [history, setHistory] = useState<SectorReviewV2[]>([]);
   const [review, setReview] = useState<SectorReviewV2 | null>(null);
-  const tab: Tab = TABS.some((item) => item.id === urlState.tab) ? urlState.tab as Tab : roleView === "qa" ? "sources" : "overview";
+  const tab: SectorReviewTab = SECTOR_REVIEW_TABS.some((item) => item.id === urlState.tab) ? urlState.tab as SectorReviewTab : roleView === "qa" ? "sources" : "overview";
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const compareVersion = urlState.compare ?? "";
   const [busy, setBusy] = useState(false);
@@ -191,15 +176,18 @@ export function SectorReviewDossier() {
           <ul className="p-1.5">{taxonomy.map((sector) => { const subscribed = feeds.find((feed) => feed.sector === sector.label)?.enabled ?? true; const active = context?.sector_id === sector.id; return <li key={sector.id} className={`mb-1 rounded-sm border ${active ? "border-caos-accent bg-caos-info-surface" : "border-transparent"}`}><button type="button" onClick={() => void selectSector(sector.id)} className="w-full px-2 py-2 text-left focus-ring"><span className="flex items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{sector.label}</span>{active && !review ? <span className="ml-auto h-1.5 w-1.5 rounded-full bg-caos-warning" aria-label="Review required" /> : null}</span><span className="mt-1 block tabular text-caos-2xs uppercase text-caos-muted">{active ? review?.status ?? "not reviewed" : "select"}</span></button><button type="button" role="switch" onClick={() => void toggleFeed(sector.label)} aria-checked={subscribed} className="mx-2 mb-2 flex min-h-6 items-center gap-1.5 rounded px-1.5 tabular text-caos-2xs uppercase tracking-wider text-caos-muted hover:text-caos-text transition-caos focus-ring"><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${subscribed ? "bg-caos-success" : "bg-caos-idle"}`} />Alerts {subscribed ? "on" : "off"}</button></li>; })}</ul>
         </aside>}
           primary={<section className="min-h-0 h-full overflow-hidden flex flex-col border border-caos-border" aria-label="Sector dossier">
-          <nav className="flex shrink-0 overflow-x-auto border-b border-caos-border bg-caos-panel/70 p-1" aria-label="Sector dossier sections"><select aria-label="Active sector" value={context?.sector_id ?? ""} onChange={(event) => void selectSector(event.target.value)} className="mr-1 min-w-36 rounded-sm border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring xl:hidden">{taxonomy.map((sector) => <option value={sector.id} key={sector.id}>{sector.label}</option>)}</select>{TABS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => updateUrlState({ tab: item.id === (roleView === "qa" ? "sources" : "overview") ? null : item.id })} className={`min-h-8 whitespace-nowrap rounded-sm px-3 tabular text-caos-xs focus-ring ${tab === item.id ? "bg-caos-info-surface text-caos-text" : "text-caos-muted hover:text-caos-text"}`}>{item.label}</button>)}</nav>
+          <nav className="flex shrink-0 overflow-x-auto border-b border-caos-border bg-caos-panel/70 p-1" aria-label="Sector dossier sections"><select aria-label="Active sector" value={context?.sector_id ?? ""} onChange={(event) => void selectSector(event.target.value)} className="mr-1 min-w-36 rounded-sm border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring xl:hidden">{taxonomy.map((sector) => <option value={sector.id} key={sector.id}>{sector.label}</option>)}</select>{SECTOR_REVIEW_TABS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => updateUrlState({ tab: item.id === (roleView === "qa" ? "sources" : "overview") ? null : item.id })} className={`min-h-8 whitespace-nowrap rounded-sm px-3 tabular text-caos-xs focus-ring ${tab === item.id ? "bg-caos-info-surface text-caos-text" : "text-caos-muted hover:text-caos-text"}`}>{item.label}</button>)}</nav>
           <div className="min-h-0 flex-1 overflow-auto p-3">
-            {!review ? <EmptyPanel text="No versioned dossier exists for this context. Request a refresh to create a draft without replacing any prior published review." /> : null}
-            {review && tab === "overview" ? <div className="space-y-3"><section className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">{review.dimension_scores.map((score) => <article key={score.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{score.label}</h3><span className="ml-auto tabular text-caos-sm font-semibold text-caos-text">{score.score ?? "—"}</span></div><p className="mt-2 text-caos-xs text-caos-warning">{score.missing_dependency ?? `${Math.round(score.confidence * 100)}% confidence`}</p></article>)}</section><section className="rounded-md border border-caos-border bg-caos-panel"><div className="border-b border-caos-border px-3 py-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Seven-section dossier</h2></div><ol>{review.sections.map((section) => <li key={section.id}><button type="button" onClick={() => { setSelectedSection(section.id); updateUrlState({ section: section.id }, "replace"); }} className={`grid w-full grid-cols-[1fr_auto] gap-3 border-t border-caos-border/70 px-3 py-3 text-left first:border-t-0 focus-ring ${selectedSection === section.id ? "bg-caos-info-surface" : "hover:bg-caos-elevated/30"}`}><span><span className="text-caos-sm font-semibold text-caos-text">{section.title}</span><span className="mt-1 block text-caos-xs leading-relaxed text-caos-muted">{section.summary}</span></span><span className="tabular text-caos-2xs uppercase text-caos-muted">{review.ratifications[section.id] ?? section.freshness}</span></button></li>)}</ol></section></div> : null}
-            {review && tab === "signals" ? <div className="space-y-2">{review.early_warning.map((signal) => <article key={signal.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><AnalysisStateBadge state={signal.status === "breached" ? "error" : signal.status === "watch" ? "partial" : "ready"} /><h3 className="text-caos-sm font-semibold text-caos-text">{signal.indicator}</h3></div><p className="mt-2 tabular text-caos-xs text-caos-muted">{signal.current_state} · threshold {signal.threshold}</p></article>)}</div> : null}
-            {review && tab === "comparables" ? <DominantTableRegion ownerId="sector-comparables" label="Sector comparables" className="rounded-md border border-caos-border"><table className="w-full tabular text-caos-xs"><thead className="sticky top-0 bg-caos-panel text-caos-muted"><tr><th className="px-3 py-2 text-left">Issuer</th><th className="px-3 py-2 text-left">Posture</th><th className="px-3 py-2 text-left">Decision gaps</th></tr></thead><tbody>{review.comparables.map((item) => <tr key={item.issuer_id ?? item.issuer_name} className="border-t border-caos-border"><td className="px-3 py-2 font-semibold text-caos-text">{item.issuer_id ? <IssuerLink issuer={{ id: item.issuer_id }}>{item.issuer_name}</IssuerLink> : item.issuer_name}</td><td className="px-3 py-2 text-caos-muted">{item.posture}</td><td className="px-3 py-2 text-caos-warning">{item.missing_dependencies.join(" · ")}</td></tr>)}</tbody></table></DominantTableRegion> : null}
-            {review && tab === "early-warning" ? <div className="space-y-2">{review.early_warning.map((item) => <article key={item.id} className="grid gap-2 rounded-md border border-caos-border bg-caos-panel p-3 md:grid-cols-[1fr_auto]"><div><h3 className="text-caos-sm font-semibold text-caos-text">{item.indicator}</h3><p className="mt-1 text-caos-xs text-caos-muted">Threshold · {item.threshold}</p></div><span className="tabular text-caos-xs uppercase text-caos-warning">{item.status} · {item.current_state}</span></article>)}</div> : null}
-            {review && tab === "risks" ? <div className="space-y-2">{review.risks.map((risk) => <article key={risk.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><span className="tabular text-caos-2xs uppercase text-caos-warning">{risk.severity}</span><h3 className="text-caos-sm font-semibold text-caos-text">{risk.title}</h3><span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">Likelihood {risk.likelihood}</span></div><p className="mt-2 text-caos-xs text-caos-muted">Residual risk · {risk.residual_risk}</p></article>)}</div> : null}
-            {review && tab === "sources" ? <div className="space-y-3"><section className="rounded-md border border-caos-border bg-caos-panel"><div className="border-b border-caos-border px-3 py-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Source register</h2></div><ol>{review.source_register.map((source) => <li key={source.id} className="border-t border-caos-border/70 px-3 py-2 first:border-t-0"><div className="flex flex-wrap items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{source.title}</span><span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">{source.origin} · {source.freshness}</span></div><p className="mt-1 tabular text-caos-2xs text-caos-muted">{source.id}</p></li>)}</ol></section><section className="rounded-md border border-caos-warning/50 bg-caos-warning/5 p-3"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-warning">Contradictions and uncertainty</h2><ol className="mt-2 space-y-2">{review.uncertainties.map((item) => <li key={item.id} className="text-caos-xs text-caos-text">△ {item.statement}<span className="block pl-4 text-caos-muted">{item.impact}</span></li>)}</ol>{context ? <Link href={contextHref("/monitor", context.id, { focus: "source-gaps" })} className="caos-action-secondary mt-3 focus-ring no-underline">Route gaps to QA</Link> : null}</section></div> : null}
+            <SectorReviewContent
+              review={review}
+              tab={tab}
+              selectedSection={selectedSection}
+              contextId={context?.id}
+              onSelectSection={(sectionId) => {
+                setSelectedSection(sectionId);
+                updateUrlState({ section: sectionId }, "replace");
+              }}
+            />
           </div>
         </section>}
           inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Sector evidence inspector">

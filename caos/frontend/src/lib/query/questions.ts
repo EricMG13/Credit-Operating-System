@@ -73,7 +73,6 @@ export const ENGINE_NOTES: Record<string, string> = {
   "committee-board": "CP-5 ResearchIntegrityQA — committee-readiness challenge board",
 };
 
-export const engineNote = (id: string): string => ENGINE_NOTES[id] || "Modular OS capability walk";
 export const questionFor = (c: Capability): string => QUESTIONS[c.id]?.q || c.label;
 
 export interface QuestionGroup {

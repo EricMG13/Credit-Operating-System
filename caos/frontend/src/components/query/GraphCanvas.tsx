@@ -1,14 +1,12 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
 import { hueFor, nodeStyle, MODEL_HUE } from "./node-style";
-import { select } from "d3-selection";
-import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
-import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
-import "d3-transition";
+import { zoomIdentity, type ZoomTransform } from "d3-zoom";
+import { useGraphZoom } from "./useGraphZoom";
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
@@ -93,37 +91,7 @@ export function GraphCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  // Zoom setup
-  const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = select(svgRef.current);
-
-    const zoom = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 8])
-      .on("zoom", (event) => {
-        setTransform(event.transform);
-      });
-
-    zoomBehaviorRef.current = zoom;
-    svg.call(zoom);
-
-    // Fit to content on graph change
-    svg.call(zoom.transform, fitTransform);
-  }, [graph, fitTransform]);
-
-  // Reset zoom back to the fitted view cleanly. Honor prefers-reduced-motion
-  // (instant) and otherwise keep it snappy within the 160ms system rhythm.
-  const handleResetZoom = () => {
-    if (svgRef.current && zoomBehaviorRef.current) {
-      const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      select(svgRef.current)
-        .transition()
-        .duration(reduce ? 0 : 180)
-        .call(zoomBehaviorRef.current.transform, fitTransform);
-    }
-  };
+  const handleResetZoom = useGraphZoom(svgRef, fitTransform, graph, setTransform);
 
   const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
 

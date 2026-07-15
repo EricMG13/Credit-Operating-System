@@ -22,7 +22,7 @@ import { SEV_COLOR, sevSurface } from "@/lib/pipeline/sev";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 
 export const POSTURE_COLOR: Record<string, string> = {
@@ -153,15 +153,7 @@ export function PortfolioTable({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [filters, setFilters] = useState<FilterState>({});
   const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
+    setFilters((filters) => updateColumnFilter(filters, col, values));
 
   type PortfolioFilterKey = "code" | "name" | "sector" | "subSector" | "figi" | "rank" | "rating" | "size" | "margin" | "maturity" | "bid" | "ask" | "dd" | "spark" | "ytdSpark" | "lev" | "snrLev" | "totalLev" | "cov" | "posture" | "conv" | "qa" | "alerts";
   const vals = useMemo<Record<PortfolioFilterKey, (p: (typeof PORTFOLIO)[number]) => string | number | null | undefined>>(() => ({

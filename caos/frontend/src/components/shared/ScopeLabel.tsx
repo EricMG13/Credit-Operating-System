@@ -12,21 +12,21 @@
 // Color signal is paired with the label text itself (never color alone), and
 // the tooltip carries the full sentence so the chip stays terse on the row.
 
-export type Scope = "device" | "profile" | "workspace";
+export type PersistenceScope = "device" | "profile" | "workspace";
 
-const SCOPE_LABEL: Record<Scope, string> = {
+const SCOPE_LABEL: Record<PersistenceScope, string> = {
   device: "THIS BROWSER",
   profile: "ANALYST PROFILE",
   workspace: "WORKSPACE · READ-ONLY",
 };
 
-const SCOPE_DETAIL: Record<Scope, string> = {
+const SCOPE_DETAIL: Record<PersistenceScope, string> = {
   device: "Stored in this browser's local storage — does not follow you to another device or profile.",
   profile: "Stored on your analyst profile — follows you across devices, shared by anyone signed into this account.",
   workspace: "Set via the deployment environment. Changing it means editing the environment and restarting — it is not per-analyst.",
 };
 
-export function ScopeLabel({ scope, className = "" }: { scope: Scope; className?: string }) {
+export function ScopeLabel({ scope, className = "" }: { scope: PersistenceScope; className?: string }) {
   const readOnly = scope === "workspace";
   return (
     <span

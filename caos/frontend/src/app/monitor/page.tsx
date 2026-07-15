@@ -33,10 +33,7 @@ import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { ControlPlanePanel } from "@/components/monitor/ControlPlanePanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
-import { useDigest } from "@/lib/engine/useDigest";
-import { liveQaItems, liveFailedGates } from "@/lib/command/qa";
-import { liveGaps } from "@/lib/command/gaps";
-import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
+import { useGovernanceSources } from "@/lib/command/useGovernanceSources";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
@@ -75,11 +72,7 @@ function Monitor() {
   // Governance's shared queue (Command shows the identical categories from the
   // same live sources — QA queues visible from both, per the handoff).
   const portfolio = usePortfolio();
-  const liveQa = portfolio.live ? liveQaItems(portfolio.rows) : undefined;
-  const liveFailed = portfolio.live ? liveFailedGates(portfolio.rows) : undefined;
-  const liveGapsItems = portfolio.live ? liveGaps(portfolio.rows) : undefined;
-  const liveMixed = portfolio.live ? liveMixedOrigin(portfolio.rows) : undefined;
-  const { digest, live: digestLive } = useDigest();
+  const { digest, live: digestLive, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
   // Default: demo disclosure open when there's nothing live to show, closed
   // once live rows exist. `null` = follow that default; a click overrides for
   // the session (same disclosure pattern as DecisionHeader).

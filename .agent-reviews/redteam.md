@@ -977,3 +977,50 @@ Reopen if: nav is unreachable at any viewport width; a page primary action can
 render offscreen at ≥1024px; a seeded number cohabits unlabeled with a live zero;
 any as-of stamp renders raw ISO-with-microseconds; or the critique re-run scores
 any P0/P1 in the resolved fault classes.
+
+## 2026-07-15 — GitNexus grouped adversarial rewrite tournament
+
+Decision under review: collapse the active `codex/112` GitNexus graph into a
+bounded set of connected macro-groups, select a concrete high-risk symbol or
+region in each group, and run scratch-only rewrite tournaments without changing
+production code unless a separately verified implementation is later requested.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-287 | Graph reviewer | The flat GitNexus registry still reports stale `main` and an older `codex/112` row, so unpinned clusters could classify the wrong code. | High | Resolved in method | CLI status at `codex/112@7b16397` is the freshness authority; graph queries are pinned to `branch: codex/112`, and every tournament target is read from the checked-out source before agents see it. |
+| RT-2026-07-15-288 | Coverage reviewer | Collapsing 504 communities into macro-groups can hide low-cohesion or generically named clusters and falsely imply whole-group proof from one symbol. | High | Resolved in scope | Grouping uses aggregated labels, cross-community edge counts, file membership, process membership, caller count, and function length. Reports must distinguish group-wide findings from the representative rewrite target and may not claim exhaustive line coverage. |
+| RT-2026-07-15-289 | Financial-model reviewer | The generic tournament checklist assumes an in-house yield/day-count engine, but CAOS currently ingests YTM/DM rather than calculating them; inventing a spot-check would test semantics the product does not own. | High | Resolved in invariant map | Record YTM/DM as finite passthrough fields and explicitly note the absence of a native day-count/yield calculator. Verify implemented money paths instead: finite-number guards, leverage/coverage denominators, covenant headroom, PIK/debt roll-forward, free-cash-flow identity, and absolute-priority recovery waterfall. |
+| RT-2026-07-15-290 | Change-safety reviewer | Large challenger rewrites can look cleaner while silently changing signatures, ordering, database effects, lineage, or UI state relied on by callers. | High | Resolved in gate | `context` plus upstream/downstream `impact` is mandatory before each candidate; signature, return type, ordering, and side effects are disqualification constraints. Only scratch copies are patched, real focused tests plus caller checks decide the winner, and Incumbent wins on any unverified ambiguity. |
+| RT-2026-07-15-291 | Parallel-WIP reviewer | A repository-wide exercise can absorb or overwrite unrelated work that appears during the run. | High | Resolved in isolation | Record the baseline and preserve the user-owned `caos/frontend/src/app/reports/reports-freshness-transition.test.tsx` modification. Use explicit paths only; production files remain read-only and scratch candidates live outside the repository. |
+
+### Critic reopen conditions (grouped tournament)
+
+Reopen if a graph query is not branch-pinned; a target is sent to an agent before
+the orchestrator reads its real source; a candidate changes a contract observed
+in the impact set; verification relies on a fabricated yield/day-count case; a
+group verdict is presented as exhaustive when only one symbol was tournamented;
+or any parallel user file is modified, staged, or copied into a candidate patch.
+
+## 2026-07-15 — Fallow whole-frontend remediation critic pass
+
+Decision under review: remediate every verified actionable finding from the
+Fallow 3.5.1 whole-frontend review on `codex/112@8fbbe3a4` while preserving
+runtime behavior, current user work, and intentional product/architecture
+constraints.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-292 | Regression reviewer | Treating 200 complexity threshold findings as permission for a whole-app rewrite would create a larger correctness risk than the debt being removed. | High | Resolved in scope | Remediate the verified dead-code/API-hygiene set, the strongest traced exact clones, and the highest-risk complexity/coverage overlaps behind focused tests. Re-run Fallow and report the residual metric honestly; do not suppress complexity or claim every threshold breach is a defect. |
+| RT-2026-07-15-293 | Product reviewer | Four statically unreachable Query components may represent a dormant product path rather than accidental files. | High | Resolved by evidence | Delete only after fresh trace-file/export checks confirm no entry point, imports, or re-export chain. Preserve Git recovery and verify typecheck/tests after deletion. If a live caller appears during the pass, retain and wire the component instead. |
+| RT-2026-07-15-294 | Semantics reviewer | Fallow's duplicate `Scope` export groups two intentionally different domains; auto-suppressing both hides ambiguity while consolidating them would corrupt types. | Medium | Resolved in naming | Rename the exported types to `PersistenceScope` and `AnalysisScope`, update their direct consumers, and keep both unions distinct. Do not add ignore rules. |
+| RT-2026-07-15-295 | React reviewer | Extracting repeated D3 zoom or filter state code can change effect dependencies, stale closures, or setter semantics. | High | Resolved in contract | Preserve dependency arrays and updater behavior exactly, add focused helper/hook tests where behavior is not already rendered, and retain component-level tests as the acceptance gate. |
+| RT-2026-07-15-296 | Coverage reviewer | Static dependency-path gaps are not equivalent to missing behavioral coverage; route wrappers and executable validation scripts can be legitimate roots. | Medium | Resolved in prioritization | Add coverage where the gap intersects critical business logic or a critical complexity finding. Do not add tautological import-only tests or suppress valid script roots. |
+| RT-2026-07-15-297 | Architecture reviewer | Adding Fallow boundaries without an agreed CAOS layer policy would invent architecture and could convert a clean graph into arbitrary policy noise. | High | Accepted constraint | Leave boundary enforcement unconfigured in this remediation. Record it as a governance decision requiring an explicit layer contract, not as a code defect that can be safely auto-fixed. |
+
+### Critic reopen conditions (Fallow remediation)
+
+Reopen if a deleted file gains a live caller; a shared extraction changes a hook
+dependency or state-update contract; an analyzer suppression is used instead of
+fixing verified code; a test is added only to game static reachability; the
+existing uncommitted red-team tournament entry is overwritten; or final claims
+equate the remaining complexity count with known-broken behavior.

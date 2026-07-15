@@ -8,7 +8,7 @@ import { StatusGlyph } from "./StatusGlyph";
 import { RailShell } from "./RailShell";
 import { FlashOnChange } from "./FlashOnChange";
 import { ScopeToggle } from "./ScopeToggle";
-import { FilterHeader } from "./TableColumnFilter";
+import { FilterHeader, updateColumnFilter } from "./TableColumnFilter";
 
 afterEach(cleanup);
 
@@ -82,6 +82,22 @@ describe("ScopeToggle", () => {
     expect(screen.getByRole("button", { name: "issuer" }).getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByRole("button", { name: "issuer" }));
     expect(onChange).toHaveBeenCalledWith("issuer");
+  });
+});
+
+describe("updateColumnFilter", () => {
+  it("sets a column without mutating the existing filter state", () => {
+    const filters = { sector: ["Telecom"] };
+
+    const next = updateColumnFilter(filters, "rating", ["B"]);
+
+    expect(next).toEqual({ sector: ["Telecom"], rating: ["B"] });
+    expect(filters).toEqual({ sector: ["Telecom"] });
+  });
+
+  it("removes a cleared column while preserving other filters", () => {
+    expect(updateColumnFilter({ sector: ["Telecom"], rating: ["B"] }, "rating", undefined))
+      .toEqual({ sector: ["Telecom"] });
   });
 });
 

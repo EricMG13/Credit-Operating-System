@@ -144,15 +144,12 @@ export function SourceRail({
       {!isReference ? <NoIssuerRailOutput code={code} /> : (
         <>
           <Panel title="Source Register · CP-0" className="flex-[2]">
-            {DOCS.map((d) => {
-              const url = "url" in d && typeof d.url === "string" ? d.url : "";
-              return (
+            {DOCS.map((d) => (
                 <button
                   key={d.id}
                   type="button"
-                  disabled={!url}
-                  onClick={() => { if (url) window.open(url, "_blank", "noopener,noreferrer"); }}
-                  title={url || "Source pointer only; no URL is attached in this demo register."}
+                  disabled
+                  title="Source pointer only; no URL is attached in this demo register."
                   className="block w-full text-left px-3 py-[5.5px] border-b border-caos-border/50 hover:bg-caos-elevated/60 transition-caos disabled:cursor-default disabled:hover:bg-transparent focus-ring"
                 >
                   <div className="flex items-center gap-2">
@@ -164,8 +161,7 @@ export function SourceRail({
                     {d.mnpi ? <span style={{ color: "var(--caos-warning)" }}>MNPI</span> : null}
                   </div>
                 </button>
-              );
-            })}
+            ))}
           </Panel>
           <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
             {/* fallow-ignore-next-line complexity */}

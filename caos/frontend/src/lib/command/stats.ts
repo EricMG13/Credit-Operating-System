@@ -20,7 +20,3 @@ export function trimmedMeanBps(xs: number[]): number | null {
 
 // Computed once at module load (PORTFOLIO is static sample data).
 export const PORTFOLIO_AVG_DM = trimmedMeanBps(PORTFOLIO.map((p) => p.dm));
-
-// Head-stat string: signed integer bps, or an em-dash when undefined.
-export const PORTFOLIO_AVG_DM_LABEL =
-  PORTFOLIO_AVG_DM == null ? "—" : (PORTFOLIO_AVG_DM > 0 ? "+" : "") + Math.round(PORTFOLIO_AVG_DM) + "bps";

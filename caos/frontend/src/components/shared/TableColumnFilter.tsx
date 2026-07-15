@@ -5,6 +5,17 @@ import { createPortal } from "react-dom";
 
 export type FilterState = Record<string, string[] | undefined>;
 
+export function updateColumnFilter(
+  filters: FilterState,
+  col: string,
+  values: string[] | undefined,
+): FilterState {
+  const next = { ...filters };
+  if (values === undefined) delete next[col];
+  else next[col] = values;
+  return next;
+}
+
 // Sort direction a sortable column header can be in. `null` = unsorted (the
 // register falls back to its default order). Clicking a sortable label cycles
 // asc → desc → null.

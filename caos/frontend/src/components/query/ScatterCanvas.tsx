@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
 import { nodeStyle } from "./node-style";
-import { select } from "d3-selection";
-import { zoom as d3zoom, zoomIdentity } from "d3-zoom";
-import type { ZoomBehavior, ZoomTransform } from "d3-zoom";
-import "d3-transition";
+import { zoomIdentity, type ZoomTransform } from "d3-zoom";
+import { useGraphZoom } from "./useGraphZoom";
 
 interface ScatterCanvasProps {
   graph: GraphResult;
@@ -28,7 +26,6 @@ export function ScatterCanvas({
 
   const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   // Hovered node tracking for highlighting edges
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -49,33 +46,7 @@ export function ScatterCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph]);
 
-  // Setup D3 Zoom
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = select(svgRef.current);
-
-    const zoom = d3zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 8])
-      .on("zoom", (event) => {
-        setTransform(event.transform);
-      });
-
-    zoomBehaviorRef.current = zoom;
-    svg.call(zoom);
-    svg.call(zoom.transform, fitTransform);
-  }, [graph, fitTransform]);
-
-  // Reset to the fitted view. Honor prefers-reduced-motion (instant) and
-  // otherwise stay within the 160ms system rhythm.
-  const handleResetZoom = () => {
-    if (svgRef.current && zoomBehaviorRef.current) {
-      const reduce = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      select(svgRef.current)
-        .transition()
-        .duration(reduce ? 0 : 180)
-        .call(zoomBehaviorRef.current.transform, fitTransform);
-    }
-  };
+  const handleResetZoom = useGraphZoom(svgRef, fitTransform, graph, setTransform);
 
   const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
 

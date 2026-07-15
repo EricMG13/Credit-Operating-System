@@ -81,6 +81,58 @@ const fm = (v: number | null | undefined): string => {
 };
 const fp = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : (v * 100).toFixed(1) + "%");
 const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
+
+function seniorityStackChart(
+  rcf: number,
+  tlb: number,
+  ssn: number,
+  sub: number,
+  equity: number,
+  page?: string,
+): Section {
+  return {
+    ...(page ? { page } : {}),
+    t: "chart",
+    kind: "stacked-bar",
+    title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY",
+    unit: "$M",
+    sourceIds: ["CP-3B:T3B.2", "E-63"],
+    accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`,
+    columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }],
+    h: 52,
+    spec: {
+      type: "interval",
+      data: [
+        { slot: "stack", cls: "RCF (drawn)", v: rcf },
+        { slot: "stack", cls: "1L Term Loan B", v: tlb },
+        { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
+        { slot: "stack", cls: "Sub Notes '32", v: sub },
+        { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
+      ],
+      encode: { x: "slot", y: "v", color: "cls" },
+      transform: [{ type: "stackY" }],
+      coordinate: { transform: [{ type: "transpose" }] },
+      axis: false,
+      legend: false,
+      scale: {
+        color: {
+          domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
+          range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
+        },
+      },
+      labels: [{
+        text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
+        position: "inside",
+        fontSize: 10,
+        fontWeight: 600,
+        // Hide labels that collide in narrow tranches; exact values remain in
+        // the capital-structure table paired with this visualization.
+        transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
+      }],
+    },
+  };
+}
+
 const APPENDIX_PCT_BLUE = "#2f64b7";
 const MODEL_GROUP_LABELS: Record<TableColumnGroup["key"], string> = {
   Q: "Quarterly",
@@ -266,33 +318,7 @@ function creditSnapshot(model: Model): Report {
         { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
         { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
       ] },
-      { t: "chart", kind: "stacked-bar", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY", unit: "$M", sourceIds: ["CP-3B:T3B.2", "E-63"], accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`, columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }], h: 52, spec: {
-        type: "interval",
-        data: [
-          { slot: "stack", cls: "RCF (drawn)", v: rcf },
-          { slot: "stack", cls: "1L Term Loan B", v: tlb },
-          { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
-          { slot: "stack", cls: "Sub Notes '32", v: sub },
-          { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
-        ],
-        encode: { x: "slot", y: "v", color: "cls" },
-        transform: [{ type: "stackY" }],
-        coordinate: { transform: [{ type: "transpose" }] },
-        axis: false,
-        legend: false,
-        scale: { color: {
-          domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
-          range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
-        } },
-        labels: [{
-          text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
-          position: "inside", fontSize: 10, fontWeight: 600,
-          // overlapHide drops labels that would collide (narrow tranches like RCF /
-          // Sub) instead of letting them overlap — exact $ stay in the cap-structure
-          // table above. overflowHide alone doesn't stop adjacent-segment collisions.
-          transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
-        }],
-      } },
+      seniorityStackChart(rcf, tlb, ssn, sub, equity),
       { t: "cols", w: [3, 2], items: [
         [{ t: "text", title: "BUSINESS DESCRIPTION", body: "Engineered metal components for industrial OEMs across Drivetrain (46% of revenue), Fluid Systems (31%) and Aftermarket & Services (23% of revenue, 44% of gross profit). 14 plants (9 US, 4 EU, 1 MX); #1–2 share in 7 of 9 core lines. The credit rests on a 1.9M-unit installed base feeding contract-locked aftermarket revenue renewing at 92%; 71% of COGS is pass-through-indexed with a 60–90 day lag. Owned by Kestrel Capital Fund V since the 2021 LBO ($2,150M EV, 7.9x)." }],
         [{ t: "profile", title: "EBITDA ADJUSTMENTS", rows: [
@@ -508,30 +534,7 @@ function creditMemo(model: Model): Report {
         { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
         { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
       ] },
-      { page: "Page 3: Capital", t: "chart", kind: "stacked-bar", title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY", unit: "$M", sourceIds: ["CP-3B:T3B.2", "E-63"], accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`, columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }], h: 52, spec: {
-        type: "interval",
-        data: [
-          { slot: "stack", cls: "RCF (drawn)", v: rcf },
-          { slot: "stack", cls: "1L Term Loan B", v: tlb },
-          { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
-          { slot: "stack", cls: "Sub Notes '32", v: sub },
-          { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
-        ],
-        encode: { x: "slot", y: "v", color: "cls" },
-        transform: [{ type: "stackY" }],
-        coordinate: { transform: [{ type: "transpose" }] },
-        axis: false,
-        legend: false,
-        scale: { color: {
-          domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
-          range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
-        } },
-        labels: [{
-          text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
-          position: "inside", fontSize: 10, fontWeight: 600,
-          transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
-        }],
-      } },
+      seniorityStackChart(rcf, tlb, ssn, sub, equity, "Page 3: Capital"),
       { page: "Page 3: Capital", t: "cols", w: [1, 1], items: [
         [{ t: "table", title: "RECOVERY SCENARIOS — 2L TL (CP-3B)", cols: ["Scenario", "EV basis", "1L", "2L TL", "Sub"], align: [0, 0, 1, 1, 1], rows: [
           { cells: ["Going concern", "7.0x × $421M", "100%", "100%", "100%"] },

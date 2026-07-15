@@ -1,12 +1,5 @@
 // Format a metric value for display by its catalog unit ($M / % / x).
 
-// The scatter builder tucks machine-readable axis domains into graph.meta as
-// "xdomain=lo|hi" (so the plot can place real-value ticks). Strip them from any
-// user-facing meta list — Scope panels, the print exhibit — where the raw
-// "xdomain=2.30|5.68" reads as dev grammar, not desk copy.
-export const displayMeta = (meta: string[]): string[] =>
-  meta.filter((m) => !/^[xy]domain=/.test(m));
-
 export function fmtMetric(value: number, unit: string): string {
   // Live NL-query lane: a non-finite metric (divide-by-zero, missing input)
   // must render "—", never "NaNx" / "$InfinityM" to the analyst.

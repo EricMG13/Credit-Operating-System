@@ -12,7 +12,7 @@ import { useRovingFocus, type RovingItemProps } from "@/lib/useRovingFocus";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { ActionableDislocations } from "@/components/command/ActionableDislocations";
 import {
   BUCKETS,
@@ -1279,15 +1279,7 @@ export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {
   const [filters, setFilters] = useState<FilterState>({});
   const filtered = useColumnFilters(sector.rows, filters, PEER_FILTER_VAL);
   const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
+    setFilters((filters) => updateColumnFilter(filters, col, values));
 
   // Bar/Box need a categorical X; on a continuous X they are disabled.
 

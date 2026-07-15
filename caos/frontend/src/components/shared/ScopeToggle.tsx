@@ -6,7 +6,7 @@
 
 import { labelCls } from "./styles";
 
-export type Scope = "sector" | "issuer";
+export type AnalysisScope = "sector" | "issuer";
 
 export function ScopeToggle({
   value,
@@ -14,8 +14,8 @@ export function ScopeToggle({
   label = "Scope",
   ariaLabel = label,
 }: {
-  value: Scope;
-  onChange: (v: Scope) => void;
+  value: AnalysisScope;
+  onChange: (v: AnalysisScope) => void;
   label?: string;
   ariaLabel?: string;
 }) {

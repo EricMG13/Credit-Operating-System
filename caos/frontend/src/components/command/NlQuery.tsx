@@ -16,7 +16,7 @@ import { CitationViewer } from "@/components/command/CitationViewer";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import type { MetricCell, NlQueryResult, SemanticResult, StructuredResult, SynthesisResult } from "@/lib/query/types";
-import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 
 // Open the click-to-source viewer for a chunk (label = the chip text, e.g. E-CS1).
@@ -112,15 +112,7 @@ function StructuredView({ res, onOpenCite }: { res: StructuredResult; onOpenCite
   }, [res.columns, res.rows]);
   const rows = useColumnFilters(res.rows, filters, filterVals);
   const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((f) => {
-      const next = { ...f };
-      if (values === undefined) {
-        delete next[col];
-      } else {
-        next[col] = values;
-      }
-      return next;
-    });
+    setFilters((filters) => updateColumnFilter(filters, col, values));
   return (
     <div className="overflow-auto" style={{ maxHeight: 260 }}>
       <table aria-label="Ranked query results" className="w-full border-collapse">
