@@ -338,6 +338,24 @@ body {
 .caos-secondary-action:hover,
 .caos-action-secondary:hover { border-color: color-mix(in srgb, var(--caos-accent) 65%, var(--caos-border)); color: var(--caos-text); }
 
+/* Selected tab state for secondary-styled tablists (role=tab / aria-selected).
+   The Command worklist tabs and several segmented controls set aria-selected
+   but had no visual selected treatment — this gives all of them the accent
+   inversion the design system already uses for .ic-book and ToggleGroup. */
+.caos-secondary-action[aria-selected="true"],
+.caos-action-secondary[aria-selected="true"] {
+  border-color: var(--caos-accent);
+  color: var(--caos-accent);
+  background: color-mix(in srgb, var(--caos-elevated) 82%, transparent);
+}
+
+/* Disabled-with-reason: keep the control focusable/hoverable (unlike native
+   `disabled`) so its title reason is discoverable by keyboard and pointer. */
+:is(.caos-primary-action, .caos-action-primary, .caos-secondary-action, .caos-action-secondary)[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 html,
 body,
 main#main-content {
@@ -1093,6 +1111,7 @@ button.rd-revert-dot:focus-visible {
 .portfolio-lab__insight-actions button,
 .portfolio-lab__next { padding: 0 10px; cursor: pointer; }
 .portfolio-lab__toolbar button[aria-selected="true"] { border-color: var(--caos-accent); color: var(--caos-accent); }
+.portfolio-lab button[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .portfolio-lab__toolbar label,
 .portfolio-lab__context label { display: grid; gap: 4px; color: var(--caos-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .portfolio-lab__toolbar select,

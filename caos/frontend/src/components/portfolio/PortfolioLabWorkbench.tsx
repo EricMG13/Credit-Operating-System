@@ -451,7 +451,7 @@ export function PortfolioLabWorkbench() {
       {selectedPosition ? <dl><div><dt>Instrument</dt><dd>{selectedPosition.loan_name ?? selectedPosition.ticker ?? "—"}</dd></div><div><dt>Market value</dt><dd>{selectedPosition.market_value == null ? "—" : money.format(selectedPosition.market_value)}</dd></div><div><dt>Source</dt><dd>{positions?.authority.source_ids.length ? positions.authority.source_ids.join(", ") : "Source identifier unavailable"}</dd></div></dl> : <p>Select a position to inspect its sizing and source lineage.</p>}
       {selectedPosition?.issuer_id ? <Link href={`/issuers/profile?id=${encodeURIComponent(selectedPosition.issuer_id)}&context=${encodeURIComponent(analysis.context?.id ?? "")}`}>Open issuer profile</Link> : null}
       {analytics?.missing_dependencies.length ? <><h3>Missing dependencies</h3><ul>{analytics.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
-      <div className="portfolio-lab__insight-actions"><button type="button" onClick={() => void generateInsight()}>{insight ? "Refresh cited brief" : "Generate cited brief"}</button></div>
+      <div className="portfolio-lab__insight-actions"><button type="button" aria-disabled={!portfolioId} title={portfolioId ? undefined : "Create or open a portfolio first"} onClick={() => { if (portfolioId) void generateInsight(); }}>{insight ? "Refresh cited brief" : "Generate cited brief"}</button></div>
       {refreshInsight && insight ? <p role="status">Latest refresh is {refreshInsight.status}; the last ready or ratified brief remains effective.</p> : null}
       {displayedInsight ? <PortfolioInsightCard insight={displayedInsight} onRatify={displayedInsight.status === "ready" ? () => {
         const candidate = displayedInsight;
@@ -462,7 +462,7 @@ export function PortfolioLabWorkbench() {
 
   const utility = (
     <section className="portfolio-lab__stress" aria-label="Deterministic stress controls">
-      <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><button type="button" onClick={() => setStressPreview(true)}>Preview stress</button></header>
+      <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><button type="button" aria-disabled={!portfolioId} title={portfolioId ? undefined : "Create or open a portfolio first"} onClick={() => { if (portfolioId) setStressPreview(true); }}>Preview stress</button></header>
       {stressPreview ? <div className="portfolio-lab__stress-preview"><strong>Preview only</strong><p>Apply an 8% book price decline. Holdings and limits will not be changed.</p><button type="button" disabled={stressPending} onClick={() => void persistStress()}>{stressPending ? "Persisting…" : "Confirm and persist"}</button></div> : null}
       {stressRuns.length ? <ol className="portfolio-lab__timeline" aria-label="Persisted stress history">{stressRuns.map((run) => <li key={run.id} data-selected={selectedStress?.id === run.id}><button type="button" aria-pressed={selectedStress?.id === run.id} onClick={() => update({ stress: run.id, chart: "stress" })}>{run.label}</button><span>{numberText(run.output.loss_percent, "% loss")}</span><code>{run.source_fingerprint}</code></li>)}</ol> : stressError ? <p role="status">{stressError}</p> : <p>No persisted stress snapshots.</p>}
       {selectedStress ? <article className="portfolio-lab__stress-result" aria-label="Selected stress result"><h3>{selectedStress.label} result</h3><dl><div><dt>Base NAV</dt><dd>{selectedStress.output.base_nav == null ? "—" : money.format(selectedStress.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{selectedStress.output.stressed_nav == null ? "—" : money.format(selectedStress.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(selectedStress.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{selectedStress.authority.approval_state} · {selectedStress.authority.method}</dd></div></dl>{selectedStress.output.missing_dependencies.length ? <><h4>Missing dependencies</h4><ul>{selectedStress.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}</article> : null}
@@ -473,8 +473,8 @@ export function PortfolioLabWorkbench() {
     <EnterprisePage
       kind="analytical"
       identity={<ShellIdentity tag="CP-PORT" title="Portfolio Lab" />}
-      status={error ? <span role="alert">{error}</span> : <span>{portfolio?.kind ?? "PORTFOLIO"}</span>}
-      primaryAction={<button type="button" className="caos-primary-action focus-ring" onClick={() => setStressPreview(true)}>Run portfolio stress</button>}
+      status={error ? <span role="alert">{error}</span> : <span>{portfolio ? portfolio.kind : <span className="text-caos-muted">No portfolio selected</span>}</span>}
+      primaryAction={<button type="button" className="caos-primary-action focus-ring" aria-disabled={!portfolioId} title={portfolioId ? undefined : "Create or open a portfolio first"} onClick={() => { if (portfolioId) setStressPreview(true); }}>Run portfolio stress</button>}
       narrowContract={{ essentialControls: <span>{positions?.total ?? 0} positions</span> }}
     >
       <PersonaWorkbench surface="portfolio-lab" decision={decision} primary={primary} context={context} inspector={inspector} utility={utility} />

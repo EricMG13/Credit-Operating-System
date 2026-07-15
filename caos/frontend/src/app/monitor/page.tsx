@@ -217,9 +217,16 @@ function Monitor() {
       primaryAction={
         <button
           type="button"
-          disabled={selectedAlertCount === 0}
-          onClick={() => window.dispatchEvent(new Event("caos:monitor-ack-selected"))}
-          className="caos-primary-action focus-ring disabled:opacity-40"
+          aria-disabled={selectedAlertCount === 0}
+          title={
+            selectedAlertCount > 0
+              ? undefined
+              : hasLiveAlerts
+                ? "Select live alerts in the worklist first."
+                : "No live alerts to acknowledge — the demo tape below is a read-only replay."
+          }
+          onClick={() => { if (selectedAlertCount > 0) window.dispatchEvent(new Event("caos:monitor-ack-selected")); }}
+          className="caos-primary-action focus-ring"
         >
           Acknowledge selected{selectedAlertCount ? ` (${selectedAlertCount})` : ""}
         </button>

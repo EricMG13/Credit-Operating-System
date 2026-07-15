@@ -312,7 +312,18 @@ function CommandCenter() {
         />
       }
       primaryAction={
-        <a href="#ranked-changes" className="caos-primary-action no-underline focus-ring">Open top change</a>
+        <button
+          type="button"
+          className="caos-primary-action focus-ring"
+          onClick={() => {
+            updateUrlState({ dataset: "changes", selected: null });
+            requestAnimationFrame(() => {
+              const el = document.getElementById("ranked-changes");
+              el?.scrollIntoView({ behavior: "smooth" });
+              (el as HTMLElement | null)?.focus();
+            });
+          }}
+        >Open top change</button>
       }
       status={<span className="tabular text-caos-2xs text-caos-muted">{commandSnapshot?.as_of ? `Holdings as of ${commandSnapshot.as_of}` : digestAsOf ? `Observed ${digestAsOf}` : "Holdings date unavailable"}</span>}
       contextualControls={

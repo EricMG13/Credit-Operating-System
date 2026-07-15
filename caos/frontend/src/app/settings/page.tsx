@@ -215,6 +215,16 @@ function Settings() {
     localStorage.setItem("caos_query_model", m);
   };
 
+  // Dirty tracking: baseline snapshot captured once the profile loads; "Save
+  // changes" is only meaningful when the form diverges from it. No form library.
+  const snapshot = () => JSON.stringify({ prefs, mode, queryModel });
+  const baseline = useRef<string | null>(null);
+  useEffect(() => {
+    if (analystLoaded && baseline.current === null) baseline.current = snapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analystLoaded]);
+  const dirty = baseline.current !== null && snapshot() !== baseline.current;
+
   const set = <K extends keyof ResearchPrefs>(k: K, v: ResearchPrefs[K]) => {
     setPrefs((p) => ({ ...p, [k]: v }));
     setSaved(false);
@@ -319,6 +329,7 @@ function Settings() {
         query_model: queryModel,
       },
     });
+    baseline.current = snapshot();
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
   };
@@ -327,7 +338,7 @@ function Settings() {
   return (
     <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
-      primaryAction={<button type="button" onClick={saveAll} disabled={!analystLoaded} className="caos-primary-action focus-ring disabled:opacity-40">Save changes</button>}
+      primaryAction={<button type="button" onClick={() => { if (analystLoaded && dirty) saveAll(); }} aria-disabled={!analystLoaded || !dirty} title={!analystLoaded ? "Loading profile…" : dirty ? undefined : "No unsaved changes"} className="caos-primary-action focus-ring">Save changes</button>}
       utilityLabel="Settings utilities"
       utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
       contextualControls={
@@ -471,10 +482,20 @@ function Settings() {
                             Active
                           </span>
                         ) : null}
+                        {/* Readiness never carried by color alone: pair the dot
+                            with a text label + title (colorblind-safe). */}
                         <span
-                          className="h-1.5 w-1.5 rounded-full shrink-0"
-                          style={{ background: m.configured ? "var(--caos-success)" : "var(--caos-idle)" }}
-                        />
+                          className="flex items-center gap-1 tabular text-caos-3xs uppercase tracking-wider"
+                          title={m.configured ? "API key configured" : `Requires ${m.reqKey} in the environment`}
+                          style={{ color: m.configured ? "var(--caos-success)" : "var(--caos-muted)" }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="h-1.5 w-1.5 rounded-full shrink-0"
+                            style={{ background: m.configured ? "var(--caos-success)" : "var(--caos-idle)" }}
+                          />
+                          {m.configured ? "ready" : "no key"}
+                        </span>
                       </span>
                     </div>
                     <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">

@@ -38,7 +38,7 @@ export default function UploadPage() {
             </span>
           </ShellIdentity>
         }
-        primaryAction={<a href="#intake-workspace" className="caos-primary-action focus-ring no-underline">Ingest</a>}
+        primaryAction={<a href="#intake-workspace" className="caos-primary-action focus-ring no-underline" title="Jump to the intake wizard — the real ingest is its 'Upload & process' button">Open intake</a>}
         contextualControls={<MnpiChip />}
         narrowContract={{ essentialControls: <MnpiChip /> }}
       >

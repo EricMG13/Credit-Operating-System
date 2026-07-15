@@ -43,6 +43,23 @@ test.describe("Settings", () => {
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 
+  test("Save changes is inert until a field diverges from the loaded profile", async ({ page }) => {
+    await page.goto("/settings/");
+    const save = page.getByRole("button", { name: "Save changes" });
+    // Pristine after load: aria-disabled with the no-changes reason.
+    await expect(save).toHaveAttribute("aria-disabled", "true", { timeout: 10000 });
+    await expect(save).toHaveAttribute("title", "No unsaved changes");
+
+    // Diverge one field → the primary becomes actionable.
+    await page.getByRole("tab", { name: "Research" }).click();
+    await page.getByLabel("Audience").fill(`Dirty ${Date.now()}`);
+    await expect(save).toHaveAttribute("aria-disabled", "false");
+
+    // Saving returns to pristine.
+    await save.click();
+    await expect(save).toHaveAttribute("aria-disabled", "true");
+  });
+
   test("saved defaults seed a new Research brief", async ({ page }) => {
     await page.goto("/settings/");
 

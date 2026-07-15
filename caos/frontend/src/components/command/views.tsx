@@ -761,7 +761,12 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
     .filter(({ a }) => !sevFilter || a.sev === sevFilter);
   // pb-12: scroll room so the last row can clear the fixed Ask chip (bottom-right).
   return (
-    <div className="pb-12">
+    <div className="pb-12" role="list" aria-label="Seeded demo alert replay (read-only)">
+      {/* Honest read-only marker: these seeded rows can't be acknowledged —
+          only the live AlertInbox above carries the selectable/ack path. */}
+      <p className="px-3 py-1.5 tabular text-caos-2xs uppercase tracking-widest text-caos-muted border-b border-caos-border/40">
+        Read-only replay — rows cannot be acknowledged.
+      </p>
       {rows.length === 0 ? (
         <div className="px-3 py-6 text-center text-caos-md text-caos-muted">
           No {sevFilter ?? ""} alerts routed yet.
@@ -773,7 +778,7 @@ export function AlertFeed({ tick, running, done, sevFilter = null }: {
         // The intake message that fired this alert (undefined for derived alerts).
         const srcEmail = typeof a.sourceEmail === "number" ? EMAILS[a.sourceEmail] : undefined;
         return (
-          <div key={a.code} className={"flex items-start gap-2 px-3 py-[6px] border-b border-caos-border/50 " + (isNewest && running ? "caos-enter" : "")}>
+          <div key={a.code} role="listitem" className={"flex items-start gap-2 px-3 py-[6px] border-b border-caos-border/50 " + (isNewest && running ? "caos-enter" : "")}>
             <Dot sev={a.sev} pulse={isNewest && running} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
