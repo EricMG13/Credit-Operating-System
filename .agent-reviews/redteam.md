@@ -758,10 +758,11 @@ or fall back to reference data; a disclosure button nests another control; eithe
 scenario mode mutates the other's state; sample holdings return as a live fallback;
 or Alt+S opens a surface other than the guarded command palette.
 
-## PR #193 Complexity-Gate Compatibility — Critic Pass (2026-07-15)
+## PR #193 Quality-Gate Compatibility — Critic Pass (2026-07-15)
 
-Decision under review: preserve the C901 gate for new or worsening complexity while
-allowing the branch's named, pre-gate complexity debt through a checked baseline.
+Decision under review: preserve the C901 and Fallow duplication gates for new or
+worsening debt while allowing this branch's pre-gate findings through checked,
+bounded baselines.
 
 | ID | Perspective | Objection | Impact | Status | Resolution / disposition |
 |----|-------------|-----------|--------|--------|--------------------------|
@@ -769,10 +770,13 @@ allowing the branch's named, pre-gate complexity debt through a checked baseline
 | RT-2026-07-15-221 | Maintenance reviewer | A permanent baseline can accumulate obsolete exceptions after functions are simplified, renamed, or removed. | Medium | Resolved in contract | When a baseline-owned file changes, entries that no longer map to an active C901 finding fail as stale and must be removed in the same change. |
 | RT-2026-07-15-222 | CI portability reviewer | Newline-delimited filenames are split by `xargs`, so the tracked `Modular OS/...` checker is interpreted as two nonexistent paths. | High | Resolved in contract | A Python subprocess receives an explicit argument list from NUL-delimited Git output; spaces and other shell-significant filename characters are never reparsed. |
 | RT-2026-07-15-223 | Governance reviewer | A baseline generated from arbitrary Ruff output can hide malformed findings or silently drift from the configured threshold. | High | Resolved in contract | The checker validates the baseline schema, rejects duplicates and nonpositive limits, parses only C901 JSON, requires the configured threshold, and fails closed on malformed Ruff output or subprocess errors. |
+| RT-2026-07-15-224 | Duplication reviewer | Raising token/line thresholds or excluding broad directories would hide new copy-paste regressions as well as the inherited clone set. | High | Resolved in contract | Keep Fallow's existing detection mode and thresholds. Its native baseline records only the 38 exact clone groups on this branch; `--ci` continues to fail on any unrecorded clone. |
+| RT-2026-07-15-225 | Baseline-integrity reviewer | A hand-authored clone allowlist could drift from Fallow's matcher and silently accept groups the tool did not actually observe. | High | Resolved and verified | The baseline is generated and consumed by the same pinned Fallow 3.5.1 native format. A local CI-equivalent run returns zero results with the baseline and 38 groups without it. |
 
 ### Critic reopen conditions (PR #193 complexity gate)
 
 Reopen if C901 is disabled globally; an exception is not keyed to an exact path and
 symbol; complexity can rise above its recorded maximum; stale entries survive a
-change to their owning file; Ruff errors are treated as success; or file paths pass
-through whitespace-delimited shell expansion.
+change to their owning file; Ruff errors are treated as success; file paths pass
+through whitespace-delimited shell expansion; Fallow thresholds or scope are
+relaxed; or an unrecorded clone does not fail the duplication step.
