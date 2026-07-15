@@ -462,7 +462,16 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   conclusion. Does not exist today (grep clean across `caos/tests/frontend/
   e2e/`). **Verify:** new Playwright spec + API assertions pass. **Exit:**
   spec green, wired into the per-PR e2e job (loop doc L7 work item).
-- [ ] **C7 (S)** Head-to-head issuer comparison — fifth Query walk (expansion
+- [ ] **C7 (S)** *(Exec 2026-07-12: PR #187 open — registered in
+  questions.ts/views.ts/synthesis.ts; backend _head_to_head() builder in
+  engine/querygraph.py reuses _covenant_register's exact node shape (group +
+  member nodes), zero new render machinery needed. GraphRequest.issuer_id_b
+  additive. New IssuerPicker.tsx (embeddable debounced autocomplete) wired
+  into query/page.tsx. Verified: 7 new backend tests green, full server suite
+  1414/1414, 5 new frontend unit tests green, tsc clean, 0 new C901
+  offenders. Residual: full frontend vitest suite inconclusive (machine
+  contention with a concurrent session, not a real failure); query_flow.spec.ts
+  extended but not run against a live stack.)* Head-to-head issuer comparison — fifth Query walk (expansion
   4.3): register in `questions.ts`/`views.ts`/`synthesis.ts` per the Query
   design mandates (synthesis sentence first, committee exhibit = charts +
   narrative); side-by-side headline `metric_facts`, covenant register rows,
