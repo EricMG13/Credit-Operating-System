@@ -118,6 +118,10 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// Report Studio auto-collapses the left ReportList below 1600px; these tests
+// assert against the list, so pin a wide desktop viewport.
+Object.defineProperty(window, "innerWidth", { value: 1680, writable: true, configurable: true });
+
 describe("Report Studio freshness lifecycle", () => {
   it("rebinds exact freshness when two immutable versions share one run", async () => {
     render(<ReportsPage />);
