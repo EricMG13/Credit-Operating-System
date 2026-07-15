@@ -945,6 +945,32 @@ class PipelineRun(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class AuditLog(Base):
+    """Append-only mutation trail (E3, PRE_DEPLOYMENT_PLAN §7) — who/what/when
+    on every route that changes persisted state. Written via ``audit.write``
+    in the SAME transaction as the mutation it records (never a separate
+    commit), so a rolled-back mutation never leaves an orphan audit row.
+
+    ``analyst_id`` is a loose string stamp (like ``Run.analyst_id``), not a
+    FK — GDPR erasure (``erase_analyst_data``) anonymizes it to NULL on the
+    subject's own rows, exactly like it anonymizes ``Run.analyst_id``; the
+    row itself (action/target/before/after) is retained as firm compliance
+    history, only the personal link is scrubbed. No IP/user-agent columns by
+    design — that would be a second PII surface needing the same erasure
+    discipline for no compliance benefit this table exists to provide."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    before: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    after: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+
 def _alembic_config():
     from alembic.config import Config
 
@@ -1050,10 +1076,25 @@ async def erase_analyst_data(
     nothing cascades; this is pure DML. Runs stamp ``analyst_id`` and research jobs
     key on the analyst id, while documents stamp the email — so scrub both keys.
     Returns the row counts touched. Commits itself (see below) so both callers —
-    the self-service route and the operator CLI — get an atomic erase.
+    the self-service route and the operator CLI — get an atomic erase. Writes
+    its own ``AuditLog`` row for the erasure event (E3) — inlined here (not via
+    ``audit.write``) so this module, which ``audit.py`` imports ``AuditLog``
+    from, has no import edge back onto ``audit.py``. The row's ``analyst_id``
+    (actor) is None from the start rather than written-then-anonymized below:
+    this session has ``autoflush=False``, so a just-``add``ed row would not be
+    visible to the anonymize UPDATE's WHERE clause without an extra flush —
+    starting anonymized sidesteps that ordering hazard entirely. ``target_id``
+    (the erased subject) is retained; it is an opaque internal id, not PII on
+    its own, and is the whole point of the row (proof erasure happened for a
+    specific subject on request).
     """
     keys = [k for k in (analyst_id, email) if k]
 
+    session.add(AuditLog(
+        analyst_id=None, action="analyst.gdpr_erase",
+        target_type="analyst", target_id=analyst_id,
+        before={"email_present": bool(email)},
+    ))
     research = await session.execute(
         delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
     )
@@ -1073,6 +1114,13 @@ async def erase_analyst_data(
             update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
         )
         docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
+    # Same anonymize-not-delete treatment as runs: every audit_log row this
+    # analyst ever actioned (INCLUDING the "analyst.gdpr_erase" row just added
+    # above, in this same flush/commit) is retained as compliance history,
+    # only the personal link is scrubbed.
+    audit_anon = await session.execute(
+        update(AuditLog).where(AuditLog.analyst_id.in_(keys)).values(analyst_id=None)
+    )
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
     return {
@@ -1080,6 +1128,7 @@ async def erase_analyst_data(
         "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
+        "audit_log_anonymized": audit_anon.rowcount or 0,  # type: ignore[attr-defined]
         "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]
     }
 

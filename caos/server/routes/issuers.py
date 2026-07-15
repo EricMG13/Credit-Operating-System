@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 from database import (
     Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
@@ -172,6 +173,9 @@ async def create_issuer(
     db.add(issuer)
     await db.flush()
     await db.refresh(issuer)
+    audit.write(db, analyst_id=caller.id, action="issuer.create",
+                target_type="issuer", target_id=issuer.id,
+                after={"name": issuer.name, "ticker": issuer.ticker, "sponsor": issuer.sponsor})
     return issuer
 
 
@@ -719,12 +723,21 @@ async def create_research_report(
     )
     db.add(report)
     try:
+        # flush + audit INSIDE the try: a concurrent-insert collision on the
+        # flush must hit the same recovery path as one on commit, not escape
+        # uncaught (this bit the SSO-profile route the same way — see auth.py).
+        await db.flush()  # populate report.id (client-side uuid default)
+        audit.write(db, analyst_id=caller.id, action="research_report.create",
+                    target_type="research_report", target_id=report.id,
+                    after={"issuer_id": issuer_id, "run_id": latest_complete.id})
         await db.commit()
     except IntegrityError:
         # Two concurrent requests can both pass the `existing` check-then-insert
-        # above before either commits; the loser hits uq_issuer_run_report. Return
-        # the winner's row instead of 500ing — same recovery shape as
-        # routes/models.py's SavedModel concurrent-first-save fix.
+        # above before either commits; the loser hits uq_issuer_run_report. Rollback
+        # discards the report AND its audit row together — the loser created
+        # nothing, so no orphan audit row survives. Return the winner's row
+        # instead of 500ing — same recovery shape as routes/models.py's
+        # SavedModel concurrent-first-save fix.
         await db.rollback()
         winner = (await db.execute(
             select(IssuerResearchReport).where(

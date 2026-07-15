@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 import vault_export
 from config import get_settings
@@ -330,14 +331,23 @@ async def create_run(
         )
         db.add(run)
         try:
-            await db.commit()  # persist the queued run so the executor can see it
+            # flush + audit INSIDE the try: a concurrent-insert collision on the
+            # flush must hit the same recovery path as one on commit, not escape
+            # uncaught (this bit the SSO-profile route the same way — see auth.py).
+            await db.flush()  # populate run.id (client-side uuid default)
+            audit.write(db, analyst_id=caller.id, action="run.create",
+                        target_type="run", target_id=run.id,
+                        after={"issuer_id": body.issuer_id, "as_of_date": body.as_of_date,
+                               "portfolio_id": portfolio_id, "model_mode": run.model_mode})
+            await db.commit()  # persist the queued run (+ audit row) so the executor can see it
         except IntegrityError:
             # Belt-and-suspenders: the SELECT-then-INSERT above is already
             # serialized by _create_run_lock() within THIS process, but the DB-
             # level uq_runs_issuer_active partial unique index (migration 0035)
             # also backstops a race across multiple app replicas, where a
-            # per-process lock can't coordinate. Same 409 the in-process check
-            # above already gives — not a 500.
+            # per-process lock can't coordinate. Rollback discards the run AND
+            # its audit row together. Same 409 the in-process check above already
+            # gives — not a 500.
             await db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, "A run for this issuer is already in progress")
         _idempotency_store(caller.id, idempotency_key, run.id)

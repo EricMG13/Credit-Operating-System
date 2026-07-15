@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import avscan
 import ingest
 import rate_limit
@@ -129,6 +130,10 @@ async def _vault_document(
     )
     db.add(doc)
     await db.flush()
+    audit.write(db, analyst_id=caller.id, action="document.upload",
+                target_type="document", target_id=doc.id,
+                after={"issuer_id": issuer_id, "doc_type": doc_type,
+                       "file_name": doc.file_name, "run_mode": run_mode})
     if chunks:
         import hashlib
         import uuid
@@ -198,7 +203,9 @@ async def upload_document(
                                   chunk_prov="ocr" if used_ocr else None)
 
 
-async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:  # noqa: C901
+async def _collect_ratings(  # noqa: C901
+    db: AsyncSession, content: bytes, resp: IngestionResponse, caller: CallerIdentity,
+) -> None:
     """Pull agency ratings off a structured (xlsx) upload and write them onto
     matching *existing* issuers — matched by FIGI, then ticker, then exact name.
 
@@ -228,6 +235,7 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
                     break
             if iss is None:
                 continue
+            before_moody, before_sp = iss.rating_moody, iss.rating_sp
             changed = False
             if rec.get("moody") and iss.rating_moody != rec["moody"]:
                 iss.rating_moody = rec["moody"]
@@ -237,6 +245,10 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
                 changed = True
             if changed:
                 updated += 1
+                audit.write(db, analyst_id=caller.id, action="issuer.rating_update",
+                            target_type="issuer", target_id=iss.id,
+                            before={"rating_moody": before_moody, "rating_sp": before_sp},
+                            after={"rating_moody": iss.rating_moody, "rating_sp": iss.rating_sp})
         if updated:
             await db.flush()
             resp.ratings_updated = updated
@@ -269,7 +281,7 @@ async def upload_pricing_sheet(
     resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
 
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
-    await _collect_ratings(db, content, resp)
+    await _collect_ratings(db, content, resp, caller)
     return resp
 
 
@@ -378,6 +390,10 @@ async def upload_memo(  # noqa: C901
     msg = f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s)."
     if chunks_created:
         msg += f" Chunked into retrieval ({chunks_created} chunks × {len(memo_doc_ids)} issuer(s))."
+
+    audit.write(db, analyst_id=caller.id, action="memo.upload",
+                target_type="memo", target_id=path.stem,
+                after={"memo_type": mtype, "issuer_links": sorted(linked)})
 
     return MemoUploadResponse(
         note=path.stem,
