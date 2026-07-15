@@ -10,14 +10,15 @@ chain — filled from PyPI metadata); the frontend summary from
 ## Verdict
 
 **No copyleft or unknown licenses in shipped code paths.** Everything is
-MIT / BSD / Apache-2.0 / ISC / MPL-2.0 / PSF-class. Three flags, all
-accepted:
+MIT / BSD / Apache-2.0 / ISC / MPL-2.0 / PSF-class. Three license flags, all
+accepted, plus one security (not license) flag on `exceljs`:
 
 | Flag | Package | Why accepted |
 |---|---|---|
 | LGPL-3.0-or-later | `@img/sharp-libvips-*` (sharp's prebuilt libvips) | Dynamically-linked native library used at build/serve time; LGPL obligations are met by dynamic linking and we distribute no modified libvips. Internal deployment, not redistributed software. |
 | CC-BY-4.0 | `caniuse-lite` | Browser-support **data**, not code; attribution carried by the package itself. |
 | UNLICENSED | `caos-frontend@2.0.0` | The app's own private package marker — correct for proprietary internal software. |
+| Security: 2 open Moderate advisories via a transitive dep, no fix without a breaking downgrade (`exceljs@4.4.0`, C9) | `exceljs` | `GHSA-w5hq-g745-h8pq` (missing buffer bounds check) in its transitive `uuid` dependency — internal ID generation, not the file-parse path. Chosen deliberately over `xlsx`/SheetJS (the C9 plan item's original suggestion): SheetJS carries 2 open **High**-severity unpatched advisories in its parse path that fail CI's `npm audit --audit-level=high` gate outright; ExcelJS's residual is Moderate, so it clears that gate, and usage in this codebase (`components/model/export.ts`) is write-only regardless (`addWorksheet`/`addRow`/`writeBuffer`, never `load`/`readFile`, on untrusted input). Re-audit before any future code path calls `Xlsx.load`/`readFile` on user-supplied bytes. |
 
 Weak-copyleft notes (no action): 3 Python packages under MPL-2.0
 (file-level copyleft — unmodified use), `certifi` under MPL-2.0, ZPL-2.1 ×2,
@@ -31,6 +32,7 @@ deployment.
 | MIT | 203 |
 | ISC | 29 |
 | Apache-2.0 | 8 |
+| (whole table) | *stale as of C9 (2026-07-12) — `exceljs`'s transitive deps (jszip et al.) introduce license categories not yet reflected below (Unlicense, a Custom grant, two dual-license expressions); regenerate this whole section with `npx license-checker --production --summary` before the next phase exit rather than trusting these per-category counts.* |
 | BSD-3-Clause | 4 |
 | MIT AND ISC | 1 |
 | LGPL-3.0-or-later | 1 (see flag table) |

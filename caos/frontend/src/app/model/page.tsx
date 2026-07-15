@@ -27,7 +27,7 @@ import {
 import { buildReports } from "@/lib/reports/builders";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
-import { getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
+import { getIssuerProfile, getSavedModel, saveModel as saveIssuerModel } from "@/lib/api";
 import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
 import Link from "next/link";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -289,8 +289,27 @@ function ModelBuilder() {
   // Export masthead: reference keeps the ATLF demo lineage verbatim; a live
   // issuer must NOT carry fabricated M-118 / #2641 lineage.
   const exportMeta = isReference
-    ? { header: "Atlas Forge Industrials — cash-flow model M-118", subheader: "YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", filename: "ATLF Cash-Flow Model M-118.csv" }
-    : { header: `${issuerName} — cash-flow model`, subheader: `YE 31-Dec · $m${eng.runId ? " · RUN " + eng.runId : ""} · * derived period (G-02)`, filename: `${issuerName} Cash-Flow Model.csv` };
+    ? { header: "Atlas Forge Industrials — cash-flow model M-118", subheader: "YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", filename: "ATLF Cash-Flow Model M-118.xlsx" }
+    : { header: `${issuerName} — cash-flow model`, subheader: `YE 31-Dec · $m${eng.runId ? " · RUN " + eng.runId : ""} · * derived period (G-02)`, filename: `${issuerName} Cash-Flow Model.xlsx` };
+
+  // C9: committee-pack .xlsx. Headline metric_facts come from the issuer
+  // profile (server-owned data — the one piece that must cross the network);
+  // the model grid/scenarios/assumptions are already in memory, so the export
+  // itself is async (ExcelJS's writeBuffer is Promise-based). A failed
+  // profile fetch degrades to an empty Headline Facts sheet rather than
+  // blocking the export.
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const profile = await getIssuerProfile(issuerId).catch(() => null);
+      await exportModel(model, showQuarters, overrides, exportMeta, {
+        prov: fromModelEngine(eng), runId: eng.runId, assumptions, metrics: profile?.metrics ?? [],
+      });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     const prev = prevModel.current;
@@ -517,12 +536,12 @@ function ModelBuilder() {
             {saving ? "SAVING..." : "SAVE MODEL"}
           </button>
           <button
-            onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
-            disabled={!hasIssuerModel}
-            title="Export the model grid (CSV — opens in Excel)"
+            onClick={handleExport}
+            disabled={!hasIssuerModel || exporting}
+            title="Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"
             className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
           >
-            ▦ EXPORT MODEL
+            {exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
           </button>
         </>
       }
