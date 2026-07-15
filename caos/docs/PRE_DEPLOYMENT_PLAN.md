@@ -1,9 +1,10 @@
 # CAOS — Pre-Deployment Program Plan
 
-> **Latest status:** the **2026-07-13 coverage review** below is the current
-> release-planning overlay. The earlier 2026-07-13 code reconciliation remains
-> useful implementation history, but it predates `c6c0f9a6` and must be
-> re-grounded before any checkbox is closed.
+> **Latest status:** the **2026-07-15 reconciliation** below (A8 executed) is
+> the operative status source. The 2026-07-13 coverage review's PG-01…PG-12
+> rows remain the release-blocker ledger; the 2026-07-13 code reconciliation
+> and its UW/UF register are retained as history and are corrected by the
+> 2026-07-15 register-delta table.
 
 > **For agentic workers:** this is the **master program plan** (current state
 > → enterprise transfer). It tracks **status** only — status verdicts,
@@ -69,6 +70,67 @@ only when H3 records the exact control, owner, evidence, and H5 approval; a
 generic “accepted risk” is not closure. The matching critic pass is recorded
 in `.agent-reviews/redteam.md` (RT-2026-07-13-152…160).
 
+### 2026-07-15 reconciliation — post-wave re-grounding (A8 executed)
+
+**This block supersedes every earlier "today/current" count in this document.**
+Re-derived this session from direct code inspection, a live offline test run,
+GitHub API/CI queries, and two independent register-verification sweeps whose
+FIXED verdicts were then re-verified by hand before any status flip.
+
+| Check | Result |
+|---|---|
+| `origin/main` | **`0b00b21a`** — CI run on the tip is **green** (the two 2026-07-13 red E2E assertions — Research `● LIVE` provenance, Settings server-backed Workspace heading — no longer fail). Main is deployable by the L1 gate again. |
+| Current checkout | `codex/112@76daeecf`, **3 commits ahead / 0 behind** `origin/main` (issuer-identity uniqueness + migration `0059`, cancellation-rollback + Turbopack build switch, tenancy-preflight/a11y-runner hardening). Tree was clean at grounding; parallel WIP then appeared mid-session (~23 server files — write-role widening, workbook validator, reranker guards per RT-2026-07-15-265…269) — every count here is a snapshot from the clean-tree moment, and the E2/UW facts may improve as that WIP lands. |
+| Server suite, offline, this session | **1821 passed / 9 skipped**, 74s — `env -u ANTHROPIC_API_KEY -u GEMINI_API_KEY -u OPENROUTER_API_KEY caos/server/.venv311/bin/python -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q` on `.venv311`. (The Phase-7 release record's 1808/9 run had 7 ClamAV loopback cases sandbox-denied; they pass here.) |
+| Open PRs | **4** — #169 (E3 audit trail), #184 (D1 stamp), #191/#192 (C8). **C7 (#187/#188) and C9 (#189/#190) merged 2026-07-15.** |
+| Migrations | Head **`0059`** (0052 lineage v2 · 0053 freshness policy · 0054 report freshness authority · 0055 market xlsx v2 · 0056 model engine v2 persistence · 0057 workbook import idempotency · 0058 notification events · 0059 issuer identity uniqueness). |
+| Nightly loop (L5) | `.github/workflows/nightly.yml` live; **4 consecutive green scheduled cycles** (2026-07-12 → 2026-07-15) — the loop doc's ≥2-cycle contract is met; L5 is citable at phase exits. |
+| Engine registry | **21 implemented modules** (CP-4D, CP-2G added, both flag-gated default-off) + the same 4 spec-only (`CP-SR`/`CP-MON`/`CP-RENDER`/`CP-EXTRACT`, `implemented=False`). |
+
+#### The applicable-updates wave is now committed — and needs a plan owner
+
+Since `c6c0f9a6` (the 2026-07-13 reconcile point), **34 commits** landed
+carrying the flag-gated feature wave Phases 0–7: lineage v2, freshness
+policy/authority, market XLSX import, Model Engine v2 (drafts, append-only
+`model_override_events` with replay/undo, checkpoint import idempotency),
+CP-4D/CP-2G modules, run-terminal `notification_events`, plus issuer-identity
+uniqueness and the Turbopack build switch. Its own release boundary lives in
+[APPLICABLE_UPDATES_PHASE7_RELEASE.md](APPLICABLE_UPDATES_PHASE7_RELEASE.md):
+five deployment-global flags (`CAOS_LINEAGE_V2_ENABLED`,
+`CAOS_MARKET_XLSX_V2_ENABLED`, `CAOS_MODEL_ENGINE_V2_ENABLED`,
+`CAOS_CP_4D_ENABLED`, `CAOS_CP_2G_ENABLED`), all **default-off**, staged
+enablement 0→5 with per-stage entry evidence, abort triggers, and rollback
+rules; implementation-complete but **not authorized for production
+enablement**. This program's pre-deployment definition ("everything else
+live") cannot be met with the wave permanently dark — **C14 (new, §5) owns
+the disposition**, and H0's release manifest must record the candidate's
+exact flag state.
+
+#### UW/UF register delta (vs the 2026-07-13 register)
+
+Every UW row was re-verified against current code; FIXED verdicts were
+re-confirmed by hand at the anchors below.
+
+| Row | New verdict | Evidence |
+|---|---|---|
+| **UW-04** Command sample sleeve + replay | **FIXED** | `grep -n "Sample\|useSharedDayRun" app/command/page.tsx` → 0 hits; positions come from `portfolioLabApi.getCommandSnapshot` with honest offline/empty states. C2's own verify-grep is green; C2's residual narrows to UW-24. |
+| **UW-08** Model export CSV stub | **FIXED** | `components/model/export.ts` is a real ExcelJS `.xlsx` (5 stamped sheets, formula-injection guard); C9 merged. |
+| **UW-09** Report publish/PDF for a real issuer | **FIXED** | `routes/reports.py` composes versions/preview/export from `run_id` + `model_checkpoint_id` (`require_write_role`-gated); `reports/page.tsx` `publishCommitteeVersion` + print portal live. CP-RENDER the *module* remains `implemented=False` — this is the "equivalent live service" arm of C13; record it in the C13 promise map. Closes **UF-05**'s renderer gap. |
+| **UW-07** Scenario Apply/Reset | **STILL TRUE, starting point moved** | `ScenarioPanel.tsx` still a session-local lens ("never mutates model inputs"). But Model Engine v2 now provides the persistence machinery C11 needs (`model_drafts_v2`, `model_override_events` with `inverse_event_id` replay, checkpoints) — C11 builds Apply on top of it, no new store. |
+| **UW-15/UW-17 (C5 inputs)** | **STILL TRUE, starting point moved** | Profile market panel still "Feed pending"; RV still bundles the `REFERENCE` JSON. But migration `0055` + `routes/market_import.py` (`/api/rv/snapshots/import[/preview]`, `market_import_issues` audit) is a live, authz-gated, immutable **manual workbook import lane** — C5's provider chain and all RV/DM read-models must build on **this** store, not a parallel one. |
+| **UF-02 (C3-seam)** | **Partial** | `notification_events` (0058) + `notification_service.emit_run_terminal_notification` wired into `run_executor.py` + `/api/notifications` feed/seen = the durable-event half exists for run-terminal events. `AlertSink`/`EmailSink`/`InAppSink`/`watch_rule` remain **zero-hit**; Monitor counts/replay/EmailIntel still fixture-backed (UW-10/UW-11 unchanged). |
+| **UF-08 (E2)** | **Partial, better than written** | `Analyst.role` column exists (`database.py:249`, default `analyst`); `require_write_role` (`identity.py:71`, rejects viewer/read-only) enforced on 15 handlers across committee/decisions/issuers/model_v2/model_workbook/portfolios/reports. Residual: legacy mutating routes (runs, vault, ratings, watchlist, settings…), admin role semantics, `CAOS_ADMIN_EMAILS` bootstrap (zero code hits), assignment plane, forged-role tests. |
+| **UF-14 (C9)** | **CLOSED** | Merged to `origin/main` 2026-07-15. |
+| **UF-12 (C7)** | **CLOSED** | Merged to `origin/main` 2026-07-15. |
+| All other UW rows | **STILL TRUE** | UW-01/02/03/05/06/10/11/12/13/14/16/18/19/20/21/23/24 re-verified at (shifted) anchors; UW-22 remains the wired baseline. |
+
+**Immediate release order (refreshed):** (1) decide/merge the four open PRs —
+#169 and #191 are the substantive two (E3, C8); (2) C14 flag-wave disposition
+decision recorded; (3) the four L-sized builds unchanged: B5 corpus capture,
+C3-seam, C5 provider chain (now *on top of* the 0055 store), E2 completion;
+(4) then the unchanged D4/E-phase/G-phase/H-phase ladder. Every remaining UW
+row resolves inside those items — no orphan work discovered this grounding.
+
 ## Historical trunk state — 2026-07-11 (superseded)
 
 Grounded 2026-07-11 by direct code inspection (`git grep`/`git show`/`git
@@ -113,9 +175,10 @@ Everything above (and the exec-notes threaded through §§3–9 below) describes
 | C3-seam, concrete local delta | On **this branch only**: `monitor/page.tsx` now imports a live `AlertInbox` component (`components/monitor/AlertInbox.tsx`) driven by `useAutonomyDraft` (`lib/engine/useAutonomyDraft.ts`) + `draftToAlertRows`, and migration `0038_alert_states` (table `alert_states`: `alert_key`/`state`/`assignee`/`note`/`analyst_id`) landed — real progress beyond `origin/main`'s "confirmed entirely absent." **But:** `monitor/page.tsx` still also imports `simAlertsToday`/`CRITICAL_ALERTS` (mock) and `AlertFeed`/`EmailIntel` (mock) alongside the live inbox — a hybrid state, not yet a clean live/labeled-sample split. The `AlertSink`/`EmailSink`/`InAppSink` **interface abstraction itself is still zero-hit** (`git grep -in "alertsink\|emailsink\|inappsink"` empty), even on this branch — the P2-WP work built a direct alert-inbox path, not the seam interface C3-seam specifies. Reconcile which approach wins at C3-seam pickup. |
 | Local branch/worktree hygiene | Materially worse than any prior count in this document — **104 local branches** as of this check (A6 already flags this as a moving, machine-local number not to hard-code; re-verify at pickup, do not carry today's number forward either). |
 
-### 2026-07-13 authoritative reconciliation — current code and unwired controls
+### 2026-07-13 reconciliation — code and unwired controls (superseded 2026-07-15)
 
-**This block supersedes every earlier “today/current” count in this document.**
+**Superseded by the 2026-07-15 reconciliation above; the UW/UF register below
+remains the reference numbering, corrected by the register-delta table.**
 Older grounding remains below as program history and acceptance-test context;
 do not use it for a release decision. Status was re-derived from the current
 checkout, `origin/main`, the feature tracker, route/component source, tests,
@@ -242,6 +305,11 @@ half of `EmailSink` is meant to stay outstanding at the gate.
 `AlertInbox` + `useAutonomyDraft` + `alert_states` table landed (P2-WP-3) —
 see the 2026-07-12 update block above. The `AlertSink`/`EmailSink` interface
 itself is still zero-hit even here; reconcile at C3-seam pickup.
+**State 2026-07-15:** run-terminal `notification_events` (migration `0058`,
+idempotency-keyed, seen-state, `/api/notifications` feed) are merged and
+wired from `run_executor.py` — the first durable event persistence on main.
+`AlertSink`/`EmailSink`/`InAppSink`/`watch_rule` remain zero-hit; Monitor UI
+counts/replay/EmailIntel remain fixture-backed (UW-10/UW-11).
 
 **#2 Market data → Bloomberg.** Product decision 2026-07-03: the Bloomberg
 connector is **built in-plan** (C5), not left as a stub — persisted quote
@@ -262,6 +330,12 @@ migrations 0001–0037; Bloomberg exists only as a name inside seeded frontend
 fixture data (`lib/command/rvdata.ts`, `market-data.json`). **C5 (§5) builds
 the entire layer**; only enterprise entitlements/credentials/parallel-run stay
 outstanding at the gate.
+**State 2026-07-15:** the persisted-store half now exists — immutable
+`market_snapshots` + `market_import_issues` (migration `0055`) with the
+authz-gated `/api/rv/snapshots/import[/preview]` manual XLSX lane (flag-off →
+C14). Provider chain, refresh, Settings control plane, and every consuming
+read-model remain unbuilt; `MarketDataProvider`/`BloombergProvider`/
+`ManualQuoteProvider` still zero-hit. C5 builds on the 0055 store (see §5).
 
 ---
 
@@ -366,13 +440,12 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M) — live PR triage.** Eight PRs were open at the 2026-07-13
-  reconciliation: #169, #184, and #187–#192. #187/#188 (C7), #189/#190
-  (C9), and #191/#192 (C8) report green candidate/stamp checks but are still
-  open; #169 has a server-test failure; #184 has cancelled checks. Record a
-  merge/close/defer decision for each, resolve overlap between candidate and
-  stamp PRs, then require a fresh green main-tip run after every accepted
-  merge. **Verify:** refresh the GitHub open-PR list and checks at pickup.
+- [ ] **A5 (M) — live PR triage.** 2026-07-15: **4 open** — #169 (E3), #184
+  (D1 stamp), #191/#192 (C8). C7 (#187/#188) and C9 (#189/#190) merged
+  2026-07-15 with main-tip CI green after. Remaining decisions: #169 (had a
+  server-test failure at last check), #191/#192 (green candidate/stamp),
+  #184 (stamp-only; its feature #183 already merged — merge or fold the stamp).
+  **Verify:** refresh the GitHub open-PR list and checks at pickup.
   **Exit:** no PR older than 14 days lacks a decision, no duplicate candidate
   remains open, and accepted work is green on `origin/main` (L14).
 - [ ] **A6 (S) — remote branch hygiene.** The 2026-07-11 classification found
@@ -407,25 +480,25 @@ truth, tooling roots clean.
   now **355/355 `Pass`**, 0 `Pending Verification`; CP-SR production compute
   remains separately and honestly tracked under UF-01/UW-19 rather than
   hidden in the UI tracker.
-- [ ] **A8 (M) — current-state re-grounding.** The 2026-07-13 authoritative
-  implementation register predates commits through `c6c0f9a6` and migration
-  `0052`; it also predates the live nightly workflow, analyst role field,
-  decision/committee/report-export work, Portfolio Lab, and lineage v2. Once
-  parallel WIP settles, reconcile every UW/UF row and A–H status against a
-  clean `origin/main` checkout and current GitHub checks. Present-in-worktree
-  is not merged; a field/table is not a complete policy; a passing UI tracker
-  is not proof of live data. **Verify:** dated reconciliation records commit,
-  clean-tree status, open PRs, migration head, CI URL, current test/axe counts,
-  and evidence for every status flip. **Exit:** no “latest/current” claim in
-  this plan points at an older checkout without an explicit historical label.
+- [x] **A8 (M) — DONE 2026-07-15.** The 2026-07-15 reconciliation block at the
+  top of this document executed this item: every UW/UF row re-verified (FIXED
+  verdicts hand-confirmed), A–H statuses re-derived against
+  `origin/main@0b00b21a` + the 3 inventoried branch commits on a clean tree,
+  with commit, PR list, migration head (`0059`), CI state, and suite count
+  (1821/9) recorded. Scope note: grounding ran on `codex/112` (= main + 3
+  listed commits), not a bare `origin/main` checkout — each branch-only delta
+  is itemized in the block, so no "current" claim silently includes
+  unreviewed drift. Re-open this item (per its original text) at the next
+  major landing — the C8/E3 merges or any flag enablement.
 
 **Exit gate:** `main` is the only release branch (post A3/A6/A6b) · 0 open
 non-dependabot PRs without a recorded decision · dependabot backlog ≤14 days
-old (A5/L14) · CI green on `main` tip (**not true as of 2026-07-13: two E2E
-failures**) · server suite green on the designated server venv (latest local:
-1457 pass / 7 skip; latest main CI server job green) · `FEATURE_TRACKER.csv`
+old (A5/L14) · CI green on `main` tip (**true 2026-07-15 at `0b00b21a`** —
+re-verify at gate close) · server suite green on the designated server venv
+(latest local: 1821 pass / 9 skip) · `FEATURE_TRACKER.csv`
 has 0 unresolved `Pending Verification` rows ·
-0 dangling skill symlinks · A8 current-state reconciliation complete.
+0 dangling skill symlinks · A8 current-state reconciliation complete (done
+2026-07-15; re-run at next major landing).
 
 **Loops:** L1 (CI gate), L2 (code review), L3 (blast radius), L14 (dependency
 triage), L15 (tracker sweep) — see the loop doc.
@@ -519,10 +592,13 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   "Sample" caos/frontend/src/app/command/page.tsx` returns 0 (or only an
   explicit empty-state string). **Exit:** no unlabeled/labeled-sample data on
   the board in a prod build.
-  *(2026-07-12, unmerged `feat/design-rebuild-p1` only: a "ranked-changes
-  opener + combined governance panel" landed (commit `bc696b72`, P2-WP-2) —
-  not yet independently verified against this item's `grep "Sample"` check;
-  re-verify at C2 pickup rather than assuming it closes the item.)*
+  *(2026-07-15: this item's own verify-grep is **green** — `grep -n "Sample"
+  app/command/page.tsx` returns 0; the sleeve/replay path is gone and
+  positions come from `portfolioLabApi.getCommandSnapshot` with honest
+  offline/empty states (UW-04 FIXED). Residual for C2 = the **issuers
+  directory** `DEMO_UNIVERSE` fallback (UW-24): separate the reference
+  workspace from the live worklist or show a true empty state with an
+  explicit open-sample action — then close.)*
 - [ ] **C3-seam (L — own implementation plan at pickup)** Monitor alert seam.
   **Latest:** the autonomy engine and the live ack/assign/resolve inbox are
   present; the current WIP also adds durable `AlertEvent` records. The
@@ -556,22 +632,35 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   zero). **Exit:** rule → event → inbox → `InAppSink` round-trips end-to-end
   from a golden-issuer run; `EmailSink` stub records intent with rendered
   subject/body; Monitor frontend has zero "Illustrative sample" markers left.
-  The 2026-07-12 branch note above is historical; the 2026-07-13 UW/UF
-  register is the source of truth for what remains.
+  *(2026-07-15 starting point: migration `0058` + `notification_service.py`
+  now persist **run-terminal** `notification_events` (unique idempotency key,
+  seen-state, `/api/notifications` feed) wired from `run_executor.py` — a
+  live durable-event pattern the C3-seam plan should extend or subsume rather
+  than duplicate. The `AlertSink` interface, watch-rule model, and all
+  non-run-terminal signal sources remain zero-hit; UW-10/UW-11 fixtures
+  unchanged.)*
 - [ ] **C4 (M)** Deep-Dive / Report Studio residual seeded panels (from the
   C1 ledger): each → live adapter or explicit "no data / degraded" state. No
   unlabeled seed survives in a production build. **Verify:** C1's
   `MOCK_LEDGER.md` shows 0 open silent-mock rows in these surfaces. **Exit:**
   same.
 - [ ] **C5 (L — own implementation plan at pickup)** Market data: quote
-  store + Bloomberg connector. **Latest:** the current WIP contains normalized
-  immutable snapshot/instrument tables and RV screen adapters, but only a
-  bundled `REFERENCE` JSON snapshot. No production provider chain, manual
-  import/refresh path, credential/status control plane, live recovery/downside
-  inputs, exact portfolio mapping, or risk-budget adapter exists (UW-15,
-  UW-17; UF-03). This is **allowed-outstanding-item #2**'s remaining build
-  phase — only enterprise credentials/entitlements and parallel-run
-  reconciliation should remain after it lands:
+  store + Bloomberg connector. **Latest 2026-07-15:** migration `0055` +
+  `routes/market_import.py` are now **merged**: immutable analyst-owned
+  `market_snapshots` (document FK, source manifest, import mapping) with a
+  `market_import_issues` audit table and authz-gated
+  `/api/rv/snapshots/import[/preview]` — i.e. the **manual workbook-import
+  lane exists** (flag `CAOS_MARKET_XLSX_V2_ENABLED`, default off → C14). The
+  C5 implementation plan must treat this as the persisted store and build the
+  provider chain **on top of it — do not create a parallel `market_quotes`
+  store**; reconcile naming at pickup. Still absent: the provider
+  chain/refresh path, credential/status control plane, live
+  recovery/downside inputs, exact portfolio mapping, risk-budget adapter,
+  and every consuming read-model (profile market panel still "Feed pending",
+  RV still bundles the `REFERENCE` JSON — UW-15, UW-17; UF-03). This is
+  **allowed-outstanding-item #2**'s remaining build phase — only enterprise
+  credentials/entitlements and parallel-run reconciliation should remain
+  after it lands:
   - **Persisted quote store** (`market_quotes` migration): issuer/tranche →
     DM, price, as-of, source tag. The single source for all RV analysis
     app-wide — Sector RV table, Deep-Dive RV, CP-3 peer percentiles, Command
@@ -606,7 +695,8 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   conclusion. Does not exist today (grep clean across `caos/tests/frontend/
   e2e/`). **Verify:** new Playwright spec + API assertions pass. **Exit:**
   spec green, wired into the per-PR e2e job (loop doc L7 work item).
-- [ ] **C7 (S)** *(Exec 2026-07-12: PR #187 open — registered in
+- [x] **C7 (S) — DONE, merged to `origin/main` 2026-07-15** (PRs #187/#188;
+  main-tip CI green after). *(Exec 2026-07-12: PR #187 open — registered in
   questions.ts/views.ts/synthesis.ts; backend _head_to_head() builder in
   engine/querygraph.py reuses _covenant_register's exact node shape (group +
   member nodes), zero new render machinery needed. GraphRequest.issuer_id_b
@@ -622,9 +712,8 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   CP-3 RV percentile + CP-2B fragility. **Verify:** `npm --prefix
   caos/frontend run test -- head-to-head` (new vitest spec) +
   `npx playwright test caos/tests/frontend/e2e/query_flow.spec.ts` (extended)
-  green. **Exit:** walk answers a real query end-to-end. **Latest:** green
-  candidate/stamp PRs #187/#188 remain open; capability is not on current
-  checkout or `origin/main`.
+  green. **Exit:** walk answers a real query end-to-end — **met; on
+  `origin/main` as of 2026-07-15.**
 - [ ] **C8 (M)** IC Decision Record (expansion 4.1): append-only per-issuer
   record — recommendation, conviction, thesis sentence, committee date,
   decision, dissent, link to the run/report it was based on. Surfaced on
@@ -634,7 +723,8 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   green. **Exit:** record created/read/appended through the real UI path.
   **Latest:** implemented in the current branch only; PRs #191/#192 remain
   open. Do not close until migrated and green on `origin/main`.
-- [ ] **C9 (S–M)** *(Exec 2026-07-12, merged via PRs #189/#190 on 2026-07-15 — real .xlsx client-side
+- [x] **C9 (S–M) — DONE, merged to `origin/main` 2026-07-15** (PRs #189/#190;
+  UW-08 verified FIXED in the 2026-07-15 register delta). *(Exec 2026-07-12, merged via PRs #189/#190 on 2026-07-15 — real .xlsx client-side
   (frontend-only) chosen over backend/openpyxl: model grid/scenarios/
   assumptions are computed exclusively client-side, so a backend export
   would mean re-implementing that math in Python (undermining C9's own
@@ -673,6 +763,14 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   that previews affected cells, writes provenance-bearing overrides, forms
   one undo step, saves to the working draft, and can be captured in an
   immutable checkpoint. Reset must never erase unrelated manual overrides.
+  *(2026-07-15: Model Engine v2 (migrations `0056`/`0057`,
+  `routes/model_v2.py`, `model_workbook.py`) shipped exactly the substrate
+  this needs — `model_drafts_v2`, append-only `model_override_events` with
+  `inverse_event_id` replay/undo, checkpoint import idempotency, all
+  `require_write_role`-gated. C11 = wire the scenario lens's Apply into that
+  override-event path (flag `CAOS_MODEL_ENGINE_V2_ENABLED` → C14); do not
+  build a second persistence mechanism. UW-07 itself re-verified STILL TRUE —
+  ScenarioPanel remains session-local today.)*
   **Verify:** scenario → preview → apply → undo/redo → save → reopen →
   checkpoint restore test. **Exit:** scenario buttons are no longer a
   session-only calculation when the analyst chooses to commit them.
@@ -690,12 +788,37 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   For each module, either implement and register it, or name the live service
   that fully owns the same user-visible contract and remove or redirect the
   spec-only route promise. A label or reference synthesis is not equivalent.
+  *(2026-07-15: two map entries are now writable — **CP-RENDER**: the live
+  Report Studio composition path (`routes/reports.py` preview/versions/export
+  from run + model checkpoint, UW-09 FIXED) is the equivalent-service
+  candidate; record it and redirect/retire the spec-only promise. **Registry
+  arithmetic**: 21 implemented modules (CP-4D/CP-2G added, flag-gated) + the
+  same 4 spec-only. CP-SR remains the hard case — UW-19/UW-20 unchanged.)*
   Sector Review must have a real asynchronous, source-backed refresh/publish
   path before C exits; it is not excused by X5's non-blocking expansion policy.
   **Verify:** registry/route contract test plus one production-data E2E per
   mapped promise, including degraded and empty behavior. **Exit:** no
   production control or concept claims a module whose only runtime state is
   `implemented=False`.
+- [ ] **C14 (M — new 2026-07-15) — applicable-updates flag-wave disposition.**
+  The five-flag wave (lineage v2 · market xlsx v2 · model engine v2 · CP-4D ·
+  CP-2G) is implementation-complete, merged, and **default-off**; its staged
+  enablement 0→5, per-stage entry evidence, abort triggers, and rollback rules
+  live in [APPLICABLE_UPDATES_PHASE7_RELEASE.md](APPLICABLE_UPDATES_PHASE7_RELEASE.md)
+  — that record stays the mechanism; this item owns the **program decision**.
+  Work: (a) execute the staged enablement through its own gates on the pilot
+  host, with the operator observation windows the record requires; (b) obtain
+  the record's two named Head of Research / QA approvals (CP-4D, CP-2G —
+  separately); (c) record the end-state **flag disposition for the transfer
+  candidate** — every flag either ON (feature is then in scope for the
+  "everything live" promise, its surfaces join C-phase exit checks) or
+  OFF-by-decision (recorded in H3's accepted-risk register with a named
+  reason, and its dark surfaces must fail closed to the compatibility UI, as
+  the record specifies). H0's release manifest records the exact flag state
+  it froze. **Verify:** the release record's decision boxes are signed;
+  candidate compose config matches the recorded disposition. **Exit:** no
+  flag's production state is an accident of the default — each is a signed
+  decision, and C-phase "live" claims count flag-ON surfaces only.
 
 **Exit gate:** `MOCK_LEDGER.md` (C1) burned to zero silent-mock and zero
 unlabeled sample in prod build · C3-seam: rule → event → inbox → `InAppSink`
@@ -704,7 +827,9 @@ read only the persisted quote store, Sector RV refresh round-trips against
 fixture-backed Bloomberg and degrades to manual, Settings Market Data section
 live · concept-link suite (C6) green · C10 action semantics honest · C11
 scenario application persists and round-trips · C12 selected run mode matches
-the immutable server plan · C13 closes every spec-only user promise · a11y axe re-run clean on
+the immutable server plan · C13 closes every spec-only user promise · C14
+flag disposition signed (no default-off flag without a recorded decision) ·
+a11y axe re-run clean on
 new/changed routes (Monitor inbox especially — loop doc `design-a11y-ux`
 playbook). C7–C9 are tracked here but **do not block this gate** (§14
 expansion policy).
@@ -775,12 +900,16 @@ silently with 0 chunks.
   2× pilot concurrency with fault injection; multi-worker config committed
   and load-tested (feeds G3).
 - [ ] **E2 (L — own implementation plan at pickup) — roles-lite, partial and
-  not yet certified.** The current checkout has an `Analyst.role` field and
-  `require_write_role` on selected newer routes, which supersedes the old
-  “only team_id exists” claim. That is not enough to close E2: the exhaustive
-  mutation/admin route matrix, bootstrap/assignment plane, legacy-route
-  coverage, and forged-role/cookie tests still require A8 re-grounding and
-  proof. Three roles on the existing analyst-profile system:
+  not yet certified.** Verified 2026-07-15: `Analyst.role` column exists
+  (`database.py:249`, default `analyst`) and `require_write_role`
+  (`identity.py:71`) is enforced on **15 handlers** across
+  committee/decisions/issuers/model_v2/model_workbook/portfolios/reports —
+  i.e. the new-wave mutation surface is gated. Not enough to close E2:
+  **legacy mutating routes (runs, vault, ratings, watchlist, settings…) carry
+  no role dependency**, there are no admin-role semantics, no
+  `CAOS_ADMIN_EMAILS` bootstrap (zero code hits), no assignment plane, and no
+  forged-role/cookie-tamper tests. Three roles on the existing
+  analyst-profile system:
   - **analyst** (default) — full workspace read/write, runs, uploads, watch
     rules.
   - **admin** — analyst rights + profile/role management + audit-log view +
@@ -1024,9 +1153,10 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   (PG-01/PG-02/PG-11).**
   Cut a candidate from a clean checkout exactly equal to a green
   `origin/main` commit. Build once, record the application image digest and
-  every third-party image digest, schema head, sanitized config fingerprint,
-  Modular OS manifest hash, and linked CI/nightly/security evidence in a
-  release manifest. Add a deployment override/manifest that consumes the app
+  every third-party image digest, schema head, sanitized config fingerprint
+  — **including the exact state of each C14 feature flag, which must match
+  the signed disposition** — Modular OS manifest hash, and linked
+  CI/nightly/security evidence in a release manifest. Add a deployment override/manifest that consumes the app
   as `image@sha256` (and resolves third-party tags to recorded digests), so the
   target host loads or pulls the candidate without rebuilding source. Scan the
   **final OCI image** (including OS packages) and
@@ -1143,7 +1273,7 @@ nothing is missing by omission. "By design" links to a recorded decision.
 |-------------|--------------|-----------|
 | SSO / domain-restricted auth | ✅ oauth2-proxy + Google OIDC | exists; enterprise IdP = transfer config (H3) |
 | In-app identity / profiles | ✅ analyst profiles, signed cookie | exists |
-| Authorization model | ⚠️ analyst role field and selected write gates now exist; complete mutation/admin matrix still needs current re-grounding | **E2 — prove deny-by-default coverage** |
+| Authorization model | ⚠️ `Analyst.role` + `require_write_role` on 15 new-wave handlers (verified 2026-07-15); legacy mutating routes, admin semantics, bootstrap all absent | **E2 — prove deny-by-default coverage** |
 | Audit trail | ⚠️ runs/decision events only; firm-wide append-only log is not on main | E3; PR #169 remains open |
 | Rate limiting / abuse caps | ✅ per-analyst run cap + identity-keyed limits | E1 closes multi-worker gap |
 | Secrets management + rotation | ✅ fail-closed + shipped rotation/log-hygiene runbook | E4 done; append future market/email credentials in C5/H4 |
@@ -1163,8 +1293,8 @@ nothing is missing by omission. "By design" links to a recorded decision.
 | Load testing | ⚠️ 15-user/2-worker run passed; 2× pilot calibration remains | E1, G3 |
 | Migrations discipline | ⚠️ generic up/down tests pass; actual-target preflight and release rollback decision remain | G5 + **H0** |
 | Graceful LLM degradation | ✅ fault isolation by construction | exists; re-proven at each LLM-surface phase exit |
-| Market-data integration | ⚠️ normalized REFERENCE snapshot/run WIP; no live/manual provider chain | C5 connector + store + refresh + Settings; H4 activation w/ entitlements |
-| Monitor alert seam | ⚠️ live inbox/state WIP; no watch-rule/sink/email pipeline | C3-seam; H4 EmailSink activation |
+| Market-data integration | ⚠️ merged: immutable `market_snapshots` store + authz-gated XLSX import lane (flag-off, C14); no provider chain/refresh/Settings, consumers still reference-only | C5 builds on the 0055 store; H4 activation w/ entitlements |
+| Monitor alert seam | ⚠️ run-terminal `notification_events` + feed merged (0058); no watch-rule/sink/email pipeline, Monitor UI still fixture-backed | C3-seam; H4 EmailSink activation |
 | Data retention / legal hold / backup expiry | ⚠️ run-fact pruning exists; record-class governance is incomplete | **E8/H3** |
 | GDPR delete | ✅ transactional | re-verified E5 |
 | Empty/error/degraded states | ⚠️ explicit shared state contract shipped; reference/live route gaps remain | C4 plus UW/UF register |
@@ -1330,3 +1460,17 @@ issuer walk, sponsor/counterparty graph — both live in `questions.ts`/
   merged, (b) re-run the suite clean once the WIP settles, (c) decide whether
   the branch's direct alert-inbox approach supersedes or complements the
   `AlertSink`/`EmailSink` interface C3-seam specifies.
+- **2026-07-15 (this reconciliation):** A8 executed against
+  `codex/112@76daeecf` (= `origin/main@0b00b21a` + 3 inventoried commits),
+  clean tree, suite 1821/9, main-tip CI green again. C7/C9 merged and
+  closed; UW-04/UW-08/UW-09 verified FIXED (Command sample sleeve gone,
+  ExcelJS export, live report composition); UF-05/UF-12/UF-14 closed. The
+  34-commit applicable-updates wave (migrations 0052–0059, five default-off
+  flags, own release record) recognized as untracked scope → **C14 added**
+  to own flag disposition; C5/C11/C3-seam re-anchored onto the wave's
+  merged stores (`market_snapshots`, `model_override_events`,
+  `notification_events`) with explicit do-not-duplicate instructions; E2
+  narrowed to its true residual (legacy routes, admin semantics, bootstrap).
+  Coverage verdict: the A–H + PG-01…12 + L1–L22 structure already covers the
+  pre-deployment goal; the gaps were **stale facts and the unowned flag
+  wave**, both corrected here. Critic pass RT-2026-07-15-270…273.

@@ -16,6 +16,13 @@
 > (**1369 pass / 2 skip** on `.venv311`). **Start at Tier 1** to verify the
 > consolidated trunk, then Tier 2 for the phase gates. Tier 0 is kept below for
 > history.
+>
+> **2026-07-15 refresh:** the closing run-order paragraph below is historical —
+> A1/A3/A5-majors/A6b/A7 are done and the suite baseline is **1821 pass /
+> 9 skip**. The **Tier-1 standing gate now applies to**: the #169 (E3) and
+> #191 (C8) merges, any C14 flag-enablement change (each stage of
+> APPLICABLE_UPDATES_PHASE7_RELEASE.md), and the four L-item builds (B5,
+> C3-seam, C5-on-the-0055-store, E2). Tier-2 unchanged.
 
 ---
 

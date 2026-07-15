@@ -24,6 +24,16 @@ prior plan's aspirational cadence table.
 > live re-verification. The master plan's coverage review adds L21/L22 for
 > independent availability/host alerting and backup freshness/off-host recovery.
 
+> **2026-07-15 mechanism delta:** **L5 has 4 consecutive green scheduled
+> cycles** (2026-07-12 → 2026-07-15, verified via the Actions API) — the
+> ≥2-cycle contract is met; L5 is citable at phase exits from today. L1 is
+> green on the `origin/main` tip (`0b00b21a`). Runner-tier caveat added from
+> the Phase-7 release record: sandboxed controller environments deny the **7
+> ClamAV loopback tests** (`PermissionError`) — they pass in CI and on
+> unrestricted hosts (this session: 1821/9 with all 7 passing); a sandboxed
+> run reporting 1808/9 + 7 errors is an environment gate, not a regression.
+> `corpus_run` (L6) remains a work item — the marker still does not exist.
+
 ---
 
 ## 1. The "tested regularly" contract
