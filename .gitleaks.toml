@@ -25,4 +25,7 @@ paths = [
   # (hex-ish suffixes) so the test proves a real leak would be caught — that's
   # the point of the file, not an accident. Never real credentials (SECRETS.md).
   '''caos/tests/server/test_secret_log_hygiene\.py''',
+  # Phase 2 signed-preview tests use an explicit synthetic session secret long
+  # enough to exercise the production token contract. It is fixture data only.
+  '''caos/tests/server/test_market_xlsx_commit\.py''',
 ]
