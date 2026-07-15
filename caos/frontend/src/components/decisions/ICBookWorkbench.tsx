@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
@@ -10,6 +11,7 @@ import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 import { getIssuers, getPortfolios, listRuns, toErrorMessage, type PortfolioSummary } from "@/lib/api";
+import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import {
   icBookApi,
   type AgendaStatus,
@@ -227,6 +229,7 @@ export function ICBookWorkbench() {
   const [runsError, setRunsError] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [form, setForm] = useState({ issuer: values.issuer ?? "", portfolio: values.portfolio ?? "", scheduled: "", expiry: "", recommendation: "approve" as CommitteeRecommendation, conviction: "", run: "", report: "", contextId: "", thesis: "", conditions: "" });
   const appliedContextId = useRef<string | null>(null);
@@ -271,11 +274,81 @@ export function ICBookWorkbench() {
     const request = dataset === "agenda"
       ? icBookApi.listAgenda({ ...common, status: values.status as AgendaStatus | undefined, sort: values.sort === "updated_at" ? "updated_at" : "scheduled_for" }).then((page) => ({ items: page.items, next: page.next_cursor, total: page.total, kind: "agenda" as const }))
       : icBookApi.listDecisions({ ...common, status: values.status === "reopened" ? "reopened" : values.status === "active" ? "active" : undefined, sort: values.sort === "expiry" ? "expiry" : "created_at" }).then((page) => ({ items: page.items, next: page.next_cursor, total: page.total, kind: "history" as const }));
-    request.then((result) => { if (!alive) return; if (result.kind === "agenda") { setAgenda(result.items); setDecisions([]); } else { setDecisions(result.items); setAgenda([]); } setNextCursor(result.next); setTotal(result.total); }).catch((reason) => alive && setError(toErrorMessage(reason, "IC Book data unavailable."))).finally(() => alive && setLoading(false));
+    request.then((result) => { if (!alive) return; if (result.kind === "agenda") { setAgenda(result.items); setDecisions([]); } else { setDecisions(result.items); setAgenda([]); } setNextCursor(result.next); setTotal(result.total); setFetchedAt(new Date().toISOString()); }).catch((reason) => alive && setError(toErrorMessage(reason, "IC Book data unavailable."))).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [dataset, reloadToken, values.cursor, values.direction, values.issuer, values.portfolio, values.sort, values.status]);
 
   const personaBrief = useMemo(() => roleView === "pm" ? "Rank committee actions, dissent and expiring conditions." : roleView === "qa" ? "Validate readiness, frozen lineage and immutable governance records." : "Prepare agenda items, inspect evidence and record committee votes.", [roleView]);
+  const icDecision: DecisionContextState = useMemo(() => {
+    const loadingCells: DecisionContextState = {
+      whatChanged: { kind: "loading", message: "Checking the register…" },
+      whyItMatters: { kind: "loading", message: "Checking priority…" },
+      requiredAction: { kind: "loading", message: "Checking readiness…" },
+      evidenceHealth: { kind: "loading", message: "Checking evidence…" },
+    };
+    if (loading) return loadingCells;
+    if (error && !agenda.length && !decisions.length) {
+      const message = "IC Book register unavailable";
+      return {
+        whatChanged: { kind: "unavailable", message },
+        whyItMatters: { kind: "unavailable", message },
+        requiredAction: { kind: "unavailable", message },
+        evidenceHealth: { kind: "unavailable", message },
+      };
+    }
+    if (fetchedAt == null) return loadingCells;
+
+    const asOf = fetchedAt;
+    const authority: DecisionAuthority = {
+      provenance: { origin: "LIVE", method: "DERIVED", detail: "Committee register roll-up." },
+      approval: "UNRATIFIED",
+    };
+
+    const readyCount = agenda.filter((row) => row.status === "ready").length;
+    const activeCount = decisions.filter((row) => row.status === "active").length;
+    const whatChanged: DecisionDatumState = total === 0
+      ? { kind: "observed-empty", message: dataset === "agenda" ? "No agenda items in the register" : "No decisions in the register", asOf, authority }
+      : { kind: "ready", value: dataset === "agenda" ? `${total} agenda items · ${readyCount} ready` : `${total} decisions · ${activeCount} active`, asOf, authority };
+
+    let whyItMatters: DecisionDatumState;
+    if (dataset === "agenda") {
+      whyItMatters = agenda.length
+        ? { kind: "ready", value: `Next meeting ${fmtUtcDateTime([...agenda].sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for))[0].scheduled_for)}`, asOf, authority }
+        : { kind: "observed-empty", message: "No meeting scheduled", asOf, authority };
+    } else {
+      whyItMatters = decisions.length
+        ? { kind: "ready", value: `Latest decision ${fmtUtcDateTime([...decisions].sort((a, b) => b.created_at.localeCompare(a.created_at))[0].created_at)}`, asOf, authority }
+        : { kind: "observed-empty", message: "No decisions recorded", asOf, authority };
+    }
+
+    let requiredAction: DecisionDatumState;
+    if (dataset === "agenda") {
+      const blockedCount = agenda.filter((row) => row.readiness_failures.length > 0).length;
+      requiredAction = blockedCount > 0
+        ? { kind: "ready", value: `${blockedCount} ${blockedCount === 1 ? "draft" : "drafts"} with readiness blockers`, asOf, authority }
+        : { kind: "observed-empty", message: "No readiness blockers", asOf, authority };
+    } else {
+      const reopenedCount = decisions.filter((row) => row.status === "reopened").length;
+      requiredAction = reopenedCount > 0
+        ? { kind: "ready", value: `${reopenedCount} ${reopenedCount === 1 ? "reopened decision" : "reopened decisions"}`, asOf, authority }
+        : { kind: "observed-empty", message: "No reopened decisions", asOf, authority };
+    }
+
+    let evidenceHealth: DecisionDatumState;
+    if (dataset === "agenda") {
+      const noRunCount = agenda.filter((row) => !row.run_id).length;
+      evidenceHealth = noRunCount > 0
+        ? { kind: "ready", value: `${noRunCount} ${noRunCount === 1 ? "item lacks" : "items lack"} a linked run`, asOf, authority }
+        : { kind: "observed-empty", message: "Every item is linked to a run", asOf, authority };
+    } else {
+      const noReportCount = decisions.filter((row) => !row.report_id).length;
+      evidenceHealth = noReportCount > 0
+        ? { kind: "ready", value: `${noReportCount} ${noReportCount === 1 ? "decision lacks" : "decisions lack"} a report link`, asOf, authority }
+        : { kind: "observed-empty", message: "Every decision is linked to a report", asOf, authority };
+    }
+
+    return { whatChanged, whyItMatters, requiredAction, evidenceHealth };
+  }, [dataset, loading, error, agenda, decisions, total, fetchedAt]);
   // An empty register with active filters ("no match") reads differently from a
   // genuinely empty book ("add the first item") — the copy and CTA must match.
   const icBookEmpty = !!(values.status || values.issuer || values.portfolio);
@@ -298,5 +371,5 @@ export function ICBookWorkbench() {
   const inspector = selectedAgenda ? <AgendaInspector key={`${selectedAgenda.id}:${selectedAgenda.revision}`} row={selectedAgenda} busy={busy} onSave={savePreparation} onMarkReady={markReady} onReturnDraft={returnDraft} onFinalize={finalize} /> : selectedDecision ? <DecisionInspector key={selectedDecision.id} row={selectedDecision} busy={busy} onVote={vote} onReopen={reopen} /> : <div className="ic-book__empty">Select an agenda item or decision to inspect its thesis, conditions, lineage and governance record.</div>;
   const utility = <details className="ic-book__create" id="ic-book-create"><summary className="ic-book__create-summary">Add agenda item</summary><form className="ic-book__form" aria-label="Add agenda item" onSubmit={create}>{[catalogError, runsError].filter(Boolean).map((message) => <p key={message} role="alert">{message}</p>)}{form.contextId ? (() => { const li = issuers.find((i) => i.id === form.issuer); const label = li ? (li.ticker ?? li.name) : null; return <p className="ic-book__hash">Linked context{label ? ` · ${label}` : ""}{form.run ? ` · run ${form.run.slice(0, 8)}` : ""} <span title={form.contextId}>{form.contextId.slice(0, 8)}…</span></p>; })() : null}<label>Issuer<select name="issuer" value={form.issuer} onChange={(event) => setForm((current) => ({ ...current, issuer: event.target.value, run: "", report: "", contextId: "" }))} required><option value="">Select issuer…</option>{issuers.map((issuer) => <option key={issuer.id} value={issuer.id}>{issuer.ticker ?? issuer.name}</option>)}</select></label><label>Portfolio<select name="portfolio" value={form.portfolio} onChange={(event) => setForm((current) => ({ ...current, portfolio: event.target.value, run: "", report: "", contextId: "" }))}><option value="">No portfolio</option>{portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}</select></label><label>Meeting time<input name="scheduled" type="datetime-local" value={form.scheduled} onChange={(event) => setForm((current) => ({ ...current, scheduled: event.target.value }))} required /></label><label>Decision expiry<input name="expiry" type="date" value={form.expiry} onChange={(event) => setForm((current) => ({ ...current, expiry: event.target.value }))} /></label><label>Recommendation<select name="recommendation" value={form.recommendation} onChange={(event) => setForm((current) => ({ ...current, recommendation: event.target.value as CommitteeRecommendation }))}><option value="approve">Approve</option><option value="decline">Decline</option><option value="revisit">Revisit</option></select></label><label>Conviction · 0–100%<input name="conviction" type="number" min="0" max="100" inputMode="decimal" placeholder="0–100" value={form.conviction} onChange={(event) => setForm((current) => ({ ...current, conviction: event.target.value }))} /></label><label>Run<select name="run" value={form.run} onChange={(event) => setForm((current) => ({ ...current, run: event.target.value, report: event.target.value === current.run ? current.report : "", contextId: event.target.value === current.run ? current.contextId : "" }))}><option value="">Select run…</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.committee_status}</option>)}</select></label><label>Report version<input name="report-version" value={form.report} readOnly placeholder="Optional — select in Report Studio…" /></label><label>Thesis<textarea name="thesis" rows={5} maxLength={50_000} value={form.thesis} onChange={(event) => setForm((current) => ({ ...current, thesis: event.target.value }))} required /></label><label>Conditions · one per line<textarea name="conditions" rows={3} value={form.conditions} onChange={(event) => setForm((current) => ({ ...current, conditions: event.target.value }))} /></label><button type="submit" disabled={busy || !form.issuer || !form.scheduled || !form.thesis.trim()}>{busy ? "Saving…" : "Add agenda item"}</button></form></details>;
 
-  return <EnterprisePage kind="worklist" identity={<ShellIdentity tag="IC" title="IC Book" />} status={<span className="tabular text-caos-2xs text-caos-muted">{total} {dataset === "agenda" ? "agenda items" : "decisions"}</span>} primaryAction={<button type="button" className="caos-primary-action focus-ring" onClick={openCreateForm}>Add agenda item</button>} narrowContract={{ essentialControls: <span className="tabular text-caos-2xs text-caos-muted">{total} records</span> }}><div className="ic-book"><header className="ic-book__toolbar"><div><span className="ic-book__eyebrow">View: {roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}</span><p>{personaBrief}</p></div><div role="tablist" aria-label="IC Book dataset" onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')); const activeIndex = tabs.indexOf(document.activeElement as HTMLButtonElement); const nextIndex = event.key === "ArrowRight" ? (activeIndex + 1) % tabs.length : (activeIndex - 1 + tabs.length) % tabs.length; tabs[nextIndex]?.focus(); tabs[nextIndex]?.click(); }}>{(["agenda", "history"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={dataset === value} tabIndex={dataset === value ? 0 : -1} onClick={() => update({ dataset: value, cursor: null, selected: null, status: null })}>{value === "agenda" ? "Agenda" : "Decision history"}</button>)}</div><label>Status<select name="ic-book-status" value={values.status ?? ""} onChange={(event) => update({ status: event.target.value || null, cursor: null })}><option value="">All statuses</option>{dataset === "agenda" ? <><option value="draft">Draft</option><option value="ready">Ready</option><option value="decided">Decided</option><option value="cancelled">Cancelled</option></> : <><option value="active">Active</option><option value="reopened">Reopened</option></>}</select></label><button type="button" onClick={refresh}>Refresh</button></header>{error ? <p className="ic-book__error" role="alert">{error}</p> : null}<PersonaWorkbench surface="ic-book" persona={roleView} primary={primary} inspector={inspector} utility={utility} finalization={selectedAgenda?.status === "ready" ? <p className="ic-book__finalization">Ready for immutable finalization · <Link href={selectedAgenda.run_id ? `/deepdive?run=${encodeURIComponent(selectedAgenda.run_id)}` : "/deepdive"}>review run evidence</Link></p> : null} /></div></EnterprisePage>;
+  return <EnterprisePage kind="worklist" identity={<ShellIdentity tag="IC" title="IC Book" />} status={<span className="tabular text-caos-2xs text-caos-muted">{total} {dataset === "agenda" ? "agenda items" : "decisions"}</span>} primaryAction={<button type="button" className="caos-primary-action focus-ring" onClick={openCreateForm}>Add agenda item</button>} narrowContract={{ essentialControls: <span className="tabular text-caos-2xs text-caos-muted">{total} records</span> }}><div className="ic-book"><header className="ic-book__toolbar"><div><span className="ic-book__eyebrow">View: {roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}</span><p>{personaBrief}</p></div><div role="tablist" aria-label="IC Book dataset" onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')); const activeIndex = tabs.indexOf(document.activeElement as HTMLButtonElement); const nextIndex = event.key === "ArrowRight" ? (activeIndex + 1) % tabs.length : (activeIndex - 1 + tabs.length) % tabs.length; tabs[nextIndex]?.focus(); tabs[nextIndex]?.click(); }}>{(["agenda", "history"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={dataset === value} tabIndex={dataset === value ? 0 : -1} onClick={() => update({ dataset: value, cursor: null, selected: null, status: null })}>{value === "agenda" ? "Agenda" : "Decision history"}</button>)}</div><label>Status<select name="ic-book-status" value={values.status ?? ""} onChange={(event) => update({ status: event.target.value || null, cursor: null })}><option value="">All statuses</option>{dataset === "agenda" ? <><option value="draft">Draft</option><option value="ready">Ready</option><option value="decided">Decided</option><option value="cancelled">Cancelled</option></> : <><option value="active">Active</option><option value="reopened">Reopened</option></>}</select></label><button type="button" onClick={refresh}>Refresh</button></header>{error ? <p className="ic-book__error" role="alert">{error}</p> : null}<PersonaWorkbench surface="ic-book" persona={roleView} decision={<DecisionHeader state={icDecision} defaultOpen={false} />} primary={primary} inspector={inspector} utility={utility} finalization={selectedAgenda?.status === "ready" ? <p className="ic-book__finalization">Ready for immutable finalization · <Link href={selectedAgenda.run_id ? `/deepdive?run=${encodeURIComponent(selectedAgenda.run_id)}` : "/deepdive"}>review run evidence</Link></p> : null} /></div></EnterprisePage>;
 }
