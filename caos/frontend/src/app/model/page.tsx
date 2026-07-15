@@ -726,15 +726,6 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
             </details>
           ) : null}
           <button
-            onClick={() => exportModel(model, showQuarters, overrides, exportMeta)}
-            disabled={!hasIssuerModel}
-            title="Export the model grid (CSV — opens in Excel)"
-            className="caos-secondary-action focus-ring disabled:opacity-40"
-          >
-            Export model
-          </button>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <button
             onClick={() => setShowQuarters(!showQuarters)}
             className={
               "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
