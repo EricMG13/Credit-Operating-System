@@ -10,8 +10,8 @@ import pytest
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
         Analyst, AnalysisContextRecord, AnalysisInsight, AsyncSessionLocal,
-        Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
-        PortfolioStressRun, ResearchJob, Run,
+            Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
+            NotificationEvent, PortfolioStressRun, ResearchJob, Run,
         SavedModel, erase_analyst_data,
     )
 
@@ -28,6 +28,11 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         # allows only one queued/running run per issuer at a time, which two
         # sibling runs for the SAME issuer (the point of this test) would trip.
         s.add(Run(id="gdpr-run", issuer_id="gdpr-issuer", analyst_id=subj_id, status="complete"))
+        s.add(NotificationEvent(
+            id="gdpr-notification", analyst_id=subj_id, kind="run_complete",
+            subject_kind="run", subject_id="gdpr-run", issuer_id="gdpr-issuer",
+            title="Private completion", idempotency_key="run:gdpr-run:complete",
+        ))
         s.add(ResearchJob(id="gdpr-job", status="complete", analyst_id=subj_id))
         s.add(Document(id="gdpr-doc", issuer_id="gdpr-issuer", doc_type="10-K",
                        file_name="f.pdf", storage_key="k", uploaded_by=subj_email))
@@ -64,6 +69,11 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         ))
         # Bystander's data — must survive untouched
         s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id, status="complete"))
+        s.add(NotificationEvent(
+            id="gdpr-notification-other", analyst_id=other_id, kind="run_complete",
+            subject_kind="run", subject_id="gdpr-run-other", issuer_id="gdpr-issuer",
+            title="Bystander completion", idempotency_key="run:gdpr-run-other:complete",
+        ))
         s.add(ResearchJob(id="gdpr-job-other", status="complete", analyst_id=other_id))
         s.add(SavedModel(issuer_id="gdpr-issuer", analyst_id=other_id, payload={"o": 2}))
         s.add(PortfolioStressRun(
@@ -94,6 +104,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         "report_drafts_deleted": 0,
         "report_versions_deleted": 0,
         "analysis_insights_deleted": 1,
+        "notification_events_deleted": 1,
         "lineage_edges_deleted": 1,
         "portfolio_stress_runs_deleted": 1,
         "model_workbook_imports_deleted": 0,
@@ -117,6 +128,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         assert await s.get(Analyst, subj_id) is None
         assert await s.get(ResearchJob, "gdpr-job") is None
         assert await s.get(AnalysisInsight, "gdpr-insight") is None
+        assert await s.get(NotificationEvent, "gdpr-notification") is None
         assert await s.get(LineageEdge, "gdpr-lineage") is None
         assert await s.get(PortfolioStressRun, "gdpr-stress") is None
         # Shared work product retained, attribution scrubbed.
@@ -132,6 +144,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         run_other = await s.get(Run, "gdpr-run-other")
         assert run_other is not None and run_other.analyst_id == other_id
         assert await s.get(ResearchJob, "gdpr-job-other") is not None
+        assert await s.get(NotificationEvent, "gdpr-notification-other") is not None
         assert await s.get(PortfolioStressRun, "gdpr-stress-other") is not None
         kept_lineage = await s.get(LineageEdge, "gdpr-lineage-other")
         assert kept_lineage is not None and kept_lineage.analyst_id == other_id

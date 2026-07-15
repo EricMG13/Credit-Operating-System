@@ -727,3 +727,33 @@ runtime schema accepts noncanonical enums or unsupported numeric confidence;
 unresolved or foreign evidence satisfies a source gate; synthetic findings appear
 in production/reference UI; CP-6A changes its legacy verdict when the new handoff
 is absent; or the corpus, server registry, and frontend route maps disagree.
+
+## Phase 5 Workflow and Navigation Contracts — Critic Pass (2026-07-15)
+
+Decision under review: consolidate global issuer lookup into the command palette,
+bind Command to authorized persisted holdings, make exact queued runs observable,
+and add durable analyst-scoped completion events without changing Watchtower or
+model-calculation authority.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-210 | Interaction reviewer | A shared issuer link inside an activating row can both open the profile and activate the detail strip, while wrapping the whole row in a link creates invalid nested controls. | High | Resolved in contract | Ticker/name remain exact-ID `IssuerLink` anchors that stop propagation. The row remainder is a separate keyboard-operable grid row using its stable position or issuer ID; Enter/Space mirror pointer activation. |
+| RT-2026-07-15-211 | Portfolio-risk reviewer | Joining holdings to an unbound or merely name-matched run can display another sleeve's posture as if it belongs to the selected book. | High | Resolved in contract | Command uses authorized persisted holdings and only the newest complete run whose exact `issuer_id` and `portfolio_id` match the selected portfolio. Missing links or bound runs are `UNKNOWN`; borrower-name fuzzy matching is prohibited. |
+| RT-2026-07-15-212 | Authorization reviewer | A notification or portfolio cursor can disclose another analyst's run, import, issuer, or book, even if the target object itself is otherwise protected. | High | Resolved in contract | Portfolio reads retain `require_portfolio_access`. Notification writes copy the terminal object's owning analyst; reads and seen mutations scope in SQL to the authenticated analyst and foreign IDs return 404. Cursor payloads reveal no foreign object and are bounded. |
+| RT-2026-07-15-213 | Transaction reviewer | Emitting a completion toast after committing the run can lose the event on process death; emitting before the terminal state can publish success that later rolls back. | High | Resolved in contract | The idempotent `NotificationEvent` row is added in the same database transaction as the terminal run/failure mutation. Its unique key is derived from event kind and immutable object ID; retries converge on one event. |
+| RT-2026-07-15-214 | Frontend reliability reviewer | Replaying notification history on first mount floods the analyst with old completion toasts, while polling every hidden tab wastes reads and can duplicate events across refreshes. | Medium | Resolved in contract | The first visible read establishes a cursor without toasting history. Subsequent visibility-aware cursor reads deduplicate by event ID, render linked toasts once, and expose a separate seen mutation. Watchtower alerts remain a different domain feed. |
+| RT-2026-07-15-215 | Pipeline reviewer | Navigating to an issuer's latest run after upload can show a different run than the one just queued, and a one-shot exact-run read strands the graph in “in progress.” | High | Resolved in contract | Upload navigation carries exact issuer, context, run ID, and `view=graph`. Exact-run loading polls queued/running status until complete or failed without falling back to latest-run or reference output. |
+| RT-2026-07-15-216 | Accessibility reviewer | Making an entire shared panel header a button can nest toolbar controls, break heading semantics, or turn sortable column headers into accidental disclosure toggles. | High | Resolved in contract | Only `collapsible` section shells gain a title-region button with `aria-expanded`/`aria-controls`; right-side controls stay siblings. Non-collapsible panels and sortable/filterable table headers remain unchanged. |
+| RT-2026-07-15-217 | Model-risk reviewer | Combining formula scenario editing and cross-module propagation in one stateful panel makes it unclear which values are saved and allows reset in one mode to erase the other. | High | Resolved in contract | The panel exposes two named modes—Model scenario and Cross-module propagation—with separate component state and purpose copy. Model reset cannot mutate propagation inputs/results, and propagation never writes the model draft. |
+| RT-2026-07-15-218 | Release engineer | Replacing sample Command content with an incomplete live read could silently fall back to plausible fixtures on network failure or require destructive rollback. | High | Resolved in contract | Command renders distinct loading, unavailable, no-portfolio, and empty-holdings states; it never falls back to sample positions. Server additions and notification migration are additive, and disabling/removing the new reads leaves existing domain data intact. |
+| RT-2026-07-15-219 | Navigation reviewer | Remapping Alt+S by simulating Cmd+K or bypassing the navigation/modal coordinator can produce two open overlays or skip unsaved-edit protection. | Medium | Resolved in contract | Alt+S dispatches one explicit palette-open event owned by `CommandPalette`; the palette retains the modal coordinator and its existing guarded page navigation. Editable targets remain excluded. |
+
+### Critic reopen conditions (Phase 5)
+
+Reopen if a ticker/name click also activates its row; portfolio posture accepts an
+unbound run or fuzzy borrower match; foreign portfolio/notification objects are
+distinguishable from 404; a terminal state and its completion event can commit
+separately; initial history produces toasts; exact-run polling can switch run IDs
+or fall back to reference data; a disclosure button nests another control; either
+scenario mode mutates the other's state; sample holdings return as a live fallback;
+or Alt+S opens a surface other than the guarded command palette.

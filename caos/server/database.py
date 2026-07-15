@@ -1098,6 +1098,37 @@ class ReportVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class NotificationEvent(Base):
+    """Analyst-owned completion event for background work.
+
+    These events are deliberately separate from Watchtower alerts: they report
+    workflow completion/failure, not a change in the credit.  ``idempotency_key``
+    is the terminal transition identity, so executor retries cannot replay a
+    second event.  Subject identifiers are loose strings so a notification can
+    survive operational cleanup of the referenced job while remaining scoped to
+    its analyst owner.
+    """
+
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        Index("uq_notification_events_idempotency_key", "idempotency_key", unique=True),
+        Index("ix_notification_events_analyst_created", "analyst_id", "created_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    body: Mapped[Optional[str]] = mapped_column(Text)
+    href: Mapped[Optional[str]] = mapped_column(String(600))
+    idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AlertEvent(Base):
     """Durable Watchtower event; AlertState owns lifecycle transitions."""
 
@@ -1832,6 +1863,9 @@ async def erase_analyst_data(
     analysis_insights = await session.execute(
         delete(AnalysisInsight).where(AnalysisInsight.analyst_id.in_(keys))
     )
+    notifications = await session.execute(
+        delete(NotificationEvent).where(NotificationEvent.analyst_id.in_(keys))
+    )
     portfolio_stress_runs = await session.execute(
         delete(PortfolioStressRun).where(PortfolioStressRun.created_by.in_(keys))
     )
@@ -1939,6 +1973,7 @@ async def erase_analyst_data(
         "report_drafts_deleted": report_drafts.rowcount or 0,  # type: ignore[attr-defined]
         "report_versions_deleted": report_versions.rowcount or 0,  # type: ignore[attr-defined]
         "analysis_insights_deleted": analysis_insights.rowcount or 0,  # type: ignore[attr-defined]
+        "notification_events_deleted": notifications.rowcount or 0,  # type: ignore[attr-defined]
         "lineage_edges_deleted": lineage_edges.rowcount or 0,  # type: ignore[attr-defined]
         "portfolio_stress_runs_deleted": portfolio_stress_runs.rowcount or 0,  # type: ignore[attr-defined]
         "model_workbook_imports_deleted": model_workbook_imports.rowcount or 0,  # type: ignore[attr-defined]

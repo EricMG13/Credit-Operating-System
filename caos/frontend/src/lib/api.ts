@@ -128,6 +128,39 @@ export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
 
+// Routine background-work events are deliberately separate from Watchtower
+// alerts. The signed cursor is opaque to the browser and analyst-bound by the
+// server; the notification provider uses its first read only as a high-water
+// mark so historical completions never replay as fresh toasts.
+export interface NotificationEventDTO {
+  id: string;
+  kind: "run_complete" | "run_failed" | string;
+  subject_kind: string;
+  subject_id: string;
+  issuer_id: string | null;
+  title: string;
+  body: string | null;
+  href: string | null;
+  seen_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationFeedDTO {
+  items: NotificationEventDTO[];
+  next_cursor: string | null;
+}
+
+export const listNotifications = (cursor?: string | null): Promise<NotificationFeedDTO> =>
+  api.get("/api/notifications", {
+    params: cursor ? { cursor } : undefined,
+    timeout: 8000,
+  }).then((r) => r.data);
+
+export const markNotificationSeen = (notificationId: string): Promise<NotificationEventDTO> =>
+  api.patch(`/api/notifications/${encodeURIComponent(notificationId)}/seen`, undefined, {
+    timeout: 8000,
+  }).then((r) => r.data);
+
 // Clear all browser-local workspace state on logout. On a shared workstation the
 // next analyst must not inherit the prior one's chat transcripts (caos-chat-*),
 // Report Studio committee-deliverable edits (caos-e-*), model inputs (caos-d-*),

@@ -70,7 +70,7 @@ async def test_active_run_unique_index_fires_at_db_level(seeded_db):
 
 @pytest.mark.asyncio
 async def test_execute_run_by_id_completes(seeded_db):
-    from database import AsyncSessionLocal, Run
+    from database import AsyncSessionLocal, NotificationEvent, Run
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import execute_run_by_id
 
@@ -86,11 +86,16 @@ async def test_execute_run_by_id_completes(seeded_db):
         run = (await s.execute(select(Run).where(Run.id == run_id))).scalar_one()
         assert run.status == "complete"
         assert run.qa_status == "Restricted"  # ATLF fixture → MATERIAL → Restricted
+        event = (await s.execute(select(NotificationEvent).where(
+            NotificationEvent.subject_id == run_id
+        ))).scalar_one()
+        assert event.analyst_id == "t"
+        assert event.kind == "run_complete"
 
 
 @pytest.mark.asyncio
 async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
-    from database import AsyncSessionLocal, Run
+    from database import AsyncSessionLocal, NotificationEvent, Run
     from engine.fixtures import REFERENCE_ISSUER_ID
     import run_executor
 
@@ -111,6 +116,10 @@ async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
         run = (await s.execute(select(Run).where(Run.id == run_id))).scalar_one()
         assert run.status == "failed"
         assert "synthetic failure" in (run.error or "")
+        event = (await s.execute(select(NotificationEvent).where(
+            NotificationEvent.subject_id == run_id
+        ))).scalar_one()
+        assert event.kind == "run_failed"
 
 
 import asyncio
@@ -234,6 +243,11 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
         assert r_running.status == "failed" and "process restart" in (r_running.error or "")
         assert r_queued.status == "failed"
         assert r_done.status == "complete"  # terminal runs are untouched
+        from database import NotificationEvent
+        events = list((await s.execute(select(NotificationEvent).where(
+            NotificationEvent.subject_id.in_(ids[:2])
+        ))).scalars().all())
+        assert {event.subject_id for event in events} == set(ids[:2])
 
 
 @pytest.mark.asyncio
@@ -334,6 +348,11 @@ async def test_reaper_fails_exhausted_orphan(seeded_db):
         run = await s.get(Run, run_id)
         assert run.status == "failed"
         assert "max attempts" in (run.error or "")
+        from database import NotificationEvent
+        event = (await s.execute(select(NotificationEvent).where(
+            NotificationEvent.subject_id == run_id
+        ))).scalar_one()
+        assert event.kind == "run_failed"
 
 
 from fastapi.testclient import TestClient
