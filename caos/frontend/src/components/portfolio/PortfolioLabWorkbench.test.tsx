@@ -104,8 +104,11 @@ describe("Portfolio Lab workbench", () => {
   it("owns one table, switches datasets in place, and marks 5,000-row virtualization", async () => {
     render(<PortfolioLabWorkbench />);
     expect(await screen.findByRole("table", { name: "Portfolio positions" })).toBeTruthy();
+    await screen.findByRole("button", { name: /select alpha software/i });
     expect(document.querySelectorAll("[data-caos-dominant-table-owner]")).toHaveLength(1);
-    expect(screen.getByRole("region", { name: "Portfolio positions table" }).getAttribute("data-total-rows")).toBe("5000");
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Portfolio positions table" }).getAttribute("data-total-rows")).toBe("5000");
+    });
     expect(document.querySelector(".portfolio-lab__virtual-row")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /constraints/i }));
     expect(await screen.findByRole("table", { name: "Portfolio constraints" })).toBeTruthy();
@@ -117,7 +120,7 @@ describe("Portfolio Lab workbench", () => {
   it("keeps working state and records when the persona emphasis changes", async () => {
     const view = render(<PortfolioLabWorkbench />);
     expect(await screen.findByText("Alpha Software")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /select alpha software/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /select alpha software/i }));
     const before = window.location.search;
     state.roleView = "pm";
     view.rerender(<PortfolioLabWorkbench />);

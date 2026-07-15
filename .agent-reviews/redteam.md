@@ -757,3 +757,22 @@ separately; initial history produces toasts; exact-run polling can switch run ID
 or fall back to reference data; a disclosure button nests another control; either
 scenario mode mutates the other's state; sample holdings return as a live fallback;
 or Alt+S opens a surface other than the guarded command palette.
+
+## PR #193 Complexity-Gate Compatibility — Critic Pass (2026-07-15)
+
+Decision under review: preserve the C901 gate for new or worsening complexity while
+allowing the branch's named, pre-gate complexity debt through a checked baseline.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-220 | Code-quality reviewer | A broad ignore or disabled C901 check would let unrelated complexity regressions merge unnoticed. | High | Resolved in contract | The gate remains enabled at threshold 10. Only exact path-and-symbol baseline entries are accepted; every new finding and every increase above the recorded complexity fails. |
+| RT-2026-07-15-221 | Maintenance reviewer | A permanent baseline can accumulate obsolete exceptions after functions are simplified, renamed, or removed. | Medium | Resolved in contract | When a baseline-owned file changes, entries that no longer map to an active C901 finding fail as stale and must be removed in the same change. |
+| RT-2026-07-15-222 | CI portability reviewer | Newline-delimited filenames are split by `xargs`, so the tracked `Modular OS/...` checker is interpreted as two nonexistent paths. | High | Resolved in contract | A Python subprocess receives an explicit argument list from NUL-delimited Git output; spaces and other shell-significant filename characters are never reparsed. |
+| RT-2026-07-15-223 | Governance reviewer | A baseline generated from arbitrary Ruff output can hide malformed findings or silently drift from the configured threshold. | High | Resolved in contract | The checker validates the baseline schema, rejects duplicates and nonpositive limits, parses only C901 JSON, requires the configured threshold, and fails closed on malformed Ruff output or subprocess errors. |
+
+### Critic reopen conditions (PR #193 complexity gate)
+
+Reopen if C901 is disabled globally; an exception is not keyed to an exact path and
+symbol; complexity can rise above its recorded maximum; stale entries survive a
+change to their owning file; Ruff errors are treated as success; or file paths pass
+through whitespace-delimited shell expansion.
