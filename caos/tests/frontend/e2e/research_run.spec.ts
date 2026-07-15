@@ -69,7 +69,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     // Demo-mode label is "Run example research" (no key). The regex tolerates a
     // key-configured server ("Run deep research") but the assertions below
     // assume the demo report; see the describe-block note.
-    const run = page.getByRole("button", { name: /Run (deep|example) research/ });
+    const run = page
+      .getByTestId("persona-workbench")
+      .getByRole("button", { name: /Run (deep|example) research/ });
     await expect(run).toBeEnabled();
     await run.click();
 
@@ -136,7 +138,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     await page.goto("/research/");
     const subject = `Live Marker Probe ${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     await page.getByLabel("Sector / theme").fill(subject);
-    const run = page.getByRole("button", { name: /Run (deep|example) research/ });
+    const run = page
+      .getByTestId("persona-workbench")
+      .getByRole("button", { name: /Run (deep|example) research/ });
     await expect(run).toBeEnabled();
     await run.click();
 
@@ -193,7 +197,10 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     await page
       .getByLabel("Sector / theme")
       .fill(`Marker Probe ${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
-    await page.getByRole("button", { name: /Run (deep|example) research/ }).click();
+    await page
+      .getByTestId("persona-workbench")
+      .getByRole("button", { name: /Run (deep|example) research/ })
+      .click();
 
     await expect(page.getByText("● LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
     // The badge marker + the tear-sheet footer both name the LLM synthesis.

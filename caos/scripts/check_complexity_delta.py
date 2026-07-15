@@ -21,7 +21,7 @@ MESSAGE_RE = re.compile(
     r"^`(?P<symbol>[^`]+)` is too complex "
     r"\((?P<actual>[0-9]+) > (?P<threshold>[0-9]+)\)$"
 )
-EXCLUDED_PARTS = frozenset({".venv", ".goal"})
+EXCLUDED_PARTS = frozenset({".agent-reviews", ".venv", ".goal"})
 
 
 class GateError(RuntimeError):

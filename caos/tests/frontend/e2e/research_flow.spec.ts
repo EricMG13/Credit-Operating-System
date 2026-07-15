@@ -23,7 +23,11 @@ test.describe("Deep Research", () => {
     });
     // Run is gated until a subject is entered.
     // Label is "Run deep research" with a key, "Run example research" in demo mode (CI has no key).
-    await expect(page.getByRole("button", { name: /Run (deep|example) research/ })).toBeDisabled();
+    await expect(
+      page
+        .getByTestId("persona-workbench")
+        .getByRole("button", { name: /Run (deep|example) research/ }),
+    ).toBeDisabled();
     await expect(page.getByText("No report yet")).toBeVisible();
   });
 
@@ -71,7 +75,9 @@ test.describe("Deep Research", () => {
 
     await page.goto("/research/");
     await page.getByLabel("Sector / theme").fill("Enterprise Software");
-    const run = page.getByRole("button", { name: /Run (deep|example) research/ });
+    const run = page
+      .getByTestId("persona-workbench")
+      .getByRole("button", { name: /Run (deep|example) research/ });
     await expect(run).toBeEnabled();
     await run.click();
 

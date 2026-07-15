@@ -15,7 +15,6 @@
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "_ref_status", "max_complexity": 39},
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "reconcile_lineage", "max_complexity": 48},
     {"path": "caos/server/market_xlsx.py", "symbol": "_find_candidate", "max_complexity": 12},
-    {"path": "caos/server/market_xlsx.py", "symbol": "_validate_package", "max_complexity": 22},
     {"path": "caos/server/market_xlsx.py", "symbol": "preview_workbook", "max_complexity": 36},
     {"path": "caos/server/model_engine_v2.py", "symbol": "calculate", "max_complexity": 75},
     {"path": "caos/server/model_engine_v2.py", "symbol": "unique_keys", "max_complexity": 16},
