@@ -24,7 +24,7 @@ export function WorkflowRail() {
         </Link>
       </div>
 
-      <nav id="workspace-nav" aria-label="Workflow" className="flex-1 min-h-0 overflow-y-auto px-2.5 py-4">
+      <nav id="workspace-nav" aria-label="Workflow" className="caos-rail-scroll flex-1 min-h-0 overflow-y-auto px-2.5 py-4">
         {NAV_GROUPS.map((group) => (
           <section
             key={group.id}

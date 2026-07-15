@@ -15,8 +15,61 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnalystBadge } from "./AnalystBadge";
+import { MoreDrawer } from "./MoreDrawer";
 import { RoleViewSwitch } from "./RoleViewSwitch";
 import { NAV_GROUPS, routeMatches } from "@/lib/nav";
+
+/** Full-label concept list in a popover — the guaranteed nav path below the
+ *  rail breakpoint. The icon chip row is a quick-jump enhancement that can
+ *  scroll off; this drawer always reaches every destination, at every width
+ *  down to phones (the chips row hides <768px, the trigger does not). */
+function ConceptsDrawer({
+  pathname,
+  preserveContext,
+}: {
+  pathname: string;
+  preserveContext: (href: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <MoreDrawer open={open} onOpenChange={setOpen} triggerLabel="Concepts" align="left">
+      <nav aria-label="All concepts" className="flex max-h-[70vh] flex-col gap-1 overflow-y-auto">
+        {NAV_GROUPS.map((g) => (
+          <section key={g.id} aria-label={g.label}>
+            <h2 className="px-2 pt-1 text-caos-2xs uppercase tracking-widest text-caos-muted select-none">{g.label}</h2>
+            {g.items.map((s) => {
+              const active = routeMatches(pathname, s.href);
+              const Glyph = ICONS[s.icon];
+              return (
+                <Link
+                  key={s.href}
+                  href={preserveContext(s.href)}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => setOpen(false)}
+                  className={`caos-rail-link no-underline flex items-center gap-2 ${active ? "caos-rail-link-active" : ""}`}
+                >
+                  <Glyph className={active ? "text-caos-accent" : ""} />
+                  {s.label}
+                </Link>
+              );
+            })}
+          </section>
+        ))}
+        <section aria-label="Utility">
+          <Link
+            href={preserveContext("/settings")}
+            aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+            onClick={() => setOpen(false)}
+            className={`caos-rail-link no-underline flex items-center gap-2 ${pathname.startsWith("/settings") ? "caos-rail-link-active" : ""}`}
+          >
+            <ICONS.settings />
+            Settings
+          </Link>
+        </section>
+      </nav>
+    </MoreDrawer>
+  );
+}
 
 type Icon = (props: { className?: string }) => React.ReactElement;
 
@@ -111,7 +164,14 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const Gear = ICONS.settings;
   const settingsActive = pathname.startsWith("/settings");
   return (
-    <span className="caos-compact-nav items-center gap-1 min-w-0 max-w-full overflow-x-auto caos-no-scrollbar">
+    <span className="caos-compact-nav items-center gap-1 min-w-0 max-w-full">
+      {/* Guaranteed nav path below the rail breakpoint — never scrolls away.
+          Rendered outside the chip scroller so its popover isn't clipped. */}
+      {compact && <ConceptsDrawer pathname={pathname} preserveContext={preserveContext} />}
+      {/* Chip row: quick-jump enhancement. Scrolls with a VISIBLE thin
+          scrollbar (the hidden-scrollbar variant made off-screen chips
+          undiscoverable) and hides entirely <768px, where the drawer is nav. */}
+      <span className="caos-concept-chips flex flex-1 items-center gap-1 min-w-0 overflow-x-auto">
       <nav
         id="concept-nav"
         aria-label="Concepts"
@@ -187,6 +247,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         <Gear className={settingsActive ? "text-caos-accent" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
+      </span>
       {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation only. */}
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <RoleViewSwitch />

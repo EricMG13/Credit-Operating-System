@@ -130,18 +130,24 @@ body {
   box-shadow: var(--focus-ring);
 }
 
-/* Compact navigation is an intentional horizontal scroller below the desktop
-   rail breakpoint. Inline-size containment prevents the off-screen chips from
-   enlarging the document while keeping every destination keyboard/scroll
-   reachable inside the header. */
+/* Compact navigation below the desktop rail breakpoint (1280px — MUST match
+   BP_WIDE in lib/useBreakpoint.ts; breakpoints.contract.test.ts pins this).
+   Two layers: the "Concepts" drawer trigger (guaranteed nav path, visible at
+   EVERY width below the rail, including phones) and the chip quick-jump row,
+   which scrolls with a visible thin scrollbar and hides <768px. Inline-size
+   containment prevents the off-screen chips from enlarging the document. */
 .caos-compact-nav {
   display: none;
-  flex: 1 1 0;
-  contain: inline-size;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-@media (min-width: 768px) and (max-width: 1179px) {
+@media (max-width: 1279px) {
   .caos-compact-nav { display: flex; }
+}
+
+@media (max-width: 767px) {
+  .caos-concept-chips { display: none; }
 }
 
 .caos-finalization-bar {
@@ -237,7 +243,7 @@ body {
   .caos-utility-trigger-label { display: none; }
 }
 
-@media (min-width: 1180px) {
+@media (min-width: 1280px) {
   .caos-workspace {
     display: grid;
     grid-template-columns: var(--caos-rail-width) minmax(0, 1fr);
@@ -255,6 +261,27 @@ body {
     height: 100vh;
     overflow: hidden;
   }
+}
+
+/* Rail scroll affordance: pure-CSS scroll shadows (local/scroll gradient pair
+   tinted to the rail background) so a clipped nav list is visibly clipped —
+   PUBLISH/MONITOR must never silently vanish below the fold. */
+.caos-rail-scroll {
+  background:
+    linear-gradient(color-mix(in srgb, var(--caos-panel) 90%, var(--caos-bg)) 30%, transparent) center top,
+    linear-gradient(transparent, color-mix(in srgb, var(--caos-panel) 90%, var(--caos-bg)) 70%) center bottom,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.5), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.5), transparent) center bottom;
+  background-repeat: no-repeat;
+  background-size: 100% 24px, 100% 24px, 100% 10px, 100% 10px;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* Short-viewport density: 16 links + 5 group headers fit ~700px without
+   scrolling at all on most laptop heights. */
+@media (min-width: 1280px) and (max-height: 800px) {
+  .caos-rail-link { min-height: 30px; padding-top: 0.3rem; padding-bottom: 0.3rem; }
+  .caos-rail-group { margin-bottom: 0.5rem; }
 }
 
 .caos-rail-link {

@@ -17,7 +17,7 @@ export function RoleViewSwitch() {
   const { roleView, setRoleView } = useRoleView();
   return (
     <span className="inline-flex items-center gap-1.5 shrink-0" title="Presentation only — permissions and approval authority do not change">
-      <span className="hidden xl:inline tabular text-caos-2xs uppercase tracking-wider text-caos-muted">View</span>
+      <span className="inline tabular text-caos-2xs uppercase tracking-wider text-caos-muted">View</span>
       <span
         role="radiogroup"
         aria-label="View composition — presentation only, permissions unchanged"
