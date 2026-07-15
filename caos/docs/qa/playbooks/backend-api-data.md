@@ -1,147 +1,195 @@
-# Backend Audit Playbook — API Surface, Data Layer, Reliability
-
-Goal-prompt for a Sonnet agent. Re-run on every PR touching `caos/server/` and before every deploy.
-You audit; you do not refactor. Report findings, fix nothing unless instructed.
+# Audit the backend API, data layer, and reliability
 
 ## 1. Objective and stakes
 
-Prove that the CAOS backend (`caos/server/`: FastAPI + SQLAlchemy async + Alembic, SQLite dev / Postgres prod) still holds its API, data, and reliability invariants. Analysts drive runs, ingest filings, and persist models through this API; a dropped constraint, a non-reversible migration, or a run that dies mid-flight silently corrupts a credit view that goes in front of an investment committee. Your output is a dated pass/fail report with adversarially-verified findings — not a vibe check.
+You are a Sonnet 5 audit agent. Prove that the CAOS FastAPI and Postgres backend preserves API contracts, committed credit data, and terminal run state through invalid input, retries, migration, cancellation, worker death, and redeploy. Analysts ingest filings and persist models through this surface. A leaked internal error, partial transaction, duplicate ingest, dropped constraint, or stranded run can corrupt an investment-committee credit view.
 
-## 2. Scope discovery — run fresh every audit
+Audit only. Do not refactor or fix findings. Use current code and test output as evidence, not prior reports. Produce one dated pass/fail report.
 
-The surface moves; never audit from a stale list. Enumerate first:
+## 2. Scope discovery
+
+Run discovery from the repository root on every audit. Treat every changed or newly discovered route, schema, migration, SQL site, owner stamp, and executor as in scope.
 
 ```bash
-# Route inventory (method + path per router; prefixes in main.py include_router block)
-grep -rn "@router\.\(get\|post\|put\|patch\|delete\)" caos/server/routes/*.py
-grep -n "include_router" caos/server/main.py
-
-# Request/response models
-grep -rn "class .*(BaseModel)" caos/server/routes/*.py caos/server/*.py
-
-# Migration chain (must be linear, one head)
-ls caos/server/migrations/versions/
-
-# Executors (all four + the pipeline executor)
-ls caos/server/*executor*.py caos/server/engine/pipeline_executor.py
-
-# Raw-SQL surfaces to re-check for parameterization
-grep -rln "text(" caos/server/*.py caos/server/routes/*.py
+git diff --name-status origin/main...HEAD -- caos/server caos/tests/server
+rg -n '@(router|app)\.(get|post|put|patch|delete)\(' caos/server/routes caos/server/main.py
+rg -n 'include_router|exception_handler' caos/server/main.py
+rg -n '^class .*\([^)]*BaseModel[^)]*\)' caos/server
+rg -n 'Field\(|Query\(|Form\(|model_config|ConfigDict' caos/server/routes
 ```
 
-Diff this inventory against the previous audit report; every new route, model, migration, or `text()` site enters scope.
+```bash
+rg --files caos/server/migrations/versions | sort
+(cd caos/server && .venv311/bin/python -m alembic heads)
+(cd caos/server && .venv311/bin/python -m alembic history)
+rg -n 'class .*Executor|class .*Worker|CancelledError|Semaphore|lease_expires_at|with_for_update|_reap_orphans' \
+  caos/server/*executor*.py caos/server/engine/pipeline_executor.py
+```
 
-## 3. Coverage checklist — invariants to prove
+```bash
+rg -n 'text\(|exec_driver_sql|op\.execute|\.execute\(' caos/server --glob '*.py'
+rg -n 'analyst_id|uploaded_by|created_by|updated_by|email' \
+  caos/server/database.py caos/server/migrations/versions
+rg -n 'str\((e|exc|err|error)\)|traceback|stack' caos/server/main.py caos/server/routes
+```
 
-Each item is an invariant, not a step. PASS = evidence it holds; FAIL = a repro.
+Record the inventories in the report. Diff them against the last report only to find drift; never treat the last report as proof.
 
-**Schema validation & mass assignment**
-- Every mutating route takes an explicit Pydantic body model; no route constructs or updates an ORM row from raw request dict/`**payload`/`setattr` loops.
-- ORM-backed responses go through `response_model` with `from_attributes` models; no credential/secret column (e.g. `Analyst` password/token fields) is serializable by any response model.
+## 3. Coverage checklist
 
-**Input caps & pagination**
-- Every string input carries `max_length`; every list endpoint's `limit` is bounded (`Query(..., ge=, le=)` — e.g. `routes/edgar.py` `le=50`). Flag any unbounded user-controlled fan-out.
-- Uploads are size-capped *while streaming* (`ingest.py` raises 413 before buffering past `max_upload_mb`) and rate-limited (`routes/ingestion.py` `_UPLOAD_MAX_PER_MINUTE`). Empty and malformed PDF/XLSX bodies are rejected 400.
+Prove each invariant. A claim without code evidence and a test or bounded repro is not a pass.
 
-**Error-handler leakage**
-- The catch-all handler (`main.py` `log_unhandled`) returns a static `{"detail": "Internal Server Error"}`; the exception with request context goes to logs only.
-- No route surfaces `str(e)`/stack of a *generic* exception to the client: `grep -rn "str(e" caos/server/routes/*.py caos/server/main.py`. Typed domain errors are the allowed exception (`EdgarError → HTTPException(502, str(exc))` is deliberate — curated upstream-fetch messages, not internals). Anything caught as bare `Exception` and echoed is a finding.
+### API contracts and mass-assignment safety
 
-**Parameterized queries**
-- All `text()` sites (discovery list above) use bound parameters; no f-string/`.format`/concat of user input into SQL. `nlquery.py` translators emit parameterized queries over `metric_facts` by design — verify that holds for any new translator.
+- Every mutating JSON route validates an explicit Pydantic request model. Multipart fields have equivalent bounds.
+- Unknown or privileged fields cannot set identifiers, ownership, role, status, provenance, lease, audit, or secret columns. ORM creates and updates use an explicit allowlist, never raw `**payload`, generic `setattr`, or client-selected column names.
+- Every JSON response has an explicit, validated shape. ORM response models use deliberate field lists and cannot serialize password hashes, recovery hashes, tokens, edge secrets, worker metadata, or internal exception text.
+- Negative tests prove over-posting and response-shape failures are rejected. Pydantic defaults do not weaken handler requirements.
 
-**Migrations: additivity & reversibility**
-- Exactly one Alembic head; `alembic check` clean against models; `upgrade head → downgrade base → upgrade head` round-trips. All three are enforced by `caos/tests/server/test_migrations.py` — it must pass, and any new migration must extend the chain, not fork it.
-- New migrations are additive: no `DROP TABLE`/`DELETE`/`TRUNCATE` of user data (0027's nullability reconciliation is the historical exception, already adjudicated). Read the diff of any new `versions/*.py` directly.
+### Input caps and pagination
 
-**Executor fault isolation**
-- `run_executor.py`: `CancelledError` handled as `BaseException`, distinct from failure; last-resort mark-failed so no run is left `running` forever; SQLite/in-process boot orphan sweep exists (that path has no reaper).
-- Postgres `QueueWorker`: claim via `FOR UPDATE SKIP LOCKED`; lease window with re-claim while `attempts < MAX`; attempts-exhausted orphans reaped to `failed`. State machine: `queued →claim→ running →execute→ complete/failed`; `running & lease<now` re-claims or reaps.
-- Concurrency capped: `caos_run_concurrency` semaphore on runs; `caos_research_concurrency` on both research executors. Research executors are in-process semaphore-only (no lease) — accepted at current scale, their docstrings name the QueueWorker upgrade path; flag only if replicas > 1 is on the table.
+- Every user-controlled string, collection, upload, workbook, query, fan-out, and external-call budget has a finite cap before expensive work begins.
+- Every collection route bounds `limit` and applies the bound in SQL before materialization. Offset or cursor inputs are validated. Counts do not trigger an unbounded fetch.
+- Uploads stop reading at the byte cap, reject empty or malformed bodies, cap concurrent parse work, and enforce archive, cell, extracted-text, and chunk limits. Antivirus failure follows the configured fail-closed policy.
 
-**Seed & ingest idempotency**
-- `seed.py` is re-runnable: insert-if-missing by id, per-issuer skip guard for metrics, provenance-scoped replace. Running it twice produces zero duplicate rows.
-- Ingest re-upload of the same file must not corrupt or duplicate issuer state.
+### Error leakage
 
-**Retention & GDPR erase**
-- Retention: a new run supersedes the issuer's older run-derived `metric_facts` (store bounded as runs scale); seed facts untouched (`test_retention.py`).
-- Erase: self-service `DELETE /api/auth/profile` and operator CLI `python -m erase_analyst <email>` both route through `database.erase_analyst_data`. It must scrub **both** analyst-id and email stamps, including the proxy-stamped fallback (rows stamped with email when no profile row exists); private Deep Research jobs deleted; shared runs/documents anonymized (de-linked), not deleted. Any table added since the last audit that stamps `analyst_id` or email must be covered by the erase — grep new migrations for such columns and cross-check.
+- The catch-all handler logs server context and returns a static 500 body. No stack, exception representation, SQL text, path, credential, provider payload, or `str(e)` reaches a client.
+- The invariant includes indirect leakage through persisted `error`, progress, or status fields returned by later polling routes.
+- A surfaced domain error is allowed only when its type and message are curated for clients. A broad `Exception` converted to `HTTPException`, JSON, or an API-visible database field is a failure.
 
-**Async worker claim/lease on Postgres**
-- The claim/re-claim/reap tests actually *run* against Postgres (they skip on SQLite via `requires_pg` in `test_async_runs.py`). A green suite where the PG leg silently skipped is a FAIL of the audit itself.
+### Query safety
+
+- Every value derived from a request reaches SQL through SQLAlchemy expressions or bound parameters.
+- Dynamic table, column, sort, direction, operator, and fragment choices come from fixed allowlists. No f-string, formatting, or concatenation can place user input into `text()`, `op.execute()`, or driver SQL.
+- Raw SQL introduced by a migration is static or parameterized and preserves tenant and analyst scoping where applicable.
+
+### Migration additivity and reversibility
+
+- Alembic has one linear head. A fresh database upgrades to head, `alembic check` reports no model drift, and a disposable database completes `upgrade head -> downgrade base -> upgrade head`.
+- Each new revision points to the prior head and has an executable downgrade. An intentionally irreversible data transform declares the recovery path and blocks deploy until that path is accepted.
+- Production upgrades are additive: no silent `DROP`, `DELETE`, `TRUNCATE`, constraint weakening, destructive rewrite, or lossy backfill. Constraint and nullability changes preflight existing rows and fail with a useful error instead of deleting or coercing data.
+- Migration startup is serialized on Postgres. The app does not serve traffic against a partial schema.
+
+### Executor fault isolation
+
+- Runs, research jobs, research reports, and pipeline jobs commit either a complete result or a terminal failure. A rollback cannot leave a partial credit view visible.
+- `asyncio.CancelledError` has a distinct path that persists safe terminal state, clears leases, runs rollback cleanup, and re-raises cancellation. A last-resort failure path cannot raise and strand the row.
+- The SQLite in-process path retains task references, caps concurrency, drains cancellation on shutdown, and sweeps provably orphaned non-terminal rows on boot.
+- Each Postgres worker claims at most one eligible row with `FOR UPDATE SKIP LOCKED` and a SQL limit. Two workers cannot claim the same row.
+- Live work renews its lease and cannot re-claim itself. Expired work below the attempt cap is re-claimable. Expired work at the cap is reaped to `failed`. Attempts and token spend do not reset across re-claims.
+- Worker-loop exceptions are isolated to one tick and become observable after repeated failures. Concurrency caps are finite and do not hold database connections while waiting for capacity.
+
+### Seed and ingest idempotency
+
+- Running every seed function twice leaves the same logical rows, facts, chunks, and provenance after the first run. Existing analyst data is neither overwritten nor used as a table-wide skip condition.
+- Retrying an ingest with its supported idempotency identity creates one logical import. If re-upload intentionally creates a version, the version is explicit and linked rather than an accidental duplicate.
+- File storage and database writes behave as one logical transaction: database failure or cancellation removes uncommitted vault objects, and a committed row never points to missing bytes.
+- PDF, workbook, memo, and market/model import lanes enforce byte and expansion caps before parse or persistence. Content hashes and analyst scope prevent cross-user deduplication.
+
+### Retention and General Data Protection Regulation erasure
+
+- Retention removes only data made obsolete by its policy. A run that emits no fact for one module cannot erase that module's last valid facts. Seed facts, current facts, other issuers, and other analysts remain intact.
+- Both self-service erase and operator erase call the same data-layer primitive. The erase covers every table and stored artifact stamped with analyst ID, email, `uploaded_by`, `created_by`, or an equivalent owner field.
+- Erasure checks both ID and email forms, including proxy-only email stamps. Private state is deleted; shared credit records are anonymized or pseudonymized without breaking referential integrity; bystander data is unchanged.
+- Any new owner-stamped model or migration has matching erase coverage and a regression assertion. Erase is transactional and retry-safe.
+
+### Postgres async claim and lease path
+
+- Postgres-specific tests exercise the real `SKIP LOCKED`, claim, heartbeat, re-claim, attempt-cap, and reap paths for run, research, research-report, and pipeline workers.
+- A green SQLite fallback is not evidence for this invariant. Any Postgres worker test reported as skipped fails the audit.
 
 ## 4. Procedure
 
-Interpreter: `caos/server/.venv311/bin/python` (prod-parity py3.11, fastapi 0.138 — never downgrade the pin). `caos/server/.venv/bin/python` (py3.9) is the floor check. `caos/tests/server/conftest.py` auto-provisions a throwaway SQLite DB + vault dir and force-blanks LLM keys (offline by default; `CAOS_TEST_LIVE=1` opts out) — no manual test-DB setup for the SQLite leg.
+Use `caos/server/.venv311/bin/python`. The test harness creates a throwaway SQLite database and vault, blanks model keys unless `CAOS_TEST_LIVE=1`, and enables `CAOS_TEST=1`. Run from the repository root with `CAOS_TEST_LIVE` unset.
 
 ```bash
-# Full offline suite (mirrors CI; 2026-07-03 baseline: 870 passed on the server
-# dir alone, low-single-digit skips — stress/cohort add more)
-caos/server/.venv311/bin/python -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q
-
-# Targeted legs for this playbook's invariants
 caos/server/.venv311/bin/python -m pytest \
+  caos/tests/server/test_api.py \
   caos/tests/server/test_migrations.py \
   caos/tests/server/test_async_runs.py \
   caos/tests/server/test_runner_fault_isolation.py \
-  caos/tests/server/test_locks.py \
   caos/tests/server/test_pipeline_executor.py \
-  caos/tests/server/test_gdpr_erase.py \
-  caos/tests/server/test_retention.py \
-  caos/tests/server/test_seed.py \
+  caos/tests/server/test_research_jobs.py \
+  caos/tests/server/test_research_report.py \
+  caos/tests/server/test_upload_robustness.py \
+  caos/tests/server/test_upload_concurrency.py \
   caos/tests/server/test_ingest_markitdown.py \
-  caos/tests/server/test_avscan.py \
-  caos/tests/server/test_rate_limit.py \
-  caos/tests/server/test_api.py \
-  caos/tests/server/test_security_headers.py \
-  caos/tests/server/test_token_revocation.py -q
-
-# Postgres-only worker leg (CI runs this against pgvector/pgvector:pg18 — plain
-# postgres:18 lacks the `vector` extension migration 0030 requires, and setup fails)
-docker run --rm -d --name caos-audit-pg -p 5433:5432 -e POSTGRES_PASSWORD=postgres pgvector/pgvector:pg18
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/postgres \
-  caos/server/.venv311/bin/python -m pytest \
-  caos/tests/server/test_async_runs.py -k "worker or reaper or claim" -q -rs
-docker stop caos-audit-pg
-# -rs: confirm the requires_pg tests RAN — "skipped" here fails the audit.
-
-# Static gates (ruff is in the venv, not on PATH)
-caos/server/.venv311/bin/python -m ruff check caos/server caos/tests
-cd caos/server && .venv311/bin/python -m mypy   # engine gate (mypy.ini files=engine)
+  caos/tests/server/test_xlsx_safety.py \
+  caos/tests/server/test_seed.py \
+  caos/tests/server/test_retention.py \
+  caos/tests/server/test_gdpr_erase.py \
+  caos/tests/server/test_market_xlsx_commit.py \
+  caos/tests/server/test_model_workbook_api.py -q
 ```
 
-Gotchas: the suite shares ONE process-global SQLite DB — no per-test wipe; if you add a repro test, seed per-entity-idempotent with non-colliding names or the conftest issuer-baseline guard will bite you. Run pytest from the repo root.
+Run the full offline regression gate on every pull request and pre-deploy audit:
+
+```bash
+caos/server/.venv311/bin/python -m pytest \
+  caos/tests/server caos/tests/stress caos/tests/cohort -q
+```
+
+Use a disposable pgvector Postgres 18 database for migration and worker evidence. Plain Postgres lacks the `vector` extension required by migration `0030`.
+
+```bash
+docker run --rm -d --name caos-backend-audit-pg -p 5433:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=caos_audit \
+  pgvector/pgvector:pg18
+until docker exec caos-backend-audit-pg pg_isready -U postgres -d caos_audit; do sleep 1; done
+export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/caos_audit
+(cd caos/server && .venv311/bin/python -m alembic upgrade head)
+(cd caos/server && .venv311/bin/python -m alembic check)
+(cd caos/server && .venv311/bin/python -m alembic downgrade base)
+(cd caos/server && .venv311/bin/python -m alembic upgrade head)
+```
+
+Run the Postgres-only worker leg against that database:
+
+```bash
+caos/server/.venv311/bin/python -m pytest \
+  caos/tests/server/test_async_runs.py::test_two_workers_claim_one_run_once \
+  caos/tests/server/test_async_runs.py::test_reaper_fails_exhausted_orphan \
+  caos/tests/server/test_research_jobs.py::test_two_research_workers_claim_one_job_once \
+  caos/tests/server/test_research_jobs.py::test_research_reaper_fails_exhausted_orphan \
+  caos/tests/server/test_research_report.py::test_two_report_workers_claim_one_report_once \
+  caos/tests/server/test_research_report.py::test_report_reaper_fails_exhausted_orphan \
+  caos/tests/server/test_pipeline_executor.py -q -rs
+docker rm -f caos-backend-audit-pg
+unset DATABASE_URL
+```
+
+Inspect the summary. Any skip in this leg fails the audit even if pytest exits zero. If discovery finds another Postgres claim or lease implementation, add its exact test target before passing the audit.
 
 ## 5. Evidence and reporting
 
-Write `caos/docs/qa/audits/backend-api-data-YYYY-MM-DD.md`:
+Write `caos/docs/qa/audits/backend-api-data-YYYY-MM-DD.md`. Include the date, branch, commit, interpreter, database image, exact commands, exit codes, pass/fail/skip counts, and `file:line` evidence.
 
-- **Header**: date, branch, commit, interpreter, baseline counts.
-- **Gate table** — all must PASS to pass the audit:
-  1. Full offline suite green (no new failures vs baseline).
-  2. `test_migrations.py` green (single head, `alembic check`, round-trip).
-  3. Postgres worker leg green **and not skipped**.
-  4. Leakage grep: no new bare-`Exception` `str(e)` sites vs previous report.
-  5. Raw-SQL grep: no new unparameterized `text()` site.
-  6. Every new route/model/migration from §2 discovery mapped to a §3 invariant.
-- **Findings**: severity (HIGH/MED/LOW), `file:line`, invariant broken, repro, suggested fix. 
-- **Adversarial verification**: any finding claiming data loss or a fault-isolation hole must be refute-first verified before it enters the report — write the failing repro (test or script) and try to prove the finding *wrong* first. Historical rate of severity inflation in agent findings is high; an unverified HIGH is reported as UNVERIFIED, never as HIGH.
-- Cross-check candidate findings against `caos/docs/qa/REVIEW_MATRIX_BACKEND.md` before writing them up — most "discoveries" are already adjudicated there.
+The overall result is PASS only when every gate passes:
 
-## 6. Accepted-risk register — never re-flag
+1. Discovery is complete, and every new route, schema, migration, SQL site, owner stamp, and executor maps to an invariant.
+2. API validation, mass-assignment, caps, pagination, error masking, and SQL parameterization have no unverified gap.
+3. The focused and full offline suites pass with no new skip or failure.
+4. Alembic has one head, no model drift, an additive reviewed diff, and a successful disposable-Postgres round trip.
+5. The Postgres worker leg passes with zero skips and covers every discovered Postgres claim and lease path.
+6. Seed, ingest, retention, erasure, rollback, cancellation, orphan, re-claim, and reap behavior has direct test evidence.
 
-Seeded from REVIEW_MATRIX_BACKEND.md "Adjudicated-accepted register" plus executor notes. Re-flag only if the *scale assumption* behind one changes (multi-replica deploy, external users, paid tier):
+For each finding, report severity, invariant, `file:line`, affected data, smallest repro, and suggested remediation. Do not edit code.
 
-| Risk | Why accepted |
+Adversarially verify every claimed data-loss, partial-write, double-execution, lease, orphan, migration, or erasure gap before reporting it as confirmed. First reproduce the failure, then try to refute it with transaction boundaries, constraints, cleanup hooks, dialect behavior, and a counter-test. Label any claim that survives only static review as UNVERIFIED. An unverified claim cannot set a HIGH or MEDIUM severity or pass/fail gate.
+
+## 6. Accepted-risk register
+
+Seed this register from `caos/docs/qa/REVIEW_MATRIX_BACKEND.md`. Do not re-flag an entry while its stated assumption holds. Reopen it when scope, deployment, trust, scale, data policy, or implementation changes. Do not add a new accepted risk without explicit owner approval.
+
+| Accepted risk | Assumption that keeps it accepted |
 |---|---|
-| Single-team IDOR (issuers/runs not owner-scoped) | One trusted team per deployment; roles-lite is the E2 authz posture |
-| Edge-secret-trust (app trusts Caddy-injected header) | Defense-in-depth at the edge; constant-time guard, boot fail-closed |
-| On-host backup | Pilot posture; off-host is a deploy-phase item, not app code |
-| XFF rate-key spoof / global login-bucket self-DoS | Limiter is per-process best-effort behind the edge proxy |
-| Limiter + advisory locks assume ONE process | Deploy runs a single app container; revisit at replicas > 1 (BE8-1) |
-| Research executors in-process, no lease | Semaphore-capped; QueueWorker upgrade path documented in-module |
-| EDGAR in-process throttle | Single-process deploy; same scale assumption as above |
-| `EdgarError → 502 str(exc)` | Curated domain-error messages, deliberately surfaced to analysts |
-| Register 409 confirms email existence | Throttled, invite-code-gated; accepted UX tradeoff |
-| No-OCR (scanned PDFs → 0 chunks) | markitdown text-layer only; OCR is a backlog item |
-| Demo/mock seams, PERF-2 bundle size | By design for Phase-1 |
+| Single-team insecure direct object reference posture | One trusted team uses each deployment; cross-team tenancy is not enabled |
+| Forwarded-for rate-key spoof | The edge proxy controls forwarded identity headers; the limiter remains a best-effort abuse control |
+| Global login-bucket self-denial of service | Access is invite-gated and operated by one trusted team |
+| Edge-secret trust | Only the edge reaches the app, injects the identity headers, and passes the boot-enforced shared-secret check |
+| On-host backup | Pilot operations explicitly accept host-loss exposure; off-host recovery remains a deploy control |
+| EDGAR in-process throttle | The app runs one process; replicas require a shared throttle |
+| OCR unavailable when the optional OCR command is unset | The UI exposes zero-chunk warnings; production OCR requirements have not changed |
+| PERF-2 bundle | Frontend bundle cost remains an accepted Phase 1 tradeoff and does not hide backend correctness risk |
+| Demo and mock seams | They remain isolated to documented demo, test, or keyless paths and cannot overwrite live data |

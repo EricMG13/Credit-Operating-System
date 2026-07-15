@@ -81,6 +81,20 @@
 - **Opus instruction (technical):** Catch only an Axios 404 as the intentional `null` case; rethrow non-404 failures so `useLatestRunStatus` / `useExactPipelineStatus` enters its existing `error` phase, and add tests for 404-versus-500 behavior.
 - **Integrity payoff (1 line):** Stops a backend failure from being rendered as a valid but less-informative execution graph.
 
+### [MEDIUM] Route resilience — Complete per-surface error-boundary coverage
+- **Failure state (1 sentence):** A render or lifecycle exception in Decisions, Issuers, Monitor, Pipeline, Portfolios, Research, Sector, Sector RV, Settings, Sponsors, or Upload bubbles to the root error boundary and replaces the entire application surface instead of containing the failure at the affected route.
+- **Location:** `caos/frontend/src/app/` → missing top-level `error.tsx` files for `decisions`, `issuers`, `monitor`, `pipeline`, `portfolios`, `research`, `sector`, `sector-rv`, `settings`, `sponsors`, and `upload`; existing `command/error.tsx`, `deepdive/error.tsx`, `model/error.tsx`, `query/error.tsx`, and `reports/error.tsx` are the reuse pattern.
+- **Lens:** STRIDE Denial of Service + OWASP A10; this is missing failure containment, not ordinary Next.js error propagation mislabeled as a framework bug.
+- **Opus instruction (technical):** Add an `error.tsx` in each named top-level segment that re-exports or renders `components/shared/RouteErrorBoundary`, add a smoke test that throws inside representative segments and asserts the route-local recovery UI preserves the root shell, and keep `app/global-error.tsx` only for root-layout failure.
+- **Integrity payoff (1 line):** Contains a broken analytical surface so concurrent work elsewhere in the institutional workspace remains navigable and recoverable.
+
+### [MEDIUM] Report Studio — Handle analysis-context link rejection
+- **Failure state (1 sentence):** When the effect that attaches the live run to the analysis context rejects, its `void analysis.patch(...)` call emits an unhandled promise rejection and the report gives no indication that its context still points at the prior run.
+- **Location:** `caos/frontend/src/app/reports/page.tsx` → `ReportStudio` effect that patches `issuer_ids`, `artifacts.issuer_run_id`, and report `surface_state` when `live.runId` changes.
+- **Lens:** STRIDE Tampering / Repudiation + OWASP A10; this is a failed metadata write that leaves durable context stale, not an intentional local-draft fallback.
+- **Opus instruction (technical):** Add a cancellation guard and `.catch` that sets a dedicated context-link error (without overwriting publish/autosave status), expose a retry action that reissues the same patch against the current context/run, and add a rejection test asserting no `unhandledrejection` and no false “linked” state.
+- **Integrity payoff (1 line):** Prevents Report Studio from silently presenting a live report while its shared analysis context remains bound to an older execution.
+
 > Checkpoint 1: pending fresh-context verification of 5 files; 5 candidates proposed, 4 tiered, 1 retained as non-tiered informational.
 
 > Checkpoint 2: pending fresh-context verification of 5 files; 2 inherited candidates proposed, 0 tiered provisionally because current principal-bound storage clearing and Model Builder stale-response guards appear to resolve both.
@@ -88,3 +102,5 @@
 > Checkpoint 3: pending fresh-context verification of 5 files; 6 candidates proposed, 3 tiered provisionally, 2 appear fixed/moved, and the uncancelled toast timer remains below the implementation threshold.
 
 > Checkpoint 4: pending fresh-context verification of 5 files; 4 candidates proposed, 3 tiered provisionally, while the autonomy poller and role-view debounce passed local lifecycle review.
+
+> Checkpoint 5: pending fresh-context verification of 5 files; 3 candidates proposed, 2 tiered provisionally, and the remaining assumptions-storage validation gap stayed below threshold.
