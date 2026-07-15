@@ -26,10 +26,10 @@ def test_at_ceiling_no_finding():
     assert leverage_magnitude_finding(_cp1(8.0)) is None  # boundary is inclusive of "plausible"
 
 
-def test_over_ceiling_flags_minor():
+def test_over_ceiling_flags_material():
     f = leverage_magnitude_finding(_cp1(10.0))
     assert f is not None
-    assert f.severity == "MINOR" and f.finding_id == "CP-1-LEV-MAGNITUDE" and f.module_id == "CP-1"
+    assert f.severity == "MATERIAL" and f.finding_id == "CP-1-LEV-MAGNITUDE" and f.module_id == "CP-1"
     assert "10" in f.description
 
 
@@ -37,7 +37,7 @@ def test_large_net_cash_position_flags_symmetrically():
     # abs(lev): an implausible net-CASH claim (large negative leverage) is just
     # as suspect as an implausible net-DEBT claim.
     f = leverage_magnitude_finding(_cp1(-12.0))
-    assert f is not None and f.severity == "MINOR"
+    assert f is not None and f.severity == "MATERIAL"
 
 
 def test_none_payload_no_finding():

@@ -1,273 +1,205 @@
-# Engine Correctness Audit — Re-runnable Playbook
+# Prove CAOS engine correctness
 
-Goal-prompt for the auditing agent (Sonnet). Re-run on every PR touching `caos/server`
-and before every deploy. You audit and report; you do not edit engine code — fixes land
-as separate commits after adjudication. Run fully offline (the test conftest blanks
-`ANTHROPIC_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY`; never set `CAOS_TEST_LIVE`).
-All commands run from the repo root unless noted.
+## 1. Objective and credit stakes
 
-## 1. Objective
+You are the Sonnet 5 engine-correctness auditor. Prove that every deterministic financial value emitted by `caos/server/engine/` is finite, contract-correct, basis-consistent, period-aligned, and financially defensible. Include deterministic boundary math outside the package when it consumes or emits engine values. At authoring, that includes `caos/server/scenario.py`; discovery, not this sentence, defines the current surface.
 
-Prove the deterministic credit engine cannot hand a wrong number to an investment
-committee. The engine's leverage, coverage, EBITDA, net-debt, recovery, liquidity-runway
-and Altman figures drive position sizing and committee decisions on leveraged-loan
-credits; real money moves on them. The failure mode that matters is not a crash — a
-crash is visible — it is the **silent wrong read**: a NaN that survives a truthiness
-check, a double-scaled unit, a stale period picked as "latest", a reported-basis EBITDA
-re-stripped of add-backs. Each of these produces a plausible-looking number that is
-wrong, and nobody downstream can tell.
+A crash is visible. A plausible but wrong leverage, coverage, EBITDA, net debt, recovery, liquidity-runway, or Altman value can reach an investment committee and move real money. Treat silent wrong reads as release blockers.
 
-Scope: the deterministic (no-LLM) math lane — `caos/server/engine/` plus
-`caos/server/scenario.py` (deterministic math that lives outside `engine/`; see
-REVIEW_MATRIX_BACKEND BE-2 path note). LLM lanes (`llm_client`, `council`, `debate`,
-`gemini`, `openrouter`, live `synth`) are in scope only at their **output boundary**:
-the point where LLM JSON becomes stored numbers.
+Audit and report only. Do not edit engine code, tests, contracts, or golden fixtures. Run offline from the repository root. Pass only when every current census entry maps to an invariant and a proof. An unproven invariant, unexplained skip, or unmapped site is a failure.
 
-The audit passes when every invariant in §3 is proven over the module census discovered
-in §2, every gate in §4 is green, and every suspected miscompute has been adversarially
-re-verified per §5. Any unproven invariant is a FAIL, not a warning.
+## 2. Scope discovery
 
-## 2. Scope discovery — run fresh every audit
-
-Never audit from a remembered module list. Enumerate the current surface each run; the
-census defines the domain the §3 invariants quantify over.
+Discover the full tree on every run. Use `origin/main` as the comparison base, but prove the invariants over the full current tree, not only the diff.
 
 ```bash
-# 2a. Engine module census
-find caos/server/engine -name '*.py' -not -path '*__pycache__*' | sort
+PY=caos/server/.venv311/bin/python
 
-# 2b. Registry census — the governed module DAG (implemented vs spec-only)
-caos/server/.venv311/bin/python -c "
-import sys; sys.path.insert(0, 'caos/server')
-from engine.registry import all_specs
-for s in all_specs(): print(s.module_id, s.module_name, 'impl' if s.implemented else 'spec-only')"
+rg --files caos/server/engine | rg '\.py$' | sort
+rg --files caos/tests/server | rg '(^|/)test_.*\.py$' | sort
+rg --files caos/tests/server/golden | sort
+rg --files caos/tests/server | rg 'test_.*_contract\.py$' | sort
 
-# 2c. Guarded-math surface — modules already using the finite guard
-grep -rln --include='*.py' 'is_finite_number\|safe_div' caos/server/engine caos/server/scenario.py
-
-# 2d. Divide/multiply census — EVERY arithmetic site the finite-gating invariant covers
-caos/server/.venv311/bin/python - <<'EOF'
-import ast, pathlib
-files = sorted(pathlib.Path("caos/server/engine").glob("*.py")) + [pathlib.Path("caos/server/scenario.py")]
-for f in files:
-    for node in ast.walk(ast.parse(f.read_text())):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.Mult)):
-            print(f"{f}:{node.lineno}")
-EOF
-
-# 2e. Test census
-ls caos/tests/server/test_*_contract.py                      # contract suites
-ls caos/tests/server/golden/                                 # golden fixtures + tests
-ls caos/tests/server/test_nan_guards.py \
-   caos/tests/server/test_engine_math_degrade_guards.py \
-   caos/tests/server/test_leverage_plausibility.py \
-   caos/tests/server/test_periods.py \
-   caos/tests/server/test_periods_safe_div.py \
-   caos/tests/server/test_recon_basis_gate.py                # guard/invariant suites
-
-# 2f. Ingress boundaries — where external numbers enter (parse + store)
-grep -rn --include='*.py' 'loads_finite' caos/server/engine | grep -v test
-grep -n 'json.loads\|float(' caos/server/engine/edgar_cp1.py caos/server/engine/reported_cp1.py caos/server/engine/metrics.py
+git diff --name-status origin/main -- \
+  caos/server/engine caos/server/scenario.py caos/tests/server
 ```
 
-Staleness rules:
-
-- Compare the 2a/2d census against the previous report's counts (§5). Any **new module
-  or new arithmetic site** must be mapped to a §3 invariant and its proof named. An
-  unmapped new site is automatically a finding — coverage gaps are findings, not notes.
-- A registry module flipping `spec-only → impl` with a numeric `owned_object` and no
-  contract/unit suite is a finding.
-- If a glob in 2e matches nothing, the suite was moved or deleted: locate or flag —
-  never conclude "not applicable".
-
-## 3. Invariants to prove
-
-Written as invariants, not steps: for each, cite the standing proof (tests), then prove
-it still holds for every **new** census entry since the last report. "The suite passed"
-proves only what the suite exercises; the census diff is what keeps this exhaustive.
-
-**A. Finite-gating of CP-1 arithmetic**
-Every divide/multiply on a CP-1-derived value (leverage, net debt, EBITDA, coverage,
-claims, EV) is dominated by `engine.periods.is_finite_number` or goes through
-`engine.periods.safe_div`. A plain `isinstance(x, (int, float))` — or any truthiness
-check — passes NaN, because `bool(NaN)` is `True`; the NaN then poisons the arithmetic
-and leaks a silent wrong read downstream (CLAUDE.md engine convention).
-*Proof:* walk the 2d census; each site is either (i) on a non-CP-1 constant/counter, or
-(ii) gated. Standing evidence: `test_nan_guards.py` (NaN/inf → None/skip across
-covenants, refinancing, metrics, peers), `test_periods_safe_div.py`. Regression teeth:
-spot-check that replacing one `is_finite_number` with `isinstance` at a load-bearing
-site would fail a test — a guard no test pins rots silently (the BE2-3 gap class; that
-instance is closed, but every NEW guard needs the same teeth).
-
-**B. Zero-denominator degradation**
-A denominator that can reach 0 — including by arithmetic, e.g. `ebitda * (1 - pct)` as
-`pct → 1` — degrades to `None`/skip; it never raises and never emits ±inf. Raising
-matters doubly here: a raise inside the QA/gate phase **aborts and rolls back the whole
-run** (BE3 abort semantics), so a bad divide converts one missing figure into a lost run.
-*Proof:* every 2d division site shows an explicit non-zero check or `safe_div`. Standing
-evidence: `test_engine_math_degrade_guards.py` (negative/zero EBITDA → `_distressed_ev`
-None, not a −$500M EV), Altman guards (`distress.py` gates finiteness **before** the
-`total_assets<=0` denominator checks — verify that ordering survives edits).
-
-**C. Non-finite ingress at parse and store boundaries**
-NaN/±inf cannot enter the number stores. Parse boundaries: EDGAR companyfacts JSON
-(`edgar_cp1` gates at parse), reported-disclosure scans, every LLM-JSON lane through
-`engine.llm_safety.loads_finite` (plain `json.loads` accepts `NaN`/`Infinity` literals —
-that is the trap). Store boundaries: `metrics.extract_facts` drops non-finite before the
-fact store; fixture/demo payloads are finite. DB read-back paths re-gate rather than
-trust (interior `runtime_output` is unvalidated below the top level — the standing trust
-boundary).
-*Proof:* 2f census — every `json.loads`/`float()` on external numeric input is either
-`loads_finite` or followed by a finite gate before storage. Standing evidence:
-`test_nan_guards.py::test_loads_finite_rejects_non_finite`, `test_extract_facts_drops_nan_values`.
-A **new** parse or store site without a gate is a finding even if unreachable today.
-
-**D. CP-1/2/3 contract conformance**
-Each implemented module's payload keeps its contract: the shapes, keys, degradation
-semantics and finding IDs the downstream modules and the CP-5 gate consume.
-*Proof:* the `caos/tests/server/test_*_contract.py` census (Altman Z″, recovery
-waterfall, interest runway, rate sensitivity, score vulnerability, assess fit,
-scorecard, deltas, pathways — enumerate, don't assume) plus `test_engine.py`,
-`test_edgar_cp1.py`, `test_reported_cp1.py` all green on both interpreters. Every
-implemented registry module owning a numeric object maps to at least one contract/unit
-suite; unmapped = finding.
-
-**E. Golden-master regression**
-The engine reproduces the frozen, human-validated CP-1 anchors byte-exactly from
-captured SEC facts: `caos/tests/server/golden/` (VSAT + FUN EDGAR fixtures, VMO2
-reported-lane, portfolio, query gates) — fully offline, exact-match.
-*Proof:* golden suites pass. On drift: **adjudicate before touching fixtures** — decide
-whether the diff is an intended methodology change (then regenerate via
-`golden/_capture.py`, manual, needs `EDGAR_USER_AGENT`, never CI) or a regression (then
-it is a P0 finding). Never re-capture to make red green; the drift alarm is the product.
-
-**F. Financial plausibility**
-Outputs are internally consistent and domain-plausible, because the open
-`runtime_output` schema means an in-range-but-wrong number passes every type check.
-Invariants: asserted `net_leverage_adj_ltm` ≈ `net_debt_ltm / adj_ebitda(LTM)` (the
-`CP-1-LEV-PLAUS` MATERIAL finding fires when not); recovery estimates ∈ [0, 100] and
-non-increasing down the seniority waterfall; `pct_of_structure` sums ≈ 100; margins ∈
-[−100, 100]%; leverage/coverage within leveraged-credit-plausible bands on the golden
-issuers; Altman zone boundaries map to the Z″ thresholds.
-*Proof:* `test_leverage_plausibility.py`, waterfall/Altman contract suites; then
-recompute the golden issuers' headline metrics independently from the raw fixture facts
-and compare — do not trust the engine to check itself.
-
-**G. Sign and unit correctness**
-One unit regime, applied once: USD→$M conversion happens at a single point
-(`edgar_cp1` `$M, one decimal` — the catalog/UI unit); no site double-scales or mixes
-raw-USD with $M. Ratios are unitless turns (x), margins %. (Market-spread RV — DM in
-bps, the loans-only convention — is Phase-2; its absence from `relval.py` is not a
-gap, but any spread field that lands must carry bps.) Sign discipline: a negative LTM
-EBITDA degrades EV to None rather than publishing a negative distressed EV; each
-`MetricDef` unit label agrees with its computation.
-*Proof:* golden anchors (a scaling error cannot survive an exact-match against
-human-validated $M values); `test_engine_math_degrade_guards.py`. Two sign behaviors
-are **pinned by design — do not flag** (§6): the coverage-divide sign asymmetry (BE1-1)
-and the negative interest-runway passthrough (`test_interest_runway_contract.py`
-`cov_negative`/`liq_negative`).
-
-**H. Period-alignment math**
-"Latest" means latest: 2-digit years normalize to 4 before ordering (`'LTM_Q1_26'` must
-not sort below `'FY2024'`); an LTM stub ranks just above the period it trails; `latest()`
-selects by `sort_key`, never by insertion order, and degrades to None on a non-dict
-series (unvalidated interiors, invariant C). Numerator and denominator of any ratio come
-from the same period basis. Reported vs adjusted basis is honored: the add-back
-reconciliation runs **only** on an adjusted-basis CP-1 — re-stripping add-backs from a
-reported-basis EBITDA double-counts and overstates leverage ("reported is canonical").
-*Proof:* `test_periods.py`, `test_recon_basis_gate.py`; any new period-keyed series
-found in the census uses `periods.latest`/`sort_key` rather than ad-hoc max()/ordering.
-
-## 4. Procedure
-
-Run in order; record every exit code and count verbatim in the report.
+Enumerate every registered module, including default-off and spec-only entries. Record `module_id`, owned object, implementation state, feature flag, and dependencies.
 
 ```bash
-# 0. Preconditions — offline + the pinned toolchain
-caos/server/.venv311/bin/python -V           # 3.11.x (prod parity; never downgrade fastapi 0.138)
-env | grep -E 'ANTHROPIC|GEMINI|OPENROUTER|CAOS_TEST_LIVE' || true   # CAOS_TEST_LIVE must be unset
+PYTHONPATH=caos/server "$PY" - <<'PY'
+from engine.registry import REGISTRY
+for spec in REGISTRY.values():
+    print(spec.module_id, spec.owned_object, spec.implemented,
+          spec.feature_flag, spec.depends_on, spec.after)
+PY
+```
 
-# 1. Lint gate (ruff 0.15.18, config ruff.toml)
+Enumerate every divide and multiply. The output includes non-numeric overloads such as `Path / "name"`; classify each site explicitly instead of filtering by filename or intuition.
+
+```bash
+"$PY" - <<'PY'
+import ast
+from pathlib import Path
+paths = sorted(Path("caos/server/engine").glob("*.py"))
+paths += [Path("caos/server/scenario.py")]
+for path in paths:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Div, ast.Mult)):
+            print(f"{path}:{node.lineno}:{type(node.op).__name__}:{ast.unparse(node)}")
+PY
+
+rg -n 'is_finite_number|safe_div|checked_(divide|multiply)' \
+  caos/server/engine caos/server/scenario.py
+```
+
+Enumerate parse, validation, projection, persistence, and read-back boundaries. Trace each hit to the first stored or computed financial value.
+
+```bash
+rg -n 'json\.loads|JSONDecoder|loads_finite|parse_constant|float\(|Decimal\(|model_validate|allow_nan' \
+  caos/server/engine caos/server/scenario.py caos/server/edgar.py
+
+rg -n 'MetricFact\(|ModuleOutput\(|session\.add\(|runtime_output|extract_facts|extract_cost_facts' \
+  caos/server/engine caos/server/database.py
+```
+
+Build the live test-to-engine import map. Integration tests that reach engine code through routes must be added to the map during trace review.
+
+```bash
+"$PY" - <<'PY'
+import ast
+from pathlib import Path
+for path in sorted(Path("caos/tests/server").rglob("test_*.py")):
+    modules = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("engine"):
+            modules.add(node.module)
+        if isinstance(node, ast.Import):
+            modules.update(a.name for a in node.names if a.name.startswith("engine"))
+    if modules:
+        print(f"{path}: {', '.join(sorted(modules))}")
+PY
+```
+
+The census fails if a command misses a moved path, a new implemented numeric module lacks a mapped test, or a new arithmetic or boundary site lacks an invariant classification.
+
+## 3. Coverage checklist
+
+Prove every invariant over the current census. Cite code by `file:symbol` or `file:line` and cite the tests that would fail if the invariant regressed.
+
+- [ ] **I-1: Every CP-1-derived divide and multiply is finite-gated.** Every operand derived directly or transitively from CP-1, including values read from `runtime_output` or `MetricFact`, is dominated by `engine.periods.is_finite_number` or a finite-safe helper before arithmetic. The result is also finite before emission or storage. A plain `isinstance(x, (int, float))`, `x is not None`, or truthiness check is not a finite gate: `bool(float("nan"))` is `True`. `latest()` returning a numeric type does not remove the consumer's duty to re-gate it. Every load-bearing guard has regression cases for `NaN`, `+inf`, `-inf`, and an ordinary finite value.
+
+- [ ] **I-2: Every possible zero denominator degrades.** Every denominator is proven finite and non-zero after all transformations. This includes derived denominators such as `ebitda * (1 - pct)` when `pct == 1`, rounded denominators that become `0.0`, empty population counts, and denormal inputs whose quotient overflows. Undefined math returns `None`, a documented degraded state, or a blocked finding. It never raises, emits infinity, or fabricates zero. `safe_div` and equivalent helpers reject non-finite operands, zero denominators, and non-finite results.
+
+- [ ] **I-3: Non-finite values cannot cross a parse or store boundary.** EDGAR companyfacts, reported-disclosure regex captures, text scans, scenario/model JSON, LLM tool dictionaries, fixtures, API models, and database read-backs reject `NaN`, `Infinity`, `-Infinity`, and overflow such as `1e999` before financial use. Plain `json.loads` is unsafe because Python accepts non-finite literals. Model output uses `loads_finite`, including SDK dictionaries round-tripped through JSON. `validate_payload` rejects non-finite values anywhere in nested `runtime_output`. `metrics.extract_facts`, `extract_cost_facts`, `metricfactlane`, and every `MetricFact` write re-gate values. Store readers re-gate because historical or malformed rows are not trusted. No persisted payload, emitted JSON, formatted string, aggregate, or peer statistic contains a non-finite number.
+
+- [ ] **I-4: Every implemented CP-1, CP-2, and CP-3 numeric contract is executable and pinned.** Map every implemented registry entry in those families to its owned numeric object, synthesizer, degradation semantics, and at least one unit, contract, or integration suite. Current proof families include `test_edgar_cp1.py`, `test_reported_cp1.py`, `test_adjusted*.py`, `test_engine.py`, `test_overlays.py`, and every discovered `test_*_contract.py`. Contract proofs cover exact keys, types, rounding order, finding IDs, status semantics, and malformed inputs. A registry entry that becomes implemented or gains a numeric output without a mapped proof fails this invariant.
+
+- [ ] **I-5: Frozen real-issuer goldens do not drift.** The offline CP-1 golden rebuild from captured SEC companyfacts reproduces the exact human-validated VSAT and FUN revenue, adjusted EBITDA, net debt, leverage, coverage, Altman score, zone, and source lineage. The reported-disclosure golden reproduces VMO2. The marked golden end-to-end suite preserves the full deterministic lane and gate behavior. Never run `_capture.py` during an audit and never update a fixture to make a failure green. A methodology change requires independent filing validation and separate adjudication before any golden update.
+
+- [ ] **I-6: Headline outputs are financially plausible and independently reconcilable.** Net debt equals the correctly signed debt total less cash. Leverage reconciles to same-basis net debt divided by annual adjusted EBITDA. Coverage reconciles to annual EBITDA divided by positive cash interest where that contract requires a positive denominator. EDGAR EBITDA follows the documented reported proxy and does not claim covenant-adjusted basis; add-backs run once and only on the adjusted lane. Altman Z-double-prime uses `3.25 + 6.56*X1 + 3.26*X2 + 6.72*X3 + 1.05*X4`, with `X4 = book equity / total liabilities`, exact zone boundaries, and no intermediate rounding. Recovery stays within 0% to 100%, pari-passu rows recover at the same rate, and junior value cannot precede a senior rank. Plausibility bands create visible findings, not silent clamps; a genuinely distressed issuer may exceed an advisory leverage band.
+
+- [ ] **I-7: Signs, units, scale, and rounding are correct at each handoff.** Raw EDGAR USD converts to millions exactly once. Reported-disclosure values preserve currency and declared scale; million/billion conversion occurs once and mixed currencies do not aggregate. Money numerators and denominators use the same currency and scale. Leverage and coverage are unitless turns, spreads and rate shocks are basis points converted by `10_000`, margins are percentages, margin changes are percentage points, and decimal rates are not percentages. Debt, cash, interest, EBITDA, claims, recoveries, and shocks obey their contract-specific sign rules. Rounding happens only at the documented presentation boundary and in the documented order.
+
+- [ ] **I-8: Period alignment is deterministic and basis-safe.** `year`, `sort_key`, `latest`, `latest_annual`, and headline selection correctly order two-digit and four-digit years, quarters, half-years, fiscal years, dated and undated LTM labels, and insertion-order adversaries. Annual formulas never consume a standalone quarter as LTM. Ratio operands share a period and basis; debt, cash, interest, and Altman balance-sheet facts meet their freshness rules relative to EBITDA. EDGAR keys facts by the fact's period end and handles restatements deterministically. Reported-basis CP-1 skips adjusted-EBITDA reconciliation so add-backs are not stripped twice. Missing or conflicting dates degrade instead of combining mismatched periods.
+
+- [ ] **I-9: Proof coverage is closed over the census.** Maintain a review table with one row for every divide/multiply site, numeric parse/store boundary, and implemented numeric CP-1/2/3 owned object. Each row names its classification, invariant, guard, and proof test. Non-financial arithmetic and overloaded operators require an explicit exclusion rationale. No sampling, prior-report trust, or green aggregate test count can replace this closure table.
+
+## 4. Procedure and exact gates
+
+Keep all tests offline. `caos/tests/server/conftest.py` clears provider keys, but clear the shell too. Never set `CAOS_TEST_LIVE` or `EDGAR_USER_AGENT` for this audit.
+
+```bash
+unset ANTHROPIC_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY
+unset CAOS_TEST_LIVE EDGAR_USER_AGENT
+PY=caos/server/.venv311/bin/python
+
+# Discovery and invariant mapping: run every command in section 2 first.
+
+# Ruff, identical scope and config to CI.
 caos/server/.venv311/bin/ruff check caos/server caos/tests
 
-# 2. Complexity gate — C901 on the Python files this branch changed (merge-base scope)
-files=$(git diff --name-only --diff-filter=d origin/main...HEAD -- '*.py' | grep -vE '(^|/)\.(venv|goal)/' || true)
-[ -n "$files" ] && echo "$files" | xargs caos/server/.venv311/bin/ruff check --select C901
+# Changed-code complexity gate, using the canonical remote base.
+"$PY" caos/scripts/check_complexity_delta.py --base-ref origin/main
 
-# 3. Engine type gate (mypy 2.1.0, mypy.ini files=engine, pins 3.11)
-cd caos/server && .venv311/bin/mypy && cd ../..
+# Mypy engine gate. mypy.ini resolves files=engine from caos/server.
+(cd caos/server && .venv311/bin/mypy)
 
-# 4. Full deterministic suite — py3.11 leg (conftest blanks LLM keys itself)
-caos/server/.venv311/bin/python -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q
-
-# 5. Cross-interpreter leg (py3.9 floor) — divergence between legs is itself a finding
-caos/server/.venv/bin/python -m pytest caos/tests/server -q
-
-# 6. Targeted invariant suites (fast re-run set for §3 evidence)
-caos/server/.venv311/bin/python -m pytest \
+# Focused correctness proofs.
+"$PY" -m pytest -q \
   caos/tests/server/test_nan_guards.py \
+  caos/tests/server/test_adjusted.py \
+  caos/tests/server/test_adjusted_guards.py \
   caos/tests/server/test_engine_math_degrade_guards.py \
+  caos/tests/server/test_periods.py \
+  caos/tests/server/test_periods_safe_div.py \
+  caos/tests/server/test_metrics.py \
+  caos/tests/server/test_metricengine.py \
+  caos/tests/server/test_metricfactlane.py \
   caos/tests/server/test_leverage_plausibility.py \
-  caos/tests/server/test_periods.py caos/tests/server/test_periods_safe_div.py \
+  caos/tests/server/test_leverage_magnitude.py \
   caos/tests/server/test_recon_basis_gate.py \
-  caos/tests/server/golden caos/tests/server/test_*_contract.py -q
+  caos/tests/server/test_cp1_grounding.py \
+  caos/tests/server/test_edgar_cp1.py \
+  caos/tests/server/test_reported_cp1.py \
+  caos/tests/server/test_overlays.py \
+  caos/tests/server/test_scenario.py \
+  caos/tests/server/test_scenario_network.py \
+  caos/tests/server/test_*_contract.py \
+  caos/tests/server/golden
+
+# Frozen captured-fact alarm, called out separately in the report.
+"$PY" -m pytest -q caos/tests/server/golden/test_golden_cp1.py
+"$PY" -m pytest -m golden_e2e -q caos/tests/server/golden
+
+# Full server regression gate, identical to CI's SQLite leg.
+"$PY" -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q
 ```
 
-Then execute §2 discovery, diff the census against the last report, and prove §3 A–H
-over the diff (read every new/changed arithmetic and ingress site; cite file:line).
+PR and pre-deploy evidence must also show the same full pytest command green in the repository's Python 3.11 and Python 3.14 CI matrix. If Python 3.14 and the locked dependencies are available locally, the exact runtime command is:
+
+```bash
+python3.14 -m pytest caos/tests/server caos/tests/stress caos/tests/cohort -q
+```
+
+Record every exit code, collected count, pass count, skip, xfail, warning, and interpreter version. A missing target, collection error, new skip, or 3.11/3.14 behavioral divergence fails the gate until explained and adjudicated.
 
 ## 5. Evidence and reporting
 
-Write `caos/docs/qa/ENGINE_CORRECTNESS_<YYYY-MM-DD>.md`:
+Write `caos/docs/qa/reports/engine-correctness-YYYY-MM-DD.md`. Include:
 
-- **Baseline table** — each §4 command, exact counts (`N passed, N skipped`), exit code,
-  interpreter, date. Mirror the REVIEW_MATRIX_BACKEND baseline format.
-- **Census table** — module count, divide/multiply site count, contract-suite count,
-  golden-fixture count, each vs the previous report (the staleness diff). If no prior
-  report exists, this run's census is the baseline.
-- **Gate verdicts** — one row per invariant A–H: PASS / FAIL / DEGRADED, with the
-  evidence (test names + census citations). Any FAIL ⇒ overall verdict **DO NOT
-  MERGE / DO NOT DEPLOY**; there is no "pass with warnings" for the engine.
-- **Findings** — file:line, invariant violated, severity by money impact (would the
-  wrong number reach a committee?), minimal reproduction.
+- **Run identity:** UTC date, branch, `HEAD`, `origin/main` base, dirty-tree state, Python versions, and offline environment confirmation
+- **Census:** engine modules, registered and implemented modules, divide/multiply sites, parse/store boundaries, mapped tests, contract files, and golden fixtures, with counts and the delta from the prior report
+- **Command evidence:** exact command, exit code, collected/passed/skipped/failed counts, duration, and CI links for both Python legs
+- **Closure table:** every census entry mapped to I-1 through I-9, its guard or exclusion rationale, and the proof test
+- **Invariant verdicts:** `PASS` or `FAIL` only, with code and test citations; unproven means `FAIL`
+- **Findings:** severity, `file:line`, violated invariant, minimal input, actual result, independently computed result, committee impact, and the first persistence or presentation boundary reached
+- **Accepted-risk recheck:** every section 6 premise marked `HOLDS` or `BROKEN`; a broken premise becomes a finding
 
-Adversarial re-verification — mandatory for every suspected miscompute before it enters
-the report:
+Overall `PASS` requires all invariants, ruff, mypy, focused tests, goldens, the full suite, both CI interpreter legs, and census closure to pass. Any failure means `DO NOT MERGE / DO NOT DEPLOY`. There is no pass-with-warnings state for deterministic credit math.
 
-1. **Refute first.** Try to prove the engine right: check the golden anchors, the
-   module docstring, and §6 — engine behavior that looks wrong is sometimes a pinned
-   methodology choice (the 2026-07-04 engine-math audit lesson: check golden/"by
-   design" before declaring an engine bug).
-2. **Reproduce minimally**, in a throwaway script under the session scratchpad — never
-   by editing engine or test code.
-3. **Recompute independently** from the raw inputs (fixture JSON, XBRL facts) without
-   calling the code under suspicion; compare.
-4. Only a finding that survives all three is CONFIRMED; otherwise record it as refuted
-   with the refuting evidence. Agents inflate severity — right-size against backstops.
+Adversarially re-verify every suspected miscompute before calling it confirmed:
+
+1. Try to refute it against the module contract, source filing anchor, existing golden, and accepted-risk register.
+2. Reproduce it with the smallest raw input in `/tmp`; do not edit repository code or tests.
+3. Recompute from raw XBRL, disclosure, or fixture values without calling the function under suspicion or a shared helper.
+4. Check sign, currency, scale, period, basis, rounding order, and downstream persistence independently.
+5. Trace whether the value can reach a stored fact, API payload, report, or committee surface. Right-size severity to that path.
+6. Mark it `CONFIRMED` only if it survives all checks. Record refuted candidates and their refuting evidence. An unresolved candidate keeps the invariant failed.
 
 ## 6. Accepted-risk register
 
-Seeded from the adjudicated 2026-07-03 backend review
-([REVIEW_MATRIX_BACKEND.md](../REVIEW_MATRIX_BACKEND.md)). Never re-flag these as new
-findings. Each run, spend one minute per row re-checking the premise ("still true?");
-a broken premise escalates the row back to an open finding.
+Seed this register from [`REVIEW_MATRIX_BACKEND.md`](../REVIEW_MATRIX_BACKEND.md). Accepted risk suppresses duplicate findings only while its premise holds. It never waives a wrong finite number, non-finite leak, unit or period mismatch, unadjudicated golden drift, or untested arithmetic site.
 
-**The matrix lags the code.** Its finding rows (BE1-1, BE2-1..3, BE3-1..3) are
-adjudication-time snapshots; all of them were subsequently fixed in code (verified
-2026-07-10: `edgar_cp1.py` `int_ly[0] > 0`, `liquidity.py:109` finite-gated sum,
-`peers.py` per-value gates, `metrics._as_dict` coercion, `adjusted.py:222` dict guard,
-NaN-amount cases in the liquidity/waterfall suites). Before treating any matrix row as
-an open accepted risk, grep the code at the cited line — code is truth, the matrix is
-history.
+| Risk | Accepted boundary | Premise to re-verify every run |
+|---|---|---|
+| Single-team IDOR, XFF rate-key spoof, global login-bucket self-DoS, edge-secret trust, on-host backup, and PERF-2 bundle size | Outside deterministic math; owned by backend, security, and performance audits | The engine change does not alter these trust or deployment assumptions |
+| EDGAR in-process throttle | Availability and multi-process scaling risk, not numeric methodology | A throttled or failed fetch degrades without stale, partial, or fabricated CP-1 values |
+| No OCR for scanned PDFs | Missing-source limitation | A scan with no text yields explicit insufficient information or no data, never invented financials |
+| Demo and mock seams by design | Permitted only when unmistakably labelled and excluded from real-run provenance | Demo values cannot enter the run-derived `MetricFact` store or masquerade as live committee data |
+| Negative liquidity or negative coverage in interest-runway characterization | Deliberate, golden-pinned behavior | `test_interest_runway_contract.py` still pins `liq_negative` and `cov_negative`; consumers disclose the sign and do not reinterpret it as positive runway |
+| Pari-passu pro-rata sharing within a consecutive seniority rank | Deliberate recovery-waterfall model | Contract tests still prove equal recovery rates, absolute priority between ranks, and visible limitations for unknown intercreditor mechanics |
+| Mypy exclusions for nine dict-heavy synthesizers | Deferred typing debt, not a correctness waiver | The exclusion list in `caos/server/mypy.ini` has not grown, excluded modules remain covered by runtime contracts, and new numeric modules are not added to the list |
 
-| ID | Accepted risk | Why accepted | Premise to re-verify each run |
-|---|---|---|---|
-| RUNWAY-NEG | Negative interest-runway/coverage passthrough | Deliberate, golden-pinned methodology choice; escalation owner = methodology, not code | `test_interest_runway_contract.py` `cov_negative`/`liq_negative` still pin it |
-| WATERFALL-IC | Intercreditor sharing assumed pari-passu pro-rata within each seniority rank | Modeling limitation, disclosed in the payload caveat (`capstructure.py` waterfall-basis text) | Caveat text still emitted with every waterfall |
-| MYPY-EXCL | Nine dict-heavy synthesizers excluded from the mypy engine gate (`mypy.ini` `ignore_errors` list) | Dynamic-by-design dict shaping; typed-dataclass pass deferred | Exclusion list has not grown; drop rows as modules get typed |
-| EDGAR-THROTTLE / NO-OCR / DEMO-SEAMS | In-process EDGAR throttle; scanned PDFs → 0 chunks; demo/mock seams | Matrix "Adjudicated-accepted register" ("never re-flag") | Matrix register section unchanged |
-
-Register hygiene: additions require the same adjudication trail (finding → adversarial
-verify → explicit accept with owner); removals require either a fix commit or a matrix
-update. This register caps re-audit noise — it never caps severity of a **new** failure
-mode in the same area.
+Add a row only after a finding survives adversarial verification and receives explicit owner acceptance. Remove a row when fixed or when its premise breaks. A new failure mode in an accepted area is still a new finding.

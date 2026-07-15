@@ -139,13 +139,13 @@ async def _retrieve_module_hits(
     return ordered
 
 # CP-1 headline figures checked for a source-document basis (see
-# ModulePayload.ungrounded_headline_figures). Deliberately NOT net_leverage_adj_ltm
-# or net_debt_ltm: those are typically computed/adjusted, not stated verbatim in a
-# filing, so grounding them against raw chunk text would fail-close on legitimate
-# derived values (all_grounded is built for a literally-restated figure). Revenue
-# and adjusted EBITDA are the closest thing to a quotable headline number a real
-# filing/credit-agreement/management presentation states directly.
-_GROUNDED_CP1_FIELDS = ("revenue", "adj_ebitda")
+# ModulePayload.ungrounded_headline_figures). Net leverage itself is derived, but
+# the net-debt primitive must still be traceable to the retrieved corpus before a
+# live model's capital structure can be committee-ready. A legitimate computed
+# net-debt figure that is not restated verbatim therefore degrades to Restricted
+# until an evidence-backed adjustment bridge is available; accepting a plausible,
+# self-consistent fabrication is the more dangerous failure mode.
+_GROUNDED_CP1_FIELDS = ("revenue", "adj_ebitda", "net_debt_ltm")
 
 
 def _most_recent_disclosed_value(series: object) -> Optional[float]:
@@ -157,6 +157,8 @@ def _most_recent_disclosed_value(series: object) -> Optional[float]:
     an LTM figure against raw chunk text is therefore a structural false positive.
     Falls back to ``latest()`` (LTM included) only when no non-LTM period is
     disclosed at all."""
+    if is_finite_number(series):
+        return float(series)
     if isinstance(series, dict):
         non_ltm = {p: v for p, v in series.items() if not str(p).upper().startswith("LTM")}
         if non_ltm:
@@ -172,21 +174,11 @@ def _ground_cp1_headline_figures(payload: ModulePayload, hits: list) -> None:
     injected filing can steer) a self-consistent, fabricated income statement
     that sails through that check untouched. This is the complementary check:
     does the model's stated revenue/EBITDA appear anywhere in what was actually
-    retrieved? Skipped when no documents were retrieved (nothing to ground
-    against) or this isn't CP-1.
-
-    KNOWN LIMITATIONS (v1, see cp1_grounding_finding's MINOR severity): a non-USD
-    issuer's FX-converted figures legitimately won't round-match the native-
-    currency source text — CP-1's own normalization methodology can mandate a
-    conversion, so this remains a population-level false-positive source even
-    though the runtime contract now carries the reporting currency. This check does NOT
-    ground net_debt_ltm or the leverage ratio itself (genuinely non-quotable,
-    computed values), so a fabrication that keeps revenue/EBITDA correct while
-    inventing net_debt/leverage is not caught here — see
-    engine.metrics.leverage_magnitude_finding, the magnitude-only sanity-band
-    backstop that catches it independent of both this check and
-    leverage_plausibility_finding's internal-consistency-only cross-check."""
-    if payload.module_id != "CP-1" or not hits:
+    retrieved? A CP-1 with no retrieved evidence is explicitly ungrounded rather
+    than silently bypassing the check. Non-USD normalization and computed net debt
+    may require an analyst-authored evidence bridge; until that exists the safe
+    committee state is Restricted, never an unqualified Ready."""
+    if payload.module_id != "CP-1":
         return
     nf = payload.runtime_output.get("normalized_financials") if isinstance(payload.runtime_output, dict) else None
     nf = nf if isinstance(nf, dict) else {}

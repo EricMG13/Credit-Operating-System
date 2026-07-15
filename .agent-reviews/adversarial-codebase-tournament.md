@@ -199,8 +199,9 @@ authorization.
   in-place `findings.extend(council)` therefore cannot mutate a retained CP-5B
   list reference.
 
-Final replacement code is preserved as the anonymous winning artifact
-`/tmp/g1_match1_A.py`; it is not applied to production source by this review.
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g1_execute_run_speed.py`; it is not
+applied to production source by this review.
 
 ## G2 — Model/workbook projections
 
@@ -274,6 +275,568 @@ Command:
 `caos/server/.venv311/bin/python -m pytest caos/tests/server/test_model_engine_v2.py caos/tests/server/test_model_workbook.py caos/tests/server/test_model_workbook_api.py caos/tests/server/test_model_v2_api.py caos/tests/server/test_model_v2_report_identity.py caos/tests/server/test_report_exports.py -q`
 
 Baseline result: **169 passed, 7 warnings in 10.69s**.
+
+### Tournament result
+
+Anonymous bracket:
+
+1. Speed (A) defeated Memory (B).
+   - A resolves derived overrides lazily in precedence order, avoiding lower
+     priority conversions after a winner is known.
+   - A removes transient missing-field, cash-component, and derived-field
+     collections while retaining their observable order.
+   - A is shorter and has the stronger time/space profile; B's additional
+     unrolling grows the review surface without a compensating contract gain.
+2. Readability (B) defeated the first-round winner (A).
+   - B's local `calculated` helper removes repeated node-prefix and node-list
+     plumbing while keeping node construction local to the method.
+   - It unifies the duplicated forecast/actual average, PIK, and expected-close
+     sequence without hiding the override ladder.
+   - At 427 versus 513 lines, B is substantially easier to review and maintain
+     despite modest helper-call overhead.
+3. Ultimate challenger (A) defeated Incumbent (B).
+   - A reduces the region from 456 to 427 lines and centralizes derived-node
+     construction without introducing a public helper or API.
+   - Override precedence, formula text, debt equations, warning/gap order, and
+     output-node order remain unchanged.
+   - The incumbent has lower constant-factor overhead, but the candidate's
+     verified contract equivalence and smaller review surface win on
+     maintainability.
+
+**Winner: Snippet A (Readability)**, replacing
+`caos/server/model_engine_v2.py:774-1229`. Production source remains unchanged;
+the winning review artifact is
+`.agent-reviews/adversarial-candidates/g2_model_debt_readability.py` and the
+scratch splice is `/tmp/caos-g2-readability-019f67d3/model_engine_v2.py`.
+
+### Orchestrator verification
+
+- Scratch import proof: `model_engine_v2.__file__` resolved to
+  `/tmp/caos-g2-readability-019f67d3/model_engine_v2.py`.
+- Engine-focused command:
+  `PYTHONPATH=/tmp/caos-g2-readability-019f67d3 caos/server/.venv311/bin/python -m pytest caos/tests/server/test_model_engine_v2.py -q`
+  → **60 passed in 0.39s**.
+- Remaining caller command:
+  `PYTHONPATH=/tmp/caos-g2-readability-019f67d3 caos/server/.venv311/bin/python -m pytest caos/tests/server/test_model_workbook.py caos/tests/server/test_model_workbook_api.py caos/tests/server/test_model_v2_api.py caos/tests/server/test_model_v2_report_identity.py caos/tests/server/test_report_exports.py -q`
+  → **109 passed, 7 warnings in 12.56s**.
+- Combined caller result: **169 passed**; this covers every production caller
+  family in the impact set: routes, checkpoints, workbook import/export,
+  calculation identity, and report export.
+- Six-month PIK spot-check at 12%: opening 200, draws 0, PIK
+  `12.061855670103093`, repayment 10, amortization 0 produced closing
+  `202.06185567010309`; the independently computed identity RHS was exactly
+  `202.06185567010309`.
+- Interest annualization remained `months / 12` (6/12). No yield solver or
+  day-count basis exists in this path, so none was changed or invented.
+- Five-process, 1,000-calculation microbenchmark medians were 0.378548s
+  incumbent and 0.397215s candidate (candidate about 4.9% slower). This is a
+  disclosed constant-factor trade-off; the accepted merit is the 29-line,
+  duplication-reducing maintainability improvement, not a speed claim.
+
+## G3 — API/auth/tenancy/persistence
+
+### Target and impact set
+
+Target: `caos/server/identity.py::get_identity`, source lines 133-238
+(GitNexus symbol envelope 132-237).
+
+- GitNexus exact UID: `Function:caos/server/identity.py:get_identity`.
+- Upstream impact: **CRITICAL**, 162 symbols: 122 direct and 40 at depth 2;
+  75 affected processes across Routes and Server.
+- Downstream impact: **CRITICAL**, 7 symbols (5 direct, 2 at depth 2) but 76
+  affected process memberships. Direct dependencies are `sanitize_field`,
+  `get_settings`, `is_deployed`, `get_db`, and `read_session_token`; `_sig` and
+  the transaction cleanup path are depth 2.
+- The direct set spans virtually every authenticated analytical surface:
+  alerts, analysis/findings, insights, autonomy, chat, committee, decisions,
+  digest, ingestion, market import, Model Builder/workbook, portfolios, Query,
+  Reports, Research, runs, sectors, issuer profiles, settings, sponsors,
+  thesis, and auth profile routes.
+- Highest-fan-out affected processes include `patch_alert_event`,
+  `patch_context`, `create_rv_screen`, `create_context`,
+  `patch_analyst_settings`, `patch_finding`, `get_report_version`,
+  `create_query_run`, `vault_exhibit`, `create_model_checkpoint`,
+  `create_sector_review`, `create_run`, `export_report_version`, and
+  `put_reporting_profile`.
+
+Contract: preserve the exact FastAPI dependency signature, `CallerIdentity`
+fields/defaults, query count and query conditions for each branch, exception
+status/detail, security-check order, sanitization boundary, source label, role,
+team scope, and local-development fallback.
+
+### G3 invariants
+
+- In a deployed context with an edge secret, the constant-time edge credential
+  check runs before cookie or forwarded identity resolution; a cookie cannot
+  bypass origin proof.
+- A profile cookie must pass HMAC, mandatory expiry, analyst-row existence, and
+  `token_version`; a revoked or erased profile falls through rather than
+  authenticating.
+- In deployed mode, a valid cookie whose bound email differs from the current
+  forwarded principal is ignored; same-user SSO and unproxied development
+  retain the documented behavior.
+- Header-less deployed requests fail 401. Only genuine development may return
+  `_LOCAL_DEV`.
+- Cookie and forwarded identity fields are sanitized before persistence/log
+  exposure. Persisted analyst roles and `team_id` remain authoritative where a
+  matching row exists.
+- The proxy email lookup remains case-insensitive and optional for compatible
+  lightweight test DB doubles.
+- This function performs no yield, day-count, covenant, or waterfall math.
+  Its financial invariant is authorization: an unverified, revoked, or
+  cross-team principal must never acquire access to the analytical records
+  protected by its 122 direct route dependents.
+
+### Baseline verification
+
+Command:
+`caos/server/.venv311/bin/python -m pytest caos/tests/server/test_identity.py caos/tests/server/test_auth_profile.py caos/tests/server/test_auth_password.py caos/tests/server/test_tenancy.py caos/tests/server/test_write_role_matrix.py caos/tests/server/test_access_log.py -q`
+
+Baseline result: **53 passed, 2 warnings in 5.98s**.
+
+### Tournament result
+
+Anonymous bracket:
+
+1. Speed (A) defeated Memory (B).
+   - A retains edge-first authentication, revocation, SSO fallthrough, proxy
+     lookup, sanitization, roles, teams, and deployed/local behavior.
+   - It removes repeated header-attribute lookups and extensive inline prose
+     while B is byte-for-byte the incumbent.
+   - Both have the same asymptotic profile; A is the smaller review surface.
+2. Readability (B) defeated the first-round winner (A).
+   - B names the cross-user decision positively as `same_principal`, making the
+     cookie acceptance rule easier to audit.
+   - It retains the conditional persisted-analyst query and exact proxy
+     fallbacks with fewer branches and locals.
+   - B is shorter and clearer without changing query count, returned fields,
+     exceptions, or sanitization.
+3. Ultimate challenger (A) defeated Incumbent (B).
+   - A preserves every tested security boundary and identity precedence while
+     reducing the function from 106 to 67 lines.
+   - Revocation, same-principal validation, proxy persistence, and fallback
+     behavior remain directly legible.
+   - Resource complexity is unchanged; the verified concision and
+     maintainability gain beats the comment-heavy incumbent.
+
+**Winner: Snippet A (Readability)**, replacing
+`caos/server/identity.py:133-238`. Production source remains unchanged. The
+winning artifact is
+`.agent-reviews/adversarial-candidates/g3_get_identity_readability.py`; the
+scratch splice is `/tmp/caos-g3-readability-019f67d3/identity.py`.
+
+### Orchestrator verification
+
+- Scratch import proof: `identity.__file__` resolved to the scratch file.
+- The first combined attempt exposed a harness error, not a candidate error:
+  importing scratch `identity` in `sitecustomize` also imported `database`
+  before `conftest.py` could set its temporary `DATABASE_URL`, producing a
+  stale-schema `no such column: lease_expires_at` startup failure.
+- Corrected focused command pins a fresh database before Python startup:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g3verify-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g3verify-vault-019f67d3 CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g3-readability-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_identity.py caos/tests/server/test_auth_profile.py caos/tests/server/test_auth_password.py caos/tests/server/test_tenancy.py caos/tests/server/test_write_role_matrix.py caos/tests/server/test_access_log.py -q`
+  → **53 passed, 3 warnings in 15.68s**.
+- Full-server command with an independent fresh DB and the same scratch import:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g3full-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g3full-vault-019f67d3 CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g3-readability-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server -q`
+  → **1,829 passed, 9 skipped, 7 failed in 83.16s**. All failures were the
+  sandbox's loopback-socket denial in `test_avscan.py`.
+- Outside-sandbox control using the same scratch import:
+  `... python -m pytest caos/tests/server/test_avscan.py -q`
+  → **8 passed, 1 warning in 0.03s**.
+- Security spot-checks in the focused suite prove that a valid cookie cannot
+  bypass the edge secret, a revoked token falls through, Alice's cookie under
+  Bob's forwarded principal resolves as Bob/proxy, and Team B cannot enumerate
+  Team A's analytical records.
+- No financial formula is present. Caller preservation is established by the
+  full server suite across all 122 direct route dependents.
+
+## G4 — Ingestion/lineage/pipeline
+
+### Target and impact set
+
+Target: `caos/server/lineage_reconciliation.py::reconcile_lineage`, source
+lines 223-508 (GitNexus symbol envelope 222-507).
+
+- Exact UID: `Function:caos/server/lineage_reconciliation.py:reconcile_lineage`.
+- Upstream impact: LOW, 5 symbols: 3 direct, 1 at depth 2, 1 at depth 3.
+  Direct callers are the reconciliation CLI `_run` and two focused reconciliation
+  tests in `test_phase1b_lineage.py`.
+- Downstream impact: **CRITICAL**, 19 symbols: 14 direct and 5 at depth 2;
+  73 affected processes across Routes and Server.
+- Direct dependencies: `typed_refs_from_artifacts`,
+  `bind_context_artifacts`, `_owner_identity`, `_fallback_owner_identity`,
+  `_ref_status`, `_edge_exists`, nested `add_ref`/`add_edge`,
+  `canonical_artifact_id`, `lineage_idempotency_key`, `write_lineage_edge`,
+  `tenancy_enabled`, `issuer_visible`, and `portfolio_visible`.
+- Those dependencies participate in model/checkpoint, portfolio, issuer,
+  committee, Query, Report, Research, run, market-import, ingestion, and
+  decision processes; lineage correctness therefore propagates far beyond the
+  single CLI caller.
+
+Contract: preserve the keyword-only mode/limit/cursor interface,
+`ReconciliationResult` schema and counter meanings, stable ordering, database
+query and transaction visibility, dry-run/apply/verify behavior, exact
+idempotency/canonicalization semantics, and non-destructive restartability.
+
+### G4 invariants
+
+- Mode and bounded page size fail before I/O; pagination is stable by context
+  ID and `next_cursor` names the last returned context only when another row
+  exists.
+- Missing persisted owners fail closed when tenancy is enabled. Context issuer
+  and portfolio scope must be visible before any proposal becomes valid.
+- Every persisted v2 edge is verified even if it cannot be reconstructed as a
+  proposal. Canonical prefixes, versions, transform version, analyst ID, and
+  v2 idempotency key must tie exactly; malformed rows increment both malformed
+  and integrity-failure counts.
+- Explicit typed versions win. Legacy scalar adaptation may add an unversioned
+  reference only when no exact/authoritative reference exists for that kind/ID.
+- Historical uncertainty is surfaced as unresolved; the reconciler never
+  invents run-input edges or a source manifest that history cannot prove.
+- Dangling and unauthorized refs never enter `valid_refs`; an edge is proposed
+  only when both endpoints remain valid and an exact edge does not already
+  exist.
+- Apply mode writes idempotent v2 edges, binds valid typed refs, and commits once
+  per context. Dry-run and verify perform no writes and roll back before return.
+- There is no yield/day-count/covenant/waterfall math here. The financial
+  invariant is audit provenance: model, report, run, market, insight, document,
+  and decision relationships must remain attributable and tenant-authorized.
+
+### Baseline verification
+
+Command:
+`caos/server/.venv311/bin/python -m pytest caos/tests/server/test_phase1b_lineage.py caos/tests/server/test_lineage_v2.py caos/tests/server/test_tenancy.py -q`
+
+Baseline result: **59 passed, 2 skipped, 2 warnings in 9.78s**.
+
+### Tournament result
+
+Anonymous bracket:
+
+1. Speed (A) defeated Memory (B).
+   - A replaces repeated linear legacy-ref and valid-edge membership scans with
+     version-aware set lookups, improving dense-context worst cases from
+     quadratic toward linear.
+   - It preserves typed-version precedence, insertion order, counters,
+     authorization, SQL calls, and transaction boundaries.
+   - Its additional linear key sets have a clear purpose and a smaller overall
+     cost than B's primarily allocation-focused changes.
+2. First-round winner (A) defeated Readability (B).
+   - A avoids reparsing persisted typed refs and uses one canonical key shape
+     for binding, validation, and apply accounting.
+   - It materially improves edge-filtering complexity while retaining sorted
+     ref processing and insertion-ordered proposals.
+   - B conceded to the incumbent and retains the repeated equality scans and
+     temporary collections.
+3. Ultimate challenger (A) defeated Incumbent (B).
+   - A preserves cursor behavior, every counter, tenancy enforcement,
+     integrity checks, version precedence, database order, commits, and rollback.
+   - Constant-time base-ref and valid-ref membership is the strongest verified
+     algorithmic improvement in the bracket.
+   - The bounded linear indexes cost auxiliary space but improve time complexity
+     and make membership intent explicit without contract drift.
+
+**Winner: Snippet A (Speed)**, replacing
+`caos/server/lineage_reconciliation.py:223-508`. Production remains unchanged.
+Artifact:
+`.agent-reviews/adversarial-candidates/g4_reconcile_lineage_speed.py`.
+Scratch splice: `/tmp/caos-g4-speed-019f67d3/lineage_reconciliation.py`.
+
+### Orchestrator verification
+
+- Focused command with a fresh DB and scratch import:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g4verify-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g4verify-vault-019f67d3 CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g4-speed-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_phase1b_lineage.py caos/tests/server/test_lineage_v2.py caos/tests/server/test_tenancy.py -q`
+  → **59 passed, 2 skipped, 3 warnings in 7.84s**.
+- Exact CLI caller compiled and `reconcile_lineage.py --help` returned the
+  expected dry-run/apply/verify interface, limit, and cursor arguments.
+- Full-server scratch command with an independent fresh DB:
+  `... python -m pytest caos/tests/server -q`
+  → **1,829 passed, 9 skipped, 7 sandbox socket failures in 77.96s**.
+- Same scratch environment, AV-only outside-sandbox control:
+  `... python -m pytest caos/tests/server/test_avscan.py -q`
+  → **8 passed, 1 warning in 0.03s**.
+- The focused reconciliation test spot-check covers dry-run no mutation,
+  first apply, repeated apply with zero new edges/refs, verify rollback, stable
+  cursor restart, malformed/idempotency detection, missing-owner behavior, and
+  foreign-portfolio rejection.
+- No financial formula changed. The protected invariant is provenance and
+  tenant authorization for financial artifacts.
+
+## G5 — Query/research/LLM safety
+
+### Target and impact set
+
+Target: `caos/server/nlquery.py::execute_synthesis`, source lines 609-769
+(GitNexus envelope 608-768).
+
+- Exact UID: `Function:caos/server/nlquery.py:execute_synthesis`.
+- Upstream impact: LOW, 2 direct callers and 2 affected processes:
+  `routes/query.py::nl_query` and `create_query_run`, spanning Server and Routes.
+- Downstream impact: **CRITICAL**, 12 symbols (2 direct, 6 at depth 2, 4 at
+  depth 3) and 73 process memberships in Server. The exact direct graph
+  dependency is `retrieval.bm25_rank`; GitNexus also reports unresolved generic
+  `execute` call edges, so SQL/model construction is verified by native reads.
+- Native caller search confirms the live immediate and persisted query-run
+  paths at `routes/query.py:645` and `routes/query.py:812`.
+
+Contract: preserve the async `(AsyncSession, SynthesisSpec) -> dict` boundary,
+SQL filters/order/limits, scan and text-size resource bounds, corpus/key/text
+order, metadata/excerpt schema, BM25 invocation, issuer grouping/ranking,
+rounding, result limit, interpretation, and exact caveats.
+
+### G5 invariants
+
+- Each module, claim, and QA-finding scan is newest-first and independently
+  capped at 2,000 rows. Unfiltered run history cannot create unbounded in-request
+  BM25 work.
+- An issuer filter matching no rows becomes `['__none__']`, never an unfiltered
+  scan. Module filters apply identically to modules, claims, and findings.
+- Module runtime output is JSON serialized with `ensure_ascii=False` and sliced
+  to 2,000 characters before tokenization; large CP-1 payloads cannot defeat the
+  row cap.
+- Corpus insertion order remains modules, claims, findings in database order;
+  BM25 receives exactly that bounded corpus and `k=spec.limit`.
+- Search metadata retains issuer ID/name/ticker/industry/country, result kind,
+  title, sub-label, and the exact analyst-visible excerpt text.
+- Each issuer exposes at most two excerpts, in hit order; issuer score is the
+  maximum hit score, rounded to three decimals after issuer resolution.
+- Rows sort descending by score and apply the validated result limit. Empty and
+  non-empty caveats remain distinguishable and exact.
+- This path is qualitative. It must not invent yield/day-count/covenant/
+  waterfall calculations or present QA findings as quantitative financial
+  scores; the caveat explicitly describes BM25 relevance.
+
+### Baseline verification
+
+Command:
+`caos/server/.venv311/bin/python -m pytest caos/tests/server/test_nlquery.py caos/tests/server/test_query_watchlist.py caos/tests/server/test_query_answer.py caos/tests/server/test_query_overlay.py caos/tests/server/test_query_insights.py caos/tests/server/test_query_accepted_links.py -q`
+
+Baseline result: **64 passed, 2 warnings in 3.40s**.
+
+### Tournament result
+
+Incumbent: defended the exact three-query ordering, 2,000-row scan bounds,
+2,000-character JSON head, BM25 input order, two-excerpt cap, stable score
+ordering, and two public Query routes. The principal risk was changing ranked
+text or resource bounds while apparently only reorganizing local variables.
+
+Anonymous bracket:
+
+1. **Speed A vs Memory B — B won.** B preserves the literal
+   `json.dumps(..., ensure_ascii=False)[:2000]` path, processes capped result
+   sets sequentially instead of retaining all three ORM row sets, and avoids
+   the streamed-encoder prefix-equivalence risk introduced by A.
+2. **Memory A vs Readability B — A won.** B was shorter, but retained the three
+   row collections and repeated unused `setdefault` allocations; A had similar
+   clarity with materially lower peak retention and exact query/text behavior.
+3. **Memory A vs Incumbent B — A won.** A changes no public contract or ranked
+   text, preserves module/claim/finding and hit order, and reduces peak live
+   data with modest, locally obvious lifecycle changes.
+
+**Winner: Snippet A (Memory)**, replacing
+`caos/server/nlquery.py:609-769`.
+
+Justification:
+
+- It never holds modules, claims, and findings concurrently with their complete
+  corpus/meta projections; each capped query is consumed before the next.
+- It preserves exact JSON serialization, SQL filters/order/limits, BM25 corpus,
+  issuer grouping, scores, excerpts, and caveat strings.
+- The resource improvement is maintainable: one statement variable, explicit
+  segment order, and prompt release of corpus/meta/hit intermediates.
+
+### Orchestrator verification
+
+- Scratch file: `/tmp/caos-g5-memory-019f67d3/nlquery.py`; production source was
+  not changed.
+- Syntax and scratch diff were inspected; the replacement is confined to the
+  target function.
+- Focused/caller command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g5-memory-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g5-memory-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g5-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_nlquery.py caos/tests/server/test_query_watchlist.py caos/tests/server/test_query_answer.py caos/tests/server/test_query_overlay.py caos/tests/server/test_query_insights.py caos/tests/server/test_query_accepted_links.py -q`
+- Result: **64 passed, 2 warnings in 3.47s**.
+- Full server command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g5-full-rerun-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g5-full-rerun-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g5-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server -q`
+- Result in the restricted sandbox: **1,829 passed, 9 skipped, 7 failed in
+  76.96s**. All seven failures were the known loopback-bind `PermissionError`
+  cases in `test_avscan.py`; no candidate or caller assertion failed.
+- Sandbox-control rerun with the same scratch `PYTHONPATH`, outside the socket
+  restriction: `caos/server/.venv311/bin/python -m pytest caos/tests/server/test_avscan.py -q`
+  returned **8 passed in 0.18s**.
+- Live route spot-check: a fresh SQLite database created and completed a real
+  Atlas Forge run, then `POST /api/query/nl` with `what did the CP-1 module
+  conclude` returned `mode=synthesis`, one issuer row, two excerpts, and the
+  exact qualitative BM25 caveat. This exercises `routes/query.py::nl_query` and
+  the executor against persisted module output.
+- Financial-invariant check: the qualitative path still emits no yield,
+  day-count, covenant, or waterfall value; it labels ranking as BM25 relevance
+  and maintains the explicit two-excerpt/eight-row bounds.
+
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g5_execute_synthesis_memory.py`; it is
+not applied to production source by this review.
+
+## G6 — Portfolio/desk decisions
+
+### Target and impact set
+
+Target: `caos/server/engine/portfolio.py::compute_portfolio_analytics`, source
+lines 291-414 (GitNexus envelope 290-413).
+
+- Exact UID: `Function:caos/server/engine/portfolio.py:compute_portfolio_analytics`.
+- GitNexus upstream impact: LOW, no resolved incoming symbols. Native search is
+  authoritative for the graph miss and finds two live callers:
+  `routes/portfolios.py:657` (Portfolio Lab analytics) and
+  `routes/committee.py:747` (committee evidence snapshot), plus direct tests at
+  `test_portfolio_lab_backend.py:106` and `:176`.
+- Downstream impact: MEDIUM, 21 symbols (12 direct, 8 at depth 2, 1 at depth 3)
+  across Engine and Server. Direct dependencies include
+  `is_finite_number`, `checked_add`, `checked_multiply`, `checked_divide`,
+  `_rounded`, `_is_positive_number`, `_bounded_missing`,
+  `normalize_portfolio_as_of`, `portfolio_authority`,
+  `position_market_value`, `compute_exposure`, and `check_constraints`.
+
+Contract: preserve the exact four-argument boundary and dict schema; checked
+arithmetic/failure propagation; position, rating, maturity, and compliance
+ordering; missing-dependency append/deduplication semantics; distribution and
+response caps; authority and as-of linkage; and caller-visible NAV/liquidity
+meaning.
+
+### G6 financial invariants
+
+- Every CP-1-derived or holding-derived multiplication/division is finite-guarded
+  through checked helpers; zero or failed NAV degrades to `None` and names the
+  missing denominator instead of emitting `NaN`/infinity.
+- `finite_nav` includes every finite market value (par when price is absent),
+  while `priced_nav` includes only holdings with a positive finite price. These
+  denominators cannot be merged.
+- Rating exposure prefers Moody's, then S&P, then `Unrated`; percentages use the
+  same finite NAV, round to eight decimals, sort descending, and retain the
+  bounded `Other` remainder.
+- Maturity buckets accept the first four-digit 20xx year, preserve checked-add
+  overflow reporting, sort chronologically, and expose at most 20 years.
+- Constraint results preserve Breach/Watch/Pass/Info counts, first-50 headroom,
+  first-100 compliance, and the same current/limit/headroom values.
+- Portfolio authority and normalized `as_of` describe exactly the holdings and
+  constraints aggregated. Unsupported history remains explicit at the route.
+- This aggregate performs no yield/day-count/cashflow-waterfall calculation;
+  its relevant covenant invariant is that constraint compliance and headroom are
+  computed once from the same exposure snapshot returned to both callers.
+
+### Baseline verification
+
+Command:
+`DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g6-baseline-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g6-baseline-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_portfolio.py caos/tests/server/test_portfolio_run.py caos/tests/server/test_portfolios.py caos/tests/server/test_portfolio_lab_backend.py caos/tests/server/golden/test_golden_portfolio.py caos/tests/server/test_ic_book.py -q`
+
+Baseline result: **46 passed, 2 warnings in 4.75s**.
+
+### Tournament result
+
+Incumbent: defended the separate finite/priced NAV accumulators, checked
+arithmetic degradation, rating and maturity ordering, compliance/headroom caps,
+authority/as-of coupling, and explicit missing-dependency contract used by both
+Portfolio Lab and committee snapshot callers.
+
+Anonymous bracket:
+
+1. **A vs B — B won.** B eliminated the second position scan and duplicate
+   as-of normalization, used in-place rating truncation, and avoided A's dense
+   hot-helper aliasing while preserving the checked-operation order.
+2. **Prior winner A vs Readability B — A won.** A kept NAV, priced NAV, rating,
+   and maturity transitions explicit; B's nested mutation helper was shorter but
+   harder to audit and allocated more slices.
+3. **Challenger A vs Incumbent B — A won.** A matched failure propagation,
+   missing-dependency order, bounded schema, and authority while removing the
+   redundant normalization, second scan, and common temporary collections.
+
+**Winner: Snippet A (Memory)**, replacing
+`caos/server/engine/portfolio.py:291-414`.
+
+Justification:
+
+- It counts unpriced positions during the required holdings pass and normalizes
+  `as_of` once, reducing work without changing any financial operation.
+- It truncates rating rows in place and avoids common headroom/maturity/
+  compliance slice allocations while preserving observable value order.
+- Checked math, zero-denominator degradation, compliance/headroom, authority,
+  and missing-dependency semantics stay explicit and reviewable.
+
+### Orchestrator verification
+
+- Scratch file: `/tmp/caos-g6-memory-019f67d3/engine/portfolio.py`; production
+  source was not changed. `py_compile` passed and the scratch diff is confined
+  to the target function.
+- Focused/caller command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g6-memory-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g6-memory-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g6-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_portfolio.py caos/tests/server/test_portfolio_run.py caos/tests/server/test_portfolios.py caos/tests/server/test_portfolio_lab_backend.py caos/tests/server/golden/test_golden_portfolio.py caos/tests/server/test_ic_book.py -q`
+- Result: **46 passed, 2 warnings in 4.57s**. This includes both native callers,
+  supported/unsupported as-of behavior, JSON-safe overflow degradation,
+  distribution bounds, and committee snapshot behavior.
+- Full server command:
+  `DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g6-full-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g6-full-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=/tmp/caos-g6-memory-019f67d3:caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server -q`
+- Result in the restricted sandbox: **1,829 passed, 9 skipped, 7 failed in
+  78.09s**; all seven failures were the known AV loopback-bind restriction.
+  The external control rerun with the same scratch path returned **8 passed in
+  0.18s**.
+- Financial spot-check: three holdings produced NAV `520.0`, B3 exposure
+  `34.61538462%` (`180 / 520`), maturity wall
+  `{'2027': 100.0, '2028': 180.0}`, priced NAV `100%`, and a single-name
+  covenant current value `46.15%` against a `45%` cap, correctly classified
+  `Breach` with `-1.15` headroom.
+- Scope check: neither caller signature nor response schema changed; Portfolio
+  Lab and committee remain on the same deterministic analytics snapshot.
+
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g6_compute_portfolio_analytics_memory.py`;
+it is not applied to production source by this review.
+
+## G7 — Issuer analysis surfaces
+
+### Target and impact set
+
+Target: `caos/server/routes/issuers.py::get_issuer_profile`, source lines
+678-788 (GitNexus envelope 677-787).
+
+- Exact UID: `Function:caos/server/routes/issuers.py:get_issuer_profile`.
+- GitNexus upstream impact: LOW, no resolved incoming symbols. This is an HTTP
+  graph miss: native search confirms the public route, the frontend client at
+  `caos/frontend/src/lib/api.ts:303`, focused issuer-profile tests, and the
+  cross-tenant 404 assertion at `test_tenancy.py:117`.
+- Downstream impact: **CRITICAL**, 19 symbols (7 direct, 9 at depth 2, 3 at
+  depth 3), 76 affected process memberships, and Routes/Engine/Server modules.
+  Direct dependencies are `get_db`, `better_fact`, `_profile_signals`,
+  `_strengths_weaknesses`, `require_issuer`, `get_identity`, and
+  `IssuerResponse.model_validate`.
+
+Contract: preserve the async FastAPI signature and `IssuerProfileResponse`;
+tenant-safe issuer resolution; bounded newest-run, latest-complete, and metric
+fact queries; retained last-good facts with source-run as-of; run- and
+module-level QA blocking; CP-0/1A/1B/2D surfaces; QA findings; `better_fact`
+precedence; response/list order; and empty-state behavior.
+
+### G7 financial invariants
+
+- `latest_run` reports current workflow state, while `latest_complete` is the
+  only run allowed to back signals and QA. They must not be collapsed.
+- A newer blocked run suppresses raw module signals but does not erase retained
+  QA-passed metric facts. Every retained point remains labeled with its own
+  `run_id` and `source_run_as_of`.
+- Whole-run QA/committee blocking suppresses all modules; otherwise individually
+  blocked modules are excluded before any liquidity, covenant, RV, sponsor, or
+  earnings field is read.
+- Headline ratios use shared `better_fact` provenance and recency precedence so
+  strengths/weaknesses agree with Query instead of allowing stale seed facts to
+  shadow run/fixture facts.
+- CP-0 coverage, CP-1A business facts, CP-1B earnings, CP-2D sponsor data, and
+  QA findings all describe the exact selected complete run or degrade to empty
+  structures. No cross-run synthesis is hidden.
+- No yield/day-count/waterfall calculation occurs here. Relevant financial
+  controls are provenance-preserving leverage/coverage inputs and fail-closed
+  covenant/liquidity signal suppression.
+
+### Baseline verification
+
+Command:
+`DATABASE_URL=sqlite+aiosqlite:////tmp/caos-g7-baseline-019f67d3.db CAOS_STORAGE_DIR=/tmp/caos-g7-baseline-019f67d3-vault CAOS_TEST=1 CAOS_DEMO_SEED=true PYTHONPATH=caos/server caos/server/.venv311/bin/python -m pytest caos/tests/server/test_issuer_profile.py caos/tests/server/test_tenancy.py -q`
+
+Baseline result: **16 passed, 2 warnings in 2.28s**.
 
 ### Tournament result
 

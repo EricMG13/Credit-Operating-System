@@ -1,234 +1,348 @@
-# CAOS Performance Audit Playbook
-
-Goal-prompt for the auditing agent (Sonnet). Re-run pre-deploy and nightly.
-**Measure and report — never optimize or edit product code.** Findings become
-tickets; the only files you write are the report and (on accepted shifts) the
-baseline (§5). All paths relative to the repo root; server commands use
-`caos/server/.venv311/bin/python` (never downgrade the fastapi pin).
+# CAOS Performance and Scalability Audit
 
 ## 1. Objective
 
-Hold the latency and cost envelope. Analysts run dense multi-window sessions
-that dispatch engine runs (CP-X DAG), LLM lanes, and retrieval; a p95
-regression on the hot read endpoints degrades every desk session, and a query
-or LLM-default regression (unbounded scan, silent flip of a default-off lane)
-blows the deploy budget. Your job: measure current numbers, compare against
-the stored baseline, apply the gates in §3, adversarially verify any breach
-(§5), and ship one dated report.
+You are the Sonnet 5 performance-audit agent. Re-run this goal pre-deploy and
+nightly. **Measure and report; do not optimize or edit product code.** Analysts
+run dense, multi-window sessions while engine, retrieval, and LLM pipelines
+compete for CPU, database connections, provider slots, tokens, and browser main
+thread time. Hold the latency and cost envelope before a slow read, unbounded
+query, fan-out change, or bundle increase degrades the desk or deploy budget.
 
-## 2. Scope discovery — run fresh every audit
+Produce one dated report. The only permitted repo writes are that report and an
+explicitly approved baseline addition or accepted shift. Treat unavailable
+coverage as `INCOMPLETE`, never as `PASS`. Run destructive seeds and load only
+against an isolated QA database; never load-test production or the user's live
+`:8000` / `caos.db`.
 
-The stack drifts; enumerate before measuring, and diff each list against the
-previous report so new suites/endpoints/knobs enter coverage automatically.
+## 2. Scope discovery
+
+Run from the repository root on every audit. Diff the census against the prior
+report so new suites, routes, model lanes, and knobs enter scope automatically.
 
 ```bash
-ls caos/tests/perf caos/tests/stress caos/tests/server/bench      # current suites
-git log --oneline -8 -- caos/tests/perf caos/tests/stress caos/tests/server/bench
+git rev-parse HEAD
+rg --files caos/tests/perf caos/tests/stress caos/tests/server/bench | sort
+rg -n "^(def test_|async def test_|class .*\(HttpUser\)|[[:space:]]*@task)" caos/tests/perf caos/tests/stress caos/tests/server/bench
+rg -n "@router\.(get|post|put|patch|delete)" caos/server/routes --glob '*.py'
+rg -n "self\.client\.(get|post|put|patch|delete)" caos/tests/stress/locustfile.py
+rg --files caos/frontend/src/app | rg '/page\.tsx$' | sort
 
-# Endpoint census (QA server only — prod sets openapi_url=None, this 404s there):
-curl -s http://127.0.0.1:8010/openapi.json | python3 -c \
-  "import json,sys; print('\n'.join(sorted(json.load(sys.stdin)['paths'])))"
-# Offline fallback:
-grep -rn "@router\.\(get\|post\|put\|delete\)" caos/server/routes --include="*.py" | wc -l
+# QA/dev only: deployed production normally disables OpenAPI.
+PERF_BASE_URL=http://127.0.0.1:8010
+curl -fsS "$PERF_BASE_URL/openapi.json" | python3 -c 'import json,sys; print("\n".join(sorted(json.load(sys.stdin)["paths"])))'
 
-# Perf-relevant knobs — any changed default is a finding until explained:
-grep -nE "caos_run_concurrency|caos_run_queue_limit|caos_run_per_analyst_limit|caos_llm_timeout_s|synth_concurrency|caos_research_concurrency|rerank_enabled|rerank_window|council_enabled|debate_enabled|advisor_enabled" caos/server/config.py
+# Performance and cost controls; any default drift requires a finding or named acceptance.
+rg -n "caos_(run_concurrency|run_queue_limit|run_per_analyst_limit|research_concurrency|llm_timeout_s)|synth_concurrency|rerank_(enabled|window)|council_enabled|debate_enabled|advisor_enabled" caos/server/config.py
+rg -n "AsyncAnthropic|AsyncClient\(timeout|HttpOptions\(timeout|max_retries" caos/server --glob '*.py'
+rg -n "WEB_CONCURRENCY|pool_size|max_overflow|Semaphore|SKIP LOCKED" caos/server caos/deploy --glob '*.py' --glob '*.yml' --glob '*.yaml' --glob '*.env*'
+rg -n "_MAX_PER_MINUTE|rate_limit\.hit" caos/server/routes --glob '*.py'
 
-# Rate-limit census:
-grep -rn "_MAX_PER_MINUTE\|rate_limit\.hit" caos/server/routes --include="*.py"
+# Data-layer census: candidates still require direct review; grep is not proof.
+rg -n "select\(|\.limit\(|\.offset\(|\.scalars\(\)\.all\(\)" caos/server/routes caos/server --glob '*.py'
+rg -n -U "for [^\n]+:\n(?:[ \t].*\n){0,12}[ \t].*await (db\.(execute|get)|_[A-Za-z0-9_]+\(db)" caos/server --glob '*.py'
+
+rg -n "^## |^\|" caos/docs/qa/perf/BASELINE.md caos/docs/qa/perf/PERF_AUDIT_*.md caos/docs/qa/perf/E1_STRESS_*.md
 ```
 
-## 3. Coverage checklist — budgets to hold
+## 3. Coverage checklist — budgets and gates
 
-Each line is a threshold, not a step. FAIL only after §5 noise verification.
+Apply the fixed gate and the compatible-baseline gate. A fixed-budget breach
+fails even when the baseline also breached. For relative latency metrics, fail
+when the median of three valid current runs exceeds the baseline by more than
+`max(20% of baseline, 100 ms)`. Never compare different DB engines, worker
+counts, seeds, model modes, hardware classes, request counts, or concurrency.
 
-**API endpoint latency** ([smoke.py](../../../tests/perf/smoke.py)) — nearest-rank
-percentile: `rank = max(1, ceil(pct/100 · N))`; `--selftest` pins the math and
-must pass first.
-- `/api/health`: p95 < 500 ms at n=200, concurrency=20, errors = 0 (script defaults).
-- Hot reads (`GET /api/runs?limit=100`, `GET /api/issuers/?limit=200`,
-  `GET /api/runs/{id}/modules/CP-1`): p95 < 500 ms, same load, errors = 0.
-- `POST /runs/{id}/report` (the heavy re-assembly) and other POSTs: no fixed
-  budget — read latency from locust's stats table and gate vs baseline.
+- **API latency:** `smoke.py` uses nearest-rank percentiles:
+  `rank = max(1, ceil(pct / 100 * N))`, sample `rank - 1`. Its `--selftest`
+  must pass. At `n=200`, concurrency `20`, timeout `10s`, errors must be `0`
+  and p95 must hold below `500 ms` for `GET /api/health`,
+  `GET /api/runs?limit=100`, `GET /api/issuers/?limit=200`, and
+  `GET /api/runs/{id}/modules/CP-1`. Heavy POSTs, including
+  `POST /runs/{id}/report`, have no invented absolute budget: gate p50/p95/p99
+  against the like-for-like Locust baseline.
 
-**Scenario benchmark** (`caos/tests/perf/test_scenario_benchmark.py`) — 1,100
-translate+validate cycles complete < 100 ms total, offline. Binary gate;
-report measured headroom, WARN when headroom < 2×.
+- **Scenario benchmark:** all 1,100 `_demo_translate` + `validate_scenario`
+  cycles complete in `<100 ms` total. The pytest assertion is binary; report
+  elapsed time and `WARN` when headroom falls below `2x` (`>=50 ms`).
 
-**Graph expansion** (`caos/tests/server/bench/`, 9 tests) —
-- recall@K monotonic non-decreasing in hops;
-- 2-hop recall lift real (2-hop-relevant chunk: 0.00 at 1-hop → 1.00 at 2-hop);
-- hop bound exact (2-hop never reaches the 3-hop chunk);
-- unlinked control (Epsilon) never surfaces at hops 0–5 — a leak is a
-  scope-correctness FAIL, not a perf number;
-- dilution grows with hops (the cost side of expansion).
-Production default is 1-hop; a default flip to 2-hop must cite the real-data
-gate in [GRAPH_EXPANSION_2HOP_MEASUREMENT.md](../../GRAPH_EXPANSION_2HOP_MEASUREMENT.md).
+- **Graph expansion:** at `K=8`, recall@K is monotonic non-decreasing with
+  hops; the genuinely two-hop label lifts `0.00 -> 1.00` from one to two hops;
+  two hops never reaches the three-hop label; unlinked Epsilon never appears at
+  hops `0,1,2,3,5`; and two-hop dilution exceeds one-hop dilution on the
+  one-hop label. Record recall, precision, dilution, surfaced count, and median
+  wall time from three scratch-DB runs. Wall time uses the relative latency gate
+  above. The synthetic harness is a wiring gate; production stays one-hop until
+  real labeled questions satisfy the decision gate in
+  `caos/docs/GRAPH_EXPANSION_2HOP_MEASUREMENT.md`.
 
-**Rerank precision** (same bench dir) — rerank precision@K ≥ RRF-only on every
-labeled query AND ≥ 1 strict lift (zero lifts = wiring is a passthrough
-regression). `rerank_window` stays 20 (the latency/token bound);
-`rerank_enabled` default stays False.
+- **Rerank:** on every labeled query, reranked precision@K is at least RRF-only
+  precision@K, with at least one strict lift. Zero strict lifts means the lane is
+  a latency-cost passthrough and fails. `rerank_window=20` and
+  `rerank_enabled=False` remain the token/latency defaults unless an accepted
+  change names its new quality and cost evidence.
 
-**Concurrency caps & load** — hold the configured backpressure:
-`caos_run_concurrency=2`, `caos_run_queue_limit=20` (submission #21 is
-*rejected*, not queued), `caos_run_per_analyst_limit=3`,
-`caos_research_concurrency=2` (semaphore), `synth_concurrency=4` per run
-(peak provider calls ≈ run_concurrency × synth_concurrency = 8). Under locust
-(§4C): no 5xx on the four expensive endpoints; NL-lane 429s are the 20/min
-limiter working and count as success.
+- **Concurrency and load:** the canonical QA profile is `20` users, ramp
+  `5/s`, `60s`; the stored Postgres two-worker profile is `15` users, ramp
+  `3/s`, `60s`. Each must have `0` unexpected failures and `0` 5xx. The
+  Locust harness deliberately accepts report `409` and NL `429`; all other
+  non-2xx responses fail. Endpoint and aggregate p50/p95/p99 obey the relative
+  latency gate. `caos_run_concurrency=2` is **per worker process**, so the
+  maximum active engine runs is `2 x WEB_CONCURRENCY`; with
+  `synth_concurrency=4`, peak synth provider calls are approximately
+  `8 x WEB_CONCURRENCY`. `caos_run_queue_limit=20` is the global admission
+  ceiling (next submission `503`), `caos_run_per_analyst_limit=3` rejects the
+  fourth active/queued analyst run with `429`, and
+  `caos_research_concurrency=2` is also per worker. SQLite must reject
+  `WEB_CONCURRENCY>1`; Postgres workers must claim with `FOR UPDATE SKIP LOCKED`.
 
-**LLM-lane timeout adherence** — `caos_llm_timeout_s=120` is set as `timeout=`
-**and `max_retries=0`** at all 5 `AsyncAnthropic(...)` construction sites
-(`llm.py`, `engine/llm_client.py`, `nlquery.py` x2, `scenario.py`) — the
-`max_retries=0` was added 2026-07-10 (Finding 1: without it, the SDK's own
-default retry count stacked on top of the timeout, measured 209s not ~120s).
-Budget: under `MOCK_MODE=hang` a lane must free its slot at ~120s — re-verify
-this every audit, since a future edit to any of the 5 sites could drop
-`max_retries=0` again and silently reopen the gap. Under `MOCK_MODE=429`/`529`
-the lane must complete *degraded loudly* (fault isolation: Blocked gate /
-return_exceptions / deterministic fallback), never abort — confirmed working
-(14.5s, bounded backoff).
+- **Data layer:** zero new N+1 patterns; zero unbounded materializations of
+  high-cardinality `Issuer`, `Run`, `Document`, `DocumentChunk`, portfolio, or
+  evidence rows; zero synchronous filesystem or CPU-heavy work on the event
+  loop. List reads carry an explicit API and SQL cap, per-row data is batch
+  fetched with `.in_()` or a join, and doubled fixture cardinality must not
+  cause superlinear query-count growth. Re-verify the prior portfolio fixes:
+  coverage issuer cap `2,000`, portfolio list cap `200`, issuer match cap
+  `5,000`, and batched positions/constraints. Treat
+  `sync_analyst_memos` as the scoped accepted risk in section 6, not a blanket
+  exemption for new GET-time work.
 
-**Data layer — N+1 and unbounded queries** — lenses from
-[REVIEW_MATRIX_PERF.md](../REVIEW_MATRIX_PERF.md):
-- every list query on Issuer/Run/Chunk/Document/Portfolio carries `.limit()`;
-- no per-row awaited query inside a loop — batch with `.in_()`;
-- no synchronous filesystem/CPU-heavy work on the event loop in GET handlers.
-Sweep routes changed since the last audit
-(`git diff --name-only <last-audit-sha> -- caos/server/routes` + read each for
-the three lenses). Re-verify the matrix findings' status each run (as of
-2026-07-10: `portfolio.py` capped at `.limit(2000)`; `portfolios.py` batched
-via `.in_()`; `sync_analyst_memos` still runs on GET capabilities/graph —
-mtime-gated, watch its cost as the vault grows).
+- **LLM lanes and cost:** `caos_llm_timeout_s=120` bounds Anthropic,
+  OpenRouter, and Gemini. Every `AsyncAnthropic(...)` constructor carries both
+  `timeout=caos_llm_timeout_s` and `max_retries=0`; OpenRouter passes the same
+  timeout to `httpx.AsyncClient`; Gemini converts it to milliseconds. Under
+  `MOCK_MODE=hang`, Anthropic and OpenRouter calls release their slot in
+  `120-125s`; `>125s` fails. `429`/`529` completes degraded-loudly, never aborts
+  the whole run, and obeys the relative latency gate against the bounded-backoff
+  baseline. Offline load makes **zero real provider calls**. For the same seed,
+  model mode, and model IDs, `tokens_used` and provider-call count may not grow
+  by `>20%` without an accepted quality/cost rationale. Rerank, council,
+  peer-round, debate, and advisor remain default-off; a silent default flip is a
+  cost regression.
 
-**Frontend bundle & render** — `cd caos/frontend && npm run build`
-(`next build` with Turbopack, static export to `out/`; use
-`npm run build:webpack` only as the fallback). Record First Load JS per
-route; gate: no route grows > 10% or > 25 kB vs baseline without a named
-cause. `turbopackFileSystemCacheForDev: false` must remain in
-`next.config.js` (dev crash guard). Issuers register keeps native windowing
-(`content-visibility:auto` on the register rows) so painted rows ≈ viewport,
-not the full ~4,500-node table.
+- **Frontend bundle and render/hydration:** `npm run build` and
+  `npm run analyze` complete with `output: "export"`; Next 16's normal build is
+  Turbopack and webpack is fallback-only. No route grows by `>10%` **or**
+  `>25 kB` versus its stored bundle baseline, and no shared/vendor chunk crosses
+  either gate. On cold Chromium loads of `/command`, `/issuers`, `/query`,
+  `/model`, `/reports`, and every changed route, record navigation DCL/load,
+  CDP `TaskDuration`, `ScriptDuration`, `LayoutDuration`, and long-task count /
+  total. Each median-of-three metric obeys the relative latency gate; no route
+  gains a new `>50 ms` long task without attribution. The issuer register keeps
+  `[content-visibility:auto]` and `[contain-intrinsic-size:auto_32px]` so
+  off-screen rows do not impose full layout/paint cost.
 
-**Regression gates vs baseline** — baseline lives at
-`caos/docs/qa/perf/BASELINE.md` (create on first audit from that run's
-numbers, tagged with host + DB engine + commit). Latency regression = the
-median of 3 re-runs is worse than baseline by > 20% **or** > 100 ms,
-whichever is larger. Pytest/bench gates are binary. Bundle gate above.
+- **Baseline discipline:** use `caos/docs/qa/perf/BASELINE.md` and, only for
+  the matching Postgres/two-worker profile,
+  `caos/docs/qa/perf/E1_STRESS_2026-07-12.md`. Binary pytest/quality gates do
+  not average away. A metric absent from the baseline is `INCOMPLETE`; capture a
+  candidate value in the report and add it to the baseline only after a clean,
+  reproducible run. Never silently rebase over a failure.
 
 ## 4. Procedure — exact invocations
 
-Order: CI-safe first, then live QA stack, then fault injection. **Never
-load-test the user's live `:8000` / `caos.db`; never seed or locust a
-production host** — prod gets the read-only `/api/health` smoke only.
+Use `caos/server/.venv311/bin/python`; do not change the FastAPI pin. CI runs
+only deterministic/offline commands. Live latency and load require the isolated
+QA stack. Production receives the read-only health smoke only.
 
 ```bash
-# A. CI-safe (no server, deterministic — this is what nightly CI can run)
-python3 caos/tests/perf/smoke.py --selftest                     # percentile-math gate
-cd caos/server
-.venv311/bin/python -m pytest ../tests/perf -q                  # scenario benchmark < 100 ms
-.venv311/bin/python -m pytest ../tests/server/bench -q          # graph-expansion + rerank gates (9)
-.venv311/bin/python -m pytest ../tests/stress/test_mock_anthropic.py -q   # fault mock stays wire-valid
-# The pytest suites above are DB-isolated (conftest points DATABASE_URL at a tmp
-# caos_tests.db). The standalone runner below is NOT — it commits synthetic
-# issuers with no cleanup. ALWAYS point it at a scratch DB, never the live caos.db:
-DATABASE_URL="sqlite+aiosqlite:////tmp/caos_bench.db" \
-  .venv311/bin/python ../tests/server/bench/run_graphexpansion_measurement.py  # recall/dilution table
-cd ../frontend && npm run build                                 # capture the First Load JS route table
+# A. CI/nightly: no live server or provider traffic.
+python3 caos/tests/perf/smoke.py --selftest
+(
+  cd caos/server
+  .venv311/bin/python -m pytest ../tests/perf -q --durations=0
+  .venv311/bin/python -m pytest ../tests/server/bench -q --durations=0
+  .venv311/bin/python -m pytest ../tests/stress/test_mock_anthropic.py -q
+  .venv311/bin/python -m pytest ../tests/server/test_async_runs.py ../tests/server/test_research_jobs.py ../tests/server/test_run_launcher.py -q
 
-# B. Live latency — isolated QA stack ONLY (:8010, .venv311, caos_qa.db,
-#    FIXED SESSION_SECRET, all 3 provider keys unset). Finding 3
-#    (2026-07-10): unsetting ANTHROPIC_API_KEY alone is NOT offline — the
-#    default hybrid model routes DeepSeek through OPENROUTER_API_KEY, and a
-#    real billed call fired via a live key during the original audit.
-#    FIXED: qa-backend's launch.json now blanks OPENROUTER_API_KEY and
-#    GEMINI_API_KEY too. If you hand-roll a server invocation instead of using
-#    that launch.json config, blank all 3 explicitly or this regresses.
-python3 caos/tests/perf/smoke.py --url http://127.0.0.1:8010/api/health
-python3 caos/tests/perf/smoke.py --url "http://127.0.0.1:8010/api/runs?limit=100" --p95-ms 500
-python3 caos/tests/perf/smoke.py --url "http://127.0.0.1:8010/api/issuers/?limit=200" --p95-ms 500
-# Module-detail read needs a real run id — discover one first:
-RUN_ID=$(curl -s "http://127.0.0.1:8010/api/runs?limit=1" | python3 -c "import json,sys; b=json.load(sys.stdin); print((b[0] if isinstance(b,list) else b['items'][0])['id'])")
-python3 caos/tests/perf/smoke.py --url "http://127.0.0.1:8010/api/runs/$RUN_ID/modules/CP-1" --p95-ms 500
-# Pre-deploy, against the deployed host (read-only):
-python3 caos/tests/perf/smoke.py --url https://<deploy-host>/api/health
+  # Graph quality table plus wall time; every repetition gets a fresh scratch DB.
+  BENCH_TMP=$(mktemp -d /tmp/caos-graph-bench.XXXXXX)
+  for i in 1 2 3; do
+    DATABASE_URL="sqlite+aiosqlite:///$BENCH_TMP/run-$i.db" /usr/bin/time -p \
+      .venv311/bin/python ../tests/server/bench/run_graphexpansion_measurement.py
+  done
+)
 
-# C. Load (QA stack only; pip install -r caos/tests/stress/requirements.txt)
-BASE_URL=http://127.0.0.1:8010 python3 caos/tests/stress/seed_stress.py --issuers 300 --runs 5
-caos/server/.venv311/bin/locust -f caos/tests/stress/locustfile.py --host http://127.0.0.1:8010 --headless -u 20 -r 5 -t 60s
-
-# D. Fault injection — LLM timeout adherence (terminal A: the mock)
-MOCK_MODE=hang caos/server/.venv311/bin/uvicorn mock_anthropic:app --port 8099 --app-dir caos/tests/stress
-# terminal B: QA server pointed at BOTH provider base URLs (Finding 2, fixed
-# 2026-07-10 — the mock now covers OpenRouter too, which is what the default
-# hybrid model actually routes LIGHT/fast-tier lanes, incl. chat, through):
-#   ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test
-#   OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test
-# then drive:
-curl -s -w "%{time_total}\n" http://127.0.0.1:8010/api/chat/issuer -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"what is the leverage"}]}' --max-time 150
-# slot must free at ~120s (Finding 1, fixed 2026-07-10 — re-verified 121.2s/120.3s,
-# was 209.1s before max_retries=0). To specifically exercise the Anthropic-only
-# path (e.g. testing a claude-* model tier), also set
-# MODEL_TIER_FAST=claude-haiku-4-5-20251001 for that one test process.
-# Repeat MOCK_MODE=429 → degraded-loudly, resolves fast (confirmed 14.5s).
+(
+  cd caos/frontend
+  npm run build
+  npm run analyze
+  du -sk out/*
+  find out/_next/static/chunks -name '*.js' -exec wc -c {} + | sort -n | tail -20
+)
 ```
 
-Keep smoke's n/concurrency/timeout at defaults across audits or the numbers
-stop being comparable. smoke is GET-only — POST latency comes from locust.
+Start the isolated QA stack in two terminals. The backend uses a fresh scratch
+DB and blanks every provider-key alias. The fixed session secret keeps the
+measurement session stable.
 
-## 5. Evidence & reporting
+```bash
+# Terminal A: backend
+cd caos/server
+QA_TMP=$(mktemp -d /tmp/caos-perf-qa.XXXXXX)
+PORT=8010 DATABASE_URL="sqlite+aiosqlite:///$QA_TMP/caos.db" \
+SESSION_SECRET=caos-performance-qa-fixed-session-secret \
+ANTHROPIC_API_KEY= OPENROUTER_API_KEY= GEMINI_API_KEY= GOOGLE_API_KEY= \
+.venv311/bin/python run.py
 
-Write `caos/docs/qa/perf/PERF_AUDIT_YYYY-MM-DD.md`: environment (host, DB
-engine, commit sha, model mode), then one table per §3 area — current vs
-baseline vs threshold, verdict PASS/WARN/FAIL — plus the locust stats table,
-the graph-expansion recall/dilution table, and the bundle route table.
+# Terminal B: frontend
+cd caos/frontend
+NEXT_DIST_DIR=.next-perf NEXT_PUBLIC_API_URL=http://127.0.0.1:8010 \
+npm run dev -- --hostname 127.0.0.1 --port 3010
+```
 
-**Adversarial verification before any FAIL.** A p95 of n=200 is one noisy
-order statistic. A regression is real only if all hold:
-- re-run 3×, compare **medians** — the median re-run still breaches;
-- quiet host (no parallel builds/tests), first run against a cold server discarded;
-- identical n/concurrency/timeout to baseline;
-- same DB engine as baseline — SQLite (QA) vs Postgres (prod) numbers are
-  never comparable.
-Then localize: `git log` since the last audit over the owning module, name the
-suspect commit in the report.
+Seed before latency/render measurements. Use a temporary copy because
+`seed_stress.py` otherwise overwrites the tracked manifest.
 
-Baseline updates only for intentional accepted shifts, each entry with cause +
-date. Never silently rebase the baseline over a FAIL.
+```bash
+PERF_BASE_URL=http://127.0.0.1:8010
+cp caos/tests/stress/seed_stress.py /tmp/caos-seed-stress.py
+BASE_URL="$PERF_BASE_URL" caos/server/.venv311/bin/python /tmp/caos-seed-stress.py --issuers 300 --runs 5
+
+python3 caos/tests/perf/smoke.py --url "$PERF_BASE_URL/api/health" --n 200 --concurrency 20 --p95-ms 500 --timeout 10
+python3 caos/tests/perf/smoke.py --url "$PERF_BASE_URL/api/runs?limit=100" --n 200 --concurrency 20 --p95-ms 500 --timeout 10
+python3 caos/tests/perf/smoke.py --url "$PERF_BASE_URL/api/issuers/?limit=200" --n 200 --concurrency 20 --p95-ms 500 --timeout 10
+RUN_ID=$(curl -fsS "$PERF_BASE_URL/api/runs?limit=1" | python3 -c 'import json,sys; b=json.load(sys.stdin); print((b if isinstance(b,list) else b["items"])[0]["id"])')
+python3 caos/tests/perf/smoke.py --url "$PERF_BASE_URL/api/runs/$RUN_ID/modules/CP-1" --n 200 --concurrency 20 --p95-ms 500 --timeout 10
+
+caos/server/.venv311/bin/locust -f caos/tests/stress/locustfile.py --host "$PERF_BASE_URL" --headless -u 20 -r 5 -t 60s
+```
+
+Measure cold render/hydration proxies on the seeded QA stack. The script opens
+a fresh browser context per route/sample.
+
+```bash
+cd caos/frontend
+BASE_URL=http://127.0.0.1:3010 ROUTES=/command,/issuers,/query,/model,/reports node <<'NODE'
+const { chromium } = require("@playwright/test");
+(async () => {
+  const base = process.env.BASE_URL.replace(/\/$/, "");
+  const routes = process.env.ROUTES.split(",");
+  const browser = await chromium.launch({ headless: true });
+  for (const route of routes) for (let sample = 1; sample <= 3; sample++) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      globalThis.__caosLongTasks = [];
+      new PerformanceObserver(list => globalThis.__caosLongTasks.push(
+        ...list.getEntries().map(e => e.duration)
+      )).observe({ type: "longtask", buffered: true });
+    });
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Performance.enable");
+    await page.goto(base + route, { waitUntil: "domcontentloaded" });
+    await page.locator("main").waitFor({ state: "visible", timeout: 15000 });
+    await page.waitForTimeout(1000);
+    const nav = await page.evaluate(() => {
+      const n = performance.getEntriesByType("navigation")[0];
+      const lt = globalThis.__caosLongTasks || [];
+      return { dclMs: n.domContentLoadedEventEnd, loadMs: n.loadEventEnd,
+        longTasks: lt.length, longTaskMs: lt.reduce((a, b) => a + b, 0) };
+    });
+    const raw = await cdp.send("Performance.getMetrics");
+    const m = Object.fromEntries(raw.metrics.map(x => [x.name, x.value]));
+    console.log(JSON.stringify({ route, sample, ...nav,
+      taskMs: (m.TaskDuration || 0) * 1000,
+      scriptMs: (m.ScriptDuration || 0) * 1000,
+      layoutMs: (m.LayoutDuration || 0) * 1000 }));
+    await context.close();
+  }
+  await browser.close();
+})().catch(error => { console.error(error); process.exit(1); });
+NODE
+```
+
+```bash
+# Production/pre-deploy deployment: public, read-only health only. Never Locust.
+PERF_BASE_URL=https://caos.example
+python3 caos/tests/perf/smoke.py --url "$PERF_BASE_URL/api/health" --n 200 --concurrency 20 --p95-ms 500 --timeout 10
+```
+
+Fault injection uses two terminals and the isolated QA DB. Restart the mock for
+each of `hang`, `429`, and `529`. Point both active provider paths at it and keep
+Gemini blank. Run once with the default DeepSeek fast tier (OpenRouter), then
+restart terminal B with the shown Claude override (Anthropic).
+
+```bash
+# Terminal A
+MOCK_MODE=hang caos/server/.venv311/bin/uvicorn mock_anthropic:app --port 8099 --app-dir caos/tests/stress
+
+# Terminal B: omit MODEL_TIER_FAST for the default OpenRouter path; add it for Anthropic.
+cd caos/server
+PORT=8010 DATABASE_URL=sqlite+aiosqlite:////tmp/caos_perf_fault.db \
+ANTHROPIC_BASE_URL=http://127.0.0.1:8099 ANTHROPIC_API_KEY=test \
+OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test \
+GEMINI_API_KEY= GOOGLE_API_KEY= MODEL_TIER_FAST=claude-haiku-4-5-20251001 \
+.venv311/bin/python run.py
+
+# Driver
+curl -sS -o /tmp/caos-llm-fault-response.json -w 'status=%{http_code} total=%{time_total}\n' \
+  http://127.0.0.1:8010/api/chat/issuer -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"what is the leverage"}]}' \
+  --max-time 135
+```
+
+Finally, inspect every data-layer candidate changed since the previous report's
+commit. Confirm SQL caps and batch shape directly; do not declare N+1 safety
+from grep alone.
+
+```bash
+PREVIOUS_AUDIT_SHA=abc1234
+git diff --name-only "${PREVIOUS_AUDIT_SHA}..HEAD" -- caos/server caos/frontend caos/tests/perf caos/tests/stress caos/tests/server/bench
+git diff "${PREVIOUS_AUDIT_SHA}..HEAD" -- caos/server/database.py caos/server/routes caos/server/retrieval.py caos/server/run_executor.py caos/server/research_executor.py caos/server/research_report_executor.py
+```
+
+## 5. Evidence and reporting
+
+Write `caos/docs/qa/perf/PERF_AUDIT_YYYY-MM-DD.md` with:
+
+- commit SHA; host/CPU/RAM/OS; Python, Node, Next, browser, and dependency lock
+  versions; DB engine and cardinalities; worker count; model mode/IDs; keys
+  blank/mock/live; seed; request count; concurrency; warm/cold status;
+- one table per section 3 area: metric, current p50/p95/p99 or count, compatible
+  baseline, fixed/relative threshold, delta, `PASS|WARN|FAIL|INCOMPLETE`;
+- raw smoke summaries, pytest timings, graph recall/precision/dilution table,
+  rerank results, Locust stats, run/provider concurrency calculation, token and
+  provider-call counts, bundle/chunk sizes, and render/hydration JSON medians;
+- every new endpoint/suite/knob discovered, every accepted-risk scope check,
+  and a suspected owning commit for each verified regression.
+
+Adversarially verify before calling noise a regression or a regression noise:
+
+1. Discard the first cold-server sample, quiet the host, and repeat the failed
+   measurement three times unchanged; use the median run, not pooled requests.
+2. Match hardware class, DB engine/cardinality, worker count, seed, model mode,
+   browser, `n`, concurrency, and timeout. Otherwise report `INCOMPLETE` and do
+   not compute a verdict against that baseline.
+3. Confirm response status and semantic body: auth redirects, empty DBs, cached
+   fallbacks, accepted `409`, and accepted NL `429` can make fast numbers false.
+4. Separate provider variance from CAOS overhead with the mock; separate graph
+   quality gates from process-start/seed time; compare bundle bytes with the
+   same method used by the baseline.
+5. Re-run the nearest owning test alone, then the complete relevant suite. Use
+   `git log <previous-audit-sha>..HEAD -- <owner>` to identify the likely change.
+
+Do not fix findings. Report severity, reproduction, measured impact, and owner.
+Update the baseline only for a reproducible new metric or an explicitly accepted
+intentional shift, with date, cause, environment, and approver. Never overwrite
+historical values.
 
 ## 6. Accepted-risk register
 
-Known-accepted — verify still-scoped, do not re-flag:
+Verify each item remains within its stated scope; do not re-file it unless the
+scope or deployment posture changed.
 
-| Risk | Why accepted |
+| Accepted risk | Scope and boundary |
 |---|---|
-| Rate limiter, run-executor locks, semaphores are per-process | Single-replica Phase-1 deploy; invalid on scale-out (`ponytail:` comments name the ceiling) |
-| Overall bundle size | By-design (goal audit 2026-07-01); only per-route deltas are gated |
-| smoke.py is a stdlib nearest-rank rig, not load characterization | Single-process pilot gate; swap for k6/locust at scale-out |
-| NL-lane 429s under load | The 20/min limiter working as designed |
-| rerank / council / peer-round / cross-model / debate / advisor default-off | Latency + token cost are opt-in; only a *default flip* is a finding |
-| Graph-expansion numbers are synthetic (RT-2026-07-07-17) | Directional; 2-hop production enable stays gated on real-data labels |
-| `turbopackFileSystemCacheForDev: false` → slower cold dev starts | Crash guard (41–58 GB cache growth, write storms) |
-| `sync_analyst_memos` full vault rescan on mtime change inside GET | mtime-gated no-op in the common case; revisit when the vault is large |
-| SQLite (dev/QA) vs Postgres (prod) latency skew | Baselines tagged with DB engine; compare like-for-like only |
-
-## 7. Known findings — re-verify, don't re-derive
-
-Findings from the 2026-07-10 audit. All 3 were fixed and live-re-verified the
-same day — see [PERF_AUDIT_2026-07-10-FIXES.md](../perf/PERF_AUDIT_2026-07-10-FIXES.md).
-Confirm still fixed each run (a future change could reintroduce any of
-these); cite the finding, don't re-investigate from scratch:
-
-| Finding | Status as of 2026-07-10 |
-|---|---|
-| Finding 1 (HIGH) — LLM per-call timeout ~1.7–3x its documented ceiling (no `max_retries=` at any of 5 `AsyncAnthropic(...)` sites) | **FIXED** — `max_retries=0` added at all 5 sites; re-verified live at 121.2s/120.3s (2 runs), down from 209.1s |
-| Finding 2 (MED) — `mock_anthropic.py`'s "every lane hits this" claim was false under the default hybrid (OpenRouter-routed lanes never reached it) | **FIXED** — added `openrouter_base_url` config + `/chat/completions` mock route; re-verified live, default-routed chat now returns the mock's canned text (56ms) instead of a real DeepSeek call |
-| Finding 3 (MED, cost) — "offline load" (`ANTHROPIC_API_KEY` unset) still incurred real OpenRouter/Gemini spend | **FIXED** — `qa-backend` launch.json now blanks `OPENROUTER_API_KEY`/`GEMINI_API_KEY` too; re-verified via code read (`_has_provider_key` in `engine/presets.py` gates regen on all 3 keys — with all blank, spend is structurally impossible, not just unobserved) |
-
-§4D's `MODEL_TIER_FAST=claude-haiku-4-5-20251001` override and the dual
-`ANTHROPIC_BASE_URL`+`OPENROUTER_BASE_URL` mock-pointing above remain the
-correct procedure — Finding 2's fix makes the OpenRouter half work, it
-doesn't remove the need to point both.
+| `smoke.py` is a stdlib nearest-rank rig | Single-process sanity gate, not load characterization; Locust owns concurrency evidence. |
+| No absolute total-bundle cap | Current baseline is per route/shared chunk and `du` is block-rounded; deltas are gated. Migrate measurement deliberately, never mix byte methods. |
+| Synthetic graph labels | Directional wiring only; production two-hop enablement still requires real labeled cross-issuer questions. |
+| Expensive LLM lanes default-off | Rerank/council/peer-round/debate/advisor latency and tokens are opt-in; a default flip is not accepted. |
+| `turbopackFileSystemCacheForDev=false` | Slower cold dev starts are accepted to prevent the observed unbounded cache/write storm. |
+| `sync_analyst_memos` runs from Query GETs | Filesystem parse is thread-offloaded and mtime/cooldown gated, but a changed vault still scans all issuers and rewrites `AnalystLink`; watch latency as vault/coverage grows. |
+| Some admission and rate-limit state is per process | Run/research/report execution is Postgres `SKIP LOCKED` safe, but rate limits and the create-run lock remain process-local. Reassess on worker/replica growth; calculate caps with `WEB_CONCURRENCY`. |
+| SQLite and Postgres performance differ | Compare like-for-like only; multi-worker SQLite is forbidden. |
+| Gemini is outside `mock_anthropic.py` | Timeout is statically bounded, but nightly hang/429/529 replay covers Anthropic and OpenRouter only. If Gemini becomes a default lane, missing fault injection becomes `FAIL`, not accepted. |
+| Browser numbers are hydration proxies | CDP task/script/layout and long-task metrics are accepted until CAOS emits a dedicated hydration mark; keep browser/build/route state identical. |
+| Existing load is a smoke profile, not calibrated `2x pilot` | The stored 15-user/two-worker and 20-user QA runs are valid only at those profiles. Until an owner sets pilot concurrency, claim no `2x` capacity result. |

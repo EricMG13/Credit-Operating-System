@@ -1024,3 +1024,51 @@ dependency or state-update contract; an analyzer suppression is used instead of
 fixing verified code; a test is added only to game static reachability; the
 existing uncommitted red-team tournament entry is overwritten; or final claims
 equate the remaining complexity count with known-broken behavior.
+
+## 2026-07-15 — CAOS optimisation and Copilot skills deployment
+
+Decision under review: optimise the full Modular OS/CAOS system and make its
+methodology available through Microsoft 365 Copilot without weakening analytical
+quality, source lineage, deterministic calculation, or committee governance.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-298 | Credit-governance reviewer | Replacing CAOS with 26 independent skills would turn hard dependencies, source gates, durable state, and CP-5 clearance into probabilistic prose handoffs. | Critical | Resolved in architecture | Retain CP-X, calculations, persistence, lineage, and CP-5 in the CAOS backend; Copilot skills are workflow clients over coarse governed tools. |
+| RT-2026-07-15-299 | Platform reviewer | The 26-module portfolio exceeds the conservative 20-skill Cowork limit, and current Microsoft pages conflict by also citing 50. | High | Resolved conservatively | Design the primary portfolio as 6–8 workflow skills and require target-tenant confirmation before any larger package; one-per-module requires two admin-managed packages or a selective set. |
+| RT-2026-07-15-300 | Analytical-quality reviewer | Compressing prompts to an 8,000-character declarative-agent ceiling can remove legal, numerical, or uncertainty controls while appearing faster. | Critical | Resolved by gate | Generate compact instructions from the canonical bundle with headroom; ship only after a versioned evaluation corpus proves non-inferiority on numerical/legal errors, citation fidelity, gate severity, and expert preference. |
+| RT-2026-07-15-301 | Corpus reviewer | Manual Copilot packages would create a third definition of each module while 19 implemented runtime modules already consume only their active prompt rather than the full folder. | High | Resolved in roadmap | Generalise manifest-verified bundle loading and generate runtime/Copilot artifacts from one canonical source with file-list and hash stamps. |
+| RT-2026-07-15-302 | Product-truth reviewer | Copilot could make seeded UI surfaces or spec-only CP-SR/CP-MON capabilities look production-live. | High | Resolved in rollout gate | Skills must return backend provenance and assessed/unassessed status; do not expose sector-monitor as live until its runtime and persistence exist. |
+| RT-2026-07-15-303 | M365 governance reviewer | The Gemini proposal understates admin, billing, model, Purview, connector, and sensitive-action controls. | High | Resolved in prerequisites | Treat Cowork as tenant-governed preview capability; require admin and data-governance review before pilot and preserve approval gates for sensitive external actions. |
+
+### Critic reopen conditions (Copilot deployment)
+
+Reopen if Copilot becomes the source of truth for calculations or run state; a
+skill infers committee clearance from prose; compact instructions are edited
+independently of the canonical corpus; tenant limits are assumed rather than
+verified; a spec-only or seeded capability is labelled live; or an optimisation
+ships without analytical non-regression evidence.
+
+## 2026-07-16 — Pre-production security and correctness remediation
+
+Decision under review: close the 2026-07-15 adversarial pre-production findings
+across CP-1 grounding, immutable run inputs, analyst isolation, report export,
+provider egress, embeddings, upload safety, durable execution, and browser state
+without weakening evidence lineage or making legacy work silently disappear.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-304 | Credit-governance reviewer | Promoting every grounding miss to Blocked would make legitimate FX-normalized analysis unusable, while leaving it advisory still permits fabricated figures to reach Committee Ready. | Critical | Resolved in design; verification pending | Preserve the analytical payload as Restricted, but require source-backed primitives and server-derived headline ratios before Committee Ready. Unknown basis or currency remains reviewable but non-exportable. |
+| RT-2026-07-16-305 | Lineage reviewer | Freezing only a manifest ID still permits the runner to read unrelated issuer documents, while switching immediately to exact inputs could strand legacy runs that have no snapshot rows. | Critical | Resolved in design; verification pending | New runs transactionally snapshot exact document IDs and hashes and retrieve only that corpus. Legacy rows degrade explicitly to Restricted legacy-corpus mode rather than fabricating exact lineage. |
+| RT-2026-07-16-306 | Authorization reviewer | Flipping the existing team flag does not provide analyst isolation because NULL-team issuers remain global and shared run/document behavior is intentional today. | Critical | Resolved in design; verification pending | Add an explicit private-owner boundary for analyst-created work, retain only deliberately published institutional artifacts as shared, and cover list/by-ID/mutation/export probes with analyst-A-versus-B tests. |
+| RT-2026-07-16-307 | Availability reviewer | Fail-closed malware and provider controls can make all uploads or analysis unavailable when optional infrastructure is absent. | High | Resolved in design; verification pending | Production fails closed; development/test may use explicit non-production bypass states that are truthfully labelled unscanned or local-only and can never be published. |
+| RT-2026-07-16-308 | Concurrency reviewer | Adding retries without fencing increases duplicate spend and allows stale attempts to overwrite successful terminal state. | Critical | Resolved in design; verification pending | Claims receive monotonic fencing tokens; all attempt-owned writes and terminal transitions compare the active fence. Stale attempts become no-ops and emit diagnostics. |
+| RT-2026-07-16-309 | Migration reviewer | Introducing snapshot, ownership, idempotency, and revision columns in one pass can break existing databases or create nullable states interpreted as safe. | High | Resolved in design; verification pending | Additive migrations use explicit legacy/unknown states, backfill conservatively, and gate new authority on populated verified fields. No nullable legacy value is treated as approved. |
+| RT-2026-07-16-310 | Frontend reviewer | Clearing all local draft state on navigation prevents leakage but can destroy unsaved analyst work. | High | Resolved in design; verification pending | Persist sensitive drafts server-side by analyst/context/issuer/run, keep only harmless display preferences locally, abort stale requests, and surface conflicts instead of silently overwriting either scope. |
+
+### Critic reopen conditions (pre-production remediation)
+
+Reopen if an ungrounded CP-1 can become Committee Ready; a run reads a document
+outside its frozen input set; a foreign analyst can enumerate or mutate private
+work; an unscanned upload is labelled clean; a stale worker can write terminal
+state; a degraded provider path remains publishable; or Report Studio can render,
+print, or autosave content under a different context, issuer, or run identity.

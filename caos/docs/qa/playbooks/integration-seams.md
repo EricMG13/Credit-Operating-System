@@ -1,381 +1,240 @@
-# Playbook: Integration Seams & Contracts
+# Integration seams and contracts audit
 
-Standalone goal-prompt for a Sonnet agent. Re-run on every PR. You audit the
-cross-stack contracts; you do not fix code. Deliverable: one dated report
-(§5). Repo root is the working directory unless a command says otherwise.
+## 1. Objective and stakes
 
-**Run context.** Server venvs: `caos/server/.venv` (py3.9) and
-`caos/server/.venv311` (py3.11, prod-parity — preferred). `caos/server/.env`
-carries a real `ANTHROPIC_API_KEY`, so any out-of-pytest probe MUST export
-`ANTHROPIC_API_KEY="" GEMINI_API_KEY="" OPENROUTER_API_KEY=""` and a throwaway
-`DATABASE_URL` — never touch the user's `caos.db`. The pytest conftest
-(`caos/tests/server/conftest.py`) already does this; prefer probes as
-throwaway test files so they inherit the hermetic env. Never `git add -A`;
-stage nothing — the report is the only artifact. Live-key tests
-(`CAOS_TEST_LIVE=1`) spend tokens: skip unless explicitly requested.
+You are a Sonnet 5 audit agent. Re-run this goal-prompt on every pull request (PR). Audit and report only. Do not fix code, stage files, call live SEC EDGAR or large language model (LLM) services, spend tokens, or use the analyst database.
 
----
+Prove that every cross-system contract still holds. CAOS joins a Next.js frontend, a FastAPI backend, an EDGAR Model Context Protocol (MCP) wrapper, SEC EDGAR, and Anthropic, OpenRouter, and Gemini providers. A visible outage is safer than silent drift: a renamed field, changed nullability, provider error, or unmarked fixture can render a blank, `NaN`, stale value, or false live result in a committee-facing view.
 
-## 1. Objective
+The audit passes only when:
 
-Hold four contracts:
+- Every frontend request maps to the intended route, request model, success schema, and error envelope
+- Every response field read by a real view exists with compatible type, presence, and nullability
+- Every external call has a bounded timeout, deliberate retry policy, and fault-isolated outcome
+- Every degraded, demo, mock, or fallback result is deterministic and visibly identified
 
-1. **FE↔BE type parity.** Frontend DTOs are *hand-written mirrors* of the
-   server's Pydantic response models — no codegen, no runtime validation
-   (axios `then((r) => r.data)` casts, only two runtime guards in
-   `caos/frontend/src/lib/api.ts`). A server field rename/removal/retype is
-   invisible to `tsc` and renders as blank/`NaN`/`undefined` cells in
-   committee-facing views. Note: `caos/frontend/tsconfig.sync.json` is
-   design-sync path aliases only — it is **not** a contract mechanism; do not
-   audit it as one.
-2. **Error-envelope stability.** The FE's `toErrorMessage` hard-codes FastAPI's
-   `detail` polymorphism (string | 422 `{loc,msg,type}` list | structured
-   `{message}` dict). Any new error shape renders as `[object Object]` or the
-   generic fallback.
-3. **External-boundary fault handling.** EDGAR (SEC) and three LLM providers
-   (Anthropic / OpenRouter-DeepSeek / Gemini) fail routinely. Every fault must
-   land in a designed degrade path — never a crashed run, never a silent wrong
-   number.
-4. **Degradation honesty.** FE hooks fail open to seeded demo data by design.
-   The audited property is that degraded/demo/fallback state is always
-   *visibly marked* — an analyst must never read fixture numbers as live
-   (precedent: the EvidenceModal shadow-resolve findings in
-   `caos/docs/qa/REVIEW_MATRIX_SEAMS.md`).
+Use `origin/main` as the base. Discover the current surface each run. Treat inventories and accepted risks below as assertions to re-verify, not permanent facts.
 
-Stakes: money is behind a wrong read. Silent contract drift is worse than an
-outage because it looks like data.
+## 2. Scope discovery
 
-## 2. Scope discovery — run fresh every audit
-
-Do not trust any endpoint/DTO list in this file; re-derive. Orientation
-snapshot (2026-07-10): 19 routers in `caos/server/routes/` mounted flat under
-`/api` (`main.py`, no version prefix), ~78 decorators, ~60 with
-`response_model=`, schemas inline per route module; FE DTOs in
-`caos/frontend/src/lib/api.ts` plus `src/lib/engine/types.ts`,
-`src/lib/query/types.ts`, `src/lib/query/graph.ts`, `src/types/issuers.ts`.
+Create a hermetic workspace and select the repository interpreter:
 
 ```bash
-AUDIT_TMP=$(mktemp -d)
-
-# 1. OpenAPI schema without starting the server (lifespan does not run on
-#    import; prod gates /openapi.json off, so this dump is the only way):
-cd caos/server && ANTHROPIC_API_KEY="" .venv311/bin/python -c \
-  "import json, main; print(json.dumps(main.app.openapi()))" \
-  > "$AUDIT_TMP/openapi.json" && cd ../..
-
-# 2. Endpoint inventory + which decorators lack a response_model:
-grep -rn "@router\.\(get\|post\|put\|delete\|patch\)" caos/server/routes/ \
-  > "$AUDIT_TMP/decorators.txt"
-grep -v "response_model" "$AUDIT_TMP/decorators.txt" > "$AUDIT_TMP/untyped.txt"
-# Caution: a few decorators span multiple lines (3 as of 2026-07-10), so
-# confirm each untyped.txt hit by reading the decorator before counting it.
-
-# 3. FE call inventory (path+verb) and DTO surface. Axios calls routinely
-#    split across lines two different ways — `api\n  .post("/x", ...)` and
-#    `api.post(\n  "/x", ...)` — and a line-based grep misses both patterns
-#    in different ways (confirmed on 2026-07-10: a same-line grep dropped
-#    queryOverlay/queryAnswer/edgarVaultUrl — exactly the 130s LLM-lane
-#    calls). Use a DOTALL regex over the whole file instead of grep:
-python3 - caos/frontend/src/lib/api.ts <<'PYEOF' > "$AUDIT_TMP/fe-calls.txt"
-import re, sys
-src = open(sys.argv[1]).read()
-pat = re.compile(r'\bapi\s*\.\s*(get|post|put|delete|patch)\s*\(\s*[`"\']([^`"\']*)', re.DOTALL)
-seen = set()
-for m in pat.finditer(src):
-    verb, url = m.group(1).upper(), m.group(2)
-    if url.startswith("/api/"):
-        seen.add((src[:m.start()].count("\n") + 1, verb, url))
-for l, v, u in sorted(seen):
-    print(f"{l}: {v} {u}")
-PYEOF
-grep -n "^export \(interface\|type\)" \
-  caos/frontend/src/lib/api.ts \
-  caos/frontend/src/lib/engine/types.ts \
-  caos/frontend/src/lib/query/types.ts \
-  caos/frontend/src/lib/query/graph.ts \
-  caos/frontend/src/types/issuers.ts > "$AUDIT_TMP/fe-dtos.txt"
-
-# 4. Which views are data-backed this run (fetch-hook usage):
-grep -rln "usePortfolio\|useLiveRun\|useModelEngine\|useLivePipeline\|from \"@/lib/api\"\|from '@/lib/api'" \
-  caos/frontend/src/app caos/frontend/src/components > "$AUDIT_TMP/data-backed.txt"
-
-# 5. PR delta — what moved this time (contract files first):
-git diff origin/main --stat -- caos/server/routes caos/server/main.py \
-  caos/server/edgar.py caos/server/llm.py caos/server/engine \
-  caos/frontend/src/lib caos/frontend/src/types caos/mcp
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+BASE=origin/main
+OUT=$(mktemp -d /tmp/caos-integration-seams.XXXXXX)
+PY="$ROOT/caos/server/.venv/bin/python"
+test -x "$PY" || PY="$ROOT/caos/server/.venv311/bin/python"
+test -x "$PY"
+git rev-parse HEAD "$BASE" | tee "$OUT/revisions.txt"
 ```
 
-Full pass every run (the surface is small enough); the PR delta tells you
-where to dig deepest and what the adversarial-verification targets are.
+Export the current OpenAPI document without starting the FastAPI lifespan or using live keys:
 
-## 3. Contracts to hold (coverage checklist)
+```bash
+(
+  cd caos/server
+  env ENVIRONMENT=development DATABASE_URL=sqlite+aiosqlite:////tmp/caos-seams.db \
+    ANTHROPIC_API_KEY= GEMINI_API_KEY= OPENROUTER_API_KEY= EDGAR_USER_AGENT= \
+    "$PY" - <<'PY'
+import json
+from main import app
+print(json.dumps(app.openapi(), sort_keys=True))
+PY
+) > "$OUT/openapi-head.json"
+```
 
-### A. FE↔BE request/response parity — every data-backed view
-- Every FE call (path+verb in `fe-calls.txt`, after substituting path params)
-  resolves to exactly one OpenAPI operation. No orphan calls; no FE call
-  hitting an `include_in_schema=False` slash-duplicate.
-- For each data-backed view's DTO: every field the FE reads exists in the
-  server's response schema with compatible type and nullability. Extra server
-  fields are fine; missing/renamed/retyped server fields are drift.
-- Endpoints without `response_model` (the `untyped.txt` set — historically
-  concentrated in `routes/query.py`) have no server-side contract: the FE type
-  is the only contract. Probe their live JSON shape (§4-P2) instead of the
-  schema.
-- Request direction: FE request bodies satisfy the server's required fields
-  and `Field` bounds (min/max lengths, numeric limits — a 422 here is a broken
-  view).
+Enumerate mounted endpoints, declared response models, and emitted success schemas:
 
-### B. Type-sync drift mechanics
-- The mirrors live where the comments say the source of truth is (`api.ts`
-  cites `routes/issuers.py`, `runs.py`, `engine/presets.py`). Any PR touching
-  a Pydantic response model must show the matching mirror edit, or prove the
-  FE never reads the changed field.
-- `npx tsc --noEmit` (from `caos/frontend/`) must pass — it is the only
-  automated FE-side check, and it only works if the mirrors were edited.
-- No new runtime-unvalidated trust: new FE code paths reading deep optional
-  chains from untyped endpoints get flagged.
+```bash
+(
+  cd caos/server
+  env ENVIRONMENT=development ANTHROPIC_API_KEY= GEMINI_API_KEY= OPENROUTER_API_KEY= \
+    "$PY" - <<'PY'
+from fastapi.routing import APIRoute
+from main import app
+for route in sorted((r for r in app.routes if isinstance(r, APIRoute)), key=lambda r: r.path):
+    methods = ",".join(sorted((route.methods or set()) - {"HEAD", "OPTIONS"}))
+    print(methods, route.path, route.name, repr(route.response_model), sep="\t")
+PY
+) > "$OUT/routes-head.tsv"
 
-### C. Versioning & optional-field handling
-- There is no URL versioning; the app version is a string (`2.0.0` in
-  `main.py` and echoed by `/api/health`). Contract: FE and BE deploy together;
-  therefore any *breaking* schema change within a PR must land both sides in
-  that same PR.
-- New **required** request field on an existing endpoint = breaking (old FE
-  emits 422). Fail it.
-- Pydantic convention split: request models use `Optional[x] = None`
-  (omittable); some response models use `Optional[x]` with **no default**
-  (required-but-nullable). These have different wire semantics — the FE `?`
-  marker must match omittable-ness, and `| null` must match nullability.
-  Flag any response field whose FE mirror treats `null` as impossible.
-- 422 envelope stays a *list* of `{loc,msg,type}`; string `detail` stays a
-  string; structured 409s keep `.message`. `toErrorMessage` and its test
-  (`api.test.tsx`) pin this — any server change to these shapes fails.
+"$PY" - "$OUT/openapi-head.json" > "$OUT/openapi-contracts-head.tsv" <<'PY'
+import json, sys
+spec = json.load(open(sys.argv[1]))
+for path, item in sorted(spec["paths"].items()):
+    for method, operation in sorted(item.items()):
+        if method not in {"get", "post", "put", "patch", "delete"}: continue
+        for status, response in sorted(operation.get("responses", {}).items()):
+            if not str(status).startswith("2"): continue
+            schema = response.get("content", {}).get("application/json", {}).get("schema", {})
+            print(method.upper(), path, status, operation.get("operationId", ""), json.dumps(schema, sort_keys=True), sep="\t")
+PY
+```
 
-### D. EDGAR MCP server contract (`caos/mcp/edgar/server.py`)
-- The MCP server is a thin stdio wrapper over the CAOS REST API — it makes
-  zero direct SEC calls. Contract: its 4 tools (`edgar_search`,
-  `edgar_issuer_filings`, `edgar_list_exhibits`, `edgar_fetch_and_vault`)
-  stay parameter-compatible with `routes/edgar.py` (names, defaults, bounds —
-  e.g. a `limit` outside route `Field` bounds must surface the 422, not be
-  silently clamped).
-- Error surface: any HTTP ≥400 from the API becomes a raised error
-  (`RuntimeError("CAOS API {status}: {detail}")`) → MCP tool error. No retry,
-  no fallback — by design. Verify the message still carries status + detail.
-- Env contract: `CAOS_API_BASE` (default `http://localhost:8000`),
-  `CAOS_ANALYST_EMAIL` → `X-Forwarded-Email`. The wrapper has no tests —
-  static parity check is mandatory every run (§4-P5).
+Enumerate frontend calls, mirror types, data-backed views, and the alleged type-sync lane:
 
-### E. External-dependency fault handling
-- **EDGAR** (`caos/server/edgar.py`, sole SEC client — `engine/edgar_cp1.py`
-  reuses it): single attempt, no retry (by design), 30s timeout
-  (`edgar_timeout_s`), global 0.15s throttle, empty `EDGAR_USER_AGENT` =
-  kill-switch. Fault mapping to hold: any HTTP error/timeout/non-JSON →
-  `EdgarError`; routes translate `EdgarError` → **502**, UA-unset → **503**,
-  per-caller 30 req/min → **429**. SSRF guards (host pinned to `.sec.gov`,
-  archive-path pinning, size cap) stay intact.
-- **Two EDGAR consumer lanes, two designed degrades:** legal/covenant lane
-  (routes → MCP) hard-fails per request with 502; CP-1 financial lane is
-  fail-safe — `fetch_cp1` catches everything, returns `None`, and
-  `cp1_sources` falls through EDGAR → reported-disclosure → fixture/LLM. An
-  EDGAR outage must never abort a run.
-- **LLM providers:** model-id string routes the provider (gemini* → Gemini,
-  slash/deepseek* → OpenRouter, else Anthropic). Selection-time degrade: a
-  tier whose key is missing falls back to the Anthropic equivalent. Runtime
-  degrade: overload (429/5xx/529) → one fallback attempt (Anthropic: retry
-  loop 3×, exp backoff capped 8s, `budget.degraded=true`; OpenRouter/Gemini:
-  one cheap-tier attempt). Master gate: live synth/council/debate/chat lanes
-  activate only with `ANTHROPIC_API_KEY`.
-- **Keyless degrade matrix** (offline = all three keys blank) — each lane must
-  produce its deterministic output, never an exception: chat → demo reply;
-  deep research → demo report flagged `demo:true`; synth → ATLF fixture;
-  council → empty findings; debate → deterministic prose; RAG
-  answer/overlay → 503 (`"Model lane unavailable…"`); query route → keyword
-  fallback `{"source":"keyword"}`, never 5xx; extractors (adjusted EBITDA,
-  covenants) → regex derivation; NL-query → demo translate; autonomy →
-  `_empty_draft`.
-- Every LLM lane keeps one of the three fault-isolation patterns (Blocked
-  gate / `gather(return_exceptions=True)` / deterministic fallback). A new
-  LLM call site without one of the three is a failure.
-
-### F. Retry / timeout / idempotency per boundary
-- **Timeout ladder** — a caller's timeout must exceed its downstream budget,
-  else work is orphaned and errors are misattributed. Known ladder: FE axios
-  default 20s; overrides `getMe` 8s, uploads 300s, `queryOverlay`/`queryAnswer`
-  130s > server LLM 120s (`CAOS_LLM_TIMEOUT_S`) ✓; MCP httpx 60s > EDGAR 30s ✓.
-  Verify the ladder holds for every FE call that proxies an external
-  dependency — an FE 20s default over a route that can spend 30s in EDGAR is
-  a violation to verify and report.
-- **Retry:** exists only inside the Anthropic overload-fallback loop and the
-  FE research poll (tolerates 10 consecutive transport errors; 404 = gone).
-  Contract: no new blind retry on non-idempotent POSTs.
-- **Idempotency:** all GETs side-effect-free (EDGAR GETs spend SEC quota but
-  no state). Re-running mutating POSTs (`vault-exhibit`, run creation, model
-  save) must be safe — duplicate-or-reject is acceptable, silent corruption is
-  not. Probe any mutating endpoint the PR touched twice with the same body.
-- 401 → FE `caos:auth-lost` event (re-auth), not an error toast loop.
-
-### G. Graceful degradation when a dependency is down
-- Backend down entirely: data-backed hooks fail open to seeded demo data with
-  their error/phase state set — the view must *mark* the state (demo/fallback
-  banner, error phase), never render fixture numbers as live. This is the
-  EvidenceModal failure class; check every view the PR touched.
-- EDGAR down: upload/import surfaces show the 502/503 detail; runs proceed
-  (CP-1 precedence fallback).
-- All LLM providers down (keys present, providers erroring): runs complete
-  with modules `Blocked` and committee status capped by the QA cascade; query
-  answer 502 says the deterministic result is unaffected; graph/overlay
-  deterministic surfaces stay up.
-
-## 4. Procedure
-
-**P1 — Endpoint parity diff.** From `openapi.json` build the set of
-`(method, path)` operations (`jq -r '.paths | to_entries[] | .key as $p |
-.value | keys[] | . + " " + $p'`). Normalize FE calls from `fe-calls.txt`
-(substitute template literals with `{param}`). Report: FE calls with no
-operation (drift), operations no FE code calls (informational).
-
-**P2 — Field-level DTO diff.** For each data-backed view (start from
-`data-backed.txt`, weight by PR delta): resolve its api.ts method → OpenAPI
-operation → response schema (`jq '.components.schemas.<Name>'` via the
-operation's `$ref`). Compare field-by-field against the FE interface: name,
-type, nullable, optional. For untyped endpoints, get the real shape from a
-probe instead — drop a throwaway test into `caos/tests/server/` (inherits
-hermetic sqlite + blanked keys) and delete it afterwards:
-
-```python
-# caos/tests/server/_audit_probe_shapes.py  (throwaway — delete after run)
-# The shared `client` fixture lives in test_api.py, NOT conftest — a probe
-# file must define its own (same pattern; conftest still blanks keys/DB):
-import os, sys, pytest
+```bash
+python3 - "$OUT/fe-calls.tsv" <<'PY'
 from pathlib import Path
-from fastapi.testclient import TestClient
+import re, sys
+root = Path("caos/frontend/src")
+pat = re.compile(r"\b(?:api|axios)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*([`\"'])(.*?)\2", re.S)
+rows = []
+for path in root.rglob("*.ts*"):
+    if ".test." in path.name or ".spec." in path.name: continue
+    text = path.read_text(errors="replace")
+    for hit in pat.finditer(text):
+        url = hit.group(3)
+        if url.startswith("/api/"):
+            rows.append((str(path), text[:hit.start()].count("\n") + 1, hit.group(1).upper(), url))
+Path(sys.argv[1]).write_text("".join(f"{p}\t{line}\t{verb}\t{url}\n" for p, line, verb, url in sorted(rows)))
+PY
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "server"))
-
-@pytest.fixture(scope="session")
-def client(tmp_path_factory):
-    tmp = tmp_path_factory.mktemp("audit")
-    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp / 'audit.db'}"
-    os.environ["CAOS_STORAGE_DIR"] = str(tmp / "vault")
-    from main import app  # import after env is set
-    with TestClient(app) as c:   # headerless = local-dev identity; no auth headers needed
-        yield c
-
-def test_probe_untyped_shapes(client):
-    r = client.get("/api/query/capabilities")
-    assert r.status_code == 200
-    print(sorted(r.json().keys()))      # compare against the FE type by hand
+rg -n '^(export )?(interface|type) [A-Z]' caos/frontend/src --glob '*.{ts,tsx}' > "$OUT/frontend-types.txt"
+rg -l "from [\"']@/lib/|\\b(fetch|api|axios)\\." \
+  caos/frontend/src/app caos/frontend/src/components --glob '*.{ts,tsx}' > "$OUT/data-backed-views.txt"
+rg -n 'fetch\s*\(|axios\.|httpx\.|urlopen\(|messages\.(create|stream)|generate_content' \
+  caos/frontend/src caos/server caos/mcp --glob '*.{ts,tsx,py}' > "$OUT/raw-boundaries.txt"
+sed -n '1,160p' caos/frontend/tsconfig.sync.json > "$OUT/tsconfig-sync.txt"
+rg -n 'tsconfig\.sync\.json|tsc .*sync|openapi|type.?sync' \
+  caos/frontend/package.json caos/frontend/scripts caos/scripts .github 2>/dev/null \
+  > "$OUT/type-sync-references.txt" || true
 ```
+
+`caos/frontend/tsconfig.sync.json` currently declares design-sync aliases for `next/link` and `next/navigation`; it does not generate or verify API types. Re-prove that fact. Do not credit `tsconfig.sync.json` as a contract gate unless the current PR wires it into type generation or continuous integration (CI).
+
+Capture the PR surface:
 
 ```bash
-cd caos/server && .venv311/bin/python -m pytest \
-  ../tests/server/_audit_probe_shapes.py -q -s && rm ../tests/server/_audit_probe_shapes.py
+git diff --name-status "$BASE" -- \
+  caos/server/main.py caos/server/routes caos/server/analysis_contracts.py \
+  caos/server/engine/schemas.py caos/server/edgar.py caos/server/llm.py \
+  caos/server/engine/llm_client.py caos/server/engine/openrouter.py \
+  caos/server/engine/gemini.py caos/server/engine/presets.py \
+  caos/frontend/src caos/frontend/tsconfig.sync.json caos/mcp/edgar \
+  | tee "$OUT/pr-surface.txt"
 ```
 
-**P3 — Error-envelope regression.** Probe one 422 (bad body), one 404, one
-string-detail 4xx, and — if the PR touched runs — the structured 409. Assert
-shapes parse under `toErrorMessage`'s three branches. FE side:
-`cd caos/frontend && npx vitest run src/lib/api.test.tsx`.
+## 3. Coverage checklist
 
-**P4 — Boundary fault suites (offline).** Both venvs, keys auto-blanked by
-conftest:
+Hold every contract below for the complete current surface. Weight the PR delta, but do not limit the audit to changed endpoints.
+
+| ID | Contract to hold |
+|---|---|
+| C1 | **Frontend to backend parity:** each frontend method and normalized path resolves to one mounted FastAPI operation. Path, query, header, and body names satisfy the request model and bounds. Each field a rendered view reads exists in the actual response with a compatible scalar, object, array, enum, date, and numeric shape. FastAPI `detail` strings, validation lists, structured conflicts, empty bodies, downloads, and pagination remain parseable by the caller. |
+| C2 | **Schema to TypeScript parity:** Pydantic and OpenAPI define the wire contract. Handwritten types under `caos/frontend/src/types` and `src/lib` mirror every consumed field. TypeScript compilation proves internal consistency only; it cannot prove server parity. A server model change must have a matching mirror and consumer change, or evidence that no frontend path consumes it. New runtime casts must not hide unvalidated data. |
+| C3 | **Versioning and optional fields:** `/api` is unversioned, so a breaking request or response change must deploy atomically across both sides. Distinguish absent, `null`, empty, and defaulted values. A Pydantic required-but-nullable field maps to `T | null`, not `field?: T`; an omittable field maps to `field?: T`; a new required request field is breaking. Unknown response fields remain ignorable. |
+| C4 | **EDGAR MCP contract:** each `@mcp.tool` name, argument, default, type, route, method, bound, response, identity header, and timeout matches `caos/server/routes/edgar.py`. The wrapper remains a thin CAOS API client. Every transport error, HTTP error, empty body, and non-JSON body becomes an intelligible MCP tool error with no secret leakage. Pointer results remain non-citable until vaulting succeeds. |
+| C5 | **SEC EDGAR boundary:** all SEC traffic uses `caos/server/edgar.py`. The configured User-Agent, fair-access throttle, timeout, response-size cap, finite-JSON rejection, redirect host check, and archive URL guard remain enforced. Rate limits, 5xx responses, outages, timeouts, malformed JSON, and partial payloads become `EdgarError`; routes map them deliberately. CP-1 acquisition fails safe to its next declared source instead of aborting a run. |
+| C6 | **LLM boundaries:** inventory every raw Anthropic, OpenRouter, and Gemini call, including streaming and advisor exceptions. Each call has a provider key gate, bounded timeout, usage trace, budget accounting, safe response normalization, and lane-level exception boundary. Model selection never sends an identifier to a provider without its key. Retry and cheaper-model fallback stay bounded and same-provider. Keyless mode and total provider failure produce the lane's declared deterministic, unavailable, or `Blocked` result without presenting generated content as live success. |
+| C7 | **Retry, timeout, and idempotency:** record the policy at frontend to FastAPI, MCP to FastAPI, FastAPI to SEC, and FastAPI to each LLM provider. Outer timeouts exceed downstream work plus cancellation margin. SDK retries do not stack with application retries. Retry only idempotent reads or writes protected by an idempotency key, uniqueness constraint, duplicate detection, or safe rejection. Repeating a mutating request cannot duplicate documents, runs, reports, votes, or model events. |
+| C8 | **Graceful degradation:** a backend, SEC, or provider outage leaves unrelated views and runs usable. Every fallback preserves provenance and freshness. Seeded, fixture, demo, keyword, stale-cache, partial, unavailable, and provider-fallback states are visible in the rendered view and exported output. No dependency failure may substitute mock data under a live label. |
+
+## 4. Procedure and exact commands
+
+Produce a schema delta from the base revision without switching or modifying the working tree:
 
 ```bash
-cd caos/server
-.venv311/bin/python -m pytest ../tests/server -q
-.venv/bin/python -m pytest ../tests/server -q
+mkdir -p "$OUT/base-tree"
+git archive "$BASE" caos/server | tar -x -C "$OUT/base-tree"
+(
+  cd "$OUT/base-tree/caos/server"
+  env ENVIRONMENT=development DATABASE_URL=sqlite+aiosqlite:////tmp/caos-seams-base.db \
+    ANTHROPIC_API_KEY= GEMINI_API_KEY= OPENROUTER_API_KEY= EDGAR_USER_AGENT= \
+    "$PY" - <<'PY'
+import json
+from main import app
+print(json.dumps(app.openapi(), sort_keys=True))
+PY
+) > "$OUT/openapi-base.json"
+
+jq -S '{paths, schemas: .components.schemas}' "$OUT/openapi-base.json" > "$OUT/contracts-base.json"
+jq -S '{paths, schemas: .components.schemas}' "$OUT/openapi-head.json" > "$OUT/contracts-head.json"
+diff -u "$OUT/contracts-base.json" "$OUT/contracts-head.json" > "$OUT/openapi.diff" || true
+git diff --unified=80 "$BASE" -- caos/frontend/src > "$OUT/frontend.diff"
 ```
 
-Green suites are necessary but not sufficient — known coverage gaps you must
-probe directly (throwaway test, same pattern as P2): monkeypatch
-`urllib.request.urlopen` to raise `HTTPError(429)`, `HTTPError(503)`,
-`URLError`, and to return non-JSON; assert each becomes `EdgarError` and that
-the route maps it to 502. These branches in `edgar.py` are untested by the
-suite as of 2026-07-10; if that's still true, say so in the report.
-
-**P5 — MCP parity (static, every run).** Diff `caos/mcp/edgar/server.py` tool
-signatures + request paths against `caos/server/routes/edgar.py` decorators
-and `Field` bounds. Live smoke (only if a server is already running — do not
-start one against the user's DB): call one tool via stdio and confirm the
-error shape on a UA-unset 503.
-
-**P6 — Keyless degrade matrix.** The offline suite (P4) covers most lanes;
-spot-check the route-level surfaces from §3-E via throwaway probes: query
-answer → 503, query route → `source:"keyword"`, chat → 200 demo, autonomy →
-empty draft. Any lane raising instead of degrading fails G7.
-
-**P7 — FE gates.**
+For every OpenAPI hunk, pair the changed operation and schema with its frontend call, declared return type, consuming hook, and rendered field. For a specific operation, inspect the resolved contract and all consumers with:
 
 ```bash
-cd caos/frontend
-npx tsc --noEmit
-npx vitest run
+ENDPOINT='/api/replace-me'
+METHOD='get'
+jq --arg p "$ENDPOINT" --arg m "$METHOD" '.paths[$p][$m]' "$OUT/openapi-head.json"
+rg -n --fixed-strings "$ENDPOINT" caos/frontend/src
+rg -n 'replace_response_type' caos/frontend/src caos/server
 ```
 
-**P8 — Degradation honesty.** For each view in the PR delta: read the
-hook's error/fallback branch and the component's rendering of it; confirm
-degraded state is visibly marked. Static read is acceptable evidence; a
-browser check is stronger when the dev stack is already up.
+Treat response-model-less routes as untyped seams. Exercise their real JSON through `TestClient`; do not infer their shape from annotations. Compare every request constraint and every consumed response field, including `required`, `nullable`, unions, enums, collection items, and error bodies.
 
-## 5. Evidence & reporting
+Run the contract and boundary suites with all provider keys blank. `caos/tests/server/conftest.py` must keep the run offline:
 
-Write `caos/docs/qa/reports/integration-seams-YYYY-MM-DD.md` (create the
-directory if absent). Structure: verdict table of gates, then findings, then
-evidence appendix (commands run + key outputs). Gates — each PASS/FAIL with
-one line of evidence:
+```bash
+env ANTHROPIC_API_KEY= GEMINI_API_KEY= OPENROUTER_API_KEY= EDGAR_USER_AGENT= \
+  "$PY" -m pytest -q \
+  caos/tests/server/test_api.py caos/tests/server/test_edgar.py \
+  caos/tests/server/test_edgar_cp1.py caos/tests/server/test_llm_client.py \
+  caos/tests/server/test_openrouter.py caos/tests/server/test_gemini.py \
+  caos/tests/server/test_presets.py caos/tests/server/test_model_tier_routing.py \
+  caos/tests/server/test_budget.py caos/tests/server/test_llm_chat.py \
+  caos/tests/server/test_synth_live.py caos/tests/server/test_council.py \
+  caos/tests/server/test_debate.py caos/tests/server/test_entailment.py \
+  caos/tests/server/test_deepresearch.py caos/tests/server/test_research_report.py \
+  caos/tests/server/test_query_answer.py caos/tests/server/test_query_overlay.py \
+  caos/tests/server/test_nlquery.py caos/tests/server/test_scenario.py \
+  caos/tests/server/test_runner_fault_isolation.py
 
-| Gate | PASS means |
-|------|------------|
-| G1 endpoint parity | no FE call without a matching operation |
-| G2 field parity | no proven missing/renamed/retyped/nullability-drifted field read by a view |
-| G3 no new untyped routes | `untyped.txt` set did not grow vs origin/main |
-| G4 error envelope | all probed error shapes parse under `toErrorMessage` |
-| G5 optional-field discipline | no new required request field on an existing endpoint; response nullability matches FE mirrors |
-| G6 EDGAR fault mapping | EdgarError→502, UA→503, limiter→429, urlopen fault probes pass |
-| G7 LLM degrade matrix | offline suites green on both venvs; every lane degrades per §3-E |
-| G8 MCP parity | tool signatures ↔ route params/bounds match |
-| G9 timeout ladder | every proxied call's FE timeout ≥ downstream budget |
-| G10 degradation honesty | no PR-touched view renders fallback/demo data unmarked |
+(cd caos/frontend && npx tsc --noEmit && npx vitest run)
 
-**Adversarial verification — mandatory before any FAIL.** A suspected drift is
-a finding only if you prove the break: name the exact component/field that
-reads the drifted value and show the wrong render (blank, NaN, crash, mock
-shadow-resolve), or show the failing probe output. "Server has an extra field"
-or "types differ but no FE code reads it" is informational, not a FAIL.
-Severity honesty: this codebase's history shows auditors inflate severity —
-each HIGH needs a demonstrated user-visible wrong read. Confirmed findings
-additionally get one row appended to `caos/docs/qa/REVIEW_MATRIX_SEAMS.md`
-(matching its existing table format). Do not re-report rows already there.
+if rg -q 'tsconfig\.sync\.json' caos/frontend/package.json caos/frontend/scripts .github; then
+  (cd caos/frontend && npx tsc -p tsconfig.sync.json --noEmit)
+fi
+```
 
-**Before reporting a "field/phase never read" G10 finding, check sibling
-hooks in the same file, not just the one named in the hook you're tracing.**
-A 2026-07-11 false positive: `pipeline/page.tsx` was flagged for never
-reading `useLiveRun().phase` — true as stated, but the file separately
-destructures a bare `phase` from `useLivePipelineStatus` (same
-`useLatestRunStatus`/`RunPhase` machinery, different variable name) and
-already drives a full-page `role="alert"` error takeover from it — stronger
-coverage than the pattern the audit used as its baseline. A grep for
-`\.phase\b` misses a bare `phase` identifier from destructuring. Before
-concluding a signal is unconsumed, grep the whole file for the hook's
-*return type* (e.g. `RunPhase`) or its call site, not just one dotted-access
-spelling of the field name.
+The test evidence must cover this fault matrix, not merely return green: EDGAR 429, 5xx, timeout, network error, non-JSON, oversized body, and off-host redirect; each LLM provider 429, overload, 5xx, timeout, malformed or empty response, missing key, exhausted fallback, and response-shape drift; MCP 4xx, 5xx, timeout, empty body, and non-JSON body; frontend 401, 404, 409, 422, timeout, and backend-down behavior. If a row lacks durable coverage, create a throwaway hermetic probe, run it, cite its output, and remove it:
 
-## 6. Accepted-risk register — do not report these
+```bash
+PROBE=caos/tests/server/_integration_seam_probe.py
+test ! -e "$PROBE"
+env ANTHROPIC_API_KEY= GEMINI_API_KEY= OPENROUTER_API_KEY= EDGAR_USER_AGENT= \
+  "$PY" -m pytest -q "$PROBE" -s
+rm "$PROBE"
+```
 
-| By-design seam | Rationale |
-|----------------|-----------|
-| FE hooks fail open to seeded demo data (`usePortfolio`, `useLiveRun`, `useModelEngine`, `useLivePipeline*`) | "prefer live, static fallback" is the product design; audit the *marking* (G10), not the fallback's existence |
-| `/monitor` page + `useSimRun`/`useSharedDayRun` client-side sims | Phase-2 mock by design; no backend exists to drift against |
-| Keyless fixture/demo lanes (ATLF fixture synth, demo chat/research, keyword query router) | designed offline degrade — the audited property is determinism, not absence |
-| No retry/backoff in `edgar.py`; global in-process throttle; no `Retry-After` handling | SEC fair-access design: single attempt + 0.15s spacing; limiter assumes one process |
-| No EDGAR response cache (in-process ticker map only) | accepted; CP-1 precedence fallback is the availability story |
-| Legacy `response_model`-less routes (grep shows 21 raw, ≈18 after multi-line false positives; mostly `routes/query.py`) | known debt; contract held by FE types + P2 probes; gate G3 only stops *growth* |
-| `include_in_schema=False` slash-tolerance duplicate routes (×5) | deliberate 307-avoidance; excluded from parity counts |
-| `tsconfig.sync.json` | design-sync alias overlay; not a contract tool; referenced by no build/CI step |
-| MCP wrapper has no test suite | thin wrapper; covered by mandatory static parity (P5) |
-| FEATURE_TRACKER.csv endpoint column free-text; "endpoint parity" doc claims are prose | tracker lags code by design; never treat tracker rows as contract evidence |
-| Single-process rate limiter + locks | deployment is single-process by design (documented deploy posture) |
-| `GET /api/issuers/{id}/cross-default`, `GET /api/sponsors/*` — no FE caller on this branch | PLANNED: FE consumer exists on unmerged `feat/covenant-frontend` (`3605c999`); `PRE_DEPLOYMENT_PLAN.md:126` tracks the merge. Re-check once that branch lands. |
-| `GET /api/issuers/{id}/research-report[/{id}]` — no FE caller | Backend-complete (module + executor + migration `0033` + tests), zero FE caller, no unwiring plan doc. Track as a pending Issuer Profile feature, not drift. |
-| `DELETE /api/auth/profile` — no FE caller | Tested self-service GDPR erasure (`test_gdpr_erase.py`), intentionally distinct from the `erase_analyst.py` operator CLI. No settings-page trigger yet — real gap, not a contract bug. |
-| `GET /api/issuers/{id}/documents` — no FE caller | Confirmed dead (pre-CAOS era route, stale `FEATURE_TRACKER.csv` "Pass" claim, no real caller, no plan doc). Candidate for deletion — flag, don't silently carry forward. |
+Verify MCP parity without calling a live CAOS or SEC service. A missing MCP runtime test is a coverage finding, not proof of behavior:
+
+```bash
+"$PY" -m py_compile caos/mcp/edgar/server.py
+rg -n '@mcp\.tool|async def edgar_|_api\(' caos/mcp/edgar/server.py
+rg -n '@router\.(get|post)|class (FilingHitOut|ExhibitOut|VaultExhibitRequest|VaultExhibitResponse)|Query\(' \
+  caos/server/routes/edgar.py
+```
+
+For every changed mutation, submit the same valid request twice through a hermetic `TestClient` test. Record whether the second call deduplicates, returns the same resource, or rejects safely. Any silent duplicate or partial second write fails C7.
+
+## 5. Evidence and reporting
+
+Write one report: `caos/docs/qa/reports/integration-seams-YYYY-MM-DD.md`.
+
+Lead with `PASS` or `FAIL` and one sentence. Include:
+
+- Head and `origin/main` commits, files reviewed, endpoint count, response-model-less routes, frontend call count, and unpaired contracts
+- One row for C1 through C8 with `PASS`, `FAIL`, or `NOT PROVEN`, plus `file:symbol`, command, and test evidence
+- Findings ordered `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, each with the broken contract, exact producer and consumer, real failure mode, and smallest repair direction
+- An appendix containing the commands run, exit codes, relevant output, skipped checks, and accepted-risk re-verification
+
+`FAIL` blocks merge for any proven field drift that breaks a real view; orphan frontend call; new untyped route without a contract test; missing timeout; unsafe retry of a mutation; provider call without key, budget, or fault isolation; MCP contract mismatch; dependency fault that aborts unrelated work; or unmarked demo, fixture, stale, or fallback data. `NOT PROVEN` blocks merge when the missing evidence covers a changed seam or a `CRITICAL` or `HIGH` failure mode.
+
+Adversarial verification is mandatory before reporting drift. Trace the server producer to the frontend field read and rendered component. Then inject the suspected old, new, missing, `null`, malformed, or error payload through an existing test or throwaway mock. Show the actual blank, `NaN`, crash, stale value, incorrect action, or false live label. A schema difference with no consuming view is informational. An extra server field is not drift. Do not claim a view breaks from type comparison alone.
+
+## 6. Accepted-risk register
+
+These demo and mock seams are accepted only while their guard conditions hold. Re-verify them every run. If a guard fails, report it under C8. Add an entry only with explicit owner approval and a testable guard.
+
+| ID | Accepted seam | Guard conditions |
+|---|---|---|
+| AR-1 | Frontend hooks may fall back to seeded portfolio, run, model, or pipeline data when the backend is unavailable. | The view labels demo or fallback state, preserves the error or phase signal, excludes fixture values from live export, and never resolves a failed live request as live success. |
+| AR-2 | Monitor and selected workflow previews may use client-side simulation where no production backend exists. | The surface is marked simulated, cannot mutate live records, and does not share a live-data label or freshness indicator. |
+| AR-3 | Keyless LLM lanes may return deterministic chat, research, synthesis, routing, or unavailable fixtures. | No provider call occurs, output is deterministic, provenance says demo or unavailable, and committee-ready status cannot be inferred from the fixture. |
+| AR-4 | EDGAR-backed CP-1 acquisition may fall through to reported disclosures or a declared fixture when SEC EDGAR is unavailable. | Source precedence remains explicit, the result carries its actual source and freshness, and a fixture cannot masquerade as retrieved SEC data. |

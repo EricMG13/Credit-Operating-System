@@ -62,11 +62,11 @@ def test_formatting_tolerance_reused_from_all_grounded():
     assert p.ungrounded_headline_figures == []
 
 
-def test_no_documents_retrieved_skips_check_entirely():
-    # Nothing to ground against — must not flag a legitimate no-document CP-1.
+def test_no_documents_retrieved_flags_all_present_primitives():
+    # Nothing to ground against is an evidence failure, not a bypass.
     p = _cp1(revenue=1000.0, adj_ebitda=250.0)
     _ground_cp1_headline_figures(p, [])
-    assert p.ungrounded_headline_figures == []
+    assert p.ungrounded_headline_figures == ["revenue", "adj_ebitda"]
 
 
 def test_non_cp1_module_never_checked():
@@ -117,25 +117,20 @@ def test_finding_none_when_cp1_none():
     assert cp1_grounding_finding(None) is None
 
 
-def test_finding_none_when_zero_or_one_ungrounded():
+def test_finding_none_only_when_zero_ungrounded():
     p = _cp1()
     p.ungrounded_headline_figures = []
     assert cp1_grounding_finding(p) is None
-    p.ungrounded_headline_figures = ["revenue"]  # single miss tolerated
-    assert cp1_grounding_finding(p) is None
+    p.ungrounded_headline_figures = ["revenue"]
+    assert cp1_grounding_finding(p) is not None
 
 
-def test_finding_minor_when_both_ungrounded():
-    # MINOR, not MATERIAL, by deliberate v1 design (adversarially reviewed
-    # 2026-07-11): a non-USD issuer's FX-converted figures legitimately fail to
-    # ground against native-currency source text with no currency signal in the
-    # schema yet to suppress that — so this is advisory (visible, queryable) for
-    # v1 rather than gating, to avoid restricting genuinely correct FX runs.
+def test_finding_material_when_both_ungrounded():
     p = _cp1()
     p.ungrounded_headline_figures = ["revenue", "adj_ebitda"]
     f = cp1_grounding_finding(p)
     assert f is not None
-    assert f.severity == "MINOR" and f.finding_id == "CP-1-UNGROUNDED" and f.module_id == "CP-1"
+    assert f.severity == "MATERIAL" and f.finding_id == "CP-1-UNGROUNDED" and f.module_id == "CP-1"
     assert "revenue" in f.description and "adj_ebitda" in f.description
 
 
@@ -148,15 +143,14 @@ def test_deterministic_paths_never_populate_the_field_so_never_fire():
     assert cp1_grounding_finding(p) is None
 
 
-# ── end-to-end: a fully fabricated income statement is surfaced (v1: advisory) ─
+# ── end-to-end: a fabricated income statement is committee-restricted ─────────
 
-def test_fabricated_income_statement_surfaces_advisory_finding():
+def test_fabricated_income_statement_is_committee_restricted():
     """The scenario the audit named: an injected/hallucinated but internally
     self-consistent CP-1 (leverage_plausibility_finding alone would NOT catch
     this — recompute it: net_debt/adj_ebitda = 2500/500 = 5.0x = asserted
     leverage, so it's internally consistent) is now surfaced in the evidence
-    trail — but does NOT block Committee Ready in v1 (see cp1_grounding_finding's
-    MINOR severity and its documented FX false-positive limitation)."""
+    trail and blocks Committee Ready until the evidence gap is remediated."""
     p = ModulePayload(
         module_id="CP-1", module_name="x", owned_object="o", confidence="High",
         runtime_output={"normalized_financials": {
@@ -166,30 +160,25 @@ def test_fabricated_income_statement_surfaces_advisory_finding():
     )
     hits = [_Hit("c1", "The credit agreement governs a term loan B facility maturing 2031.")]
     _ground_cp1_headline_figures(p, hits)
-    assert set(p.ungrounded_headline_figures) == {"revenue", "adj_ebitda"}
+    assert set(p.ungrounded_headline_figures) == {"revenue", "adj_ebitda", "net_debt_ltm"}
 
     from engine.metrics import leverage_plausibility_finding
     assert leverage_plausibility_finding(p) is None  # internally consistent — the OLD gap
 
     finding = cp1_grounding_finding(p)
-    assert finding is not None and finding.severity == "MINOR"  # surfaced...
+    assert finding is not None and finding.severity == "MATERIAL"
 
     status = qa_status_from([finding])
-    assert status == "Passed"  # ...but v1 does not gate on it (documented limitation)
-    assert committee_status_from(status, p.confidence) == "Committee Ready"
+    assert status == "Restricted"
+    assert committee_status_from(status, p.confidence) == "Restricted"
 
 
 def test_net_debt_leverage_fabrication_now_caught_by_leverage_magnitude_finding():
     """Was test_KNOWN_GAP_net_debt_leverage_fabrication_not_caught — adversarially
-    confirmed 2026-07-11, closed same day. This check only grounds revenue/EBITDA
-    (the quotable primitives), not net_debt_ltm or the leverage ratio (genuinely
-    non-quotable, computed values) — so a fabrication that keeps revenue/EBITDA
-    CORRECT while inventing an internally-consistent net_debt/leverage passes both
-    this check AND leverage_plausibility_finding untouched. True leverage 3.0x,
-    fabricated to 10.0x (2500/250 recomputes to exactly 10.0, so the internal-
-    consistency check doesn't fire either). Closed via
-    engine.metrics.leverage_magnitude_finding — a magnitude-only sanity band,
-    independent of internal consistency (see test_leverage_magnitude.py)."""
+    confirmed 2026-07-11. Revenue/EBITDA are correctly quoted while the model
+    invents internally-consistent net debt and leverage. Net debt now requires a
+    source basis, while the magnitude finding independently catches the extreme
+    ratio. True leverage 3.0x, fabricated to 10.0x (2500/250 = 10.0x)."""
     p = ModulePayload(
         module_id="CP-1", module_name="x", owned_object="o", confidence="High",
         runtime_output={"normalized_financials": {
@@ -199,17 +188,16 @@ def test_net_debt_leverage_fabrication_now_caught_by_leverage_magnitude_finding(
     )
     hits = [_Hit("c1", "LTM revenue of $1,000 million and Adjusted EBITDA of $250 million.")]
     _ground_cp1_headline_figures(p, hits)
-    assert p.ungrounded_headline_figures == []  # revenue/EBITDA ground cleanly — real figures
+    assert p.ungrounded_headline_figures == ["net_debt_ltm"]
 
     from engine.metrics import leverage_magnitude_finding, leverage_plausibility_finding
     assert leverage_plausibility_finding(p) is None  # 2500/250 = 10.0 = asserted — "consistent"
-    assert cp1_grounding_finding(p) is None  # nothing ungrounded to report
+    grounding = cp1_grounding_finding(p)
+    assert grounding is not None and grounding.severity == "MATERIAL"
 
     magnitude = leverage_magnitude_finding(p)
-    assert magnitude is not None and magnitude.severity == "MINOR"  # gap now surfaced
+    assert magnitude is not None and magnitude.severity == "MATERIAL"
 
-    # MINOR is advisory, not gating (same tradeoff as cp1_grounding_finding) — the
-    # fabrication is now visible in the evidence trail rather than silently invisible.
-    status = qa_status_from([magnitude])
-    assert status == "Passed"
-    assert committee_status_from(status, p.confidence) == "Committee Ready"
+    status = qa_status_from([grounding, magnitude])
+    assert status == "Restricted"
+    assert committee_status_from(status, p.confidence) == "Restricted"

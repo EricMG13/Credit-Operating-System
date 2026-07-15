@@ -104,3 +104,13 @@
 > Checkpoint 4: pending fresh-context verification of 5 files; 4 candidates proposed, 3 tiered provisionally, while the autonomy poller and role-view debounce passed local lifecycle review.
 
 > Checkpoint 5: pending fresh-context verification of 5 files; 3 candidates proposed, 2 tiered provisionally, and the remaining assumptions-storage validation gap stayed below threshold.
+
+> Checkpoint 6: pending fresh-context verification of 5 files; 1 inherited defensive candidate rechecked, 1 retained provisionally, and 0 new data-integrity candidates proposed.
+
+> Checkpoint 7: pending fresh-context verification of 5 files; 3 apparent arithmetic candidates examined, 0 proposed after reading their finite and denominator guards in context.
+
+> Checkpoint 8: pending fresh-context verification of 5 files; 1 latent unused-claim candidate proposed, 0 tiered provisionally because the active executors retain/drain tasks and the helper has no current caller.
+
+> Checkpoint 9: pending fresh-context verification of 5 files; 7 broad-catch candidates examined, 0 proposed after separating intentional best-effort parsing from fail-closed authoritative workbook validation.
+
+> Checkpoint 10: pending fresh-context verification of 5 files; 6 process-global candidates examined, 0 proposed after confirming request-scoped sessions/identity, ContextVar model state, and locked shared-desk caches.

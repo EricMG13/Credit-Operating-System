@@ -96,7 +96,7 @@ Prove each invariant. A claim without code evidence and a test or bounded repro 
 
 ### Postgres async claim and lease path
 
-- Postgres-specific tests exercise the real `SKIP LOCKED`, claim, heartbeat, re-claim, attempt-cap, and reap paths for run, research, research-report, and pipeline workers.
+- Postgres-specific tests exercise each applicable real `SKIP LOCKED`, claim, heartbeat, re-claim, attempt-cap, and reap path across run, research, research-report, and pipeline workers.
 - A green SQLite fallback is not evidence for this invariant. Any Postgres worker test reported as skipped fails the audit.
 
 ## 4. Procedure

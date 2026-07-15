@@ -1,1423 +1,1179 @@
-# Agentic Infrastructure & Memory Hub — Build Specification
+# Agentic Infrastructure and Memory Hub — Build Specification
 
-**Status:** design-complete, ready to implement. **Consumer:** Fable 5 (or
-equivalent) coding directly from this document — no orchestration code is
-included here; every code block below is a **target shape to implement**, not
-a snippet already in the repo. **Author's stance:** this is a *consolidation*
-of code that already exists in `caos/server/`, not a greenfield design. Every
-decision below carries a `Grounding:` line citing the file:line it is built
-on; a decision with no such citation is marked **`FLAG: ungrounded`** and must
-not be treated as verified fact.
+**Status:** design-only implementation contract  
+**Target implementer:** Opus 4.8  
+**Evidence date:** 2026-07-15  
+**Normative terms:** **MUST**, **MUST NOT**, **SHOULD**, and **MAY** have their RFC 2119 meanings.
 
-**Scope boundary:** design and interfaces only. Concrete rate figures in §6
-were fetched from public pricing pages this session (dated per figure) — an
-implementer must re-verify them against the provider's current pricing page
-before wiring real billing, because these numbers drift.
+This document consolidates existing CAOS infrastructure. It does not authorize a
+second inference service, a second vector store, or a second document corpus. Code
+blocks are target interfaces or pseudocode; they are not implementation scripts.
 
-## 0.1 Relationship to existing docs
-
-- **Amends** `caos/docs/OBSIDIAN_DATABANK.md` — that document's closing
-  statement ("Two-way sync — never; the vault is derived") is superseded by
-  §9.1 below. The amendment is narrow: only the two *file-canonical* families
-  (`analyst-memo`, future `source-document`) gain a read path; `credit-run` and
-  `issuer` stay exactly as documented (CAOS-canonical, one-way, ignored by the
-  new watcher).
-- **Extends** `caos/docs/PDF_INGESTION_OKF_BLUEPRINT.md` — that blueprint's
-  Stage 4–6 "must not fork" mandate (embedding model, `(model, chunk_hash)`
-  key, chunk recipe) is the same mandate §10.3 restates for the sync lane; the
-  two documents must never diverge on that point. §13 resolves a migration
-  **number collision**: this spec claims `0034`/`0035`; the OKF blueprint's
-  reserved `0034_okf_notes.py` renumbers to `0036` if these two build in the
-  order given here (spec-writer's call — the two work orders have not yet been
-  sequenced against each other).
-- **Corrects** two defects discovered while grounding this spec, both
-  pre-existing and unrelated to the three workstreams, both worth fixing in
-  the same PR because the touched files overlap:
-  1. `engine/budget.py:127-138` prices every non-Anthropic, non-Gemini-1.x
-     model at Sonnet rates (see §6.1 for the exact bug).
-  2. **Critical, found during pricing research (§6.2), not part of the
-     original ask:** `config.py:105` defaults `embedding_model` to
-     `"text-embedding-004"`, which Google retired **2026-01-14**. If
-     `GEMINI_API_KEY` has been set in any deployed environment since that
-     date, every live embedding call has been failing and — per the exact
-     defect this spec's §9.8 fixes — silently persisting **mock vectors under
-     the label `text-embedding-004`** into `document_chunk_embeddings`,
-     indistinguishable from real ones under the current schema. **Action
-     required before implementing anything else:** check whether
-     `GEMINI_API_KEY` was set in production after 2026-01-14; if so, the
-     vector corpus needs an audit (§9.8 also names the query). This is flagged
-     here for visibility — fixing the corpus is out of scope for this spec.
+Every claim about current behavior cites a repository file read during the design
+session. A choice that is not already present in code is labelled **Design choice**.
+External prices and library behavior cite the provider documentation and MUST be
+rechecked when implementation begins.
 
 ---
 
-## 1. Current-State Inventory (condensed)
+## 1. Scope, non-goals, and hard invariants
 
-Full call-site table, provider adapters, and defect list were produced by
-codebase inventory this session; the load-bearing facts are restated inline
-at each design decision below rather than duplicated here. Three structural
-facts anchor the whole design:
+### 1.1 In scope
 
-| Fact | Grounding |
-|---|---|
-| One seam already exists and 14 of 15 reviewed LLM call sites already route through it | `engine/llm_client.py` (full file); `caos/tests/server/test_llm_safety.py:152-187` (`_REVIEWED_LLM_CALL_SITES`) |
-| Four call sites bypass the seam: synth advisor (no M-2 fallback), two `.stream()` lanes, and embeddings (no trace at all, plus a live-failure defect) | `engine/synth.py:405-417`; `deepresearch.py:257-282`; `research_report.py:918-996`; `engine/embeddings.py:28-55` |
-| A telemetry table (`llm_call_records`) and a cost-accrual function (`budget.trace_llm`) already exist, but the DB write is on the hot path and the cost table is wrong for the deployed default (DeepSeek/OpenRouter hybrid) | `database.py:678-696`; `engine/budget.py:112-173` |
-| The Obsidian vault has a write lane already (`vault_export.py`) and one read lane (`sync_analyst_memos`, link-only); there is no watcher and no re-chunk-on-edit path | `vault_export.py` (whole file); `routes/ingestion.py:258-347` |
-| Single-process deploy (no workers=, no scheduler, no `asyncio.Queue` precedent) | `run.py:17`; `caos/deploy/Dockerfile:70`; `main.py:122` (the one `asyncio.create_task` precedent) |
-| No OpenTelemetry today; explicit "no external APM, by design" comment | `main.py:271-275` |
+1. Route every generative and embedding provider call through
+   `caos/server/engine/llm_client.py`.
+2. Add opt-in native model tool calling whose tool discovery and execution use MCP.
+3. Produce masked semantic telemetry, token accounting, dollar cost, and
+   OpenTelemetry traces outside the primary request path.
+4. Watch the human-edited Obsidian vault, converge changed Markdown chunks with the
+   existing `documents`, `document_chunks`, and `document_chunk_embeddings` tables,
+   and refresh only missing embeddings.
 
----
+### 1.2 Out of scope
 
-## 2. WS1 — Centralized Gateway
+- No standalone gateway service, broker, workflow engine, scheduler, or durable sync
+  job table.
+- No provider-selection policy beyond the existing model-tier and same-provider
+  fallback rules.
+- No new vector database or metadata blob on every embedding row.
+- No general two-way sync for generated `Runs/` or `Issuers/` notes.
+- No write-capable MCP tool in the first release.
+- No core orchestration scripts in this deliverable.
 
-### 2.1 Target architecture
+### 1.3 Hard invariants
 
-**`engine/llm_client.py` keeps its name and becomes the gateway.** Grounding:
-14 files already `import` it by that name (registry test, §14.1); renaming is
-pure churn for zero benefit. No new service, no new process — the gateway is
-a Python module in the same FastAPI app.
-
-| Module | Status | Role |
+| ID | Invariant | Enforced by |
 |---|---|---|
-| `engine/llm_client.py` | **changed** | Gateway: `create`, `stream_final` (new), `create_with_tools` (new), `embed` (new). Routing, M-2 fallback, per-provider semaphores, unified retry. |
-| `engine/budget.py` | **changed** | `trace_llm` slims to an O(1) enqueue (§4). |
-| `engine/telemetry.py` | **new** | Bounded queue, `LLMCallEvent`, background writer, OTel init (§4–8). |
-| `engine/telemetry_mask.py` | **new** | Masking (§7). |
-| `engine/llm_pricing.py` | **new** | Cost matrix (§6). |
-| `engine/mcp_router.py` | **new** | MCP client registry + tool loop (§3). |
-| `engine/gemini.py` | **changed** | Gains `embed(texts, model)` — the raw `embed_content` call moves here from `embeddings.py:44` so every direct provider call lives in an adapter, none in a lane file. |
-| `engine/embeddings.py` | **changed** | Delegates to `llm_client.embed`; live-failure defect fixed (§9.8). |
-| `engine/synth.py`, `deepresearch.py`, `research_report.py` | **changed** | Bypass call sites route through the gateway (§2.3). |
-| `database.py` + `migrations/versions/0034_llm_telemetry.py` | **new/changed** | Schema (§5). |
-| `vault_sync.py` | **new** | Watcher + sync consumer (§9). |
-| `migrations/versions/0035_vault_sync_provenance.py` | **new** | Schema (§10). |
-| `caos/tests/server/test_llm_safety.py` | **changed** | Registry pattern + companion "gateway is total" test (§14.1). |
+| H1 | Relative to the current implementation, a successful non-tool LLM request MUST add no awaited I/O, blocking call, semaphore wait, deep copy/serialization, mask pass, hash pass, cost calculation, DB write, logger-handler call, or OTel SDK call. One shallow outer-container snapshot is allowed only to preserve the exact prompt for the queued event; Z4 requires the complete post-provider tail to be no slower than the current hash-plus-DB tail. | §4.5, §8, tests Z1–Z4 |
+| H2 | Masking, trace construction/export, cost calculation, and embedding refresh MUST execute only after a non-blocking in-memory handoff. | §5, §7, §10 |
+| H3 | The gateway MUST preserve the current provider-native request shape. It MUST NOT rewrite prompt text, roles, cache-control blocks, or forced structured-output tools. | §4.2–§4.4 |
+| H4 | A vault sync transaction MUST never expose a live chunk without its active-model vector. If embedding generation fails, the old live chunk set remains committed and the file is retried. | §10.5 |
+| H5 | A cited chunk MUST never be deleted. It is shadowed from retrieval and remains addressable by id. | §10.4, §10.6 |
+| H6 | Generated vault families remain CAOS-canonical; human-authored families are file-canonical. | §9.1 |
+| H7 | Unknown model pricing MUST produce `cost = NULL`, never an invented default. | §6.4 |
 
-### Hot path / background boundary (the whole point of WS2, drawn once, referenced everywhere)
+**Meaning of “zero added latency.”** H1 is the measurable acceptance definition. The provider
+network call and prompt conversion required by that provider remain on the hot path.
+Fallback sleep occurs only after a failed/overloaded attempt. MCP execution occurs
+only when a caller explicitly selects `create_with_tools`; it is part of that lane’s
+requested work, not telemetry overhead.
 
+---
+
+## 2. Current-state evidence map
+
+| Area | Current fact | Grounding read this session |
+|---|---|---|
+| Gateway | `llm_client.create` already routes Anthropic, Gemini, and OpenRouter and applies same-provider fallback. It also hashes prompts and awaits `budget.trace_llm`. | `caos/server/engine/llm_client.py:79-90,93-107,110-276` |
+| Call sites | The safety registry contains 15 reviewed generative files. Three generative paths still call provider APIs directly: synth advisor, deep-research streaming, and research-report streaming. Embeddings are a fourth provider bypass. | `caos/tests/server/test_llm_safety.py:144-187`; `caos/server/engine/synth.py:554,569`; `caos/server/deepresearch.py:268`; `caos/server/research_report.py:929`; `caos/server/engine/embeddings.py:28-55` |
+| Gemini adapter | Gemini already converts Anthropic-shaped system/messages, normalizes responses, and supports only a forced single tool; dynamic/multi-tool input raises `GeminiUnsupported`. | `caos/server/engine/gemini.py:67-91,124-201,205-246` |
+| OpenRouter adapter | OpenRouter already translates Anthropic-shaped messages/tools to OpenAI-compatible payloads and normalizes tool calls. It does not request or retain provider-reported cost. | `caos/server/engine/openrouter.py:37-134,136-173` |
+| Model tiers | TEST/LITE/BALANCED/MAX map lanes to `cheap`, `fast`, `strong`, and `top`; configured defaults are DeepSeek Flash, DeepSeek Flash, DeepSeek Pro, and Claude Opus 4.8. | `caos/server/engine/presets.py:56-80,145-188`; `caos/server/config.py:82-127` |
+| Current telemetry | `trace_llm` performs budget accrual, incorrect hard-coded cost calculation, structured logging, and an awaited DB commit on the caller coroutine. | `caos/server/engine/budget.py:81-109,112-181` |
+| Telemetry table | `llm_call_records` exists with run/lane/model/hash/token/cost/status/latency fields. | `caos/server/database.py:1295-1313` |
+| Vectors | Embeddings are keyed uniquely by `(model, chunk_hash)` in pgvector `vector(768)`; retrieval joins through chunk hash and filters by active model. | `caos/server/database.py:1344-1363`; `caos/server/engine/retrieval.py` vector-query branches |
+| Embedding defect | With a Gemini key, an embedding failure falls back to deterministic mock vectors, which callers can persist under the configured live model id. | `caos/server/engine/embeddings.py:17-25,28-55,58-112` |
+| Vault write/read lanes | CAOS writes generated notes and analyst memos. `sync_analyst_memos` scans files to rebuild links only; it does not re-chunk edited files. | `caos/server/vault_export.py:203-224,314-557`; `caos/server/engine/memochunks.py:69-141`; `caos/server/routes/ingestion.py:475-579` |
+| Chunk recipe | Existing ingestion uses `chunk_text` with a 512-token target and 64-token overlap; chunk identity is SHA-256 of exact chunk text. | `caos/server/ingest.py:276-368`; `caos/server/engine/memochunks.py:111-123` |
+| Citation FKs | Evidence and metric facts can point to `document_chunks.id`; deleting a cited chunk is unsafe. | `caos/server/database.py:513-526,579` |
+| Deployment | `WEB_CONCURRENCY` may create multiple Uvicorn worker processes on Postgres; SQLite is explicitly limited to one. | `caos/server/run.py:6-15,26-44`; `caos/deploy/docker-compose.yml:69` |
+| MCP | The repository contains a stdio FastMCP EDGAR server with three read tools and one write tool. | `caos/mcp/edgar/server.py:1-103`; `caos/mcp/edgar/pyproject.toml` |
+| OKF | `PDF_INGESTION_OKF_BLUEPRINT.md` is a design blueprint; no `okf_*.py` implementation exists. Its future `Sources/` lane must therefore be treated as reserved, not current runtime behavior. | `caos/docs/PDF_INGESTION_OKF_BLUEPRINT.md`; repository file search on 2026-07-15 |
+
+### 2.1 Critical prerequisite: replace the retired embedding model
+
+`config.py` currently defaults to `text-embedding-004` and dimension 768
+(`caos/server/config.py:126-127`). Google lists `text-embedding-004` as shut down
+on 2026-01-14 and `gemini-embedding-001` as shut down on 2026-07-14; the replacement
+is `gemini-embedding-2`. `gemini-embedding-2` defaults to 3072 dimensions, so the
+adapter MUST request `output_dimensionality=768` to preserve the existing schema.
+Its embedding space is incompatible with prior models, so all live hashes MUST be
+backfilled under the new model id before it becomes the retrieval default.
+
+External grounding: [Gemini embeddings documentation](https://ai.google.dev/gemini-api/docs/embeddings),
+[Gemini deprecations](https://ai.google.dev/gemini-api/docs/deprecations?hl=en).
+
+---
+
+## 3. Target topology
+
+```text
+HOT PATH
+caller
+  -> engine/llm_client.py
+       -> existing model-tier resolution
+       -> provider adapter / native Anthropic call
+       -> provider network
+       -> budget.record_usage (existing ContextVar arithmetic)
+       -> telemetry_queue.put_nowait(event with owned prompt envelope)
+  <- response
+
+BACKGROUND TASK A: telemetry writer (per Uvicorn worker)
+  queue -> mask -> normalize usage -> calculate cost -> synthesize OTel spans
+        -> batch INSERT llm_call_records + llm_call_payloads -> OTLP batch exporter
+
+BACKGROUND TASK B: vault leader (exactly one process)
+  watchfiles -> bounded event queue -> quiet-window coalescer -> file/chunk diff
+             -> generate only missing vectors -> atomic DB convergence
+
+OPT-IN TOOL PATH
+  llm_client.create_with_tools -> provider-native tool request
+                               -> mcp_router -> allowed MCP server tool
+                               -> wrapped tool_result -> next model turn
 ```
-────────────────────────── HOT PATH (request or run-task coroutine) ──────────────────────────
- lane (synth, chat, council, extract, deepresearch, vault-sync re-embed, …)
-   │  presets.model_for / effort_for   (existing, unchanged)
-   ▼
- engine/llm_client.py            ← the ONLY file allowed to call a provider SDK's messages/embed API
-   │ 1. OTel span open  — O(1); no-op tracer object when OTLP endpoint is unset (default, §8.4)
-   │ 2. per-provider asyncio.Semaphore.acquire()   — backpressure, not telemetry (§2.4)
-   │ 3. provider call (anthropic / gemini / openrouter adapter)
-   │      └ M-2 fallback + unified backoff on overload (§2.4)
-   │ 4. semaphore release; span close (status + token attrs)
-   ▼
- budget.trace_llm(resp_or_None, lane, model, ms, fallback, status, error=None)
-   │   O(1): ContextVar budget math (unchanged) + fixed-field `caos.llm` log line (unchanged)
-   │       + uuid4() → resp.llm_call_id + telemetry.enqueue(event)      ← queue.put_nowait, never awaits
-   ▼ return resp to caller — nothing below this line is awaited by the request/run
-═══════════════════════════ boundary: put_nowait is the only crossing ════════════════════════
- BACKGROUND (one asyncio.Task, started in main.py lifespan, same event loop)
- engine/telemetry.py writer_loop:
-   dequeue → sha256(prompt) [moved off hot path] → mask payloads (§7) → cost (§6, provider-reported
-   preferred) → INSERT llm_call_records + llm_call_payloads (batched ≤32/commit)
- OTel BatchSpanProcessor (only when OTLP endpoint configured): its own daemon thread, not this loop
-────────────────────────────────────────────────────────────────────────────────────────────────
-```
 
-**Net effect on hot-path latency: negative.** Two pieces of work move OFF the
-hot path that are on it today — the `sha256(prompt)` (currently computed
-inline at `llm_client.py:103-109`, `:151-157`, `:234-240`) and the **awaited**
-`AsyncSessionLocal()` commit (currently `budget.py:152-166`, blocking every
-single LLM call on a DB round-trip). The only additions are a `uuid4()` call,
-a dataclass construction, and a non-blocking queue push. §12 is the full
-per-step audit table; this diagram is the shape every later section refers
-back to.
+**Design choice:** keep the gateway in-process and retain the existing module name.
+The current call graph already converges on `engine/llm_client.py`; a network gateway
+would add a second failure boundary and request latency without satisfying any stated
+requirement.
 
-### 2.2 Gateway API
+Only these modules are added:
 
-All four entry points live in `engine/llm_client.py`.
+| Module | Purpose |
+|---|---|
+| `caos/server/engine/telemetry.py` | Event types, bounded queue, background mask/cost/DB/OTel writer |
+| `caos/server/engine/telemetry_mask.py` | Pure financial-figure masker |
+| `caos/server/engine/llm_pricing.py` | Versioned in-code rate card and cost function |
+| `caos/server/engine/mcp_router.py` | One MCP registry/session manager and default-deny dispatch |
+| `caos/server/vault_sync.py` | Leader election, watcher queue, reconcile, chunk/vector convergence |
+
+One additive migration, `0060_agentic_infra_memory_hub.py`, contains all schema
+changes in §5 and §11. The migration directory’s current head is `0059` as of the
+evidence date. The implementer MUST re-run `alembic heads`; if head changed, only
+the revision number/down-revision changes—this schema contract does not.
+
+---
+
+## 4. Workstream 1 — centralized gateway and MCP router
+
+### 4.1 Public gateway contract
+
+`engine/llm_client.py` remains the only lane-facing provider seam.
 
 ```python
 async def create(
-    client,                                # anthropic.AsyncAnthropic — caller-supplied, unchanged
+    client,
     *,
     lane: str,
-    model: Optional[str] = None,
-    fallback_model: Optional[str] = None,
-    effort: Optional[str] = None,
-    betas: Optional[list[str]] = None,     # NEW: routes to client.beta.messages.create(betas=...)
-    **kwargs,                              # system, messages, max_tokens, tools, tool_choice — pass-through
-) -> Message
-```
-Signature is a **strict superset** of today's `create` (`llm_client.py:166-186`)
-— the golden invariant: all 14 existing call sites in the registry (§14.1)
-compile and behave identically with zero edits. `betas=` is new and additive;
-omitted, behavior is byte-identical to today. When `betas` is set, no
-fallback is attempted unless the caller also passes `fallback_model`
-explicitly — this preserves the synth advisor's documented no-fallback
-contract (`synth.py:415-417`).
+    model: str | None = None,
+    fallback_model: str | None = None,
+    effort: str | None = None,
+    betas: list[str] | None = None,
+    **kwargs,
+) -> Message: ...
 
-```python
 async def stream_final(
-    client, *,
+    client,
+    *,
     lane: str,
     model: str,
-    fallback_model: Optional[str] = None,  # default settings.synth_executor_model
-    effort: Optional[str] = None,
-    **kwargs,                              # max_tokens, thinking, output_config, system, tools, messages
-) -> Message
-```
-Consolidates the two hand-rolled stream lanes (`deepresearch.py:259-282`,
-`research_report.py:918-996`) — both today do exactly one
-`client.messages.stream(...) as s: await s.get_final_message()` turn with a
-manual overload-then-fallback branch. `stream_final` does that one turn,
-inside it applies the same M-2 fallback + trace as `create`, and attaches two
-attributes the two callers already read by a different name today:
-`resp.caos_used_model: str` and `resp.caos_fallback: bool` (precedent for
-attaching attributes to a response object: `resp.llm_call_id`,
-`budget.py:169` — grep-confirmed zero readers exist yet, so this is a safe,
-unused-until-now pattern to extend). Anthropic-only in v1 — a gemini/openrouter
-model id raises `ValueError` (neither bypass lane ever runs on those
-providers today).
-
-```python
-async def create_with_tools(
-    client, *,
-    lane: str,
-    model: Optional[str] = None,
-    fallback_model: Optional[str] = None,
-    effort: Optional[str] = None,
-    extra_tools: Optional[list[dict]] = None,   # structured-output tools — returned, NEVER executed
-    max_tool_turns: Optional[int] = None,       # default settings.mcp_max_tool_turns
+    fallback_model: str | None = None,
+    effort: str | None = None,
     **kwargs,
-) -> Message
+) -> StreamResult: ...  # {message, used_model, fallback}
+
+async def embed(
+    texts: list[str],
+    *,
+    lane: str = "embedding",
+) -> EmbeddingBatch: ...
+
+async def create_with_tools(
+    client,
+    *,
+    lane: str,
+    allowed_tools: list[str],
+    model: str | None = None,
+    fallback_model: str | None = None,
+    effort: str | None = None,
+    **kwargs,
+) -> Message: ...
 ```
-The MCP tool-execution loop (§3). **Deliberately a separate entry point, not
-a branch inside `create`.** Reason: `create`'s existing `tools=` caller —
-synth's forced payload tool (`tools=[tool], tool_choice={"type":"tool",...}`,
-`synth.py:427-428`) — depends on receiving the `tool_use` block back
-**unexecuted**: `_payload_data_from_resp` reads `block.input` straight off
-that block (`synth.py:508-551`); nothing loops it back as a `tool_result`. A
-loop inside `create` would try to "execute" `emit_module_payload` and break
-this contract. (Verified: `queryoverlay.py` was considered as a second
-example but does **not** pass `tools=` at all — its own module docstring
-states "no tools and no writes" — so it is cited here only as confirmation
-that today's `tools=` usage is narrow, not as a second dependent caller.)
-Every existing lane stays on `create`; `create_with_tools` is a new,
-opt-in surface with zero current callers (§3.5 states this explicitly).
+
+`create` is a strict superset of the existing signature at
+`engine/llm_client.py:204-212`. `betas` selects `client.beta.messages.create` and
+exists only to absorb the direct synth advisor call at `engine/synth.py:554`.
+If that call does not explicitly pass `fallback_model`, it MUST preserve its current
+no-fallback behavior.
+
+`stream_final` absorbs the direct stream calls at `deepresearch.py:268` and
+`research_report.py:929`; it MUST preserve `get_final_message()`, adaptive-thinking
+arguments, pause-turn continuation, and sticky fallback model behavior. It returns
+`StreamResult(message, used_model, fallback)`. Both callers MUST rebind their local
+`model = result.used_model` before a pause-turn or repair call; deep research currently
+persists that rebound model across continuations (`deepresearch.py:263-331`) and the
+report repair currently reuses it (`research_report.py:923-950,997-998`).
+
+`embed` moves `client.aio.models.embed_content` from `engine/embeddings.py:44` into
+`engine/gemini.py`; the gateway owns telemetry, while the adapter owns the Google
+request shape.
+
+### 4.2 Canonical prompt envelope and formatting
+
+The gateway input contract is the Anthropic-shaped object already used by all
+callers:
 
 ```python
-async def embed(texts: list[str], *, lane: str = "embed") -> list[list[float]]
+@dataclass(slots=True)
+class PromptEnvelope:
+    system: str | list[dict] | None
+    messages: list[dict]
+    tools: list[dict]
+    tool_choice: dict | None
+    max_tokens: int | None
 ```
-Calls `engine.gemini.embed(texts, settings.embedding_model)` — the raw
-`client.aio.models.embed_content` call moves out of `embeddings.py:44` into
-the Gemini adapter, so every direct provider SDK call in the codebase lives in
-an adapter file, never in a lane file (mirrors the existing pattern for
-`gemini.call` / `openrouter.call`). Emits one telemetry event per call
-(lane `"embed"`, model = the actual embedding model id). Raises on a live
-failure — **no silent mock fallback at this layer**; the mock/live branch
-stays in `get_embeddings` (§9.8), which is the caller.
 
-### 2.3 Call-site migration table
+The gateway MUST pass these original containers to the provider adapter unchanged.
+Immediately before that call, it takes a shallow snapshot of only the outer
+`system`/`messages`/`tools` lists for the eventual queue event. This protects against
+the top-level `messages.append(...)` performed after a stream turn
+(`deepresearch.py:329-331`; `research_report.py:991-996`) while preserving the
+provider-native list shape. Nested dicts/blocks are immutable-by-contract after the
+call begins; callers MUST create replacement objects rather than mutate them. No deep
+copy, JSON encoding, string rendering, or second provider formatting is permitted on
+the hot path. The shallow snapshot is the only allowed prompt-capture work and is
+covered by Z4's no-slower-than-current gate.
 
-| File:line | Today | Change |
+Provider formatting rules are fixed:
+
+| Provider | Formatting rule | Grounding |
 |---|---|---|
-| `llm.py:74`, `nlquery.py:248,315`, `scenario.py:169`, `engine/council.py:141,196`, `engine/debate.py:309`, `engine/queryanswer.py:352`, `engine/queryinsights.py:431`, `engine/queryoverlay.py:91,274`, `engine/rerank.py:79`, `engine/entailment.py:142`, `engine/llm_safety.py:131`, `engine/synth.py:420` | `llm_client.create(...)` | **No change.** Signature is a superset — this is the golden invariant the registry test (§14.1) proves mechanically. |
-| `engine/synth.py:405-417` | direct `client.beta.messages.create(betas=[_ADVISOR_BETA], tools=[advisor, tool], tool_choice="any")`; direct `trace_llm` at `:417` | `llm_client.create(self._get_client(), lane=f"synth:{module_id}:advisor", model=s.synth_executor_model, betas=[_ADVISOR_BETA], max_tokens=_MAX_TOKENS, system=system_blocks, tools=[advisor, tool], tool_choice={"type":"any"}, messages=messages)`. Delete the direct `trace_llm` call — the gateway traces now. No `fallback_model` passed → no-fallback behavior preserved verbatim. |
-| `deepresearch.py:257-282` | local `_final_message` helper + manual overload check + direct `trace_llm` | `msg = await llm_client.stream_final(client, lane="deepresearch", model=model, fallback_model=fb_model, max_tokens=_MAX_TOKENS, thinking={"type":"adaptive"}, output_config={"effort": preset["effort"]}, system=SYSTEM_PROMPT, tools=tools, messages=messages)`; then `model = msg.caos_used_model` (the sticky-degrade assignment the loop already does, unchanged in shape). `web_search_20260209` stays a server-side tool passed through verbatim — it is not MCP, it doesn't touch `create_with_tools`. |
-| `research_report.py:918-942`, repair turn `:996` | same shape | Same replacement, `lane="research_report"`. |
-| `engine/embeddings.py:28-55` | direct `client.aio.models.embed_content`; on live failure, silently returns mock vectors that `:95-108` then **persists under the real model name** (the defect) | `get_embeddings` keeps its signature (4 callers: `retrieval.py:206,360,480`, `queryanswer.py:271` — untouched). Internally it now routes the live path through `llm_client.embed`, and the failure semantics change per §9.8 (raise, don't silently mock, when a key is configured). |
-| `engine/budget.py:112-173` | `trace_llm` computes cost + commits a DB row synchronously | New body, §4.2. Signature extends compatibly: `async def trace_llm(resp, *, lane, model, ms=None, fallback=False, status="success", error=None)`. The `prompt_hash` parameter is **removed** — the hash is now computed in the writer from the raw prompt captured in the event, not passed in by the caller (this is what moves the sha256 off the hot path). `resp=None` is now valid — a terminal failure (no response object at all) can still be traced with `status="failed"`. |
-| `main.py:114-129` | lifespan | After the four existing executor `.start()` calls: `telemetry.init_otel(settings)`; `telemetry.start()` (same `asyncio.create_task` idiom as `run_warmup`, `main.py:122`). Shutdown order in §13.3. |
-| `caos/tests/server/test_llm_safety.py:152-187` | registry | §14.1. |
+| Anthropic | Pass `system`, `messages`, `tools`, and `tool_choice` unchanged. Preserve cache-control blocks. | Current pass-through in `engine/llm_client.py:204-276` |
+| Gemini | Reuse `_system_text`, `_to_contents`, and `_thinking_config`; assistant maps to `model`. No new prompt template. | `engine/gemini.py:67-121` |
+| OpenRouter | Reuse `_translate_messages` and `_translate_tools`; system becomes the leading system message. | `engine/openrouter.py:37-86` |
 
-**Failed-call semantics (new).** Today a terminal failure (fallback
-exhausted, or a non-overload error) raises with **no row written**
-(`budget.py:162` hardcodes `status="success"`). After this change, the
-gateway's `except` path calls `budget.trace_llm(None, lane=lane, model=model,
-status="failed", error=str(exc)[:2000])` before re-raising — closing that gap
-without changing the raise-to-caller contract any lane depends on.
+**Design choice:** prompt formatting is provider-adapter work, not a configurable
+template layer. There is no user requirement for prompt version management, and the
+existing adapters already define the required translations.
 
-### 2.4 Rate limiting & unified retry
+### 4.3 Internal execution record
 
-Today's picture is reactive-only: M-2 fallback + backoff-on-fallback-only
-(`llm_client.py:204-230`), a `asyncio.Semaphore(synth_concurrency=4)` around
-synth (`engine/runner.py:216`, config default `config.py:193`), and an
-HTTP-endpoint-only fixed-window limiter (`rate_limit.py`, explicitly
-documented as per-process, `rate_limit.py:4-9`) that never touches LLM calls.
-
-**New, additive, in the gateway only:**
-
-- Lazy per-provider `asyncio.Semaphore` (module dict `_SEMS[provider]`,
-  loop-bind-safe lazy-init — same pattern already used at
-  `research_executor.py:39-46`), acquired around each provider **network
-  attempt** only (released before any backoff sleep, so a waiting retry never
-  starves other lanes; never held across the trace/enqueue call).
-- Config: `llm_max_concurrency_anthropic/gemini/openrouter: int = 8` each
-  (`0` = unlimited). 8 is chosen to sit **above** today's grounded peak —
-  `caos_run_concurrency=2 × synth_concurrency=4 = 8` concurrent synth calls
-  (the product the config's own comment at `config.py:192` documents) — so the
-  limiter is inert under current settings and only flattens a future
-  pathological burst.
-- Unified retry helper `_retrying(fn, classify)` replacing three divergent
-  behaviors today (Anthropic: 1 primary attempt → 3 exp-backoff retries on
-  fallback only, `:204-218`; Gemini/OpenRouter: 1 primary → 1 fallback
-  attempt, no retry). New: primary stays 1 attempt (preserves M-2's
-  fast-degrade contract); fallback gets up to `llm_fallback_max_retries: int =
-  3` with backoff `min(llm_retry_cap_s, llm_retry_base_s * 2**attempt) ± 10%
-  jitter` (`llm_retry_base_s=1.0`, `llm_retry_cap_s=8.0` — the constants
-  already hardcoded at `llm_client.py:204`, now config-exposed). Per-provider
-  overload classifiers (`is_overloaded`, `gemini.is_overloaded`,
-  `openrouter.is_overloaded`) are unchanged. **Flagged behavior change:**
-  Gemini/OpenRouter fallbacks go from 1-attempt to 3-attempt — strictly more
-  resilient under the same classification, not a new failure mode.
-
----
-
-## 3. WS1 — MCP Router
-
-**User decision (locked):** plumbing ships; every existing lane ships with
-tools **OFF**; read-only tools only in v1. This preserves the pre-prod
-security posture's documented property, "no LLM lane has agentic tools or
-writes," by default (see the security-implementation-spec cross-reference in
-§0.1).
-
-### 3.1 Registry config
-
-Two JSON-in-env blobs — matches the existing pydantic-settings surface
-(`config.py`) and the edgar MCP server's own env-configuration precedent
-(`caos/mcp/edgar/server.py:15-18`). A TOML file was considered and rejected:
-it needs a mounted-file path and a second config surface for one small object.
+One public gateway invocation produces one `LLMCallEvent`, including a multi-turn MCP
+interaction. An internal `_execute_attempt` performs one provider attempt and appends
+an immutable step:
 
 ```python
-# config.py — new settings
-mcp_servers: str = ""          # JSON: {"<name>": {"command": str, "args": [str], "env": {str:str}, "tools": [str]}}
-mcp_lane_allowlist: str = ""   # JSON: {"<lane>": ["<server>__<tool>", ...]}
-mcp_max_tool_turns: int = 5
+@dataclass(frozen=True, slots=True)
+class ExecutionStep:
+    ordinal: int
+    kind: Literal["model", "mcp_tool"]
+    provider: str
+    model_or_tool: str
+    started_ns: int
+    ended_ns: int
+    fallback: bool
+    usage_raw: Any | None
+    provider_cost_usd_raw: Any | None
+    stop_reason: str | None
+    status: Literal["success", "failed"]
+    error_class: str | None
+    http_status: int | None
 ```
 
-`engine/mcp_router.py`:
+`create_with_tools` MUST call `_execute_attempt` directly; it MUST NOT call public
+`create`, or it would emit one record per turn rather than one complete execution
+path. Standard `create`, `stream_final`, and `embed` produce one logical event with
+one or more provider attempts (primary plus fallback/retries).
+
+### 4.4 Rate-limit and fallback policy
+
+Preserve the existing success path: one primary attempt. Only exceptions classified
+by the existing provider classifiers are retryable:
+
+- Anthropic/httpx: 429, 502, 503, 529
+  (`engine/llm_client.py:62-76`).
+- Gemini: 429/500/503 or `RESOURCE_EXHAUSTED`/`UNAVAILABLE`
+  (`engine/gemini.py:249-261`).
+- OpenRouter: 429/502/503/529 (`engine/openrouter.py:175-179`).
+
+On a retryable primary failure, preserve each current lane's retry cardinality:
+
+1. Select the existing same-provider fallback; never hand a provider a foreign model
+   id (`engine/llm_client.py:118-125,168-173,261-270`).
+2. Anthropic plain `create`: the fallback gets its initial attempt plus up to three
+   retries. If `Retry-After` is present, wait `min(parsed_seconds, 8)`; otherwise use
+   the existing 1, 2, 4 second schedule with ±10% jitter
+   (`engine/llm_client.py:242-270`).
+3. Gemini/OpenRouter plain `create`: one primary plus one fallback attempt, with no
+   retry loop (`engine/llm_client.py:137-150,183-193`).
+4. `stream_final`: one primary plus one fallback attempt. A fallback overload is
+   re-raised so deep research can preserve its current partial-result/demo degradation
+   (`deepresearch.py:282-311`); research report preserves its current raise behavior
+   (`research_report.py:940-950`).
+5. Embedding refresh is already background work and MAY use the 1, 2, 4 second retry
+   schedule before requeuing the file; it cannot affect a primary request.
+6. Set the active `RunBudget.degraded` flag on fallback, preserving current behavior
+   (`engine/llm_client.py:151-156,194-199,271-274`).
+7. Non-retryable failures re-raise immediately.
+
+No new concurrency semaphore is allowed. A semaphore can delay a healthy request and
+would violate H1. Provider admission control is a later capacity concern, not a
+requirement of this consolidation.
+
+### 4.5 Non-blocking telemetry handoff
+
+After the final response/error, the gateway performs only:
+
+1. Existing `budget.record_usage(response)` ContextVar arithmetic.
+2. Construct an `LLMCallEvent` from the shallow outer-container snapshot and steps.
+3. `telemetry.enqueue_nowait(event)`.
+
+`enqueue_nowait` MUST use `asyncio.Queue.put_nowait`. Queue full MUST increment an
+in-memory drop counter; it MUST NOT call a logging handler, await, retry, serialize,
+or write a fallback file. The background writer periodically emits the drop counter
+and the fixed-field `caos.llm` record. This explicitly trades lossless telemetry for
+H1. All existing success-path `await budget.trace_llm(...)` calls in
+`llm_client.py`, `synth.py`, `deepresearch.py`, and `research_report.py` MUST be
+removed; `budget.record_usage` remains synchronous and `trace_llm` becomes a
+compatibility wrapper around the non-blocking enqueue only if a temporary migration
+requires it.
+
+### 4.6 MCP router
+
+Only one new setting is permitted:
 
 ```python
-def configured() -> bool
-def tools_for_lane(lane: str) -> list[dict]              # Anthropic-shaped tool defs; names "<server>__<tool>"
-async def call_tool(name: str, args: dict) -> tuple[str, bool]   # (result_text, is_error)
-class MCPToolContext:                                     # AsyncExitStack over the servers one lane needs
-    async def __aenter__(self) / __aexit__(self, ...)      # opened per create_with_tools() call, closed at loop end
+mcp_servers_json: str = ""
 ```
 
-- New pip dependency: the official `mcp` package (needs Python ≥3.10; image
-  runs `python:3.14-slim`, `caos/deploy/Dockerfile:21` — compatible). stdio
-  transport (`mcp.client.stdio`), matching the edgar server's own stdio entry
-  point (`caos/mcp/edgar/server.py:103`).
-- **No persistent session lifecycle.** A `create_with_tools` call opens an
-  `AsyncExitStack` over the servers its lane's allowlist references, and
-  closes it when the loop ends. No reconnect logic, no locks — tool lanes are
-  opt-in and none are hot, so subprocess-spawn latency per call is acceptable.
-- Tool naming: `edgar__edgar_search` (double underscore — dots fall outside
-  Anthropic's tool-name character set).
-
-### 3.2 Tool loop (inside `create_with_tools` only)
-
-1. Resolve `tools_for_lane(lane) + (extra_tools or [])`.
-2. Call `create(...)`.
-3. While `stop_reason == "tool_use"` and `turns < max_tool_turns`: for each
-   `tool_use` block —
-   - if the name resolves in the MCP registry: execute via `call_tool`, wrap
-     the result in `llm_safety.wrap_untrusted` (the content is untrusted
-     web/EDGAR-derived text — precedent `llm_safety.py:79`), append as a
-     `tool_result` block;
-   - if the name is one of `extra_tools` (a structured-output tool): **stop
-     the loop and return the message as-is** — this is a terminal payload
-     emission, not something to feed back into another turn.
-4. On hitting `max_tool_turns`: return the last message unmodified (no error
-   raised — the caller decides what an unfinished tool loop means for its
-   lane).
-
-Every turn inside the loop is an ordinary `create()` call, so every turn is
-individually traced, costed, semaphore-bounded, and fallback-covered for
-free — nothing new to build for that.
-
-### 3.3 Allowlist enforcement — double, default-deny
-
-1. **Server-level:** a server's `tools` list in `MCP_SERVERS` is the entire
-   executable universe for that server. A tool the server exposes but the
-   config omits is invisible to the router — it is never in `tools_for_lane`
-   for any lane.
-2. **Lane-level:** `MCP_LANE_ALLOWLIST` maps `lane → [qualified names]`. A
-   lane absent from the map gets **zero** tools. **Default `""` → every
-   existing lane stays exactly as tool-free as it is today** — this is the
-   mechanism that satisfies the user's locked decision.
-
-### 3.4 Edgar plug-in (read-only v1)
+Schema:
 
 ```json
-{"edgar": {
-  "command": "python", "args": ["/app/mcp/edgar/server.py"],
-  "env": {"CAOS_API_BASE": "http://127.0.0.1:8000", "CAOS_ANALYST_EMAIL": "..."},
-  "tools": ["edgar_search", "edgar_issuer_filings", "edgar_list_exhibits"]
-}}
+{
+  "edgar": {
+    "command": "python",
+    "args": ["/app/mcp/edgar/server.py"],
+    "env_names": ["CAOS_API_BASE", "CAOS_ANALYST_EMAIL", "CAOS_EDGE_SHARED_SECRET"],
+    "lane_tools": {
+      "research:legal": [
+        "edgar_search",
+        "edgar_issuer_filings",
+        "edgar_list_exhibits"
+      ]
+    }
+  }
+}
 ```
-`edgar_fetch_and_vault` is **excluded by default** — it writes to the vault
-(`caos/mcp/edgar/server.py:84-99`), and v1 tools are read-only by policy.
 
-**FLAG: deploy-side gap.** The app image today copies only the server tree.
-Shipping the edgar MCP server in-container requires (a) copying
-`caos/mcp/edgar/` into the image, (b) adding the `mcp` package plus that
-server's own `httpx` dependency to the app's `requirements.txt` (today a
-separate `pyproject.toml`, `caos/mcp/edgar/pyproject.toml:7`). This is a
-required Dockerfile edit, not optional — call it out in the PR that
-implements §3.
+The empty default exposes no tools. The router MUST:
 
-### 3.5 Safety statement
+1. Lazily open one stdio MCP session per configured server per worker and cache the
+   `list_tools` result. A broken session gets one reconnect on the next call.
+2. Qualify names as `<server>__<tool>`.
+3. Intersect three sets before exposing a schema: tools returned by `list_tools`,
+   `lane_tools[lane]`, and the caller’s `allowed_tools`. Absence at any layer denies.
+4. Convert the discovered MCP schema to each provider’s native tool schema.
+5. Execute only a tool name present in that exact exposed set.
+6. Wrap every returned/error payload with `llm_safety.wrap_untrusted` before adding a
+   model `tool_result`; web/filing text is untrusted input. The existing safety
+   wrapper is in `engine/llm_safety.py` and OpenRouter already fail-closes malformed
+   tool arguments at `engine/openrouter.py:102-117`.
+7. Stop after five model tool rounds (constant, not a setting). If the limit is hit,
+   return status `max_tool_turns` with the last model message; do not execute another
+   tool.
 
-**No v1 lane calls `create_with_tools`.** The registry test in §14.1 asserts
-this mechanically: any file that starts calling it must appear in a
-reviewed-call-site set, exactly like the existing LLM-safety registry. The
-first real consumer (a hypothetical CP-4 legal-sourcing lane) is explicitly
-future work — this spec ships the seam with every default off.
+Anthropic and OpenRouter dynamic tools are supported in v1. Gemini dynamic MCP tools
+MUST raise `GeminiUnsupported` before a network call because its adapter currently
+discards tool-result blocks and explicitly rejects non-forced/multi-tool requests
+(`engine/gemini.py:79-91,205-246`). Forced structured-output tools continue through
+plain `create` and are returned unexecuted.
+
+The EDGAR server’s write-capable `edgar_fetch_and_vault` tool is excluded in v1
+(`caos/mcp/edgar/server.py:84-99`). The implementation MUST also pass the existing
+edge shared secret and make the EDGAR client send `X-Edge-Authorization`; direct
+localhost API requests otherwise fail the deployed edge-proof middleware
+(`caos/server/main.py:229-260`). The Docker image currently copies only the server
+tree, so shipping EDGAR MCP also requires copying `caos/mcp/edgar/` and adding its
+declared `mcp` dependency.
+
+No existing lane is enabled for `create_with_tools` by this specification. The router
+ships dark until a separately reviewed caller supplies `allowed_tools` and config
+supplies the same lane/tool pair.
 
 ---
 
-## 4. WS2 — Telemetry Architecture
+## 5. Workstream 2 — semantic telemetry schema and queue
 
-### 4.1 `engine/telemetry.py`
+### 5.1 Event queue
+
+`engine/telemetry.py` owns one bounded queue per Uvicorn worker:
 
 ```python
-@dataclass
-class LLMCallEvent:
-    lane: str
-    model: str
-    provider: str                    # anthropic | gemini | openrouter — from llm_client._provider()
-    model_mode: str                  # presets.current_mode() at call time
-    run_id: Optional[str]
-    system: Any                      # raw ref, not copied — masked only in the writer
-    messages: tuple                  # shallow tuple() of the message list, taken at enqueue time
-    completion: Any                  # resp.content or None on failure
-    usage: Any                       # resp.usage or None
-    provider_cost_usd: Optional[float]
-    fallback: bool
-    status: str                      # "success" | "failed"
-    error: Optional[str]
-    ms: Optional[float]
-    llm_call_id: str                 # uuid4, set on resp before enqueue
-    trace_id: Optional[str]          # OTel hex, None if OTel is off
-    span_id: Optional[str]
+TELEMETRY_QUEUE_MAX = 4096
+TELEMETRY_BATCH_MAX = 32
+TELEMETRY_BATCH_WAIT_MS = 100
+PAYLOAD_MAX_CHARS = 200_000
+OTEL_EVENT_MAX_CHARS = 16_384
 
-_queue: asyncio.Queue[LLMCallEvent]  # bounded, maxsize=1000
-_dropped: int                        # counter, logged periodically if > 0
+_queue: asyncio.Queue[LLMCallEvent]
 
-def enqueue(event: LLMCallEvent) -> None:
-    try:
-        _queue.put_nowait(event)
-    except asyncio.QueueFull:
-        globals()["_dropped"] += 1
-        # rate-limited WARNING every N drops, never per-drop (avoid log storm)
-
-async def writer_loop() -> None: ...      # single consumer, started once in main.py lifespan
-def start() -> None: ...                  # asyncio.create_task(writer_loop())
+def enqueue_nowait(event: LLMCallEvent) -> None: ...
+async def writer_loop() -> None: ...
+async def flush_for_tests() -> None: ...
 async def drain_and_stop(timeout_s: float = 5.0) -> None: ...
-async def flush_for_tests() -> None: ...  # await _queue.join(); writer calls task_done() per event
-def init_otel(settings) -> None: ...      # §8
 ```
 
-**Why a bounded queue is safe here and doesn't need to be lossless:** every
-call already writes the synchronous `caos.llm` JSON log line
-(`budget.py:140-150`, unchanged) independent of the queue — that line is the
-floor, always present, grep-able, and unaffected by anything in this section.
-The queue only feeds the *richer* record (cost, masked payload, OTel
-correlation). A dropped event under sustained overflow loses enrichment, not
-the fact that the call happened. Depth 1000 against a realistic concurrent
-call count (≤ ~10, per §2.4's semaphore defaults) makes overflow practically
-unreachable in normal operation; it exists as a safety valve, not a
-steady-state path.
+The writer drains at most 32 events or waits at most 100 ms, then processes each
+event independently before one batch transaction. A poison event is logged by id and
+discarded; it MUST NOT terminate the loop or roll back unrelated valid events.
 
-Writer loop shape: dequeue → `telemetry_mask.mask_payload` on system/messages/
-completion (§7) → `sha256({system, messages})` computed here (moved off hot
-path, replacing the three duplicated inline computations at
-`llm_client.py:103-109`/`151-157`/`234-240`) → `llm_pricing.compute_cost`
-(§6, provider-reported preferred) → one `AsyncSessionLocal()`, insert
-`LLMCallRecord` + `LLMCallPayload`, commit — batched, up to 32 events per
-transaction, to bound worst-case commit latency under burst without adding a
-second queue.
+### 5.2 `llm_call_records` columns
 
-### 4.3 Lifecycle wiring
+Keep all existing columns in `database.py:1295-1313`. `cost` is USD. Add:
 
-`main.py` lifespan, **after** the four existing executor `.start()` calls
-(`main.py:100-113`, unchanged) and before `run_warmup`'s task spawn:
+| Column | SQLAlchemy type | Null | Meaning |
+|---|---|---:|---|
+| `interaction_id` | `String(36)`, unique/indexed | no | UUID assigned by gateway; stable correlation key |
+| `provider` | `String(16)` | no | final provider: `anthropic`, `gemini`, `openrouter`, `google` |
+| `requested_model` | `String(128)` | no | model before fallback |
+| `model_mode` | `String(16)` | yes | current preset mode |
+| `fallback` | `Boolean` | no | any model fallback occurred |
+| `cache_read_tokens` | `Integer` | yes | disjoint cache-read input tokens |
+| `cache_write_5m_tokens` | `Integer` | yes | disjoint five-minute cache writes |
+| `cache_write_1h_tokens` | `Integer` | yes | disjoint one-hour cache writes |
+| `cache_write_other_tokens` | `Integer` | yes | cache writes whose TTL cannot be proven |
+| `cost_source` | `String(16)` | yes | `provider`, `matrix`, `mixed`, or NULL |
+| `rate_card_version` | `String(10)` | yes | `2026-07-15` when matrix-priced |
+| `stop_reason` | `String(32)` | yes | final normalized stop reason |
+| `step_count` | `Integer` | no | execution-path length |
+| `trace_id` | `String(32)`, indexed | yes | background-created OTel trace id |
+| `span_id` | `String(16)` | yes | background-created root span id |
 
-```python
-telemetry.init_otel(get_settings())
-telemetry.start()
-```
+Existing `model` stores the final actual model. Existing `prompt_tokens` stores total
+processed input (`uncached + cache reads + both cache writes`), matching the current
+budget semantics at `engine/budget.py:81-90`. Existing `completion_tokens` stores the
+sum across billed model steps. Existing `error` stores only exception class plus HTTP
+status, never `str(exc)`.
 
-Shutdown order (§13.3 states the full merged sequence): watcher/consumer stop
-first (§9 — abandon in-flight, reconcile re-derives on next boot) → the four
-existing executor `.stop()` calls, **unchanged order** → `await
-telemetry.drain_and_stop(5.0)` **last**, so every trace enqueued by the
-executors' own final work has a chance to flush before the process exits.
-
----
-
-## 5. WS2 — Telemetry DB Schema
-
-Migration `caos/server/migrations/versions/0034_llm_telemetry.py`,
-`revision = "0034"`, `down_revision = "0033"` (chain: `0033_issuer_research_
-report.py` is the current head — confirmed by directory listing this
-session). Every change here is additive and portable (no
-`if op.get_bind().dialect.name == "postgresql"` split needed — that idiom in
-this codebase is reserved for FTS/vector DDL, `0029`/`0030`, not for plain
-nullable columns).
-
-### 5.1 `llm_call_records` — new columns
-
-Existing columns (`database.py:678-696`) are untouched: `id`, `run_id`,
-`lane`, `model`, `prompt_hash`, `prompt_tokens`, `completion_tokens`, `cost`,
-`status`, `kept_count`, `dropped_count`, `latency_ms`, `error`, `created_at`.
-`status`/`error` already exist in the model but are unused by `trace_llm`
-today (`status` hardcoded `"success"` at `budget.py:162`); §2.3's failed-call
-change is what makes them load-bearing.
-
-```python
-op.add_column("llm_call_records", sa.Column("provider", sa.String(16), nullable=True))
-op.add_column("llm_call_records", sa.Column("model_mode", sa.String(16), nullable=True))
-op.add_column("llm_call_records", sa.Column("cache_read_tokens", sa.Integer(), nullable=True))
-op.add_column("llm_call_records", sa.Column("cache_write_tokens", sa.Integer(), nullable=True))
-op.add_column("llm_call_records", sa.Column("cost_source", sa.String(16), nullable=True))  # "provider" | "matrix" | NULL
-op.add_column("llm_call_records", sa.Column("trace_id", sa.String(32), nullable=True))      # OTel hex; NULL when OTel off
-op.add_column("llm_call_records", sa.Column("span_id", sa.String(16), nullable=True))
-```
-
-`kept_count`/`dropped_count` are untouched (already written by
-`engine/eval.py:63-64,108-109` for a different purpose — the CP-5 finding
-retention count, not an LLM-record concept this spec touches).
-
-### 5.2 New table: `llm_call_payloads`
-
-Payloads are large (up to hundreds of KB per side) → a separate table, so a
-query over `llm_call_records` (cost dashboards, run audits) never drags
-payload bytes along. Soft-ref, no FK — matches the audit-table precedent
-already in this codebase (`LineageEdge` string ids, `database.py:699-709`;
-`AnalystQaFlag`, "so the flag survives its subject"). Style: `String(36)`
-uuid PK via the house `_uuid()` helper, `DateTime(timezone=True)` via
-`_utcnow()`, portable `JSON` column (not `JSONB` — matches every existing
-JSON column in `database.py`).
+### 5.3 New `llm_call_payloads` table
 
 ```python
 class LLMCallPayload(Base):
     __tablename__ = "llm_call_payloads"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    llm_call_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)  # soft ref → llm_call_records.id
-    system_masked: Mapped[Optional[str]] = mapped_column(Text)
-    messages_masked: Mapped[Optional[dict]] = mapped_column(JSON)      # [{role, content:[{type, text|name|input}]}]
-    completion_masked: Mapped[Optional[dict]] = mapped_column(JSON)    # normalized resp.content blocks
-    masking_version: Mapped[str] = mapped_column(String(16), nullable=False)
-    masked_count: Mapped[Optional[int]] = mapped_column(Integer)       # substitutions made — masker efficacy signal
-    truncated: Mapped[bool] = mapped_column(Boolean, default=False)    # llm_payload_max_chars cap applied
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    llm_call_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("llm_call_records.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    prompt_masked: Mapped[dict | None] = mapped_column(JSON)
+    completion_masked: Mapped[dict | None] = mapped_column(JSON)
+    execution_path_masked: Mapped[list | None] = mapped_column(JSON)
+    masking_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    masked_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
 ```
 
-Config: `llm_log_payloads: bool = True` (kill switch — set `False` to stop
-persisting payloads entirely, keeping only the `llm_call_records` row);
-`llm_payload_max_chars: int = 200_000` (per side; excess truncated,
-`truncated=True` stamped).
+Payload rows are one-to-one with records. A new setting
+`llm_log_payloads: bool = True` is the kill switch: false retains aggregate records
+and OTel metadata but omits payload rows and OTel prompt/completion events.
 
-**Deliberately out of scope:** retention/purge policy for
-`llm_call_payloads`. Flagged as an open item in §15, not designed here.
+### 5.4 Logical-record semantics
+
+- One `create`, `stream_final`, or `embed` invocation = one record.
+- One `create_with_tools` invocation = one record containing every model attempt and
+  MCP call in `execution_path_masked`.
+- Token and cost totals include every step whose provider reports usage, including a
+  billed failed/fallback attempt.
+- The final actual provider/model populate the top-level record. Per-step models are
+  retained in the path.
+- A terminal failure still creates a record with `status="failed"` and a sanitized
+  error descriptor.
 
 ---
 
-## 6. WS2 — Cost Matrix
+## 6. Per-model-tier token cost matrix
 
-### 6.1 Data structure
-
-`engine/llm_pricing.py` — **a module-level dict, not `if`/`elif` chains and
-not a DB-seeded table.** A DB table was considered and rejected: it adds a
-migration, a seed script, and a read on the hot writer path for a value that
-changes as often as every other hardcoded config default in this codebase
-(see `config.py`'s own model-id constants, which are plain Python literals).
+### 6.1 Normalized usage contract
 
 ```python
-@dataclass(frozen=True)
-class ModelRates:
-    input_per_mtok: float
-    output_per_mtok: float
-    cache_read_per_mtok: Optional[float] = None    # None → falls back to input rate (no discount known)
-    cache_write_per_mtok: Optional[float] = None   # None → falls back to input rate
-
-def resolve_rates(model: str) -> Optional[ModelRates]:
-    """Longest-prefix match over RATES keys. Returns None for an unrecognized
-    model — NEVER a default/guessed rate. This is what closes the defect in
-    §6.4 below."""
-
-def compute_cost(model: str, usage, provider_cost: Optional[float]) -> tuple[Optional[float], Optional[str]]:
-    """Returns (usd, "provider") when provider_cost is not None.
-    Else (usd, "matrix") from resolve_rates(model), reading the four usage
-    fields (input/output/cache_read/cache_write) separately.
-    Else (None, None) for an unknown model."""
+@dataclass(frozen=True, slots=True)
+class NormalizedUsage:
+    input_uncached_tokens: int
+    output_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_5m_tokens: int = 0
+    cache_write_1h_tokens: int = 0
+    cache_write_other_tokens: int = 0
+    provider_cost_usd: Decimal | None = None
 ```
 
-### 6.2 Rate table (fetched this session — verify before wiring real billing)
+The six token buckets are disjoint and are constructed only in the background writer:
 
-**Anthropic figures** are from the `claude-api` skill's cached pricing table
-(cache-dated 2026-06-24, the skill's own stated cache date). **Non-Anthropic
-figures were fetched live via WebSearch this session (dated inline)** — these
-providers move faster and are not covered by any skill; the rates below are
-this session's best evidence, not an authoritative feed, and **must be
-re-verified against each provider's live pricing page before this matrix
-drives real invoicing.**
+- Anthropic: `input_tokens` is uncached input;
+  `cache_read_input_tokens` is cache read. Prefer nested
+  `cache_creation.ephemeral_5m_input_tokens` and
+  `cache_creation.ephemeral_1h_input_tokens`; if only aggregate
+  `cache_creation_input_tokens` exists, put it in `cache_write_other_tokens` rather
+  than guessing a TTL. The current budget already treats input/cache fields as
+  separate processed-token buckets (`engine/budget.py:81-90`).
+- OpenRouter: usage is returned automatically; the former `usage.include` request
+  option is deprecated and MUST NOT be added. Read `usage.cost`, cached tokens, and
+  aggregate cache-write tokens. Compute uncached input as
+  `max(prompt_tokens - cached_tokens - cache_write_tokens, 0)` and put aggregate
+  writes in `cache_write_other_tokens` because no 5m/1h split is reported. The
+  current adapter ignores all of these details at `engine/openrouter.py:128-132`.
+- Gemini: `prompt_token_count` includes cached content, so retain the current
+  subtraction in `engine/gemini.py:175-190`; candidates plus thoughts are output.
 
-Cache rates for Anthropic models are derived from the documented cache
-economics (5-minute-TTL default: writes at 1.25× input, reads at 0.1× input —
-`shared/prompt-caching.md` in the `claude-api` skill), not independently
-fetched per model — this derivation is marked so an implementer knows it's a
-formula, not a quoted figure.
+Missing fields are zero, never inferred. Provider-native usage objects are queued by
+reference; no `NormalizedUsage` or `Decimal` is constructed before dequeue.
+
+External usage-shape grounding:
+[OpenRouter usage accounting](https://openrouter.ai/docs/cookbook/administration/usage-accounting).
+
+### 6.2 Tier-to-model matrix
+
+Rates are USD per million tokens and are versioned `2026-07-15`.
+
+| Tier | Current configured primary | Primary input | Cache read | Cache write 5m | Cache write 1h | Output | Default runtime overload fallback |
+|---|---|---:|---:|---:|---:|---:|---|
+| `cheap` | `deepseek/deepseek-v4-flash` | 0.098 | 0.020 | — | — | 0.196 | none distinct: cheap is already Flash |
+| `fast` | `deepseek/deepseek-v4-flash` | 0.098 | 0.020 | — | — | 0.196 | none distinct: cheap and fast currently share Flash |
+| `strong` | `deepseek/deepseek-v4-pro` | 0.435 | 0.003625 | — | — | 0.870 | `deepseek/deepseek-v4-flash` |
+| `top` | `claude-opus-4-8` | 5.000 | 0.500 | 6.250 | 10.000 | 25.000 | `claude-sonnet-4-6` |
+
+Tier/model grounding: `caos/server/config.py:108-123` and
+`caos/server/engine/presets.py:56-80,145-188`. OpenRouter prices are the
+2026-07-15 values returned by its official model API; provider-reported `usage.cost`
+is authoritative when present: [OpenRouter models API](https://openrouter.ai/api/v1/models).
+
+Do not confuse runtime overload fallback with preset key degradation.
+`presets._ANTHROPIC_FALLBACK` maps cheap→Haiku, fast/strong→Sonnet, and top→Opus
+when an Anthropic key is available (`engine/presets.py:73-80,167-188`). If the
+selected provider key is absent and Anthropic is also absent, `_configured_fallback`
+scans configured tiers for the first provider with a key. The gateway runtime path is
+different: OpenRouter defaults to the configured cheap tier and Anthropic defaults to
+`synth_executor_model` (`engine/llm_client.py:168-173,235-270`).
+
+### 6.3 Supplemental configured-provider rates
+
+| Model/rule | Input | Cache read | Cache write 5m | Cache write 1h | Output |
+|---|---:|---:|---:|---:|---:|
+| `claude-opus-4-8` | 5.00 | 0.50 | 6.25 | 10.00 | 25.00 |
+| `claude-sonnet-4-6` | 3.00 | 0.30 | 3.75 | 6.00 | 15.00 |
+| `claude-haiku-4-5*` | 1.00 | 0.10 | 1.25 | 2.00 | 5.00 |
+| `claude-sonnet-5*` through 2026-08-31 | 2.00 | 0.20 | 2.50 | 4.00 | 10.00 |
+| `claude-sonnet-5*` from 2026-09-01 | 3.00 | 0.30 | 3.75 | 6.00 | 15.00 |
+| `gemini-2.5-pro`, input ≤200k | 1.25 | 0.125 | — | — | 10.00 |
+| `gemini-2.5-pro`, input >200k | 2.50 | 0.250 | — | — | 15.00 |
+| `gemini-2.5-flash` | 0.30 | 0.03 | — | — | 2.50 |
+| `gemini-2.5-flash-lite` | 0.10 | 0.01 | — | — | 0.40 |
+| `gemini-embedding-2` text input | 0.20 | — | — | — | 0.00 |
+
+External grounding: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing),
+[Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing?authuser=2).
+
+### 6.4 Cost algorithm
+
+`engine/llm_pricing.py` MUST use `Decimal` values constructed from strings:
+
+```text
+step_matrix_cost = (
+    input_uncached_tokens * input_rate
+  + cache_read_tokens * cache_read_rate
+  + cache_write_5m_tokens * cache_write_5m_rate
+  + cache_write_1h_tokens * cache_write_1h_rate
+  + output_tokens * output_rate
+) / 1_000_000
+```
+
+Rules, in order:
+
+1. Price each model step independently. If that step reports a non-negative dollar
+   cost, use it; do not also matrix-price that step.
+2. Otherwise resolve an exact id or declared version-prefix. For Gemini Pro, choose
+   the 200k band from that step's input, not the aggregate interaction. For Sonnet 5,
+   choose the date-effective row from that step's `started_ns`.
+3. A nonzero token bucket with no applicable rate—including
+   `cache_write_other_tokens`—makes the entire interaction `cost=NULL`; partial totals
+   are forbidden. Unknown model has the same outcome and emits a rate-limited warning.
+4. If every usage-bearing step is priced, sum step costs. Stamp `provider` if all
+   steps used provider cost, `matrix` if all used the rate card, or `mixed` if both.
+   Stamp `rate_card_version="2026-07-15"` whenever any step is matrix-priced.
+5. Persist `float(cost_decimal)` in the existing Float `cost` column; tests compare at
+   1e-9 USD tolerance. Changing the established column type is unnecessary scope.
+
+This replaces the incorrect catch-all Sonnet pricing in
+`engine/budget.py:135-146` and runs only in the background writer.
+
+---
+
+## 7. Financial-figure masking and OpenTelemetry
+
+### 7.1 Masking contract
+
+`engine/telemetry_mask.py` is a pure recursive transform:
 
 ```python
-RATES: dict[str, ModelRates] = {
-    # Anthropic — claude-api skill cache, dated 2026-06-24. $ per million tokens.
-    "claude-opus-4-8":   ModelRates(5.00, 25.00, 0.50, 6.25),
-    "claude-sonnet-4-6": ModelRates(3.00, 15.00, 0.30, 3.75),
-    "claude-sonnet-5":   ModelRates(3.00, 15.00, 0.30, 3.75),   # intro $2/$10 through 2026-08-31 — NOT modeled; flat rate used
-    "claude-haiku-4-5":  ModelRates(1.00, 5.00, 0.10, 1.25),
+MASKING_VERSION = "financial-v1"
 
-    # OpenRouter — WebSearch, this session (2026-07-08). The OpenRouter adapter
-    # hardcodes cache_read_input_tokens=0 (engine/openrouter.py:29) — cache
-    # rates are moot for these two rows; provider-reported cost (§6.3) should
-    # be preferred here whenever available, since third-party OpenRouter
-    # pricing is the least stable input in this table.
-    "deepseek/deepseek-v4-flash": ModelRates(0.09, 0.18),
-    "deepseek/deepseek-v4-pro":   ModelRates(0.435, 0.87),
-    "z-ai/glm-5.2":               ModelRates(0.93, 3.00),   # OpenRouter's own rate varies $0.93-3.00 in / $3.00-10.25 out across 25+ hosts on this route — this is the lowest observed, NOT a guarantee; prefer provider-reported cost
+def mask_payload(value: Any) -> tuple[Any, int]: ...
+```
 
-    # Gemini — WebSearch, this session (2026-07-08). Cache economics not
-    # fetched (Gemini context caching has its own discount structure that
-    # was not confirmed this session) — cache_read/cache_write are left None,
-    # which means compute_cost falls back to the INPUT rate (no discount
-    # applied) rather than guessing a number. FLAG: confirm Gemini cache
-    # pricing before this matters materially (council_reviewer_model_gemini
-    # and any gemini-tier lane are the only current callers).
-    "gemini-2.5-pro":        ModelRates(1.00, 10.00),
-    "gemini-2.5-flash":      ModelRates(0.30, 2.50),
-    "gemini-2.5-flash-lite": ModelRates(0.10, 0.40),
+It MUST preserve JSON shape and replace every matching string fragment with a
+non-correlatable class token:
 
-    # Embeddings. text-embedding-004 is RETIRED (Google, 2026-01-14 — see
-    # §0.1's critical-defect flag). gemini-embedding-001 is the current
-    # replacement ($0.15/1M input; WebSearch, this session), 768/1536/3072-dim
-    # via MRL — 768 matches config.embedding_dim unchanged. This spec does
-    # NOT change config.embedding_model (out of scope — design/spec only) but
-    # the rate table includes both so cost computes correctly the moment an
-    # operator repoints the setting.
-    "text-embedding-004":   ModelRates(0.0, 0.0),   # retired; historical rows only, was free-tier
-    "gemini-embedding-001": ModelRates(0.15, 0.0),
+| Detection order | Examples | Replacement |
+|---:|---|---|
+| 1 | `$1,250.4m`, `EUR 40bn`, `(£12.5 million)` | `[MASKED_AMT]` |
+| 2 | `1,250m`, `4.2 billion`, `750k` when a scale suffix exists | `[MASKED_AMT]` |
+| 3 | `42.5%`, `(3.0)%` | `[MASKED_PCT]` |
+| 4 | `5.7x`, `5.7×` | `[MASKED_MULT]` |
+| 5 | `+125 bps`, `-75bp` | `[MASKED_BPS]` |
+| 6 | bare comma-grouped or ≥7-digit number not protected below | `[MASKED_NUM]` |
+
+The masker MUST first protect and restore ISO dates/times, `FY2026`-style fiscal
+labels, page/section citations, UUIDs, SHA-256 hashes, model names, token counts in
+telemetry metadata, and already-masked tokens. It MUST recurse through system blocks,
+messages, completions, tool arguments, MCP results, and execution-path string values.
+It MUST be idempotent: `mask(mask(x)) == mask(x)`.
+
+Hashed placeholders are forbidden. A stable hash of a low-entropy amount is
+dictionary-reversible and is not required by any use case. Prompt deduplication uses
+the full-prompt SHA-256 in `llm_call_records.prompt_hash`, computed in the writer and
+never exported as payload.
+
+Exception messages are not mask inputs. The gateway captures only exception class
+and numeric HTTP status, preventing a provider error that echoes a prompt from
+crossing the queue.
+
+### 7.2 Processing order
+
+For each dequeued event, the writer MUST execute exactly:
+
+1. Canonically JSON-encode the raw prompt envelope and compute `prompt_hash`.
+2. Mask prompt, completion, and execution path.
+3. Truncate each persisted side at 200,000 characters after masking.
+4. Normalize usage and compute cost.
+5. Create OTel spans/events from masked/truncated data.
+6. Insert DB rows.
+7. Drop all raw references and call `queue.task_done()`.
+
+No raw prompt/completion is written to logs, DB, disk spill, or OTel at any point.
+
+### 7.3 Background-only OpenTelemetry
+
+The request path MUST NOT call the OTel SDK. The writer creates an after-the-fact
+root span `caos.llm.interaction` with explicit `start_time`/`end_time` from the event,
+plus one child span per `ExecutionStep`. This is supported by the Python OTel API’s
+explicit start/end timestamps. `BatchSpanProcessor` exports asynchronously.
+
+External grounding: [OTel Python trace API](https://opentelemetry-python.readthedocs.io/en/stable/api/trace.html),
+[OTel BatchSpanProcessor](https://opentelemetry-python.readthedocs.io/en/stable/sdk/trace.export.html).
+
+Initialize the provider/processor inside the FastAPI lifespan in each worker, after
+the worker process exists. The batch processor is not pre-fork safe:
+[OTel fork-process guidance](https://opentelemetry-python.readthedocs.io/en/stable/examples/fork-process-model/README.html).
+
+Root span attributes:
+
+```text
+gen_ai.operation.name        = chat | embeddings
+gen_ai.provider.name         = anthropic | gcp.gemini | openrouter
+gen_ai.request.model         = requested_model
+gen_ai.response.model        = final model
+gen_ai.usage.input_tokens    = summed total input
+gen_ai.usage.output_tokens   = summed output
+caos.interaction_id          = UUID
+caos.lane                    = lane
+caos.run_id                  = run id when present
+caos.model_mode              = preset mode when present
+caos.fallback                = bool
+caos.cost.usd                = computed/provider cost when known
+caos.cost.source             = provider | matrix
+caos.rate_card_version       = version when matrix-priced
+caos.masking_version         = financial-v1
+```
+
+Span events, only when `llm_log_payloads=True`:
+
+- `caos.prompt.masked` with masked JSON truncated to 16,384 characters.
+- `caos.completion.masked` with masked JSON truncated to 16,384 characters.
+- `caos.execution_path.masked` with masked JSON truncated to 16,384 characters.
+
+Because spans are synthesized in the background, they are root traces in v1. They
+correlate to request/run state by `interaction_id` and `run_id`; capturing a live OTel
+parent on the request path is explicitly rejected by H1.
+
+Only one new OTel setting is permitted:
+
+```python
+otel_exporter_otlp_endpoint: str = ""  # empty: DB telemetry only, no exporter
+```
+
+---
+
+## 8. Zero-added-latency placement audit
+
+| Transformation | Hot path work | Background work | Acceptance proof |
+|---|---|---|---|
+| Prompt formatting | Provider-required conversion plus one shallow outer-list snapshot; no nested copy/serialization | None | Golden adapter payload tests; Z4 proves the whole tail is no slower than current |
+| Token budget | Existing ContextVar integer additions | Token normalization and dollar calculation | Existing budget tests unchanged |
+| Telemetry handoff | Metadata-only log + event construction + `put_nowait` | Hash, mask, truncate, cost, OTel, DB | Z1–Z4 |
+| Masking | None | Recursive masker | Masking golden/property tests |
+| OTel | None | Span creation, child spans, exporter | OTel SDK monkeypatch fails if called before dequeue |
+| File detection | None | `awatch` and queue | Request handlers do not import/start watcher work |
+| Chunk diff | None | Vault consumer | Diff unit/property tests |
+| Embedding refresh | None | Vault consumer before atomic commit | Failed embed leaves prior live generation unchanged |
+
+Required latency tests:
+
+- **Z1:** monkeypatch `AsyncSessionLocal`, masker, pricing, and OTel tracer to raise;
+  a fake successful `llm_client.create` still returns and leaves one queued event.
+- **Z2:** fill the telemetry queue; a fake successful call still returns, increments
+  the drop counter, and performs no await after the provider response.
+- **Z3:** AST/registry test forbids `await`, DB session construction, logging-handler
+  calls, masker, pricing, and OTel imports inside `enqueue_nowait`; grep asserts no
+  provider caller awaits `budget.trace_llm` after migration.
+- **Z4:** benchmark the post-provider tail with a stalled writer; p95 MUST be ≤ the
+  current tail and <1 ms on the same CI runner. The result is a regression guard, not
+  a cross-machine performance promise.
+
+---
+
+## 9. Workstream 3 — canonicality and watcher architecture
+
+### 9.1 Canonical families
+
+| Vault path | File type | Canonical side | Watch action |
+|---|---|---|---|
+| `Runs/**/*.md` | `credit-run` | CAOS | Ignore; exporter remains one-way |
+| `Issuers/**/*.md` | `issuer` | CAOS | Ignore; exporter remains one-way |
+| `Analyst-Memos/**/*.md` | `analyst-memo` | File | Sync links, chunks, and vectors |
+| `Sources/**/*.md` | future `okf-source-note` | File projection | Reserved until OKF lands; sync projection only |
+| `.obsidian/**`, `.trash/**`, hidden/temp, non-Markdown | — | — | Ignore |
+
+Grounding: generated exports and analyst-memo behavior are in
+`vault_export.py:158-224,314-557`. The existing memo upload writes a file and then
+creates DB chunks (`routes/ingestion.py:475-579`), so file canonicality closes an
+existing drift path rather than inventing a second corpus.
+
+**Design choice for OKF:** a manually edited `Sources/` note MUST write
+`Document.doc_type="okf-source-note"`, not mutate the original PDF-derived source
+document. Original source chunks are evidence; a human projection is analyst
+interpretation. `build_issuer_index` currently excludes only `analyst-memo`; extend
+that exclusion to `{"analyst-memo", "okf-source-note"}`. Query corpus retrieval may
+include both. Until OKF code exists, `Sources/` events log `reserved_family` and do no
+DB writes.
+
+### 9.2 Multi-worker leader election
+
+Only one worker may watch/reconcile a vault. `run.py` explicitly supports multiple
+Postgres workers (`caos/server/run.py:6-15,37-44`). The lifespan MUST:
+
+1. Open a dedicated Postgres connection.
+2. Call `pg_try_advisory_lock(hashtext('caos.vault_sync.v1'))`.
+3. Start watcher/consumer/reconcile only if true, holding that connection for the
+   leader lifetime.
+4. Followers retry election every 30 seconds after a leader connection closes.
+5. On SQLite, `WEB_CONCURRENCY` is already forced to one; use one process-local task
+   without SQL advisory locks.
+
+This follows the repository’s existing session-advisory-lock precedent documented in
+`run.py:10-13`. It adds no service or durable coordinator.
+
+### 9.3 File-event queue
+
+Use `watchfiles.awatch` and one bounded FIFO:
+
+```python
+VAULT_QUEUE_MAX = 2048
+WATCH_DEBOUNCE_MS = 1600
+WATCH_STEP_MS = 50
+QUIET_WINDOW_S = 2.0
+
+@dataclass(frozen=True, slots=True)
+class VaultEvent:
+    rel_path: str
+    observed_ns: int
+
+_queue: asyncio.Queue[VaultEvent]
+_reconcile_requested: bool
+```
+
+`awatch(vault_root, debounce=1600, step=50, recursive=True)` yields event sets. The
+producer filters paths, converts to vault-relative POSIX form, rejects traversal, and
+uses `put_nowait`. Event kind is deliberately ignored; the consumer re-stats the
+path, so create/modify/delete/atomic replace share one path. A rename appears as
+old-missing plus new-present and is resolved by hash (§10.3).
+
+`watchfiles` 1.2 documents async watching, recursive operation, debouncing, and a
+polling option: [watchfiles API](https://watchfiles.helpmanual.io/api/watch/).
+Pin `watchfiles>=1.2,<2` directly even if currently transitive. Operators using
+Docker Desktop/NFS MAY set its documented `WATCHFILES_FORCE_POLLING=true`.
+
+On queue full, set `_reconcile_requested=True`, clear/drain fine-grained events, and
+wake the consumer. Unlike telemetry, vault events are not dropped semantically; a
+full reconcile re-derives state from disk and DB.
+
+### 9.4 Consumer/coalescer
+
+One serial consumer per elected leader:
+
+1. Await one event.
+2. Drain immediately available events into `latest_by_rel_path`.
+3. Continue receiving until no event arrives for two seconds; replace prior entries
+   for the same path.
+4. If `_reconcile_requested`, run reconcile instead of the batch.
+5. Process paths in lexical order. Each path uses `asyncio.to_thread` for stat/read
+   and its own `AsyncSessionLocal`; it never reuses a request session.
+6. Retry transient file/DB/provider errors at 2, 4, 8, 16, and 32 seconds. After five
+   failures, log/quarantine in memory until the next event or startup reconcile.
+7. After a memo batch, rebuild the current `AnalystLink` graph once by reusing
+   `sync_analyst_memos` logic, with its full-scan trigger bypassed because the watcher
+   already knows files changed (`vault_export.py:469-557`).
+
+The watcher task restarts with capped 5–60 second backoff after an unexpected error
+and sets `_reconcile_requested=True` before restarting.
+
+### 9.5 Reconcile as durability backstop
+
+Run once after leadership acquisition, and again after producer failure or overflow:
+
+1. Walk only watched directories off-thread.
+2. Compare file SHA-256 with `Document.source_sha256`; enqueue mismatches.
+3. Adopt legacy memo documents by exact stem plus issuer link; if ambiguous, do not
+   guess—log `identity_ambiguous` and quarantine.
+4. Detect DB paths missing on disk and process them as deletes.
+5. If the scan finds zero watched Markdown files while any synced documents exist,
+   perform no deletion and emit `vault_mass_delete_guard`. This treats an unmounted
+   volume as an outage, not an analyst command.
+
+No durable queue is required: every job is deterministically reconstructable from
+files plus database state.
+
+---
+
+## 10. Chunk diff and embedding refresh
+
+### 10.1 Shared note parsing and chunk basis
+
+Add one `split_note` helper in `vault_sync.py` that inverts the simple frontmatter
+written by `vault_export._yaml_block` (`vault_export.py:45-54`). It returns
+frontmatter plus body and tolerates a missing/temporarily incomplete delimiter.
+
+The canonical chunk basis is `split_note(file_text).body.strip()`, including the H1
+title. `upload_memo` MUST render/write the Markdown first and pass that same body to
+`chunk_memo_into_corpus`; today it chunks the pre-render input while the file contains
+frontmatter and an H1 (`vault_export.py:392-428`, `routes/ingestion.py:475-579`). This
+one-time basis change may re-chunk legacy memos during first reconcile and MUST be
+reported in migration notes.
+
+Reuse `ingest.chunk_text` unchanged. Do not create a vault-specific chunker.
+
+### 10.2 Path identity and concurrency
+
+Add a partial unique index for synced documents:
+
+```text
+UNIQUE (doc_type, source_rel_path, issuer_id)
+WHERE source_rel_path IS NOT NULL
+```
+
+A memo linked to N issuers continues to have N `Document` rows sharing chunk hashes,
+as today (`engine/memochunks.py:69-141`). Upload and watcher code MUST call the same
+`sync_file_projection` function. In Postgres that function takes
+`pg_advisory_xact_lock(hashtext('vault:' || rel_path))`; SQLite uses a process-local
+per-path `asyncio.Lock`. The unique index is the final race backstop.
+
+`source_sha256` is SHA-256 of exact file bytes, not body text. It detects frontmatter,
+link, and title edits as well as body edits.
+
+### 10.3 Rename and delete
+
+- New path with no identity: if exactly one missing old path has the same
+  `source_sha256` and family, update `source_rel_path`/`file_name`; do not touch chunks
+  or vectors.
+- Zero or multiple hash matches: treat as independent add/delete; never guess.
+- Missing file: remove uncited chunks and shadow cited chunks. Preserve the Document
+  row while any shadowed chunk remains so citation metadata resolves.
+
+### 10.4 Duplicate-safe chunk diff
+
+For each target document:
+
+1. `new_chunks = chunk_text(body)` and `new_hashes = sha256(exact_text)`.
+2. Load live and superseded rows ordered by `seq`.
+3. Build `dict[hash, deque[row]]` for live rows and another for superseded rows.
+4. Walk `(seq, text, hash)` in new order:
+   - pop/reuse one live row of that hash;
+   - else pop/resurrect one superseded row, clearing `superseded_at`;
+   - else stage a new row.
+5. Remaining live rows are removals. If referenced by `EvidenceItem` or `MetricFact`,
+   set `superseded_at=now`; otherwise delete their lineage edges then rows, following
+   the existing dependency order in `engine/memochunks.py:40-66`.
+6. Update reused rows’ `seq`, document chunk count, file hash/path, sync timestamp,
+   and origin.
+
+Deque/multiset handling is mandatory because `document_chunks` has no
+`(document_id, chunk_hash)` uniqueness and repeated paragraphs are valid
+(`database.py:286-305`). A set diff is incorrect.
+
+### 10.5 Embedding-before-commit protocol
+
+To satisfy H4 without holding a DB transaction across a network call:
+
+1. Compute the full diff in memory from a read snapshot.
+2. Determine distinct new/resurrected live hashes lacking `(active_model, hash)`.
+3. Outside a transaction, request vectors only for that missing set, in batches of
+   100 (the current batch size in `engine/embeddings.py:83-108`).
+4. If any live embedding call fails, commit nothing; requeue the file. With no API
+   key, use effective model `mock-sha256-v1`, never the configured Google model id.
+5. Open the write transaction, acquire the per-path advisory lock, re-read
+   `source_sha256` and existing rows. If either changed, roll back and recompute.
+6. Apply chunk/doc changes and insert vectors with
+   `ON CONFLICT (model, chunk_hash) DO NOTHING` in the same transaction.
+7. Commit once. Retrieval sees either the old complete generation or the new complete
+   generation, never chunks without vectors.
+
+Embedding rows are append-only because a hash may be shared by many documents. A
+removed chunk does not authorize vector deletion. BM25 needs no refresh step because
+`DocumentChunk.tsv` is a persisted computed column with GIN index
+(`database.py:286-305`).
+
+### 10.6 Retrieval rules
+
+Add `DocumentChunk.superseded_at IS NULL` to every BM25/vector corpus query and to
+`build_issuer_index`. Add an index on `(document_id, superseded_at)`. Direct
+chunk-by-id/citation lookup MUST NOT add this predicate; cited historical text must
+remain openable.
+
+Extend engine index exclusion from `analyst-memo` to
+`{"analyst-memo", "okf-source-note"}`. Query corpus may retrieve both.
+
+### 10.7 Embedding-model migration
+
+1. Change `embedding_model` default to `gemini-embedding-2`.
+2. The Gemini adapter calls `embed_content` with
+   `EmbedContentConfig(output_dimensionality=768)`.
+3. Backfill every distinct live chunk hash under `gemini-embedding-2`; retain all old
+   embedding rows.
+4. Switch retrieval default only after a count check proves every live hash has the
+   new-model row.
+5. Live provider failure raises `EmbeddingUnavailable`; it MUST NOT return a mock.
+6. Keyless development uses `model="mock-sha256-v1"`, provider `local`, origin
+   `deterministic-test`, and retrieval resolves that effective model explicitly.
+
+This corrects the silent mock-under-live-id defect in
+`engine/embeddings.py:28-55` and keeps the existing 768-dimensional vector column.
+
+---
+
+## 11. Vector metadata tagging standard and schema additions
+
+### 11.1 Additive document/chunk/vector fields
+
+| Table | Field | Type | Required value |
+|---|---|---|---|
+| `documents` | `source_rel_path` | `String(1024)`, nullable/indexed | Vault-relative POSIX path |
+| `documents` | `source_sha256` | `String(64)`, nullable | SHA-256 of exact file bytes |
+| `documents` | `synced_at` | timezone datetime, nullable | Last successful convergence |
+| `documents` | `sync_origin` | `String(24)`, nullable | `upload`, `vault-manual`, `okf-projection` |
+| `document_chunks` | `superseded_at` | timezone datetime, nullable/indexed | NULL means live/retrievable |
+| `document_chunk_embeddings` | `provider` | `String(16)`, nullable | `google` or `local`; nullable for legacy |
+| `document_chunk_embeddings` | `origin` | `String(24)`, nullable | `live` or `deterministic-test`; nullable for legacy |
+
+Do not add dimension metadata: `SafeVector(768)` already fixes it in schema
+(`database.py:1352`). Do not add document metadata to the embedding row: one
+`chunk_hash` can belong to many documents.
+
+### 11.2 Canonical retrieval tag object
+
+Any API/log/export that represents a vector hit MUST use these exact keys, assembled
+by joining embedding → chunk → document:
+
+```json
+{
+  "embedding_id": "uuid",
+  "embedding_model": "gemini-embedding-2",
+  "embedding_provider": "google",
+  "embedding_origin": "live",
+  "embedding_dim": 768,
+  "chunk_id": "uuid",
+  "chunk_hash": "64-char sha256",
+  "chunk_seq": 0,
+  "chunk_prov": "native|ocr|null",
+  "document_id": "uuid",
+  "document_type": "analyst-memo|okf-source-note|...",
+  "document_source_kind": "existing source_kind or null",
+  "source_rel_path": "Analyst-Memos/name.md|null",
+  "issuer_id": "uuid|null",
+  "is_live": true
 }
 ```
 
-Keyless mock embeddings (`get_mock_embedding`, `embeddings.py:17-25`) **never
-reach the gateway** — `get_embeddings`'s keyless branch returns directly
-without calling `llm_client.embed` (§9.8 states this explicitly), so no
-`llm_call_records` row is ever written for a mock vector. This is correct: no
-API cost was incurred, so no cost row should exist. The cost matrix therefore
-needs no `"mock"` entry.
+`is_live` is derived from `superseded_at IS NULL`; it is never independently stored.
+The standard preserves the existing `(model, chunk_hash)` identity and HNSW cosine
+index (`database.py:1344-1363`).
 
-### 6.3 Provider-reported override path
+### 11.3 Migration `0060_agentic_infra_memory_hub.py`
 
-`engine/openrouter.py`'s request payload (built at `:142-151`) gains
-`"usage": {"include": true}`; `_normalize_response` (`:89`) reads
-`data["usage"]["cost"]` into a new `_Usage.provider_cost_usd: Optional[float]`
-field (`None` on every other path — Anthropic and Gemini SDKs report no
-dollar figure). The gateway copies `getattr(usage, "provider_cost_usd", None)`
-onto the `LLMCallEvent`; the writer prefers it over the matrix whenever it is
-not `None`, stamping `cost_source="provider"`.
+The migration MUST, in order:
 
-### 6.4 Where it computes, and the defect it replaces
+1. Add §5.2 columns and indexes to `llm_call_records` as nullable first; new writers
+   supply required values. Do not backfill fictional providers for historical rows.
+2. Create `llm_call_payloads` with one-to-one cascade FK.
+3. Add document/chunk/vector fields from §11.1.
+4. Create partial document identity unique index and chunk live-state index.
+5. Leave old embedding rows intact.
 
-**Writer task only** (§4.1) — the event carries the `usage` object reference
-and `provider_cost`; `compute_cost` runs in the background, never on the hot
-path. This replaces the existing hardcoded if/elif at `budget.py:127-138`,
-which matches only `"sonnet"`/`"haiku"`/`"gemini-1.5|2.0"` substrings and
-falls through to **Sonnet rates for everything else** — meaning every
-DeepSeek call (the deployed default hybrid's cheap/fast/strong tiers),
-`claude-opus-4-8`, and every `gemini-2.5-*` call has been silently mispriced
-in `llm_call_records.cost` since those tiers were introduced. `resolve_rates`
-returning `None` for a truly unrecognized model — instead of a guessed
-default — is what makes this defect class structurally impossible to
-reintroduce: a new model with no rate table entry shows `cost=NULL,
-cost_source=NULL`, an honest gap, not a wrong number.
+Rollback drops only added indexes/columns/table. It MUST NOT delete corpus rows.
 
 ---
 
-## 7. WS2 — Masking Spec
+## 12. Lifecycle and deployment
 
-`engine/telemetry_mask.py`. Runs **only inside the writer task** (§4.1), on
-the telemetry copies — never on the live request/response objects, which are
-already back with the caller by the time the writer runs. There is nothing
-payload-bearing on the hot path to mask today: the synchronous `caos.llm` log
-line (`budget.py:140-150`) carries token counts and ids only, and this spec
-does not change that.
+FastAPI lifespan start order in each worker:
 
-```python
-MASKING_VERSION = "1"
-def mask_text(text: str) -> tuple[str, int]      # (masked, substitution_count)
-def mask_payload(obj: Any) -> tuple[Any, int]    # recursive dict/list/str walk — shape precedent: vault_export._redact (vault_export.py:74-81)
-```
+1. Initialize telemetry queue and, when configured, OTel provider/BatchSpanProcessor.
+2. Start telemetry writer.
+3. Attempt vault leader election; leader starts watcher/consumer and startup reconcile.
+4. Start existing warmup/executors in their current order unless existing code
+   requires them earlier; vault embedding work remains serial and background.
 
-One compiled regex alternation, named groups, `re.IGNORECASE`, single O(n)
-pass. Group 0 matches an **already-masked placeholder** first, so re-masking
-already-masked text (a payload that got masked twice for any reason) is a
-no-op rather than double-encoding.
+Shutdown order:
 
-| # | Class | Regex sketch | Example → masked |
+1. Stop watcher producer; finish the current sync transaction, then stop consumer.
+2. Release vault advisory lock/connection.
+3. Stop existing executors in current order.
+4. Drain telemetry for at most five seconds, then shut down OTel processor/exporter.
+
+Minimal settings delta:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `mcp_servers_json` | `""` | One MCP registry/allowlist surface |
+| `llm_log_payloads` | `True` | Disable semantic payload persistence/export |
+| `otel_exporter_otlp_endpoint` | `""` | Empty means DB telemetry only |
+| `vault_sync_enabled` | `False` | Requires existing `vault_export_dir` |
+| existing `embedding_model` | change to `gemini-embedding-2` | Active live vector space |
+
+All queue sizes, batch sizes, quiet windows, retry counts, and MCP turn cap in this
+specification are code constants, not configuration. This is deliberate: no operator
+requirement needs another config surface.
+
+Deployment deltas:
+
+- Mount the Obsidian vault read/write at `VAULT_EXPORT_DIR`; existing exporters need
+  writes even though the watcher only reads.
+- Add `watchfiles>=1.2,<2` directly to server requirements.
+- Add OTel API/SDK and the OTLP exporter matching the chosen endpoint protocol.
+- If EDGAR MCP is configured, copy `caos/mcp/edgar/` into the image and add its `mcp`
+  dependency.
+- Never log `mcp_servers_json`; it names environment variables, not secret values.
+
+---
+
+## 13. Implementation sequence and acceptance tests
+
+### Phase A — gateway without behavior drift
+
+1. Introduce owned `PromptEnvelope` and internal step recording.
+2. Move synth advisor and both streams through the gateway.
+3. Move embedding provider call to the gateway/Gemini adapter.
+4. Extend the provider-call registry:
+   - raw Anthropic create/stream only in `engine/llm_client.py`;
+   - raw Gemini generate/embed only in `engine/gemini.py`;
+   - raw OpenRouter HTTP completion only in `engine/openrouter.py`.
+5. Run existing gateway, synth, deep-research, report, budget, and LLM-safety tests.
+
+### Phase B — telemetry, pricing, masking
+
+1. Apply migration telemetry portion and add queue/writer.
+2. Replace `budget.trace_llm` DB/cost work with budget accrual plus `put_nowait`.
+3. Add rate-card unit tests for every row, boundary date, Gemini 200k boundary,
+   provider override, missing rate, and cache buckets.
+4. Add masker golden/property tests including nested tool inputs/results,
+   idempotence, date/hash preservation, and no raw numeric match in stored payloads.
+5. Add Z1–Z4.
+
+### Phase C — vault convergence
+
+1. Apply provenance/vector schema additions.
+2. Add leader, watcher queue, reconcile, shared upload/watcher sync function.
+3. Backfill `gemini-embedding-2`, verify coverage, then change retrieval default.
+4. Add Postgres integration tests for advisory locks, partial unique index, citation
+   shadowing, embedding-before-commit, and `ON CONFLICT` races.
+
+Required vault test matrix:
+
+| Case | Required assertion |
+|---|---|
+| Upload then self-watch | Same file hash; zero chunk/vector churn |
+| Append paragraph | Only missing hashes receive embedding requests |
+| Edit early paragraph | Correct chunk multiset even if greedy boundaries shift |
+| Duplicate paragraph add/remove | Deque diff preserves exact multiplicity |
+| Rename unchanged file | Path changes; zero chunk/vector churn |
+| Delete uncited | Chunks removed; shared vectors retained |
+| Delete cited | Chunks shadowed and citation still resolves |
+| Add/remove issuer wikilink | Per-issuer Document set converges; shared hashes reuse vectors |
+| Embedding outage | Old generation remains live; no partial commit |
+| Queue overflow/watcher restart | Reconcile restores disk/DB equality |
+| Multiple workers | Exactly one watcher leader; upload race remains idempotent |
+| Empty/unmounted vault | Mass-delete guard performs no destructive write |
+
+### Final invariants to assert
+
+- For every watched file/issuer document, the ordered multiset of live chunk hashes
+  equals `chunk_text(split_note(file).body)`.
+- Every live chunk has exactly one active/effective-model embedding row.
+- No sync operation deletes an embedding row.
+- No generated `Runs/` or `Issuers/` event changes corpus state.
+- No cited chunk id becomes unresolved.
+- No raw financial figure reaches telemetry DB or OTel.
+- No instrumentation operation is awaited on a successful primary request.
+
+---
+
+## 14. Transformation verification protocol
+
+Each transformation is reviewed immediately after its section is drafted by a new
+subagent with no conversation history. A verifier receives only this specification,
+the named source files, and this checklist:
+
+1. Confirm every current-state claim against a tool read from this session.
+2. Identify contradictions with existing call/DB/file contracts.
+3. Test the transformation with representative and boundary examples.
+4. Reject any masking, telemetry, OTel, chunking, or embedding work that can run on
+   the primary request path.
+5. Return PASS only when all high-impact findings are resolved in this document.
+
+| Transformation | Source evidence required | Pass criteria | Session result |
 |---|---|---|---|
-| 0 | `SKIP` | `⟨[A-Z]+:[0-9a-f]{8}⟩` | passthrough (idempotence) |
-| 1 | `AMT` currency | `(?:USD\|EUR\|GBP\|CHF\|JPY\|CAD\|AUD\|[$€£¥])\s?\d[\d.,' ]*(?:\s?(?:million\|billion\|thousand\|trillion\|mrd\.?\|mio\.?\|mm\|bn\|k\|m\|b\|t))?` | `$12.3M` → `⟨AMT:3fa2c19b⟩`; `EUR 1,2 Mrd` → `⟨AMT:9c01d4e2⟩` |
-| 2 | `AMT` bare scaled | `\b\d+(?:[.,]\d+)?\s?(?:mm\|bn\|mio\.?\|mrd\.?\|million\|billion\|thousand\|trillion)\b` | `4.2 billion` → `⟨AMT:71bc0f55⟩` |
-| 3 | `MULT` leverage | `\b\d+(?:[.,]\d+)?\s?x\b` | `4.25x` → `⟨MULT:c2a41e08⟩` |
-| 4 | `BPS` | `\b\d+(?:[.,]\d+)?\s?(?:bps\|bp\|basis\s+points?)\b` | `350bps` → `⟨BPS:5e77a1d0⟩` |
-| 5 | `PCT` | `\b\d+(?:[.,]\d+)?\s?(?:%\|percent\b\|per\s+cent\b)` | `42%` → `⟨PCT:e01b7f3a⟩` |
-| 6 | `NUM` large bare | `\b\d{1,3}(?:,\d{3}){2,}(?:\.\d+)?\b\|\b\d{7,}\b` | `1,234,567.89` → `⟨NUM:0d4c9a12⟩` (years, CP module codes, small counts survive) |
+| Prompt formatting | `llm_client.py`, `gemini.py`, `openrouter.py`, synth/stream callers | Provider shape preserved; forced tools not executed; only the specified shallow outer snapshot; no deep copy/serialization | **VERIFIED after correction** — fresh verifier initially failed the tuple shape, sticky stream model, broadened retries, and synchronous log. Root audit confirmed each against `openrouter.py:37-48`, `synth.py:545-578`, `deepresearch.py:263-331`, `research_report.py:923-1007`, and `llm_client.py:137-270`; §§4.1–4.5/H1/Z3 were corrected. |
+| Cost calculation | `budget.py`, `config.py`, `presets.py`, official price pages | Tier mapping complete; cache bands/date bands/provider override/unknown model exact | **VERIFIED after correction** — fresh verifier initially failed fallback labelling, mixed-source aggregation, pre-enqueue normalization, unknown-TTL cache writes, and obsolete OpenRouter request syntax. Root audit confirmed the code distinctions at `presets.py:73-80,167-188`, `llm_client.py:168-173,235-270`, `budget.py:81-90`, `gemini.py:175-190`, and `openrouter.py:128-132`; §§4.3, 5.2, and 6.1–6.4 were corrected. |
+| Masking | Telemetry schema/order plus mask rules | Nested coverage, protected tokens, idempotence, no raw payload persistence/export, background only | PENDING |
+| Chunk diffing | `vault_export.py`, `memochunks.py`, `ingest.py`, citation FKs | Duplicate-safe, rename/delete/citation behavior exact, multi-worker race controlled, background only | PENDING |
+| Embedding refresh | `embeddings.py`, embedding schema/retrieval, Google model docs | Retired model corrected, 768 explicit, missing-only, no mock/live collision, atomic visibility, background only | PENDING |
 
-- **Placeholder format:** `⟨CLASS:h8⟩` where `h8 =
-  sha256(match.lower().replace-collapsed-whitespace).hexdigest()[:8]`,
-  unsalted — the same underlying figure produces the same placeholder across
-  every record, so masked payload rows stay joinable/dedupable without
-  reconstructing the value.
-- `masking_version` is stamped on every `LLMCallPayload` row; **bump the
-  constant on any regex change** so historical rows are auditable against the
-  version that produced them.
-- Applied to: `system` text, every text block in `messages`, every text
-  block and every `tool_use.input` value in the completion.
-  `prompt_hash` (§4.1) is computed over the **raw**, unmasked prompt — masking
-  must never change the dedup key.
+A final root audit MUST compare each verifier claim to the actual source/tool output;
+agent agreement alone is not evidence. The completed handoff updates this table with
+the fresh verifier verdict and any incorporated correction.
 
 ---
 
-## 8. WS2 — OTel Integration
-
-- **New deps** (`requirements.txt`): `opentelemetry-api`,
-  `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` — all
-  Apache-2.0, satisfying the no-paid-services rule; the SDK and exporter
-  packages are imported lazily, only inside `init_otel`, only when an OTLP
-  endpoint is actually configured.
-- **Reconciling `main.py:271-275`** ("no external APM, by design — monitoring
-  surface is `docker compose logs app`"): the gate is
-  `otel_exporter_otlp_endpoint: str = ""` plus `otel_service_name: str =
-  "caos"`. Empty (the default) → `init_otel` never constructs a
-  `TracerProvider`; `trace.get_tracer("caos.gateway")` then returns the
-  `opentelemetry-api` package's no-op tracer (span open/close become a
-  handful of no-op calls); `trace_id`/`span_id` stay `NULL` on every row. **The
-  default telemetry sink remains exactly what it is today plus the new DB
-  table** — Postgres (`llm_call_records`/`llm_call_payloads`) and the
-  `caos.llm` log line. Setting the endpoint installs a `TracerProvider` with
-  a `BatchSpanProcessor(OTLPSpanExporter(endpoint))` — export runs on the
-  processor's own daemon thread, never the request event loop.
-- **Manual spans at the gateway only — no `opentelemetry-instrumentation-
-  fastapi`.** That instrumentation is a separate dependency and would
-  interleave with the three hand-rolled middlewares already in `main.py`
-  (`security_headers`, `edge_origin_guard`, `access_log`,
-  `main.py:200-268`) for no requirement this spec has — request-level
-  correlation already exists via the `run_id`/`lane` ContextVars
-  (`budget.py:48-57`).
-- **Span model:** `caos.run {run_id}` — a parent span opened in the run
-  executor at the same point `budget.set_run_id`/`set_budget` are installed;
-  OTel's context propagation is `contextvars`-based, so every gateway span
-  nests under it automatically, including across the runner's background
-  task. `chat {request_model}` / `embeddings {model}` — one span per gateway
-  call, wrapping semaphore-wait + provider call + fallback.
-- **Attributes:** `gen_ai.operation.name` (`"chat"`/`"embeddings"`),
-  `gen_ai.provider.name` (`"anthropic"`/`"gcp.gemini"`/`"openrouter"`),
-  `gen_ai.request.model`, `gen_ai.response.model` (post-fallback model
-  actually used), `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`;
-  `error.type` + span status `ERROR` on a failed call; custom
-  `caos.lane`, `caos.run_id`, `caos.model_mode`, `caos.fallback`,
-  `caos.llm_call_id`. **Prompt/completion text never touches a span** —
-  masked payloads live only in Postgres, so an OTLP collector can never
-  receive unmasked financial figures even if misconfigured.
-- **Span ↔ DB row correlation:** at enqueue time, the gateway copies
-  `format_trace_id`/`format_span_id` of the current span context onto the
-  `LLMCallEvent` → the `trace_id`/`span_id` columns (§5.1); the span itself
-  carries `caos.llm_call_id`, closing the loop in the other direction.
-  Dollar cost lives only on the DB row (computed after the span has already
-  closed).
-
----
-
-## 9. WS3 — Bidirectional Memory Sync
-
-### 9.1 Canonicality rule (the amendment to OBSIDIAN_DATABANK.md)
-
-| Family (`type:` frontmatter) | Vault dir | Canonical side | Watched? | Why |
-|---|---|---|---|---|
-| `credit-run` | `Runs/` | **CAOS** | no | Rendered from DB rows, overwritten in place on every export (`vault_export.py:203-224`) |
-| `issuer` | `Issuers/` | **CAOS** | no | Same exporter (`vault_export.py:158-200`) |
-| `analyst-memo` | `Analyst-Memos/` | **FILE** | **yes** | Analyst-authored; `write_memo` deliberately never overwrites an existing note, because there is no canonical DB row that would make an overwrite safe (`vault_export.py:412-416`) — the file *is* the source, and today's chunk copy silently drifts from it on any hand-edit |
-| `source-document` (future OKF) | `Sources/` | **FILE** | yes (no-op until OKF ships) | Blueprint's own stated design: the note carries `contains_source_text: true`, i.e. is the human-relevant artifact |
-| anything else | anywhere else | — | no (link-scan only, unchanged) | `sync_analyst_memos` already walks every non-`Runs/`/`Issuers/` dir for `[[wikilinks]]`; that behavior is untouched |
-
-**Loop prevention is structural, not a suppression list.** Two facts:
-
-1. The sync consumer described below **never writes vault files** — it only
-   writes DB rows. CAOS→vault writes stay exactly where they are today
-   (`write_run_to_vault`, `write_memo`), both targeting either an ignored
-   directory or a directory the consumer also watches but converges on
-   trivially (next point).
-2. A CAOS-authored write **into** a watched directory (`write_memo` on
-   upload) does fire the watcher, but resolves to a **content-hash no-op**:
-   the consumer recomputes the file's body hash, finds it equals the
-   `Document.source_sha256` the upload just stamped, and the multiset diff
-   (§9.6) comes back empty. This is idempotence, not a special case — no
-   registry of "my own writes" is needed.
-
-### 9.2 Watcher architecture — the deliverable
-
-**Decision: `watchfiles.awatch`, not stdlib mtime polling.**
-
-- **Zero image delta.** `watchfiles==1.2.0` is already pinned in
-  `requirements.lock` as a transitive dependency of `uvicorn[standard]`.
-  Promoting it to a direct dependency in `requirements.txt` changes nothing
-  about what ships in the built image.
-- **Async-native.** `awatch` is an async generator — it drops straight into
-  the `asyncio.create_task` lifespan idiom already used at `main.py:122`. A
-  hand-rolled poller would need its own sleep loop plus a per-file mtime
-  cache duplicating what `sync_analyst_memos` already does
-  (`vault_export.py:431-434,515`).
-- **Fits Obsidian's write pattern.** Obsidian autosaves arrive as bursts
-  (temp-write + rename, or rapid in-place saves). `watchfiles`'s underlying
-  Rust-notify layer debounces a burst into one yielded batch, so a
-  temp+rename sequence collapses to one dirty mark on the real filename after
-  the scope filter drops the temp name. An mtime poller risks reading the
-  file **mid-rename** (target momentarily absent → a false delete).
-- **The polling path is subsumed, not discarded.** `awatch(...,
-  force_polling=...)` — or env `WATCHFILES_FORCE_POLLING=true` — switches the
-  identical API to stat-polling for mounts that don't forward inotify (macOS
-  bind mounts, some NFS configurations, Docker Desktop VirtioFS). One code
-  path, both transports; the compose delta in §11 documents when to flip it.
-- **FLAG: ungrounded** — exact `awatch` defaults (debounce window, step
-  interval) are library documentation, not something read from this repo
-  this session; confirm against the pinned `watchfiles==1.2.0` at
-  implementation time.
-
-**Invocation** (one task):
-
-```python
-async for changes in watchfiles.awatch(
-    vault_root,                 # settings.vault_export_dir
-    watch_filter=_eligible,     # below
-    stop_event=self._stop,      # shutdown, §13.3
-):
-    for change, abspath in changes:   # the Change kind is deliberately IGNORED — see below
-        self._mark_dirty(rel_path_of(abspath))
-```
-
-**Scope filter `_eligible(change, path) -> bool`** (all must hold):
-suffix `== ".md"`; the first vault-relative path segment is in
-`{"Analyst-Memos", "Sources"}` (an **allowlist**, deliberately tighter than
-`sync_analyst_memos`'s denylist of `Runs`/`Issuers` — corpus sync governs only
-the two file-canonical families; every other directory keeps today's
-link-only behavior unchanged); no path component starts with `.` (covers
-`.obsidian/`, `.trash/`, any hidden temp file).
-
-**Event kind is never trusted.** `Change.added`/`modified`/`deleted` all map
-to the same "this path is dirty" mark; a rename surfaces as
-`deleted(old)+added(new)`, resolved at consume time (§9.7) by re-stat-ing the
-file, not by trusting the reported kind — this collapses create / modify /
-rename-target / atomic-replace into one code path and is immune to a stale
-kind surviving the coalescing window.
-
-**Supervision:** the watcher task wraps `awatch` in a `while not stopped`
-loop; on an unexpected exception it logs, backs off (5s → 60s cap), restarts,
-and sets `_reconcile_requested = True` (repairs whatever the outage window
-might have missed).
-
-### 9.3 Event queue — the deliverable
-
-```python
-@dataclass
-class SyncEvent:
-    rel_path: str          # vault-relative POSIX path — the coalescing key
-    first_seen: float       # time.monotonic() at first dirty mark
-    last_seen: float        # bumped on every re-mark; basis for the quiet period
-    attempts: int = 0
-    not_before: float = 0.0  # monotonic backoff gate
-
-_pending: dict[str, SyncEvent]     # the dict IS the coalesced queue — no separate FIFO needed
-_wake: asyncio.Event
-```
-
-Structure decision: a `dict` + `asyncio.Event`, **not** a raw `asyncio.Queue`.
-Coalescing-by-path is a hard requirement (autosave bursts must not fire N
-syncs); a FIFO queue would need a dedup map bolted on regardless, so the dict
-*is* that map. Single event loop, single process (`run.py:17` — one uvicorn
-worker) means no cross-thread lock is needed on `_pending`.
-
-`_mark_dirty(rel_path)`: upsert into `_pending` (bump `last_seen`);
-`_wake.set()`.
-
-**Bound & overflow:** `_MAX_PENDING = 4096`. On overflow: clear `_pending`,
-set `_reconcile_requested = True`. Degrades to a full reconcile pass —
-strictly more work, never lost work; there is no drop-event failure mode in
-this design (contrast with the telemetry queue in §4, where a drop is
-acceptable because a floor log line survives it — there is no equivalent
-floor here, so this path never drops).
-
-**Consumer loop** (one `asyncio.Task`):
-1. `await _wake.wait()`; clear the event.
-2. Snapshot events where `now - last_seen >= debounce` (config
-   `vault_sync_debounce_seconds`, default `2.0` — long enough to span an
-   Obsidian save burst, short enough to feel live) **and** `now >=
-   not_before`.
-3. Process due events **sequentially** — free per-path serialization (no two
-   syncs of the same doc-set interleave), and keeps embedding calls from
-   stampeding the Gemini quota.
-4. Each event opens its **own** `AsyncSessionLocal()` — the house background
-   idiom (`routes/ingestion.py:297-302,338-343`), never the request session.
-5. If items remain not-yet-due, `asyncio.sleep(min-remaining)` then recheck;
-   else back to `_wake.wait()`.
-6. After any batch touching `Analyst-Memos/`, call
-   `vault_export.sync_analyst_memos(session)` once so the wikilink graph
-   refreshes without waiting for the next Query-page read (reuses its own
-   cooldown and lock, `vault_export.py:434-435` — safe to call
-   opportunistically).
-
-**Failure retry & quarantine:** per-event `try/except` — the loop never dies
-on one bad file. Retryable (DB error, `EmbeddingUnavailable` from §9.8,
-transient `OSError`): re-insert with `attempts += 1`, `not_before = now +
-min(2**attempts * 2, 300)`. After `attempts >= 5`: move to a `_quarantine:
-dict[rel_path, reason]`, log `ERROR`, stop retrying — released on the next
-watcher event for that path or the next startup reconcile. Parse errors
-(undecodable bytes, unrecoverable content) quarantine immediately. Files over
-`settings.max_upload_mb` (`config.py:175`, same cap the upload path already
-enforces) quarantine with reason `too_large`.
-
-### 9.4 Startup reconcile — the durability backstop
-
-`async def reconcile_vault(session_factory, vault_root) -> ReconcileStats`,
-scheduled via `asyncio.create_task` in the lifespan, sequenced **after**
-`run_warmup` (so the two never compete for the embedder concurrently). Also
-re-run on watcher-crash-restart and on queue overflow.
-
-1. Walk `Analyst-Memos/` + `Sources/` (off-thread, mirroring
-   `_scan_memo_files`, `vault_export.py:438-454`).
-2. Per file: `split_note` (§9.6) → `body_sha256`; compare to
-   `Document.source_sha256`; mismatch → `_mark_dirty(rel_path)`.
-3. **Legacy adoption:** a doc-set matched only by the stem fallback (§9.7)
-   gets `source_rel_path`/`source_sha256` stamped for the first time — this
-   is the one-time, bounded re-chunk described in §9.6's basis-convergence
-   note.
-4. **Orphan detection with a mass-delete guard:** `Document` rows in the
-   watched families whose `source_rel_path` no longer resolves on disk are
-   candidates for removal (§9.6 step 7's evidence-aware rule) — **unless**
-   the walk found **zero** `.md` files under the watched dirs while the DB
-   holds more than zero synced doc-sets, in which case: log `ERROR`, take
-   **no destructive action**. An unmounted or empty volume must never be
-   allowed to look like "the analyst deleted everything."
-
-**Why no durable job table.** `PipelineRun` + SKIP-LOCKED claiming exists for
-work that must not silently vanish if the process dies mid-job. A sync job
-is fully re-derivable from `(disk state, DB state)` — the reconcile pass
-above makes the in-memory `_pending` dict effectively lossless without a
-second persistence layer to keep consistent with the first.
-
-### 9.5 Chunk-diff algorithm
-
-**9.5.1 Frontmatter/body extraction.** No new PyYAML dependency:
-
-```python
-def split_note(md: str) -> tuple[dict[str, Any], str]:
-    """Inverse of vault_export._yaml_block (vault_export.py:45-54). If the text
-    starts with '---\\n', the frontmatter is everything up to the next line
-    that is exactly '---'; each line splits on the first ': ', values
-    json.loads() with a raw-string fallback (matches _yaml_block's own
-    json.dumps(v) writing convention). Body = everything after the closing
-    delimiter, leading blank lines stripped. No opening delimiter found →
-    frontmatter={}, body=the whole text (tolerates a file mid-edit)."""
-
-def body_sha256(body: str) -> str:
-    """sha256(body.strip().encode('utf-8')).hexdigest() — stripped, because
-    ingest.chunk_text strips first too (ingest.py:222), keeping the hash
-    stable exactly where chunking is."""
-```
-
-**9.5.2 Body basis — the upload/file parity decision.** The canonical corpus
-text of a file-canonical note is `split_note(raw).body`: frontmatter
-stripped, **H1 title line kept**. The upload lane is changed to converge on
-the same basis: in `upload_memo`, after `md =
-vault_export.render_memo(...)` (`routes/ingestion.py:308-312`), pass
-`split_note(md)[1]` — not the raw pre-render `text` — into
-`chunk_memo_into_corpus`. One extraction function, two callers; new uploads
-and file-edits produce byte-identical chunks from day one.
-
-Why not strip the H1 to match today's upload-time chunks exactly: the H1 is
-editable note body — stripping it would silently exclude title edits from
-the corpus, and would require a second extraction dialect. **Cost of
-convergence, stated precisely:** pre-existing memos were chunked from the
-pre-frontmatter `text` (no H1 prefix); their *first* reconcile pass (§9.4
-step 3) re-chunks each legacy memo once, because `chunk_text`'s greedy
-packing (`ingest.py:280-311`) can shift every block boundary once an H1 line
-is prepended. This is a one-time, bounded, background cost — new uploads
-incur none of it.
-
-For future `source-document` notes: the note body is **not** chunk-identical
-to the OKF blueprint's Stage-4 chunks by design (page anchors live only in
-the note, per that blueprint). Rule: an untouched Sources/ note is a no-op
-via `source_sha256` (stamped at OKF ingest time); the **first manual edit**
-supersedes the OKF chunk set with file-derived chunks through the same diff
-below — the file becomes canonical from the moment a human touches it.
-
-**9.5.3 Per-document diff.**
-
-```python
-async def _sync_doc(db, doc: Document, chunks: list[str]) -> DiffStats:
-```
-
-Given the target `Document` and `chunks = chunk_text(body)` (`ingest.py:221-
-313`, reused verbatim — never forked, per the OKF blueprint's own must-not-
-fork mandate, §10.3):
-
-1. `new_hashes = [sha256(c.encode()).hexdigest() for c in chunks]` — the
-   house recipe (`routes/ingestion.py:119`, `engine/memochunks.py:119`).
-2. Load existing rows: `select(DocumentChunk).where(document_id == doc.id)`.
-3. Compare as **multisets** (`collections.Counter`) — `DocumentChunk` has no
-   `(document_id, chunk_hash)` uniqueness (`database.py:207-222`), and a file
-   can legitimately repeat a paragraph, so a set comparison would silently
-   collapse a real duplicate.
-4. **Equal** → update any drifted `seq`, stamp provenance (§10), return. This
-   is also the self-write-suppression path from §9.1.
-5. **`to_add`:** Core `insert(DocumentChunk)` dicts with `id`, `document_id`,
-   `seq`, `text`, and **explicit `chunk_hash`** — required because the
-   `before_insert` recompute listener (`database.py:979-990`) fires only on an
-   ORM unit-of-work flush, never on a Core `insert()` — plus one `LineageEdge`
-   per chunk (`transform="vault-sync"`, house shape
-   `routes/ingestion.py:127-135`).
-6. **Resurrection:** a hash in `to_add` matching a **superseded** row of this
-   same doc (§9.7's `superseded_at`, not yet described — see below) clears
-   `superseded_at` instead of inserting fresh — keeps a cited chunk's id
-   stable across a revert-then-redo edit.
-7. **`to_remove` — evidence-aware:** query `_cited_chunk_ids` = union of
-   `EvidenceItem.document_chunk_id` (`database.py:406-408`) and
-   `MetricFact.document_chunk_id` (`database.py:459-461`) hits for the
-   removed hashes' row ids. Cited → set `superseded_at = now()` (row kept,
-   citation stays openable, no FK can ever raise). Uncited → hard delete in
-   the house dependency order (`LineageEdge` by `chunk:{id}` → the
-   `DocumentChunk` row — verbatim order from
-   `memochunks._delete_prior_memo_docs`, `engine/memochunks.py:56-65`).
-   Postgres enforces the FK on a cited-and-deleted row; SQLite CI does not
-   (no `PRAGMA foreign_keys`) — the supersede test **must** assert Postgres
-   semantics (§14.3).
-8. Renumber kept rows' `seq` to file order; `doc.chunk_count = len(chunks)`
-   (matches upload-path parity, `engine/memochunks.py:108`).
-9. Stamp `doc.source_rel_path`, `doc.source_sha256`, `doc.synced_at`,
-   `doc.sync_origin = "vault-sync"` (§10).
-10. `await embed_chunks_for_document(session, doc.id)` — its existing
-    only-missing semantics (`embeddings.py:74-83`) make the refresh surgical
-    *by construction*: unchanged hashes embed nothing. **Embedding rows are
-    never deleted** — keyed `(model, chunk_hash)`, shared across documents,
-    reused on re-chunk (`memochunks.py:44-45`; dedup logic
-    `embeddings.py:131-142`; this is also the blueprint's Stage-6 mandate).
-    BM25 needs no step at all: `tsv` is a persisted `Computed` column, GIN
-    indexed on `INSERT` (`database.py:217-221`, migration `0029`).
-
-**Multi-issuer memos.** A memo maps to N `Document` rows, one per linked
-issuer, sharing chunk text/hashes (`memochunks.py:101-135`). `sync_note`
-runs the per-doc diff above once per existing doc-row, then reconciles the
-issuer *set* itself: current wikilinks in the body resolve to issuer ids
-(name/ticker map, pattern from `vault_export.py:518-522`); a newly linked
-issuer gets a full chunk insert (near-zero embedding cost — the hashes are
-already embedded via the shared-hash join); an unlinked issuer's `Document`
-goes through the same evidence-aware removal as step 7. A memo edited down to
-zero links removes all its docs (matches upload-path behavior for zero-link
-memos, `memochunks.py:89-91`).
-
-### 9.6 Consumer entry points
-
-```python
-async def sync_note(db, vault_root: Path, rel_path: str) -> SyncResult   # file exists
-async def sync_note_removed(db, rel_path: str) -> SyncResult             # file missing
-```
-`sync_note`: read file (`asyncio.to_thread`, size-capped) → `split_note` →
-resolve identity (§9.7) → per-doc `_sync_doc` + issuer-set reconcile.
-`sync_note_removed`: resolve the doc-set → evidence-aware removal (the
-whole-set version of §9.5 step 7 — cited anywhere → shadow every chunk of
-that doc and keep the `Document` row so a citation's `file_name` still
-resolves).
-
-### 9.7 Identity resolution & rename
-
-| Family | Primary key | Fallback | No match | Rename |
-|---|---|---|---|---|
-| `analyst-memo` | `Document.source_rel_path == rel_path` (new col, §10) | Legacy: `Document.file_name == Path(rel_path).stem` — **exact** today, because upload chunks under `path.stem` (`routes/ingestion.py:329` passes `path.stem` into `chunk_memo_into_corpus` → `Document.file_name`, `memochunks.py:105-107`); on a legacy match, stamp `source_rel_path` (the adoption step, §9.4.3) | A hand-created memo file is legitimate intake: parse wikilinks → resolve issuer ids → create the doc-set via §9.5's machinery; `uploaded_by` from frontmatter if present (`render_memo` writes it, `vault_export.py:402-408`), else `None` | Content-hash match (below) |
-| `source-document` | Frontmatter `document_id → Document.id` (blueprint App A: a required key) | `source_rel_path` match | **Quarantine** — `Sources/` is machine-written only; a hand-made note there with no `document_id` is ambiguous and never guessed | `document_id` travels in the file body; a rename just restamps `source_rel_path` |
-
-**Rename, exact mechanics (memos).** A rename arrives as `deleted(old) +
-added(new)` — typically one coalesced batch. The consumer processes
-**upserts before deletes** within a batch; for an added path resolving to no
-doc-set, check: does an existing doc-set have `source_sha256 ==
-body_sha256(new file)` **and** a `source_rel_path` that is currently missing
-on disk (or is in this same batch's pending deletes)? Yes → **rename**:
-`UPDATE` that doc-set's `source_rel_path` + `file_name = new stem`; zero
-re-chunk, zero re-embed, every citation stays intact. If content also changed
-in the same window, the hash match fails and the pair degrades safely to
-delete-old (evidence-aware) + create-new — new chunks re-embed only what
-hash-differs from before. `render_memo` gains **no new frontmatter field** for
-this — content-hash rename detection removes the need for a stamped memo id
-(the current field set — `type`, `memo_type`, `uploaded_by`, `source_file`,
-`date`, `vault_export.py:392-409` — is unchanged by this spec).
-
-### 9.8 Embedding-failure defect fix
-
-`engine/embeddings.py:52-55` today: a **live** Gemini call failure returns
-mock vectors that `embed_chunks_for_document` (`:95-108`) then persists
-**under the real model name** — this both mixes fabricated vectors into a
-real corpus and poisons the only-missing check (`:74-83`), which will never
-re-attempt that chunk once a hash exists for the active model.
-
-**Fix:** in `get_embeddings`, when `settings.gemini_api_key` is set and the
-live call raises, raise a new `EmbeddingUnavailable(RuntimeError)` instead of
-falling back to the mock. **Keyless dev/test keeps today's mock-under-real-
-model behavior unchanged** — that path has no key to fail with, and is a
-deliberate, harmless dev affordance, not the defect. Callers:
-`embed_chunks_for_document` lets the exception propagate after committing any
-already-successful batches; the WS3 consumer (§9.3) treats it as retryable;
-`run_warmup` already wraps its call in `try/except` (`main.py:114-120`) and
-naturally retries at the next boot via its own reconciler
-(`embeddings.py:115-171`); the two upload-lane `BackgroundTask` callers
-(`routes/ingestion.py:297-302,338-343`) get a logged failure instead of a
-silently-persisted mock — the intended, visible behavior change.
-
-**Audit query for the pre-existing corruption risk (§0.1):** any
-`document_chunk_embeddings` row with `model = 'text-embedding-004'` created
-after 2026-01-14 (the retirement date) in a deployment where
-`GEMINI_API_KEY` was set is unverifiable-but-suspect under the *current*
-schema, because nothing distinguishes a mock vector from a real one once
-written. This spec's fix prevents new occurrences; it cannot retroactively
-distinguish old rows — that is a data-audit task, out of scope here, flagged
-for the operator.
-
-### 9.9 Retrieval shadow predicate
-
-`superseded_at IS NULL` is added to the chunk-fetch predicates in
-`retrieval.py` — the fetches and vector joins at `:220,240` (`retrieve`,
-`:167`), `:376,397` (`retrieve_corpus`, `:288`), `:497`
-(`retrieve_corpus_by_issuer`, `:426`), and the doc-type filter in
-`build_issuer_index` (`:268-273`). **One shared predicate helper, applied at
-all six sites; the chunk-open-by-id route must NOT apply it** — a citation
-must still resolve even after its source chunk is shadowed. This is the one
-deliberate change to a hot-path query: a `NULL` check on an already-indexed
-column inside a scan that already filters and joins — no new query, no new
-join, negligible cost. Without it, a superseded chunk's text would stay
-retrievable — exactly the drift this workstream exists to close.
-
----
-
-## 10. WS3 — Vector Metadata Tagging Standard
-
-**Rule:** descriptive metadata lives on `Document`; positional metadata on
-`DocumentChunk`; the embedding row stays metadata-free, keyed
-`(model, chunk_hash)`, reached from metadata **only via join**
-(`DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash AND model ==
-active`). §10.3 states what must never fork.
-
-| Home | Field | Type / key | Written by | Grounding |
-|---|---|---|---|---|
-| `DocumentChunk` | `id` | PK, `String(36)` | all writers | `database.py:207-214` |
-| | `document_id` | FK `documents.id`, indexed | writers | `:215` |
-| | `seq` | int, file order; renumbered on sync | writers / WS3 diff | `:216` |
-| | `text` | Text | writers | `:216` |
-| | `chunk_hash` | `String(64)` = sha256(text), indexed; **explicit on Core inserts** | writers | `:217`; `routes/ingestion.py:119`; `memochunks.py:119` |
-| | `tsv` | `TSVECTOR` Computed persisted + GIN | Postgres | `:218-221`, mig 0029 |
-| | **`superseded_at`** *(this spec adds)* | `DateTime(tz)` NULL; NULL = live | WS3 diff only | §9.5/§9.9 |
-| `Document` | `issuer_id` | FK, indexed | writers | `database.py:197` |
-| | `doc_type` | `String(64)` — family discriminator (`analyst-memo` excluded from `build_issuer_index`, `retrieval.py:268-273`) | writers | `:198` |
-| | `file_name`, `storage_key`, `fiscal_period`, `chunk_count`, `uploaded_by`, `uploaded_at`, `run_mode` | unchanged | writers | `:199-206` |
-| | **`source_rel_path`** *(adds)* | `String(1024)` NULL — identity key, §9.7 | upload lane + WS3 | new |
-| | **`source_sha256`** *(adds)* | `String(64)` NULL — no-op/self-write/rename detector | upload lane + WS3 | new |
-| | **`synced_at`** *(adds)* | `DateTime(tz)` NULL | WS3 | new |
-| | **`sync_origin`** *(adds)* | `String(16)` NULL: `"upload"` \| `"vault-sync"` (reserved `"okf-ingest"`) | upload lane + WS3 | new |
-| `DocumentChunkEmbedding` | `chunk_hash`, `model`, `vector SafeVector(768)`, `created_at`; UNIQUE `(model, chunk_hash)`; HNSW cosine | **unchanged; rows never deleted** | `embed_chunks_for_document` only | `database.py:712-731`, mig 0030; `memochunks.py:44-45` |
-
-All additions are nullable, additive, soft-ref (no new foreign keys — the
-same precedent already set by `DocumentChunkEmbedding`, `LineageEdge`,
-`AnalystQaFlag`). **Migration `0035_vault_sync_provenance.py`,
-`down_revision = "0034"`** — chains after §5's telemetry migration (see §0.1
-for the 0034 numbering reconciliation with the unlanded OKF blueprint).
-Upload-lane change: `upload_memo`/`chunk_memo_into_corpus` stamp
-`source_rel_path = "Analyst-Memos/{file.name}"`, `source_sha256`,
-`sync_origin = "upload"` at creation time.
-
-### 10.3 Must-not-fork list (restates the OKF blueprint's own mandate, verbatim scope)
-
-The embedding model (`text-embedding-004`, or its live replacement — see the
-§0.1 flag), the `(model, chunk_hash)` unique key, the `chunk_hash =
-sha256(text)` recipe, and the `document_chunks`/`document_chunk_embeddings`
-schemas. Reuse `embed_chunks_for_document` and `chunk_text` as-is; this spec
-introduces **no** second embedder, second vector table, or parallel
-retriever.
-
----
-
-## 11. Deploy & Config Delta
-
-### 11.1 `caos/deploy/docker-compose.yml`
-
-Stock compose mounts only `vault-data:/vault` (= `CAOS_STORAGE_DIR`, the
-document blob store — a **different** vault from the Obsidian one).
-`VAULT_EXPORT_DIR` is unset anywhere in compose today, so this workstream is
-inert in the stock stack until an operator opts in.
-
-- `app` service: add a named volume `obsidian-vault:/obsidian-vault`
-  (**rw** — `read_only: true` on the app's rootfs governs the *image*
-  filesystem, not mounted volumes; the existing exporters already need write
-  access here, the watcher only needs read) + env `VAULT_EXPORT_DIR:
-  /obsidian-vault` + `VAULT_SYNC_ENABLED: "true"`. `tmpfs /tmp` and
-  `cap_drop: ALL` are unaffected — `watchfiles`' inotify path needs no
-  Linux capability.
-- Named volume on a Linux host → inotify works natively. If an operator
-  instead bind-mounts a host directory (the realistic desktop-Obsidian case
-  on macOS/Windows Docker Desktop, or NFS): set `WATCHFILES_FORCE_POLLING:
-  "true"` on the app service — document this as a compose comment. **FLAG:**
-  event forwarding across Docker Desktop's VirtioFS is environment-dependent
-  and was not tested this session; §9.4's startup reconcile is the
-  correctness backstop regardless of which transport is active.
-- Optional: mount `obsidian-vault:/obsidian-vault:ro` into the `backup`
-  service and extend its tar step to cover it alongside `/vault`.
-
-### 11.2 `caos/deploy/Dockerfile` (only if §3's edgar MCP server ships)
-
-Copy `caos/mcp/edgar/` into the image; add the `mcp` package (and that
-server's own `httpx` dependency, currently declared in a separate
-`pyproject.toml`) to the app's `requirements.txt`. Not required if the MCP
-router ships with zero configured servers.
-
-### 11.3 New settings (all additive; existing settings untouched)
-
-| Setting | Default | Section |
-|---|---|---|
-| `llm_max_concurrency_anthropic` | `8` | §2.4 |
-| `llm_max_concurrency_gemini` | `8` | §2.4 |
-| `llm_max_concurrency_openrouter` | `8` | §2.4 |
-| `llm_fallback_max_retries` | `3` | §2.4 |
-| `llm_retry_base_s` | `1.0` | §2.4 |
-| `llm_retry_cap_s` | `8.0` | §2.4 |
-| `mcp_servers` | `""` | §3.1 |
-| `mcp_lane_allowlist` | `""` | §3.1 |
-| `mcp_max_tool_turns` | `5` | §3.1 |
-| `llm_log_payloads` | `True` | §5.2 |
-| `llm_payload_max_chars` | `200000` | §5.2 |
-| `otel_exporter_otlp_endpoint` | `""` | §8 |
-| `otel_service_name` | `"caos"` | §8 |
-| `vault_sync_enabled` | `False` | §9; effective-enabled requires `vault_export_dir` also set, same "empty = disabled" pattern as `config.py:242-248` |
-| `vault_sync_debounce_seconds` | `2.0` | §9.3 |
-
----
-
-## 12. Zero-Added-Latency Placement Map (merged, all three workstreams)
-
-| Step | Runs where | Why the hot path is unaffected |
-|---|---|---|
-| OTel span open/close + attrs | hot path | O(1); no-op tracer when endpoint unset (default) |
-| Per-provider semaphore acquire/release | hot path | O(1) uncontended; default 8 ≥ today's peak (2×4) so it never binds under current config |
-| `record_usage` budget accrual | hot path (pre-existing, unchanged) | ContextVar reads + int adds — must stay hot, it gates live `llm_allowed()` semantics |
-| `caos.llm` log line | hot path (pre-existing, unchanged) | Fixed small fields, no payload text |
-| `uuid4()` → `resp.llm_call_id` | hot path (new) | O(1) |
-| `LLMCallEvent` construct | hot path (new) | O(1)-class — shallow refs to `system`/completion, `tuple(messages)`; safe because no caller mutates a message dict in place after appending it (deepresearch appends new messages, never edits old ones) |
-| `telemetry.enqueue` | hot path (new) | `queue.put_nowait` — never blocks; overflow drops + counts |
-| `sha256(prompt)` | **moved to writer** | Removed from hot path (was inline at 3 call sites) |
-| Cost computation | **writer** | Replaces hot-path if/elif |
-| Masking | **writer** | New work, background-only |
-| `LLMCallRecord`/`LLMCallPayload` INSERT + commit | **writer** | Removed from hot path (was an awaited commit per call); batched ≤32/commit |
-| OTLP export | OTel's own daemon thread | Out-of-band, opt-in |
-| MCP tool execution | `create_with_tools` only | Zero existing lanes call it (default-empty allowlist) |
-| File watcher event → coalesce | background asyncio task | Kernel-driven, idle `await` |
-| Chunk re-diff + re-chunk | background consumer task, own DB session | File I/O via `asyncio.to_thread` |
-| Re-embed | background consumer → `embed_chunks_for_document` | Already a background-only function today |
-| Startup reconcile | `asyncio.create_task` in lifespan | Serves no request |
-| Upload-lane basis change (`split_note` on already-rendered string) | in-request, `upload_memo` | No I/O added — operates on a string already in memory |
-| Retrieval `superseded_at IS NULL` | in-request query | NULL check on an already-indexed column inside an already-filtered scan; no new query or join |
-
-**Net claim:** the primary request path *loses* two pieces of existing work
-(the inline sha256, the awaited DB commit) and *gains* only O(1) bookkeeping.
-§14.4 states the exact tests that prove this rather than assert it.
-
----
-
-## 13. Rollout & Migration Sequencing
-
-1. `0034_llm_telemetry.py` (down_revision `"0033"`) — §5.
-2. `0035_vault_sync_provenance.py` (down_revision `"0034"`) — §10.
-3. The unlanded `PDF_INGESTION_OKF_BLUEPRINT.md` reserves its own `0034` —
-   whichever of these two workstreams lands second in wall-clock time
-   renumbers to keep the chain linear; this spec does not resolve *which*
-   ships first, only that the collision must be checked at merge time.
-4. Legacy memo re-chunk (§9.5.2) happens automatically, once per file, at
-   the first startup reconcile after `vault_sync_enabled=True` — no separate
-   backfill script.
-5. Lifespan start order: telemetry writer → vault watcher + consumer →
-   `run_warmup` → vault startup reconcile (sequenced after warmup so the two
-   never compete for the embedder concurrently, §9.4). Shutdown: watcher +
-   consumer stop first (abandon `_pending`, reconcile re-derives next boot)
-   → the four existing executors' `.stop()` calls, unchanged order →
-   `telemetry.drain_and_stop(5.0)` last, so the executors' own final traces
-   have a chance to flush.
-6. Vault-sync re-embeds route through `llm_client.embed` → land in
-   `llm_call_records` under `lane="embed"` — sync cost is visible in the same
-   ledger as every other LLM spend from day one, no separate accounting path.
-
----
-
-## 14. Test Plan
-
-### 14.1 Registry test evolution
-
-`caos/tests/server/test_llm_safety.py:152-187` pattern becomes:
-```python
-pat = re.compile(r"\.(?:beta\.)?messages\.(?:create|stream)\(|\bllm_client\.(?:create|stream_final|create_with_tools)\(")
-```
-Expected set stays the **same 15 files** — synth/deepresearch/research_report
-now match via the gateway calls instead of raw provider calls; no file enters
-or leaves the set. **New companion test**
-`test_raw_provider_calls_only_in_gateway`: the raw pattern
-`\.(?:beta\.)?messages\.(?:create|stream)\(` must match exactly
-`{"engine/llm_client.py"}`; the raw Gemini pattern
-`aio\.models\.(?:generate_content|embed_content)\(` must match exactly
-`{"engine/gemini.py"}` — the mechanical proof that the gateway is total, not
-just conventionally used.
-
-### 14.2 Golden invariants (existing behavior unchanged)
-
-`test_llm_client.py` (fallback control flow against a fake client) and
-`test_budget.py` pass with **zero changes to their call shapes** — `create`'s
-new signature is a strict superset. One addition to
-`test_intelligent_vault.py:105` (selects `LLMCallRecord` by `run_id`):
-`await telemetry.flush_for_tests()` before the select.
-
-### 14.3 WS3 test hooks (`caos/tests/server/test_vault_sync.py`)
-
-1. Round-trip parity: upload memo → `split_note(written file)` → `chunk_text`
-   multiset equals DB chunk hashes.
-2. Self-write no-op: `sync_note` on the just-uploaded path → zero row
-   changes.
-3. Surgical edit: append a paragraph → only new hashes inserted; pre-existing
-   `(model, chunk_hash)` rows untouched and reused.
-4. Evidence-aware delete: cite a chunk via `EvidenceItem.document_chunk_id`,
-   delete the file → shadowed, not deleted; uncited siblings hard-deleted in
-   FK order — **assert under Postgres**, not SQLite (SQLite CI cannot
-   exercise the FK).
-5. Rename: unchanged body, new filename → `source_rel_path`/`file_name`
-   repointed, zero chunk/embedding churn.
-6. Legacy adoption: a pre-existing memo doc (no `source_rel_path`) plus its
-   file → reconcile stamps provenance via stem match.
-7. Live-failure never persists mock: `gemini_api_key` set + embed raises →
-   no `DocumentChunkEmbedding` row lands; keyless → mock rows still land
-   (unchanged dev affordance).
-8. Gate off: `vault_export_dir=""` or `vault_sync_enabled=False` → no
-   watcher/consumer tasks start.
-9. Ignore rules: events under `Runs/`, `Issuers/`, `.obsidian/`, `.trash/`,
-   non-`.md` never enter `_pending`.
-10. Coalescing + quiet period: N rapid events on one path → one `sync_note`
-    call after the quiet period; overflow → `_reconcile_requested` set,
-    `_pending` cleared.
-11. Mass-delete guard: empty watched dirs + populated DB → zero destructive
-    writes, `ERROR` logged.
-12. Issuer-set reconcile: edit a memo to add/remove a `[[wikilink]]` → the
-    per-issuer `Document` set updates evidence-aware; a memo edited to zero
-    links removes its whole doc-set.
-13. Invariant property test: after any generated edit sequence reaches
-    quiescence, `I1` (§14.5) holds.
-
-### 14.4 Zero-added-latency proof (not assertion)
-
-(a) Structural: monkeypatch `database.AsyncSessionLocal` to raise;
-`llm_client.create` against a fake client must still succeed and the event
-must sit in `telemetry`'s queue — no DB touch reachable from the hot path.
-(b) Drop-path: fill the queue, call `trace_llm`, assert immediate return +
-incremented drop counter. (c) Micro-benchmark, marked slow: `trace_llm` p95 <
-1ms with the writer stalled, versus the current implementation's awaited
-commit — a regression guard, not a one-time check.
-
-### 14.5 Invariants (I1–I6, verifier-assertable)
-
-- **I1 (no drift):** for every `.md` under `Analyst-Memos/` (and `Sources/`
-  once OKF lands): `Counter(sha256(c) for c in chunk_text(split_note(read(f)).
-  body))` equals `Counter(chunk_hash of live DocumentChunk rows for f's
-  doc-set)`, per issuer copy.
-- **I2 (vectors present, never fake):** for every live `chunk_hash` h, exactly
-  one `DocumentChunkEmbedding(model=active, chunk_hash=h)` row exists, and
-  when `gemini_api_key` is set it is never a mock vector.
-- **I3 (CAOS-canonical untouched):** no sync-originated write ever targets a
-  `Document` backing `Runs/`/`Issuers/` content; those directories never
-  enter `_pending`.
-- **I4 (citations never dangle):** every `EvidenceItem`/`MetricFact
-  .document_chunk_id` resolves to an existing row, forever — the shadow rule,
-  Postgres-FK-enforced.
-- **I5 (embeddings append-only):** no sync operation ever deletes a
-  `document_chunk_embeddings` row.
-- **I6 (hot path):** §12's table holds — no new `await` in any request
-  handler.
-
----
-
-## 15. Risks & Accepted Limitations
-
-Merged and deduplicated from both design passes; ranked most-impactful first.
-Seed for the `.agent-reviews/redteam.md` entry.
-
-1. **`llm_call_payloads` is a new sensitive-data store.** Masking hides
-   figures, not issuer names or strategy narrative. Mitigations:
-   `llm_log_payloads` kill switch; payloads never leave Postgres (not on
-   spans, not in logs, not in the vault export — `vault_export.py` renders
-   run outputs, never telemetry); `masking_version` supports a future
-   re-masking pass; retention policy explicitly deferred (§5.2) and tracked
-   here as an open item.
-2. **Queue drop or writer death understates the ledger.** Mitigated by the
-   independent `caos.llm` log-line floor (§4.1); drop counter asserted zero
-   in normal-load tests; the writer wraps each event in `try/except` so one
-   poison event can't kill the loop; `drain_and_stop` flushes on shutdown;
-   queue depth (1000) versus realistic concurrency (≤~10) makes overflow
-   effectively unreachable outside a deliberate stress test.
-3. **Consolidating the two stream lanes could silently drift their
-   behavior** (adaptive-thinking pass-through, `pause_turn` continuation,
-   sticky-degrade). Mitigation: `stream_final` passes `**kwargs` verbatim;
-   `caos_used_model` preserves the stickiness both lanes already implement;
-   §14.2 requires a golden test replaying each lane's exact call sequence
-   pre/post migration.
-4. **MCP misconfiguration could reintroduce agentic tools/writes on an
-   existing lane.** Mitigated by the default-deny double allowlist (§3.3),
-   the write-capable `edgar_fetch_and_vault` tool excluded from the default
-   config, `wrap_untrusted` on every tool result, and the registry test
-   (§14.1 pattern) making any `create_with_tools` caller a reviewed,
-   diff-visible event — the same mechanism that already governs the 15
-   existing LLM call sites.
-5. **Unsalted 8-hex placeholders are dictionary-reversible for low-entropy
-   figures** (`$1.0bn` hashes to the same 8 hex chars every time). Accepted:
-   the telemetry DB shares its trust boundary with the raw source documents
-   already in Postgres — masking defends the *export/log/OTLP* surfaces,
-   which never carry payloads under this design. An optional future
-   `MASK_SALT` (costs cross-record joinability) is the named upgrade path if
-   payloads ever cross that boundary.
-6. **Missed filesystem events on real deployments** (bind mounts, Docker
-   Desktop, NFS) — inotify forwarding is environment-dependent (§11.1's
-   flag). Mitigated structurally: the watcher is a latency optimization, not
-   the sole correctness mechanism — reconcile-on-startup/-crash/-overflow
-   (§9.4) is what actually guarantees convergence. A missed event persists
-   only until the next reconcile trigger.
-7. **The "surgical" embedding refresh is hash-level, not token-level.**
-   `chunk_text`'s greedy packing means an edit near the top of a large file
-   can shift every downstream chunk boundary, re-embedding most of the file
-   for what was semantically a one-line change; a bulk find-replace across
-   many memos could spike embedding-API spend. Mitigated by: honest statement
-   here (no false "always cheap" claim); the serial single-consumer +
-   batch-100 embed call + backoff naturally rate-limits; per-file event
-   scope bounds the blast radius of any one edit.
-8. **Legacy memo identity is fragile before adoption.** A memo renamed on
-   disk *before* this spec ships resolves by stem only; if that stem no
-   longer matches, the reconcile's orphan pass could create a duplicate
-   doc-set rather than adopting the existing one. Mitigated: the orphan pass
-   content-matches (chunk-multiset equality) against unresolved files before
-   creating anything new — worst case is a shadowed duplicate, never data
-   loss.
-9. **The mock-embedding fix (§9.8) changes behavior on paths outside WS3** —
-   the upload lanes and `run_warmup` now see a raised exception on live
-   failure instead of a silent (wrong) success. This is the intended fix, but
-   it must be called out as a behavior change in the PR, not buried in a
-   vault-sync-only changelog entry, because it affects every embedding
-   caller, not just the new sync lane.
-10. **Migration-number collision with the unlanded OKF blueprint** (§13
-    item 3) is a sequencing decision, not a technical one — flagging it here
-    ensures it isn't silently resolved by whichever PR merges first without
-    the other author noticing.
+## 15. Known limits and explicit risk decisions
+
+1. **Telemetry queue loss is possible.** This is accepted to satisfy H1. There is no
+   synchronous occurrence floor: the writer emits metadata-only `caos.llm` records,
+   while queue-depth/drop counters make lost events observable.
+2. **Masked telemetry still contains issuer names and strategy prose.** The payload
+   kill switch exists; authorization/retention for telemetry readers must follow the
+   same database boundary as source documents. A retention policy is not requested
+   and is not invented here.
+3. **Background root spans do not inherit HTTP trace parents.** This is accepted to
+   keep all OTel SDK work off the request path; `interaction_id`/`run_id` correlate.
+4. **Chunk refresh is surgical by hash, not by semantic paragraph.** The existing
+   greedy chunker can shift downstream boundaries after an early edit. Reusing it is
+   more important than creating an incompatible “smarter” chunker.
+5. **OKF source sync is reserved, not implemented.** The projection contract prevents
+   a future manual note from rewriting original evidence, but no runtime claim is made
+   until OKF code exists.
+6. **Historical mock vectors cannot be distinguished by current metadata.** Do not
+   delete them speculatively. Backfilling every live hash under the new model and
+   filtering retrieval by exact model makes them unreachable without destructive
+   archaeology.

@@ -410,12 +410,10 @@ def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding
     whether the figures agree with each other, only whether the asserted number
     itself is plausible for a leveraged-loan issuer.
 
-    DELIBERATELY MINOR, NOT MATERIAL: an absolute ceiling has a real
-    false-positive population — genuinely distressed issuers legitimately run
-    leverage past any fixed band — so this stays advisory (visible, queryable)
-    rather than gating, same tradeoff as cp1_grounding_finding's FX
-    false-positive. Checks ``abs(lev)`` so an implausible net-CASH position
-    (a large negative leverage) is caught symmetrically."""
+    The finding is MATERIAL: a legitimately distressed issuer may breach the
+    band, but committee release then requires explicit verification rather than
+    silently accepting an extreme LLM assertion. Checks ``abs(lev)`` so an
+    implausible net-CASH position is caught symmetrically."""
     if cp1 is None:
         return None
     nf = _as_dict((cp1.runtime_output or {}).get("normalized_financials"))
@@ -423,7 +421,7 @@ def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding
     if not is_finite_number(lev) or abs(lev) <= _LEVERAGE_SANITY_CEILING:
         return None
     return Finding(
-        finding_id="CP-1-LEV-MAGNITUDE", severity="MINOR", lane=6, module_id="CP-1",
+        finding_id="CP-1-LEV-MAGNITUDE", severity="MATERIAL", lane=6, module_id="CP-1",
         description=(
             f"Asserted net leverage {lev:g}x falls outside the "
             f"±{_LEVERAGE_SANITY_CEILING:g}x plausibility band for a leveraged-loan "
@@ -435,41 +433,29 @@ def leverage_magnitude_finding(cp1: Optional[ModulePayload]) -> Optional[Finding
 
 
 def cp1_grounding_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
-    """MINOR (advisory, non-gating) CP-5B finding when CP-1's headline revenue AND
-    adjusted EBITDA both have no basis in the retrieved source documents — the
+    """MATERIAL CP-5B finding when any CP-1 headline primitive has no basis in
+    the retrieved source documents — the
     complementary check to leverage_plausibility_finding, which only catches an
     internally INCONSISTENT figure. A live model can hallucinate (or an injected
     filing can steer) a self-consistent but fabricated income statement that
     passes that check untouched; this surfaces it by requiring the underlying
-    figures to round-match something the model actually retrieved. Fires only
-    when BOTH figures are ungrounded — a single miss is tolerated (a legitimate
-    currency/period-convention mismatch on one figure alone should not restrict
-    the module).
-
-    DELIBERATELY MINOR, NOT MATERIAL, for v1 (adversarially reviewed
-    2026-07-11): a non-USD issuer's FX-converted figures legitimately fail to
-    round-match native-currency source text — a real, population-level false-
-    positive with no currency signal in the schema yet to suppress it — so this
-    finding is surfaced in the evidence trail (visible, queryable) without
-    forcing "Restricted" on a genuinely correct run. Promote to MATERIAL once a
-    currency/basis signal exists to skip non-USD issuers. Does not, alone, close
-    a fabrication that keeps revenue/EBITDA correct while inventing net_debt/
-    leverage — that passes both this and leverage_plausibility_finding untouched;
-    see leverage_magnitude_finding, the magnitude-only backstop that catches it.
+    figures to round-match something the model actually retrieved. A legitimate
+    FX conversion or adjusted net-debt bridge can still be released after an
+    analyst supplies the missing evidence; the automated gate fails closed.
 
     Set by engine.synth._ground_cp1_headline_figures at synthesis time; empty
     (never fires) for the deterministic EDGAR/reported/fixture paths and for any
     live run where no documents were retrieved."""
-    if cp1 is None or len(cp1.ungrounded_headline_figures) < 2:
+    if cp1 is None or not cp1.ungrounded_headline_figures:
         return None
     fields = ", ".join(cp1.ungrounded_headline_figures)
     return Finding(
-        finding_id="CP-1-UNGROUNDED", severity="MINOR", lane=6, module_id="CP-1",
+        finding_id="CP-1-UNGROUNDED", severity="MATERIAL", lane=6, module_id="CP-1",
         description=(
             f"CP-1 headline figures ({fields}) do not round-match any retrieved "
             "source chunk — the income statement has no apparent basis in the "
-            "ingested documents. (Advisory: not gating in v1 — see function "
-            "docstring for the FX false-positive limitation.)"
+            "ingested documents. Committee release is restricted until the "
+            "missing evidence or adjustment bridge is supplied."
         ),
         required_remediation="Verify the normalized financials against the issuer's actual filings/documents.",
     )
