@@ -31,6 +31,9 @@ const BY_CAP: Record<string, QueryView[]> = {
   "analyst-memos": ["rv", "graph"],
   // A covenant register is a table of names × covenant terms first; hub-graph second.
   "covenant-register": ["rv", "graph"],
+  // Head-to-head is a table of compared rows (metric x two issuers) first;
+  // hub-graph second — same shape as covenant-register.
+  "head-to-head": ["rv", "graph"],
   // Sponsor is a hub topology, not a lineage trace — pin it to graph, never the
   // "trace" renderer its provenance mode would otherwise default to.
   "sponsor-graph": ["graph", "rv"],

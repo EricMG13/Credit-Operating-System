@@ -606,7 +606,16 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   conclusion. Does not exist today (grep clean across `caos/tests/frontend/
   e2e/`). **Verify:** new Playwright spec + API assertions pass. **Exit:**
   spec green, wired into the per-PR e2e job (loop doc L7 work item).
-- [ ] **C7 (S)** Head-to-head issuer comparison — fifth Query walk (expansion
+- [ ] **C7 (S)** *(Exec 2026-07-12: PR #187 open — registered in
+  questions.ts/views.ts/synthesis.ts; backend _head_to_head() builder in
+  engine/querygraph.py reuses _covenant_register's exact node shape (group +
+  member nodes), zero new render machinery needed. GraphRequest.issuer_id_b
+  additive. New IssuerPicker.tsx (embeddable debounced autocomplete) wired
+  into query/page.tsx. Verified: 7 new backend tests green, full server suite
+  1414/1414, 5 new frontend unit tests green, tsc clean, 0 new C901
+  offenders. Residual: full frontend vitest suite inconclusive (machine
+  contention with a concurrent session, not a real failure); query_flow.spec.ts
+  extended but not run against a live stack.)* Head-to-head issuer comparison — fifth Query walk (expansion
   4.3): register in `questions.ts`/`views.ts`/`synthesis.ts` per the Query
   design mandates (synthesis sentence first, committee exhibit = charts +
   narrative); side-by-side headline `metric_facts`, covenant register rows,
@@ -625,7 +634,22 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   green. **Exit:** record created/read/appended through the real UI path.
   **Latest:** implemented in the current branch only; PRs #191/#192 remain
   open. Do not close until migrated and green on `origin/main`.
-- [ ] **C9 (S–M)** Committee-pack `.xlsx` export (expansion 4.2): the current
+- [ ] **C9 (S–M)** *(Exec 2026-07-12, merged via PRs #189/#190 on 2026-07-15 — real .xlsx client-side
+  (frontend-only) chosen over backend/openpyxl: model grid/scenarios/
+  assumptions are computed exclusively client-side, so a backend export
+  would mean re-implementing that math in Python (undermining C9's own
+  same-number-everywhere exit criterion) for no openpyxl benefit. 5 sheets
+  (Model/Scenarios/Assumptions/Headline Facts/Overrides), every sheet
+  stamped ORIGIN/METHOD/RUN/AS-OF. First push used `xlsx`/SheetJS (the
+  plan's own suggestion) but that package's 2 unpatched High CVEs (parse-
+  path only; usage here was write-only) tripped CI's `npm audit
+  --audit-level=high` gate unconditionally (no allowlist mechanism) — swapped
+  to ExcelJS (residual: 2 Moderate advisories in a transitive dep, under
+  CI's threshold), documented + flagged in SBOM.md. Verified: real openpyxl
+  round-trip done by hand against each library's output (genuine cross-tool
+  interop, all 5 sheets correct both times); 13 vitest cases (same-process
+  round trip) for ongoing CI; full frontend suite green, tsc/eslint clean,
+  `npm audit --audit-level=high` exits 0.)* Committee-pack `.xlsx` export (expansion 4.2): the current
   export is a documented dependency-free CSV stub (`export.ts:39-45`,
   S4 Ev-7); upgrade to real `.xlsx` via `openpyxl` (already a dependency for
   ingestion reads — `requirements.txt`) on the backend, or `npm i xlsx` on
@@ -633,8 +657,8 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   assumptions + headline `metric_facts`; every sheet stamped run id + as-of.
   **Verify:** export produces a valid `.xlsx` readable by openpyxl round-trip
   test. **Exit:** C6's same-number-everywhere assertion extends to the export.
-  **Latest:** current checkout still exports CSV; green candidate/stamp PRs
-  #189/#190 remain open and are not counted as delivered.
+  **Latest:** PRs #189/#190 are merged to `origin/main`; this branch preserves
+  that export control alongside the checkpoint-first save flow.
 - [ ] **C10 (M) — worklist action semantics (UW-01–UW-03).** Decide and
   implement the real contract for issuer assign-owner/refresh/delete and the
   Sponsor primary review action. Omitted actions may stay omitted if the

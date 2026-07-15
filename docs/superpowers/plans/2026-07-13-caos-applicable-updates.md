@@ -1,6 +1,6 @@
 # CAOS Applicable Updates — durable execution contract
 
-Date: 2026-07-13. Status: **Phases 0 through 4 implemented; Phase 5 is next.**
+Date: 2026-07-13. Status: **Phases 0 through 5 implemented; Phase 6 is next.**
 The vendored `Modular OS/CP-2G/` and `Modular OS/CP-4D/` directories are the
 source of truth for those analytical contracts; their checked manifests freeze
 the supplied bytes.
@@ -21,13 +21,13 @@ pending except CC2, which was already complete when this contract was approved.
 
 | ID | Request | Approved disposition | Phase | Dependencies | Flag | Acceptance test / evidence | Rollback | Status |
 |---|---|---|---:|---|---|---|---|---|
-| A1 | Remove standalone issuer search | Implement; preserve Alt+S through Command Palette | 5 | Shared command palette and issuer route | None | No standalone search; Alt+S opens palette and finds issuer | Restore prior search mount | [ ] |
-| A2 | Ticker/name opens issuer profile | Implement shared interaction contract | 5 | Canonical issuer link component | None | Keyboard/click tests across every ticker/name surface | Restore surface-local links | [ ] |
+| A1 | Remove standalone issuer search | Implement; preserve Alt+S through Command Palette | 5 | Shared command palette and issuer route | None | No standalone search; Alt+S opens palette and finds issuer | Restore prior search mount | [x] |
+| A2 | Ticker/name opens issuer profile | Implement shared interaction contract | 5 | Canonical issuer link component | None | Keyboard/click tests across every ticker/name surface | Restore surface-local links | [x] |
 | A3 | Consolidate data into vault | Implement canonical artifact lineage, not a duplicate store | 1 | Transactional lineage schema and authorization | `CAOS_LINEAGE_V2_ENABLED` | Atomic lineage, tenant denial, backfill and provenance E2E | Flag off; retain additive audit data | [x] |
 | A4 | Small grey text | Role-based legibility remediation | 6 | Role views and token audit | None | Contrast, 200% zoom, role-view and axe checks | Revert token/component changes | [ ] |
 | A5 | Numerical chart visibility | Responsive charts and equivalent tables | 6 | Shared chart sizing/table fallback | None | Resize, keyboard, contrast and equivalent-data assertions | Restore current chart renderer | [ ] |
 | A6 | Key/action visibility | Promote decision-bearing actions; preserve progressive disclosure | 5-6 | Workflow hierarchy plus legibility tokens | None | Role-task usability, keyboard order and responsive checks | Revert action placement/tokens independently | [ ] |
-| A7 | Header-click collapse | Apply only to collapsible section shells | 5 | Shared collapsible section contract | None | Header/button keyboard, ARIA state and non-collapsible guard tests | Disable header activation | [ ] |
+| A7 | Header-click collapse | Apply only to collapsible section shells | 5 | Shared collapsible section contract | None | Header/button keyboard, ARIA state and non-collapsible guard tests | Disable header activation | [x] |
 | A8 | Information staleness | Central source-aware freshness policy | 1 | Canonical lineage timestamps/source classes | `CAOS_LINEAGE_V2_ENABLED` | Boundary-age, timezone, unknown-source and UI label tests | Flag off; use existing timestamps | [x] |
 | A9 | Bloomberg `.xlsx` feed | Preview/commit into immutable market snapshots | 2 | Lineage v2 and price-feed specification | `CAOS_MARKET_XLSX_V2_ENABLED` | Hostile corpus, cached formula/as-of, auth and atomic commit tests | Flag off; preserve snapshots/audit | [x] |
 | DD1 | Add 2G/3D | Add CP-2G and attached CP-4D; CP-3D already exists | 4 | Vendored contracts, lineage and adapters | `CAOS_CP_2G_ENABLED`, `CAOS_CP_4D_ENABLED` | Manifest/schema goldens, source gates and flag-off parity | Disable each module independently | [x] |
@@ -36,16 +36,16 @@ pending except CC2, which was already complete when this contract was approved.
 | MB1 | Base rates/interest/debt math | Replace hard-coded values with canonical debt engine | 3 | One canonical calculator and debt inputs | `CAOS_MODEL_ENGINE_V2_ENABLED` | Golden debt/interest/base-rate parity and finite-number tests | Disable V2; live issuers fail closed and only Atlas reference may use the fixture calculator | [x] |
 | MB2 | Key-account emphasis | Tune negative and decision-bearing totals | 6 | Model semantic row classes | None | Contrast and sign/total visual-regression assertions | Revert emphasis tokens | [ ] |
 | MB3 | Period separation | Verify and tune existing implementation | 6 | Stable period keys | None | Period grouping, scroll, print and responsive assertions | Revert gutter/rule tuning | [ ] |
-| MB4 | Scenario Builder/Network clarity | Separate into two named modes | 5 | Persisted mode and shared model state | None | Mode labels, state preservation and keyboard navigation tests | Restore combined view | [ ] |
+| MB4 | Scenario Builder/Network clarity | Separate into two named modes | 5 | Persisted mode and shared model state | None | Mode labels, state preservation and keyboard navigation tests | Restore combined view | [x] |
 | MB5 | Unsaved-leave warning | Implement with user preference | 3 | Dirty-state model and analyst settings | `CAOS_MODEL_ENGINE_V2_ENABLED` | Navigation/browser-exit and preference persistence tests | Disable V2 route; retain drafts and analyst preference | [x] |
 | MB6 | Edit any cell | Audited any-cell override layer | 3 | Typed keys, auth, lineage and calculator | `CAOS_MODEL_ENGINE_V2_ENABLED` | Type/auth/audit, undo and downstream recomputation tests | Disable V2 route; retain overrides/audit and never feed them to the fixture calculator | [x] |
 | MB7 | Import model | Versioned preview/mapping/commit workflow | 3 | Model workbook spec, lineage and calculator | `CAOS_MODEL_ENGINE_V2_ENABLED` | Hostile workbook, mapping, no-write preview and atomic commit tests | Disable V2/import endpoints; retain versions and audit | [x] |
-| PL1 | Upload to Execution Graph | Exact-run navigation and live polling | 5 | Run identity and durable execution state | None | Upload-to-run deep-link, reconnect and terminal polling tests | Restore prior upload destination | [ ] |
-| PL2 | Global completion toasts | Durable analyst-scoped events | 5 | Durable events and analyst identity | None | Restart, tenant isolation, dedupe and keyboard toast tests | Disable delivery; retain event ledger | [ ] |
+| PL1 | Upload to Execution Graph | Exact-run navigation and live polling | 5 | Run identity and durable execution state | None | Upload-to-run deep-link, reconnect and terminal polling tests | Restore prior upload destination | [x] |
+| PL2 | Global completion toasts | Durable analyst-scoped events | 5 | Durable events and analyst identity | None | Restart, tenant isolation, dedupe and keyboard toast tests | Disable delivery; retain event ledger | [x] |
 | PL3 | DAG responsiveness | Adaptive inspector and legible graph layout | 6 | Execution Graph semantics | None | Resize, dense DAG, keyboard inspector and reduced-motion tests | Restore current graph layout | [ ] |
-| CC1 | Coverage table | Bind positions to persisted portfolios; harmonize row behavior | 5 | Persisted portfolio positions and issuer links | None | Live binding, empty/error, row keyboard and tenant tests | Restore current adapter/table | [ ] |
+| CC1 | Coverage table | Bind positions to persisted portfolios; harmonize row behavior | 5 | Persisted portfolio positions and issuer links | None | Live binding, empty/error, row keyboard and tenant tests | Restore current adapter/table | [x] |
 | CC2 | Remove ASK bar | Already complete; no product change | none | None | None | Regression assertion that removed bar stays absent | No rollback needed | [x] |
-| CC3 | Posture above Watchtower | Bind posture to live portfolio first, then reorder | 5 | CC1 live portfolio posture | None | Live posture provenance, order and degraded-state tests | Restore current ordering/adapter | [ ] |
+| CC3 | Posture above Watchtower | Bind posture to live portfolio first, then reorder | 5 | CC1 live portfolio posture | None | Live posture provenance, order and degraded-state tests | Restore current ordering/adapter | [x] |
 | RB1 | Grey report text | Paper-specific legibility remediation | 6 | Report paper tokens | None | Print/PDF contrast and visual-regression checks | Revert paper token changes | [ ] |
 | RB2 | Appendix period/case spacing | Add column-group gutters/rules | 6 | Stable appendix period/case groups | None | Full-grid print snapshot and group-boundary assertions | Revert gutters/rules | [ ] |
 
@@ -77,7 +77,7 @@ pending except CC2, which was already complete when this contract was approved.
 - [x] **Phase 4 — analytical modules:** DD1 adds both CP-4D and CP-2G under
   independent `CAOS_CP_4D_ENABLED` and `CAOS_CP_2G_ENABLED` flags; depends on
   lineage and exact prompt/schema compatibility. CP-3D already exists.
-- [ ] **Phase 5 — workflow and navigation:** A1, A2, A6 workflow scope, A7,
+- [x] **Phase 5 — workflow and navigation:** A1, A2, A6 workflow scope, A7,
   MB4, PL1, PL2, CC1 and CC3; CC2 remains already complete. Each interaction
   change is independently revertible.
 - [ ] **Phase 6 — legibility and responsive density:** A4, A5, A6 visual scope,
@@ -202,6 +202,36 @@ pending except CC2, which was already complete when this contract was approved.
   TypeScript, ESLint, Python compile, production build, prompt manifests,
   module consistency (**26 modules, 0 drift**) and `git diff --check` passed.
   The seven loopback antivirus cases remain environment-limited and unchanged.
+
+## Phase 5 implementation evidence
+
+- [x] Removed the standalone issuer-search mount and remapped Alt+S to the
+  unified Command Palette. Applied the exact-ID `IssuerLink` contract across
+  ticker/name surfaces with propagation guards so issuer links open profiles
+  while keyboard-operable row remainders open local detail strips.
+- [x] Replaced Command Center sample holdings with an authorized persisted-
+  portfolio snapshot. Position posture is derived from the latest completed
+  run bound to both portfolio and issuer; missing portfolios, empty holdings,
+  unavailable data and unauthorized IDs render honest states rather than demo
+  values. Portfolio posture now precedes Ranked Changes / Watchtower.
+- [x] Routed successful uploads to the exact Pipeline execution graph and added
+  visibility-aware queued/running polling through terminal state. Added durable
+  analyst-scoped completion/failure events with idempotent terminal writes,
+  cursor delivery, seen state, no initial-history replay, linked deduplicated
+  toasts and foreign-object 404 behavior. Model imports remain synchronous, so
+  no asynchronous model-import event is emitted by the current contract.
+- [x] Split Scenario into independently retained `Model scenario` and
+  `Cross-module propagation` modes, promoted frequent intake/import/model/report
+  actions, and made genuine collapsible section headers keyboard buttons with
+  `aria-expanded` without changing sortable/filterable table headers.
+- [x] Verification: focused command, notification, upload/polling, scenario,
+  link and collapsible tests passed; full server excluding the sandbox-bound AV
+  file **1790 passed, 9 skipped**; full frontend **153 files / 837 tests**.
+  TypeScript, clean ESLint, production build, migration 0058 upgrade-downgrade-
+  reupgrade/ORM check and `git diff --check` passed. The built Command Center
+  Playwright verifier passed at 1440x900, 1024x768 and 390x844 with preserved
+  URL state, one dominant table, restored drawer focus, no region overlap and
+  no document overflow.
 
 ## Acceptance gates
 
