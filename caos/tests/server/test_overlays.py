@@ -152,6 +152,18 @@ def test_liquidity_none_insufficient():
     assert p.confidence == "Insufficient Information"
 
 
+def test_liquidity_invalid_cp1_domain_never_publishes_negative_runway_claim():
+    p = _run(synthesize_liquidity(
+        _retrieve("The $300 million revolving credit facility remained undrawn."),
+        _cp1(coverage=-2.0),
+    ))
+    assert p.confidence == "Insufficient Information"
+    assert p.runtime_output["annual_cash_interest_musd"] is None
+    assert p.runtime_output["months_liquidity_covers_interest"] is None
+    assert p.limitation_flags
+    assert "covers ~-" not in p.claims[0].claim_text
+
+
 # ── CP-3B recovery / instrument preference (doc scan + waterfall) ────────────────
 
 def test_capstructure_orders_by_seniority():

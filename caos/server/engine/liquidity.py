@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest_annual, safe_div
+from engine.periods import is_finite_number, latest_annual, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -99,7 +99,7 @@ def _interest_runway_months(
     if not is_finite_number(annual_cash_interest) or annual_cash_interest <= 0:
         return None, None
 
-    runway = safe_div(disclosed_liquidity * 12, annual_cash_interest)
+    runway = safe_div(safe_mul(disclosed_liquidity, 12), annual_cash_interest)
     if runway is None or runway < 0:
         return None, None
     rounded_runway = round(runway, 1)
@@ -125,12 +125,24 @@ async def synthesize_liquidity(retrieve, cp1: Optional[ModulePayload] = None) ->
 
     # Sum only true liquidity SOURCES — the maturity wall is a use, not a source, so it
     # must not inflate disclosed liquidity or the interest runway. (review run-2 #B1)
-    quantified = [f for f in found
-                  if f["source"] != _MATURITY_WALL and is_finite_number(f["amount_musd"])]
+    source_amounts = [f for f in found if f["source"] != _MATURITY_WALL]
+    invalid_amounts = [
+        f for f in source_amounts
+        if is_finite_number(f["amount_musd"]) and f["amount_musd"] < 0
+    ]
+    quantified = [
+        f for f in source_amounts
+        if is_finite_number(f["amount_musd"]) and f["amount_musd"] >= 0
+    ]
     total = round(sum(f["amount_musd"] for f in quantified), 1) if quantified else None
     cash_interest, runway = _interest_runway_months(total, cp1)
     limitation_flags: List[str] = []
     confidence = "High" if quantified else "Medium"
+    if invalid_amounts:
+        limitation_flags.append(
+            "Negative disclosed-liquidity amounts were excluded from the liquidity total."
+        )
+        confidence = "Insufficient Information"
     if quantified and runway is None:
         limitation_flags.append(
             "Interest runway unavailable: disclosed liquidity must be non-negative "

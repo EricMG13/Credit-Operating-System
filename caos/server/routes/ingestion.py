@@ -320,7 +320,9 @@ async def upload_document(
         malware_scan = await avscan.scan(content)
         # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
         # large upload doesn't block the event loop for every other request.
-        text, used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
+        text, used_ocr = await ingest.parse_bounded(
+            ingest.extract_pdf_text, content, file.filename or "upload.pdf"
+        )
     if origin not in {"live", "reference", "demo"}:
         raise HTTPException(422, "origin must be one of: live, reference, demo")
     if method not in {"reported", "derived", "modelled"}:
@@ -432,7 +434,9 @@ async def upload_pricing_sheet(
         ingest.sniff_xlsx(content)
         # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
         # upload_document) so a large workbook doesn't stall the single event loop.
-        text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
+        text = await ingest.parse_bounded(
+            ingest.extract_xlsx_text, content, file.filename or "upload.xlsx"
+        )
     if origin not in {"live", "reference", "demo"}:
         raise HTTPException(422, "origin must be one of: live, reference, demo")
     if method not in {"reported", "derived", "modelled"}:
@@ -528,7 +532,9 @@ async def upload_memo(  # noqa: C901
             # Memo chunking (chunk_memo_into_corpus) has no provenance column of
             # its own yet — used_ocr is discarded here, unlike upload_document's
             # document_chunks.prov tagging (D1). Out of scope for this pass.
-            text, _used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
+            text, _used_ocr = await ingest.parse_bounded(
+                ingest.extract_pdf_text, content, name
+            )
         else:
             text = content.decode("utf-8", "replace")
     if not text.strip():

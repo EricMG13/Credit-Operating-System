@@ -7,6 +7,7 @@
 // offline sim demo unchanged ("prefer live, static fallback", same contract as
 // useLiveRun).
 
+import axios from "axios";
 import { getModule, getRun } from "@/lib/api";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
 import { useEffect, useState } from "react";
@@ -111,10 +112,19 @@ export function buildLiveSnapshot(run: RunSummaryDTO, cpx: ModuleDetailDTO | nul
   };
 }
 
-const buildPipeline = async (latest: { id: string }): Promise<LivePipeline> => {
+const optionalModule = async (runId: string, moduleId: string) => {
+  try {
+    return await getModule(runId, moduleId);
+  } catch (reason) {
+    if (axios.isAxiosError(reason) && reason.response?.status === 404) return null;
+    throw reason;
+  }
+};
+
+export const buildPipeline = async (latest: { id: string }): Promise<LivePipeline> => {
   const [run, cpx] = await Promise.all([
     getRun(latest.id),
-    getModule(latest.id, "CP-X").catch(() => null),
+    optionalModule(latest.id, "CP-X"),
   ]);
   return buildLiveSnapshot(run, cpx);
 };

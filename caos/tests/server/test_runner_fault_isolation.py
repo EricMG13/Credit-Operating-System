@@ -5,6 +5,7 @@ shape making a downstream pure module raise TypeError mid-gather.)"""
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy import select
 
 import engine.runner as runner
@@ -45,3 +46,35 @@ async def test_non_synthesiserror_isolates_to_blocked(seeded_db, monkeypatch):
         by = {r.module_id: r for r in rows}
         assert by["CP-2F"].qa_status == "Blocked"        # the fault was gated
         assert by["CP-1A"].qa_status != "Blocked"        # a same-layer peer survived
+
+
+@pytest.mark.asyncio
+async def test_session_bound_database_failure_aborts_run_for_rollback(seeded_db, monkeypatch):
+    """A DB failure on the shared session must not become a persisted gate."""
+    from database import AsyncSessionLocal, ModuleOutput, Run
+    from run_executor import execute_run_by_id
+
+    orig = runner.resolve_binding
+
+    async def database_fault(ctx, *args, **kwargs):
+        if ctx.module_id == "CP-0":
+            raise OperationalError("SELECT documents", {}, Exception("connection lost"))
+        return await orig(ctx, *args, **kwargs)
+
+    monkeypatch.setattr(runner, "resolve_binding", database_fault)
+
+    async with AsyncSessionLocal() as session:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="db-fault-regression")
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await execute_run_by_id(run_id)
+
+    async with AsyncSessionLocal() as session:
+        run = await session.get(Run, run_id)
+        rows = (await session.execute(
+            select(ModuleOutput).where(ModuleOutput.run_id == run_id)
+        )).scalars().all()
+        assert run.status == "failed"
+        assert rows == []

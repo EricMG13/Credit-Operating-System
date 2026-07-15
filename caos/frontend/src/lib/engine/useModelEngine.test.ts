@@ -8,7 +8,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useModelEngine } from "./useModelEngine";
-import { listRuns } from "@/lib/api";
+import { getModule, listRuns } from "@/lib/api";
+import type { ModuleDetailDTO } from "./types";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -39,5 +40,40 @@ describe("useModelEngine · phase (M-4)", () => {
     expect(noCoverageRest).toEqual({
       anchor: null, downside: null, runId: null, committeeStatus: null, live: false, loading: false,
     });
+  });
+
+  it("treats only a CP-2B 404 as optional", async () => {
+    vi.mocked(listRuns).mockResolvedValue([{
+      id: "run-1", issuer_id: "issuer-1", status: "complete", qa_status: "Passed",
+      committee_status: "Committee Ready", as_of_date: null, created_at: "2026-07-16T00:00:00Z",
+    }]);
+    const cp1 = {
+      module_id: "CP-1", module_name: "CP-1", owned_object: "financials", schema_family: "Nested",
+      confidence: "High", qa_status: "Passed", committee_status: "Committee Ready",
+      validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: [],
+      runtime_output: { normalized_financials: {
+        revenue: { LTM: 100 }, adj_ebitda: { LTM: 20 }, net_debt_ltm: 80,
+        net_leverage_adj_ltm: 4, interest_coverage_ltm: 2,
+      } },
+    } as ModuleDetailDTO;
+    vi.mocked(getModule)
+      .mockResolvedValueOnce(cp1)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } });
+
+    const missing = renderHook(() => useModelEngine("issuer-1"));
+    await waitFor(() => expect(missing.result.current.phase).toBe("complete"));
+    expect(missing.result.current.anchor?.ltmRevenue).toBe(100);
+    expect(missing.result.current.downside).toBeNull();
+
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-2", issuer_id: "issuer-2", status: "complete", qa_status: "Passed",
+      committee_status: "Committee Ready", as_of_date: null, created_at: "2026-07-16T00:00:00Z",
+    }]);
+    vi.mocked(getModule)
+      .mockResolvedValueOnce(cp1)
+      .mockRejectedValueOnce({ isAxiosError: true, response: { status: 500 } });
+    const broken = renderHook(() => useModelEngine("issuer-2"));
+    await waitFor(() => expect(broken.result.current.phase).toBe("error"));
+    expect(broken.result.current.anchor).toBeNull();
   });
 });

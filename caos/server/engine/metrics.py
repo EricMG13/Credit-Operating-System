@@ -21,7 +21,7 @@ from sqlalchemy import ColumnElement
 
 from database import MetricFact
 from engine.gate import Finding
-from engine.periods import is_finite_number, latest, latest_annual, safe_div, sort_key
+from engine.periods import is_finite_number, latest, latest_annual, safe_div, safe_mul, sort_key
 from engine.schemas import ModulePayload
 
 
@@ -232,7 +232,8 @@ def extract_facts(  # noqa: C901
         # v needs its own guard BEFORE the scaling: the live CP-1 schema permits null
         # leaves ("set undisclosed metrics to null"), and 100 * None raises TypeError
         # before safe_div ever sees it — killing the whole run at projection.
-        m = safe_div(100 * v, rv) if is_finite_number(v) else None
+        numerator = safe_mul(100, v)
+        m = safe_div(numerator, rv)
         if m is not None:
             add("ebitda_margin", period, round(m, 1), "%", period == eb_headline)
 
@@ -244,7 +245,8 @@ def extract_facts(  # noqa: C901
         add("fcf", period, v, money_unit, period == fcf_headline)
         rv = rev.get(period)
         # same null-leaf guard as ebitda_margin above: 100 * None raises
-        m = safe_div(100 * v, rv) if is_finite_number(v) else None
+        numerator = safe_mul(100, v)
+        m = safe_div(numerator, rv)
         if m is not None:
             add("fcf_conversion", period, round(m, 1), "%", period == fcf_headline)
 

@@ -31,6 +31,11 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
   const analysis = useAnalysisContext({ name: "Document intake" });
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
+  const [issuerLoadState, setIssuerLoadState] = useState<"loading" | "ready" | "error">(
+    initialIssuers.length > 0 ? "ready" : "loading",
+  );
+  const [issuerLoadError, setIssuerLoadError] = useState("");
+  const issuerLoadGenerationRef = useRef(0);
   const [issuerQuery, setIssuerQuery] = useState("");
   const [selectedIssuer, setSelectedIssuer] = useState<Issuer | null>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -325,12 +330,26 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     runQueuedRef.current = false;
   };
 
-  useEffect(() => {
-    if (issuers.length === 0) {
-      getIssuers().then(setIssuers).catch(() => {});
+  const loadIssuerDirectory = useCallback(async () => {
+    const generation = ++issuerLoadGenerationRef.current;
+    setIssuerLoadState("loading");
+    setIssuerLoadError("");
+    try {
+      const loaded = await getIssuers();
+      if (generation !== issuerLoadGenerationRef.current) return;
+      setIssuers(loaded);
+      setIssuerLoadState("ready");
+    } catch (err) {
+      if (generation !== issuerLoadGenerationRef.current) return;
+      setIssuerLoadState("error");
+      setIssuerLoadError(toErrorMessage(err, "Could not load the issuer directory"));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (initialIssuers.length === 0) void loadIssuerDirectory();
+    return () => { issuerLoadGenerationRef.current += 1; };
+  }, [initialIssuers.length, loadIssuerDirectory]);
 
   // Deep-link: arriving with ?issuer=<id> for an issuer that already exists
   // pre-selects it and skips straight to "Files & run mode" (step 02). Only
@@ -377,6 +396,20 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         <div className="rounded border px-3 py-2 flex items-center gap-2" style={{ borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 7%, transparent)" }}>
           <Dot sev="critical" />
           <span className="text-caos-lg" style={{ color: "var(--caos-critical-bright)" }}>{error}</span>
+        </div>
+      ) : null}
+
+      {step === "issuer" && issuerLoadState === "loading" ? (
+        <p role="status" className="rounded border border-caos-border px-3 py-2 text-caos-sm text-caos-muted">
+          Loading issuer directory…
+        </p>
+      ) : null}
+      {step === "issuer" && issuerLoadState === "error" ? (
+        <div role="alert" className="rounded border border-caos-critical/50 px-3 py-2 flex items-center gap-3">
+          <span className="flex-1 text-caos-sm text-caos-critical">{issuerLoadError}</span>
+          <button type="button" className="caos-action-secondary focus-ring" onClick={() => void loadIssuerDirectory()}>
+            Retry issuer load
+          </button>
         </div>
       ) : null}
 

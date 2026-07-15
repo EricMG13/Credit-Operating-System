@@ -18,7 +18,7 @@ vi.mock("@/lib/engine/useLatestRun", () => ({
   useLatestRunStatus: () => ({ value: null, phase: "loading", latest: null }),
 }));
 
-import { useLivePipelineStatus } from "./useLivePipeline";
+import { buildPipeline, useLivePipelineStatus } from "./useLivePipeline";
 
 function exactRun(status: string): RunSummaryDTO {
   return {
@@ -76,5 +76,18 @@ describe("useLivePipelineStatus exact-run polling", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
     expect(mocks.getRun).toHaveBeenCalledTimes(4);
+  });
+
+  it("falls back only for a missing CP-X module and rejects other failures", async () => {
+    mocks.getRun.mockResolvedValue(exactRun("complete"));
+    mocks.getModule.mockRejectedValueOnce({ isAxiosError: true, response: { status: 404 } });
+    await expect(buildPipeline({ id: "run-exact" })).resolves.toMatchObject({
+      runId: "run-exact", gateStatus: "Committee Ready",
+    });
+
+    mocks.getModule.mockRejectedValueOnce({ isAxiosError: true, response: { status: 500 } });
+    await expect(buildPipeline({ id: "run-exact" })).rejects.toMatchObject({
+      response: { status: 500 },
+    });
   });
 });

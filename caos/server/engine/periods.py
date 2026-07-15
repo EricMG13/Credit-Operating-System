@@ -144,3 +144,19 @@ def safe_div(numerator: object, denominator: object) -> Optional[float]:
         result = float(numerator) / float(denominator)
         return result if math.isfinite(result) else None
     return None
+
+
+def safe_mul(left: object, right: object) -> Optional[float]:
+    """Finite-guarded multiplication for CP-1 arithmetic."""
+    if not (is_finite_number(left) and is_finite_number(right)):
+        return None
+    result = float(left) * float(right)
+    return result if math.isfinite(result) else None
+
+
+def safe_add(left: object, right: object) -> Optional[float]:
+    """Finite-guarded addition used before CP-1 divides."""
+    if not (is_finite_number(left) and is_finite_number(right)):
+        return None
+    result = float(left) + float(right)
+    return result if math.isfinite(result) else None

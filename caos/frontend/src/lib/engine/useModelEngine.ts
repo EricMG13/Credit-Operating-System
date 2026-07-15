@@ -4,6 +4,7 @@
 // run, and on no run / no backend / any error returns {live:false, anchor:null}
 // so the offline Model Builder falls back to its seeded constants unchanged.
 
+import axios from "axios";
 import { getModule } from "@/lib/api";
 import { cp1ToAnchor, type ModelAnchor } from "./modelAnchor";
 import { cp2bToDownside, type DownsidePathway } from "./downsidePathway";
@@ -42,6 +43,15 @@ const EMPTY_VALUE: ModelEngineValue = {
   anchor: null, downside: null, runId: null, committeeStatus: null, live: false,
 };
 
+async function getOptionalModule(runId: string, moduleId: string) {
+  try {
+    return await getModule(runId, moduleId);
+  } catch (reason) {
+    if (axios.isAxiosError(reason) && reason.response?.status === 404) return null;
+    throw reason;
+  }
+}
+
 export function useModelEngine(issuerId: string): ModelEngineState {
   const status = useLatestRunStatus<ModelEngineValue>(
     issuerId,
@@ -52,7 +62,7 @@ export function useModelEngine(issuerId: string): ModelEngineState {
       // fetch so a Blocked/absent CP-2B never rejects the pair and drops the anchor.
       const [cp1, cp2b] = await Promise.all([
         getModule(latest.id, "CP-1"),
-        getModule(latest.id, "CP-2B").catch(() => null),
+        getOptionalModule(latest.id, "CP-2B"),
       ]);
       const anchor = cp1ToAnchor(cp1);
       return {

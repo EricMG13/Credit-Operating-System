@@ -74,4 +74,36 @@ describe("useLiveRun · phase (M-1/M-2 regression)", () => {
     expect(getRun).toHaveBeenCalledWith("run-exact");
     expect(listRuns).not.toHaveBeenCalled();
   });
+
+  it("surfaces a module fetch failure instead of a blank successful run", async () => {
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-broken",
+      issuer_id: "issuer-broken",
+      status: "complete",
+      qa_status: "Passed",
+      committee_status: "Committee Ready",
+      as_of_date: null,
+      created_at: "2026-07-16T00:00:00Z",
+    }]);
+    vi.mocked(getModules).mockRejectedValueOnce(new Error("module payload unavailable"));
+
+    const result = renderHook(() => useLiveRun("issuer-broken"));
+    await waitFor(() => expect(result.result.current.phase).toBe("error"));
+    expect(result.result.current.runId).toBeNull();
+    expect(result.result.current.liveOuts).toEqual({});
+  });
+
+  it("surfaces a QA fallback failure instead of reporting a complete blank council", async () => {
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-qa-broken", issuer_id: "issuer-qa", status: "complete",
+      qa_status: "Restricted", committee_status: "Restricted", as_of_date: null,
+      created_at: "2026-07-16T00:00:00Z",
+    }]);
+    vi.mocked(getModules).mockResolvedValueOnce([]);
+    vi.mocked(getQA).mockRejectedValueOnce(new Error("QA unavailable"));
+
+    const result = renderHook(() => useLiveRun("issuer-qa"));
+    await waitFor(() => expect(result.result.current.phase).toBe("error"));
+    expect(result.result.current.runId).toBeNull();
+  });
 });

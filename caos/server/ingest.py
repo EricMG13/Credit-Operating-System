@@ -7,6 +7,7 @@ downstream retrieval.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
@@ -15,7 +16,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, TypeVar
 
 from fastapi import HTTPException, UploadFile
 
@@ -43,6 +44,21 @@ _READ_CHUNK = 1024 * 1024  # 1 MB
 _MAX_XLSX_NONEMPTY_CELLS = 500_000
 _MAX_XLSX_CELL_TEXT = 4_096
 _MAX_XLSX_EXTRACTED_CHARS = 8_000_000
+_T = TypeVar("_T")
+
+
+async def parse_bounded(parser: Callable[..., _T], *args) -> _T:
+    """Run a synchronous parser off-loop with an analyst-visible time bound."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(parser, *args),
+            timeout=float(get_settings().upload_parse_timeout_s),
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            422,
+            "Upload parsing exceeded the configured time limit; split or simplify the file.",
+        ) from exc
 
 
 async def read_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
@@ -136,7 +152,10 @@ def _markitdown_text(content: bytes, filename: str) -> Optional[str]:
                 timeout=settings.markitdown_timeout_s,
             )
         if proc.returncode == 0:
-            return proc.stdout.decode("utf-8", "replace").strip() or None
+            text = proc.stdout.decode("utf-8", "replace").strip()
+            if len(text) > settings.max_pdf_extracted_chars:
+                raise HTTPException(413, "Extracted document text exceeds the configured limit.")
+            return text or None
         logger.warning(
             "markitdown rc=%s — falling back. stderr=%s",
             proc.returncode,
@@ -170,7 +189,10 @@ def _ocrmypdf_text(content: bytes) -> str:
                 timeout=settings.ocrmypdf_timeout_s,
             )
             if proc.returncode == 0 and sidecar.exists():
-                return sidecar.read_text("utf-8", "replace").strip()
+                text = sidecar.read_text("utf-8", "replace").strip()
+                if len(text) > settings.max_pdf_extracted_chars:
+                    raise HTTPException(413, "OCR text exceeds the configured limit.")
+                return text
             logger.warning(
                 "ocrmypdf rc=%s — no OCR text. stderr=%s",
                 proc.returncode,
@@ -194,7 +216,22 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> tuple[str,
 
     try:
         reader = PdfReader(io.BytesIO(content))
-        text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        settings = get_settings()
+        if len(reader.pages) > settings.max_pdf_pages:
+            raise HTTPException(
+                413, f"PDF exceeds the {settings.max_pdf_pages}-page extraction limit."
+            )
+        parts: list[str] = []
+        extracted_chars = 0
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            extracted_chars += len(page_text)
+            if extracted_chars > settings.max_pdf_extracted_chars:
+                raise HTTPException(413, "Extracted PDF text exceeds the configured limit.")
+            parts.append(page_text)
+        text = "\n".join(parts)
+    except HTTPException:
+        raise
     except Exception:
         text = ""  # scanned / encrypted PDFs vault fine, just produce no chunks
     if text.strip():

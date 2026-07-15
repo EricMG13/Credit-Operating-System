@@ -48,6 +48,24 @@ def test_downside_payload_valid_and_lineage_clean():
     assert p.module_id == "CP-2B" and validate_payload(p) == [] and validate_lineage([p]) == []
 
 
+def test_thirty_percent_breach_flows_to_bear_case_and_profile_weakness():
+    from routes.issuers import _strengths_weaknesses
+
+    cp2b = _run(synthesize_downside(_cp1(5.0)))
+    assert cp2b.runtime_output["shock_to_breach_pct"] == 30
+    assert cp2b.runtime_output["fragility"] == "MODERATE"
+
+    bull, bear = debate._ic_signals({"CP-2B": cp2b})
+    assert not any(point.source == "CP-2B" for point in bull)
+    assert any(point.source == "CP-2B" for point in bear)
+
+    strengths, weaknesses = _strengths_weaknesses(
+        {"fragility": "MODERATE", "shock_to_breach_pct": 30}, {}
+    )
+    assert not any("Resilient" in item for item in strengths)
+    assert any("Moderate downside fragility" in item for item in weaknesses)
+
+
 # ── CP-3 relative value ────────────────────────────────────────────────────────
 
 def _cp1c(*percentiles):

@@ -182,6 +182,10 @@ class ResearchReportResult(BaseModel):
     tokens_used: int = 0
 
 
+class ResearchReportSynthesisError(RuntimeError):
+    """Live synthesis failed to produce the required structured payload."""
+
+
 @dataclass
 class ValidationResult:
     checked: int = 0
@@ -784,6 +788,24 @@ def _render_sections_markdown(payload: dict) -> str:
     return "\n".join(parts)
 
 
+_TRUNCATION_BANNER = (
+    "> **Report may be incomplete** — synthesis stopped at its "
+    "length cap before the model signaled completion. "
+    "Regenerate or use ai_mode=max for a longer report.\n\n"
+)
+
+
+def render_validated_research_report(payload: dict, *, truncated: bool = False) -> str:
+    """Render a payload only after its figures have been validated in place.
+
+    Live synthesis deliberately returns structured data without Markdown. The
+    executor owns the validate-then-render ordering and calls this public helper
+    after ``validate_report_figures`` has removed or gated unsupported claims.
+    """
+    markdown = _render_sections_markdown(payload)
+    return f"{_TRUNCATION_BANNER}{markdown}" if truncated else markdown
+
+
 # ── Synthesis (LLM path) ─────────────────────────────────────────────────────
 
 
@@ -996,13 +1018,11 @@ async def synthesize_research_report(
         })
         try:
             msg2 = await _final_message(model)
-        except Exception:
+        except Exception as exc:
             logger.exception("research report retry failed")
-            return ResearchReportResult(
-                payload={},
-                markdown="".join(text_parts).strip() or _demo_report(),
-                demo=False, truncated=True, tokens_used=tokens_used,
-            )
+            raise ResearchReportSynthesisError(
+                "structured report repair failed"
+            ) from exc
         await budget.trace_llm(msg2, lane="research_report", model=model)
         for block in msg2.content:  # type: ignore[union-attr]
             if getattr(block, "type", None) == "text":
@@ -1018,28 +1038,17 @@ async def synthesize_research_report(
 
     if not tool_input or not isinstance(tool_input, dict):
         logger.warning("research report: still no tool call after retry")
-        return ResearchReportResult(
-            payload={},
-            markdown="".join(text_parts).strip() or _demo_report(),
-            demo=False, truncated=True, tokens_used=tokens_used,
+        raise ResearchReportSynthesisError(
+            "structured report missing after repair"
         )
 
     truncated = last_stop in ("max_tokens",)
 
-    # Render markdown from the structured payload
-    markdown = _render_sections_markdown(tool_input)
-
-    if truncated:
-        _TRUNC_BANNER = (
-            "> **Report may be incomplete** — synthesis stopped at its "
-            "length cap before the model signaled completion. "
-            "Regenerate or use ai_mode=max for a longer report.\n\n"
-        )
-        markdown = _TRUNC_BANNER + markdown
-
     return ResearchReportResult(
         payload=tool_input,
-        markdown=markdown,
+        # Live Markdown is intentionally withheld until the executor validates
+        # and mutates the structured payload. Demo mode remains explicit above.
+        markdown="",
         demo=False,
         truncated=truncated,
         tokens_used=tokens_used,

@@ -2,13 +2,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
-vi.mock("@/lib/api", () => ({ getMe: vi.fn(), bindWorkspacePrincipal: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+  PRINCIPAL_STORAGE_KEY: "caos.principal.id",
+  getMe: vi.fn(),
+  bindWorkspacePrincipal: vi.fn(),
+  clearWorkspaceStorage: vi.fn(),
+}));
 
 import { AuthProvider, useAuth } from "./AuthProvider";
-import { getMe } from "@/lib/api";
+import { clearWorkspaceStorage, getMe } from "@/lib/api";
 
 const mockGetMe = vi.mocked(getMe);
+const mockClearWorkspaceStorage = vi.mocked(clearWorkspaceStorage);
 const PROFILE = { id: "a1", email: "e@x.co", full_name: "Eric Gub", role: "analyst", is_active: true, source: "profile" };
+const PROFILE_B = { ...PROFILE, id: "a2", full_name: "Second Analyst" };
 const ORIGINAL_DISABLE_LOGIN = process.env.NEXT_PUBLIC_CAOS_DISABLE_LOGIN;
 
 function Consumer() {
@@ -46,6 +53,7 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
 
     expect(await screen.findByText("login-landing")).toBeTruthy();
     expect(mockGetMe).toHaveBeenCalledTimes(2); // mount + event
+    expect(mockClearWorkspaceStorage).toHaveBeenCalledTimes(1);
   });
 
   it("re-resolves on tab refocus (catches the silent SSO principal swap)", async () => {
@@ -56,5 +64,37 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
 
     await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(mockGetMe).toHaveBeenCalledTimes(2); // visibilityState defaults to "visible" in jsdom
+  });
+
+  it("ignores an older refresh that settles after a newer principal", async () => {
+    let resolveFirst!: (value: typeof PROFILE) => void;
+    mockGetMe
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(PROFILE_B);
+
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    await act(async () => { window.dispatchEvent(new Event("caos:auth-lost")); });
+    expect(await screen.findByText("Second Analyst")).toBeTruthy();
+
+    await act(async () => { resolveFirst(PROFILE); await Promise.resolve(); });
+    expect(screen.getByText("Second Analyst")).toBeTruthy();
+    expect(screen.queryByText("Eric Gub")).toBeNull();
+  });
+
+  it("refreshes when another tab changes the principal marker", async () => {
+    mockGetMe.mockResolvedValueOnce(PROFILE).mockResolvedValueOnce(PROFILE_B);
+    render(<AuthProvider><Consumer /></AuthProvider>);
+    expect(await screen.findByText("Eric Gub")).toBeTruthy();
+
+    await act(async () => {
+      window.dispatchEvent(new StorageEvent("storage", {
+        key: "caos.principal.id",
+        oldValue: PROFILE.id,
+        newValue: PROFILE_B.id,
+      }));
+    });
+
+    expect(await screen.findByText("Second Analyst")).toBeTruthy();
+    expect(mockClearWorkspaceStorage).toHaveBeenCalledTimes(1);
   });
 });

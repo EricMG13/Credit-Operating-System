@@ -29,7 +29,7 @@ from engine import budget
 from engine.gate import Finding
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import is_finite_number, safe_div
+from engine.periods import is_finite_number, safe_add, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -376,8 +376,18 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
     if incr:
         amt, cid, incr_exact = incr
         if ebitda is not None:
-            pf_nd = nd + amt
-            pf_lev = round(pf_nd / ebitda, 2)
+            pf_nd = safe_add(nd, amt)
+            pf_lev_raw = safe_div(pf_nd, ebitda)
+            if pf_nd is None or pf_lev_raw is None:
+                limitations.append(
+                    "Pro-forma leverage was not computed because the CP-1/capacity arithmetic exceeded finite bounds."
+                )
+                pf_nd = None
+            else:
+                pf_lev = round(pf_lev_raw, 2)
+        else:
+            pf_nd = None
+        if pf_nd is not None:
             calcs.append({
                 "name": "Pro-forma net leverage after day-one incremental",
                 "formula": "(net debt + incremental capacity) / LTM adj. EBITDA",
@@ -432,39 +442,49 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
         # arithmetically faithful but meaningless ">100% EBITDA decline to a breach"
         # cushion in committee text (audit 2026-07-10 V3), and a thr<=0 blows the
         # divide — degrade to the sourced-threshold branch in both cases.
+        computed_headroom = False
         if is_finite_number(lev) and lev > 0 and is_finite_number(thr) and thr > 0:
-            headroom = round(thr - lev, 2)
-            cushion = round((1 - lev / thr) * 100, 1)
-            calcs.append({
-                "name": "Net leverage covenant headroom",
-                "formula": "covenant threshold − current net leverage",
-                "numerator": thr, "denominator": lev, "period": "LTM",
-                "value": headroom, "unit": "turns", "ebitda_cushion_pct": cushion,
-                "source": "Financial maintenance covenant (governing document)",
-            })
-            claims.append(ClaimSpec(
-                claim_id="C-CAP2",
-                claim_text=(
-                    f"The {cov_prefix}leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
-                    f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA decline to a breach, net debt flat)."
-                ),
-                evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
-                                       "Financial maintenance covenant threshold + CP-1 leverage",
-                                       "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
-            ))
-            if cov_basis in ("senior_secured", "first_lien"):
-                limitations.append(
-                    f"Covenant is {cov_label} net leverage ({thr:g}x) but CP-1 net leverage is "
-                    f"total/consolidated ({lev:g}x): the covenant tests a narrower (secured) debt "
-                    "basis, so the computed headroom is conservative (overstates breach risk)."
-                )
-            elif cov_basis is None:
-                limitations.append(
-                    f"The matched covenant text ({thr:g}x) states no leverage basis "
-                    "(total vs senior secured / first-lien): headroom is computed against CP-1's "
-                    "total net leverage and may be misstated if the covenant tests a narrower basis."
-                )
-        else:
+            headroom_raw = thr - lev
+            lev_fraction = safe_div(lev, thr)
+            cushion_raw = safe_mul(1 - lev_fraction, 100) if lev_fraction is not None else None
+            if (
+                lev_fraction is not None
+                and is_finite_number(headroom_raw)
+                and cushion_raw is not None
+            ):
+                computed_headroom = True
+                headroom = round(headroom_raw, 2)
+                cushion = round(cushion_raw, 1)
+                calcs.append({
+                    "name": "Net leverage covenant headroom",
+                    "formula": "covenant threshold − current net leverage",
+                    "numerator": thr, "denominator": lev, "period": "LTM",
+                    "value": headroom, "unit": "turns", "ebitda_cushion_pct": cushion,
+                    "source": "Financial maintenance covenant (governing document)",
+                })
+                claims.append(ClaimSpec(
+                    claim_id="C-CAP2",
+                    claim_text=(
+                        f"The {cov_prefix}leverage covenant is set at {thr:g}x; current {lev:g}x leaves "
+                        f"{headroom:g} turns of headroom (~{cushion:g}% EBITDA decline to a breach, net debt flat)."
+                    ),
+                    evidence=[EvidenceSpec("E-CAP2", "calculated_metric", "Calculated",
+                                           "Financial maintenance covenant threshold + CP-1 leverage",
+                                           "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
+                ))
+                if cov_basis in ("senior_secured", "first_lien"):
+                    limitations.append(
+                        f"Covenant is {cov_label} net leverage ({thr:g}x) but CP-1 net leverage is "
+                        f"total/consolidated ({lev:g}x): the covenant tests a narrower (secured) debt "
+                        "basis, so the computed headroom is conservative (overstates breach risk)."
+                    )
+                elif cov_basis is None:
+                    limitations.append(
+                        f"The matched covenant text ({thr:g}x) states no leverage basis "
+                        "(total vs senior secured / first-lien): headroom is computed against CP-1's "
+                        "total net leverage and may be misstated if the covenant tests a narrower basis."
+                    )
+        if not computed_headroom:
             claims.append(ClaimSpec(
                 claim_id="C-CAP2",
                 claim_text=f"The agreement sets a maximum {cov_prefix}leverage covenant of {thr:g}x (financial maintenance).",
@@ -474,7 +494,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
                                        "High" if cov_exact else "Medium", resolved_chunk_id=cid)],
             ))
             limitations.append(
-                "CP-1 did not provide net leverage — covenant threshold is sourced, but headroom is not computed."
+                "CP-1 did not provide finite positive net leverage, or the headroom arithmetic exceeded finite bounds — covenant threshold is sourced, but headroom is not computed."
             )
 
     if covenant_structure == "cov-lite":

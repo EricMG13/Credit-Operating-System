@@ -25,7 +25,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import edgar  # the covenant/legal retrieval lane — reused for HTTP + CIK helpers
 from engine.distress import altman_z_double_prime
-from engine.periods import is_finite_number
+from engine.periods import is_finite_number, safe_add, safe_div
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 logger = logging.getLogger("caos.edgar")
@@ -208,8 +208,8 @@ def _m(v: float) -> float:
 class _LevFacts:
     """Leverage-year debt/cash/coverage facts derived at the EBITDA period."""
 
-    total_debt: float
-    net_debt: float
+    total_debt: Optional[float]
+    net_debt: Optional[float]
     leverage: Optional[float]
     debt_fresh: bool
     int_ly: Optional[Tuple[float, str]]
@@ -229,8 +229,18 @@ def _ebitda_proxy(years: Sequence[int], opinc: Dict[int, Tuple[float, str]],
     back would overstate EBITDA and understate leverage, and companyfacts gives no
     calc-linkbase to confirm the charge sits above the operating-income subtotal —
     so gate on opinc < 0. (#26, #27)"""
-    return {y: opinc[y][0] + (da[y][0] if y in da else 0.0) + (impair[y][0] if (y in impair and opinc[y][0] < 0) else 0.0)
-            for y in years if y in opinc}
+    result: Dict[int, float] = {}
+    for year in years:
+        if year not in opinc:
+            continue
+        base = safe_add(opinc[year][0], da[year][0] if year in da else 0.0)
+        value = safe_add(
+            base,
+            impair[year][0] if (year in impair and opinc[year][0] < 0) else 0.0,
+        )
+        if value is not None:
+            result[year] = value
+    return result
 
 
 def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
@@ -244,8 +254,8 @@ def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
     ltd_at = _recent_instant(us, _LT_DEBT, ly)
     dcur_at = _recent_instant(us, _DEBT_CURRENT, ly)
     cash_at = _recent_instant(us, _CASH, ly)
-    total_debt = (ltd_at[1] if ltd_at else 0.0) + (dcur_at[1] if dcur_at else 0.0)
-    net_debt = total_debt - (cash_at[1] if cash_at else 0.0)
+    total_debt = safe_add(ltd_at[1] if ltd_at else 0.0, dcur_at[1] if dcur_at else 0.0)
+    net_debt = safe_add(total_debt, -(cash_at[1] if cash_at else 0.0))
     # Don't compute leverage off stale legs: net debt is summed from three
     # independently-dated XBRL instants (LT debt, current debt, cash), so EVERY
     # present leg must be within a year of the EBITDA period — a discontinued
@@ -268,15 +278,34 @@ def _leverage_and_coverage(us: dict, ly: int, eb_ly: Optional[float],
     # captured by these tags (e.g. Ford Credit) would otherwise yield a
     # misleading figure (negative or absurd leverage).
     leverage = None
-    if eb_ly and eb_ly > 0 and total_debt and net_debt > 0 and debt_fresh:
-        leverage = round(net_debt / eb_ly, 2)  # reported basis
-        financials["net_debt_ltm"] = _m(net_debt)
-        financials["net_leverage_adj_ltm"] = leverage
+    if (
+        is_finite_number(eb_ly)
+        and eb_ly > 0
+        and is_finite_number(total_debt)
+        and total_debt > 0
+        and is_finite_number(net_debt)
+        and net_debt > 0
+        and debt_fresh
+    ):
+        leverage_raw = safe_div(net_debt, eb_ly)
+        if leverage_raw is not None:
+            leverage = round(leverage_raw, 2)  # reported basis
+            financials["net_debt_ltm"] = _m(net_debt)
+            financials["net_leverage_adj_ltm"] = leverage
     # int_ly[0] > 0, not just truthy — symmetric with the leverage guard above: a
     # filer tagging interest as a negative XBRL value would otherwise emit a
     # nonsensical NEGATIVE coverage (finite but wrong-signed, BE1-1).
-    if eb_ly and eb_ly > 0 and int_ly and int_ly[0] and int_ly[0] > 0 and int_fresh:
-        financials["interest_coverage_ltm"] = round(eb_ly / int_ly[0], 2)
+    if (
+        is_finite_number(eb_ly)
+        and eb_ly > 0
+        and int_ly
+        and is_finite_number(int_ly[0])
+        and int_ly[0] > 0
+        and int_fresh
+    ):
+        coverage = safe_div(eb_ly, int_ly[0])
+        if coverage is not None:
+            financials["interest_coverage_ltm"] = round(coverage, 2)
     return _LevFacts(
         total_debt=total_debt, net_debt=net_debt, leverage=leverage, debt_fresh=debt_fresh,
         int_ly=int_ly, int_fresh=int_fresh,
@@ -316,7 +345,7 @@ def _altman_distress(us: dict, ly: int, opinc: Dict[int, Tuple[float, str]],
     # equity so the Altman score still computes (e.g. Carnival, cruise lines). Its
     # freshness is the older of the two inputs it derives from.
     if bs["total_liabilities"] is None and bs["total_assets"] is not None and bs["book_equity"] is not None:
-        bs["total_liabilities"] = bs["total_assets"] - bs["book_equity"]
+        bs["total_liabilities"] = safe_add(bs["total_assets"], -bs["book_equity"])
         ta_y, be_y = bs_year["total_assets"], bs_year["book_equity"]
         bs_year["total_liabilities"] = min(ta_y, be_y) if ta_y is not None and be_y is not None else None
     ebit = opinc[ly][0] if ly in opinc else None  # EBIT = operating income (excl. D&A)

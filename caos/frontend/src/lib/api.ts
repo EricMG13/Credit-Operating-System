@@ -195,14 +195,17 @@ export const clearWorkspaceStorage = () => {
   } catch { /* non-browser test harness */ }
 };
 
-const PRINCIPAL_STORAGE_KEY = "caos.principal.id";
+export const PRINCIPAL_STORAGE_KEY = "caos.principal.id";
 
 /** Re-key browser caches before a newly resolved principal is rendered. */
 export const bindWorkspacePrincipal = (principalId: string) => {
   if (typeof window === "undefined") return;
   let prior: string | null = null;
   try { prior = localStorage.getItem(PRINCIPAL_STORAGE_KEY); } catch {}
-  if (prior && prior !== principalId) clearWorkspaceStorage();
+  // A missing marker is not proof that the remaining browser state belongs to
+  // this analyst (it may pre-date principal binding). Treat it exactly like a
+  // principal change and start from a clean workspace.
+  if (prior !== principalId) clearWorkspaceStorage();
   try { localStorage.setItem(PRINCIPAL_STORAGE_KEY, principalId); } catch {}
 };
 

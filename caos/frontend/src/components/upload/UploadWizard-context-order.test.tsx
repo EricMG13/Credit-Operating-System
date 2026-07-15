@@ -7,6 +7,7 @@ import type { AnalysisContext } from "@/lib/analysis-workbench";
 const harness = vi.hoisted(() => {
   const context = {
     id: "context-1",
+    revision: 1,
     name: "Document intake",
     sector_id: null,
     sub_segments: [],
@@ -41,6 +42,7 @@ const harness = vi.hoisted(() => {
     push,
     analysis: { context, patch },
     createRun: vi.fn(),
+    getIssuers: vi.fn().mockResolvedValue([]),
     uploadDocument: vi.fn(),
   };
 });
@@ -70,7 +72,7 @@ vi.mock("@/lib/api", () => ({
   appendIngestionContext: vi.fn(),
   createIssuer: vi.fn(),
   createRun: harness.createRun,
-  getIssuers: vi.fn().mockResolvedValue([]),
+  getIssuers: harness.getIssuers,
   getPortfolios: vi.fn().mockResolvedValue([]),
   toErrorMessage: (_error: unknown, fallback: string) => fallback,
   uploadDocument: harness.uploadDocument,
@@ -94,6 +96,20 @@ afterEach(() => {
 });
 
 describe("UploadWizard manual run context ordering", () => {
+  it("distinguishes an issuer-directory failure and recovers on retry", async () => {
+    harness.getIssuers
+      .mockRejectedValueOnce(new Error("directory unavailable"))
+      .mockResolvedValueOnce([{ id: "issuer-retry", name: "Recovered Credit", ticker: "RC" }]);
+
+    render(<UploadWizard />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not load the issuer directory");
+    fireEvent.click(screen.getByRole("button", { name: "Retry issuer load" }));
+
+    expect(await screen.findByRole("button", { name: /Recovered Credit/i })).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("does not create the run until the issuer-scope patch resolves", async () => {
     let resolveScope: (context: AnalysisContext) => void = () => undefined;
     let issuerScopeCalls = 0;

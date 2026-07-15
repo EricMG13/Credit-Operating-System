@@ -84,7 +84,7 @@ export function useLiveRun(issuerId: string, exactRunId?: string | null): LiveRu
       // three queries) instead of the old 21-request fan-out per deep-dive open.
       // LIVE_MODULES still scopes which ids the UI adapts; extras are ignored.
       const eligible = new Set(LIVE_MODULES);
-      const all = await getModules(latest.id).catch(() => []);
+      const all = await getModules(latest.id);
       const details = all.filter((d) => eligible.has(d.module_id));
       const liveOuts: Record<string, ModuleOutput> = {};
       const liveStatus: Record<string, string> = {};
@@ -117,8 +117,8 @@ export function useLiveRun(issuerId: string, exactRunId?: string | null): LiveRu
           required_remediation: null,
         }));
       } else {
-        const qa = await getQA(latest.id).catch(() => null);
-        council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
+        const qa = await getQA(latest.id);
+        council = qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-"));
       }
       return {
         liveOuts, liveStatus, liveEvidence, runId: latest.id, asOf: latest.as_of_date ?? latest.created_at, committeeStatus: latest.committee_status,

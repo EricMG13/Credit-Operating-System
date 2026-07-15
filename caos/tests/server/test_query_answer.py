@@ -298,6 +298,32 @@ def test_self_correction_rescues_all_dropped(monkeypatch):
     assert len(calls) == 2  # initial + retry
 
 
+@pytest.mark.usefixtures("seeded_db")
+def test_self_correction_keeps_partially_grounded_answer_over_empty_retry(monkeypatch):
+    """A clean-but-empty repair must not erase the better first attempt."""
+    from database import AsyncSessionLocal
+
+    calls: list = []
+    _wire(monkeypatch)
+    _fake_anthropic_sequence(monkeypatch, [REPLY, '{"sentences": []}'], calls)
+    monkeypatch.setattr(queryanswer, "build_metric_facts", _no_facts)
+    monkeypatch.setattr(queryanswer, "check_entailment", _entail_returns_empty)
+
+    async def _run():
+        async with AsyncSessionLocal() as db:
+            return await queryanswer.answer(
+                db,
+                "Keep the stronger grounded repair attempt?",
+                analyst_id="take-better-regression",
+                force=True,
+            )
+
+    out = asyncio.run(_run())
+    assert out["unavailable"] is False
+    assert out["answer"] == "Acme carries net leverage of 4.4x."
+    assert len(calls) == 2
+
+
 # ── Phase 1 remainder: metric-fact SQL lane integration ──────────────────────
 
 @pytest.mark.usefixtures("seeded_db")

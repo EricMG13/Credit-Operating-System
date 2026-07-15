@@ -23,3 +23,4 @@ def test_security_headers_present(client):
     # HSTS present but intentionally without `preload` (internal / self-signed CA).
     assert "max-age=" in h["Strict-Transport-Security"]
     assert "preload" not in h["Strict-Transport-Security"]
+    assert h["Cache-Control"] == "private, no-store"

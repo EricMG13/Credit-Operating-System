@@ -103,6 +103,25 @@ def test_document_upload_oversized_413(rob_client, monkeypatch):
     assert "exceeds the 1 MB limit" in r.json()["detail"]
 
 
+def test_pdf_page_bomb_is_rejected_before_text_extraction(monkeypatch):
+    from fastapi import HTTPException
+    from pypdf import PdfReader, PdfWriter
+    import ingest
+
+    writer = PdfWriter()
+    page = next(iter(PdfReader(io.BytesIO(_tiny_pdf())).pages))
+    writer.add_page(page)
+    writer.add_page(page)
+    payload = io.BytesIO()
+    writer.write(payload)
+
+    monkeypatch.setattr(ingest.get_settings(), "max_pdf_pages", 1)
+    with pytest.raises(HTTPException) as caught:
+        ingest.extract_pdf_text(payload.getvalue(), "too-many-pages.pdf")
+    assert caught.value.status_code == 413
+    assert "page extraction limit" in str(caught.value.detail)
+
+
 # ── document endpoint: degrade rows (vaulted, but LOUD about 0 chunks) ──────
 @pytest.mark.parametrize(
     "name,payload",
@@ -205,6 +224,52 @@ async def test_dependency_cancellation_runs_registered_rollback_cleanup(monkeypa
 
     assert session.rolled_back is True
     assert cleaned is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("commit_fails", [False, True])
+async def test_post_commit_callback_never_advances_before_durability(
+    monkeypatch, commit_fails: bool
+):
+    import database
+
+    class FakeSession:
+        def __init__(self):
+            self.info = {}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, _exc_type, _exc, _tb):
+            return False
+
+        async def commit(self):
+            if commit_fails:
+                raise RuntimeError("forced commit failure")
+
+        async def rollback(self):
+            pass
+
+    session = FakeSession()
+    monkeypatch.setattr(database, "AsyncSessionLocal", lambda: session)
+    advanced = False
+
+    def advance():
+        nonlocal advanced
+        advanced = True
+
+    dependency = database.get_db()
+    yielded_session = await anext(dependency)
+    database.register_after_commit(yielded_session, advance)
+
+    if commit_fails:
+        with pytest.raises(RuntimeError, match="forced commit failure"):
+            await anext(dependency)
+        assert advanced is False
+    else:
+        with pytest.raises(StopAsyncIteration):
+            await anext(dependency)
+        assert advanced is True
 
 
 # ── pricing-sheet endpoint: container validation ────────────────────────────

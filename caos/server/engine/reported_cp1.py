@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
 
+from engine.periods import is_finite_number, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 RetrieveFn = Callable[[str, int], Awaitable[list]]
@@ -130,10 +131,18 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
         val = float(num_g.replace(",", ""))
     except ValueError:
         return None
+    if not is_finite_number(val):
+        return None
     if scale.startswith("b"):
-        val *= 1000.0  # billion → million
+        scaled = safe_mul(val, 1000.0)  # billion → million
+        if scaled is None:
+            return None
+        val = scaled
     elif scale in ("thousand", "k"):
-        val /= 1000.0  # thousands → million
+        scaled = safe_div(val, 1000.0)  # thousands → million
+        if scaled is None:
+            return None
+        val = scaled
     elif not scale and val >= 1e7:
         # No million/bn token AND a magnitude no in-millions figure reaches: this
         # is an amount written in full units ("£1,562,300,000"), which must not
@@ -141,7 +150,10 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
         # poison leverage, EV and reconciliation downstream. Smaller scale-less
         # amounts stay as-is: they are "in millions" table rows ("Total Revenue
         # £ 2,390.1", golden-pinned for VMO2).
-        val /= 1e6  # full units → millions
+        scaled = safe_div(val, 1e6)  # full units → millions
+        if scaled is None:
+            return None
+        val = scaled
     period_m = _PERIOD.search(text[max(0, m.start() - 40): m.end() + 10])
     period = (period_m.group(1).upper() if period_m else "Reported")
     return round(val, 1), cur, period

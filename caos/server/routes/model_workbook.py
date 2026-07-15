@@ -473,11 +473,11 @@ async def _preview_bytes(
     *,
     mapping: Any,
     evaluated_at: datetime,
-) -> tuple[bytes, ModelWorkbookPreview, str]:
+) -> tuple[bytes, ModelWorkbookPreview, str, avscan.ScanVerdict]:
     filename = _validated_filename(file.filename)
     async with _semaphore():
         content = await ingest.read_capped(file, max_bytes=MAX_MODEL_FILE_BYTES)
-        await avscan.scan(content)
+        malware_scan = await avscan.scan(content)
         try:
             preview = await asyncio.to_thread(
                 preview_workbook,
@@ -488,7 +488,7 @@ async def _preview_bytes(
             )
         except ModelWorkbookError as exc:
             raise _workbook_error(exc) from exc
-    return content, preview, filename
+    return content, preview, filename, malware_scan
 
 
 async def _existing_import(
@@ -655,7 +655,7 @@ async def preview_model_workbook_import(
         )
     parsed_mapping, mapping_payload = _mapping_json(mapping)
     evaluated_at = datetime.now(timezone.utc)
-    _, preview, _ = await _preview_bytes(
+    _, preview, _, _ = await _preview_bytes(
         file, mapping=parsed_mapping, evaluated_at=evaluated_at
     )
     preview = _bind_workbook_identity(
@@ -746,7 +746,7 @@ async def commit_model_workbook_import(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "Preview token is invalid; preview again."
         ) from exc
-    content, preview, filename = await _preview_bytes(
+    content, preview, filename, malware_scan = await _preview_bytes(
         file, mapping=parsed_mapping, evaluated_at=evaluated_at
     )
     if not hmac.compare_digest(preview.workbook_sha256, preview_sha256.lower()):
@@ -872,7 +872,7 @@ async def commit_model_workbook_import(
                     "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     "size_bytes": len(content),
                     "source_kind": "model",
-                    "malware_scan": "clean",
+                    "malware_scan": malware_scan,
                 }
             ],
             authority={},

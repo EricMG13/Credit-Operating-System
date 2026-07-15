@@ -21,15 +21,25 @@ import asyncio
 import logging
 import os
 import socket
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select, update
 
 from config import get_settings
-from database import AsyncSessionLocal, IssuerResearchReport, Issuer, ModuleOutput, Run, engine
+from database import (
+    AsyncSessionLocal,
+    IssuerResearchReport,
+    Issuer,
+    ModuleOutput,
+    Run,
+    engine,
+)
 from research_report import (
     ResearchReportResult,
     build_module_digest,
+    render_validated_research_report,
     synthesize_research_report,
     validate_report_figures,
 )
@@ -57,6 +67,36 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+@dataclass(frozen=True)
+class ReportClaim:
+    report_id: str
+    owner_token: str
+    attempt: int
+
+
+class ReportOwnershipLost(RuntimeError):
+    """The report attempt no longer owns its durable queue row."""
+
+
+def _new_owner_token(prefix: str) -> str:
+    """Return an attempt-unique token that fits the model's VARCHAR(64)."""
+    return f"{prefix[:27]}:{uuid.uuid4().hex}"
+
+
+def _owned_attempt(claim: ReportClaim):
+    return and_(
+        IssuerResearchReport.id == claim.report_id,
+        IssuerResearchReport.worker_id == claim.owner_token,
+        IssuerResearchReport.attempts == claim.attempt,
+        IssuerResearchReport.status == "running",
+    )
+
+
+def _bounded_failure(reason: object) -> str:
+    text = str(reason).strip() or "research report synthesis failed"
+    return text[:512]
+
+
 def _ratings_for(issuer: Issuer) -> list[tuple[str, str]]:
     """(agency, rating) pairs for whichever of S&P/Moody's/Fitch the issuer has."""
     ratings = []
@@ -78,55 +118,85 @@ async def execute_report_by_id(report_id: str) -> None:
         await _run_report(report_id)
 
 
-async def _run_report(report_id: str) -> None:
+async def _run_report(
+    report_id: str,
+    *,
+    owner_token: str | None = None,
+    attempt: int | None = None,
+) -> None:
     async with AsyncSessionLocal() as session:
         report = await session.get(IssuerResearchReport, report_id)
         if report is None:
             logger.warning("execute_report_by_id: report %s vanished", report_id)
             return
 
+        claim: ReportClaim | None = None
+
         async def _save_progress(p: dict) -> None:
-            # Constraint: only report.progress may be dirty when this is called.
-            # A commit here flushes ALL pending ORM state on the session — do not
-            # mutate report fields before the synthesis call.
-            report.progress = p
+            assert claim is not None
+            result = await session.execute(update(IssuerResearchReport).where(_owned_attempt(claim)).values(progress=p))
             await session.commit()
+            if result.rowcount != 1:
+                raise ReportOwnershipLost(f"report {report_id} ownership lost while saving progress")
 
         try:
-            # Lease this report before doing any real work, committed on its own
-            # so a sibling replica's boot sweep can see it durably right away.
-            # Gates ResearchReportExecutor.start()'s reap below. Inside the try:
-            # a commit failure here must still reach the except-Exception guard
-            # below and mark the report failed, not strand it in 'running' with
-            # the lease never set. (Also satisfies _save_progress's dirty-state
-            # constraint above — this commit clears it before synthesis starts.)
-            report.worker_id = _WORKER_ID
-            report.lease_expires_at = _now() + timedelta(
-                seconds=get_settings().caos_background_job_lease_seconds
-            )
-            report.status = "running"  # visible to the client's poll; idempotent on re-claim
-            await session.commit()
+            if owner_token is None:
+                # SQLite/in-process execution has no queue claimer. Establish an
+                # attempt-unique owner durably before any fallible setup so every
+                # later progress/terminal write can be fenced to this attempt.
+                next_attempt = int(report.attempts or 0) + 1
+                claim = ReportClaim(
+                    report_id=report_id,
+                    owner_token=_new_owner_token(_WORKER_ID),
+                    attempt=next_attempt,
+                )
+                report.worker_id = claim.owner_token
+                report.attempts = claim.attempt
+                report.claimed_at = _now()
+                report.lease_expires_at = _now() + timedelta(seconds=1)
+                report.status = "running"
+                await session.commit()
+                lease_seconds = get_settings().caos_report_lease_seconds
+                lease_result = await session.execute(
+                    update(IssuerResearchReport)
+                    .where(_owned_attempt(claim))
+                    .values(lease_expires_at=_now() + timedelta(seconds=lease_seconds))
+                )
+                await session.commit()
+                if lease_result.rowcount != 1:
+                    raise ReportOwnershipLost(f"report {report_id} ownership lost while establishing lease")
+            else:
+                if attempt is None:
+                    raise ValueError("pre-claimed report execution requires an attempt")
+                claim = ReportClaim(report_id, owner_token, attempt)
+                if (
+                    report.status != "running"
+                    or report.worker_id != claim.owner_token
+                    or report.attempts != claim.attempt
+                ):
+                    raise ReportOwnershipLost(f"report {report_id} was reclaimed before execution started")
 
             # Load the run + issuer
             run = await session.get(Run, report.run_id)
             if run is None or run.status != "complete":
-                await _mark_failed(session, report_id, "run not found or not complete")
+                await _mark_failed(session, claim, "run not found or not complete")
                 return
 
             issuer = await session.get(Issuer, report.issuer_id)
             if issuer is None:
-                await _mark_failed(session, report_id, "issuer not found")
+                await _mark_failed(session, claim, "issuer not found")
                 return
 
             # Load module outputs for this run
-            mod_rows = list((await session.execute(
-                select(ModuleOutput).where(ModuleOutput.run_id == run.id)
-            )).scalars().all())
+            mod_rows = list(
+                (await session.execute(select(ModuleOutput).where(ModuleOutput.run_id == run.id))).scalars().all()
+            )
             mods = {m.module_id: m for m in mod_rows}
 
             if len(mods) < 3:
                 await _mark_failed(
-                    session, report_id,
+                    session,
+                    claim,
                     f"insufficient module coverage — {len(mods)} modules present, need ≥3",
                 )
                 return
@@ -154,63 +224,92 @@ async def _run_report(report_id: str) -> None:
 
             # Validate figures against actual module outputs
             validation = validate_report_figures(result.payload, mods)
+            markdown = (
+                result.markdown
+                if result.demo
+                else render_validated_research_report(result.payload, truncated=result.truncated)
+            )
 
-            # Persist
-            report.payload = result.payload
-            report.markdown = result.markdown
-            report.validation = {
-                "checked": validation.checked,
-                "verified": validation.verified,
-                "dropped": validation.dropped,
-                "unverified": validation.unverified,
-            }
-            report.digest = {
-                "modules": [
-                    {
-                        "module_id": d.module_id,
+            # Terminal completion is fenced to the exact attempt. A stale
+            # worker that finishes after re-claim cannot overwrite its sibling.
+            completion = await session.execute(
+                update(IssuerResearchReport)
+                .where(_owned_attempt(claim))
+                .values(
+                    payload=result.payload,
+                    markdown=markdown,
+                    validation={
+                        "checked": validation.checked,
+                        "verified": validation.verified,
+                        "dropped": validation.dropped,
+                        "unverified": validation.unverified,
+                    },
+                    digest={
+                        "modules": [
+                            {
+                                "module_id": d.module_id,
                         "module_name": d.module_name,
                         "layer": d.layer,
                         "confidence": d.confidence,
                         "qa_status": d.qa_status,
                     }
-                    for d in digest
-                ],
-                "module_count": len(digest),
-            }
-            report.prompt_version = run.prompt_version
-            report.model_id = None  # the model is picked per-run; not persisted on Run
-            report.tokens_used = result.tokens_used
-            report.demo = result.demo
-            report.truncated = result.truncated
-            report.status = "complete"
-            report.lease_expires_at = None
-            report.completed_at = _now()
+                            for d in digest
+                        ],
+                        "module_count": len(digest),
+                    },
+                    prompt_version=run.prompt_version,
+                    model_id=None,
+                    tokens_used=result.tokens_used,
+                    demo=result.demo,
+                    truncated=result.truncated,
+                    status="complete",
+                    lease_expires_at=None,
+                    completed_at=_now(),
+                )
+            )
             await session.commit()
+            if completion.rowcount != 1:
+                raise ReportOwnershipLost(f"report {report_id} ownership lost before completion")
 
+        except ReportOwnershipLost:
+            await session.rollback()
+            logger.warning("research report %s stopped after ownership loss", report_id)
         except asyncio.CancelledError:
             logger.warning(
-                "research report %s cancelled during shutdown — marking failed", report_id,
+                "research report %s cancelled during shutdown — marking failed",
+                report_id,
             )
-            await _mark_failed(session, report_id, "worker shutdown during synthesis")
+            if claim is not None:
+                await _mark_failed(session, claim, "worker shutdown during synthesis")
             raise
         except Exception as e:  # noqa: BLE001 — last-resort guard
             logger.exception("research report %s failed", report_id)
-            await _mark_failed(session, report_id, str(e)[:2000])
+            if claim is not None:
+                await _mark_failed(session, claim, _bounded_failure(e))
 
 
-async def _mark_failed(session, report_id: str, reason: str) -> None:
-    """Roll back and mark a report failed; never raises (last-resort recovery)."""
+async def _mark_failed(session, claim: ReportClaim, reason: str) -> None:
+    """Fence terminal failure to one owner attempt; never raises."""
     try:
         await session.rollback()
-        report = await session.get(IssuerResearchReport, report_id)
-        if report is not None:
-            report.status = "failed"
-            report.error = reason
-            report.lease_expires_at = None
-            report.completed_at = _now()
-            await session.commit()
+        result = await session.execute(
+            update(IssuerResearchReport)
+            .where(_owned_attempt(claim))
+            .values(
+                status="failed",
+                error=_bounded_failure(reason),
+                lease_expires_at=None,
+                completed_at=_now(),
+            )
+        )
+        await session.commit()
+        if result.rowcount != 1:
+            logger.warning(
+                "research report %s failure write rejected after ownership loss",
+                claim.report_id,
+            )
     except Exception:  # noqa: BLE001
-        logger.exception("could not mark research report %s failed", report_id)
+        logger.exception("could not mark research report %s failed", claim.report_id)
 
 
 class ResearchReportExecutor(InProcessTaskExecutor):
@@ -275,11 +374,10 @@ class ReportQueueWorker:
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._worker_id = f"{socket.gethostname()}:{id(self)}"
+        self._worker_prefix = f"{socket.gethostname()}:{id(self)}"
         self._inflight: set[asyncio.Task] = set()
-        # A report this worker is still executing must never be re-claimed by
-        # itself even if its wall clock legitimately exceeds the lease.
-        self._inflight_ids: set[str] = set()
+        self._inflight_claims: dict[str, ReportClaim] = {}
+        self._inflight_tasks: dict[str, asyncio.Task] = {}
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
 
@@ -306,37 +404,66 @@ class ReportQueueWorker:
 
     async def _reap_orphans(self) -> None:
         async with AsyncSessionLocal() as s:
-            await s.execute(
-                update(IssuerResearchReport)
-                .where(
-                    IssuerResearchReport.status == "running",
-                    IssuerResearchReport.lease_expires_at < _now(),
-                    IssuerResearchReport.attempts >= self._settings.caos_report_max_attempts,
+            async with s.begin():
+                rows = list(
+                    (
+                        await s.execute(
+                            select(IssuerResearchReport)
+                            .where(
+                                IssuerResearchReport.status == "running",
+                                IssuerResearchReport.lease_expires_at < _now(),
+                                IssuerResearchReport.attempts >= self._settings.caos_report_max_attempts,
+                            )
+                            .with_for_update(skip_locked=True)
+                        )
+                    )
+                    .scalars()
+                    .all()
                 )
-                .values(status="failed", error="abandoned after max attempts", lease_expires_at=None)
-            )
-            await s.commit()
+                for row in rows:
+                    claim = ReportClaim(row.id, row.worker_id, row.attempts)
+                    await s.execute(
+                        update(IssuerResearchReport)
+                        .where(_owned_attempt(claim))
+                        .values(
+                            status="failed",
+                            error="abandoned after max attempts",
+                            lease_expires_at=None,
+                            completed_at=_now(),
+                        )
+                    )
 
     async def _heartbeat(self) -> None:
-        """Extend the lease on this worker's live reports each poll tick, so a
-        report whose wall clock legitimately exceeds the fixed lease window is
-        not re-claimed (by any worker) and executed twice concurrently."""
-        if not self._inflight_ids:
+        """Extend only the exact attempts still owned by this worker.
+
+        A zero-row update means a sibling has reclaimed or completed the row.
+        Cancel the stale task so it stops spending tokens; its cancellation and
+        terminal writes are fenced and therefore cannot overwrite the sibling.
+        """
+        claims = list(self._inflight_claims.values())
+        if not claims:
             return
         lease = timedelta(seconds=self._settings.caos_report_lease_seconds)
+        lost: list[ReportClaim] = []
         async with AsyncSessionLocal() as s:
-            await s.execute(
-                update(IssuerResearchReport)
-                .where(
-                    IssuerResearchReport.id.in_(tuple(self._inflight_ids)),
-                    IssuerResearchReport.worker_id == self._worker_id,
-                    IssuerResearchReport.status == "running",
+            for claim in claims:
+                result = await s.execute(
+                    update(IssuerResearchReport).where(_owned_attempt(claim)).values(lease_expires_at=_now() + lease)
                 )
-                .values(lease_expires_at=_now() + lease)
-            )
+                if result.rowcount != 1:
+                    lost.append(claim)
             await s.commit()
+        for claim in lost:
+            logger.warning(
+                "research report %s heartbeat lost ownership for attempt %d",
+                claim.report_id,
+                claim.attempt,
+            )
+            task = self._inflight_tasks.get(claim.report_id)
+            if task is not None and not task.done():
+                task.cancel()
 
-    async def _claim_one(self) -> str | None:
+    async def _claim_one(self) -> ReportClaim | None:
         max_attempts = self._settings.caos_report_max_attempts
         lease = timedelta(seconds=self._settings.caos_report_lease_seconds)
         async with AsyncSessionLocal() as s:
@@ -357,17 +484,23 @@ class ReportQueueWorker:
                     .limit(1)
                     .with_for_update(skip_locked=True)
                 )
-                if self._inflight_ids:
-                    stmt = stmt.where(IssuerResearchReport.id.notin_(tuple(self._inflight_ids)))
+                if self._inflight_claims:
+                    stmt = stmt.where(IssuerResearchReport.id.notin_(tuple(self._inflight_claims)))
                 row = (await s.execute(stmt)).scalar_one_or_none()
                 if row is None:
                     return None
+                attempt = int(row.attempts or 0) + 1
+                claim = ReportClaim(
+                    report_id=row.id,
+                    owner_token=_new_owner_token(self._worker_prefix),
+                    attempt=attempt,
+                )
                 row.status = "running"
-                row.attempts += 1
+                row.attempts = claim.attempt
                 row.claimed_at = _now()
                 row.lease_expires_at = _now() + lease
-                row.worker_id = self._worker_id
-                return row.id
+                row.worker_id = claim.owner_token
+                return claim
 
     async def _run_loop(self) -> None:
         poll = self._settings.caos_report_poll_seconds
@@ -378,16 +511,26 @@ class ReportQueueWorker:
                 await self._heartbeat()
                 await self._reap_orphans()
                 while len(self._inflight) < cap:
-                    report_id = await self._claim_one()
-                    if report_id is None:
+                    claim = await self._claim_one()
+                    if claim is None:
                         break
-                    task = asyncio.create_task(_run_report(report_id))
-                    self._inflight.add(task)
-                    self._inflight_ids.add(report_id)
-                    task.add_done_callback(self._inflight.discard)
-                    task.add_done_callback(
-                        lambda _t, rid=report_id: self._inflight_ids.discard(rid)
+                    task = asyncio.create_task(
+                        _run_report(
+                            claim.report_id,
+                            owner_token=claim.owner_token,
+                            attempt=claim.attempt,
+                        )
                     )
+                    self._inflight.add(task)
+                    self._inflight_claims[claim.report_id] = claim
+                    self._inflight_tasks[claim.report_id] = task
+
+                    def _discard(done: asyncio.Task, rid: str = claim.report_id) -> None:
+                        self._inflight.discard(done)
+                        self._inflight_claims.pop(rid, None)
+                        self._inflight_tasks.pop(rid, None)
+
+                    task.add_done_callback(_discard)
                 fails = 0
             except Exception:  # noqa: BLE001 — never let the loop die
                 fails += 1

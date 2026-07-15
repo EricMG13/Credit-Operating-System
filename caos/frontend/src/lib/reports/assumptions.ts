@@ -99,12 +99,22 @@ export const DEFAULT_ASSUMPTIONS: Assumptions = {
 const LEGACY_KEY = "caos-d-assumptions";
 const keyFor = (issuerId: string) => `${LEGACY_KEY}:${issuerId}`;
 
-function parseAssumptions(raw: string | null): Assumptions | null {
+function sanitizeCase(raw: unknown): CaseAssumptions {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const out = { ...DEFAULT_CASE };
+  for (const key of Object.keys(DEFAULT_CASE) as (keyof CaseAssumptions)[]) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
+
+export function parseAssumptions(raw: string | null): Assumptions | null {
   try {
     const s = JSON.parse(raw || "null");
-    if (s && s.base && s.down) {
+    if (s && typeof s === "object" && s.base && s.down) {
       return {
-        base: { ...DEFAULT_CASE, ...s.base }, down: { ...DEFAULT_CASE, ...s.down },
+        base: sanitizeCase(s.base), down: sanitizeCase(s.down),
         baseYears: sanitizeYears(s.baseYears), downYears: sanitizeYears(s.downYears),
       };
     }
@@ -125,7 +135,13 @@ export function loadAssumptions(issuerId: string): Assumptions {
 }
 
 export function saveAssumptions(issuerId: string, a: Assumptions): void {
-  try { localStorage.setItem(keyFor(issuerId), JSON.stringify(a)); } catch { /* private mode / quota */ }
+  const sanitized: Assumptions = {
+    base: sanitizeCase(a.base),
+    down: sanitizeCase(a.down),
+    baseYears: sanitizeYears(a.baseYears),
+    downYears: sanitizeYears(a.downYears),
+  };
+  try { localStorage.setItem(keyFor(issuerId), JSON.stringify(sanitized)); } catch { /* private mode / quota */ }
 }
 
 /** Count of fields in a case that differ from the agent baseline (panel chip). */

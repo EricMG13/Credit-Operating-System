@@ -413,7 +413,7 @@ async def commit_market_snapshot_import(
 
     async with _preview_semaphore():
         content = await ingest.read_capped(file)
-        await avscan.scan(content)
+        malware_scan = await avscan.scan(content)
         try:
             parsed = await asyncio.to_thread(
                 preview_workbook,
@@ -500,7 +500,7 @@ async def commit_market_snapshot_import(
                 "size_bytes": len(content),
                 "source_kind": "price",
                 "market_as_of": parsed.as_of.isoformat(),
-                "malware_scan": "clean",
+                "malware_scan": malware_scan,
             }],
             authority={},
             created_at=now,

@@ -156,6 +156,37 @@ def test_extract_facts_tolerates_null_leaves():
     assert all(math.isfinite(f["value"]) for f in facts)
 
 
+def test_cp1_arithmetic_overflow_degrades_instead_of_emitting_infinity():
+    from engine.metrics import extract_facts
+    from engine.periods import safe_add, safe_div, safe_mul
+
+    assert safe_mul(1.7e308, 100) is None
+    assert safe_add(1.7e308, 1.7e308) is None
+    assert safe_div(1.7e308, 1e-308) is None
+
+    payload = _cp1(
+        revenue={"LTM": 1.0},
+        adj_ebitda={"LTM": 1.7e308},
+        free_cash_flow={"LTM": 1.7e308},
+    )
+    facts = extract_facts("overflow", payload, "Passed")
+    assert all(math.isfinite(f["value"]) for f in facts)
+    assert not any(
+        f["metric_key"] in {"ebitda_margin", "fcf_conversion"} for f in facts
+    )
+
+
+def test_edgar_ebitda_proxy_drops_overflowed_sum():
+    from engine.edgar_cp1 import _ebitda_proxy
+
+    assert _ebitda_proxy(
+        [2025],
+        {2025: (1.7e308, "op")},
+        {2025: (1.7e308, "da")},
+        {},
+    ) == {}
+
+
 def test_leverage_plausibility_unaffected_by_nan():
     # Item 4 also asks: leverage_plausibility_finding still behaves. A NaN input must
     # not fire it (its is_finite_number guard already rejects non-finite operands).

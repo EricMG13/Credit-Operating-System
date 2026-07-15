@@ -6,11 +6,12 @@ not query mutable domain state, recalculate credit metrics, or interpret prose.
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -22,6 +23,8 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table as PdfTable, TableStyle
 
+from config import get_settings
+
 
 _INK = "1D2433"
 _NAVY = "172238"
@@ -29,6 +32,16 @@ _BLUE = "2F64B7"
 _MUTED = "687386"
 _CREAM = "F7F5EE"
 _MAX_RENDERED_OVERRIDES = 500
+_export_sem: "asyncio.Semaphore | None" = None
+
+
+def _export_semaphore() -> asyncio.Semaphore:
+    global _export_sem
+    if _export_sem is None:
+        _export_sem = asyncio.Semaphore(
+            max(1, get_settings().caos_report_export_concurrency)
+        )
+    return _export_sem
 
 
 def _display(value: Any, *, limit: int = 2_000) -> str:
@@ -808,3 +821,45 @@ def render_report_pdf(*, version_id: str, document_sha256: str, payload: dict, a
             story.append(detail_table(debt_rows, [3.45 * inch, 3.45 * inch]))
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
     return output.getvalue()
+
+
+async def render_report_export(
+    *,
+    export_format: Literal["xlsx", "pdf"],
+    version_id: str,
+    document_sha256: str,
+    payload: dict,
+    authority: dict,
+) -> bytes:
+    """Render a binary report off the event loop with bounded fan-out.
+
+    Shielding the worker task lets request cancellation propagate without
+    cancelling the underlying thread. The semaphore is released only after the
+    renderer actually exits, so cancelled requests cannot bypass the cap while
+    their CPU-bound work is still running.
+    """
+    renderer = render_report_xlsx if export_format == "xlsx" else render_report_pdf
+    semaphore = _export_semaphore()
+    await semaphore.acquire()
+    try:
+        task = asyncio.create_task(asyncio.to_thread(
+            renderer,
+            version_id=version_id,
+            document_sha256=document_sha256,
+            payload=payload,
+            authority=authority,
+        ))
+    except BaseException:
+        semaphore.release()
+        raise
+
+    def _release_slot(done: asyncio.Task[bytes]) -> None:
+        semaphore.release()
+        # A cancelled HTTP request no longer awaits this task. Consume a
+        # renderer exception to avoid an unhandled-task warning; non-cancelled
+        # callers still receive the same exception from their await below.
+        if not done.cancelled():
+            done.exception()
+
+    task.add_done_callback(_release_slot)
+    return await asyncio.shield(task)

@@ -25,15 +25,21 @@ export function ModelHistoryControls({
   onCheckpoint,
   onRestore,
   onDelete,
+  disabled = false,
+  status = "ready",
+  error = null,
 }: {
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
   checkpoints: ModelCheckpoint[];
-  onCheckpoint: (name: string) => void;
-  onRestore: (id: string) => void;
-  onDelete: (id: string) => void;
+  onCheckpoint: (name: string) => Promise<boolean>;
+  onRestore: (id: string) => boolean;
+  onDelete: (id: string) => Promise<boolean>;
+  disabled?: boolean;
+  status?: "loading" | "ready" | "saving" | "error";
+  error?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -47,6 +53,7 @@ export function ModelHistoryControls({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        disabled={disabled || status === "loading" || status === "saving"}
         title="Save or restore a named snapshot of your overrides"
         className={BTN + " px-2"}
       >
@@ -59,6 +66,8 @@ export function ModelHistoryControls({
           onCheckpoint={onCheckpoint}
           onRestore={onRestore}
           onDelete={onDelete}
+          status={status}
+          error={error}
         />
       ) : null}
     </div>
@@ -71,12 +80,16 @@ function CheckpointsModal({
   onCheckpoint,
   onRestore,
   onDelete,
+  status,
+  error,
 }: {
   onClose: () => void;
   checkpoints: ModelCheckpoint[];
-  onCheckpoint: (name: string) => void;
+  onCheckpoint: (name: string) => Promise<boolean>;
   onRestore: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<boolean>;
+  status: "loading" | "ready" | "saving" | "error";
+  error: string | null;
 }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -86,10 +99,9 @@ function CheckpointsModal({
     inputRef.current?.focus();
   }, []);
 
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) return;
-    onCheckpoint(name);
-    setName("");
+    if (await onCheckpoint(name)) setName("");
   };
 
   return (
@@ -108,7 +120,7 @@ function CheckpointsModal({
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") { e.preventDefault(); save(); }
+              if (e.key === "Enter") { e.preventDefault(); void save(); }
             }}
             placeholder="Name this checkpoint…"
             aria-label="Checkpoint name"
@@ -116,13 +128,14 @@ function CheckpointsModal({
           />
           <button
             type="button"
-            onClick={save}
-            disabled={!name.trim()}
+            onClick={() => void save()}
+            disabled={!name.trim() || status === "loading" || status === "saving"}
             className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-caos-accent whitespace-nowrap"
           >
             Save
           </button>
         </div>
+        {error ? <div role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{error}</div> : null}
         <ul aria-label="Saved checkpoints" className="flex-1 overflow-y-auto py-1">
           {checkpoints.length === 0 ? (
             <li className="px-3 py-4 tabular text-caos-xs text-caos-muted">
@@ -144,7 +157,7 @@ function CheckpointsModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onDelete(cp.id)}
+                  onClick={() => void onDelete(cp.id)}
                   title="Delete checkpoint"
                   aria-label={`Delete checkpoint ${cp.name}`}
                   className="tabular text-caos-xs px-1.5 min-h-8 min-w-8 rounded border border-caos-border text-caos-muted hover:text-caos-critical hover:border-caos-critical/60 transition-caos focus-ring caos-target"

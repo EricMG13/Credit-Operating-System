@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from engine.periods import is_finite_number
+from engine.periods import is_finite_number, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # EBITDA-decline scenarios, and the net leverage at/above which the credit is
@@ -74,14 +74,15 @@ def compute_pathways(nf: dict) -> Optional[dict]:
     # Narrow via the TypeGuard inline (a stored bool wouldn't narrow `cov` for mypy).
     cov_val: Optional[float] = cov if is_finite_number(cov) else None
 
-    scenarios: list[dict[str, Optional[float]]] = [
-        {
+    scenarios: list[dict[str, Optional[float]]] = []
+    for s in _SHOCKS:
+        stressed_lev = safe_div(lev, 1 - s)
+        stressed_cov = safe_mul(cov_val, 1 - s)
+        scenarios.append({
             "ebitda_shock_pct": round(s * 100),
-            "stressed_net_leverage": round(lev / (1 - s), 2),
-            "stressed_interest_coverage": round(cov_val * (1 - s), 2) if cov_val is not None else None,
-        }
-        for s in _SHOCKS
-    ]
+            "stressed_net_leverage": round(stressed_lev, 2) if stressed_lev is not None else None,
+            "stressed_interest_coverage": round(stressed_cov, 2) if stressed_cov is not None else None,
+        })
 
     shock_to_breach = next(
         (sc["ebitda_shock_pct"] for sc in scenarios

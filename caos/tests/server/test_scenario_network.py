@@ -45,6 +45,28 @@ def test_nonfinite_ebitda_degrades_without_nan():
     assert by_id["recovery"].status == NodeStatus.DEGRADED
 
 
+def test_negative_liquidity_degrades_instead_of_computing_negative_runway():
+    payload = _payload()
+    payload["CP-2E"]["disclosed_liquidity_musd"] = -120.0
+    result = propagate(ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.2), payload)
+    liquidity = next(node for node in result.nodes if node.node == "liquidity")
+    assert liquidity.status == NodeStatus.DEGRADED
+    assert liquidity.value is None
+
+
+@pytest.mark.parametrize("tranches", [[{}], ["malformed"], [{
+    "tranche": "First lien", "code": "1L", "seniority_rank": 1,
+    "amount_musd": float("nan"),
+}]])
+def test_malformed_tranches_degrade_without_crashing(tranches):
+    payload = _payload()
+    payload["CP-3B"]["tranches"] = tranches
+    result = propagate(ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.2), payload)
+    recovery = next(node for node in result.nodes if node.node == "recovery")
+    assert recovery.status == NodeStatus.DEGRADED
+    assert recovery.value is None
+
+
 def test_near_total_shock_never_divides_by_zero():
     result = propagate(ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.9), _payload())
     assert all(node.value is None or node.value == node.value for node in result.nodes)

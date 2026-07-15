@@ -14,10 +14,9 @@ import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
-import { getIssuer } from "@/lib/api";
+import { getIssuer, queryCapabilities, toErrorMessage } from "@/lib/api";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { queryCapabilities } from "@/lib/api";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
 import { RelativeValueTable } from "@/components/query/RelativeValueTable";
@@ -308,6 +307,9 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [layout, setLayout] = useState<QueryView>("graph");
   const [queryRun, setQueryRun] = useState<QueryRun | null>(null);
   const [pinned, setPinned] = useState(false);
+  const [pinning, setPinning] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const pinningRef = useRef(false);
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -346,6 +348,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
     setSelectedNode(null);
     setReaderOpen(false);
     setPinned(false);
+    setPinError(null);
 
     const context = contextState.context;
     if (!context) {
@@ -388,17 +391,27 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
 
   const pinQueryFinding = useCallback(async () => {
     const context = contextState.context;
-    if (!context || !queryRun || pinned) return;
-    await analysisApi.createFinding({
-      context_id: context.id,
-      kind: "global-ask-answer",
-      title: graph?.title || queryRun.question,
-      body: queryRun.question,
-      source_surface: "global-ask",
-      source_run_id: queryRun.id,
-      evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },
-    });
-    setPinned(true);
+    if (!context || !queryRun || pinned || pinningRef.current) return;
+    pinningRef.current = true;
+    setPinning(true);
+    setPinError(null);
+    try {
+      await analysisApi.createFinding({
+        context_id: context.id,
+        kind: "global-ask-answer",
+        title: graph?.title || queryRun.question,
+        body: queryRun.question,
+        source_surface: "global-ask",
+        source_run_id: queryRun.id,
+        evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },
+      });
+      setPinned(true);
+    } catch (error) {
+      setPinError(toErrorMessage(error, "Finding was not pinned"));
+    } finally {
+      pinningRef.current = false;
+      setPinning(false);
+    }
   }, [contextState.context, graph?.title, pinned, queryRun]);
 
   const submit = useCallback(() => {
@@ -592,11 +605,12 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                         <button
                           type="button"
                           onClick={() => void pinQueryFinding()}
-                          disabled={!queryRun || pinned}
+                          disabled={!queryRun || pinned || pinning}
                           className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer focus-ring disabled:opacity-40"
                         >
-                          {pinned ? "PINNED" : "PIN FINDING"}
+                          {pinned ? "PINNED" : pinning ? "PINNING…" : pinError ? "RETRY PIN" : "PIN FINDING"}
                         </button>
+                        {pinError ? <span role="alert" className="self-center text-caos-2xs text-caos-critical">{pinError}</span> : null}
                         <button
                           onClick={() => downloadQueryCsv(graph)}
                           className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer"

@@ -143,6 +143,8 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
   });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadedCacheKey, setLoadedCacheKey] = useState(cacheKey);
+  const requestGeneration = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -152,7 +154,19 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
   const [focusEv, setFocusEv] = useState<string | null>(null);
   useEffect(() => { if (active) setFocusEv(active); }, [active]);
 
-  useEffect(() => { try { localStorage.setItem(cacheKey, JSON.stringify(msgs)); } catch {} }, [cacheKey, msgs]);
+  useEffect(() => {
+    requestGeneration.current += 1;
+    let restored: Msg[] = [];
+    try { restored = JSON.parse(localStorage.getItem(cacheKey) || "[]") || []; } catch {}
+    setMsgs(restored);
+    setInput("");
+    setBusy(false);
+    setLoadedCacheKey(cacheKey);
+  }, [cacheKey]);
+  useEffect(() => {
+    if (loadedCacheKey !== cacheKey) return;
+    try { localStorage.setItem(cacheKey, JSON.stringify(msgs)); } catch {}
+  }, [cacheKey, loadedCacheKey, msgs]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => {
@@ -166,6 +180,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
     if (!q || busy) return;
     setInput("");
     const next: Msg[] = [...msgs, { role: "user", content: q }];
+    const generation = requestGeneration.current;
     setMsgs(next);
     setBusy(true);
     try {
@@ -175,12 +190,15 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
         ...next.slice(-12).map(({ role, content }) => ({ role, content })),
       ];
       const reply = await askIssuer(payload);
+      if (generation !== requestGeneration.current) return;
       setMsgs((m) => [...m, { role: "assistant", content: String(reply || "").trim() || "(no response)" }]);
     } catch (e) {
+      if (generation !== requestGeneration.current) return;
       const detail = (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail
         || (e as Error)?.message || "rate-limited or offline";
       setMsgs((m) => [...m, { role: "assistant", content: "Chat call failed (" + detail + "). Try again.", err: true}]);
     } finally {
+      if (generation !== requestGeneration.current) return;
       setBusy(false);
       inputRef.current?.focus();
     }

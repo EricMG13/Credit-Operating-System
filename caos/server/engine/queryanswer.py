@@ -190,6 +190,14 @@ def _should_retry(payload: dict) -> bool:
     return float(payload.get("drop_rate", 0.0)) > _RETRY_DROP_RATE_THRESHOLD
 
 
+def _attempt_score(payload: dict) -> tuple[int, float, int]:
+    """Order validated attempts by utility, then validation cleanliness."""
+    survivors = len(payload.get("sentences", []))
+    drop_rate = float(payload.get("drop_rate", 0.0))
+    dropped = len(payload.get("drop_reasons", []))
+    return survivors, -drop_rate, -dropped
+
+
 def _build_feedback_note(payload: dict) -> str:
     """Turn the drop reasons into a concise, sampled feedback note for the retry
     system prompt. Bounded so the retry prompt doesn't bloat past the cache
@@ -346,8 +354,13 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     # reasons fed back. Max 2 attempts; take-better; degrade honestly after.
     base_system = _SYSTEM + graph_note + facts_note
     payload: Optional[dict] = None
+    feedback_payload: Optional[dict] = None
+    selected_model: Optional[str] = None
     for attempt in range(_MAX_GENERATION_ATTEMPTS):
-        feedback = _build_feedback_note(payload) if (payload and _should_retry(payload)) else ""
+        feedback = (
+            _build_feedback_note(feedback_payload)
+            if feedback_payload and _should_retry(feedback_payload) else ""
+        )
         try:
             resp = await llm_client.create(
                 llm_client.anthropic_client(),
@@ -370,11 +383,14 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
             logger.exception("Self-correction retry failed; keeping prior payload")
             break
         attempt_payload = _validate(reply, hits, metric_facts)
-        # Take-better: keep the attempt with more survivors (or the first on a tie).
-        if payload is None or len(attempt_payload["sentences"]) > len(payload["sentences"]):
+        # Take-better: a retry replaces the selected answer only when it strictly
+        # improves survivors/validation cleanliness. A clean-but-empty repair can
+        # therefore never erase a partially grounded first answer.
+        if payload is None or _attempt_score(attempt_payload) > _attempt_score(payload):
             payload = attempt_payload
+            selected_model = str(getattr(resp, "model", None) or presets.model_for(tier))
+        feedback_payload = attempt_payload
         if not _should_retry(attempt_payload):
-            payload = attempt_payload
             break
     if payload is None:
         return {"answer": "", "sentences": [], "citations": [], "unavailable": True,
@@ -390,7 +406,7 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     # payload contract stays stable for the client).
     payload.pop("drop_rate", None)
     payload.pop("drop_reasons", None)
-    payload["model"] = str(getattr(resp, "model", None) or presets.model_for(tier))
+    payload["model"] = selected_model or presets.model_for(tier)
     return payload
 
 

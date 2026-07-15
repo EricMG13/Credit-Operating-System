@@ -21,12 +21,20 @@ Mode: review-only; production source remains unchanged; candidates are verified 
   Server (41), Server → Routes (39), Deepdive → Pipeline (17), Server → Engine
   (14), Command → Monitor (13), Model → Decisions (12), Routes → Engine (12),
   Command → Pipeline (10), and Model → Reports (9).
+- Final freshness refresh after the parallel checkout advanced:
+  `node .gitnexus/run.cjs analyze` indexed committed `83f6a7d` successfully at
+  **20,647 nodes, 37,225 edges, 622 clusters, and 300 flows**; a following
+  `status` reported **up-to-date**. The first refresh attempt could not update
+  the user-level registry from the restricted sandbox (`EPERM`); the approved
+  rerun completed in 12.9s. Impact sets below remain the pre-rewrite discovery
+  record at the stated tournament baseline; scratch candidates never entered
+  the production graph.
 
 ## Review groups
 
-The target is a representative rewrite tournament, not a claim that one symbol
-exhausts every line in its group. Group-wide adversarial findings and
-target-specific rewrite results are reported separately.
+The classification is codebase-wide. Each group receives one representative,
+high-leverage target tournament and target-specific adversarial findings; this
+is not a claim that one symbol exhausts every line in its group.
 
 | Group | Connected responsibilities | Dominant graph labels | Representative target |
 |---|---|---|---|
@@ -1073,7 +1081,72 @@ Baseline result: **4 files passed, 40 tests passed in 3.87s**.
 
 ### Tournament result
 
-Pending anonymous bracket and orchestrator scratch verification.
+Incumbent: defended the deliberately coupled history-index/bounce state
+machine, insertion-ordered guard snapshots, synchronous isolated discards,
+pending-attempt exclusivity, and ownership-safe restoration of patched History
+methods. These behaviors protect unsaved model state across native anchors,
+palette/hotkey navigation, and Back/Forward traversal.
+
+Anonymous bracket:
+
+1. **A vs B — A won.** A collects one insertion-ordered guard snapshot for an
+   intercepted anchor and passes it through the queued attempt; B scans again
+   inside its attempt helper, making the event decision and dialog snapshot
+   vulnerable to different render-time states.
+2. **Prior winner A vs Readability B — A won.** B was shorter, but it retained
+   the double scan; A's explicit snapshot parameter better preserves the exact
+   guards that caused interception.
+3. **Challenger A vs Incumbent B — A won.** Both preserve the complete history
+   state machine and cleanup contract, while A eliminates the incumbent's
+   second anchor-path guard scan and avoids `Array.from(...).filter(...)`.
+
+**Winner: Snippet A (Speed)**, replacing
+`caos/frontend/src/components/shared/NavigationGuardProvider.tsx:53-222`.
+
+Justification:
+
+- It takes one insertion-ordered active-guard snapshot per intercepted anchor
+  and uses that same snapshot for the pending dialog and discard callbacks.
+- It removes `Array.from(...).filter(...)` and avoids allocating a guard array
+  merely to synchronize the active count.
+- It preserves the exported one-argument context contract, all native-link
+  exclusions, pending exclusivity, discard isolation, and the incumbent's
+  history-index/bounce/cleanup state machine.
+
+### Orchestrator verification
+
+- Scratch module:
+  `caos/frontend/src/components/shared/NavigationGuardProvider.g9scratch.tsx`
+  during verification; a temporary Vitest alias redirected only the relative
+  provider import. Both harness files were deleted after the run. Production
+  source was not changed.
+- Focused/caller command from `caos/frontend`:
+  `./node_modules/.bin/vitest run --config .scratch-g9-vitest.config.ts src/components/shared/NavigationGuardProvider.test.tsx src/components/shared/ConceptHotkeys.test.tsx src/components/shared/CommandPalette.navigation-guard.test.tsx src/app/model/model-v2-workbench.test.tsx`
+- Focused result: **4 files passed, 40 tests passed in 5.94s**. This covers
+  direct navigation, dirty/disabled guards, same-origin anchor filtering,
+  discard failures, pending exclusivity, palette/hotkey callers, Back/Forward
+  bounce/resume, and unsaved Model Builder state.
+- Full scratch command:
+  `./node_modules/.bin/vitest run --config .scratch-g9-vitest.config.ts`
+- Full result: **163 files passed, 891 tests passed in 21.44s**.
+- Type command: `./node_modules/.bin/tsc --noEmit --incremental false` returned
+  exit **2** with six missing-`AnalysisContext.revision` errors confined to
+  `components/upload/context.test.ts` and
+  `UploadWizard-context-order.test.tsx`. Removing the candidate alias and
+  scratch module produced the exact same six errors, so the differential
+  control attributes none to the winner.
+- Caller re-check: RootLayout installation, ModelV2Workbench registration,
+  `ConceptHotkeys`, and `CommandPalette` all retained the same exported context
+  types and passed their focused tests. The full suite additionally exercised
+  every frontend consumer under the scratch alias.
+- Financial-state spot-check: the Model Builder caller test kept local input
+  and derived overrides uncommitted until an explicit atomic commit; navigation
+  remained blocked while that local state was dirty, so the rewrite did not
+  introduce autosave or silent discard.
+
+Final replacement code is preserved at
+`.agent-reviews/adversarial-candidates/g9_navigation_guard_speed.tsx`; it is not
+applied to production source by this review.
 
 ## G10 — QA/bench/scripts/tooling
 
@@ -1125,4 +1198,87 @@ unsafe inputs/tool errors.
 
 ### Tournament result
 
-Pending anonymous bracket and orchestrator scratch verification.
+Incumbent: defended the compact, load-bearing helper sequence, deliberately
+uncaught `_arguments()`/`SystemExit`, fail-closed exception boundary, exact CI
+messages, and tri-state return contract. Moving argument parsing or changing
+helper order would alter observable failure behavior; broader streaming would
+require changing helper contracts in the impact set.
+
+Anonymous bracket:
+
+1. **A vs B — A won.** A was byte-for-byte and AST-equivalent to the incumbent;
+   B's manual `del` statements did not reduce the unavoidable assessment peak
+   and made local lifetimes fragile.
+2. **Prior winner A vs Readability B — A won.** B preserved behavior but grew a
+   direct 21-line pipeline to 32 lines without a complexity or maintenance win.
+3. **Challenger A vs Incumbent B — B won.** The two snippets were identical, so
+   the challenger supplied no measurable merit and a no-op replacement was
+   rejected.
+
+**Winner: Snippet B (Incumbent)** — retain
+`caos/scripts/check_complexity_delta.py:209-229` unchanged.
+
+Justification:
+
+- It is already the shortest clear expression of the ordered five-helper
+  pipeline and its clean/policy/error exit paths.
+- No challenger improved asymptotic time or peak space without either being
+  identical or adding manual lifetime management and visual weight.
+- Keeping the original preserves argparse propagation, helper order, exact
+  stdout/stderr, and exit codes without a meaningless source diff.
+
+### Orchestrator verification
+
+- Scratch copy:
+  `/tmp/caos-g10-incumbent-019f67d3/caos/scripts/check_complexity_delta.py`.
+  Its SHA-256 and the production file's SHA-256 were both
+  `d125c9b38efe2719f97dd8362868415d2ccc5e39102cbce12a8e409da947c526`.
+- Focused command:
+  `caos/server/.venv311/bin/python -m pytest caos/tests/server/test_complexity_delta.py -q`
+  returned **2 passed in 0.02s**.
+- Orchestrator scratch harness:
+  `caos/server/.venv311/bin/python /tmp/g10_orchestrator_verify.py` returned
+  **pass** for clean, policy-finding, gate-error, and uncaught-argparse paths,
+  including exact helper order, streams, and 0/1/2 results. It also spot-checked
+  bounded, new, worse, lower, and removed/stale assessment cases.
+- Live CI-equivalent command:
+  `caos/server/.venv311/bin/python caos/scripts/check_complexity_delta.py --base-ref origin/main --ruff caos/server/.venv311/bin/ruff`
+  returned exit **0** with
+  `Complexity delta gate passed: 20 bounded finding(s) across 102 changed Python path(s).`
+  The earlier baseline's exit-1 `create_run (13 > 12)` finding disappeared after
+  the parallel checkout advanced; the final verification records current state.
+- Caller re-check: the file entrypoint still passes `main()` directly to
+  `sys.exit`, and the GitHub workflow invokes the same script and arguments.
+  No yield/day-count/covenant/waterfall implementation is called or altered;
+  the live gate's 20 bounded findings confirm the financial-engine complexity
+  debt remains explicitly assessed rather than silently waived.
+
+The retained code is mirrored at
+`.agent-reviews/adversarial-candidates/g10_check_complexity_delta_incumbent.py`
+for the requested final-code output. Production remains unchanged.
+
+## Overall disposition
+
+| Group | Verified winner | Production action |
+|---|---|---|
+| G1 Core CP engine | Snippet A — Speed | Candidate only |
+| G2 Model/workbook projections | Snippet A — Readability | Candidate only |
+| G3 API/auth/tenancy/persistence | Snippet A — Readability | Candidate only |
+| G4 Ingestion/lineage/pipeline | Snippet A — Speed | Candidate only |
+| G5 Query/research/LLM safety | Snippet A — Memory | Candidate only |
+| G6 Portfolio/desk decisions | Snippet A — Memory | Candidate only |
+| G7 Issuer analysis surfaces | Snippet A — Memory | Candidate only |
+| G8 Reports/exports/charts | Snippet A — Memory | Candidate only |
+| G9 Shared frontend shell | Snippet A — Speed | Candidate only |
+| G10 QA/bench/scripts/tooling | Snippet B — Incumbent | Keep original |
+
+The complete verified replacement code, including the retained G10 incumbent,
+is in [`adversarial-final-code.md`](adversarial-final-code.md), with one fenced
+block per group. Individual raw candidates remain under
+`adversarial-candidates/` for machine-readable follow-up.
+
+No candidate was applied to production. A future remediation pass should be
+separately authorized and should re-run current-HEAD GitNexus impact because
+the checkout advanced during this review. The reported scratch tests are the
+correctness authority for these candidates; the code graph is discovery
+authority only.

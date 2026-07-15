@@ -4,7 +4,7 @@
 // pins/recents contract (deepdive_pins) — same read-modify-write wrapper,
 // same silent-swallow-on-failure behavior.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useModelHistory } from "./useModelHistory";
 import { getAnalystSettings, updateAnalystWorkspace } from "@/lib/api";
 
@@ -18,6 +18,7 @@ const mockGetAnalystSettings = vi.mocked(getAnalystSettings);
 const mockUpdateAnalystWorkspace = vi.mocked(updateAnalystWorkspace);
 
 afterEach(() => {
+  cleanup();
   vi.clearAllMocks();
 });
 
@@ -142,10 +143,10 @@ describe("useModelHistory · checkpoints", () => {
       return { model_lanes: {}, email_intelligence: { approved_senders: [] }, ...next };
     });
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
     act(() => result.current.setOverrides({ "q1:rev": 10 }));
-    act(() => result.current.checkpoint("Sponsor base case"));
+    await act(async () => { await result.current.checkpoint("Sponsor base case"); });
 
     expect(result.current.checkpoints).toHaveLength(1);
     expect(result.current.checkpoints[0]).toMatchObject({ name: "Sponsor base case", overrides: { "q1:rev": 10 } });
@@ -153,7 +154,7 @@ describe("useModelHistory · checkpoints", () => {
     const written = mockUpdateAnalystWorkspace.mock.calls[0][0]({});
     expect((written.model_checkpoints as Record<string, unknown>)["issuer-1"]).toHaveLength(1);
 
-    act(() => result.current.checkpoint("   "));
+    await act(async () => { await result.current.checkpoint("   "); });
     expect(result.current.checkpoints).toHaveLength(1); // blank name ignored, no second write
   });
 
@@ -161,10 +162,10 @@ describe("useModelHistory · checkpoints", () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
     mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
     for (let i = 0; i < 11; i++) {
-      act(() => result.current.checkpoint(`cp-${i}`));
+      await act(async () => { await result.current.checkpoint(`cp-${i}`); });
     }
     expect(result.current.checkpoints).toHaveLength(10);
     expect(result.current.checkpoints[0].name).toBe("cp-10"); // newest first
@@ -175,10 +176,10 @@ describe("useModelHistory · checkpoints", () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
     mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
     act(() => result.current.setOverrides({ "q1:rev": 10 }));
-    act(() => result.current.checkpoint("v1"));
+    await act(async () => { await result.current.checkpoint("v1"); });
     act(() => result.current.setOverrides((o) => ({ ...o, "q2:rev": 20 })));
 
     const cpId = result.current.checkpoints[0].id;
@@ -193,7 +194,7 @@ describe("useModelHistory · checkpoints", () => {
   it("restoreCheckpoint with an unknown id is a harmless no-op", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
     act(() => result.current.setOverrides({ "q1:rev": 10 }));
     act(() => result.current.restoreCheckpoint("nonexistent"));
@@ -204,11 +205,11 @@ describe("useModelHistory · checkpoints", () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
     mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
-    act(() => result.current.checkpoint("v1"));
+    await act(async () => { await result.current.checkpoint("v1"); });
     const cpId = result.current.checkpoints[0].id;
-    act(() => result.current.deleteCheckpoint(cpId));
+    await act(async () => { await result.current.deleteCheckpoint(cpId); });
     expect(result.current.checkpoints).toEqual([]);
     await waitFor(() => expect(mockUpdateAnalystWorkspace).toHaveBeenCalledTimes(2)); // create + delete
   });
@@ -229,17 +230,15 @@ describe("useModelHistory · checkpoints", () => {
     expect(result.current.checkpoints[0].name).toBe("Good");
   });
 
-  it("swallows a checkpoint load/persist failure — checkpoints just stay local for the session", async () => {
+  it("surfaces a checkpoint load failure and blocks writes for an unknown issuer workspace", async () => {
     mockGetAnalystSettings.mockRejectedValue(new Error("no profile row"));
     mockUpdateAnalystWorkspace.mockRejectedValue(new Error("no profile row"));
     const { result } = renderHook(() => useModelHistory("issuer-1"));
-    await waitFor(() => expect(result.current.checkpoints).toEqual([]));
+    await waitFor(() => expect(result.current.persistenceState).toBe("error"));
 
-    // Must not throw despite the persist rejection.
-    await act(async () => {
-      result.current.checkpoint("local only");
-      await Promise.resolve();
-    });
-    expect(result.current.checkpoints).toHaveLength(1);
+    expect(await result.current.checkpoint("must not cross the boundary")).toBe(false);
+    expect(result.current.checkpoints).toHaveLength(0);
+    expect(mockUpdateAnalystWorkspace).not.toHaveBeenCalled();
+    expect(result.current.persistenceError).toBeTruthy();
   });
 });

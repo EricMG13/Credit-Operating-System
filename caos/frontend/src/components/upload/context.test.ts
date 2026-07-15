@@ -5,6 +5,7 @@ import type { AnalysisContext } from "@/lib/analysis-workbench";
 
 const context = {
   id: "context-1",
+  revision: 1,
   name: "Upload",
   sector_id: null,
   issuer_ids: [],

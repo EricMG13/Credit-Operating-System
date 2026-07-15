@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from engine.gate import Finding
-from engine.periods import is_finite_number, safe_div, sort_key
+from engine.periods import is_finite_number, safe_div, safe_mul, sort_key
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 
 # Margin compression of at least this many points YoY is a monitoring signal.
@@ -87,7 +87,7 @@ def compute_deltas(normalized_financials: dict) -> dict:
 
         # safe_div (not raw /): guards revenue == 0/None AND an output that
         # overflows float range with finite operands (denormal revenue).
-        m = safe_div(100 * adj_ebitda, revenue) if is_finite_number(adj_ebitda) else None
+        m = safe_div(safe_mul(100, adj_ebitda), revenue)
         ebitda_margin = round(m, 1) if m is not None else None
 
         rows.append(

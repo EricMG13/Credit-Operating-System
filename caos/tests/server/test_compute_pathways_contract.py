@@ -8,7 +8,8 @@ Crux: stressed_net_leverage = round(lev/(1-s),2) [(1-s) denominator];
 stressed_interest_coverage = round(cov*(1-s),2) if cov finite-numeric else None;
 ebitda_shock_pct = round(s*100) (int 10/20/30). shock_to_breach_pct = first shock
 pct where stressed leverage >= 7.0 (inclusive), else None. fragility = HIGH if
-lev>=7.0 OR breach<=10; MODERATE elif breach<=20; else LOW. None iff leverage is
+lev>=7.0 OR breach<=10; MODERATE for any later modeled breach; LOW only when no
+modeled shock breaches. None iff leverage is
 not a finite number (the grafted NaN/inf guard).
 """
 
@@ -48,9 +49,9 @@ CASES = [
     ("lev56_breach20", {"net_leverage_adj_ltm": 5.6, "interest_coverage_ltm": 2.0},
      _out(5.6, [_scen(10, 6.22, 1.8), _scen(20, 7.0, 1.6), _scen(30, 8.0, 1.4)], 20, "MODERATE")),
     ("lev50_breach30", {"net_leverage_adj_ltm": 5.0, "interest_coverage_ltm": 2.0},
-     _out(5.0, [_scen(10, 5.56, 1.8), _scen(20, 6.25, 1.6), _scen(30, 7.14, 1.4)], 30, "LOW")),
+     _out(5.0, [_scen(10, 5.56, 1.8), _scen(20, 6.25, 1.6), _scen(30, 7.14, 1.4)], 30, "MODERATE")),
     ("lev49_breach30", {"net_leverage_adj_ltm": 4.9, "interest_coverage_ltm": 2.0},
-     _out(4.9, [_scen(10, 5.44, 1.8), _scen(20, 6.12, 1.6), _scen(30, 7.0, 1.4)], 30, "LOW")),
+     _out(4.9, [_scen(10, 5.44, 1.8), _scen(20, 6.12, 1.6), _scen(30, 7.0, 1.4)], 30, "MODERATE")),
     ("lev40_nobreach", {"net_leverage_adj_ltm": 4.0, "interest_coverage_ltm": 2.0},
      _out(4.0, [_scen(10, 4.44, 1.8), _scen(20, 5.0, 1.6), _scen(30, 5.71, 1.4)], None, "LOW")),
     ("lev10_high", {"net_leverage_adj_ltm": 10.0, "interest_coverage_ltm": 3.0},
@@ -72,7 +73,6 @@ CASES = [
     ("lev_zero", {"net_leverage_adj_ltm": 0.0, "interest_coverage_ltm": 2.0}, None),
     ("lev_int", {"net_leverage_adj_ltm": 6, "interest_coverage_ltm": 2},
      _out(6.0, [_scen(10, 6.67, 1.8), _scen(20, 7.5, 1.6), _scen(30, 8.57, 1.4)], 20, "MODERATE")),
-
     # ── NaN/inf hardening (grafted math.isfinite guard) ──
     ("nan_leverage", {"net_leverage_adj_ltm": _NAN, "interest_coverage_ltm": 2.0}, None),
     ("inf_leverage", {"net_leverage_adj_ltm": _INF, "interest_coverage_ltm": 2.0}, None),

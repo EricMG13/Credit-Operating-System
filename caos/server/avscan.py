@@ -1,7 +1,7 @@
-"""Optional malware scan for uploaded documents (SECURITY.md §4 "Uploads").
+"""Malware scan for uploaded documents (SECURITY.md §4 "Uploads").
 
 A stdlib-only ClamAV ``INSTREAM`` client — no new dependency, no lock-in. The
-scanner is **disabled unless ``CLAMAV_HOST`` is set**; when set, every user
+Local development records ``not_configured`` unless ``CLAMAV_HOST`` is set; when set, every user
 upload is streamed to clamd before it is parsed or vaulted, and a signature hit
 is rejected (422). Gating mirrors the markitdown / EDGAR optional lanes.
 

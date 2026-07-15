@@ -23,7 +23,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from access_log import access_event, client_source, principal
-from config import get_settings, is_deployed, require_postgres_in_production, require_sane_environment
+from config import (
+    get_settings,
+    is_deployed,
+    require_malware_scanner_in_production,
+    require_postgres_in_production,
+    require_sane_environment,
+)
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
@@ -119,6 +125,7 @@ async def lifespan(app: FastAPI):
             "Leave it unset (default off) for a non-demo deployment."
         )
     require_postgres_in_production(settings)
+    require_malware_scanner_in_production(settings)
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
@@ -244,7 +251,11 @@ async def security_headers(request: Request, call_next):  # type: ignore[no-unty
     # to cache forever; HTML documents must revalidate so a redeploy's new
     # index.html isn't served stale (pointing at chunks that no longer exist). D6.
     path = request.url.path
-    if not path.startswith("/api/"):
+    if path.startswith("/api/"):
+        # Authenticated financial payloads, evidence and documents must not be
+        # retained by browsers or intermediary caches.
+        response.headers.setdefault("Cache-Control", "private, no-store")
+    else:
         if path.startswith("/_next/static/"):
             response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
         elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:

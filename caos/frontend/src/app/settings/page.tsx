@@ -175,9 +175,11 @@ function Settings() {
   const [analystSettings, setAnalystSettings] = useState<AnalystSettings>({ model_lanes: {}, email_intelligence: { approved_senders: [] } });
   const [analystSaved, setAnalystSaved] = useState(false);
   const [analystErr, setAnalystErr] = useState<string | null>(null);
-  // Holds the exact settings payload of a failed save so "Retry save" can re-PUT
-  // it without the analyst re-doing anything. `null` when there's nothing to retry.
-  const [analystRetry, setAnalystRetry] = useState<AnalystSettings | null>(null);
+  type AnalystPatch = Partial<Omit<AnalystSettings, "revision">>;
+  const [analystRetry, setAnalystRetry] = useState<{ patch: AnalystPatch; optimistic: AnalystSettings } | null>(null);
+  const analystSettingsRef = useRef(analystSettings);
+  const confirmedSettingsRef = useRef(analystSettings);
+  const analystSaveQueue = useRef<Promise<void>>(Promise.resolve());
   // Guard against overwriting the server profile before it has loaded: a failed
   // mount fetch leaves state at the empty default, and saving that would wipe the
   // analyst's stored lanes/senders. `analystLoaded` gates every write.
@@ -191,6 +193,8 @@ function Settings() {
     getAnalystSettings()
       .then((s) => {
         setAnalystSettings(s);
+        analystSettingsRef.current = s;
+        confirmedSettingsRef.current = s;
         setSendersRaw((s.email_intelligence?.approved_senders || []).join("\n"));
         const workspace = s.workspace || {};
         const serverPrefs = workspace.research_prefs;
@@ -235,36 +239,66 @@ function Settings() {
     window.setTimeout(() => setSaved(false), 2000);
   }
 
-  const saveAnalyst = (next = analystSettings) => {
+  const persistAnalystPatch = (patch: AnalystPatch, optimistic: AnalystSettings) => {
+    const persist = async () => {
+      let base = confirmedSettingsRef.current;
+      try {
+        let savedSettings: AnalystSettings;
+        try {
+          savedSettings = await patchAnalystSettings(base.revision ?? 0, patch);
+        } catch (error) {
+          const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+          const detail = response?.data?.detail as { message?: unknown; current?: AnalystSettings } | undefined;
+          if (response?.status !== 409 || !detail?.current) throw error;
+          // The conflict response is the authoritative base. Replay only the
+          // top-level fields this interaction changed, preserving sibling edits.
+          base = detail.current;
+          confirmedSettingsRef.current = base;
+          savedSettings = await patchAnalystSettings(base.revision ?? 0, patch);
+        }
+        confirmedSettingsRef.current = savedSettings;
+        if (analystSettingsRef.current === optimistic) {
+          analystSettingsRef.current = savedSettings;
+          setAnalystSettings(savedSettings);
+        }
+        setAnalystRetry(null);
+        setAnalystErr(null);
+        setAnalystSaved(true);
+        window.setTimeout(() => setAnalystSaved(false), 2000);
+      } catch (error) {
+        setAnalystRetry({ patch, optimistic });
+        const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : typeof (detail as { message?: unknown } | undefined)?.message === "string"
+            ? (detail as { message: string }).message
+            : "Save failed — not stored";
+        setAnalystErr(message);
+      }
+    };
+    analystSaveQueue.current = analystSaveQueue.current.then(persist, persist);
+  };
+
+  const saveAnalyst = (next = analystSettingsRef.current) => {
     // Never PUT before the profile has loaded — that would push the empty default
     // over the analyst's stored settings.
     if (!analystLoaded) return;
-    // Snapshot the last-persisted structured settings so a failed PUT can roll the
-    // optimistic control state (lane selects) back — those controls must never keep
-    // showing a value the server rejected. The `sendersRaw` textarea buffer is
-    // deliberately NOT rolled back: it is hand-typed, possibly-long trust-list work,
-    // and restoring it to a stale snapshot on a transient 5xx would delete the very
-    // addresses the error is warning weren't stored. We keep it as typed and offer
-    // "Retry save" instead (H9 — preserve the analyst's work).
-    const prevSettings = analystSettings;
+    // Compute a sparse top-level intent before the optimistic update. The typed
+    // values stay visible on failure with an explicit unsaved/retry state; a 409
+    // can therefore rebase this intent without deleting a sibling tab's fields.
+    const prevSettings = analystSettingsRef.current;
+    const patch: AnalystPatch = {};
+    for (const key of ["model_lanes", "email_intelligence", "role_view", "workspace"] as const) {
+      if (JSON.stringify(prevSettings[key]) !== JSON.stringify(next[key])) {
+        Object.assign(patch, { [key]: next[key] });
+      }
+    }
+    if (Object.keys(patch).length === 0) return;
+    analystSettingsRef.current = next;
     setAnalystSettings(next);
     setAnalystErr(null);
     setAnalystRetry(null);
-    patchAnalystSettings(analystSettings.revision ?? 0, {
-      model_lanes: next.model_lanes,
-      email_intelligence: next.email_intelligence,
-      role_view: next.role_view,
-      workspace: next.workspace,
-    }).then((savedSettings) => {
-      setAnalystSettings(savedSettings);
-      setAnalystSaved(true);
-      window.setTimeout(() => setAnalystSaved(false), 2000);
-    }).catch((e) => {
-      const detail = e?.response?.data?.detail;
-      setAnalystSettings(prevSettings);
-      setAnalystRetry(next);
-      setAnalystErr(typeof detail === "string" && detail ? detail : "Save failed — not stored");
-    });
+    persistAnalystPatch(patch, next);
   };
   const analystStatusTag = analystLoadErr ? (
     <span role="alert" className="flex items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
@@ -285,7 +319,7 @@ function Settings() {
       {analystRetry ? (
         <button
           type="button"
-          onClick={() => saveAnalyst(analystRetry)}
+          onClick={() => persistAnalystPatch(analystRetry.patch, analystRetry.optimistic)}
           className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
         >
           Retry save

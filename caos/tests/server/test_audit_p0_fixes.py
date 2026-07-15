@@ -183,6 +183,21 @@ def test_require_postgres_in_production_rejects_sqlite_when_deployed():
         environment="development", database_url="sqlite+aiosqlite:///./caos.db"))
 
 
+def test_require_malware_scanner_in_production_fails_closed():
+    from config import require_malware_scanner_in_production
+
+    with pytest.raises(RuntimeError):
+        require_malware_scanner_in_production(SimpleNamespace(
+            environment="production", clamav_host=""
+        ))
+    require_malware_scanner_in_production(SimpleNamespace(
+        environment="production", clamav_host="clamav"
+    ))
+    require_malware_scanner_in_production(SimpleNamespace(
+        environment="development", clamav_host=""
+    ))
+
+
 # ── #15: extract_json always prepends the untrusted-input rule ────────────────
 @pytest.mark.asyncio
 async def test_extract_json_prepends_untrusted_rule(monkeypatch):

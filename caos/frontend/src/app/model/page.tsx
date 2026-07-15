@@ -22,7 +22,7 @@ import { OV_SIGN, ovField, parseNum, type PasteResult } from "@/components/model
 import { ROWS } from "@/components/model/rows";
 import type { Model, Overrides } from "@/lib/reports/model";
 import {
-  type Assumptions, type CaseAssumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, DEFAULT_CASE, loadAssumptions, saveAssumptions,
+  type Assumptions, type CaseAssumptions, type FY, ADDBACKS, DEFAULT_ASSUMPTIONS, DEFAULT_CASE, loadAssumptions, parseAssumptions, saveAssumptions,
 } from "@/lib/reports/assumptions";
 import { useModelEngine, type ModelEngineState } from "@/lib/engine/useModelEngine";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
@@ -59,10 +59,23 @@ type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
 function parseSavedPayload(saved: SavedModel) {
   const p = saved?.payload;
   if (!p) return null;
-  const o = p.overrides && typeof p.overrides === "object" ? (p.overrides as Overrides) : undefined;
-  const a = p.assumptions && typeof p.assumptions === "object" ? (p.assumptions as Assumptions) : undefined;
-  const c = Array.isArray(p.collapsedRows) ? new Set(p.collapsedRows as string[]) : undefined;
+  const o = sanitizeOverrides(p.overrides);
+  const a = p.assumptions && typeof p.assumptions === "object"
+    ? parseAssumptions(JSON.stringify(p.assumptions)) ?? undefined
+    : undefined;
+  const c = Array.isArray(p.collapsedRows)
+    ? new Set(p.collapsedRows.filter((row): row is string => typeof row === "string"))
+    : undefined;
   return { o, a, c, updatedAt: saved?.updated_at ?? null };
+}
+
+function sanitizeOverrides(raw: unknown): Overrides | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Overrides = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+  }
+  return out;
 }
 
 export default function ModelPage() {
@@ -125,7 +138,11 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [hlCells, setHlCells] = useState<Set<string> | null>(null);
   const history = useModelHistory(issuerId);
-  const { overrides, setOverrides, replaceOverrides, undo, redo, canUndo, canRedo, checkpoints, checkpoint, restoreCheckpoint, deleteCheckpoint } = history;
+  const {
+    overrides, setOverrides, replaceOverrides, undo, redo, canUndo, canRedo,
+    checkpoints, checkpoint, restoreCheckpoint, deleteCheckpoint,
+    persistenceState, persistenceError,
+  } = history;
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
   const pasteNoticeTimer = useRef<number | null>(null);
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
@@ -135,7 +152,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   // the analyst is looking at the local draft and must be told, with a retry.
   const [restoreError, setRestoreError] = useState(false);
   const [restoreNonce, setRestoreNonce] = useState(0);
-  const [hydrated, setHydrated] = useState(false);
+  const [hydratedIssuerId, setHydratedIssuerId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   // True when a save was rejected because this issuer's model was saved
@@ -151,6 +168,8 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   const savedSnapshot = useRef<string | null>(null);
   const editErrTimer = useRef<number | null>(null);
   const armTimer = useRef<number | null>(null);
+  const hydrateGeneration = useRef(0);
+  const hydrated = hydratedIssuerId === issuerId;
 
   // evidence modal cited-by needs the report set
   const reports = useMemo(() => legacyRuntime.buildReports(), [legacyRuntime]);
@@ -206,6 +225,18 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     // new issuer's grid (and then get persisted under it) when the analyst navigates
     // A -> B mid-fetch. (audit F1)
     let stale = false;
+    const generation = ++hydrateGeneration.current;
+    setHydratedIssuerId(null);
+    replaceOverrides({});
+    setAssumptions({
+      base: { ...DEFAULT_CASE }, down: { ...DEFAULT_CASE }, baseYears: {}, downYears: {},
+    });
+    setCollapsedRows(new Set());
+    setSavedAt(null);
+    setRestoreError(false);
+    setSaveError(false);
+    setSaveConflict(false);
+    savedSnapshot.current = null;
     // locals track what was actually loaded so the dirty-baseline snapshot below
     // reflects restored state, not the stale render closure.
     let lo: Overrides = {};
@@ -217,27 +248,28 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         const legacy = localStorage.getItem("caos-d-overrides");
         if (legacy != null) raw = legacy; // reference issuer inherits old demo state
       }
-      const o = JSON.parse(raw || "{}");
-      if (o && typeof o === "object") { lo = o; replaceOverrides(o); }
+      const o = sanitizeOverrides(JSON.parse(raw || "{}"));
+      if (o) { lo = o; replaceOverrides(o); }
       la = loadAssumptions(issuerId);
       setAssumptions(la);
     } catch { /* first visit */ }
     // baseline dirty at local-storage state; refined below if a DB model restores
     savedSnapshot.current = serializeSavable(la, lo, lc);
-    setRestoreError(false);
     getSavedModel(issuerId).then((saved) => {
-      if (stale) return;
+      if (stale || generation !== hydrateGeneration.current) return;
       const parsed = parseSavedPayload(saved);
-      if (!parsed) return;
-      const { o, a, c, updatedAt } = parsed;
-      if (o) replaceOverrides(o);
-      if (a) setAssumptions(a);
-      if (c) setCollapsedRows(c);
-      setSavedAt(updatedAt);
-      // re-baseline the dirty flag at the just-restored DB state
-      savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-    }).catch(() => { if (!stale) setRestoreError(true); });
-    setHydrated(true);
+      if (parsed) {
+        const { o, a, c, updatedAt } = parsed;
+        if (o) replaceOverrides(o);
+        if (a) setAssumptions(a);
+        if (c) setCollapsedRows(c);
+        setSavedAt(updatedAt);
+        savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
+      }
+      setHydratedIssuerId(issuerId);
+    }).catch(() => {
+      if (!stale && generation === hydrateGeneration.current) setRestoreError(true);
+    });
     return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issuerId, ovKey, isReference, restoreNonce]);
@@ -441,6 +473,10 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
   const resetAll = () => setOverrides({});
   const saveCurrentModel = async () => {
+    if (!hydrated) {
+      setSaveError(true);
+      return null;
+    }
     setSaving(true);
     setSaveError(false);
     setSaveConflict(false);
@@ -467,6 +503,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   };
 
   const saveCheckpoint = async () => {
+    if (!hydrated) return;
     setCheckpointing(true);
     setCheckpointNotice(null);
     try {
@@ -666,7 +703,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         <>
           <button
             onClick={saveCheckpoint}
-            disabled={!hasIssuerModel || saving || checkpointing || analysis.loading}
+            disabled={!hasIssuerModel || !hydrated || saving || checkpointing || analysis.loading}
             aria-label="Save model checkpoint"
             title="Save the working model, then create an immutable checkpoint for downstream reporting"
             className="caos-primary-action focus-ring disabled:opacity-40"
@@ -700,6 +737,9 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
             onCheckpoint={checkpoint}
             onRestore={restoreCheckpoint}
             onDelete={deleteCheckpoint}
+            disabled={!hydrated}
+            status={persistenceState}
+            error={persistenceError}
           />
         </span>
       }

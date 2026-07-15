@@ -6,7 +6,7 @@
 // committee-ready Markdown credit report (right). Without a model key the server
 // returns a canned demo report, so the concept stays demoable offline.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
@@ -86,7 +86,9 @@ function Research() {
   const [prevResult, setPrevResult] = useState<ResearchResult | null>(null); // retained across a rerun (H5)
   const [progress, setProgress] = useState<ResearchProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
+  const [configState, setConfigState] = useState<"loading" | "live" | "demo" | "error">("loading");
+  const [reattachError, setReattachError] = useState<string | null>(null);
+  const [reattachRetry, setReattachRetry] = useState(0);
   const notify = useNotify();
   const { user } = useAuth();
   const analystId = user?.id ?? "";
@@ -125,11 +127,18 @@ function Research() {
     }
   }, []);
 
-  // Demo-vs-live gate: warn before a run is spent (best-effort — a failed
-  // settings fetch just leaves the state unknown, no banner).
-  useEffect(() => {
-    getSettings().then((s) => setLlmConfigured(s.llm_configured)).catch(() => {});
+  const loadResearchConfiguration = useCallback(async () => {
+    setConfigState("loading");
+    try {
+      const loaded = await getSettings();
+      setConfigState(loaded.llm_configured ? "live" : "demo");
+    } catch {
+      setConfigState("error");
+    }
   }, []);
+
+  // A run cannot be labelled live/demo until the server confirms its mode.
+  useEffect(() => { void loadResearchConfiguration(); }, [loadResearchConfiguration]);
 
   // Elapsed timer while a run is in flight; the phase copy derives from it.
   useEffect(() => {
@@ -149,40 +158,56 @@ function Research() {
   //   • running  → resume polling into RunningView via watch(), as before;
   //   • gone/failed → drop the stale id quietly (never a scary "Research failed").
   // Runs once per analyst.
-  const resumedRef = useRef(false);
   useEffect(() => {
-    if (!analystId || !analysis.context?.id || resumedRef.current) return;
-    resumedRef.current = true;
-    const stored = _loadJobId(analystId, analysis.context?.id);
+    const contextId = analysis.context?.id;
+    if (!analystId || !contextId) return;
+    const stored = _loadJobId(analystId, contextId);
     if (!stored) return;
     activeJobId.current = stored;
-    let cancelled = false; // unmount before the probe resolves — don't touch state
-    void getResearchStatus(stored)
-      .then((st) => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+
+    const probe = async () => {
+      attempt += 1;
+      try {
+        const st = await getResearchStatus(stored);
         if (cancelled) return;
+        setReattachError(null);
         if (st.state === "complete") {
-          // Keep the id: the report stays reachable across further reloads.
           setResult(st.result);
           return;
         }
         if (st.state === "running") {
           const ctrl = new AbortController();
-          void watch(resumeResearch(stored, setProgress, ctrl.signal), ctrl).catch(() => {});
+          void watch(resumeResearch(stored, setProgress, ctrl.signal), ctrl);
           return;
         }
-        // gone (404/blip) or failed — the pointer is stale; drop it silently.
-        _storeJobId(analystId, analysis.context?.id, null);
-      })
-      .catch(() => {
-        // Belt-and-braces: an unexpected throw must not orphan a stale id.
-        if (!cancelled) _storeJobId(analystId, analysis.context?.id, null);
-      });
+        // A typed gone/failed terminal is authoritative; transport failures are not.
+        _storeJobId(analystId, contextId, null);
+        activeJobId.current = null;
+      } catch (err) {
+        if (cancelled) return;
+        if (isResearchGone(err)) {
+          _storeJobId(analystId, contextId, null);
+          activeJobId.current = null;
+          setReattachError(null);
+          return;
+        }
+        setReattachError(toErrorMessage(err, "Could not reattach to the saved research job"));
+        if (attempt < 3) {
+          retryTimer = setTimeout(() => { void probe(); }, attempt * 1000);
+        }
+      }
+    };
+    void probe();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
-    // watch() itself surfaces terminal state for the running branch.
+    // watch() is intentionally captured from the current analyst/context render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analystId, analysis.context?.id]);
+  }, [analystId, analysis.context?.id, reattachRetry]);
 
   // Abort the active poll on unmount so a closed / navigated-away tab stops
   // polling (previously it kept GETting for up to 15 min). The durable job is
@@ -192,6 +217,7 @@ function Research() {
   // Derived once per render and reused across the form + report pane.
   const subj = subject.trim();
   const canRun = subj.length >= 2;
+  const configReady = configState === "live" || configState === "demo";
   const criteriaList = criteria.split("\n").map((c) => c.trim()).filter(Boolean);
 
   const toggleAdv = () =>
@@ -370,8 +396,8 @@ function Research() {
     <EnterprisePage kind="analytical"
       identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
       primaryAction={
-        <button type="button" onClick={() => { if (canRun && !running) run(); }} aria-disabled={!canRun || running} title={canRun || running ? undefined : "Enter a sector or issuer above"} className="caos-primary-action focus-ring">
-          {running ? "Researching…" : llmConfigured === false ? "Run example research" : "Run deep research"}
+        <button type="button" onClick={() => { if (canRun && configReady && !running) run(); }} aria-disabled={!canRun || !configReady || running} title={canRun || running ? undefined : "Enter a sector or issuer above"} className="caos-primary-action focus-ring">
+          {running ? "Researching…" : configState === "demo" ? "Run example research" : configState === "live" ? "Run deep research" : "Research configuration unavailable"}
         </button>
       }
       contextualControls={
@@ -393,7 +419,7 @@ function Research() {
               panel's own overflow-auto scrolls when the advanced section is open —
               no flex-1 child to collapse and overlap on a short viewport. */}
           <div className="min-h-full p-3 flex flex-col gap-4">
-            {llmConfigured === false && (
+            {configState === "demo" && (
               <div
                 className="flex items-baseline gap-2 px-2.5 py-2 rounded border"
                 style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 6%, transparent)" }}
@@ -402,6 +428,21 @@ function Research() {
                 <span className="text-caos-xs text-caos-muted leading-snug">No model key configured — runs return a canned example report.</span>
               </div>
             )}
+            {configState === "loading" ? (
+              <p role="status" className="text-caos-xs text-caos-muted">Checking live/demo research configuration…</p>
+            ) : null}
+            {configState === "error" ? (
+              <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2.5 py-2">
+                <span className="flex-1 text-caos-xs text-caos-critical">Research configuration unavailable. No run will start until provenance is confirmed.</span>
+                <button type="button" className="caos-action-secondary focus-ring" onClick={() => void loadResearchConfiguration()}>Retry configuration</button>
+              </div>
+            ) : null}
+            {reattachError ? (
+              <div role="alert" className="flex items-center gap-2 rounded border border-caos-warning/50 px-2.5 py-2">
+                <span className="flex-1 text-caos-xs text-caos-warning">{reattachError}. The saved job remains attached.</span>
+                <button type="button" className="caos-action-secondary focus-ring" onClick={() => setReattachRetry((value) => value + 1)}>Retry reattachment</button>
+              </div>
+            ) : null}
 
             {/* Essentials — the whole job: pick a grain, name the subject. */}
             <div className="flex flex-col gap-3">
@@ -455,21 +496,23 @@ function Research() {
               <button
                 type="button"
                 onClick={run}
-                disabled={!canRun || running}
+                disabled={!canRun || !configReady || running}
                 className={
                   "text-caos-md font-semibold px-3 py-2.5 rounded border transition-caos focus-ring " +
                   (running
                     ? "bg-caos-elevated border-caos-border text-caos-muted cursor-wait"
-                    : !canRun
+                    : !canRun || !configReady
                       ? "bg-caos-elevated border-caos-border text-caos-muted cursor-not-allowed"
                       : "bg-caos-accent border-caos-accent text-caos-bg hover:brightness-110")
                 }
               >
                 {running
                   ? "Researching…"
-                  : llmConfigured === false
+                  : configState === "demo"
                     ? "Run example research"
-                    : "Run deep research"}
+                    : configState === "live"
+                      ? "Run deep research"
+                      : "Research configuration unavailable"}
               </button>
               {!canRun && (
                 <p className="text-caos-2xs text-caos-muted leading-snug">

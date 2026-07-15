@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
@@ -11,7 +11,7 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
-import { queryCapabilities } from "@/lib/api";
+import { queryCapabilities, toErrorMessage } from "@/lib/api";
 import {
   analysisApi,
   contextHref,
@@ -182,11 +182,19 @@ export function QueryInvestigationWorkbench() {
   const [manualLane, setManualLane] = useState(false);
   const [run, setRun] = useState<QueryRun | null>(null);
   const [history, setHistory] = useState<QueryRun[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
   const [capabilityId, setCapabilityId] = useState("peer-set");
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
   const [findingsKey, setFindingsKey] = useState(0);
+  const historyGeneration = useRef(0);
+  const historyContextId = useRef<string | null>(null);
+  const runGeneration = useRef(0);
+  const runningRef = useRef(false);
+  const pinningRef = useRef(false);
 
   useEffect(() => {
     if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
@@ -197,21 +205,47 @@ export function QueryInvestigationWorkbench() {
   }, [urlState.lane]);
 
   useEffect(() => {
-    if (!contextState.context) return;
-    analysisApi.listQueryRuns(contextState.context.id).then((rows) => {
+    const context = contextState.context;
+    const generation = ++historyGeneration.current;
+    setHistory([]);
+    setHistoryError(null);
+    if (!context) {
+      historyContextId.current = null;
+      setRun(null);
+      return;
+    }
+    if (historyContextId.current !== context.id) {
+      historyContextId.current = context.id;
+      setRun(null);
+    }
+    analysisApi.listQueryRuns(context.id).then((rows) => {
+      if (generation !== historyGeneration.current) return;
       setHistory(rows);
-      if (urlState.run || contextState.context?.query_session_id) {
-        const latest = rows.find((item) => item.id === (urlState.run ?? contextState.context?.query_session_id));
+      if (urlState.run || context.query_session_id) {
+        const latest = rows.find((item) => item.id === (urlState.run ?? context.query_session_id));
         if (latest) setRun(latest);
       }
-    }).catch(() => setHistory([]));
+    }).catch((error) => {
+      if (generation === historyGeneration.current) {
+        setHistoryError(toErrorMessage(error, "Saved investigations unavailable"));
+      }
+    });
+    return () => { historyGeneration.current += 1; };
+  }, [contextState.context?.id, contextState.context?.query_session_id, urlState.run]);
+
+  useEffect(() => {
+    let current = true;
     queryCapabilities().then((value) => {
+      if (!current) return;
       const groups = (value as { groups?: Array<{ capabilities?: Array<{ id: string; enabled: boolean }> }> }).groups ?? [];
       const first = groups.flatMap((group) => group.capabilities ?? []).find((capability) => capability.enabled);
       if (first) setCapabilityId(first.id);
       setCapabilityError(null);
-    }).catch(() => setCapabilityError("Graph capabilities unavailable. Metric questions remain usable."));
-  }, [contextState.context, urlState.run]);
+    }).catch((error) => {
+      if (current) setCapabilityError(toErrorMessage(error, "Graph capabilities unavailable. Metric questions remain usable."));
+    });
+    return () => { current = false; };
+  }, []);
 
   const setLane = (next: QueryRun["selected_lane"]) => {
     setLaneState(next);
@@ -219,21 +253,33 @@ export function QueryInvestigationWorkbench() {
   };
 
   const runQuery = useCallback(async () => {
-    if (!contextState.context || !question.trim() || running) return;
+    if (!contextState.context || !question.trim() || runningRef.current) return;
+    const generation = ++runGeneration.current;
+    const contextId = contextState.context.id;
+    runningRef.current = true;
     setRunning(true);
+    setRunError(null);
     try {
       const next = await analysisApi.createQueryRun({
-        context_id: contextState.context.id,
+        context_id: contextId,
         question: question.trim(),
         selected_lane: lane,
         capability_id: lane === "graph" ? capabilityId : undefined,
       });
+      if (generation !== runGeneration.current || contextState.context?.id !== contextId) return;
       setRun(next);
       updateUrlState({ run: next.id, lane: next.selected_lane === "metric" ? null : next.selected_lane }, "replace");
       setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 100));
       contextState.setContext({ ...contextState.context, query_session_id: next.id });
+    } catch (error) {
+      if (generation === runGeneration.current) {
+        setRunError(toErrorMessage(error, "Query could not be run"));
+      }
     } finally {
-      setRunning(false);
+      if (generation === runGeneration.current) {
+        runningRef.current = false;
+        setRunning(false);
+      }
     }
   }, [capabilityId, contextState, lane, question, running, updateUrlState]);
 
@@ -246,8 +292,10 @@ export function QueryInvestigationWorkbench() {
   };
 
   const pinFinding = async () => {
-    if (!contextState.context || !run || !["ready", "observed-empty"].includes(run.status)) return;
+    if (pinningRef.current || !contextState.context || !run || !["ready", "observed-empty"].includes(run.status)) return;
+    pinningRef.current = true;
     setPinning(true);
+    setPinError(null);
     try {
       await analysisApi.createFinding({
         context_id: contextState.context.id,
@@ -259,7 +307,10 @@ export function QueryInvestigationWorkbench() {
         evidence: { source_ids: run.authority.source_ids, result: run.result },
       });
       setFindingsKey((value) => value + 1);
+    } catch (error) {
+      setPinError(toErrorMessage(error, "Finding was not pinned"));
     } finally {
+      pinningRef.current = false;
       setPinning(false);
     }
   };
@@ -275,7 +326,7 @@ export function QueryInvestigationWorkbench() {
       primaryAction={<button type="button" onClick={() => void runQuery()} disabled={!context || !question.trim() || running} className="caos-primary-action focus-ring disabled:opacity-40">{running ? "Running…" : "Run Query"}</button>}
       contextualControls={<>{headStat("Lane", lane)}{headStat("History", `${history.length} runs`)}</>}
       utilityLabel="Query utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3><ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
+      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3>{historyError ? <p role="alert" className="mt-2 text-caos-critical">{historyError}</p> : null}<ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
       narrowContract={narrow}
     >
       <main className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
@@ -291,10 +342,12 @@ export function QueryInvestigationWorkbench() {
           <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
           {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
           {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
+          {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
         </section>}
           primary={<section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>}
           inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
             <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <button type="button" onClick={() => void pinFinding()} disabled={pinning || !["ready", "observed-empty"].includes(run.status)} className="caos-action-secondary ml-auto focus-ring disabled:opacity-40">{pinning ? "Pinning…" : "Pin finding"}</button> : null}</div>
+            {pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding()}>Retry pin</button></p> : null}
             {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} source identifiers attached to this run.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id} className="tabular text-caos-xs text-caos-muted"><span className="text-caos-accent">C{index + 1}</span> · {id}</li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
           </aside>}

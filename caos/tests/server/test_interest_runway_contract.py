@@ -17,8 +17,8 @@ Contract crux a rewrite MUST keep:
      (c) cash_interest rounds to 0.0. Guards (a)/(b) reject NaN/inf (the grafted
      fix: a NaN coverage otherwise survives isinstance + bool(NaN) truthiness and
      poisons the divide).
-  4. No guard on OUTPUTS: zero liquidity -> 0.0 months; negative liquidity ->
-     negative months; negative coverage -> negative cash_interest & months.
+  4. Economic-domain guards: zero liquidity -> 0.0 months; negative liquidity,
+     EBITDA or coverage -> (None,None), never a negative published runway.
   5. ``latest()`` picks the value at the largest trailing-year period key.
   6. Rounding is Python ``round(x, 1)`` — half-even over the float repr.
 """
@@ -59,10 +59,11 @@ CASES = [
     # months divides by the ROUNDED cash_interest (3.3), not raw 3.333
     ("rounded_denominator", 100.0, _cp1(eb=10.0, cov=3.0), (3.3, 363.6)),
     ("clean_120", 1000.0, _cp1(eb=240.0, cov=2.0), (120.0, 100.0)),
-    # sign + zero edges (NO output guard)
+    # sign + zero edges
     ("liq_zero", 0.0, _cp1(), (200.5, 0.0)),
-    ("liq_negative", -500.0, _cp1(), (200.5, -29.9)),
-    ("cov_negative", 500.0, _cp1(cov=-2.1), (-200.5, -29.9)),
+    ("liq_negative", -500.0, _cp1(), (None, None)),
+    ("cov_negative", 500.0, _cp1(cov=-2.1), (None, None)),
+    ("ebitda_negative", 500.0, _cp1(eb=-421.0), (None, None)),
     ("liq_bool_false", False, _cp1(), (200.5, 0.0)),
     ("ebitda_multi_period", 500.0,
      _cp1(eb_dict={"FY22": 999.0, "FY24": 100.0, "LTM_Q1_26": 421.0}), (200.5, 29.9)),

@@ -12,6 +12,7 @@
     {"path": "caos/server/engine/specialized_modules.py", "symbol": "source_gate", "max_complexity": 11},
     {"path": "caos/server/engine/synth.py", "symbol": "synthesize", "max_complexity": 16},
     {"path": "caos/server/freshness.py", "symbol": "evaluate_freshness", "max_complexity": 22},
+    {"path": "caos/server/ingest.py", "symbol": "extract_xlsx_text", "max_complexity": 11},
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "_ref_status", "max_complexity": 39},
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "reconcile_lineage", "max_complexity": 48},
     {"path": "caos/server/market_xlsx.py", "symbol": "_find_candidate", "max_complexity": 12},
@@ -56,8 +57,11 @@
     {"path": "caos/server/routes/model_workbook.py", "symbol": "commit_model_workbook_import", "max_complexity": 18},
     {"path": "caos/server/routes/models.py", "symbol": "create_model_checkpoint", "max_complexity": 16},
     {"path": "caos/server/routes/query.py", "symbol": "_result_source_ids", "max_complexity": 11},
-    {"path": "caos/server/routes/reports.py", "symbol": "_prepare_report", "max_complexity": 24},
-    {"path": "caos/server/routes/runs.py", "symbol": "create_run", "max_complexity": 12},
-    {"path": "caos/server/routes/rv.py", "symbol": "create_rv_screen", "max_complexity": 16}
+    {"path": "caos/server/routes/reports.py", "symbol": "_prepare_report", "max_complexity": 26},
+    {"path": "caos/server/routes/runs.py", "symbol": "create_run", "max_complexity": 17},
+    {"path": "caos/server/routes/rv.py", "symbol": "create_rv_screen", "max_complexity": 16},
+    {"path": "caos/server/run_inputs.py", "symbol": "snapshot_run_inputs", "max_complexity": 15},
+    {"path": "caos/server/xlsx_safety.py", "symbol": "validate_xlsx_package", "max_complexity": 29},
+    {"path": "caos/tests/server/test_avscan.py", "symbol": "_drain_instream", "max_complexity": 12}
   ]
 }

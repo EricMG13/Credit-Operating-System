@@ -7,12 +7,15 @@ schema-valid payloads.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal, Optional
+from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -37,6 +40,8 @@ from database import (
     get_db,
 )
 from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
+from engine.locks import key_from_str
+from engine.periods import is_finite_number
 from sector_taxonomy import CANONICAL_SECTORS, canonical_sector_id
 from sector_logic import sector_materiality_score, sector_signal_dedup_hash
 
@@ -46,6 +51,30 @@ _READ_MAX_PER_MINUTE = 90
 _WRITE_MAX_PER_MINUTE = 30
 _ASK_MAX_PER_MINUTE = 20
 _MAX_SIGNALS = 100
+_LOCAL_SECTOR_LOCKS: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+
+
+@asynccontextmanager
+async def _sector_mutation_lock(db: AsyncSession, label: str):
+    """Serialize a review mutation across workers and SQLite test requests.
+
+    PostgreSQL uses a transaction-scoped advisory lock so a crash/rollback
+    releases ownership automatically. SQLite is intentionally single-process;
+    a weakly-held asyncio lock supplies the equivalent local critical section.
+    """
+    if db.get_bind().dialect.name == "postgresql":
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"),
+            {"key": key_from_str(label)},
+        )
+        yield
+        return
+    lock = _LOCAL_SECTOR_LOCKS.get(label)
+    if lock is None:
+        lock = asyncio.Lock()
+        _LOCAL_SECTOR_LOCKS[label] = lock
+    async with lock:
+        yield
 
 
 def _utc(y: int, m: int, d: int, hh: int, mm: int) -> datetime:
@@ -87,12 +116,17 @@ class SectorSignalOut(BaseModel):
     severity: str
     headline: str
     summary: str
-    materiality_score: float
+    materiality_score: Optional[float] = None
     issuers: list[SectorIssuer] = Field(default_factory=list)
     sources: list[SectorSource] = Field(default_factory=list)
     provenance: str = "seed"
     staleness_flag: str = "seed"
     confidence: str = "fixture"
+
+    @field_validator("materiality_score", mode="before")
+    @classmethod
+    def finite_materiality_score(cls, value):
+        return float(value) if is_finite_number(value) else None
 
 
 class SectorReviewSection(BaseModel):
@@ -727,12 +761,15 @@ async def _owned_analysis_context(
 
 
 async def _owned_review(
-    db: AsyncSession, review_id: str, analyst_id: str
+    db: AsyncSession, review_id: str, analyst_id: str, *, for_update: bool = False
 ) -> SectorReviewRun:
-    row = (await db.execute(select(SectorReviewRun).where(
+    stmt = select(SectorReviewRun).where(
         SectorReviewRun.id == review_id,
         SectorReviewRun.analyst_id == analyst_id,
-    ))).scalar_one_or_none()
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    row = (await db.execute(stmt)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sector review not found.")
     return row
@@ -814,18 +851,29 @@ def _build_review_payload(
                 missing_dependencies=["latest issuer facts", "comparable valuation"],
             ))
 
-    early_warning = [SectorEarlyWarning(
-        id=f"ew-{signal.id}",
-        indicator=signal.headline,
-        threshold="Materiality score >= 75 or severity critical",
-        current_state=f"{signal.materiality_score:.0f} / {signal.severity}",
-        status=(
-            "breached" if signal.severity == "critical" or signal.materiality_score >= 75
-            else "watch" if signal.severity in {"high", "medium"}
-            else "normal"
-        ),
-        source_ids=[signal.id],
-    ) for signal in signals]
+    early_warning: list[SectorEarlyWarning] = []
+    invalid_score_ids: list[str] = []
+    for signal in signals:
+        score = signal.materiality_score
+        if not is_finite_number(score):
+            invalid_score_ids.append(signal.id)
+            current_state = f"Unavailable / {signal.severity}"
+            warning_status: Literal["normal", "watch", "breached", "unavailable"] = "unavailable"
+        else:
+            current_state = f"{score:.0f} / {signal.severity}"
+            warning_status = (
+                "breached" if signal.severity == "critical" or score >= 75
+                else "watch" if signal.severity in {"high", "medium"}
+                else "normal"
+            )
+        early_warning.append(SectorEarlyWarning(
+            id=f"ew-{signal.id}",
+            indicator=signal.headline,
+            threshold="Materiality score >= 75 or severity critical",
+            current_state=current_state,
+            status=warning_status,
+            source_ids=[signal.id],
+        ))
 
     sources: list[SectorSourceRegisterItem] = []
     seen_sources: set[str] = set()
@@ -851,6 +899,10 @@ def _build_review_payload(
     ]
     if not live_signals:
         missing_dependencies.insert(0, "live source-backed sector signals")
+    missing_dependencies.extend(
+        f"finite materiality score for signal {signal_id}"
+        for signal_id in invalid_score_ids
+    )
     uncertainties = [SectorUncertainty(
         id=f"gap-{index + 1}",
         statement=dependency,
@@ -921,63 +973,67 @@ async def create_sector_review(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
-    context = await _owned_analysis_context(db, body.context_id, caller.id)
-    requested_sector = canonical_sector_id(body.sector_id) if body.sector_id else context.sector_id
-    if requested_sector is None or requested_sector not in CANONICAL_SECTORS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A canonical sector is required.")
-    if context.sector_id and context.sector_id != requested_sector:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Review sector does not match the active context.")
-    context.sector_id = requested_sector
-    label = CANONICAL_SECTORS[requested_sector][0]
-    now = _parse_dt(body.as_of) or datetime.now(timezone.utc)
-    previous = (await db.execute(
-        select(SectorReviewRun)
-        .where(
-            SectorReviewRun.sector == requested_sector,
-            SectorReviewRun.analyst_id == caller.id,
+    # Versioning is analyst-wide so two contexts for the same sector cannot race
+    # through the first-version/no-row gap. The critical section includes commit:
+    # the next creator must observe the just-written version before incrementing.
+    async with _sector_mutation_lock(db, f"sector-review-create:{caller.id}"):
+        context = await _owned_analysis_context(db, body.context_id, caller.id)
+        requested_sector = canonical_sector_id(body.sector_id) if body.sector_id else context.sector_id
+        if requested_sector is None or requested_sector not in CANONICAL_SECTORS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A canonical sector is required.")
+        if context.sector_id and context.sector_id != requested_sector:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Review sector does not match the active context.")
+        context.sector_id = requested_sector
+        label = CANONICAL_SECTORS[requested_sector][0]
+        now = _parse_dt(body.as_of) or datetime.now(timezone.utc)
+        previous = (await db.execute(
+            select(SectorReviewRun)
+            .where(
+                SectorReviewRun.sector == requested_sector,
+                SectorReviewRun.analyst_id == caller.id,
+            )
+            .order_by(SectorReviewRun.created_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        try:
+            previous_version = int((previous.payload or {}).get("version", 0)) if previous else 0
+        except (TypeError, ValueError):
+            previous_version = 0
+        signals = await _query_signals(db, sector=label, limit=50)
+        row = SectorReviewRun(
+            sector=requested_sector,
+            timeframe=body.timeframe,
+            as_of=now,
+            posture="Unratified",
+            confidence={},
+            payload={},
+            input_signal_ids=[signal.id for signal in signals],
+            analyst_id=caller.id,
+            refresh_trigger=body.refresh_trigger,
+            status="running",
+            provenance="reference",
+            created_at=now,
         )
-        .order_by(SectorReviewRun.created_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    try:
-        previous_version = int((previous.payload or {}).get("version", 0)) if previous else 0
-    except (TypeError, ValueError):
-        previous_version = 0
-    signals = await _query_signals(db, sector=label, limit=50)
-    row = SectorReviewRun(
-        sector=requested_sector,
-        timeframe=body.timeframe,
-        as_of=now,
-        posture="Unratified",
-        confidence={},
-        payload={},
-        input_signal_ids=[signal.id for signal in signals],
-        analyst_id=caller.id,
-        refresh_trigger=body.refresh_trigger,
-        status="running",
-        provenance="reference",
-        created_at=now,
-    )
-    db.add(row)
-    await db.flush()
-    review = _build_review_payload(
-        review_id=row.id,
-        context_id=context.id,
-        sector_id=requested_sector,
-        timeframe=body.timeframe,
-        version=previous_version + 1,
-        now=now,
-        signals=signals,
-    )
-    row.posture = review.posture
-    row.confidence = {"overall": review.authority.confidence}
-    row.payload = review.model_dump(mode="json")
-    row.status = review.status
-    row.provenance = review.authority.origin
-    context.sector_review_run_id = row.id
-    context.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return review
+        db.add(row)
+        await db.flush()
+        review = _build_review_payload(
+            review_id=row.id,
+            context_id=context.id,
+            sector_id=requested_sector,
+            timeframe=body.timeframe,
+            version=previous_version + 1,
+            now=now,
+            signals=signals,
+        )
+        row.posture = review.posture
+        row.confidence = {"overall": review.authority.confidence}
+        row.payload = review.model_dump(mode="json")
+        row.status = review.status
+        row.provenance = review.authority.origin
+        context.sector_review_run_id = row.id
+        context.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        return review
 
 
 @router.get("/reviews", response_model=list[SectorReviewV2])
@@ -1029,40 +1085,50 @@ async def ratify_sector_review(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     _write_guard(caller)
-    row = await _owned_review(db, review_id, caller.id)
-    review = _review_v2(row)
-    valid_sections = {section.id for section in review.sections}
-    if any(item.section_id not in valid_sections for item in body.sections):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector-review section.")
-    for item in body.sections:
-        existing = (await db.execute(select(SectorReviewRatification).where(
+    async with _sector_mutation_lock(db, f"sector-review-ratify:{review_id}"):
+        row = await _owned_review(db, review_id, caller.id, for_update=True)
+        review = _review_v2(row)
+        valid_sections = {section.id for section in review.sections}
+        if any(item.section_id not in valid_sections for item in body.sections):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector-review section.")
+        for item in body.sections:
+            existing = (await db.execute(select(SectorReviewRatification).where(
+                SectorReviewRatification.review_run_id == row.id,
+                SectorReviewRatification.analyst_id == caller.id,
+                SectorReviewRatification.section_id == item.section_id,
+            ))).scalar_one_or_none()
+            if existing is None:
+                db.add(SectorReviewRatification(
+                    review_run_id=row.id,
+                    analyst_id=caller.id,
+                    section_id=item.section_id,
+                    decision=item.decision,
+                    override_text=item.override_text,
+                ))
+            else:
+                existing.decision = item.decision
+                existing.override_text = item.override_text
+        await db.flush()
+
+        # The normalized rows are authoritative. Rebuilding the envelope after
+        # each locked mutation prevents stale JSON snapshots from dropping a
+        # disjoint decision.
+        decisions = (await db.execute(select(SectorReviewRatification).where(
             SectorReviewRatification.review_run_id == row.id,
             SectorReviewRatification.analyst_id == caller.id,
-            SectorReviewRatification.section_id == item.section_id,
-        ))).scalar_one_or_none()
-        if existing is None:
-            db.add(SectorReviewRatification(
-                review_run_id=row.id,
-                analyst_id=caller.id,
-                section_id=item.section_id,
-                decision=item.decision,
-                override_text=item.override_text,
-            ))
+        ))).scalars().all()
+        review.ratifications = {item.section_id: item.decision for item in decisions}
+        if any(decision == "rejected" for decision in review.ratifications.values()):
+            review.authority.approval_state = "rejected"
+        elif valid_sections and valid_sections == {
+            section_id for section_id, decision in review.ratifications.items() if decision == "ratified"
+        } and review.status == "ready":
+            review.authority.approval_state = "ratified"
         else:
-            existing.decision = item.decision
-            existing.override_text = item.override_text
-        review.ratifications[item.section_id] = item.decision
-    if any(decision == "rejected" for decision in review.ratifications.values()):
-        review.authority.approval_state = "rejected"
-    elif valid_sections and valid_sections == {
-        section_id for section_id, decision in review.ratifications.items() if decision == "ratified"
-    } and review.status == "ready":
-        review.authority.approval_state = "ratified"
-    else:
-        review.authority.approval_state = "draft"
-    row.payload = review.model_dump(mode="json")
-    await db.flush()
-    return review
+            review.authority.approval_state = "draft"
+        row.payload = review.model_dump(mode="json")
+        await db.commit()
+        return review
 
 
 @router.post("/reviews/{review_id}/publish", response_model=SectorReviewV2)

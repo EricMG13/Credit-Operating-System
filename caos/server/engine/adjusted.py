@@ -44,7 +44,7 @@ from engine import budget
 from engine.gate import Finding
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, extract_json, safe_chunk_id
-from engine.periods import is_finite_number, latest_annual, safe_div
+from engine.periods import is_finite_number, latest_annual, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload, cp1_leverage
 
 logger = logging.getLogger("caos.engine")
@@ -184,7 +184,7 @@ async def reconcile_adjusted_ebitda(
             return None  # |nd / lev| past float range — no meaningful reconstruction
     else:
         return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
-    ebitda_excl = ebitda * (1 - pct)        # excluding the disclosed add-backs
+    ebitda_excl = safe_mul(ebitda, 1 - pct)  # excluding the disclosed add-backs
     if not (is_finite_number(ebitda_excl) and ebitda_excl > 0):
         return None  # add-backs claim >= 100% of EBITDA (or pct is junk) — no meaningful excl leverage
     lev_excl = safe_div(nd, ebitda_excl)

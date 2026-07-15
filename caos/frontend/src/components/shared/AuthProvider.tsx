@@ -7,9 +7,14 @@
 // local dev, or a 401) means the login landing should show. A network/API error
 // is kept distinct so RequireAuth shows "can't reach API", not the login form.
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import axios from "axios";
-import { bindWorkspacePrincipal, getMe } from "@/lib/api";
+import {
+  PRINCIPAL_STORAGE_KEY,
+  bindWorkspacePrincipal,
+  clearWorkspaceStorage,
+  getMe,
+} from "@/lib/api";
 
 interface AuthUser {
   id: string;
@@ -60,11 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const refreshGeneration = useRef(0);
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
 
   // fallow-ignore-next-line complexity
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     if (loginBypassEnabled()) {
       bindWorkspacePrincipal(LOGIN_BYPASS_USER.id);
+      if (generation !== refreshGeneration.current) return;
       setUser(LOGIN_BYPASS_USER);
       setError(false);
       setNeedsLogin(false);
@@ -74,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const me: AuthUser = await getMe();
+      if (generation !== refreshGeneration.current) return;
       bindWorkspacePrincipal(me.id);
       setUser(me);
       setError(false);
@@ -82,13 +93,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // on login. "proxy" (SSO) still self-registers a named profile.
       setNeedsLogin(me.source !== "profile" && me.source !== "local");
     } catch (e) {
+      if (generation !== refreshGeneration.current) return;
       setUser(null);
       // 401 = no identity yet → show the login landing. Anything else = API down.
       const unauthorized = axios.isAxiosError(e) && e.response?.status === 401;
+      if (unauthorized) clearWorkspaceStorage();
       setNeedsLogin(unauthorized);
       setError(!unauthorized);
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current) setLoading(false);
     }
   }, []);
 
@@ -106,17 +119,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onLost = () => { refresh(); };
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== PRINCIPAL_STORAGE_KEY) return;
+      if (event.newValue === userRef.current?.id) return;
+      clearWorkspaceStorage();
+      refresh();
+    };
     window.addEventListener("caos:auth-lost", onLost);
+    window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("caos:auth-lost", onLost);
+      window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refresh]);
 
   return (
     <AuthContext.Provider value={{ user, loading, error, needsLogin, refresh }}>
-      {children}
+      <Fragment key={user?.id ?? (needsLogin ? "needs-login" : "anonymous")}>{children}</Fragment>
     </AuthContext.Provider>
   );
 }

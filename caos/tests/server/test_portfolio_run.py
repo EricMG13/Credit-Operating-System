@@ -65,6 +65,68 @@ async def test_cp3c_goes_live_when_portfolio_bound(seeded_db):
         assert any("concentration HIGH" in f for f in live.runtime_output["risk_flags"])
 
 
+@pytest.mark.asyncio
+async def test_bound_empty_book_is_explicit_not_masked_as_uningested(seeded_db):
+    from database import AsyncSessionLocal, Issuer, Portfolio
+    from engine.portfoliofit import synthesize_portfolio_fit
+
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="Empty Book Issuer")
+        portfolio = Portfolio(name="Empty Fit Book", mandate={})
+        s.add_all([issuer, portfolio])
+        await s.flush()
+
+        out = await synthesize_portfolio_fit(_cp3(), _cp1(), s, issuer, portfolio.id)
+        concentration = out.runtime_output["concentration"]
+        assert concentration["data_status"] == "empty-book"
+        assert concentration["n_positions"] == 0
+        assert "empty" in out.runtime_output["note"].lower()
+        assert "not ingested" not in out.runtime_output["note"].lower()
+
+
+@pytest.mark.asyncio
+async def test_bound_portfolio_access_or_calculation_failure_blocks_cp3c(seeded_db, monkeypatch):
+    from database import AsyncSessionLocal, Issuer
+    from engine import portfoliofit
+
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="Blocked Fit Issuer")
+        s.add(issuer)
+        await s.flush()
+
+        async def fail_read(*args, **kwargs):
+            raise ValueError("calculation failed")
+
+        monkeypatch.setattr(portfoliofit, "_live_concentration", fail_read)
+        out = await portfoliofit.synthesize_portfolio_fit(
+            _cp3(), _cp1(), s, issuer, "portfolio-id"
+        )
+        assert out.runtime_output["module_status"] == "Blocked"
+        assert out.confidence == "Insufficient Information"
+        assert out.limitation_flags
+
+
+@pytest.mark.asyncio
+async def test_bound_portfolio_database_failure_propagates_for_rollback(seeded_db, monkeypatch):
+    from database import AsyncSessionLocal, Issuer
+    from engine import portfoliofit
+    from sqlalchemy.exc import OperationalError
+
+    async with AsyncSessionLocal() as s:
+        issuer = Issuer(name="DB Failure Fit Issuer")
+        s.add(issuer)
+        await s.flush()
+
+        async def fail_read(*args, **kwargs):
+            raise OperationalError("SELECT positions", {}, Exception("connection lost"))
+
+        monkeypatch.setattr(portfoliofit, "_live_concentration", fail_read)
+        with pytest.raises(OperationalError):
+            await portfoliofit.synthesize_portfolio_fit(
+                _cp3(), _cp1(), s, issuer, "portfolio-id"
+            )
+
+
 def test_ic_signals_reads_cp3c_concentration():
     from engine.debate import _ic_signals
 

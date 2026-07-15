@@ -87,4 +87,78 @@ describe("Settings · Models tab", () => {
       }));
     });
   });
+
+  it("rebases a 409 on the server revision and replays only the intended field", async () => {
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: { heavy: "model-a" },
+      email_intelligence: { approved_senders: [] },
+      workspace: { model_builder: { warn_on_unsaved_leave: false } },
+      revision: 7,
+    });
+    vi.mocked(patchAnalystSettings).mockReset()
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              message: "Settings changed elsewhere.",
+              current: {
+                model_lanes: { heavy: "model-b" },
+                email_intelligence: { approved_senders: ["remote@desk.test"] },
+                workspace: { model_builder: { warn_on_unsaved_leave: false } },
+                revision: 8,
+              },
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        model_lanes: { heavy: "model-b" },
+        email_intelligence: { approved_senders: ["remote@desk.test"] },
+        workspace: { model_builder: { warn_on_unsaved_leave: true } },
+        revision: 9,
+      });
+
+    render(<SettingsPage />);
+    const toggle = await screen.findByRole("switch", { name: "Warn before leaving unsaved model edits" });
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(patchAnalystSettings).toHaveBeenCalledTimes(2));
+    expect(patchAnalystSettings).toHaveBeenNthCalledWith(1, 7, {
+      workspace: { model_builder: { warn_on_unsaved_leave: true } },
+    });
+    expect(patchAnalystSettings).toHaveBeenNthCalledWith(2, 8, {
+      workspace: { model_builder: { warn_on_unsaved_leave: true } },
+    });
+  });
+
+  it("serializes rapid settings saves onto the prior response revision", async () => {
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] },
+      workspace: { model_builder: { warn_on_unsaved_leave: false } }, revision: 10,
+    });
+    let resolveFirst!: (value: Awaited<ReturnType<typeof patchAnalystSettings>>) => void;
+    vi.mocked(patchAnalystSettings).mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce({
+        model_lanes: {}, email_intelligence: { approved_senders: [] },
+        workspace: { model_builder: { warn_on_unsaved_leave: false } }, revision: 12,
+      });
+
+    render(<SettingsPage />);
+    const toggle = await screen.findByRole("switch", { name: "Warn before leaving unsaved model edits" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(patchAnalystSettings).toHaveBeenCalledTimes(1));
+    fireEvent.click(toggle);
+    expect(patchAnalystSettings).toHaveBeenCalledTimes(1);
+
+    resolveFirst({
+      model_lanes: {}, email_intelligence: { approved_senders: [] },
+      workspace: { model_builder: { warn_on_unsaved_leave: true } }, revision: 11,
+    });
+    await waitFor(() => expect(patchAnalystSettings).toHaveBeenCalledTimes(2));
+    expect(patchAnalystSettings).toHaveBeenNthCalledWith(2, 11, {
+      workspace: { model_builder: { warn_on_unsaved_leave: false } },
+    });
+  });
 });

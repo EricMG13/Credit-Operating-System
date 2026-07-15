@@ -5,25 +5,33 @@
 // fallback", same contract as usePortfolio / useLiveRun).
 
 import { useEffect, useState } from "react";
-import { getDigest, type DailyDigest } from "@/lib/api";
+import { getDigest, toErrorMessage, type DailyDigest } from "@/lib/api";
 
 export interface DigestState {
   digest: DailyDigest | null;
   live: boolean; // registry has issuers → the digest is worth a panel
   loading: boolean;
+  error: string | null;
 }
 
 export function useDigest(): DigestState {
-  const [state, setState] = useState<DigestState>({ digest: null, live: false, loading: true });
+  const [state, setState] = useState<DigestState>({ digest: null, live: false, loading: true, error: null });
 
   useEffect(() => {
     let alive = true;
     getDigest()
       .then((d) => {
         if (!alive) return;
-        setState({ digest: d, live: (d.coverage?.issuers ?? 0) > 0, loading: false });
+        setState({ digest: d, live: (d.coverage?.issuers ?? 0) > 0, loading: false, error: null });
       })
-      .catch(() => { if (alive) setState({ digest: null, live: false, loading: false }); });
+      .catch((reason) => {
+        if (alive) setState({
+          digest: null,
+          live: false,
+          loading: false,
+          error: toErrorMessage(reason, "Daily digest unavailable."),
+        });
+      });
     return () => { alive = false; };
   }, []);
 

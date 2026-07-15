@@ -115,18 +115,25 @@ def test_build_pack_scopes_deltas_to_watchlist():
     asyncio.run(_run())
 
 
-@pytest.mark.usefixtures("seeded_db")
+@pytest.mark.asyncio
 @pytest.mark.parametrize("corrupt", [math.nan, math.inf, -math.inf])
-def test_desk_brief_skips_nonfinite_persisted_delta(corrupt):
-    async def _run():
-        async with AsyncSessionLocal() as db:
-            await _add_issuer(db, "nf1", "Nonfinite One")
-            await _add_delta(db, "nf1", "net_leverage", 4.0, corrupt)
-            await db.commit()
-            entries = await queryinsights._delta_entries(db, ["nf1"])
-            assert entries == []
+async def test_desk_brief_skips_nonfinite_persisted_delta(corrupt, monkeypatch):
+    class Result:
+        def all(self):
+            return [
+                ("nf1", "net_leverage", corrupt, "x", 2, "Nonfinite One", None),
+                ("nf1", "net_leverage", 4.0, "x", 1, "Nonfinite One", None),
+            ]
 
-    asyncio.run(_run())
+    class DB:
+        async def execute(self, _statement):
+            return Result()
+
+    async def no_walk(_db, _capability):
+        return False
+
+    monkeypatch.setattr(queryinsights, "_walk_enabled", no_walk)
+    assert await queryinsights._delta_entries(DB(), ["nf1"]) == []
 
 
 @pytest.mark.usefixtures("seeded_db")

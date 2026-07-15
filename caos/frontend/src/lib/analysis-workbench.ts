@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import axios from "axios";
+import { useAuth } from "@/components/shared/AuthProvider";
 import { api, toErrorMessage } from "@/lib/api";
 
 export type AnalysisJobState =
@@ -405,8 +407,8 @@ export function mergeContextIntoCurrentUrl(href: string, contextId: string) {
 
 const pendingContextCreates = new Map<string, Promise<AnalysisContext>>();
 
-function createContextOnce(defaults: { name: string; sector_id?: string }) {
-  const key = `${defaults.name}|${defaults.sector_id ?? ""}`;
+function createContextOnce(defaults: { name: string; sector_id?: string }, principalId: string) {
+  const key = `${principalId}|${defaults.name}|${defaults.sector_id ?? ""}`;
   const pending = pendingContextCreates.get(key);
   if (pending) return pending;
   const created = analysisApi.createContext({ name: defaults.name, sector_id: defaults.sector_id })
@@ -416,6 +418,8 @@ function createContextOnce(defaults: { name: string; sector_id?: string }) {
 }
 
 export function useAnalysisContext(defaults: { name: string; sector_id?: string; context_id?: string | null }) {
+  const { user } = useAuth();
+  const principalId = user?.id ?? "unresolved";
   const defaultName = defaults.name;
   const defaultSectorId = defaults.sector_id;
   const hasExplicitContextId = Object.prototype.hasOwnProperty.call(defaults, "context_id");
@@ -423,8 +427,15 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
   const [context, setContext] = useState<AnalysisContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mutationState, setMutationState] = useState<"idle" | "saving" | "error">("idle");
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const loadGeneration = useRef(0);
   const patchGeneration = useRef(0);
+  const patchRequest = useRef(0);
+  const contextRef = useRef<AnalysisContext | null>(null);
+  const lastPatchRef = useRef<AnalysisContextPatch | null>(null);
+  const mutationQueue = useRef<Promise<unknown>>(Promise.resolve());
+  contextRef.current = context;
 
   useEffect(() => {
     const generation = ++loadGeneration.current;
@@ -432,6 +443,10 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
     // navigation. Clear the old context immediately so consumers cannot render
     // one issuer's state beneath another issuer/context URL.
     patchGeneration.current += 1;
+    patchRequest.current += 1;
+    lastPatchRef.current = null;
+    setMutationState("idle");
+    setMutationError(null);
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -444,7 +459,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
           : initialUrl.searchParams.get("context");
         const value = contextId
           ? await analysisApi.getContext(contextId)
-          : await createContextOnce({ name: defaultName, sector_id: defaultSectorId });
+          : await createContextOnce({ name: defaultName, sector_id: defaultSectorId }, principalId);
         if (cancelled || generation !== loadGeneration.current) return;
         setContext(value);
         window.dispatchEvent(new CustomEvent("caos:analysis-context", { detail: value }));
@@ -469,20 +484,72 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
     };
     void load();
     return () => { cancelled = true; };
-  }, [defaultName, defaultSectorId, hasExplicitContextId, requestedContextId]);
+  }, [defaultName, defaultSectorId, hasExplicitContextId, principalId, requestedContextId]);
 
   const patch = useCallback(async (changes: AnalysisContextPatch) => {
-    if (!context) return null;
-    const contextId = context.id;
-    const generation = ++patchGeneration.current;
-    const value = await analysisApi.patchContext(contextId, {
-      ...changes,
-      expected_revision: context.revision,
-    });
-    if (generation !== patchGeneration.current) return null;
-    setContext((current) => current?.id === contextId ? value : current);
-    return value;
-  }, [context]);
+    const initial = contextRef.current;
+    if (!initial) return null;
+    const contextId = initial.id;
+    const scopeGeneration = patchGeneration.current;
+    const requestId = ++patchRequest.current;
+    lastPatchRef.current = changes;
+    setMutationState("saving");
+    setMutationError(null);
 
-  return useMemo(() => ({ context, setContext, patch, loading, error }), [context, patch, loading, error]);
+    const operation = mutationQueue.current.catch(() => undefined).then(async () => {
+      let current = contextRef.current;
+      if (!current || current.id !== contextId || scopeGeneration !== patchGeneration.current) return null;
+      try {
+        let value: AnalysisContext;
+        try {
+          value = await analysisApi.patchContext(contextId, {
+            ...changes,
+            expected_revision: current.revision,
+          });
+        } catch (reason) {
+          const conflict = axios.isAxiosError(reason) && reason.response?.status === 409;
+          if (!conflict) throw reason;
+          current = await analysisApi.getContext(contextId);
+          if (scopeGeneration !== patchGeneration.current) return null;
+          value = await analysisApi.patchContext(contextId, {
+            ...changes,
+            expected_revision: current.revision,
+          });
+        }
+        if (scopeGeneration !== patchGeneration.current) return null;
+        contextRef.current = value;
+        setContext((active) => active?.id === contextId ? value : active);
+        if (requestId === patchRequest.current) {
+          lastPatchRef.current = null;
+          setMutationState("idle");
+          setMutationError(null);
+        }
+        return value;
+      } catch (reason) {
+        if (scopeGeneration === patchGeneration.current && requestId === patchRequest.current) {
+          setMutationState("error");
+          setMutationError(toErrorMessage(reason, "Analysis context was not saved."));
+        }
+        throw reason;
+      }
+    });
+    mutationQueue.current = operation;
+    return operation;
+  }, []);
+
+  const retryLastPatch = useCallback(() => {
+    const changes = lastPatchRef.current;
+    return changes ? patch(changes) : Promise.resolve(null);
+  }, [patch]);
+
+  return useMemo(() => ({
+    context,
+    setContext,
+    patch,
+    loading,
+    error,
+    mutationState,
+    mutationError,
+    retryLastPatch,
+  }), [context, patch, loading, error, mutationState, mutationError, retryLastPatch]);
 }

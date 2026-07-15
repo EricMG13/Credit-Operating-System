@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from main import app
+from routes.sector import SectorSignalOut, _build_review_payload
 from sector_logic import sector_materiality_score, sector_signal_dedup_hash
 
 
@@ -13,6 +16,45 @@ def test_sector_signal_dedup_and_materiality_are_deterministic():
     medium = sector_materiality_score("medium", "earnings", issuer_count=2, source_tier="external_seed")
     assert high == sector_materiality_score("high", "earnings", issuer_count=2, source_tier="external_seed")
     assert high > medium
+
+
+def test_nonfinite_sector_score_serializes_as_unavailable_dependency():
+    signal = SectorSignalOut(
+        id="bad-score",
+        sector="Industrials",
+        headline="Score unavailable",
+        severity="high",
+        category="earnings",
+        issuer_count=1,
+        relative_time="now",
+        timestamp="2026-07-16T12:00:00+00:00",
+        source="test",
+        source_title="Test source",
+        source_tier="first_party",
+        source_ref="test://signal",
+        signal_date="2026-07-16T12:00:00+00:00",
+        materiality_score=float("nan"),
+        provenance="live",
+        summary="Finite-score regression.",
+        why_it_matters="Prevents non-standard JSON.",
+        affected_issuers=[],
+        sources=[],
+    )
+    assert signal.materiality_score is None
+    assert "NaN" not in signal.model_dump_json()
+
+    review = _build_review_payload(
+        review_id="review-bad-score",
+        context_id="context-bad-score",
+        sector_id="industrials",
+        timeframe="weekly",
+        version=1,
+        now=datetime.now(timezone.utc),
+        signals=[signal],
+    )
+    warning = next(item for item in review.early_warning if item.source_ids == [signal.id])
+    assert warning.status == "unavailable"
+    assert any("finite materiality score" in item for item in review.missing_dependencies)
 
 
 def test_sector_seed_review_signals_and_bounds():

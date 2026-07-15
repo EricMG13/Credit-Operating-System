@@ -200,9 +200,12 @@ class Settings(BaseSettings):
 
     # Upload cap (MB).
     max_upload_mb: int = 250
+    max_pdf_pages: int = 2_000
+    max_pdf_extracted_chars: int = 16_000_000
+    upload_parse_timeout_s: float = 120.0
 
-    # Optional: ClamAV malware scan for uploads (avscan.py / SECURITY.md §4).
-    # Empty host = disabled (no-op). When set, every user upload is streamed to
+    # ClamAV malware scan for uploads (avscan.py / SECURITY.md §4).
+    # Empty host is permitted only for local development. When set, every user upload is streamed to
     # clamd (INSTREAM) before parsing/vaulting; a signature hit is rejected (422)
     # and a configured-but-unreachable scanner fails CLOSED (503). The deploy
     # stack ships a clamav sidecar under the "av" compose profile:
@@ -244,6 +247,9 @@ class Settings(BaseSettings):
     caos_report_lease_seconds: int = 600
     caos_report_max_attempts: int = 3
     caos_report_poll_seconds: float = 2.0    # worker loop tick
+    # Synchronous XLSX/PDF renderers run in worker threads. Bound the
+    # process-local fan-out because both formats can be CPU- and memory-heavy.
+    caos_report_export_concurrency: int = 2
     caos_run_lease_seconds: int = 600    # claim lease; longer than any plausible run
     caos_run_max_attempts: int = 3       # re-claims before an orphan is reaped to failed
 
@@ -367,4 +373,14 @@ def require_postgres_in_production(settings: "Settings | None" = None) -> None:
             "DATABASE_URL must point at Postgres in production (deploy/docker-compose.yml "
             "already does: postgresql+asyncpg://...) — SQLite has no multi-writer support "
             "the async run executor relies on. Set DATABASE_URL to the Postgres DSN."
+        )
+
+
+def require_malware_scanner_in_production(settings: "Settings | None" = None) -> None:
+    """A production intake path must never accept an unscanned upload."""
+    s = settings or get_settings()
+    if is_deployed(s) and not s.clamav_host:
+        raise RuntimeError(
+            "CLAMAV_HOST must be set in production — uploaded issuer documents "
+            "must be malware-scanned before parsing or durable storage."
         )

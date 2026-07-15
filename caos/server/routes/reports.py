@@ -41,7 +41,7 @@ from model_service import (
     model_v2_checkpoint_snapshot,
 )
 from report_composition import ReportCompositionIntent, materialize_reviewed_report
-from report_exports import render_report_pdf, render_report_xlsx
+from report_exports import render_report_export
 from run_inputs import manifest_is_approved
 from tenancy import require_run_access
 
@@ -168,10 +168,14 @@ class ReportVersionSummaryOut(BaseModel):
 
 
 async def _owned_context(db: AsyncSession, context_id: str, analyst_id: str) -> AnalysisContextRecord:
-    row = (await db.execute(select(AnalysisContextRecord).where(
-        AnalysisContextRecord.id == context_id,
-        AnalysisContextRecord.analyst_id == analyst_id,
-    ))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(AnalysisContextRecord).where(
+                AnalysisContextRecord.id == context_id,
+                AnalysisContextRecord.analyst_id == analyst_id,
+            )
+        )
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
     return row
@@ -220,9 +224,7 @@ def _verified_version_payload(row: ReportVersion) -> dict:
             status.HTTP_409_CONFLICT,
             "The immutable report payload failed its stored document hash.",
         ) from exc
-    if not row.document_sha256 or not hashlib.sha256(
-        canonical.encode("utf-8")
-    ).hexdigest() == row.document_sha256:
+    if not row.document_sha256 or not hashlib.sha256(canonical.encode("utf-8")).hexdigest() == row.document_sha256:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "The immutable report payload failed its stored document hash.",
@@ -349,7 +351,8 @@ async def _exact_report_freshness(
     except HTTPException:
         return None
     evaluations = [
-        item.evaluation for item in result.artifacts
+        item.evaluation
+        for item in result.artifacts
         if item.artifact.kind == "report_version" and item.artifact.id == row.id
     ]
     return worst_freshness(evaluations) if evaluations else None
@@ -393,7 +396,10 @@ async def _prepare_report(
     if checkpoint is None or checkpoint.analyst_id != caller.id or checkpoint.context_id != context.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Model checkpoint not found.")
     if checkpoint.issuer_id != run.issuer_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Model checkpoint and run describe different issuers.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Model checkpoint and run describe different issuers.",
+        )
     artifacts = context.artifacts or {}
     if artifacts.get("issuer_run_id") != run.id:
         raise HTTPException(
@@ -410,19 +416,26 @@ async def _prepare_report(
             "Model checkpoint and report must share the exact source run.",
         )
     if artifacts.get("model_checkpoint_id") != checkpoint.id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "The selected checkpoint is not active in this context.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The selected checkpoint is not active in this context.",
+        )
     manifest_id = artifacts.get("source_manifest_id")
     manifest = await db.get(SourceManifest, manifest_id) if manifest_id else None
     if manifest is None or manifest.analyst_id != caller.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source manifest not found.")
     if manifest.status != "ready":
-        raise HTTPException(status.HTTP_409_CONFLICT, "A current ready source manifest is required for publication.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "A current ready source manifest is required for publication.",
+        )
     if manifest.origin != "live":
         raise HTTPException(status.HTTP_409_CONFLICT, "Reference or demo sources cannot be published.")
     if manifest.issuer_id != run.issuer_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source manifest not found.")
     input_manifest_ids = {
-        str(manifest_id) for manifest_id in (run.input_manifest_ids or [])
+        str(manifest_id)
+        for manifest_id in (run.input_manifest_ids or [])
         if isinstance(manifest_id, str) and manifest_id
     }
     if (
@@ -435,30 +448,43 @@ async def _prepare_report(
             status.HTTP_409_CONFLICT,
             "The report run does not carry a fully approved immutable input snapshot.",
         )
-    input_manifests = tuple((await db.execute(select(SourceManifest).where(
-        SourceManifest.id.in_(input_manifest_ids),
-        SourceManifest.issuer_id == run.issuer_id,
-        SourceManifest.analyst_id == caller.id,
-    ))).scalars().all())
-    if (
-        {item.id for item in input_manifests} != input_manifest_ids
-        or not all(manifest_is_approved(item) for item in input_manifests)
+    input_manifests = tuple(
+        (
+            await db.execute(
+                select(SourceManifest).where(
+                    SourceManifest.id.in_(input_manifest_ids),
+                    SourceManifest.issuer_id == run.issuer_id,
+                    SourceManifest.analyst_id == caller.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if {item.id for item in input_manifests} != input_manifest_ids or not all(
+        manifest_is_approved(item) for item in input_manifests
     ):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "Every source manifest in the run snapshot must remain ready and ratified.",
         )
     if lineage_enabled:
-        exact_input_edges = set((await db.execute(select(LineageEdge.parent_id).where(
-            LineageEdge.context_id == context.id,
-            LineageEdge.analyst_id == caller.id,
-            LineageEdge.artifact_kind == "issuer_run",
-            LineageEdge.artifact_id == f"issuer_run:{run.id}",
-            LineageEdge.parent_kind == "source_manifest",
-        ))).scalars().all())
-        expected_parents = {
-            f"source_manifest:{manifest_id}" for manifest_id in input_manifest_ids
-        }
+        exact_input_edges = set(
+            (
+                await db.execute(
+                    select(LineageEdge.parent_id).where(
+                        LineageEdge.context_id == context.id,
+                        LineageEdge.analyst_id == caller.id,
+                        LineageEdge.artifact_kind == "issuer_run",
+                        LineageEdge.artifact_id == f"issuer_run:{run.id}",
+                        LineageEdge.parent_kind == "source_manifest",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        expected_parents = {f"source_manifest:{manifest_id}" for manifest_id in input_manifest_ids}
         if not expected_parents.issubset(exact_input_edges):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -468,13 +494,13 @@ async def _prepare_report(
         thesis = await db.get(ThesisVersion, body.thesis_version_id)
         if thesis is None or thesis.issuer_id != run.issuer_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Thesis version not found.")
-    modules = (await db.execute(select(ModuleOutput).where(
-        ModuleOutput.run_id == run.id
-    ))).scalars().all()
-    modules.sort(key=lambda module: (
-        -1 if module.module_id == "CP-X" else DECLARATION_INDEX.get(module.module_id, 999),
-        module.module_id,
-    ))
+    modules = (await db.execute(select(ModuleOutput).where(ModuleOutput.run_id == run.id))).scalars().all()
+    modules.sort(
+        key=lambda module: (
+            -1 if module.module_id == "CP-X" else DECLARATION_INDEX.get(module.module_id, 999),
+            module.module_id,
+        )
+    )
     canonical_document = assemble_report(run, modules)
     if model_enabled:
         model_snapshot = _model_v2_checkpoint_snapshot(checkpoint)
@@ -536,10 +562,7 @@ async def _prepare_report(
         document_sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         model_snapshot=model_snapshot,
         analyst_override=bool(
-            intent.edits
-            or any(intent.omit.values())
-            or intent.hide_addbacks
-            or not intent.show_sources
+            intent.edits or any(intent.omit.values()) or intent.hide_addbacks or not intent.show_sources
         ),
     )
 
@@ -551,10 +574,14 @@ async def get_report_draft(
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     await _owned_context(db, context_id, caller.id)
-    row = (await db.execute(select(ReportDraft).where(
-        ReportDraft.context_id == context_id,
-        ReportDraft.analyst_id == caller.id,
-    ))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(ReportDraft).where(
+                ReportDraft.context_id == context_id,
+                ReportDraft.analyst_id == caller.id,
+            )
+        )
+    ).scalar_one_or_none()
     return _draft_out(row) if row else None
 
 
@@ -570,14 +597,21 @@ async def put_report_draft(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Report draft rate limit reached.")
     _bounded_composition(body.payload)
     await _owned_context(db, context_id, caller.id)
-    row = (await db.execute(select(ReportDraft).where(
-        ReportDraft.context_id == context_id,
-        ReportDraft.analyst_id == caller.id,
-    ))).scalar_one_or_none()
+    row = (
+        await db.execute(
+            select(ReportDraft).where(
+                ReportDraft.context_id == context_id,
+                ReportDraft.analyst_id == caller.id,
+            )
+        )
+    ).scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if row is None:
         if body.expected_revision is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Report draft does not exist at that revision.")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Report draft does not exist at that revision.",
+            )
         row = ReportDraft(
             context_id=context_id,
             analyst_id=caller.id,
@@ -588,10 +622,13 @@ async def put_report_draft(
         db.add(row)
     else:
         if body.expected_revision is not None and body.expected_revision != row.revision:
-            raise HTTPException(status.HTTP_409_CONFLICT, {
-                "message": "Report draft changed elsewhere.",
-                "current_revision": row.revision,
-            })
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                {
+                    "message": "Report draft changed elsewhere.",
+                    "current_revision": row.revision,
+                },
+            )
         row.payload = body.payload
         row.revision += 1
         row.updated_at = now
@@ -614,9 +651,11 @@ async def list_report_versions(
     )
     if before is not None:
         query = query.where(ReportVersion.created_at < before)
-    rows = (await db.execute(
-        query.order_by(ReportVersion.created_at.desc(), ReportVersion.id.desc()).limit(limit)
-    )).scalars().all()
+    rows = (
+        (await db.execute(query.order_by(ReportVersion.created_at.desc(), ReportVersion.id.desc()).limit(limit)))
+        .scalars()
+        .all()
+    )
     return [_version_summary_out(row) for row in rows]
 
 
@@ -671,31 +710,30 @@ async def preview_report_version(
             "run_id": prepared.run.id,
             "approval_state": "preview",
             "analyst_override": prepared.analyst_override,
-            **({
-                "model_origin": prepared.model_snapshot["authority"]["origin"],
-                "model_input_origins": prepared.model_snapshot["authority"]["model_input_origins"],
-                "model_analyst_override": prepared.model_snapshot["authority"]["analyst_override"],
-            } if prepared.model_snapshot is not None else {}),
+            **(
+                {
+                    "model_origin": prepared.model_snapshot["authority"]["origin"],
+                    "model_input_origins": prepared.model_snapshot["authority"]["model_input_origins"],
+                    "model_analyst_override": prepared.model_snapshot["authority"]["analyst_override"],
+                }
+                if prepared.model_snapshot is not None
+                else {}
+            ),
         },
         model_engine_version=(
-            prepared.model_snapshot["engine_version"]
-            if prepared.model_snapshot is not None else None
+            prepared.model_snapshot["engine_version"] if prepared.model_snapshot is not None else None
         ),
         model_source_fingerprint=(
-            prepared.model_snapshot["source_fingerprint"]
-            if prepared.model_snapshot is not None else None
+            prepared.model_snapshot["source_fingerprint"] if prepared.model_snapshot is not None else None
         ),
         model_input_fingerprint=(
-            prepared.model_snapshot["input_fingerprint"]
-            if prepared.model_snapshot is not None else None
+            prepared.model_snapshot["input_fingerprint"] if prepared.model_snapshot is not None else None
         ),
         model_calculation_hash=(
-            prepared.model_snapshot["calculation_hash"]
-            if prepared.model_snapshot is not None else None
+            prepared.model_snapshot["calculation_hash"] if prepared.model_snapshot is not None else None
         ),
         model_draft_revision=(
-            prepared.model_snapshot["draft_revision"]
-            if prepared.model_snapshot is not None else None
+            prepared.model_snapshot["draft_revision"] if prepared.model_snapshot is not None else None
         ),
         created_at=now,
     )
@@ -729,7 +767,6 @@ async def create_report_version(
     context = prepared.context
     run = prepared.run
     checkpoint = prepared.checkpoint
-    manifest = prepared.manifest
     manifests = prepared.manifests
     payload = prepared.payload
     model_snapshot = prepared.model_snapshot
@@ -748,9 +785,9 @@ async def create_report_version(
             "origin": "live",
             "method": "derived",
             "freshness": "unknown",
-            "freshness_evaluation": _unknown_report_freshness(
-                now=now, reason="report_lineage_pending"
-            ).model_dump(mode="json"),
+            "freshness_evaluation": _unknown_report_freshness(now=now, reason="report_lineage_pending").model_dump(
+                mode="json"
+            ),
             "as_of": now.isoformat(),
             "source_ids": [*[item.id for item in manifests], run.id, checkpoint.id],
             "run_id": run.id,
@@ -758,16 +795,20 @@ async def create_report_version(
             "confidence": None,
             "approval_state": "published",
             "analyst_override": prepared.analyst_override,
-            **({
-                "model_engine_version": model_snapshot["engine_version"],
-                "model_source_fingerprint": model_snapshot["source_fingerprint"],
-                "model_input_fingerprint": model_snapshot["input_fingerprint"],
+            **(
+                {
+                    "model_engine_version": model_snapshot["engine_version"],
+                    "model_source_fingerprint": model_snapshot["source_fingerprint"],
+                    "model_input_fingerprint": model_snapshot["input_fingerprint"],
                 "model_calculation_hash": model_snapshot["calculation_hash"],
                 "model_draft_revision": model_snapshot["draft_revision"],
-                "model_origin": model_snapshot["authority"]["origin"],
-                "model_input_origins": model_snapshot["authority"]["model_input_origins"],
-                "model_analyst_override": model_snapshot["authority"]["analyst_override"],
-            } if model_snapshot is not None else {}),
+                    "model_origin": model_snapshot["authority"]["origin"],
+                    "model_input_origins": model_snapshot["authority"]["model_input_origins"],
+                    "model_analyst_override": model_snapshot["authority"]["analyst_override"],
+                }
+                if model_snapshot is not None
+                else {}
+            ),
         },
         model_engine_version=model_snapshot["engine_version"] if model_snapshot else None,
         model_source_fingerprint=model_snapshot["source_fingerprint"] if model_snapshot else None,
@@ -783,7 +824,11 @@ async def create_report_version(
         report_ref = ArtifactRef(kind="report_version", id=row.id, version=row.document_sha256)
         parent_refs = [
             ArtifactRef(kind="issuer_run", id=run.id),
-            ArtifactRef(kind="model_checkpoint", id=checkpoint.id, version=checkpoint.payload_hash),
+            ArtifactRef(
+                kind="model_checkpoint",
+                id=checkpoint.id,
+                version=checkpoint.payload_hash,
+            ),
             *[ArtifactRef(kind="source_manifest", id=item.id) for item in manifests],
         ]
         await bind_context_artifacts(
@@ -833,7 +878,10 @@ async def export_report_version(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report version not found.")
     authority = _stored_authority(row.authority or {})
     if row.status != "published" or authority.get("origin") != "live":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Only live published report versions can be exported.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only live published report versions can be exported.",
+        )
     payload = _verified_version_payload(row)
     # Export-time authority reflects the exact frozen report's current lineage.
     # Failure/flag-off is UNKNOWN, never a replay of a legacy naked CURRENT.
@@ -846,7 +894,8 @@ async def export_report_version(
         "freshness_evaluation": dynamic.model_dump(mode="json"),
     }
     if format == "xlsx":
-        content = render_report_xlsx(
+        content = await render_report_export(
+            export_format="xlsx",
             version_id=row.id,
             document_sha256=row.document_sha256,
             payload=payload,
@@ -862,7 +911,8 @@ async def export_report_version(
             },
         )
     if format == "pdf":
-        content = render_report_pdf(
+        content = await render_report_export(
+            export_format="pdf",
             version_id=row.id,
             document_sha256=row.document_sha256,
             payload=payload,
