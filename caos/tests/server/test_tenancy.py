@@ -128,3 +128,27 @@ def test_tenancy_isolates_issuers_runs_portfolio_and_query(monkeypatch):
         assert c.post("/api/issuers/", json={"name": "Team A Secret Co"}).status_code == 201
 
     app.dependency_overrides.clear()
+
+
+def test_issuer_name_uniqueness_uses_exact_tenancy_scope(monkeypatch):
+    from config import get_settings
+    from identity import get_identity
+    from main import app
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", False)
+    name = "Exact Issuer Scope Proof"
+
+    with TestClient(app) as c:
+        # Tenancy-off creation belongs to the shared/global empty scope.
+        assert c.post("/api/issuers/", json={"name": name}).status_code == 201
+
+        monkeypatch.setattr(settings, "caos_tenancy_enabled", True)
+        app.dependency_overrides[get_identity] = _as_team("scope-team-a")
+        assert c.post("/api/issuers/", json={"name": name}).status_code == 201
+
+        app.dependency_overrides[get_identity] = _as_team("scope-team-b")
+        assert c.post("/api/issuers/", json={"name": name}).status_code == 201
+        assert c.post("/api/issuers/", json={"name": name}).status_code == 409
+
+    app.dependency_overrides.clear()

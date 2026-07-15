@@ -229,12 +229,14 @@ async def create_issuer(
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
     name = (data.get("name") or "").strip()
+    team_id = new_issuer_team(caller)
     # Friendly preflight for the database-backed normalized-name invariant. The
     # unique constraint remains authoritative when concurrent requests both pass
     # this lookup.
     existing = (await db.execute(
-        scope_issuers(
-            select(Issuer).where(Issuer.normalized_name == name.casefold()), caller
+        select(Issuer).where(
+            Issuer.normalized_name == name.casefold(),
+            Issuer.uniqueness_scope == (team_id or ""),
         )
     )).scalar_one_or_none()
     if existing is not None:
@@ -242,7 +244,7 @@ async def create_issuer(
     # Stamp the creator's team so tenancy scoping applies to this issuer and
     # everything derived from it (None when tenancy is off → shared/global). Attribution
     # (created_by) comes from the verified identity, never the request body. SEAM4-4.
-    data["team_id"] = new_issuer_team(caller)
+    data["team_id"] = team_id
     issuer = Issuer(**data, created_by=caller.id)
     try:
         async with db.begin_nested():

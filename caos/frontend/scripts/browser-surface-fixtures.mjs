@@ -84,7 +84,38 @@ export async function installSurfaceStubs(target, identity) {
   await target.route('**/api/settings', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ features: { model_engine_v2: false } }),
+    // Keep the browser fixture structurally identical to WorkspaceSettings.
+    // A partial object makes the Settings surface throw before axe can scan it,
+    // turning a verification harness gap into a misleading product-page error.
+    body: JSON.stringify({
+      model: 'fixture-model',
+      llm_configured: false,
+      gemini_configured: false,
+      openrouter_configured: false,
+      governance: {
+        council_enabled: false,
+        council_seats: 0,
+        council_peer_round: false,
+        council_cross_model: false,
+        debate_enabled: false,
+      },
+      model_tiers: { cheap: 'fixture', fast: 'fixture', strong: 'fixture', top: 'fixture' },
+      engine_cost: {
+        run_token_budget: 0,
+        advisor_enabled: false,
+        synth_executor_model: 'fixture',
+        advisor_model: 'fixture',
+      },
+      deep_research: { effort: 'medium', max_searches: 0, max_tokens: 0 },
+      retrieval: { edgar_enabled: false, markitdown_enabled: false },
+      workspace: { environment: 'static-verification', demo_seed: true, max_upload_mb: 25, run_concurrency: 1 },
+      features: {
+        lineage_v2_enabled: false,
+        market_xlsx_v2_enabled: false,
+        model_engine_v2: false,
+        model_engine_v2_enabled: false,
+      },
+    }),
   }));
   const fulfillRuns = (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify([profile.latest_run]),

@@ -52,3 +52,13 @@ language totals and findings. Add configurable exclude paths with safe defaults
 for virtualenvs, dependency trees, build artifacts, caches, and generated files;
 also label the PR analyzer explicitly as diff-only so it is not mistaken for
 whole-codebase coverage.
+
+## 2026-07-15 — turbopack — OPEN
+
+The Next.js 16.2 guidance contains two stale diagnostics/fallback details. The
+supported webpack opt-out is the `--webpack` flag on `next dev` / `next build`,
+not a `bundler: "webpack"` `NextConfig` key. With
+`NEXT_TURBOPACK_TRACING=1`, current Next writes the dev trace to
+`.next/dev/trace-turbopack`, not a root `trace.json`. Update both examples and
+prefer the documented `next experimental-analyze --output` CLI for reusable
+bundle-analysis artifacts.

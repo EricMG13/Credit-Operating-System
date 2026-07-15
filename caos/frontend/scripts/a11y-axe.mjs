@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url);
 const axePath = require.resolve('axe-core/axe.min.js');
 
 const BASE = process.env.BASE || 'http://localhost:3000';
-const ROUTES = (process.env.ROUTES || '/,/command,/issuers,/deepdive,/pipeline,/model,/portfolios,/decisions,/reports,/research,/upload,/settings,/query,/monitor').split(',');
+const ROUTES = (process.env.ROUTES || '/,/command,/decisions,/deepdive,/issuers,/issuers/profile?id=iss-1,/model,/monitor,/pipeline,/portfolios,/query,/reports,/research,/sector,/sector-rv,/settings,/sponsors,/upload').split(',');
 const TAGS = ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa'];
 
 const browser = await chromium.launch();
@@ -68,7 +68,16 @@ for (const route of ROUTES) {
   out[route] = res;
 }
 await browser.close();
-// totals
-let total = 0; const byImpact = {};
-for (const r of Object.values(out)) for (const v of r.violations || []) { total += v.n; byImpact[v.impact]=(byImpact[v.impact]||0)+v.n; }
-console.log(JSON.stringify({ base: BASE, tags: TAGS, total_nodes: total, byImpact, routes: out }, null, 2));
+// totals — fail closed when a route was not scanned as well as on violations.
+// Otherwise a transient readiness miss can serialize as `scan_error` while the
+// validation command still exits 0 and is mistaken for a complete clean matrix.
+let total = 0; let scanErrors = 0; const byImpact = {};
+for (const r of Object.values(out)) {
+  if (r.scan_error) scanErrors += 1;
+  for (const v of r.violations || []) {
+    total += v.n;
+    byImpact[v.impact] = (byImpact[v.impact] || 0) + v.n;
+  }
+}
+console.log(JSON.stringify({ base: BASE, tags: TAGS, total_nodes: total, scan_errors: scanErrors, byImpact, routes: out }, null, 2));
+process.exit(total > 0 || scanErrors > 0 ? 1 : 0);
