@@ -410,7 +410,7 @@ function Research() {
                 mode === "sector" ? "Sector / theme" : "Issuer",
                 subject,
                 setSubject,
-                mode === "sector" ? "e.g. North American & European enterprise software" : "e.g. Atlas Forge",
+                mode === "sector" ? "e.g. enterprise software (NA & EU)" : "e.g. Atlas Forge",
                 300,
                 true,
               )}

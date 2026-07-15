@@ -22,7 +22,7 @@ function MnpiChip() {
         background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)",
       }}
     >
-      MNPI uploads are restricted-handled
+      MNPI · restricted handling enforced
     </span>
   );
 }

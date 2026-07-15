@@ -56,7 +56,7 @@ export const useAsk = () => useContext(Ctx);
 const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
   command: [
     { id: "peer-set", text: "Map today's closest credit peers", sub: "issuer graph · CP-1C" },
-    { id: "scatter", text: "Plot leverage × coverage for coverage", sub: "cross-issuer scatter" },
+    { id: "scatter", text: "Plot leverage × interest coverage across covered names", sub: "cross-issuer scatter" },
     { id: "open-findings", text: "Show open QA findings", sub: "governance" },
     { id: "trace-source", text: "Trace an IC verdict to its sources", sub: "provenance walk" },
     { id: "concentration-map", text: "Cluster coverage by sector", sub: "sector clusters" },
@@ -458,7 +458,7 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
                 onKeyDown={(e) => {
                   if (e.key === "Enter") submit();
                 }}
-                placeholder="Ask across coverage — e.g. Map peers by credit profile"
+                placeholder="Ask across coverage…"
                 aria-label="Query coverage"
                 className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
               />

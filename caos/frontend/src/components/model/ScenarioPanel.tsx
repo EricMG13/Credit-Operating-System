@@ -239,7 +239,7 @@ function Tornado({ sc }: { sc: ScenarioLens }) {
           const aboveColor = meta.lowerIsBetter ? BAD : GOOD; // values > base
           return (
             <div key={b.driver} className="flex items-center gap-1.5" title={`${b.label}: ${fmt(b.low)} ↔ ${fmt(b.high)} (base ${fmt(base)})`}>
-              <span className="text-caos-xs text-caos-text w-[72px] shrink-0 truncate">{b.label}</span>
+              <span className="text-caos-xs text-caos-text w-[96px] shrink-0 truncate">{b.label}</span>
               <span className="tabular text-caos-2xs text-caos-text w-[48px] shrink-0 text-right whitespace-nowrap tabular-nums">{fmt(a)}</span>
               <div className="relative flex-1 h-3.5 rounded-sm" style={{ background: "var(--caos-bg)" }}>
                 <span className="absolute top-0 bottom-0 rounded-l-sm" style={{ left: La + "%", width: Math.max(0, Lb - La) + "%", background: belowColor }} />

@@ -175,7 +175,7 @@ export function ComposePanel({
                       >
                         {!off ? "✓" : null}
                       </span>
-                      <span className={"tabular text-caos-2xs uppercase tracking-wide truncate " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
+                      <span title={secLabel(s)} className={"tabular text-caos-2xs uppercase tracking-wide line-clamp-2 " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
                         {secLabel(s)}
                       </span>
                     </button>
@@ -214,7 +214,7 @@ export function ComposePanel({
               >
                 {!off ? "✓" : null}
               </span>
-              <span className={"tabular text-caos-2xs uppercase tracking-wide truncate " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
+              <span title={secLabel(s)} className={"tabular text-caos-2xs uppercase tracking-wide line-clamp-2 " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
                 {secLabel(s)}
               </span>
             </button>

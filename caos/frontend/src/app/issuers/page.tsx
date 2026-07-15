@@ -562,9 +562,9 @@ function IssuersDirectory() {
                       </span>
                     );
                   })()}
-                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuerSector(issuer) || "—"}</span>
-                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.sub_sector || "—"}</span>
-                  <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate" title={issuerSector(issuer) ? undefined : "No sector on file"}>{issuerSector(issuer) || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate" title={issuer.sub_sector ? undefined : "No sub-sector on file"}>{issuer.sub_sector || "—"}</span>
+                  <span role="gridcell" className="text-caos-muted text-caos-md truncate" title={issuer.country ? undefined : "No country on file"}>{issuer.country || "—"}</span>
                   <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
                     <button
                       onClick={() => router.push(analysis.context

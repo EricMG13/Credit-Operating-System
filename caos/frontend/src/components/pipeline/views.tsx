@@ -143,7 +143,7 @@ export function GraphView({
                 onDoubleClick(m.id);
               }
             }}
-            title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : "Out of scope for this route plan"}
+            title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : m.name + " — out of scope for this route plan"}
             aria-pressed={sel}
             className={"absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected z-10" : "")}
             style={{
@@ -215,7 +215,7 @@ export function SwimlaneView({
                         onDoubleClick(m.id);
                       }
                     }}
-                    title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : "Out of scope for this route plan"}
+                    title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : m.name + " — out of scope for this route plan"}
                     aria-pressed={sel}
                     className={"text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected" : "")}
                     style={{
@@ -433,6 +433,7 @@ export function LineagePanel({
             </span>
             <span className="block tabular text-caos-xs text-caos-muted mt-1 leading-relaxed">{d.lineage}</span>
             <span className="flex items-center gap-1.5 mt-1" title={`Confidence score: ${(d.conf * 100).toFixed(0)}%`}>
+              <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted shrink-0">conf</span>
               <Bar pct={d.conf * 100} color={d.conf > 0.7 ? "var(--caos-success)" : "var(--caos-warning)"} h={2} />
               <span className="tabular text-caos-xs text-caos-muted shrink-0">{(d.conf * 100).toFixed(0)}%</span>
             </span>

@@ -20,7 +20,7 @@ describe("StandingViewStrip", () => {
   it("a real (non-reference) issuer with no CP-6 verdict shows an honest empty state — never a fixture", () => {
     render(<StandingViewStrip isReference={false} issuerId="iss-1" runId="run-1" onRevise={() => {}} />);
     expect(screen.getByText("No standing view — run CP-6 to establish one.")).toBeTruthy();
-    expect(screen.queryByText("Affirm")).toBeNull();
+    expect(screen.queryByText("Note agreement")).toBeNull();
     expect(screen.queryByText(DEBATE.bias.split(" — ")[0])).toBeNull();
   });
 
@@ -34,10 +34,10 @@ describe("StandingViewStrip", () => {
   it("Affirm writes a workspace annotation and flips to an Affirmed state", async () => {
     render(<StandingViewStrip isReference issuerId="atlas-forge" runId={null} onRevise={() => {}} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Affirm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Note agreement" }));
     });
     expect(updateAnalystWorkspace).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("button", { name: "Affirmed" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Noted" })).toBeTruthy();
   });
 
   it("Affirm caps the stored list at 20 entries, dropping the oldest", async () => {
@@ -55,7 +55,7 @@ describe("StandingViewStrip", () => {
     });
     render(<StandingViewStrip isReference issuerId="atlas-forge" runId={null} onRevise={() => {}} />);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Affirm" }));
+      fireEvent.click(screen.getByRole("button", { name: "Note agreement" }));
     });
     expect(captured).toHaveLength(20);
     expect(captured[0]).toMatchObject({ issuerId: "atlas-forge" });

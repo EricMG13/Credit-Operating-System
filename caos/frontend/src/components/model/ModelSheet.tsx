@@ -593,7 +593,7 @@ export function FormulaBar({
           </button>
         </span>
       ) : (
-        <span className="text-caos-sm text-caos-muted truncate">{formulaText}</span>
+        <span className="text-caos-sm text-caos-muted truncate" title={typeof formulaText === "string" ? formulaText : undefined}>{formulaText}</span>
       )}
       {!isOv && editable ? <span className="tabular text-caos-xs whitespace-nowrap text-caos-accent">✎ historical input — double-click to override</span> : null}
       {caseNote ? (
@@ -626,7 +626,7 @@ export function Manifest({ hl, setHl, isReference = false }: { hl: string | null
   if (!isReference) return null;
   return (
     <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
-      <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Built from</span>
+      <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap" title="Click a module chip to trace which model rows it feeds">Built from</span>
       {Object.entries(SRC).map(([k, s]) => (
         <button
           key={k}
@@ -641,8 +641,6 @@ export function Manifest({ hl, setHl, isReference = false }: { hl: string | null
           {s.chip}
         </button>
       ))}
-      <span className="flex-1"></span>
-      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">click a module to trace which rows it feeds</span>
     </div>
   );
 }

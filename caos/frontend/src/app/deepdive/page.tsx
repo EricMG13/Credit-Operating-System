@@ -494,7 +494,7 @@ function DeepDive() {
           title={isReference ? "Reference output cannot be ratified" : "Append an immutable thesis version and pin the affirmed view"}
           className="caos-primary-action focus-ring disabled:opacity-40"
         >
-          {affirmState === "saving" ? "Affirming…" : affirmState === "saved" ? "View affirmed" : "Affirm view"}
+          {affirmState === "saving" ? "Affirming…" : affirmState === "saved" ? "Thesis affirmed" : "Affirm thesis"}
         </button>
       }
       status={

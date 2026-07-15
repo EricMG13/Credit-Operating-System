@@ -122,7 +122,7 @@ export function EdgarImport({
         ) : null}
 
         <div className="tabular text-caos-2xs text-caos-muted leading-snug">
-          Public issuer URLs and private drag/drop files can be used together for {issuer.name}.
+          Public issuer URLs and private drag/drop files can be used together for {issuer.name}{issuer.name.endsWith(".") ? "" : "."}
         </div>
       </div>
     </Panel>

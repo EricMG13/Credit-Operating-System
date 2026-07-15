@@ -81,7 +81,7 @@ export function StandingViewStrip({
         disabled={saveState === "saving"}
         className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
       >
-        {saveState === "saved" ? "Affirmed" : "Affirm"}
+        {saveState === "saved" ? "Noted" : "Note agreement"}
       </button>
       <button
         type="button"
@@ -91,8 +91,8 @@ export function StandingViewStrip({
         Revise
       </button>
       <span
-        className="tabular text-caos-3xs text-caos-muted whitespace-nowrap hidden lg:inline"
-        title="Affirm/Revise write a personal note to your own workspace settings — there is no server-side CP-6 write path, so this never changes the committee record."
+        className="tabular text-caos-3xs text-caos-muted whitespace-nowrap"
+        title="Note agreement / Revise write a personal note to your own workspace settings — there is no server-side CP-6 write path, so this never changes the committee record."
       >
         personal annotation, not a governance action
       </span>

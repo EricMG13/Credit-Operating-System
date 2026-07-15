@@ -187,7 +187,7 @@ function CommandCenter() {
               authority: digestAuthority,
             }
           : { kind: "observed-empty", message: "No engine activity observed in 24h", asOf: digestAsOf, authority: digestAuthority })
-        : { kind: "unavailable", message: "Live activity observation unavailable" },
+        : { kind: "unavailable", message: "Live activity unavailable" },
     whyItMatters: digestLoading
       ? { kind: "loading", message: "Calculating portfolio impact…" }
       : digestLive && digest && digestAsOf && digest.warf != null
@@ -204,7 +204,7 @@ function CommandCenter() {
               asOf: fmtUtcDateTime(portfolio.fetchedAt),
               authority: { provenance: { origin: "LIVE", method: "DERIVED", freshness: "CURRENT", detail: "Portfolio QA and source-gap roll-up." }, approval: "UNRATIFIED" },
             }
-          : { kind: "unavailable", message: "Governance queue observation unavailable" },
+          : { kind: "unavailable", message: "Governance queue unavailable" },
     evidenceHealth: digestLoading
       ? { kind: "loading", message: "Checking evidence coverage…" }
       : digestLive && digest && digestAsOf && digest.freshness && digestFreshnessState
