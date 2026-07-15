@@ -14,20 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer, NotificationEvent, Run
 
 
-async def emit_run_terminal_notification(
+async def _insert_terminal_notification(
     session: AsyncSession,
     run: Run,
     *,
-    terminal_status: str | None = None,
+    status: str,
+    issuer_label: str,
 ) -> None:
-    """Add one analyst-owned event without committing the caller's transaction."""
+    """Insert one terminal event; the caller owns transaction boundaries."""
 
-    status = terminal_status or run.status
-    if not run.analyst_id or status not in {"complete", "failed"}:
-        return
-
-    issuer = await session.get(Issuer, run.issuer_id)
-    issuer_label = issuer.name if issuer is not None else "Issuer"
     kind = "run_complete" if status == "complete" else "run_failed"
     title = f"{issuer_label} analysis {'complete' if status == 'complete' else 'failed'}"
     body = (
@@ -62,3 +57,44 @@ async def emit_run_terminal_notification(
     else:
         stmt = insert(NotificationEvent).values(**values)
     await session.execute(stmt)
+
+
+async def emit_run_terminal_notification(
+    session: AsyncSession,
+    run: Run,
+    *,
+    terminal_status: str | None = None,
+) -> None:
+    """Add one analyst-owned event without committing the caller's transaction."""
+
+    status = terminal_status or run.status
+    if not run.analyst_id or status not in {"complete", "failed"}:
+        return
+
+    issuer = await session.get(Issuer, run.issuer_id)
+    issuer_label = issuer.name if issuer is not None else "Issuer"
+    await _insert_terminal_notification(
+        session,
+        run,
+        status=status,
+        issuer_label=issuer_label,
+    )
+
+
+async def emit_run_terminal_notification_fallback(
+    session: AsyncSession,
+    run: Run,
+    *,
+    terminal_status: str | None = None,
+) -> None:
+    """Emit without ancillary issuer reads when rich notification rendering fails."""
+
+    status = terminal_status or run.status
+    if not run.analyst_id or status not in {"complete", "failed"}:
+        return
+    await _insert_terminal_notification(
+        session,
+        run,
+        status=status,
+        issuer_label="Issuer",
+    )

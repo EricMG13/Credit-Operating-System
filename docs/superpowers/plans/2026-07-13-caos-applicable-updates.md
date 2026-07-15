@@ -1,6 +1,7 @@
 # CAOS Applicable Updates — durable execution contract
 
-Date: 2026-07-13. Status: **Phases 0 through 6 implemented; Phase 7 is next.**
+Date: 2026-07-13. Status: **Phases 0 through 6 implemented; Phase 7 release
+verification is in progress and production rollout remains operator-gated.**
 The vendored `Modular OS/CP-2G/` and `Modular OS/CP-4D/` directories are the
 source of truth for those analytical contracts; their checked manifests freeze
 the supplied bytes.
@@ -261,6 +262,33 @@ pending except CC2, which was already complete when this contract was approved.
   and `pdfinfo` confirmed the full appendix prints as exactly **1 landscape
   Letter page**. The build retained only the established static-export rewrite
   warnings.
+
+## Phase 7 implementation evidence
+
+- [x] Recorded the Phase 7 critic gate and created an operator-facing release
+  record with immutable prompt manifests, endpoint authorization matrix,
+  environment limitations, sequential flag dependencies, abort thresholds and
+  evidence-preserving rollback instructions.
+- [x] Added one explicitly synthetic integrated journey from source and market
+  upload through the exact run, CP-4D/CP-2G, Model Engine v2, checkpoint,
+  frozen report and XLSX. The test asserts artifact IDs, representative market
+  figures, prompt fingerprints, notification idempotency and calculation hash.
+- [x] Closed release-audit gaps: exact run selection is honored by Deep-Dive,
+  Pipeline, Model v2 and Reports; market snapshots become typed run parents;
+  workbook preview/commit require write role; module bulk/single reads enforce
+  the team boundary; notification-rendering faults fall back to a minimal
+  terminal event without stranding the run.
+- [x] Local release evidence: Phase 7 focused server **76 passed, 2 skipped**;
+  integrated journey **1 passed**; migrations **3 passed**; module consistency
+  **26 modules / 0 drift**; full frontend **157 files / 861 tests**; TypeScript,
+  ESLint, production build, Ruff and Python compilation passed. Axe found **0
+  violations** and the responsive verifier passed **32/32** Deep-Dive,
+  Pipeline, Model and Reports checks including 200% zoom. The full server
+  completed **1808 passed, 9 skipped** outside the seven unchanged ClamAV
+  loopback cases denied by the controller sandbox.
+- [ ] Complete the full local/CI command matrix and the unrestricted AV,
+  PostgreSQL, restored-snapshot, Docker/OAuth and production observation gates.
+  No production flag has been enabled and compatibility paths remain intact.
 
 ## Acceptance gates
 

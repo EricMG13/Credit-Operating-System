@@ -94,6 +94,7 @@ export default function ReportsPage() {
 function ReportStudio() {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const exactRunId = searchParams.get("run");
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const analysis = useAnalysisContext({ name: "Committee report workspace" });
 
@@ -129,7 +130,7 @@ function ReportStudio() {
     return () => { cancelled = true; };
   }, [isReference, issuerId, modelReloadKey]);
   const eng = useModelEngine(issuerId);
-  const live = useLiveRun(issuerId);
+  const live = useLiveRun(issuerId, exactRunId);
   const [versions, setVersions] = useState<ReportVersionDTO[]>([]);
   const [serverPreview, setServerPreview] = useState<ReportVersionPreviewDTO | null>(null);
   const [previewIntent, setPreviewIntent] = useState<Record<string, unknown> | null>(null);

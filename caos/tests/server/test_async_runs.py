@@ -122,6 +122,44 @@ async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
         assert event.kind == "run_failed"
 
 
+@pytest.mark.asyncio
+async def test_notification_render_failure_uses_minimal_event_and_run_stays_terminal(
+    seeded_db, monkeypatch
+):
+    from database import AsyncSessionLocal, NotificationEvent, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    import run_executor
+
+    async def fail_run(session, run):
+        raise RuntimeError("synthetic execution failure")
+
+    async def fail_rich_notification(session, run):
+        raise RuntimeError("synthetic notification rendering failure")
+
+    monkeypatch.setattr(run_executor, "execute_run", fail_run)
+    monkeypatch.setattr(
+        run_executor, "emit_run_terminal_notification", fail_rich_notification
+    )
+
+    async with AsyncSessionLocal() as session:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="notification-fallback")
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await run_executor.execute_run_by_id(run_id)
+
+    async with AsyncSessionLocal() as session:
+        run = await session.get(Run, run_id)
+        assert run is not None and run.status == "failed"
+        events = list((await session.execute(select(NotificationEvent).where(
+            NotificationEvent.subject_id == run_id
+        ))).scalars().all())
+        assert len(events) == 1
+        assert events[0].kind == "run_failed"
+        assert events[0].title == "Issuer analysis failed"
+
+
 import asyncio
 
 

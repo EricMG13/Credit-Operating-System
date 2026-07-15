@@ -1184,9 +1184,13 @@ const modelV2Path = (issuerId: string): string =>
 
 export const getModelV2 = (
   issuerId: string,
+  exactRunId?: string,
   signal?: AbortSignal,
 ): Promise<ModelV2ReadResponse> =>
-  api.get<ModelV2ReadResponse>(modelV2Path(issuerId), { signal }).then((r) => r.data);
+  api.get<ModelV2ReadResponse>(modelV2Path(issuerId), {
+    params: exactRunId ? { run_id: exactRunId } : undefined,
+    signal,
+  }).then((r) => r.data);
 
 export const calculateModelV2 = (
   issuerId: string,

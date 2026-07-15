@@ -74,6 +74,18 @@ describe("Model route calculation authority", () => {
     expect(legacyModule.evaluations).toBe(0);
   });
 
+  it("preserves the exact Pipeline run when resolving Model Engine v2", async () => {
+    navigation.search = "issuer=issuer-1&context=context-1&run=run-exact";
+    vi.mocked(getSettings).mockResolvedValue({
+      features: { model_engine_v2: true, model_engine_v2_enabled: false },
+    } as never);
+
+    render(<ModelAuthorityRoute renderV2={() => <div>exact v2 route</div>} />);
+
+    expect(await screen.findByText("exact v2 route")).toBeTruthy();
+    expect(getModelV2).toHaveBeenCalledWith("issuer-1", "run-exact");
+  });
+
   it("loads and calls the legacy calculator only when the feature is explicitly false", async () => {
     navigation.search = `issuer=${ATLF_REFERENCE_ISSUER_ID}&context=context-1`;
     vi.mocked(getSettings).mockResolvedValue({

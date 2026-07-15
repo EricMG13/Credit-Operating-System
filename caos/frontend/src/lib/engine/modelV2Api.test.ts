@@ -33,7 +33,10 @@ describe("Model Engine v2 API routes", () => {
     await calculateModelV2("issuer/1", { payload, context_id: "context-1" });
     await saveModelV2("issuer/1", { payload, expected_revision: 3 });
 
-    expect(get).toHaveBeenCalledWith("/api/models/v2/issuer%2F1", { signal: undefined });
+    expect(get).toHaveBeenCalledWith("/api/models/v2/issuer%2F1", {
+      params: undefined,
+      signal: undefined,
+    });
     expect(post).toHaveBeenCalledWith(
       "/api/models/v2/issuer%2F1/calculate",
       { payload, context_id: "context-1" },
@@ -43,6 +46,17 @@ describe("Model Engine v2 API routes", () => {
       "/api/models/v2/issuer%2F1",
       { payload, expected_revision: 3 },
     );
+  });
+
+  it("binds an exact source run on the model read", async () => {
+    const get = vi.spyOn(api, "get").mockResolvedValue({ data: null } as never);
+
+    await getModelV2("issuer-1", "run-exact");
+
+    expect(get).toHaveBeenCalledWith("/api/models/v2/issuer-1", {
+      params: { run_id: "run-exact" },
+      signal: undefined,
+    });
   });
 
   it("wires override history, mutation, and replay without a legacy endpoint", async () => {

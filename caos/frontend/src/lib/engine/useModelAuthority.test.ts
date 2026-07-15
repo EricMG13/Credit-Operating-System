@@ -131,6 +131,20 @@ describe("resolveModelAuthority", () => {
     expect(buildLegacyModel).not.toHaveBeenCalled();
   });
 
+  it("passes an exact run identity to the v2 authority read", async () => {
+    const readers = readersFor(true);
+
+    const result = await resolveModelAuthority({
+      issuerId: "issuer-1",
+      exactRunId: "run-exact",
+      buildLegacyModel: vi.fn(),
+      readers,
+    });
+
+    expect(result.mode).toBe("v2-confirmed");
+    expect(readers.readModelV2).toHaveBeenCalledWith("issuer-1", "run-exact");
+  });
+
   it("selects the server's current calculation when a saved revision requires recalculation", async () => {
     const current = { calculation_hash: "current" } as ModelV2Calculation;
     const readers = readersFor(true);

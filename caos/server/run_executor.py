@@ -19,13 +19,28 @@ from database import AsyncSessionLocal, Run, engine
 from engine import budget
 from engine.runner import execute_run
 from executor_base import InProcessTaskExecutor
-from notification_service import emit_run_terminal_notification
+from notification_service import (
+    emit_run_terminal_notification,
+    emit_run_terminal_notification_fallback,
+)
 
 logger = logging.getLogger("caos.executor")
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def _emit_terminal_notification(session, run: Run) -> None:
+    """Keep a rendering/helper fault from stranding an otherwise terminal run."""
+    try:
+        await emit_run_terminal_notification(session, run)
+    except Exception:  # noqa: BLE001 — fallback is deliberately minimal
+        logger.exception(
+            "rich terminal notification failed for run %s; using minimal event",
+            run.id,
+        )
+        await emit_run_terminal_notification_fallback(session, run)
 
 
 async def execute_run_by_id(run_id: str) -> None:
@@ -38,7 +53,7 @@ async def execute_run_by_id(run_id: str) -> None:
         committed = False
         try:
             await execute_run(session, run)
-            await emit_run_terminal_notification(session, run)
+            await _emit_terminal_notification(session, run)
             await session.commit()
             committed = True
             await _maybe_export_to_vault(session, run_id)
@@ -101,7 +116,7 @@ async def _mark_run_failed(session, run_id: str, reason: str) -> None:
             spent = budget.current_budget()
             if spent is not None:
                 run.tokens_used = max(run.tokens_used or 0, spent.used)
-            await emit_run_terminal_notification(session, run)
+            await _emit_terminal_notification(session, run)
             await session.commit()
     except Exception:  # noqa: BLE001
         logger.exception("could not mark run %s failed", run_id)
@@ -138,7 +153,7 @@ class InProcessExecutor(InProcessTaskExecutor):
                 run.status = "failed"
                 run.error = "abandoned (process restart)"
                 run.lease_expires_at = None
-                await emit_run_terminal_notification(session, run)
+                await _emit_terminal_notification(session, run)
             await session.commit()
 
     async def enqueue(self, run_id: str) -> None:
@@ -213,7 +228,7 @@ class QueueWorker:
                 run.status = "failed"
                 run.error = "abandoned after max attempts"
                 run.lease_expires_at = None
-                await emit_run_terminal_notification(s, run)
+                await _emit_terminal_notification(s, run)
             await s.commit()
 
     async def _heartbeat(self) -> None:

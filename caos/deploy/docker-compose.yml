@@ -83,6 +83,13 @@ services:
       # Structure-preserving extraction via the markitdown CLI baked into the image
       # (Dockerfile). Empty = built-in pypdf/openpyxl fallback. Set in .env.
       CAOS_MARKITDOWN_CMD: ${CAOS_MARKITDOWN_CMD:-}
+      # Applicable-updates gates are independently default-off. Do not enable a
+      # downstream gate before its prerequisite observation window is green.
+      CAOS_LINEAGE_V2_ENABLED: ${CAOS_LINEAGE_V2_ENABLED:-false}
+      CAOS_MARKET_XLSX_V2_ENABLED: ${CAOS_MARKET_XLSX_V2_ENABLED:-false}
+      CAOS_MODEL_ENGINE_V2_ENABLED: ${CAOS_MODEL_ENGINE_V2_ENABLED:-false}
+      CAOS_CP_4D_ENABLED: ${CAOS_CP_4D_ENABLED:-false}
+      CAOS_CP_2G_ENABLED: ${CAOS_CP_2G_ENABLED:-false}
       # Defense-in-depth (SECURITY.md §1): require Caddy's injected edge secret so
       # forged X-Forwarded-* on a direct hit to app:8000 (e.g. a rogue container on
       # the internal net) is rejected. REQUIRED — the app fails closed at boot in

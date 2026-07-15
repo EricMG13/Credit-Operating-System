@@ -90,6 +90,7 @@ function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
   const evidenceParam = searchParams.get("evidence");
+  const exactRunId = searchParams.get("run");
   // Issuer opened from the directory (?issuer=). Absent → the ATLF reference deal
   // (the bespoke showcase). The live engine overlay is keyed off this id; the
   // bespoke debate/recovery/covenant tabs and DEAL narrative are ATLF fixtures,
@@ -239,7 +240,7 @@ function DeepDive() {
   }, [evModal, reports]);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
-  const live = useLiveRun(issuerId);
+  const live = useLiveRun(issuerId, exactRunId);
   // Honesty caveat for the sub-header: reference deal · resolving · live · no-run.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId, phase: live.phase });
 

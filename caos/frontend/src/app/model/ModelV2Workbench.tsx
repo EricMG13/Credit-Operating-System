@@ -70,6 +70,7 @@ type BusyAction =
 interface ModelV2WorkbenchProps {
   issuerId: string;
   contextId: string | null;
+  exactRunId?: string | null;
   initialResponse: ModelV2ReadResponse;
 }
 
@@ -392,7 +393,7 @@ function deriveHistoryReplayCandidates(history: ModelV2OverrideEvent[]): {
   };
 }
 
-export function ModelV2Workbench({ issuerId, contextId, initialResponse }: ModelV2WorkbenchProps) {
+export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialResponse }: ModelV2WorkbenchProps) {
   const [record, setRecord] = useState<ModelV2DraftRecord | null>(initialResponse.record);
   const [suggestedPayload, setSuggestedPayload] = useState(initialResponse.suggested_payload);
   const [suggestedCalculation, setSuggestedCalculation] = useState(initialResponse.suggested_calculation);
@@ -548,7 +549,10 @@ export function ModelV2Workbench({ issuerId, contextId, initialResponse }: Model
       setScenarioPreview(null);
       setRequiresRecalculation(true);
       setNotice("An override expired. Refreshing the current server calculation; save it before checkpoint or export.");
-      void getModelV2(issuerId)
+      const refresh = exactRunId
+        ? getModelV2(issuerId, exactRunId)
+        : getModelV2(issuerId);
+      void refresh
         .then((next) => {
           if (
             !record
@@ -565,7 +569,7 @@ export function ModelV2Workbench({ issuerId, contextId, initialResponse }: Model
         });
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [issuerId, overrideNow, record]);
+  }, [exactRunId, issuerId, overrideNow, record]);
 
   useEffect(() => {
     let active = true;

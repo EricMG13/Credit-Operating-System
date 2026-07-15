@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -668,12 +668,18 @@ async def _create_or_update(
 @router.get("/v2/{issuer_id}", response_model=ModelDraftReadOut)
 async def get_model_v2(
     issuer_id: str,
+    run_id: Optional[str] = Query(default=None, max_length=64),
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
     await _authorized_issuer(db, caller, issuer_id)
     row = await _owned_draft(db, issuer_id=issuer_id, analyst_id=caller.id)
     if row is not None:
+        if run_id is not None and row.source_run_id != run_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Saved model draft is bound to a different source run.",
+            )
         record = _draft_out(row)
         current = calculate_model(
             record.payload, evaluated_at=datetime.now(timezone.utc)
@@ -695,24 +701,41 @@ async def get_model_v2(
                 else None
             ),
         )
-    run = (await db.execute(select(Run).where(
-        Run.issuer_id == issuer_id,
-        Run.analyst_id == caller.id,
-        Run.status == "complete",
-    ).order_by(Run.completed_at.desc(), Run.created_at.desc()).limit(1))).scalar_one_or_none()
+    if run_id is not None:
+        run, cp1, reporting_profile = await _owned_run(
+            db,
+            run_id=run_id,
+            issuer_id=issuer_id,
+            caller=caller,
+        )
+    else:
+        run = (await db.execute(select(Run).where(
+            Run.issuer_id == issuer_id,
+            Run.analyst_id == caller.id,
+            Run.status == "complete",
+        ).order_by(Run.completed_at.desc(), Run.created_at.desc()).limit(1))).scalar_one_or_none()
+        cp1 = None
+        reporting_profile = None
     if run is None:
         return ModelDraftReadOut(
             availability="unavailable", detail="No completed owned issuer run is available."
         )
-    cp1 = (await db.execute(select(ModuleOutput).where(
-        ModuleOutput.run_id == run.id,
-        ModuleOutput.module_id == "CP-1",
-    ))).scalar_one_or_none()
+    if cp1 is None:
+        cp1 = (await db.execute(select(ModuleOutput).where(
+            ModuleOutput.run_id == run.id,
+            ModuleOutput.module_id == "CP-1",
+        ))).scalar_one_or_none()
     if cp1 is None:
         return ModelDraftReadOut(
-            availability="insufficient_source", detail="The latest run has no CP-1 output."
+            availability="insufficient_source",
+            detail=(
+                "The selected run has no CP-1 output."
+                if run_id is not None
+                else "The latest run has no CP-1 output."
+            ),
         )
-    reporting_profile = await db.get(IssuerReportingProfile, issuer_id)
+    if reporting_profile is None:
+        reporting_profile = await db.get(IssuerReportingProfile, issuer_id)
     try:
         payload = payload_from_cp1(
             run, cp1, reporting_profile=reporting_profile

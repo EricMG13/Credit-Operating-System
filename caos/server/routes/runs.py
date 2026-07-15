@@ -523,8 +523,10 @@ async def get_modules(
     client one HTTP round trip (and the server ~3 queries) per module — 21
     requests per page open. This returns the same ModuleDetail shape for every
     produced module at once."""
-    if await db.get(Run, run_id) is None:
-        raise HTTPException(404, "Run not found")
+    # Apply the same team/issuer boundary as the single-run endpoint. In the
+    # default shared-desk deployment this remains a no-op beyond existence;
+    # when tenancy is enabled it prevents bulk module disclosure across teams.
+    await require_run_access(caller, await db.get(Run, run_id), db)
     rows = await _modules_for(db, run_id)
     row_pks = [r.id for r in rows]
     claims_by_module: dict[str, List[Claim]] = {pk: [] for pk in row_pks}
@@ -567,8 +569,10 @@ async def get_module(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    if tenancy_enabled():
-        await require_run_access(caller, await db.get(Run, run_id), db)
+    # Unconditional so route behavior cannot drift when tenancy is toggled at
+    # runtime. require_run_access preserves intentional shared-desk reads while
+    # enforcing the issuer team boundary when tenancy is enabled.
+    await require_run_access(caller, await db.get(Run, run_id), db)
     row = (
         await db.execute(
             select(ModuleOutput).where(

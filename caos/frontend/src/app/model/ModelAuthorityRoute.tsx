@@ -17,6 +17,7 @@ interface ModelAuthorityRouteProps {
   renderV2?: (props: {
     issuerId: string;
     contextId: string | null;
+    exactRunId: string | null;
     initialResponse: Parameters<typeof ModelV2Workbench>[0]["initialResponse"];
   }) => ReactNode;
 }
@@ -29,13 +30,15 @@ export function ModelAuthorityRoute({
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const contextId = searchParams.get("context");
+  const exactRunId = searchParams.get("run");
   const confirmLegacy = useCallback(() => true, []);
-  const authority = useModelAuthority({ issuerId, buildLegacyModel: confirmLegacy });
+  const authority = useModelAuthority({ issuerId, exactRunId, buildLegacyModel: confirmLegacy });
 
   if (authority.mode === "v2-confirmed") {
     return renderV2({
       issuerId,
       contextId,
+      exactRunId,
       initialResponse: authority.response,
     });
   }

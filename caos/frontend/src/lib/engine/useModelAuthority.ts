@@ -48,11 +48,12 @@ type ModelCapabilitySettings = Pick<WorkspaceSettings, "features">;
 
 export interface ModelAuthorityReaders {
   readWorkspaceSettings: () => Promise<ModelCapabilitySettings>;
-  readModelV2: (issuerId: string) => Promise<ModelV2ReadResponse>;
+  readModelV2: (issuerId: string, exactRunId?: string) => Promise<ModelV2ReadResponse>;
 }
 
 export interface ResolveModelAuthorityOptions<TLegacy> {
   issuerId: string;
+  exactRunId?: string | null;
   buildLegacyModel: () => TLegacy;
   readers?: ModelAuthorityReaders;
 }
@@ -84,6 +85,7 @@ function asError(reason: unknown, fallback: string): Error {
  */
 export async function resolveModelAuthority<TLegacy>({
   issuerId,
+  exactRunId,
   buildLegacyModel,
   readers = defaultReaders,
 }: ResolveModelAuthorityOptions<TLegacy>): Promise<ModelAuthorityState<TLegacy>> {
@@ -143,7 +145,9 @@ export async function resolveModelAuthority<TLegacy>({
   }
 
   try {
-    const response = await readers.readModelV2(issuerId);
+    const response = exactRunId
+      ? await readers.readModelV2(issuerId, exactRunId)
+      : await readers.readModelV2(issuerId);
     if (response.authority !== "model-engine-v2") {
       return failClosed("authority-unknown", "v2");
     }
@@ -166,12 +170,14 @@ export async function resolveModelAuthority<TLegacy>({
 
 export interface UseModelAuthorityOptions<TLegacy> {
   issuerId: string;
+  exactRunId?: string | null;
   /** Keep this callback stable with useCallback; changing it re-resolves authority. */
   buildLegacyModel: () => TLegacy;
 }
 
 export function useModelAuthority<TLegacy>({
   issuerId,
+  exactRunId,
   buildLegacyModel,
 }: UseModelAuthorityOptions<TLegacy>): ModelAuthorityState<TLegacy> {
   const [state, setState] = useState<ModelAuthorityState<TLegacy>>(() =>
@@ -181,13 +187,13 @@ export function useModelAuthority<TLegacy>({
   useEffect(() => {
     let active = true;
     setState(failClosed("authority-loading", "unknown"));
-    void resolveModelAuthority({ issuerId, buildLegacyModel }).then((resolved) => {
+    void resolveModelAuthority({ issuerId, exactRunId, buildLegacyModel }).then((resolved) => {
       if (active) setState(resolved);
     });
     return () => {
       active = false;
     };
-  }, [buildLegacyModel, issuerId]);
+  }, [buildLegacyModel, exactRunId, issuerId]);
 
   return state;
 }

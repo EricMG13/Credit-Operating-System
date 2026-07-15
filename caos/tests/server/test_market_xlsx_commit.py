@@ -107,11 +107,12 @@ def _db_path() -> Path:
     return Path(str(__import__("database").engine.url.database))
 
 
-def _identity(analyst_id: str) -> CallerIdentity:
+def _identity(analyst_id: str, *, role: str = "analyst") -> CallerIdentity:
     return CallerIdentity(
         id=analyst_id,
         email=f"{analyst_id}@example.test",
         full_name=analyst_id,
+        role=role,
         source="profile",
     )
 
@@ -182,6 +183,49 @@ def test_commit_atomically_creates_owned_source_snapshot_rows_issues_and_lineage
         ).fetchall()
         assert len(lineage) == 3
         assert all(row[0] is None and row[1] == "local-dev" for row in lineage)
+        context_artifacts = json.loads(connection.execute(
+            "SELECT artifacts FROM analysis_contexts WHERE id = ?",
+            (context.json()["id"],),
+        ).fetchone()[0])
+        assert any(
+            ref["kind"] == "market_snapshot" and ref["id"] == body["snapshot_id"]
+            for ref in context_artifacts["artifact_refs"]
+        )
+
+
+def test_preview_and_commit_require_write_role(market_enabled):
+    content = _workbook([[
+        "BBGPHASE2VIEWER", "Viewer Co", "Viewer TLB", "USD", 99.0, 410, "2026-07-13",
+    ]])
+    app.dependency_overrides[get_identity] = lambda: _identity(
+        "market-viewer", role="viewer"
+    )
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/rv/snapshots/import/preview",
+            files={"file": (
+                "market.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )},
+            data={"mapping": "{}", "issuer_mappings": "{}"},
+        )
+        assert preview.status_code == 403
+        commit = client.post(
+            "/api/rv/snapshots/import/commit",
+            files={"file": (
+                "market.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )},
+            data={
+                "mapping": "{}",
+                "issuer_mappings": "{}",
+                "preview_sha256": "0" * 64,
+                "preview_token": "untrusted",
+            },
+        )
+        assert commit.status_code == 403
 
 
 def test_duplicate_commit_returns_existing_without_new_rows_or_file(market_enabled):

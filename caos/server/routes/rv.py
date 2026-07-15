@@ -15,8 +15,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from analysis_contracts import AuthorityEnvelope, RVCandidateOut, RVScreenRun as RVScreenRunOut
+from analysis_contracts import ArtifactRef, AuthorityEnvelope, RVCandidateOut, RVScreenRun as RVScreenRunOut
 from config import get_settings
+from context_lineage import bind_context_artifacts
 from database import (
     AnalysisContextRecord,
     MarketInstrument,
@@ -481,6 +482,15 @@ async def create_rv_screen(
     context.rv_run_id = row.id
     context.updated_at = row.updated_at
     await db.flush()
+    # Runs inherit their immutable market input through typed context refs.
+    # Keep the legacy scalar above for compatibility, but make the canonical
+    # parent explicit so create_run can produce run -> market_snapshot lineage.
+    await bind_context_artifacts(
+        db,
+        context_id=context.id,
+        analyst_id=caller.id,
+        refs=[ArtifactRef(kind="market_snapshot", id=snapshot.id)],
+    )
     return await _run_out(db, row)
 
 

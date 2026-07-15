@@ -807,3 +807,31 @@ shrinking labels; key-total emphasis depends on sign; appendix grouping is parse
 from display labels or breaks the single-page full grid; low-frequency actions
 crowd the primary toolbar; or any changed route fails zoom, focus, motion,
 responsive, accessibility, or print gates.
+
+## Phase 7 Integrated Verification and Controlled Release — Critic Pass (2026-07-15)
+
+Decision under review: prove the cross-phase artifact chain, rehearse reversible
+flag transitions, and publish a release decision without treating local or CI
+evidence as authorization to change production configuration.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-234 | Model-risk reviewer | Independent green tests can still bind a report, workbook, or checkpoint to a different run or model calculation than the source and market artifacts shown upstream. | High | Resolved in contract | Add one release journey that carries exact issuer, context, manifest, document, market snapshot, run, CP-4D/CP-2G output, draft, calculation, checkpoint and report identities through the chain and asserts representative model figures in the exported workbook. |
+| RT-2026-07-15-235 | Authorization reviewer | A positive journey does not prove that foreign artifact, lineage, import, model, notification, report and module-output identifiers remain non-enumerable. | High | Resolved in contract | Maintain an explicit endpoint matrix mapped to negative tests. Every protected Phase 1-5 object has an owned read/mutation plus foreign-object 404 coverage; missing coverage blocks release. |
+| RT-2026-07-15-236 | Database reliability reviewer | A downgrade rehearsal against retained analyst evidence could destroy or rewrite immutable artifacts merely to prove rollback. | Critical | Resolved in contract | Exercise empty-schema downgrade/re-upgrade only in disposable databases. Evidence-bearing migrations must refuse destructive downgrade; operational rollback disables flags and retains rows/binaries. Forward corrective migrations are the only production schema recovery path. |
+| RT-2026-07-15-237 | Release engineer | Enabling all flags together prevents attribution, can violate dependencies, and makes a failed cohort impossible to unwind safely. | High | Resolved in contract | The runbook orders lineage dual-write, freshness reads, market import, Model Engine v2, CP-4D and CP-2G. Each stage has a bounded cohort, observation criteria, stop condition and flag-only rollback before the next stage. |
+| RT-2026-07-15-238 | Governance reviewer | A successful local rehearsal or green pull request can be misreported as a completed production observation window or authorization to deploy. | High | Resolved in contract | Phase 7 may establish release readiness and a go/no-go record only. Production flag changes, cohort selection and elapsed observation-window acceptance require an authorized operator and external evidence; compatibility paths remain in place meanwhile. |
+| RT-2026-07-15-239 | Workbook security reviewer | Synthetic workbooks can miss Bloomberg cached-formula behavior, while committing proprietary workbook bytes to the repository creates a data-governance incident. | High | Resolved in contract | Keep hostile and formula fixtures synthetic/sanitized. Reference the recorded sanitized real-workbook preview hash and require an authorized environment to repeat preview before default-on; never commit proprietary workbook bytes. |
+| RT-2026-07-15-240 | Test-environment reviewer | Sandbox-denied antivirus sockets, browser launch restrictions, or unavailable Postgres can be mistaken for product failures or silently waived. | High | Resolved in contract | Separate deterministic local gates from environment-dependent gates. Record the exact blocked command and require unrestricted CI/release evidence for ClamAV, Chromium and Postgres; no blocked gate is relabelled as passed. |
+| RT-2026-07-15-241 | Compatibility reviewer | Removing legacy reads or migration compatibility as part of “release completion” eliminates the safe rollback path before the observation window exists. | Critical | Resolved in contract | Phase 7 does not remove compatibility paths. Cleanup is a later, separately reviewed change after a green observation window and successful rollback rehearsal with retained evidence. |
+
+### Critic reopen conditions (Phase 7)
+
+Reopen if the integrated gate substitutes latest or fixture identities for an
+exact bound artifact; any protected object lacks foreign-object denial; a rollback
+deletes evidence; flags can be enabled out of dependency order; a local/CI pass is
+presented as production authorization; proprietary workbook bytes enter the repo;
+an environment-blocked check is called green; a new artifact/source kind appears;
+prompt-pack hashes change; direct Bloomberg transport, macros, external links or
+cross-team sharing enter scope; or compatibility paths are removed before the
+observation window and rollback rehearsal are complete.

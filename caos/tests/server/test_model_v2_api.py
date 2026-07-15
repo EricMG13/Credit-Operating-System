@@ -475,6 +475,12 @@ def test_suggested_then_saved_read_contract(client):
     assert body["suggested_source_run_id"] == seeded["run_id"]
     assert body["suggested_calculation"]["status"] == "partial"
 
+    exact = client.get(
+        f"/api/models/v2/{issuer_id}", params={"run_id": seeded["run_id"]}
+    )
+    assert exact.status_code == 200, exact.text
+    assert exact.json()["suggested_source_run_id"] == seeded["run_id"]
+
     saved = client.put(
         f"/api/models/v2/{issuer_id}",
         json={
@@ -491,6 +497,13 @@ def test_suggested_then_saved_read_contract(client):
     assert reread.json()["record"]["calculation_hash"] == saved.json()["calculation_hash"]
     assert reread.json()["suggested_payload"] is None
     assert reread.json()["suggested_source_run_id"] is None
+
+    other_run_id = _run(_add_owned_run(owner, issuer_id))
+    mismatch = client.get(
+        f"/api/models/v2/{issuer_id}", params={"run_id": other_run_id}
+    )
+    assert mismatch.status_code == 409
+    assert "different source run" in mismatch.text
 
 
 def test_gbp_cp1_currency_survives_api_workbook_and_checkpoint(client):

@@ -33,7 +33,7 @@ from database import (
     get_db,
 )
 from freshness import FreshnessEvaluation, evaluate_freshness
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, require_write_role
 from lineage_service import write_owned_artifact_lineage_edge
 import market_storage
 from market_xlsx import (
@@ -77,6 +77,10 @@ def _preview_semaphore() -> asyncio.Semaphore:
 
 
 def _guard(caller: CallerIdentity) -> None:
+    # Preview processes an analyst-supplied workbook and is part of the same
+    # mutation workflow as commit; viewers must not be able to exercise either
+    # expensive ingestion boundary.
+    require_write_role(caller)
     if not rate_limit.hit(
         f"market-xlsx-preview:{caller.id}",
         max_attempts=_PREVIEW_MAX_PER_MINUTE,

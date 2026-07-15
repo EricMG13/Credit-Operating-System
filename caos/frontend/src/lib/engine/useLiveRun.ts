@@ -74,7 +74,7 @@ const EMPTY: LiveRunValue = {
   council: [], loading: false,
 };
 
-export function useLiveRun(issuerId: string): LiveRunState {
+export function useLiveRun(issuerId: string, exactRunId?: string | null): LiveRunState {
   const status = useLatestRunStatus<LiveRunValue>(
     issuerId,
     { ...EMPTY, loading: true },
@@ -125,6 +125,7 @@ export function useLiveRun(issuerId: string): LiveRunState {
         council, loading: false,
       };
     },
+    exactRunId,
   );
   // Thread the underlying load phase through so a caller can distinguish a
   // genuine backend error from no-coverage-yet (M-1/M-2 fix) — see RunPhase.

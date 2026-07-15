@@ -133,7 +133,7 @@ function PipelineVisualizer() {
   const freshnessRunId = resolvePipelineFreshnessRunId(runParam, live?.runId);
   const selectedFreshnessRead = useIssuerFreshness({ runId: freshnessRunId });
   const selectedRunFreshness = selectedFreshnessRead.run?.evaluation ?? null;
-  const liveRun = useLiveRun(issuerId);
+  const liveRun = useLiveRun(issuerId, runParam);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
   // Fail-open guard: for a *real* issuer the analyst opened expecting their run,
