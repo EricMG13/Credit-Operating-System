@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import os
 import zipfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -121,6 +122,25 @@ def test_document_upload_degrades_loudly_never_silently(rob_client, name, payloa
         "a 0-chunk vault MUST carry the explicit warning — silent success is the "
         "exact failure mode D3 exists to prevent"
     )
+
+
+def test_document_upload_db_failure_removes_uncommitted_vault_object(
+    rob_client, monkeypatch, tmp_path: Path
+):
+    """A pre-commit DB failure must not strand raw evidence outside the ledger."""
+    import ingest
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    monkeypatch.setattr(ingest.settings, "caos_storage_dir", str(tmp_path))
+
+    async def fail_flush(_session, *_args, **_kwargs):
+        raise RuntimeError("forced document flush failure")
+
+    monkeypatch.setattr(AsyncSession, "flush", fail_flush)
+    with pytest.raises(RuntimeError, match="forced document flush failure"):
+        _upload_document(rob_client, "rollback-proof.pdf", _tiny_pdf())
+
+    assert [path for path in tmp_path.rglob("*") if path.is_file()] == []
 
 
 # ── pricing-sheet endpoint: container validation ────────────────────────────

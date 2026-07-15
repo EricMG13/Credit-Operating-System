@@ -158,9 +158,57 @@ def test_create_and_get_issuer(client):
 
 
 def test_create_issuer_duplicate_name_conflicts(client):
-    """The case-insensitive dedup: a second issuer with a seeded name is refused."""
-    r = client.post("/api/issuers/", json={"name": "atlas forge industrials"})
+    """Case and surrounding whitespace are one database identity."""
+    r = client.post("/api/issuers/", json={"name": "  atlas forge industrials  "})
     assert r.status_code == 409
+
+    created = client.post("/api/issuers/", json={"name": "Élan Credit Co"})
+    assert created.status_code == 201
+    unicode_duplicate = client.post("/api/issuers/", json={"name": "élan credit co"})
+    assert unicode_duplicate.status_code == 409
+
+
+def test_create_issuer_integrity_race_returns_conflict(client, monkeypatch):
+    """A concurrent winner at the DB boundary is returned as 409, never 500."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async def concurrent_winner(_session, *_args, **_kwargs):
+        raise IntegrityError("INSERT INTO issuers", {}, Exception("unique"))
+
+    monkeypatch.setattr(AsyncSession, "flush", concurrent_winner)
+    response = client.post(
+        "/api/issuers/", json={"name": "Concurrent Issuer Race Proof"}
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "An issuer with that name already exists."
+
+
+def test_create_issuer_denies_read_only_principal(client):
+    """Server roles, not the frontend role view, are the mutation boundary."""
+    from identity import CallerIdentity, get_identity
+    from main import app
+
+    async def read_only_identity() -> CallerIdentity:
+        return CallerIdentity(
+            id="issuer-read-only",
+            email="issuer-read-only@test.local",
+            full_name="Read Only Reviewer",
+            role="read_only",
+        )
+
+    app.dependency_overrides[get_identity] = read_only_identity
+    try:
+        response = client.post(
+            "/api/issuers/", json={"name": "Read Only Mutation Must Fail"}
+        )
+    finally:
+        app.dependency_overrides.pop(get_identity, None)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Read-only callers cannot mutate this resource."
+    names = {row["name"] for row in client.get("/api/issuers/").json()}
+    assert "Read Only Mutation Must Fail" not in names
 
 
 def test_search_by_name_case_insensitive(client):
@@ -211,6 +259,7 @@ def test_upload_pdf_document_and_list(client):
     assert body["issuer_id"] == issuer_id
     assert body["minio_key"]
     assert body["run_mode"] == "earnings"
+    assert (Path(os.environ["CAOS_STORAGE_DIR"]) / body["minio_key"]).is_file()
 
     docs = client.get(f"/api/issuers/{issuer_id}/documents").json()
     assert any(d["doc_type"] == "Document" and d["run_mode"] == "earnings" for d in docs)

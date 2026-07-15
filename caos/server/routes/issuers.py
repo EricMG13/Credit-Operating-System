@@ -22,7 +22,7 @@ from database import (
 from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from freshness import POLICY_VERSION, FreshnessEvaluation, ReportingCadence, evaluate_freshness
-from identity import CallerIdentity, get_identity
+from identity import CallerIdentity, get_identity, require_write_role
 from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
 
 router = APIRouter()
@@ -48,6 +48,14 @@ class IssuerCreate(BaseModel):
     # Agency ratings are no longer a create-time input — they're collected from
     # ingested structured sheets (see ratings.py / ingestion._collect_ratings) and
     # written onto the issuer's rating_* columns, which IssuerResponse still returns.
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("issuer name must contain non-whitespace characters")
+        return normalized
 
 
 class IssuerResponse(BaseModel):
@@ -213,6 +221,7 @@ async def create_issuer(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    require_write_role(caller)
     if not rate_limit.hit(
         f"issuer-create:{caller.id}", max_attempts=_WRITE_MAX_PER_MINUTE, window_seconds=60
     ):
@@ -220,13 +229,13 @@ async def create_issuer(
     data = body.model_dump()
     data["industry"] = data.pop("sector") or data.get("industry")
     name = (data.get("name") or "").strip()
-    # Dedup on a case-insensitive name so a double-click or two analysts adding the
-    # same issuer don't fork coverage into duplicate rows that then split
-    # runs/metric_facts. There is no DB uniqueness on Issuer.name yet, so this
-    # app-level check covers the realistic double-submit; a unique index on
-    # lower(name) is the durable follow-up for true concurrency.
+    # Friendly preflight for the database-backed normalized-name invariant. The
+    # unique constraint remains authoritative when concurrent requests both pass
+    # this lookup.
     existing = (await db.execute(
-        scope_issuers(select(Issuer).where(func.lower(Issuer.name) == name.lower()), caller)
+        scope_issuers(
+            select(Issuer).where(Issuer.normalized_name == name.casefold()), caller
+        )
     )).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(409, "An issuer with that name already exists.")
@@ -235,8 +244,12 @@ async def create_issuer(
     # (created_by) comes from the verified identity, never the request body. SEAM4-4.
     data["team_id"] = new_issuer_team(caller)
     issuer = Issuer(**data, created_by=caller.id)
-    db.add(issuer)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(issuer)
+            await db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(409, "An issuer with that name already exists.") from exc
     await db.refresh(issuer)
     return issuer
 

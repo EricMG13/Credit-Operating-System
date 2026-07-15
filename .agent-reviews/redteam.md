@@ -835,3 +835,26 @@ an environment-blocked check is called green; a new artifact/source kind appears
 prompt-pack hashes change; direct Bloomberg transport, macros, external links or
 cross-team sharing enter scope; or compatibility paths are removed before the
 observation window and rollback rehearsal are complete.
+
+## Repository Triage Remediation — Critic Pass (2026-07-15)
+
+Decision under review: close the reproduced issuer authorization, dead-code CI,
+ingestion rollback, and concurrent issuer-identity findings without weakening
+transactional evidence integrity or multi-team isolation.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-242 | Authorization reviewer | Fixing only the UI or rate limiter would still let a forged/read-only server principal create shared coverage. | High | Resolved and verified | `create_issuer` calls the existing server `require_write_role` before rate limiting or mutation. A dependency-overridden `read_only` principal receives 403 and no row is created. The wider E2 route matrix remains separately tracked. |
+| RT-2026-07-15-243 | Storage reliability reviewer | Deleting the uploaded object on every commit exception can create a durable `Document` row pointing at missing bytes when the database reports an ambiguous post-commit connection failure. | High | Resolved and verified | Rollback callbacks run only for route/pre-commit failure and are discarded after success. Commit-time exceptions retain the unique object deliberately. Tests prove a forced flush leaves no file and a successful upload retains its file and ledger row. |
+| RT-2026-07-15-244 | Tenancy reviewer | A global case-insensitive issuer constraint would leak one team's namespace into another; a nullable-team composite constraint would still allow duplicate shared issuers. | High | Resolved and verified | The invariant uses explicit `uniqueness_scope` (`team_id` or the shared empty scope) plus a Unicode-casefolded key. Migration tests allow the same normalized name in different non-null teams and refuse duplicates inside one team/shared scope. |
+| RT-2026-07-15-245 | Migration operator | Automatically deleting or merging pre-existing duplicate issuers can misbind runs, documents, metrics, and reports during upgrade. | Critical | Resolved in contract | Migration 0059 performs a read-only preflight and fails with the conflicting normalized name/scope before DDL when repair is required. It never chooses a winner or rewrites dependent evidence. Empty/clean upgrade, schema check, downgrade/re-upgrade, and duplicate refusal are tested. |
+| RT-2026-07-15-246 | Data-integrity reviewer | Denormalized identity keys can drift from display name/team and make the unique constraint meaningless, especially through bulk/direct writes or inconsistent Unicode lowering. | High | Resolved with reopen condition | All current issuer writers are ORM construction paths; exhaustive search found no bulk/direct issuer insert outside migrations. ORM insert/update events trim and Python-casefold names and derive scope; migration backfill uses the same Python operation. Reopen this gate before adding any bulk/direct issuer writer. |
+
+### Critic reopen conditions (repository triage remediation)
+
+Reopen if another legacy issuer mutation lacks `require_write_role`; rollback
+cleanup runs after commit has started; a new external object is registered without
+unique ownership and compensating cleanup; issuer identity is written through
+bulk/direct SQL without deriving its normalized key and scope; cross-team names
+share a uniqueness scope; migration 0059 auto-merges existing issuer evidence; or
+the configured Vulture command again reports a source finding.

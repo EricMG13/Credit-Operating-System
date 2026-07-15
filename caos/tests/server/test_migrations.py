@@ -16,6 +16,7 @@ forward.
 """
 
 import subprocess
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -70,3 +71,36 @@ def test_upgrade_downgrade_roundtrip(tmp_path: Path) -> None:
     for step in (("upgrade", "head"), ("downgrade", "base"), ("upgrade", "head")):
         r = _alembic(*step, db_url=db)
         assert r.returncode == 0, f"{step} failed:\n{r.stderr}"
+
+
+def test_issuer_uniqueness_migration_is_team_aware_and_refuses_existing_duplicates(
+    tmp_path: Path,
+) -> None:
+    good_path = tmp_path / "team-aware.db"
+    good_url = f"sqlite+aiosqlite:///{good_path}"
+    assert _alembic("upgrade", "0058", db_url=good_url).returncode == 0
+    with sqlite3.connect(good_path) as connection:
+        connection.executemany(
+            "INSERT INTO issuers (id, name, team_id, created_at) VALUES (?, ?, ?, ?)",
+            [
+                ("team-a-issuer", "Same Name", "team-a", "2026-07-15 00:00:00"),
+                ("team-b-issuer", " same name ", "team-b", "2026-07-15 00:00:00"),
+            ],
+        )
+    upgraded = _alembic("upgrade", "head", db_url=good_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    bad_path = tmp_path / "duplicate.db"
+    bad_url = f"sqlite+aiosqlite:///{bad_path}"
+    assert _alembic("upgrade", "0058", db_url=bad_url).returncode == 0
+    with sqlite3.connect(bad_path) as connection:
+        connection.executemany(
+            "INSERT INTO issuers (id, name, team_id, created_at) VALUES (?, ?, ?, ?)",
+            [
+                ("duplicate-a", "Élan Credit", "team-a", "2026-07-15 00:00:00"),
+                ("duplicate-b", " élan credit ", "team-a", "2026-07-15 00:00:00"),
+            ],
+        )
+    refused = _alembic("upgrade", "head", db_url=bad_url)
+    assert refused.returncode != 0
+    assert "duplicate normalized issuer name" in refused.stderr

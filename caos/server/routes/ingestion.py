@@ -30,7 +30,7 @@ from config import get_settings
 from context_lineage import bind_context_artifacts
 from database import (
     AnalysisContextRecord, Document, DocumentChunk, Issuer, SourceManifest,
-    get_db, AsyncSessionLocal,
+    get_db, AsyncSessionLocal, register_rollback_cleanup,
 )
 from identity import CallerIdentity, get_identity
 from lineage_service import write_lineage_edge
@@ -153,6 +153,9 @@ async def _vault_document(
     # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
     # doesn't block the event loop — matching the extract_* calls in the callers.
     key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
+    register_rollback_cleanup(
+        db, lambda stored_key=key: ingest.remove_uncommitted(stored_key)
+    )
     chunks = ingest.chunk_text(text)
 
     doc = Document(
@@ -327,55 +330,61 @@ async def upload_document(
     )
 
 
+async def _apply_collected_ratings(
+    db: AsyncSession, records: list[dict], caller: CallerIdentity
+) -> int:
+    issuers = (await db.execute(
+        scope_issuers(select(Issuer), caller).limit(2000)
+    )).scalars().all()
+    by_figi = {i.figi.strip().lower(): i for i in issuers if i.figi}
+    by_ticker = {i.ticker.strip().lower(): i for i in issuers if i.ticker}
+    by_name = {i.name.strip().casefold(): i for i in issuers if i.name}
+    updated = 0
+    for rec in records:
+        issuer = None
+        for key, table in ((rec.get("figi"), by_figi),
+                           (rec.get("ticker"), by_ticker),
+                           (rec.get("name"), by_name)):
+            if key and key.strip().casefold() in table:
+                issuer = table[key.strip().casefold()]
+                break
+        if issuer is None:
+            continue
+        changed = False
+        if rec.get("moody") and issuer.rating_moody != rec["moody"]:
+            issuer.rating_moody = rec["moody"]
+            changed = True
+        if rec.get("sp") and issuer.rating_sp != rec["sp"]:
+            issuer.rating_sp = rec["sp"]
+            changed = True
+        if changed:
+            issuer.ratings_observed_at = datetime.now(timezone.utc)
+            updated += 1
+    if updated:
+        await db.flush()
+    return updated
+
+
 async def _collect_ratings(
     db: AsyncSession,
     content: bytes,
     resp: IngestionResponse,
     caller: CallerIdentity,
-) -> None:  # noqa: C901
-    """Pull agency ratings off a structured (xlsx) upload and write them onto
-    matching *existing* issuers — matched by FIGI, then ticker, then exact name.
+) -> None:
+    """Collect workbook ratings without risking the document transaction.
 
-    Cross-issuer by design: a holdings / market-data sheet is authoritative rating
-    data for every name it lists, not just the upload's own issuer (this is how
-    ratings get "collected from ingest documents" instead of typed). Only updates
-    existing issuers — never creates — so a sheet can't inject entities. Best-effort:
-    the document is already vaulted, so any failure here is logged and swallowed.
+    The best-effort rating write runs inside a savepoint: a parse or database
+    failure can be logged and skipped while leaving the already-flushed document
+    transaction usable for its dependency-owned commit.
     """
     try:
         # openpyxl parse is sync/CPU-bound — off-thread it like the extract_* calls.
         records = await asyncio.to_thread(ratings.extract_ratings_from_workbook, content)
         if not records:
             return
-        issuers = (await db.execute(
-            scope_issuers(select(Issuer), caller).limit(2000)
-        )).scalars().all()
-        by_figi = {i.figi.strip().lower(): i for i in issuers if i.figi}
-        by_ticker = {i.ticker.strip().lower(): i for i in issuers if i.ticker}
-        by_name = {i.name.strip().lower(): i for i in issuers if i.name}
-        updated = 0
-        for rec in records:
-            iss = None
-            for key, table in ((rec.get("figi"), by_figi),
-                               (rec.get("ticker"), by_ticker),
-                               (rec.get("name"), by_name)):
-                if key and key.strip().lower() in table:
-                    iss = table[key.strip().lower()]
-                    break
-            if iss is None:
-                continue
-            changed = False
-            if rec.get("moody") and iss.rating_moody != rec["moody"]:
-                iss.rating_moody = rec["moody"]
-                changed = True
-            if rec.get("sp") and iss.rating_sp != rec["sp"]:
-                iss.rating_sp = rec["sp"]
-                changed = True
-            if changed:
-                iss.ratings_observed_at = datetime.now(timezone.utc)
-                updated += 1
+        async with db.begin_nested():
+            updated = await _apply_collected_ratings(db, records, caller)
         if updated:
-            await db.flush()
             resp.ratings_updated = updated
             resp.message += f" · ratings updated on {updated} issuer{'s' if updated != 1 else ''}"
     except Exception as e:  # never let rating extraction fail a vaulted upload

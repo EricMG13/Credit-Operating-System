@@ -105,12 +105,18 @@ async def test_export_run_writes_hub_and_spoke(seeded_db, tmp_path):
     assert "## Related issuers" in hub and "[[Rival Industries]]" in hub  # CP-1C peer edges
 
 
-async def _mk_run(committee_status: str):
+async def _mk_run(committee_status: str, *, issuer_name: str | None = None):
     """Persist a minimal complete run and return (run_id). Helper for the hook tests."""
+    import uuid
+
     from database import AsyncSessionLocal, Issuer, ModuleOutput, Run
 
     async with AsyncSessionLocal() as s:
-        issuer = Issuer(name="AutoCo", industry="Tech", country="US")
+        issuer = Issuer(
+            name=issuer_name or f"AutoCo {uuid.uuid4().hex[:8]}",
+            industry="Tech",
+            country="US",
+        )
         s.add(issuer)
         await s.flush()
         run = Run(issuer_id=issuer.id, as_of_date="2026-09-30", status="complete",
@@ -137,7 +143,7 @@ async def test_auto_export_hook_writes_on_committee_ready(seeded_db, tmp_path, m
     from database import AsyncSessionLocal
 
     monkeypatch.setattr(run_executor, "get_settings", lambda: _Settings(True, str(tmp_path)))
-    run_id = await _mk_run("Committee Ready")
+    run_id = await _mk_run("Committee Ready", issuer_name="AutoCo")
     async with AsyncSessionLocal() as s:  # fresh session, mirroring the executor
         await run_executor._maybe_export_to_vault(s, run_id)
 

@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy import (
     JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
@@ -29,6 +30,32 @@ from sqlalchemy.types import TypeDecorator, UnicodeText
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.compiler import compiles
+
+logger = logging.getLogger("caos.database")
+
+_ROLLBACK_CLEANUPS_KEY = "caos_rollback_cleanups"
+
+
+def register_rollback_cleanup(session: AsyncSession, cleanup: Callable[[], None]) -> None:
+    """Register a synchronous cleanup for a dependency-owned transaction.
+
+    Use only on routes whose commit is owned by ``get_db``. The callback runs
+    when route work fails before commit starts, and is discarded after a
+    successful commit. A commit-time connection error is ambiguous, so cleanup
+    is deliberately skipped rather than deleting bytes a durable row may refer
+    to.
+    """
+    session.info.setdefault(_ROLLBACK_CLEANUPS_KEY, []).append(cleanup)
+
+
+async def _run_rollback_cleanups(session: AsyncSession) -> None:
+    callbacks = session.info.pop(_ROLLBACK_CLEANUPS_KEY, [])
+    for cleanup in reversed(callbacks):
+        try:
+            await asyncio.to_thread(cleanup)
+        except Exception:
+            logger.exception("Failed to run transaction rollback cleanup")
+
 
 class SafeVector(TypeDecorator):
     impl = Vector
@@ -138,6 +165,12 @@ class Issuer(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Derived identity keys maintained by the ORM event below. Keeping ordinary
+    # columns (instead of an expression index) makes the invariant reflectable
+    # by Alembic on both SQLite and Postgres.
+    # Unicode case-folding can expand a 255-character display name (for example,
+    # German sharp-s), so the key needs more room than the source column.
+    normalized_name: Mapped[str] = mapped_column(String(768), nullable=False)
     ticker: Mapped[Optional[str]] = mapped_column(String(32))
     industry: Mapped[Optional[str]] = mapped_column(String(128))
     sub_sector: Mapped[Optional[str]] = mapped_column(String(128))
@@ -156,11 +189,18 @@ class Issuer(Base):
     # this issuer — and everything keyed off it (runs, documents, metric_facts,
     # portfolio) — to one team when CAOS_TENANCY_ENABLED is set. Inert by default.
     team_id: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    uniqueness_scope: Mapped[str] = mapped_column(String(64), nullable=False)
     # Who created this row (Analyst.id, or the proxy email identity — mirrors
     # Run.analyst_id). NULL for seed + pre-0023 rows. Governance attribution for
     # the analyst-entered ratings/sponsor above. SEAM4-4.
     created_by: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "uniqueness_scope", "normalized_name", name="uq_issuers_scope_normalized_name"
+        ),
+    )
 
 
 class IssuerReportingProfile(Base):
@@ -1704,11 +1744,21 @@ async def get_db():
     restores commit-before-response.
     """
     async with AsyncSessionLocal() as session:
+        route_completed = False
         try:
             yield session
+            route_completed = True
             await session.commit()
+            session.info.pop(_ROLLBACK_CLEANUPS_KEY, None)
         except Exception:
             await session.rollback()
+            if not route_completed:
+                await _run_rollback_cleanups(session)
+            else:
+                # A commit-time connection failure can be reported after the
+                # transaction became durable. Retain external objects rather
+                # than risk committed rows pointing at deleted bytes.
+                session.info.pop(_ROLLBACK_CLEANUPS_KEY, None)
             raise
 
 
@@ -1993,15 +2043,24 @@ async def erase_analyst_data(
     }
 
 
+@event.listens_for(Issuer, "before_insert")
+@event.listens_for(Issuer, "before_update")
+def _set_issuer_identity_keys(_mapper, _connection, target):
+    normalized = target.name.strip()
+    target.name = normalized
+    target.normalized_name = normalized.casefold()
+    target.uniqueness_scope = target.team_id or ""
+
+
 @event.listens_for(DocumentChunk, "before_insert")
-def _set_chunk_hash_insert(_mapper, connection, target):
+def _set_chunk_hash_insert(_mapper, _connection, target):
     if target.text:
         import hashlib
         target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()
 
 
 @event.listens_for(DocumentChunk, "before_update")
-def _set_chunk_hash_update(_mapper, connection, target):
+def _set_chunk_hash_update(_mapper, _connection, target):
     if target.text:
         import hashlib
         target.chunk_hash = hashlib.sha256(target.text.encode("utf-8")).hexdigest()

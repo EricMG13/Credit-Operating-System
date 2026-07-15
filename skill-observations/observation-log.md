@@ -42,3 +42,13 @@ can miss the same Axios request when it has no query delimiter, silently reading
 a developer's live database and making acceptance runs non-deterministic. Define
 both exact and filtered request shapes (or use a URL predicate), then assert the
 fixture identity/source before treating route behavior as verified.
+
+## 2026-07-15 — code-reviewer — OPEN
+
+The bundled whole-tree quality scanner recursively traverses in-repo virtual
+environments and generated outputs: its CAOS server pass analyzed 11,286 files
+until `.venv` and `.venv311` were filtered manually, producing misleading
+language totals and findings. Add configurable exclude paths with safe defaults
+for virtualenvs, dependency trees, build artifacts, caches, and generated files;
+also label the PR analyzer explicitly as diff-only so it is not mistaken for
+whole-codebase coverage.

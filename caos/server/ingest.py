@@ -92,6 +92,22 @@ def store(content: bytes, file_name: str) -> str:
     return key
 
 
+def remove_uncommitted(key: str) -> None:
+    """Remove only a unique object created by a failed ingestion transaction."""
+    parts = Path(key).parts
+    if len(parts) != 2 or re.fullmatch(r"[0-9a-f]{32}", parts[0]) is None:
+        raise ValueError("Refusing to remove an invalid ingestion vault key.")
+    root = Path(settings.caos_storage_dir).resolve()
+    path = (root / key).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("Ingestion storage key escaped the configured vault.")
+    path.unlink(missing_ok=True)
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+
+
 def _markitdown_text(content: bytes, filename: str) -> Optional[str]:
     """Structure-preserving extraction via an external markitdown CLI, when one
     is configured (CAOS_MARKITDOWN_CMD). markitdown needs Python 3.10+, so it
