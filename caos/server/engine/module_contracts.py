@@ -375,7 +375,7 @@ class CP2GRuntime(_StrictModel):
         return self
 
 
-RUNTIME_MODELS = {
+RUNTIME_MODELS: dict[str, type[BaseModel]] = {
     "CP-4D": CP4DRuntime,
     "CP-2G": CP2GRuntime,
 }

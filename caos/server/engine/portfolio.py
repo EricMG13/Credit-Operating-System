@@ -63,6 +63,10 @@ def _rounded(value: Any, digits: int = 2) -> Optional[float]:
     return round(float(value), digits) if is_finite_number(value) else None
 
 
+def _is_positive_number(value: Any) -> bool:
+    return is_finite_number(value) and float(value) > 0
+
+
 def _bounded_missing(values: List[str]) -> List[str]:
     unique = list(dict.fromkeys(values))
     if len(unique) <= _MISSING_LIMIT:
@@ -308,7 +312,7 @@ def compute_portfolio_analytics(
         if market_value is None:
             missing.append(f"overflow market value:{position_id}")
             finite_nav = None
-            if is_finite_number(position.get("price")) and position.get("price") > 0:
+            if _is_positive_number(position.get("price")):
                 priced_nav = None
             continue
         next_nav = checked_add(finite_nav, market_value)
@@ -316,7 +320,7 @@ def compute_portfolio_analytics(
             missing.append("overflow analytics NAV")
         finite_nav = next_nav
         price = position.get("price")
-        if is_finite_number(price) and price > 0:
+        if _is_positive_number(price):
             next_priced = checked_add(priced_nav, market_value)
             if next_priced is None:
                 missing.append("overflow priced NAV")
@@ -378,12 +382,9 @@ def compute_portfolio_analytics(
         }
         for row in compliance[:50]
     ]
+    normalized_as_of = normalize_portfolio_as_of(as_of)
     return {
-        "as_of": (
-            normalize_portfolio_as_of(as_of).date().isoformat()
-            if normalize_portfolio_as_of(as_of) is not None
-            else None
-        ),
+        "as_of": normalized_as_of.date().isoformat() if normalized_as_of is not None else None,
         "concentration": exposure,
         "rating_distribution": rating_distribution,
         "maturity_wall": {
@@ -399,7 +400,7 @@ def compute_portfolio_analytics(
             ),
             "wa_price": exposure.get("wa_price"),
             "unpriced_positions": sum(
-                not (is_finite_number(row.get("price")) and row.get("price") > 0)
+                not _is_positive_number(row.get("price"))
                 for row in positions
             ),
         },
@@ -436,7 +437,7 @@ def _is_first_lien(ranking: Any) -> bool:
     return str(ranking or "").strip().lower().startswith("1l")
 
 
-def _pct(part: float, whole: float) -> Optional[float]:
+def _pct(part: Any, whole: Any) -> Optional[float]:
     """part/whole × 100, guarded. None when the denominator is non-finite or zero."""
     return _rounded(checked_multiply(checked_divide(part, whole), 100.0))
 

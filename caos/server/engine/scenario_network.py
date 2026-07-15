@@ -35,11 +35,14 @@ class NodeStatus(str, Enum):
     NO_DATA = "no-data"
 
 
+PropagationNodeName = Literal[
+    "stress", "liquidity", "covenant", "recovery", "rv",
+    "portfolio", "recommendation", "report",
+]
+
+
 class PropagationNode(BaseModel):
-    node: Literal[
-        "stress", "liquidity", "covenant", "recovery", "rv",
-        "portfolio", "recommendation", "report",
-    ]
+    node: PropagationNodeName
     status: NodeStatus
     value: Optional[float] = None
     label: str
@@ -51,7 +54,13 @@ class PropagationResult(BaseModel):
     nodes: List[PropagationNode]
 
 
-def _node(node: str, status: NodeStatus, value: Optional[float], label: str, basis: str):
+def _node(
+    node: PropagationNodeName,
+    status: NodeStatus,
+    value: Optional[float],
+    label: str,
+    basis: str,
+) -> PropagationNode:
     return PropagationNode(node=node, status=status, value=value, label=label, basis=basis)
 
 
