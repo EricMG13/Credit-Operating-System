@@ -1,8 +1,6 @@
 // Local axe-core a11y scan over the running dev server. No remote code:
 // axe source is injected from node_modules. WCAG 2.0/2.1/2.2 A+AA only.
-// ponytail: one-off audit script, deleted-or-kept at user's call.
-// fallow-ignore-file unused-file
-// (run via `node scripts/a11y-axe.mjs`, not imported — invisible to the import graph.)
+// Run via `node scripts/a11y-axe.mjs`; registered as a Fallow entry point.
 import { chromium } from 'playwright';
 import { createRequire } from 'module';
 import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
