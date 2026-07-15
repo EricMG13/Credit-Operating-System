@@ -820,8 +820,9 @@ button.rd-revert-dot:focus-visible {
 .persona-workbench__slot--finalization { grid-area: finalization; }
 .persona-workbench__drawer-triggers {
   display: flex;
+  justify-content: flex-end;
   gap: 6px;
-  padding: 6px 0;
+  padding: 4px 0;
 }
 .persona-workbench__drawer-trigger,
 .persona-workbench__drawer-close,
@@ -838,7 +839,7 @@ button.rd-revert-dot:focus-visible {
   text-transform: uppercase;
   transition: background-color 160ms ease-out, border-color 160ms ease-out, color 160ms ease-out;
 }
-.persona-workbench__drawer-trigger { padding: 5px 9px; }
+.persona-workbench__drawer-trigger { min-height: 24px; padding: 2px 8px; }
 .persona-workbench__drawer-trigger:hover,
 .persona-workbench__drawer-close:hover,
 .semantic-visualization__table-toggle:hover {

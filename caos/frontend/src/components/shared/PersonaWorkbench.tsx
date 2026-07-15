@@ -178,12 +178,11 @@ export function PersonaWorkbench({
                 type="button"
                 aria-expanded={narrow ? activeDrawer === "context" : openPanels.context}
                 aria-controls={contextPanelId}
+                aria-label={narrow ? "Open context drawer" : `${openPanels.context ? "Collapse" : "Open"} context panel`}
                 onClick={() => toggleSupportingPanel("context")}
                 className="persona-workbench__drawer-trigger"
               >
-                {narrow
-                  ? "Open context drawer"
-                  : `${openPanels.context ? "Collapse" : "Open"} context panel`}
+                {narrow ? "Context" : <><span aria-hidden="true">{openPanels.context ? "▾ " : "▸ "}</span>Context</>}
               </button>
             ) : null}
             {inspector ? (
@@ -191,12 +190,11 @@ export function PersonaWorkbench({
                 type="button"
                 aria-expanded={narrow ? activeDrawer === "inspector" : openPanels.inspector}
                 aria-controls={inspectorPanelId}
+                aria-label={narrow ? "Open evidence inspector drawer" : `${openPanels.inspector ? "Collapse" : "Open"} evidence inspector panel`}
                 onClick={() => toggleSupportingPanel("inspector")}
                 className="persona-workbench__drawer-trigger"
               >
-                {narrow
-                  ? "Open evidence inspector drawer"
-                  : `${openPanels.inspector ? "Collapse" : "Open"} evidence inspector panel`}
+                {narrow ? "Inspector" : <><span aria-hidden="true">{openPanels.inspector ? "▾ " : "▸ "}</span>Inspector</>}
               </button>
             ) : null}
           </nav>

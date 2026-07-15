@@ -53,25 +53,27 @@ function Category({ title, children }: { title: string; children: React.ReactNod
 
 function CoverageRow({ row }: { row: CoverageOriginRow }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 px-3 py-[6px] items-center border-b border-caos-border/50">
-      <IssuerLink
-        issuer={{ id: row.issuer_id }}
-        title={`Open ${row.issuer_name} profile`}
-        className="tabular text-caos-md text-caos-accent truncate hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
-      >
-        {row.issuer_name}
-      </IssuerLink>
-      <span className="flex gap-1" aria-label={`Source origins: ${row.origins.join(", ")}`}>
-        {row.origins.map((origin) => (
-          <span
-            key={origin}
-            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border border-caos-border text-caos-muted"
-          >
-            {origin}
-          </span>
-        ))}
-      </span>
-      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
+    <div className="px-3 py-[6px] border-b border-caos-border/50">
+      <div className="flex items-center gap-2 flex-wrap">
+        <IssuerLink
+          issuer={{ id: row.issuer_id }}
+          title={`Open ${row.issuer_name} profile`}
+          className="tabular text-caos-md text-caos-accent truncate min-w-0 hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
+        >
+          {row.issuer_name}
+        </IssuerLink>
+        <span className="flex gap-1 flex-wrap" aria-label={`Source origins: ${row.origins.join(", ")}`}>
+          {row.origins.map((origin) => (
+            <span
+              key={origin}
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border border-caos-border text-caos-muted"
+            >
+              {origin}
+            </span>
+          ))}
+        </span>
+      </div>
+      <span className="tabular text-caos-xs text-caos-muted">
         {row.analyst_owner ?? "UNASSIGNED"} · {row.document_count} docs
       </span>
     </div>
@@ -103,7 +105,9 @@ export function ControlPlanePanel() {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2.5">
+    // Single column: this panel lives in the ~300px inspector, where a
+    // viewport-width md: 2-col query cramps every cell to one word per line.
+    <div className="grid grid-cols-1 gap-4 p-2.5">
       <Category title="Zero-chunk documents · vaulted, unusable">
         {data.zero_chunk.length === 0 ? (
           <div className="px-3 py-4 tabular text-caos-xs text-caos-muted" style={{ color: "var(--caos-success)" }}>

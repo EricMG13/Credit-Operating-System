@@ -98,7 +98,7 @@ function Datum({ state, showObservation = true }: { state: DecisionDatumState; s
       role={state.kind === "loading" ? "status" : undefined}
     >
       {glyph ? <span aria-hidden="true">{glyph}</span> : null}
-      <span className="min-w-0">{content}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{content}</span>
       {showObservation && timestamp ? <span className="basis-full tabular text-caos-2xs text-caos-muted">as of {timestamp}</span> : null}
       {showObservation && authority ? (
         <span className="basis-full mt-0.5">

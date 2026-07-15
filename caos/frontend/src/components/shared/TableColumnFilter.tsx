@@ -268,9 +268,11 @@ export function FilterHeader<T>({
             }
           >
             <span className="truncate">{children}</span>
-            <span aria-hidden="true" className="inline-flex w-2 shrink-0 justify-center leading-none text-caos-2xs">
-              {dir === "asc" ? "▲" : dir === "desc" ? "▼" : ""}
-            </span>
+            {dir ? (
+              <span aria-hidden="true" className="inline-flex w-2 shrink-0 justify-center leading-none text-caos-2xs">
+                {dir === "asc" ? "▲" : "▼"}
+              </span>
+            ) : null}
           </button>
           {filterTrigger}
         </span>

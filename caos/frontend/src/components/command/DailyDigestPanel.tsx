@@ -16,11 +16,11 @@ export function DailyDigestPanel({ digest }: { digest: DailyDigest }) {
   const failed = act.runs_failed ?? 0;
   const stats: { l: string; v: string; color?: string }[] = [
     {
-      l: "WARF (equal-wt)",
+      l: "WARF (eq-wt)",
       v: digest.warf != null ? `${digest.warf.toLocaleString("en-US")} · ${digest.warf_band ?? "—"}` : "no rated names",
     },
     { l: "Rated / covered", v: `${cov.rated ?? 0} of ${cov.issuers ?? 0}` },
-    { l: "With complete run", v: `${cov.with_complete_run ?? 0} of ${cov.issuers ?? 0}` },
+    { l: "Complete runs", v: `${cov.with_complete_run ?? 0} of ${cov.issuers ?? 0}` },
     {
       l: "Runs 24h",
       v: `${act.runs_completed ?? 0} done · ${failed} failed`,
@@ -29,7 +29,9 @@ export function DailyDigestPanel({ digest }: { digest: DailyDigest }) {
   ];
   return (
     <div className="flex flex-col min-h-0">
-      <div className="grid grid-cols-4 gap-px bg-caos-border/50 border-b border-caos-border">
+      {/* 2-col: this panel renders in the ~220-280px CommandContext slot, where
+          4 columns collapse to one word per line. */}
+      <div className="grid grid-cols-2 gap-px bg-caos-border/50 border-b border-caos-border">
         {stats.map((s) => (
           <div key={s.l} className="bg-caos-panel px-3 py-2">
             <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{s.l}</div>
@@ -82,8 +84,8 @@ function WatchList({ title, rows, kind, empty }: {
                 title={`Open ${r.name} profile`}
                 className="w-full text-left px-3 py-1 flex items-baseline gap-2 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
-                <span className="text-caos-md text-caos-text truncate flex-1">{r.name}</span>
-                <span className="tabular text-caos-xs whitespace-nowrap" style={{ color }}>{r.detail || "—"}</span>
+                <span className="text-caos-md text-caos-text truncate flex-1 min-w-[10ch]">{r.name}</span>
+                <span className="tabular text-caos-xs truncate shrink text-right min-w-0" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
               </button>
             ))}
           </div>

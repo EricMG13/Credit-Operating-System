@@ -42,7 +42,7 @@ export default function IssuersPage() {
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
-const COLS = "grid grid-cols-[28px_60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
 
