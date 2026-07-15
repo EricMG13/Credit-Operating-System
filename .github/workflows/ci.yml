@@ -14,6 +14,12 @@ jobs:
   frontend:
     name: Frontend — lint, typecheck, test, build
     runs-on: ubuntu-latest
+    # A microtask-starving hang (infinite re-render loop via promise-chained
+    # setState) never yields to the macrotask queue, so vitest's own
+    # testTimeout (vitest.config.ts) can never fire — only a wall-clock kill
+    # from the runner is immune to that. Job normally finishes in a few
+    # minutes; 15 is generous headroom, not a target.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: caos/frontend
@@ -65,20 +71,14 @@ jobs:
       # before the heavier dependency install (config: ruff.toml).
       - run: pip install ruff==0.15.18
       - run: ruff check caos/server caos/tests
-      # Complexity gate — C901 (cyclomatic > 10) on the Python files THIS PR
-      # changed, mirroring the fallow new-only gate: never re-litigates the
-      # existing backlog, blocks new/edited functions that cross the threshold.
-      # A `# noqa: C901` marks a pre-existing offender when its file is next touched.
+      # Complexity gate — C901 (cyclomatic > 10) on the Python paths THIS PR
+      # changed. Exact path+symbol debt in the checked baseline may not worsen;
+      # new findings fail and stale/lowered entries must be tightened or removed.
       - name: Complexity gate (changed Python)
         if: github.event_name == 'pull_request'
-        run: |
-          base="origin/${{ github.base_ref }}"
-          # Three-dot (merge-base) scope so a file only changed on base since divergence
-          # isn't linted; exclude .venv and tracked .goal/ scratch (experiment .py files
-          # that would false-block). (confidence-review 2026-07-01)
-          files=$(git diff --name-only --diff-filter=d "$base...HEAD" -- '*.py' | grep -vE '(^|/)\.(venv|goal)/' || true)
-          if [ -z "$files" ]; then echo "no Python changes"; exit 0; fi
-          echo "$files" | xargs ruff check --select C901
+        run: >-
+          python caos/scripts/check_complexity_delta.py
+          --base-ref "origin/${{ github.base_ref }}"
       # Dead-code gate — vulture over the backend (currently zero findings at
       # conf>=80). `cls` is a classmethod-override signature arg, never dead code.
       - name: Dead code (vulture)
@@ -227,7 +227,11 @@ jobs:
       # JS/TS only; run from the repo root so .fallowrc.json (ignores the
       # design-sync dirs) is picked up.
       - run: npx --yes fallow dead-code --changed-since "origin/${{ github.base_ref }}" --ci
-      - run: npx --yes fallow dupes --changed-since "origin/${{ github.base_ref }}" --ci
+      - run: >-
+          npx --yes fallow dupes
+          --changed-since "origin/${{ github.base_ref }}"
+          --baseline .fallow-dupes-baseline.json
+          --ci
 
   corpus:
     name: Corpus — taxonomy consistency

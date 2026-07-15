@@ -8,10 +8,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useResizeObserver } from "@/lib/use-resize-observer";
+import { useRovingFocus, type RovingItemProps } from "@/lib/useRovingFocus";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { ActionableDislocations } from "@/components/command/ActionableDislocations";
 import {
   BUCKETS,
   DELTA_COLS,
@@ -712,7 +714,7 @@ const continuousValue = (r: RVRow, x: XMeasure): number => (x === "size" ? r.siz
 const categoryOf = (r: RVRow, x: XMeasure): string => (x === "subSector" ? r.subSector : r.bucket);
 
 function Point({
-  cx, cy, fill, isSel, isHov, label, title, onSelect, onHover,
+  cx, cy, fill, isSel, isHov, label, title, onSelect, onHover, roving,
 }: {
   cx: number;
   cy: number;
@@ -723,11 +725,16 @@ function Point({
   title: string;
   onSelect: () => void;
   onHover: (on: boolean) => void;
+  /** Roving-tabindex props for this point (G7) — exactly one point in the
+   *  whole scatter is a real tab stop; arrow keys move which one, Tab moves
+   *  past the scatter in one step instead of through every plotted loan. */
+  roving: RovingItemProps;
 }) {
   return (
     <g
+      ref={roving.ref as React.Ref<SVGGElement>}
       role="button"
-      tabIndex={0}
+      tabIndex={roving.tabIndex}
       aria-label={label}
       aria-pressed={isSel}
       className="focus-ring cursor-pointer group outline-none"
@@ -736,11 +743,13 @@ function Point({
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect();
+        } else {
+          roving.onKeyDown(e);
         }
       }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
-      onFocus={() => onHover(true)}
+      onFocus={() => { onHover(true); roving.onFocus(); }}
       onBlur={() => onHover(false)}
     >
       {/* Accessibility Focus Ring */}
@@ -835,6 +844,17 @@ function RVScatter({
       ? BUCKETS.filter((b) => rows.some((r) => r.bucket === b))
       : [...new Set(rows.map((r) => r.subSector))].sort())
     : [];
+
+  // Roving-tabindex order for the plotted points (G7) — MUST match the exact
+  // render order below (continuous: `rows` order; categorical: flattened by
+  // category then member) so arrow keys move in the same direction the eye
+  // reads left-to-right across the plot. Called unconditionally, before the
+  // early returns just below — a hook can't follow a conditional return.
+  const pointIds = chartType === "scatter"
+    ? (cat ? cats.flatMap((c) => rows.filter((r) => categoryOf(r, xMeasure) === c).map((r) => r.figi)) : rows.map((r) => r.figi))
+    : [];
+  const roving = useRovingFocus(pointIds);
+
   if (!rows.length) return null;
   if (cat && !cats.length) return null;
 
@@ -916,6 +936,7 @@ function RVScatter({
             title={`${r.company} · DM ${r.dm} · ${X_LABEL[xMeasure]} ${xMeasure === "price" ? continuousValue(r, xMeasure).toFixed(2) : Math.round(continuousValue(r, xMeasure))} · ${r.rv}`}
             onSelect={() => onSelect(r.figi)}
             onHover={(on) => onHover(on ? r.figi : null)}
+            roving={roving.getItemProps(r.figi)}
           />
         );
       })}
@@ -1015,6 +1036,7 @@ function RVScatter({
                     title={`${r.company} · DM ${r.dm} · ${r.rv}${r.rvBp === null ? "" : ` ${r.rvBp > 0 ? "+" : ""}${Math.round(r.rvBp)}bp`}`}
                     onSelect={() => onSelect(r.figi)}
                     onHover={(on) => onHover(on ? r.figi : null)}
+                    roving={roving.getItemProps(r.figi)}
                   />
                 </g>
               );
@@ -1317,6 +1339,14 @@ export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {
       }}
     >
       <CaveatHeader rows={rvRows} />
+
+      {/* Decision-first opener (WP-6): ranked |RV| + carry dislocations across
+          the whole loan universe, ahead of the sector-scoped scatter/toolbar/
+          heatmap/averages below — those are demoted, not deleted. */}
+      <PanelShell title="Actionable Dislocations" className="flex-none min-h-0" collapsible>
+        <ActionableDislocations rows={rvRows} />
+      </PanelShell>
+
       {/* sector selector */}
       <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
         <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">

@@ -31,8 +31,8 @@ export interface LiveEvidence extends EvidenceDTO {
 // the reference deal keeps the bespoke showcase renderers.
 const LIVE_MODULES = [
   "CP-0", "CP-1", "CP-1A", "CP-1B", "CP-1C",
-  "CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F",
-  "CP-3", "CP-3B", "CP-3C", "CP-3D", "CP-4", "CP-4C",
+  "CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-2G",
+  "CP-3", "CP-3B", "CP-3C", "CP-3D", "CP-4", "CP-4D", "CP-4C",
   "CP-5", "CP-5B", "CP-6A", "CP-6E",
 ];
 
@@ -49,6 +49,8 @@ export interface LiveRunState {
   // click-to-source; empty when no live run exists.
   liveEvidence: Record<string, LiveEvidence>;
   runId: string | null;
+  /** Source observation time for decision-state disclosure. */
+  asOf?: string | null;
   committeeStatus: string | null;
   // CP-5C semantic committee-review findings for this run (empty when the
   // council is disabled or no live run exists).
@@ -68,11 +70,11 @@ export interface LiveRunState {
 type LiveRunValue = Omit<LiveRunState, "phase">;
 
 const EMPTY: LiveRunValue = {
-  liveOuts: {}, liveStatus: {}, liveEvidence: {}, runId: null, committeeStatus: null,
+  liveOuts: {}, liveStatus: {}, liveEvidence: {}, runId: null, asOf: null, committeeStatus: null,
   council: [], loading: false,
 };
 
-export function useLiveRun(issuerId: string): LiveRunState {
+export function useLiveRun(issuerId: string, exactRunId?: string | null): LiveRunState {
   const status = useLatestRunStatus<LiveRunValue>(
     issuerId,
     { ...EMPTY, loading: true },
@@ -119,10 +121,11 @@ export function useLiveRun(issuerId: string): LiveRunState {
         council = qa ? qa.findings.filter((f) => f.finding_id.startsWith("CP-5C-")) : [];
       }
       return {
-        liveOuts, liveStatus, liveEvidence, runId: latest.id, committeeStatus: latest.committee_status,
+        liveOuts, liveStatus, liveEvidence, runId: latest.id, asOf: latest.as_of_date ?? latest.created_at, committeeStatus: latest.committee_status,
         council, loading: false,
       };
     },
+    exactRunId,
   );
   // Thread the underlying load phase through so a caller can distinguish a
   // genuine backend error from no-coverage-yet (M-1/M-2 fix) — see RunPhase.

@@ -10,7 +10,7 @@ import type { Model, ModelCol } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { ROWS, SRC } from "./rows";
-import { CW, fmt, GROUPS_META, isEditable, LBL, ovField } from "./model-format";
+import { buildPastePatch, CW, fmt, GROUPS_META, isEditable, LBL, ovField, type PasteResult } from "./model-format";
 import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressLevel, KPI_DISTRESS_GLYPH } from "./cell-style";
 
 export interface CellRef {
@@ -72,6 +72,7 @@ const COLLAPSE_CHILDREN: Record<string, string[]> = {
   secured: ["rcf", "tlb", "ssn"],
   tdebt: ["rcf", "tlb", "ssn", "sub"],
 };
+const GROUP_GUTTER = 10;
 
 function hiddenRows(collapsedRows: Set<string> | undefined): Set<string> {
   return new Set(
@@ -80,7 +81,7 @@ function hiddenRows(collapsedRows: Set<string> | undefined): Set<string> {
 }
 
 export function Sheet({
-  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow,
+  model, showQ, hl, hlCells, sel, onSel, editing, onEdit, onCommit, collapsedRows, onToggleRow, onPasteCells,
 }: {
   model: Model;
   showQ: boolean;
@@ -94,6 +95,14 @@ export function Sheet({
   onCommit: (value: string | null) => void;
   collapsedRows?: Set<string>;
   onToggleRow?: (row: string) => void;
+  /** Multi-cell paste (G3): a TSV/CSV clipboard block, anchored at the
+   *  selected cell — Ctrl/Cmd+V while a cell is selected but not being
+   *  edited (an actively-open CellInput keeps native single-field paste).
+   *  Sheet computes the patch (it owns the visible row/col order); the
+   *  caller applies `result.patch` as ONE history step and may report
+   *  `applied`/`skippedNotEditable`/`invalid` back to the analyst. Omit to
+   *  leave paste unhandled (falls through to the browser default). */
+  onPasteCells?: (result: PasteResult) => void;
   /** Reference (seeded Atlas Forge demo) vs live issuer. Accepted for prop
    *  symmetry with FormulaBar/Manifest; the Sheet grid itself carries no
    *  ATLF-specific lineage, so it is not read in the body. Default false. */
@@ -119,16 +128,19 @@ export function Sheet({
 
   const hlGroup = hl && SRC[hl] ? SRC[hl].colGroup : undefined;
   const hidden = hiddenRows(collapsedRows);
+  // Same visible-row order keyboard nav (handleKeyDown) and multi-cell paste
+  // both walk — a paste block must never disagree with where arrow keys land.
+  const rowIds = useMemo(
+    () => ROWS.filter((row) => row.id && !hidden.has(row.id)).map((r) => r.id!),
+    [hidden],
+  );
+  const colKeys = useMemo(() => colDefs.map((c) => c.key), [colDefs]);
 
   const labelColor = (c: ColDef) =>
     c.ctx.derived ? "var(--caos-warning)" : c.group === "BASE" ? "var(--caos-success)" : c.group === "DOWN" ? "var(--caos-warning)" : "var(--caos-muted)";
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
-
-    const selectableRows = ROWS.filter((row) => row.id && !hidden.has(row.id));
-    const rowIds = selectableRows.map((r) => r.id!);
-    const colKeys = colDefs.map((c) => c.key);
 
     if (!sel || rowIds.length === 0 || colKeys.length === 0) return;
 
@@ -250,8 +262,9 @@ export function Sheet({
         }}
         title={editable ? "double-click to override" : undefined}
         className="shrink-0 text-right pr-1.5 cursor-cell"
+        data-key-account={opts.bold ? "true" : undefined}
         style={{
-          width: c.w, marginLeft: c.gap ? 8 : 0,
+          width: c.w, marginLeft: c.gap ? GROUP_GUTTER : 0,
           background: cellBackground({ isSel, cellHl, colHl, isHl: !!opts.isHl, shade: !!opts.shade }),
           borderRight: "1px solid var(--caos-border)",
           borderBottom: "1px solid var(--caos-border)",
@@ -266,7 +279,7 @@ export function Sheet({
           />
         ) : (
           <span
-            className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-semibold" : "")}
+            className={"tabular text-caos-xs leading-[15px] whitespace-nowrap " + (opts.bold ? "font-bold" : "")}
             style={{ color, borderBottom: isOv ? "1px dotted var(--caos-warning)" : "none" }}
           >
             {distressGlyph ? (
@@ -295,6 +308,16 @@ export function Sheet({
       aria-label="Model worksheet"
       aria-activedescendant={selectedCellId}
       onKeyDown={handleKeyDown}
+      onPaste={(e) => {
+        // An actively-open CellInput is a real <input> the native paste event
+        // bubbles from — let the browser's own single-field paste handle that
+        // (it also owns Ctrl+Z there, which grid-level undo must not fight).
+        if (editing || !sel || !onPasteCells) return;
+        e.preventDefault();
+        const text = e.clipboardData.getData("text/plain");
+        if (!text) return;
+        onPasteCells(buildPastePatch(rowIds, colKeys, sel, text));
+      }}
       className="flex-1 min-h-0 overflow-auto rounded border border-caos-border bg-caos-bg focus-ring"
     >
       <div style={{ width: "max-content", minWidth: "100%" }}>
@@ -309,7 +332,7 @@ export function Sheet({
             <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span>
           </div>
           {groups.map((gr, i) => (
-            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" style={{ width: gr.w, marginLeft: gr.gap ? 8 : 0 }}>
+            <div key={i} role="columnheader" className="shrink-0 flex items-center justify-center" data-period-group={gr.group} style={{ width: gr.w, marginLeft: gr.gap ? GROUP_GUTTER : 0 }}>
               <div
                 className="w-full mx-px h-[18px] my-[3px] flex items-center justify-center rounded-sm overflow-hidden"
                 style={{ background: hlGroup === gr.group ? "var(--caos-accent)" : "color-mix(in srgb, var(--tranche-2l) 16%, transparent)", transition: "background 160ms" }}
@@ -334,7 +357,7 @@ export function Sheet({
             ) : null}
           </div>
           {colDefs.map((c, colIdx) => (
-            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" style={{ width: c.w, marginLeft: c.gap ? 8 : 0, borderRight: "1px solid var(--caos-border)" }}>
+            <div key={c.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" data-period-group-start={c.gap ? c.group : undefined} style={{ width: c.w, marginLeft: c.gap ? GROUP_GUTTER : 0, borderRight: "1px solid var(--caos-border)" }}>
               <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(colIdx)}</span>
               <span
                 className="tabular text-caos-xs font-semibold whitespace-nowrap truncate"
@@ -383,7 +406,7 @@ export function Sheet({
                     className="shrink-0 flex items-center"
                     style={{
                       width: c.w,
-                      marginLeft: c.gap ? 8 : 0,
+                      marginLeft: c.gap ? GROUP_GUTTER : 0,
                       borderRight: "1px solid var(--caos-border)",
                       borderBottom: "1px solid var(--caos-border)",
                     }}
@@ -403,7 +426,6 @@ export function Sheet({
             <div
               key={row.id}
               role="row"
-              onDoubleClick={() => collapsible && onToggleRow?.(row.id!)}
               className="flex group"
               style={{ background: isHl ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}
             >
@@ -433,18 +455,23 @@ export function Sheet({
               >
                 {collapsible ? (
                   <button
+                    type="button"
                     onClick={() => onToggleRow?.(row.id!)}
                     aria-label={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
                     aria-expanded={!collapsed}
                     title={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
-                    className="tabular text-caos-3xs text-caos-accent focus-ring"
+                    className="flex min-w-0 items-baseline gap-1.5 rounded text-left focus-ring"
                   >
-                    {collapsed ? "▸" : "▾"}
+                    <span className="tabular text-caos-3xs text-caos-accent" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                    <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-bold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                      {row.l}
+                    </span>
                   </button>
-                ) : null}
-                <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-semibold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
-                  {row.l}
-                </span>
+                ) : (
+                  <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-bold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>
+                    {row.l}
+                  </span>
+                )}
                 {row.sub ? <span className="tabular text-caos-3xs text-caos-muted ml-auto whitespace-nowrap">{row.sub}</span> : null}
               </div>
               {colDefs.map((c) => renderCell(row.id!, c, { bold: row.bold, pct: row.pct, shade: row.shade, line: row.line, isHl }))}

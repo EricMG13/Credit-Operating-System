@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     # shared/global). Assign teams by setting Analyst.team_id / Issuer.team_id.
     caos_tenancy_enabled: bool = False
 
+    # Applicable Updates program gates. Each capability is independently
+    # deployable and defaults OFF so absent environment variables preserve the
+    # current production behavior. Env names are the upper-case field names.
+    caos_lineage_v2_enabled: bool = False
+    caos_market_xlsx_v2_enabled: bool = False
+    caos_model_engine_v2_enabled: bool = False
+    caos_cp_4d_enabled: bool = False
+    caos_cp_2g_enabled: bool = False
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
@@ -236,6 +245,14 @@ class Settings(BaseSettings):
     # on a semaphore rather than all buffer at once (mirrors caos_research_concurrency).
     caos_upload_concurrency: int = 2
     caos_run_poll_seconds: float = 1.0   # worker loop tick
+    # Boot-sweep lease for the 2 fire-and-forget executors (report/pipeline;
+    # research_jobs use the re-claiming caos_research_lease_seconds above
+    # instead). Generous ceiling, not a per-job-type tune: report synthesis is
+    # the longest profile (one multi-thousand-token LLM call), the autonomy
+    # cycle's Analyst stage is shorter. One shared knob is fine because it only
+    # gates a rare event (replica boot), not a hot loop — being too generous
+    # just delays reaping a truly-dead row, it never risks reaping a live one.
+    caos_background_job_lease_seconds: int = 1800
     # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
     # so convert at that call site.)
 

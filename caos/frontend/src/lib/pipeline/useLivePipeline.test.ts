@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLiveSnapshot, liveOutcome } from "./useLivePipeline";
+import { EDGES, MODULES } from "./data";
 import type { ModuleDetailDTO, ModuleStatusDTO, RunSummaryDTO } from "@/lib/engine/types";
 
 function mod(
@@ -28,6 +29,15 @@ const cpx = {
 } as unknown as ModuleDetailDTO;
 
 describe("buildLiveSnapshot", () => {
+  it("registers CP-2G and CP-4D in the graph without synthetic completion rows", () => {
+    expect(MODULES.some((module) => module.id === "CP-2G")).toBe(true);
+    expect(MODULES.some((module) => module.id === "CP-4D")).toBe(true);
+    expect(EDGES).toContainEqual(["CP-2G", "CP-6A"]);
+    expect(EDGES).toContainEqual(["CP-4D", "CP-4C"]);
+    const snapshot = buildLiveSnapshot(run("Committee Ready", [mod("CP-1", "Committee Ready")]), cpx);
+    expect(snapshot.sim.mods["CP-2G"].state).toBe("idle");
+    expect(snapshot.sim.mods["CP-4D"].state).toBe("idle");
+  });
   it("maps committee_status to node states; unproduced nodes stay idle", () => {
     const s = buildLiveSnapshot(
       run("Blocked", [mod("CP-1", "Restricted"), mod("CP-2", "Committee Ready"), mod("CP-4C", "Blocked")]), cpx);

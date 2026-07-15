@@ -60,6 +60,9 @@ describe("cellTextColor — priority order", () => {
   it("negative money is muted", () => {
     expect(cellTextColor({ ...base, v: -5, rowFmt: "m" })).toBe("var(--caos-muted)");
   });
+  it("negative key-account totals retain full emphasis", () => {
+    expect(cellTextColor({ ...base, v: -5, rowFmt: "m", bold: true })).toBe("var(--caos-text)");
+  });
   it("bold otherwise gets full text color", () => {
     expect(cellTextColor({ ...base, bold: true })).toBe("var(--caos-text)");
   });

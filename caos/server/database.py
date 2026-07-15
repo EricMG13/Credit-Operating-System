@@ -12,15 +12,16 @@ racing (no-op on SQLite).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, text, update, Computed,
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    UniqueConstraint, delete, event, inspect, or_, select, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
@@ -146,6 +147,7 @@ class Issuer(Base):
     rating_sp: Mapped[Optional[str]] = mapped_column(String(16))
     rating_moody: Mapped[Optional[str]] = mapped_column(String(16))
     rating_fitch: Mapped[Optional[str]] = mapped_column(String(16))
+    ratings_observed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Analyst-entered private-equity sponsor (exact-string grouped by the sponsor
     # track-record view — no free ownership feed). NULL = not sponsor-owned/unknown.
     sponsor: Mapped[Optional[str]] = mapped_column(String(255))
@@ -159,6 +161,24 @@ class Issuer(Base):
     # the analyst-entered ratings/sponsor above. SEAM4-4.
     created_by: Mapped[Optional[str]] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class IssuerReportingProfile(Base):
+    """Issuer-specific cadence inputs for the canonical freshness policy."""
+
+    __tablename__ = "issuer_reporting_profiles"
+
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id", ondelete="CASCADE"), primary_key=True
+    )
+    cadence: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    fiscal_year_end_month: Mapped[Optional[int]] = mapped_column(Integer)
+    fiscal_year_end_day: Mapped[Optional[int]] = mapped_column(Integer)
+    reporting_lag_days: Mapped[Optional[int]] = mapped_column(Integer)
+    grace_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class Analyst(Base):
@@ -186,7 +206,11 @@ class Analyst(Base):
     location: Mapped[Optional[str]] = mapped_column(String(16))
     recovery_word_hashes: Mapped[list] = mapped_column(JSON, default=list)
     recovery_hints: Mapped[list] = mapped_column(JSON, default=list)
+    role: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="analyst", server_default="analyst"
+    )
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    settings_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     # Session-revocation epoch: signed into the cookie at mint; bumped on logout so
     # every existing token for this analyst stops validating (identity.get_identity
@@ -203,12 +227,19 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    # Broad market-price workbooks are analyst-owned source evidence rather than
+    # issuer documents. Existing issuer documents continue to authorize through
+    # issuer_id; an issuer-less document must carry this explicit private owner.
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     doc_type: Mapped[str] = mapped_column(String(64), nullable=False)
     run_mode: Mapped[Optional[str]] = mapped_column(String(16))
     file_name: Mapped[str] = mapped_column(String(512), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     fiscal_period: Mapped[Optional[str]] = mapped_column(String(64))
+    source_kind: Mapped[Optional[str]] = mapped_column(String(32))
+    effective_period_end: Mapped[Optional[date]] = mapped_column(Date)
+    source_published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -223,6 +254,10 @@ class DocumentChunk(Base):
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_hash: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
+    # D1: extraction provenance. NULL = native text layer (markitdown/pypdf);
+    # "ocr" = ocrmypdf/Tesseract recognition off a scanned/image page — lower
+    # fidelity (misreads, layout loss), so CP-5/analysts can discount it.
+    prov: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     tsv: Mapped[Optional[TSVECTOR]] = mapped_column(
         TSVECTOR,
         Computed("to_tsvector('english', text)", persisted=True),
@@ -312,6 +347,8 @@ class ResearchJob(Base):
     # "keep polling" to the client.
     status: Mapped[str] = mapped_column(String(16), default="queued")
     analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    context_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), index=True)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
     brief: Mapped[dict] = mapped_column(JSON, default=dict)
     report: Mapped[Optional[str]] = mapped_column(Text)
     sources: Mapped[list] = mapped_column(JSON, default=list)
@@ -584,6 +621,263 @@ class AnalystSectorFeed(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class SectorTaxonomy(Base):
+    """Canonical sector label and alias registry shared by analytical routes."""
+
+    __tablename__ = "sector_taxonomy"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    label: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    aliases: Mapped[list] = mapped_column(JSON, default=list)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalysisContextRecord(Base):
+    """Analyst-owned cross-route universe, version and selection contract."""
+
+    __tablename__ = "analysis_contexts"
+    __table_args__ = (
+        Index("ix_analysis_contexts_analyst_updated", "analyst_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, default="Untitled analysis")
+    sector_id: Mapped[Optional[str]] = mapped_column(String(64), ForeignKey("sector_taxonomy.id"))
+    sub_segments: Mapped[list] = mapped_column(JSON, default=list)
+    issuer_ids: Mapped[list] = mapped_column(JSON, default=list)
+    instrument_ids: Mapped[list] = mapped_column(JSON, default=list)
+    portfolio_scope: Mapped[Optional[str]] = mapped_column(String(128))
+    as_of: Mapped[Optional[date]] = mapped_column(Date)
+    sector_review_run_id: Mapped[Optional[str]] = mapped_column(String(64))
+    rv_snapshot_id: Mapped[Optional[str]] = mapped_column(String(36))
+    rv_run_id: Mapped[Optional[str]] = mapped_column(String(36))
+    query_session_id: Mapped[Optional[str]] = mapped_column(String(36))
+    artifacts: Mapped[dict] = mapped_column(JSON, default=dict)
+    surface_state: Mapped[dict] = mapped_column(JSON, default=dict)
+    filters: Mapped[dict] = mapped_column(JSON, default=dict)
+    selected: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalysisFinding(Base):
+    """One analyst-ratified or draft finding shared across downstream surfaces."""
+
+    __tablename__ = "analysis_findings"
+    __table_args__ = (
+        Index("ix_analysis_findings_context_created", "context_id", "created_at"),
+        Index("ix_analysis_findings_analyst_status", "analyst_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_surface: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_run_id: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalysisInsight(Base):
+    """Immutable cited insight version scoped to one analyst-owned context."""
+
+    __tablename__ = "analysis_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "analyst_id", "context_id", "surface", "kind", "source_fingerprint", "version",
+            name="uq_analysis_insight_generation",
+        ),
+        Index("ix_analysis_insights_context_generated", "context_id", "generated_at"),
+        Index("ix_analysis_insights_analyst_status", "analyst_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), nullable=False
+    )
+    surface: Mapped[str] = mapped_column(String(32), nullable=False)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="ready")
+    subject_refs: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    claims: Mapped[list] = mapped_column(JSON, default=list)
+    recommended_actions: Mapped[list] = mapped_column(JSON, default=list)
+    missing_dependencies: Mapped[list] = mapped_column(JSON, default=list)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    model: Mapped[Optional[str]] = mapped_column(String(128))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    ratified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(64))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class AnalysisQueryRun(Base):
+    """Persisted Query investigation; question text never lives in URL state."""
+
+    __tablename__ = "analysis_query_runs"
+    __table_args__ = (
+        Index("ix_analysis_query_runs_context_created", "context_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_lane: Mapped[str] = mapped_column(String(24), nullable=False)
+    method_override: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class MarketSnapshot(Base):
+    """Immutable normalized market-data observation used by RV screening."""
+
+    __tablename__ = "market_snapshots"
+
+    __table_args__ = (
+        Index("ix_market_snapshots_analyst_created", "analyst_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_label: Mapped[str] = mapped_column(String(160), nullable=False)
+    origin: Mapped[str] = mapped_column(String(24), nullable=False)
+    method: Mapped[str] = mapped_column(String(32), nullable=False, default="reported")
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="ready")
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    document_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="RESTRICT")
+    )
+    source_manifest_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("source_manifests.id", ondelete="SET NULL")
+    )
+    import_mapping: Mapped[dict] = mapped_column(JSON, default=dict)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class MarketInstrument(Base):
+    """One exact instrument observation within an immutable snapshot."""
+
+    __tablename__ = "market_instruments"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "instrument_key", name="uq_market_snapshot_instrument"),
+        Index("ix_market_instruments_snapshot_figi", "snapshot_id", "figi"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    snapshot_id: Mapped[str] = mapped_column(String(36), ForeignKey("market_snapshots.id"), nullable=False)
+    instrument_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    figi: Mapped[Optional[str]] = mapped_column(String(32))
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"))
+    borrower: Mapped[str] = mapped_column(String(255), nullable=False)
+    sector_id: Mapped[Optional[str]] = mapped_column(String(64), ForeignKey("sector_taxonomy.id"))
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class MarketImportIssue(Base):
+    """Immutable warning/rejection ledger captured with a market snapshot."""
+
+    __tablename__ = "market_import_issues"
+    __table_args__ = (
+        Index("ix_market_import_issues_snapshot_severity", "snapshot_id", "severity"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    snapshot_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("market_snapshots.id", ondelete="CASCADE"), nullable=False
+    )
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(String(1024), nullable=False)
+    row_number: Mapped[Optional[int]] = mapped_column(Integer)
+    column: Mapped[Optional[str]] = mapped_column(String(32))
+    field: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class RVScreenRun(Base):
+    """Analyst-owned RV screen over one immutable market snapshot."""
+
+    __tablename__ = "rv_screen_runs"
+    __table_args__ = (
+        Index("ix_rv_screen_runs_context_created", "context_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False)
+    snapshot_id: Mapped[str] = mapped_column(String(36), ForeignKey("market_snapshots.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    filters: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class RVCandidate(Base):
+    """One gated instrument decision record from an RV screen."""
+
+    __tablename__ = "rv_candidates"
+    __table_args__ = (
+        UniqueConstraint("run_id", "instrument_id", name="uq_rv_run_instrument"),
+        Index("ix_rv_candidates_run_classification", "run_id", "classification"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("rv_screen_runs.id"), nullable=False)
+    instrument_id: Mapped[str] = mapped_column(String(36), ForeignKey("market_instruments.id"), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    classification: Mapped[str] = mapped_column(String(24), nullable=False)
+    missing_gates: Mapped[list] = mapped_column(JSON, default=list)
+    pitch: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    portfolio_impact: Mapped[dict] = mapped_column(JSON, default=dict)
+    analyst_override: Mapped[Optional[dict]] = mapped_column(JSON)
+    ratified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SectorReviewRatification(Base):
+    """Section-level analyst ratification or override for a review draft."""
+
+    __tablename__ = "sector_review_ratifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "review_run_id", "analyst_id", "section_id",
+            name="uq_sector_review_ratification",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    review_run_id: Mapped[str] = mapped_column(String(64), ForeignKey("sector_review_runs.id"), nullable=False)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    section_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str] = mapped_column(String(24), nullable=False)
+    override_text: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AnalystWatchlist(Base):
     """An analyst's coverage watchlist — the issuers their Desk Brief is scoped to.
 
@@ -616,6 +910,243 @@ class SavedModel(Base):
     issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
     analyst_id: Mapped[str] = mapped_column(String(255), index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ModelDraftV2(Base):
+    """Analyst-owned Model Engine v2 draft guarded by integer revision CAS."""
+
+    __tablename__ = "model_drafts_v2"
+    __table_args__ = (
+        UniqueConstraint(
+            "issuer_id", "analyst_id", name="uq_model_draft_v2_issuer_analyst"
+        ),
+        Index("ix_model_drafts_v2_analyst_updated", "analyst_id", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id"), nullable=False, index=True
+    )
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), index=True
+    )
+    source_run_id: Mapped[Optional[str]] = mapped_column(
+        String(64), ForeignKey("runs.id"), index=True
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    calculation: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    calculation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ModelOverrideEvent(Base):
+    """Append-only audit event for a typed Model Engine v2 node replacement."""
+
+    __tablename__ = "model_override_events"
+    __table_args__ = (
+        Index("ix_model_override_events_draft_revision", "draft_id", "revision"),
+        Index("ix_model_override_events_analyst_created", "analyst_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    draft_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("model_drafts_v2.id"), nullable=False, index=True
+    )
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id"), nullable=False, index=True
+    )
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    value_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    before_value: Mapped[Optional[dict]] = mapped_column(JSON)
+    after_value: Mapped[Optional[dict]] = mapped_column(JSON)
+    original_formula: Mapped[Optional[str]] = mapped_column(Text)
+    original_value: Mapped[Optional[dict]] = mapped_column(JSON)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False, default="draft")
+    source: Mapped[Optional[str]] = mapped_column(String(240))
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    inverse_event_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("model_override_events.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SourceManifest(Base):
+    """Immutable authority record produced by one intake operation."""
+
+    __tablename__ = "source_manifests"
+    __table_args__ = (Index("ix_source_manifests_analyst_created", "analyst_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    origin: Mapped[str] = mapped_column(String(24), nullable=False)
+    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    files: Mapped[list] = mapped_column(JSON, default=list)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ModelCheckpoint(Base):
+    """Immutable analyst-owned model snapshot; SavedModel remains the draft."""
+
+    __tablename__ = "model_checkpoints"
+    __table_args__ = (
+        Index("ix_model_checkpoints_analyst_issuer_created", "analyst_id", "issuer_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False, index=True)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False)
+    issuer_run_id: Mapped[Optional[str]] = mapped_column(String(64), ForeignKey("runs.id"))
+    parent_checkpoint_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("model_checkpoints.id"))
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    engine_version: Mapped[Optional[str]] = mapped_column(String(32))
+    source_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+    input_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+    calculation_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    draft_revision: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ModelWorkbookImport(Base):
+    """Immutable committed workbook-import ledger bound to one model revision."""
+
+    __tablename__ = "model_workbook_imports"
+    __table_args__ = (
+        Index("ix_model_workbook_imports_analyst_committed", "analyst_id", "committed_at"),
+        Index("ix_model_workbook_imports_draft_revision", "draft_id", "committed_revision"),
+        Index("uq_model_workbook_imports_fingerprint", "import_fingerprint", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("issuers.id"), nullable=False, index=True
+    )
+    draft_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("model_drafts_v2.id"), nullable=False, index=True
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=False, index=True
+    )
+    source_manifest_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("source_manifests.id"), nullable=False, index=True
+    )
+    workbook_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    import_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    mapping: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    issues: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    committed_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    calculation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    committed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ReportDraft(Base):
+    """Mutable analyst-owned Report Studio composition for one context."""
+
+    __tablename__ = "report_drafts"
+    __table_args__ = (
+        UniqueConstraint("context_id", "analyst_id", name="uq_report_draft_context_analyst"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False, index=True)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ReportVersion(Base):
+    """Immutable committee composition bound to exact upstream versions."""
+
+    __tablename__ = "report_versions"
+    __table_args__ = (Index("ix_report_versions_context_created", "context_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    context_id: Mapped[str] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), nullable=False)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(64), ForeignKey("runs.id"), nullable=False)
+    model_checkpoint_id: Mapped[str] = mapped_column(String(36), ForeignKey("model_checkpoints.id"), nullable=False)
+    thesis_version_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("thesis_versions.id"))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="published")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    document_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    model_engine_version: Mapped[Optional[str]] = mapped_column(String(32))
+    model_source_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+    model_input_fingerprint: Mapped[Optional[str]] = mapped_column(String(64))
+    model_calculation_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    model_draft_revision: Mapped[Optional[int]] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class NotificationEvent(Base):
+    """Analyst-owned completion event for background work.
+
+    These events are deliberately separate from Watchtower alerts: they report
+    workflow completion/failure, not a change in the credit.  ``idempotency_key``
+    is the terminal transition identity, so executor retries cannot replay a
+    second event.  Subject identifiers are loose strings so a notification can
+    survive operational cleanup of the referenced job while remaining scoped to
+    its analyst owner.
+    """
+
+    __tablename__ = "notification_events"
+    __table_args__ = (
+        Index("uq_notification_events_idempotency_key", "idempotency_key", unique=True),
+        Index("ix_notification_events_analyst_created", "analyst_id", "created_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    body: Mapped[Optional[str]] = mapped_column(Text)
+    href: Mapped[Optional[str]] = mapped_column(String(600))
+    idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AlertEvent(Base):
+    """Durable Watchtower event; AlertState owns lifecycle transitions."""
+
+    __tablename__ = "alert_events"
+    __table_args__ = (Index("uq_alert_events_alert_key", "alert_key", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    alert_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    context_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("analysis_contexts.id"), index=True)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[Optional[str]] = mapped_column(String(64), ForeignKey("runs.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    impact: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    authority: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -746,12 +1277,27 @@ class LineageEdge(Base):
     """Lineage DAG showing derivation edges between artifacts."""
 
     __tablename__ = "lineage_edges"
+    __table_args__ = (
+        UniqueConstraint("v2_idempotency_key", name="uq_lineage_edges_v2_idempotency_key"),
+        Index("ix_lineage_edges_context_created", "context_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     artifact_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     parent_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
     transform: Mapped[str] = mapped_column(String(64), nullable=False)
     transform_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Phase 1 lineage v2 is additive. All fields remain nullable so existing
+    # lineage rows are neither rewritten nor forced into a synthetic scope.
+    context_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id", ondelete="CASCADE"), nullable=True
+    )
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    artifact_kind: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    artifact_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    parent_kind: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    parent_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    v2_idempotency_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
@@ -797,6 +1343,152 @@ class AnalystQaFlag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class AlertState(Base):
+    """Ack/assign/resolve for one Watchtower alert (Command's ranked changes +
+    Monitor's alert inbox share this — same row, same truth, both surfaces
+    read it via lib/alerts/inbox.ts on the frontend).
+
+    `alert_key` is deterministic from the autonomy draft — f"{run_id}:{issuer_id}:
+    {kind}:{metric}" — and unique: a second POST for the same key upserts rather
+    than duplicating. Cycle-scoped on purpose: a later cycle re-firing the same
+    anomaly kind/metric for an issuer is a genuinely NEW event (the Sentinel is
+    change-driven), so it correctly starts open again rather than inheriting a
+    stale ack. Plain strings (no FK) — audit record, not run state, same shape
+    as AnalystQaFlag above.
+
+    `state` is a fail-closed lattice — open(0) < ack(1) < resolved(2); the route
+    layer (routes/alerts.py) rejects a regression with 409 rather than silently
+    accepting it. `resolved_at` is stamped server-side the moment `state` first
+    reaches "resolved" (never client-supplied, so it can't be backdated).
+    """
+    __tablename__ = "alert_states"
+    # Named to match migration 0038's unique index so `alembic check`
+    # reconciles; a bare `unique=True` reflects as an unnamed constraint and
+    # drifts (same pattern as Analyst.email above).
+    __table_args__ = (Index("uq_alert_states_alert_key", "alert_key", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    alert_key: Mapped[str] = mapped_column(String(160), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    assignee: Mapped[Optional[str]] = mapped_column(String(120))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    analyst_id: Mapped[Optional[str]] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Server-stamped the instant `state` first becomes "resolved" — never
+    # accepted from the client, so a resolution can't be backdated or forged.
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class Decision(Base):
+    """Immutable IC decision snapshot. Status may reopen; snapshot never mutates."""
+    __tablename__ = "decisions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    report_id: Mapped[Optional[str]] = mapped_column(String(64))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("portfolios.id"), index=True
+    )
+    agenda_item_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("committee_agenda_items.id"), unique=True
+    )
+    report_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("report_versions.id"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    expiry: Mapped[Optional[date]] = mapped_column(Date)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    reopened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reopen_alert_key: Mapped[Optional[str]] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DecisionVote(Base):
+    __tablename__ = "decision_votes"
+    __table_args__ = (UniqueConstraint("decision_id", "member", name="uq_decision_vote_member"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    decision_id: Mapped[str] = mapped_column(String(36), ForeignKey("decisions.id"), index=True)
+    member: Mapped[str] = mapped_column(String(255), nullable=False)
+    vote: Mapped[str] = mapped_column(String(16), nullable=False)
+    dissent_note: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CommitteeAgendaItem(Base):
+    """Mutable committee preparation that freezes into one immutable decision."""
+
+    __tablename__ = "committee_agenda_items"
+    __table_args__ = (
+        UniqueConstraint("finalized_decision_id", name="uq_agenda_finalized_decision"),
+        Index("ix_agenda_issuer_scheduled", "issuer_id", "scheduled_for"),
+        Index("ix_agenda_portfolio_scheduled", "portfolio_id", "scheduled_for"),
+        Index("ix_agenda_owner_status", "owner_id", "status"),
+        Index("ix_agenda_status_scheduled", "status", "scheduled_for"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False)
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("portfolios.id"))
+    owner_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(16), nullable=False)
+    conviction: Mapped[Optional[float]] = mapped_column(Float)
+    thesis: Mapped[str] = mapped_column(Text, nullable=False)
+    conditions: Mapped[list] = mapped_column(JSON, default=list)
+    expiry: Mapped[Optional[date]] = mapped_column(Date)
+    run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    report_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("report_versions.id"), index=True
+    )
+    context_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    finalized_decision_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("decisions.id")
+    )
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    snapshot_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class ThesisVersion(Base):
+    __tablename__ = "thesis_versions"
+    __table_args__ = (UniqueConstraint("issuer_id", "version", name="uq_thesis_issuer_version"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    thesis_md: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(24), nullable=False)
+    linked_decision_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("decisions.id"), index=True)
+    linked_alert_key: Mapped[Optional[str]] = mapped_column(String(160))
+    created_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ThesisPrediction(Base):
+    __tablename__ = "thesis_predictions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    thesis_version_id: Mapped[str] = mapped_column(String(36), ForeignKey("thesis_versions.id"), index=True)
+    metric: Mapped[str] = mapped_column(String(120), nullable=False)
+    horizon: Mapped[date] = mapped_column(Date, nullable=False)
+    predicted: Mapped[float] = mapped_column(Float, nullable=False)
+    realized: Mapped[Optional[float]] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 # ─── Portfolio posture (managed CLO: holdings + constraints) ─────────────────
 # A portfolio is a managed book (e.g. a CLO) built from an uploaded holdings file.
 # Exposure and constraint compliance are COMPUTED deterministically from positions
@@ -817,6 +1509,7 @@ class Portfolio(Base):
     # from the mandate file — a roll-up for display, like ModuleOutput.runtime_output.
     mandate: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[Optional[str]] = mapped_column(String(255))
+    team_id: Mapped[Optional[str]] = mapped_column(String(128), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -872,6 +1565,29 @@ class PortfolioConstraint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class PortfolioStressRun(Base):
+    """Immutable deterministic stress snapshot for one managed portfolio."""
+
+    __tablename__ = "portfolio_stress_runs"
+    __table_args__ = (
+        Index("ix_portfolio_stress_runs_portfolio_created", "portfolio_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    portfolio_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("portfolios.id"), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    inputs: Mapped[dict] = mapped_column(JSON, nullable=False)
+    output: Mapped[dict] = mapped_column(JSON, nullable=False)
+    source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    authority: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="complete")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class PipelineRun(Base):
     """A durable autonomous-cycle run (Phase 3 remainder) — the committee-
     defensibility audit trail + the multi-worker shared prior.
@@ -896,6 +1612,9 @@ class PipelineRun(Base):
     draft: Mapped[dict] = mapped_column(JSON, default=dict)
     summary: Mapped[dict] = mapped_column(JSON, default=dict)
     worker_id: Mapped[Optional[str]] = mapped_column(String(64))
+    # Boot-sweep lease (see migrations/0038_background_job_leases) — gates the
+    # reap so one replica's boot can't kill another replica's live cycle.
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -993,6 +1712,41 @@ async def get_db():
             raise
 
 
+def _erasure_principal(analyst_id: str) -> str:
+    digest = hashlib.sha256(analyst_id.encode("utf-8")).hexdigest()[:20]
+    return f"erased:{digest}"
+
+
+def _redact_embedded_identity(value, keys: list[str], pseudonym: str):
+    if isinstance(value, dict):
+        return {
+            key: _redact_embedded_identity(item, keys, pseudonym)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_embedded_identity(item, keys, pseudonym) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for key in keys:
+            redacted = redacted.replace(key, pseudonym)
+        return redacted
+    return value
+
+
+def _privacy_redacted_snapshot(
+    snapshot: dict, *, keys: list[str], pseudonym: str, prior_hash: str
+) -> tuple[dict, str] | None:
+    redacted = _redact_embedded_identity(snapshot, keys, pseudonym)
+    if redacted == snapshot:
+        return None
+    redacted["privacy_redaction"] = {
+        "principal": pseudonym,
+        "prior_snapshot_sha256": prior_hash,
+    }
+    canonical = json.dumps(redacted, sort_keys=True, separators=(",", ":"), default=str)
+    return json.loads(canonical), hashlib.sha256(canonical.encode()).hexdigest()
+
+
 async def erase_analyst_data(
     session: AsyncSession, *, analyst_id: str, email: Optional[str] = None
 ) -> dict[str, int]:
@@ -1003,13 +1757,153 @@ async def erase_analyst_data(
     on shared institutional work product (runs, uploaded documents) — the desk's
     analysis is firm work product and is retained, only the personal link is
     scrubbed. ``analyst_id``/``uploaded_by`` are loose string stamps, not FKs, so
-    nothing cascades; this is pure DML. Runs stamp ``analyst_id`` and research jobs
-    key on the analyst id, while documents stamp the email — so scrub both keys.
+    runs/documents do not cascade because their identity stamps are loose strings.
+    V2 lineage is explicitly deleted before its context, with the context FK's
+    cascade retained only as a database backstop. Runs stamp ``analyst_id`` and
+    research jobs key on the analyst id, while documents stamp the email — so scrub both keys.
     Returns the row counts touched. Commits itself (see below) so both callers —
     the self-service route and the operator CLI — get an atomic erase.
     """
     keys = [k for k in (analyst_id, email) if k]
+    pseudonym = _erasure_principal(analyst_id)
+    owned_report_ids = list((await session.execute(
+        select(ReportVersion.id).where(ReportVersion.analyst_id.in_(keys))
+    )).scalars().all())
+    owned_context_ids = list((await session.execute(
+        select(AnalysisContextRecord.id).where(AnalysisContextRecord.analyst_id.in_(keys))
+    )).scalars().all())
+    owned_manifest_ids = list((await session.execute(
+        select(SourceManifest.id).where(SourceManifest.analyst_id.in_(keys))
+    )).scalars().all())
 
+    # Delete private versioned artifacts before their owning analysis contexts.
+    # Reports reference checkpoints, while checkpoints and research jobs
+    # reference contexts, so the order here is intentionally dependency-first.
+    # Draft committee preparation is private workspace state; finalized agenda
+    # and decisions are immutable firm work product. Retain the latter while
+    # removing the personal attribution and nullable private-artifact links.
+    agenda_drafts = await session.execute(
+        delete(CommitteeAgendaItem).where(
+            CommitteeAgendaItem.owner_id.in_(keys),
+            CommitteeAgendaItem.status != "decided",
+        )
+    )
+    finalized_agenda = await session.execute(
+        update(CommitteeAgendaItem).where(
+            CommitteeAgendaItem.owner_id.in_(keys),
+            CommitteeAgendaItem.status == "decided",
+        ).values(owner_id=pseudonym, report_version_id=None, context_id=None)
+    )
+    if owned_report_ids:
+        await session.execute(
+            update(CommitteeAgendaItem).where(
+                CommitteeAgendaItem.report_version_id.in_(owned_report_ids)
+            ).values(report_version_id=None)
+        )
+        await session.execute(
+            update(Decision).where(
+                Decision.report_version_id.in_(owned_report_ids)
+            ).values(report_version_id=None)
+        )
+    if owned_context_ids:
+        await session.execute(
+            update(CommitteeAgendaItem).where(
+                CommitteeAgendaItem.context_id.in_(owned_context_ids)
+            ).values(context_id=None)
+        )
+    decisions_anonymized = await session.execute(
+        update(Decision).where(Decision.created_by.in_(keys)).values(created_by=pseudonym)
+    )
+    decision_votes_anonymized = await session.execute(
+        update(DecisionVote).where(DecisionVote.member.in_(keys)).values(member=pseudonym)
+    )
+    thesis_versions_anonymized = await session.execute(
+        update(ThesisVersion).where(ThesisVersion.created_by.in_(keys)).values(
+            created_by=pseudonym
+        )
+    )
+    snapshots_redacted = 0
+    finalized_rows = list((await session.execute(
+        select(CommitteeAgendaItem).where(CommitteeAgendaItem.status == "decided")
+    )).scalars().all())
+    for agenda in finalized_rows:
+        result = _privacy_redacted_snapshot(
+            agenda.snapshot or {},
+            keys=keys,
+            pseudonym=pseudonym,
+            prior_hash=agenda.snapshot_sha256 or "",
+        )
+        if result is None:
+            continue
+        agenda.snapshot, agenda.snapshot_sha256 = result
+        snapshots_redacted += 1
+        if agenda.finalized_decision_id:
+            linked = await session.get(Decision, agenda.finalized_decision_id)
+            if linked is not None:
+                linked.snapshot = agenda.snapshot
+                linked.snapshot_sha256 = agenda.snapshot_sha256
+    linked_decision_ids = {
+        row.finalized_decision_id for row in finalized_rows if row.finalized_decision_id
+    }
+    other_decisions = list((await session.execute(
+        select(Decision).where(Decision.id.not_in(linked_decision_ids))
+    )).scalars().all()) if linked_decision_ids else list((await session.execute(
+        select(Decision)
+    )).scalars().all())
+    for decision in other_decisions:
+        result = _privacy_redacted_snapshot(
+            decision.snapshot or {},
+            keys=keys,
+            pseudonym=pseudonym,
+            prior_hash=decision.snapshot_sha256,
+        )
+        if result is not None:
+            decision.snapshot, decision.snapshot_sha256 = result
+            snapshots_redacted += 1
+    analysis_insights = await session.execute(
+        delete(AnalysisInsight).where(AnalysisInsight.analyst_id.in_(keys))
+    )
+    notifications = await session.execute(
+        delete(NotificationEvent).where(NotificationEvent.analyst_id.in_(keys))
+    )
+    portfolio_stress_runs = await session.execute(
+        delete(PortfolioStressRun).where(PortfolioStressRun.created_by.in_(keys))
+    )
+    # Model Engine v2 drafts, override history, and import ledgers are private
+    # analyst workspace state.  Imports reference both drafts and manifests;
+    # override events reference drafts, so delete dependency-first.
+    model_workbook_imports = await session.execute(
+        delete(ModelWorkbookImport).where(ModelWorkbookImport.analyst_id.in_(keys))
+    )
+    model_override_events = await session.execute(
+        delete(ModelOverrideEvent).where(ModelOverrideEvent.analyst_id.in_(keys))
+    )
+    model_drafts_v2 = await session.execute(
+        delete(ModelDraftV2).where(ModelDraftV2.analyst_id.in_(keys))
+    )
+    report_versions = await session.execute(
+        delete(ReportVersion).where(ReportVersion.analyst_id.in_(keys))
+    )
+    report_drafts = await session.execute(
+        delete(ReportDraft).where(ReportDraft.analyst_id.in_(keys))
+    )
+    checkpoints = await session.execute(
+        delete(ModelCheckpoint).where(ModelCheckpoint.analyst_id.in_(keys))
+    )
+    if owned_manifest_ids:
+        await session.execute(
+            update(MarketSnapshot)
+            .where(MarketSnapshot.source_manifest_id.in_(owned_manifest_ids))
+            .values(source_manifest_id=None)
+        )
+    await session.execute(
+        update(MarketSnapshot)
+        .where(MarketSnapshot.analyst_id.in_(keys))
+        .values(analyst_id=pseudonym)
+    )
+    manifests = await session.execute(
+        delete(SourceManifest).where(SourceManifest.analyst_id.in_(keys))
+    )
     research = await session.execute(
         delete(ResearchJob).where(ResearchJob.analyst_id.in_(keys))
     )
@@ -1020,8 +1914,46 @@ async def erase_analyst_data(
     models = await session.execute(
         delete(SavedModel).where(SavedModel.analyst_id.in_(keys))
     )
+    # Analysis contexts, investigations and findings are private analyst
+    # workspace state. Delete dependents before their owning contexts.
+    await session.execute(
+        delete(AnalysisFinding).where(AnalysisFinding.analyst_id.in_(keys))
+    )
+    await session.execute(
+        delete(AnalysisQueryRun).where(AnalysisQueryRun.analyst_id.in_(keys))
+    )
+    await session.execute(
+        delete(RVCandidate).where(
+            RVCandidate.run_id.in_(
+                select(RVScreenRun.id).where(RVScreenRun.analyst_id.in_(keys))
+            )
+        )
+    )
+    await session.execute(
+        delete(RVScreenRun).where(RVScreenRun.analyst_id.in_(keys))
+    )
+    await session.execute(
+        delete(SectorReviewRatification).where(SectorReviewRatification.analyst_id.in_(keys))
+    )
+    # V2 lineage is private analyst workspace state and carries the raw analyst
+    # identifier. Delete it explicitly before its context; the FK CASCADE is a
+    # database backstop for non-erasure context deletion, not the privacy policy.
+    lineage_edges = await session.execute(
+        delete(LineageEdge).where(or_(
+            LineageEdge.analyst_id.in_(keys),
+            LineageEdge.context_id.in_(owned_context_ids),
+        ))
+    )
+    await session.execute(
+        delete(AnalysisContextRecord).where(AnalysisContextRecord.analyst_id.in_(keys))
+    )
     runs = await session.execute(
         update(Run).where(Run.analyst_id.in_(keys)).values(analyst_id=None)
+    )
+    reporting_profiles = await session.execute(
+        update(IssuerReportingProfile)
+        .where(IssuerReportingProfile.updated_by.in_(keys))
+        .values(updated_by=None)
     )
     docs_anonymized = 0
     if email:
@@ -1029,12 +1961,33 @@ async def erase_analyst_data(
             update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
         )
         docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
+    await session.execute(
+        update(Document).where(Document.analyst_id.in_(keys)).values(analyst_id=pseudonym)
+    )
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
     return {
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
+        "source_manifests_deleted": manifests.rowcount or 0,  # type: ignore[attr-defined]
+        "model_checkpoints_deleted": checkpoints.rowcount or 0,  # type: ignore[attr-defined]
+        "report_drafts_deleted": report_drafts.rowcount or 0,  # type: ignore[attr-defined]
+        "report_versions_deleted": report_versions.rowcount or 0,  # type: ignore[attr-defined]
+        "analysis_insights_deleted": analysis_insights.rowcount or 0,  # type: ignore[attr-defined]
+        "notification_events_deleted": notifications.rowcount or 0,  # type: ignore[attr-defined]
+        "lineage_edges_deleted": lineage_edges.rowcount or 0,  # type: ignore[attr-defined]
+        "portfolio_stress_runs_deleted": portfolio_stress_runs.rowcount or 0,  # type: ignore[attr-defined]
+        "model_workbook_imports_deleted": model_workbook_imports.rowcount or 0,  # type: ignore[attr-defined]
+        "model_override_events_deleted": model_override_events.rowcount or 0,  # type: ignore[attr-defined]
+        "model_drafts_v2_deleted": model_drafts_v2.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_agenda_deleted": agenda_drafts.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_agenda_anonymized": finalized_agenda.rowcount or 0,  # type: ignore[attr-defined]
+        "decisions_anonymized": decisions_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "decision_votes_anonymized": decision_votes_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "thesis_versions_anonymized": thesis_versions_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "committee_snapshots_redacted": snapshots_redacted,
         "saved_models_deleted": models.rowcount or 0,  # type: ignore[attr-defined]
         "runs_anonymized": runs.rowcount or 0,  # type: ignore[attr-defined]
+        "reporting_profiles_anonymized": reporting_profiles.rowcount or 0,  # type: ignore[attr-defined]
         "documents_anonymized": docs_anonymized,
         "profile_deleted": profile.rowcount or 0,  # type: ignore[attr-defined]
     }

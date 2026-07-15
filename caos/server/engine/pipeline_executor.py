@@ -21,16 +21,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+import os
+import socket
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
+from config import get_settings
 from database import AsyncSessionLocal, PipelineRun, engine as db_engine
 from engine import autonomy
 from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.pipeline_executor")
+
+_WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
 # SQLite fallback: ids claimed in this process. Sync add (no await) so two
 # coroutines can't interleave a double-claim. Cleared per test by _sqlite_reset.
@@ -110,6 +115,18 @@ async def execute_job(job_id: str) -> None:
         if job is None or job.status != "running":
             return  # vanished, or already complete/failed (e.g. sweep beat us)
         try:
+            # Lease this job before doing any real work, committed on its own so
+            # a sibling replica's boot sweep can see it durably right away.
+            # Gates PipelineExecutor.start()'s reap below. Inside the try: a
+            # commit failure here must still reach the except-Exception guard
+            # below and mark the job failed, not strand it in 'running' with
+            # the lease never set.
+            job.worker_id = _WORKER_ID
+            job.lease_expires_at = _utcnow() + timedelta(
+                seconds=get_settings().caos_background_job_lease_seconds
+            )
+            await db.commit()
+
             result = await autonomy.run_cycle(
                 db, prior_fingerprints=job.prior_fingerprints or None)
             draft = result.get("draft") or {}
@@ -137,22 +154,32 @@ async def execute_job(job_id: str) -> None:
 
 class PipelineExecutor(InProcessTaskExecutor):
     """In-process background tasks for autonomy-cycle jobs (mirrors
-    ResearchExecutor). ponytail: in-process + sweep-on-boot — sound for one app
-    container. The ``claim_next_job`` SKIP LOCKED path is the multi-worker-safe
-    upgrade; this in-process executor is the single-worker default that stays."""
+    ResearchExecutor): enqueue() spawns same-process (a cycle is bound to
+    whichever replica's request handler enqueued it — ``claim_next_job``'s SKIP
+    LOCKED path stays additive and inert, unused by this executor). start()'s
+    boot sweep is lease-expiry gated like QueueWorker._reap_orphans, so one
+    replica can't kill another replica's still-live cycle on a rolling
+    redeploy."""
 
     name = "autonomy_in_process"
 
     async def start(self) -> None:
         """Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
-        stranding a job in 'running' forever. Runs in lifespan before any request,
-        so every 'running' row is provably a strand → sweep to 'failed'."""
+        stranding a job in 'running' forever. Gated on lease_expires_at (not
+        unconditional) so a rolling multi-replica redeploy can't have this
+        replica's boot sweep kill a cycle genuinely still running on a sibling.
+        A NULL lease is reapable (legacy rows, or a crash before the lease-set
+        commit) — see migrations/0038_background_job_leases and
+        .agent-reviews/redteam.md RT-2026-07-11-03."""
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(PipelineRun)
-                .where(PipelineRun.status == "running")
-                .values(status="failed", error="abandoned (process restart)",
-                        completed_at=_utcnow())
+                .where(
+                    PipelineRun.status == "running",
+                    or_(PipelineRun.lease_expires_at.is_(None), PipelineRun.lease_expires_at < _utcnow()),
+                )
+                .values(status="failed", error="abandoned (lease expired)",
+                        completed_at=_utcnow(), lease_expires_at=None)
             )
             await db.commit()
 

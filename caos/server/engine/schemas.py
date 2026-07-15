@@ -44,7 +44,7 @@ COMMITTEE_STATUS = frozenset({
 SEVERITY = frozenset({"CRITICAL", "MATERIAL", "MINOR"})
 
 # module_id pattern from CP_MODULE_PAYLOAD_BASE.schema (F1: L7 + infra included).
-MODULE_ID_RE = re.compile(r"^CP-(0|[1-6][A-F]?|X|SR|MON|DB|RENDER|EXTRACT)$")
+MODULE_ID_RE = re.compile(r"^CP-(0|2G|[1-6][A-F]?|X|SR|MON|DB|RENDER|EXTRACT)$")
 
 
 @dataclass
@@ -154,10 +154,26 @@ def validate_payload(p: ModulePayload) -> List[str]:
         errors.append(f"confidence {p.confidence!r} is not a permitted value")
     if p.schema_family not in {"Nested", "Infrastructure"}:
         errors.append(f"schema_family {p.schema_family!r} is invalid")
+    specialized_identity = {
+        "CP-4D": ("RestrictedGroupGuaranteeMap", "structural_priority_map"),
+        "CP-2G": ("ESGSustainabilityCreditRisk", "esg_credit_risk"),
+    }.get(p.module_id)
+    if specialized_identity is not None:
+        expected_name, expected_object = specialized_identity
+        if p.module_name != expected_name:
+            errors.append(f"module_name {p.module_name!r} must be {expected_name!r}")
+        if p.owned_object != expected_object:
+            errors.append(f"owned_object {p.owned_object!r} must be {expected_object!r}")
     if not isinstance(p.runtime_output, dict):
         errors.append("runtime_output must be an object")
     elif _has_non_finite(p.runtime_output):
         errors.append("runtime_output contains a non-finite number (NaN/inf)")
+    else:
+        # CP-4D / CP-2G use executable, closed schemas rather than the generic
+        # runtime object accepted by legacy modules. Import locally to keep the
+        # base schema module dependency-light and avoid an import cycle.
+        from engine.module_contracts import validate_runtime_output
+        errors.extend(validate_runtime_output(p.module_id, p.runtime_output))
     errors.extend(_claim_errors(p.claims))
     return errors
 

@@ -37,3 +37,34 @@ export function liveQaItems(rows: PortfolioRowDTO[]): QaQueueItem[] {
     .filter((x): x is QaQueueItem => x !== null)
     .sort((a, b) => SEV_ORDER[a.sev] - SEV_ORDER[b.sev]);
 }
+
+// A distinct, non-overlapping gate-failure tier: the CP-5 severity gate itself
+// PASSED, but engine/gate.py's fail-closed committee_status_from still refuses
+// committee readiness (low confidence, or an unrecognized/partial status the
+// default degrades). liveQaItems already owns Blocked/Restricted — this only
+// catches the rows that gate would silently miss, so a genuinely separate
+// "Failed Gates" governance category never double-counts a row liveQaItems
+// already lists.
+const COMMITTEE_ONLY_SEV: Record<string, "MEDIUM" | "LOW"> = {
+  "Draft Only": "MEDIUM",
+  "Insufficient Information": "LOW",
+};
+
+export function liveFailedGates(rows: PortfolioRowDTO[]): QaQueueItem[] {
+  return rows
+    .map((r): QaQueueItem | null => {
+      if (GATE_SEV[r.qa_status]) return null; // already a liveQaItems row
+      const sev = COMMITTEE_ONLY_SEV[r.committee_status];
+      if (!sev) return null;
+      return {
+        id: r.run_id.slice(0, 8),
+        issuer: r.ticker || r.name,
+        module: "CP-5",
+        sev,
+        age: r.as_of || "—",
+        text: `CP-5 gate ${r.qa_status} but committee status is "${r.committee_status}" — not committee-ready`,
+      };
+    })
+    .filter((x): x is QaQueueItem => x !== null)
+    .sort((a, b) => SEV_ORDER[a.sev] - SEV_ORDER[b.sev]);
+}

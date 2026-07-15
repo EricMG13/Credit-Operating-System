@@ -12,7 +12,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
@@ -23,14 +23,22 @@ import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { EvidenceSyncProvider } from "@/lib/evidence-sync";
+import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
 import { loadLayout, saveLayout, DEFAULT_LAYOUT, type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 import { DecisionRail, Panel, SourceRail } from "@/components/deepdive/rails";
+import { ModuleFinder } from "@/components/deepdive/ModuleFinder";
+import { StandingViewStrip } from "@/components/deepdive/StandingViewStrip";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
+import { fromReportCaveat } from "@/lib/provenance";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { useAsk } from "@/components/shared/Ask";
-import { getIssuer } from "@/lib/api";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { createThesisVersion, getIssuerProfile, updateAnalystWorkspace } from "@/lib/api";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import type { DecisionContextState } from "@/lib/decision-state";
+import { analysisApi, useAnalysisContext } from "@/lib/analysis-workbench";
 
 // Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
 // the tab renderers (tabs.tsx + its fixture/chart tree) load when a module tab is
@@ -43,6 +51,8 @@ const DebateTab = dynamic(() => import("@/components/deepdive/tabs").then((m) =>
 const RecoveryTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.RecoveryTab), { ssr: false, loading: TabLoading });
 const CovenantsTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.CovenantsTab), { ssr: false, loading: TabLoading });
 const ModuleView = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.ModuleView), { ssr: false, loading: TabLoading });
+const LiveCovenantCapacity = dynamic(() => import("@/components/deepdive/LiveCovenantCapacity").then((m) => m.LiveCovenantCapacity), { ssr: false, loading: TabLoading });
+const ScenarioNetworkPanel = dynamic(() => import("@/components/model/ScenarioNetworkPanel").then((m) => m.ScenarioNetworkPanel), { ssr: false, loading: TabLoading });
 const IssuerChat = dynamic(() => import("@/components/deepdive/IssuerChat").then((m) => m.IssuerChat), { ssr: false });
 const EvidenceModal = dynamic(() => import("@/components/reports/EvidenceModal").then((m) => m.EvidenceModal), { ssr: false });
 
@@ -68,9 +78,9 @@ const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
 const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
   { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
-  { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
+  { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-2G"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  { label: "L4 LEGAL", mods: ["CP-4"] },
+  { label: "L4 LEGAL", mods: ["CP-4", "CP-4D"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
@@ -79,6 +89,8 @@ const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
+  const evidenceParam = searchParams.get("evidence");
+  const exactRunId = searchParams.get("run");
   // Issuer opened from the directory (?issuer=). Absent → the ATLF reference deal
   // (the bespoke showcase). The live engine overlay is keyed off this id; the
   // bespoke debate/recovery/covenant tabs and DEAL narrative are ATLF fixtures,
@@ -86,7 +98,11 @@ function DeepDive() {
   // reference template rather than implying they are that issuer's own analysis.
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  const [issuerMeta, setIssuerMeta] = useState<{ name: string; ticker?: string | null } | null>(null);
+  const [issuerMeta, setIssuerMeta] = useState<{
+    name: string;
+    ticker?: string | null;
+    signals: Record<string, number | string | boolean | null>;
+  } | null>(null);
   // A failed lookup must not read as an eternal "Loading issuer…" — track the
   // failure and offer a retry instead of a permanent loading label.
   const [issuerErr, setIssuerErr] = useState(false);
@@ -95,13 +111,16 @@ function DeepDive() {
     if (isReference) { setIssuerMeta(null); return; }
     let stale = false;
     setIssuerErr(false);
-    getIssuer(issuerId)
-      .then((d) => { if (!stale) setIssuerMeta({ name: d.name, ticker: d.ticker }); })
+    getIssuerProfile(issuerId)
+      .then((d) => { if (!stale) setIssuerMeta({ name: d.issuer.name, ticker: d.issuer.ticker, signals: d.signals }); })
       .catch(() => { if (!stale) { setIssuerMeta(null); setIssuerErr(true); } });
     return () => { stale = true; };
   }, [issuerId, isReference, issuerAttempt]);
   const code = isReference ? DEAL.code : (issuerMeta?.ticker || "—");
   const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? (issuerErr ? "Issuer unavailable" : "Loading issuer…"));
+  const analysis = useAnalysisContext({ name: `${dealLabel} credit view` });
+  const [affirmState, setAffirmState] = useState<"idle" | "saving" | "saved" | "partial" | "error">("idle");
+  const [affirmNotice, setAffirmNotice] = useState<string | null>(null);
   const [tab, setTab] = useState(modParam || (isReference ? "CP-6A" : "CP-1"));
 
   useEffect(() => {
@@ -221,16 +240,17 @@ function DeepDive() {
   }, [evModal, reports]);
   // Live engine output for the seeded ATLF deal, when a run exists. Falls back
   // to the seeded register otherwise (offline demo unaffected).
-  const live = useLiveRun(issuerId);
+  const live = useLiveRun(issuerId, exactRunId);
   // Honesty caveat for the sub-header: reference deal · resolving · live · no-run.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: live.loading, runId: live.runId, phase: live.phase });
 
   // Adaptivity: the decision rail (IC verdict / sizing — analytical output)
   // earns its space and restores on wide screens, but auto-collapses below
-  // ~1280px so it doesn't crush the analysis column. The evidence rail is left
+  // ~1440px so the central analysis keeps a usable instrument width before the
+  // verdict rail claims 352px. The evidence rail is left
   // user-controlled (default collapsed, see above) — width goes to analysis.
   useEffect(() => {
-    const NARROW = 1280;
+    const NARROW = 1440;
     let narrow = window.innerWidth < NARROW;
     if (narrow) setDecisionOpen(false);
     const onResize = () => {
@@ -278,15 +298,125 @@ function DeepDive() {
   // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
   // instead of an empty ModuleView under a ● LIVE badge.
   const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
+  const referenceUnavailable = isReference && (tab === "CP-2G" || tab === "CP-4D");
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
   // screen), and live output is never held behind replay theater — otherwise
   // the pane reads "awaiting upstream" under a ● LIVE badge. (critique: two
   // state machines disagreeing)
-  const unlocked = !isReference || moduleIsLive || isCleared(gateState(gateId));
+  const unlocked = referenceUnavailable || !isReference || moduleIsLive || isCleared(gateState(gateId));
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
+  const decisionAsOf = live.asOf ?? (isReference ? "2026-05-31 · reference fixture" : null);
+  const decisionProvenance = fromReportCaveat(caveatKind, caveatKind === "reference" && !!live.runId);
+  const deepAuthority = decisionAsOf && decisionProvenance ? {
+    provenance: { ...decisionProvenance, asOf: decisionAsOf },
+    approval: live.committeeStatus === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
+  } : undefined;
+  const unavailableDeepState = live.loading
+    ? { kind: "loading" as const, message: "Checking latest completed run…" }
+    : live.phase === "error"
+      ? { kind: "error" as const, message: "Latest run could not be loaded" }
+      : { kind: "unavailable" as const, message: live.phase === "in_flight" ? "Latest run is still in flight" : "No completed run available" };
+  const deepDecision: DecisionContextState = decisionAsOf && (caveatKind === "reference" || caveatKind === "live")
+    ? {
+        whatChanged: { kind: "ready", value: caveatKind === "reference" ? `${run.completed}/${run.total} modules cleared` : `${Object.keys(live.liveOuts).length} module${Object.keys(live.liveOuts).length === 1 ? "" : "s"} with live output`, asOf: decisionAsOf, authority: deepAuthority },
+        whyItMatters: live.council[0]
+          ? { kind: "ready", value: `${live.council[0].finding_id} — ${live.council[0].severity}${live.council.length > 1 ? ` (+${live.council.length - 1} more)` : ""}`, asOf: decisionAsOf, authority: deepAuthority }
+          : live.committeeStatus
+            ? { kind: "ready", value: `Committee status: ${live.committeeStatus}`, asOf: decisionAsOf, authority: deepAuthority }
+            : { kind: "observed-empty", message: "No committee finding observed", asOf: decisionAsOf, authority: deepAuthority },
+        requiredAction: { kind: "ready", value: live.council[0]?.required_remediation ?? (caveatKind === "reference" ? "Review CP-6A debate before committee" : "Review live module outputs"), asOf: decisionAsOf, authority: deepAuthority },
+        evidenceHealth: { kind: "ready", value: decisionProvenance?.detail ?? "Evidence lineage available", asOf: decisionAsOf, authority: deepAuthority },
+      }
+    : { whatChanged: unavailableDeepState, whyItMatters: unavailableDeepState, requiredAction: unavailableDeepState, evidenceHealth: unavailableDeepState };
+
+  useEffect(() => {
+    const active = analysis.context;
+    if (!active) return;
+    const issuerIds = active.issuer_ids.includes(issuerId)
+      ? active.issuer_ids
+      : [...active.issuer_ids, issuerId];
+    const runId = live.runId ?? active.artifacts.issuer_run_id;
+    if (issuerIds === active.issuer_ids && runId === active.artifacts.issuer_run_id) return;
+    void analysis.patch({
+      issuer_ids: issuerIds,
+      artifacts: { ...active.artifacts, issuer_run_id: runId },
+    }).catch(() => setAffirmNotice("Analysis context could not be updated."));
+  }, [analysis, issuerId, live.runId]);
+
+  const affirmView = async () => {
+    const context = analysis.context;
+    if (isReference || !live.runId || !context) {
+      setAffirmNotice(isReference
+        ? "Reference output cannot be ratified."
+        : analysis.error ?? "A completed owned run is required before affirmation.");
+      return;
+    }
+    setAffirmState("saving");
+    setAffirmNotice(null);
+    try {
+      const thesis = await createThesisVersion({
+        issuer_id: issuerId,
+        trigger: "manual",
+        thesis_md: [
+          `# ${dealLabel} credit view`,
+          "",
+          `Run: ${live.runId}`,
+          `Observed: ${decisionAsOf ?? "unknown"}`,
+          `Committee state: ${live.committeeStatus ?? "unratified"}`,
+          `Module coverage: ${Object.keys(live.liveOuts).length}`,
+          live.council[0] ? `Required action: ${live.council[0].required_remediation}` : "Required action: review live module outputs",
+        ].join("\n"),
+      });
+      const nextSurfaceState = {
+        ...context.surface_state,
+        "deep-dive": {
+          ...(context.surface_state["deep-dive"] ?? {}),
+          active_id: thesis.id,
+          selected_ids: [live.runId],
+          view: layout,
+        },
+      };
+      await analysis.patch({
+        issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
+        artifacts: { ...context.artifacts, issuer_run_id: live.runId },
+        surface_state: nextSurfaceState,
+      });
+      const [findingResult] = await Promise.allSettled([
+        analysisApi.createFinding({
+          context_id: context.id,
+          kind: "credit-view",
+          title: `${dealLabel} view affirmed`,
+          body: `Thesis v${thesis.version} affirmed from run ${live.runId.slice(0, 8)}.`,
+          source_surface: "deep-dive",
+          source_run_id: live.runId,
+          evidence: { thesis_version_id: thesis.id, module_id: tab },
+        }),
+        updateAnalystWorkspace((workspace) => {
+          const prior = Array.isArray(workspace.affirmations) ? workspace.affirmations : [];
+          return {
+            ...workspace,
+            affirmations: [
+              { issuerId, runId: live.runId, stance: live.committeeStatus ?? "Analyst affirmed", ts: new Date().toISOString(), thesisVersionId: thesis.id },
+              ...prior,
+            ].slice(0, 20),
+          };
+        }),
+      ]);
+      if (findingResult.status === "rejected") {
+        setAffirmState("partial");
+        setAffirmNotice(`Thesis v${thesis.version} saved; finding pin needs retry.`);
+      } else {
+        setAffirmState("saved");
+        setAffirmNotice(`Thesis v${thesis.version} saved and pinned.`);
+      }
+    } catch (reason) {
+      setAffirmState("error");
+      setAffirmNotice(reason instanceof Error ? reason.message : "View could not be affirmed.");
+    }
+  };
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -319,17 +449,10 @@ function DeepDive() {
   };
 
   return (
-    <EvidenceSyncProvider>
-    <ResponsiveShell
+    <EvidenceSyncProvider initialActive={evidenceParam}>
+    <EnterprisePage kind="object"
       identity={
-        <>
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Directory
-          </Link>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-xl text-caos-text font-medium truncate min-w-[6rem]">{dealLabel}</span>
+        <ShellIdentity tag="DEEP-DIVE" title={dealLabel}>
           {issuerErr && !isReference ? (
             <button
               onClick={() => setIssuerAttempt((a) => a + 1)}
@@ -361,18 +484,35 @@ function DeepDive() {
               no run for {code} · run analysis to populate
             </span>
           )}
-        </>
+        </ShellIdentity>
       }
       primaryAction={
         <button
+          onClick={() => void affirmView()}
+          disabled={isReference || !live.runId || analysis.loading || affirmState === "saving"}
+          title={isReference ? "Reference output cannot be ratified" : "Append an immutable thesis version and pin the affirmed view"}
+          className="caos-primary-action focus-ring disabled:opacity-40"
+        >
+          {affirmState === "saving" ? "Affirming…" : affirmState === "saved" ? "View affirmed" : "Affirm view"}
+        </button>
+      }
+      status={
+        <span className="flex items-center gap-2">
+          {decisionAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {decisionAsOf}</span> : null}
+          {affirmNotice ? <span role="status" className="tabular text-caos-2xs text-caos-muted">{affirmNotice}</span> : null}
+        </span>
+      }
+      contextualControls={
+        <button
           onClick={() => setChatOpen(!chatOpen)}
           title="Ask follow-up questions about this issuer"
-          className="tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+          className="caos-secondary-action focus-ring"
         >
           ASK {code}
         </button>
       }
-      contextualControls={
+      utilityLabel="Layout and simulation"
+      utilityControls={
         <>
           <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
             <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
@@ -404,6 +544,59 @@ function DeepDive() {
       }
       narrowContract={narrowContract}
     >
+      <div className="caos-persona-route deepdive-workbench flex-1 min-h-0">
+      <PersonaWorkbench
+        surface="deep-dive"
+        decision={<DecisionHeader state={deepDecision} defaultOpen={false} />}
+        primary={<div className="h-full min-h-0 flex flex-col">
+      <section className="sm:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Deep-Dive phone triage">
+        <div className="rounded border border-caos-border bg-caos-panel">
+          <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
+            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Phone triage · read only</span>
+            <span className="flex items-center gap-1 tabular text-caos-xs text-caos-muted">
+              <StatusGlyph kind={caveatKind === "live" ? "success" : caveatKind === "error" ? "blocked" : "idle"} />
+              {caveatKind === "live" ? "Live run" : caveatKind === "error" ? "Run unavailable" : "Reference or incomplete"}
+            </span>
+          </div>
+          <div className="grid gap-4 p-4">
+            <div>
+              <div className="text-caos-xl font-medium text-caos-text">{dealLabel}</div>
+              <div className="mt-1 text-caos-sm leading-relaxed text-caos-muted">
+                Read posture, freshness and clearance here. Module authoring, evidence synchronization, layouts, simulation, issuer chat, QA actions and exports remain available on the desktop workstation.
+              </div>
+            </div>
+            <dl className="grid gap-px overflow-hidden rounded border border-caos-border bg-caos-border tabular text-caos-xs">
+              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Standing view</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.whatChanged ? deepDecision.whatChanged.value : "message" in deepDecision.whatChanged ? deepDecision.whatChanged.message : "Observation unavailable"}</dd></div>
+              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Required action</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.requiredAction ? deepDecision.requiredAction.value : "message" in deepDecision.requiredAction ? deepDecision.requiredAction.message : "Action unavailable"}</dd></div>
+              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Evidence health</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.evidenceHealth ? deepDecision.evidenceHealth.value : "message" in deepDecision.evidenceHealth ? deepDecision.evidenceHealth.message : "Evidence unavailable"}</dd></div>
+              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Run progress</dt><dd className="mt-1 text-caos-text">{run.completed}/{run.total} modules</dd></div>
+            </dl>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={`/query?issuer=${encodeURIComponent(issuerId)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
+                className="caos-action-secondary no-underline focus-ring"
+              >
+                Investigate in Query
+              </Link>
+              <Link
+                href={`/pipeline?issuer=${encodeURIComponent(issuerId)}${live.runId ? `&run=${encodeURIComponent(live.runId)}` : ""}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
+                className="caos-action-secondary no-underline focus-ring"
+              >
+                Hand off to desk
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div className="hidden sm:contents">
+      {/* Decision header — evidence health mirrors the same caveat grammar the
+          identity chip already states; the other three cells lean only on
+          data this page already fetched (the sim clock, live module count,
+          CP-5C council). Loading/error/no-run all honestly read "— no data"
+          rather than a guessed decision. */}
+      <div className="px-2.5 py-2 bg-caos-panel border-b border-caos-border">
+        <ScenarioNetworkPanel issuerId={issuerId} runId={live.runId} />
+      </div>
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal
@@ -415,6 +608,7 @@ function DeepDive() {
         className="h-9 bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto caos-no-scrollbar"
       >
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline" title="Alt + , / .  cycles the open module">Module outputs</span>
+        <ModuleFinder onSelect={setTab} activeId={tab} />
         {/* fallow-ignore-next-line complexity */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
@@ -525,6 +719,15 @@ function DeepDive() {
         <span className="text-caos-muted">Hold <span className="tabular text-caos-text">Alt</span> — <span className="tabular text-caos-text">,</span>/<span className="tabular text-caos-text">.</span> cycle modules, <span className="tabular text-caos-text">C</span> collapse panes, <span className="tabular text-caos-text">K</span> ask.</span>
       </FirstRunHint>
 
+      {/* Decision-first opener: the standing view leads, above the module
+          panes (P2-WP-5). "Revise" deep-links into the module tab below. */}
+      <StandingViewStrip
+        isReference={isReference}
+        issuerId={issuerId}
+        runId={live.runId}
+        onRevise={(id) => setTab(id)}
+      />
+
       {/* three-pane workspace */}
       <div
         className="flex-1 min-h-0 grid gap-2 p-2"
@@ -551,6 +754,10 @@ function DeepDive() {
                 <span className="tabular text-caos-xs text-caos-muted" title="This module has no issuer-specific output available.">
                   ◦ NO OUTPUT
                 </span>
+              ) : referenceUnavailable ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="No synthetic reference finding is supplied for this module.">
+                  ◦ NO REFERENCE OUTPUT
+                </span>
               ) : null}
             </span>
           }
@@ -575,9 +782,24 @@ function DeepDive() {
               tab === "CP-6A" ? <DebateTab onOpenEvidence={setEvModal} layout={layout} /> :
               tab === "CP-6E" ? <DebateTab variant="CP-6E" onOpenEvidence={setEvModal} layout={layout} /> :
               tab === "CP-3B" ? <RecoveryTab onOpenEvidence={setEvModal} layout={layout} /> :
-              <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
-            ) :
-            <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+              // CP-4: the ATLF showcase fixture PLUS the live cross-default domino
+              // map (WP-4 G13) — the fixture has its own bespoke COVENANTS/CAPACITY
+              // narrative, the domino section is real, run-sourced data (honestly
+              // empty when this issuer_id has no completed run, which is the ATLF
+              // reference's usual state).
+              <>
+                <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
+                <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} />
+              </>
+            ) : (
+              <>
+                <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+                {tab === "CP-4" ? <LiveCovenantCapacity signals={issuerMeta?.signals ?? {}} /> : null}
+                {/* Same live domino map for a real issuer's CP-4 tab — the map
+                    the spec calls out as needing to "appear for live issuers too". */}
+                {tab === "CP-4" ? <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} /> : null}
+              </>
+            )
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-caos-muted">
               <Dot sev={gateState(gateId)} pulse={gateState(gateId) === "running"} />
@@ -615,7 +837,11 @@ function DeepDive() {
           issuerName={isReference ? undefined : issuerMeta?.name}
         />
       ) : null}
-    </ResponsiveShell>
+      </div>
+        </div>}
+      />
+      </div>
+    </EnterprisePage>
     </EvidenceSyncProvider>
   );
 }

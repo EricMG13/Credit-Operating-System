@@ -1,9 +1,14 @@
 # CAOS — Pre-Deployment Program Plan
 
+> **Latest status:** the **2026-07-13 coverage review** below is the current
+> release-planning overlay. The earlier 2026-07-13 code reconciliation remains
+> useful implementation history, but it predates `c6c0f9a6` and must be
+> re-grounded before any checkbox is closed.
+
 > **For agentic workers:** this is the **master program plan** (current state
 > → enterprise transfer). It tracks **status** only — status verdicts,
 > checkboxes, exit gates. Every "tested regularly" / cadence claim resolves to
-> a loop ID (`L1`–`L20`) defined in
+> a loop ID (`L1`–`L22`) defined in
 > [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md), which owns
 > **mechanism** — do not restate cadences here without a loop ID; if a claim
 > needs a new automation, the loop doc names the work item. Tooling/skills
@@ -15,8 +20,8 @@
 > pattern); do not implement them directly from this document. S/M items may
 > be executed directly. Checkboxes (`- [ ]`) are the tracking surface.
 
-**Goal:** take CAOS from today's state (engine certified, 5 concepts live to
-varying degrees, pilot deployed) to **pre-deployment**: the final stage before
+**Goal:** take CAOS from the latest reconciled state below to
+**pre-deployment**: the final stage before
 transfer to enterprise, where the **only** outstanding items are
 (1) connecting the Monitor concept's alert seam to the enterprise email
 client, and (2) activating the Bloomberg market-data connector (built in
@@ -32,7 +37,39 @@ ordering in [DEVELOPMENT_PHASES.md](DEVELOPMENT_PHASES.md) where they
 conflict (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens *after*
 transfer — it is outstanding item #2 by design).
 
-## Trunk state (this grounding)
+### 2026-07-13 coverage review — gaps added to the release ledger
+
+This review examined the plan itself against the deploy stack, CI/nightly
+workflows, migration/backup scripts, DR runbook, current engine registry, and
+the current checkout (`codex/111@c6c0f9a6`). The checkout is dirty with
+parallel work, so this is **not** a fresh readiness verdict and does not mark
+implementation items complete. It closes omissions in what the program must
+prove.
+
+| ID | Coverage gap found | Why the prior plan was insufficient | Blocking owner / proof |
+|---|---|---|---|
+| PG-01 | Immutable release candidate and provenance | H1 could build from a mutable checkout; no release manifest pinned commit, image digest, schema head, config fingerprint, or test evidence to the same bytes. | **H0** — signed release manifest, clean `origin/main` checkout, final-image scan, archived evidence. |
+| PG-02 | Production-schema migration and rollback decision | CI proves generic up/down, but not upgrade from the actual production revision/data shape or compatibility with the last-good image. | **H0** — schema preflight, restored-snapshot rehearsal, expand/contract decision, abort thresholds, pre-migration backup. |
+| PG-03 | Independent availability and infrastructure alerting | G2 routed app failures through CAOS's own Monitor; a dead app/host/DB/ingress cannot alert through itself. | **G7** — external probe plus host/container/disk/cert/backup alerts, tested delivery and named owner. |
+| PG-04 | Off-host backup is configured, fresh, encrypted, and observable | G6 credited an optional hook; unset or failed sync still means total loss on host failure. | **G8** — observed off-host sync, age/failure alarm, encryption/access evidence, realistic restore. |
+| PG-05 | Host operating baseline | The app/container posture did not own firewall/SSH, Docker daemon access, OS patches, time sync, disk capacity/encryption, log rotation, or certificate expiry. | **G9** — dated host-readiness artifact on the target host. |
+| PG-06 | Spec-only module promise resolution | UF-01 named CP-SR/CP-MON/CP-RENDER/CP-EXTRACT but no blocking item owned implementation or an explicit equivalent-service decision; X5 incorrectly made CP-SR non-blocking. | **C13** — promise-to-runtime map and production E2E; Sector Review cannot pass on reference synthesis alone. |
+| PG-07 | Data governance beyond GDPR erasure | No record-class retention, backup-expiry, legal-hold, data-classification, vendor residency/DPA, or immutable-record policy. | **E8/H3** — approved policy, control tests, and accepted exceptions. |
+| PG-08 | Persona-critical UAT | One same-number concept link does not prove analyst, PM/CIO, and Research/QA workflows, degraded states, exports, supported browsers, or narrow/zoom layouts. | **H6** — signed UAT matrix on the immutable candidate. |
+| PG-09 | Beta/production data separation | F1 said to retain golden/corpus issuers in “production,” contradicting demo-seed-off and risking fixture data in the live workspace. | **F1 corrected** — isolated beta workspace; fixtures remain offline; production starts empty unless real pilot data is explicitly migrated. |
+| PG-10 | Cutover, communications, hypercare, and abort ownership | Sign-off existed, but no change window, freeze, user notice, rollback decision owner, success thresholds, or post-cutover observation period. | **H7** — timed cutover/rollback run sheet and hypercare handoff. |
+| PG-11 | Supply-chain coverage of the final OCI image | Dependency/SBOM checks did not prove the final image's OS packages, digest, or critical-vulnerability disposition. | **H0** — scan the built release image by digest and attach the result. |
+| PG-12 | Blocker-only completion accounting | The final raw checkbox grep could never pass while intentionally non-blocking C7–C9 and X1–X13 remained open. | **H8** — explicit blocker ledger; expansion backlog stays outside the release verdict. |
+
+These rows are release blockers. PG-01/02/03/04/06/08/09/11/12 are
+non-waivable because they establish artifact identity, recoverability, outage
+detection, honest product scope, test-data separation, and the validity of the
+verdict itself. PG-05/07/10 may be satisfied by an enterprise-owned equivalent
+only when H3 records the exact control, owner, evidence, and H5 approval; a
+generic “accepted risk” is not closure. The matching critic pass is recorded
+in `.agent-reviews/redteam.md` (RT-2026-07-13-152…160).
+
+## Historical trunk state — 2026-07-11 (superseded)
 
 Grounded 2026-07-11 by direct code inspection (`git grep`/`git show`/`git
 ls-tree`), a live offline test run, and GitHub API queries — not inherited
@@ -60,6 +97,116 @@ this document; none flipped. One net-new fact from the drift: migration
 default off) cross-**team** isolation mechanism (`caos/server/tenancy.py`) —
 this is orthogonal to **E2**'s roles-lite decision (within-team analyst/
 admin/read-only roles); E2 remains open (no `role` column exists).
+
+### 2026-07-12 update — working branch `feat/design-rebuild-p1`, not `main`
+
+**This session is grounded on an unmerged feature branch, not `origin/main`.**
+Everything above (and the exec-notes threaded through §§3–9 below) describes
+`origin/main`; this block is the delta.
+
+| Check | Result |
+|---|---|
+| `origin/main` tip | Advanced to **`14cb9c53`** (from `313ebac`) — merged #165 (D4 stamp) and #167 (C1/E4/E6 stamp). Those items' `[ ]`/exec-note state below is current as of `14cb9c53`. |
+| Working branch | `feat/design-rebuild-p1`, **15 commits ahead of `origin/main`, 0 behind**, not yet pushed/PR'd. A P1-WP/P2-WP work-package initiative (shell unification, nav registry, breakpoints, role views, provenance-chip grammar, ⌘K palette, a11y sweep, Command governance panel, Monitor live alert inbox, Reports export trigger) — **not reconciled into the A–H phase-letter structure yet**; do that at the next full grounding. Plus substantial **uncommitted** WIP on top (`database.py`, `main.py`, `config.py`, `research_executor.py`, `research_report_executor.py`, `routes/issuers.py` modified; new migrations in flight) — this tree is being edited in parallel by the user right now; treat file-level specifics as a snapshot, not a fact to build on. |
+| Dependabot, live re-check | **2 open** (#139 vitest 3→4, #140 @vitest/coverage-v8 3→4) — not 12. A5's same-day exec-note already explains the drop (9 of 12 merged 2026-07-11); this just confirms the live count today. |
+| Server suite, this branch + WIP | **22 failed / 1070 passed / 2 skipped / 319 errors**, 146.5s (`.venv311`, `caos/tests/server`, offline). **Not a deploy-ready baseline** — do not cite the `origin/main` 1393/2 number for this branch. The error volume (319) is consistent with a fixture/conftest-level break from the in-flight core-file WIP, not 319 independent test bugs; root-causing it is out of scope for this doc update and the tree is a moving target. Re-run clean once the WIP settles. |
+| C3-seam, concrete local delta | On **this branch only**: `monitor/page.tsx` now imports a live `AlertInbox` component (`components/monitor/AlertInbox.tsx`) driven by `useAutonomyDraft` (`lib/engine/useAutonomyDraft.ts`) + `draftToAlertRows`, and migration `0038_alert_states` (table `alert_states`: `alert_key`/`state`/`assignee`/`note`/`analyst_id`) landed — real progress beyond `origin/main`'s "confirmed entirely absent." **But:** `monitor/page.tsx` still also imports `simAlertsToday`/`CRITICAL_ALERTS` (mock) and `AlertFeed`/`EmailIntel` (mock) alongside the live inbox — a hybrid state, not yet a clean live/labeled-sample split. The `AlertSink`/`EmailSink`/`InAppSink` **interface abstraction itself is still zero-hit** (`git grep -in "alertsink\|emailsink\|inappsink"` empty), even on this branch — the P2-WP work built a direct alert-inbox path, not the seam interface C3-seam specifies. Reconcile which approach wins at C3-seam pickup. |
+| Local branch/worktree hygiene | Materially worse than any prior count in this document — **104 local branches** as of this check (A6 already flags this as a moving, machine-local number not to hard-code; re-verify at pickup, do not carry today's number forward either). |
+
+### 2026-07-13 authoritative reconciliation — current code and unwired controls
+
+**This block supersedes every earlier “today/current” count in this document.**
+Older grounding remains below as program history and acceptance-test context;
+do not use it for a release decision. Status was re-derived from the current
+checkout, `origin/main`, the feature tracker, route/component source, tests,
+GitHub Actions, and open PRs. “Present in the working tree” is deliberately
+not treated as “merged on main.”
+
+| Check | Latest result |
+|---|---|
+| `origin/main` | **`a930defa`**. The latest main CI run, [29195679256](https://github.com/EricMG13/Credit-Operating-System/actions/runs/29195679256), is **red on E2E only**: Research did not render the expected `● LIVE` provenance branch, and Settings did not render the server-backed Workspace heading. The other frontend, server, Docker, security, lock, taxonomy, and deploy-lint jobs passed. Main is therefore **not deployable** until those two assertions pass on a new main-tip run. |
+| Current checkout | `codex/111@29b4fa6e`, **2 commits ahead / 0 behind** `origin/main`; the two committed deltas add decision/thesis/scenario work and capture the residual workspace update. **186 modified/untracked paths** remain in the shared worktree, including this reconciliation. This is implementation evidence, not a releasable artifact. |
+| Current-checkout verification | Most recent full local sweep in this session: frontend **673/673**, server **1457 passed / 7 skipped**, TypeScript, lint, and production build green; axe **0 serious/critical across 15 routes**; responsive contract **75/75**; Impeccable **36/40**; adversarial review CLEAN. These results prove the checkout tested, but they do not override red main CI or the dirty-tree release gate. |
+| Feature tracker | `caos/docs/qa/FEATURE_TRACKER.csv`: **355/355 `Pass`**, 0 `Pending Verification`. Tracker completion is UI/contract evidence only; it does not upgrade reference/demo data to live. |
+| Open PRs | **8** at reconciliation: #169, #184, #187–#192. C7, C8, and C9 have green candidate/stamp PRs, but remain open and are not counted as merged capability. Re-check the [open PR list](https://github.com/EricMG13/Credit-Operating-System/pulls) at A5/H1. |
+| Control scan | **317 production JSX controls** inspected by static scan plus source review: 294 `<button>`, 15 `<select>`, and 8 `role="button"` occurrences (tests excluded). There are **0 literal dead raw buttons** (no empty click handler, `undefined` click handler, or `href="#"` action). The only permanently disabled control family is the three Settings per-lane model selectors, explicitly labeled “Not yet applied.” Other disabled controls are prerequisite/state gates and are not defects by themselves. |
+
+#### Control classification
+
+| Class | Meaning | Deployment treatment |
+|---|---|---|
+| **Wired** | Reaches the intended real API/state transition or performs an honest local utility such as view/layout/export. | No remediation row. |
+| **State-gated** | Disabled until a documented prerequisite exists: selection, input, completed run, actionable evidence, or committee readiness. | Keep; test the enabled and disabled paths. Do not call it dead. |
+| **Local/reference-only** | The control works, but only changes browser state, replays fixtures, exports a lesser format, or consumes reference/demo data. | Remediate or keep explicitly labeled; cannot satisfy a live phase gate. |
+| **Backend-unwired** | UI exists but the production mutation/source/engine seam does not, or the named action is only a focus/navigation proxy. | Open blocker with an owner and exit test. |
+
+#### Unwired and partial user-facing controls — exhaustive current register
+
+| ID | Surface / control | What happens now | Missing production behavior | Class / owner |
+|---|---|---|---|---|
+| UW-01 | Issuers batch actions | Run pipeline, add to watchlist, and CSV export are real. Assign owner, refresh, and delete are deliberately not rendered because they have no backing semantics (`batchActions.ts:1-5`; `issuers/page.tsx:264-266`). | Add owned server mutations, audit rows, per-item results, and tests before exposing any of the three omitted actions. | Backend-unwired · C2/E3 |
+| UW-02 | Sponsors — **Review selected sponsor** | The primary button only focuses `#sponsor-record`; it does not create a review, ratification, assignment, or finding (`sponsors/page.tsx:113-122`). | Persist a sponsor review/finding or rename the control to an honest navigation label. | Backend-unwired · C4 |
+| UW-03 | Sponsors — monitoring thresholds | The panel states sponsor thresholds are not stored and only links to Monitor (`sponsors/page.tsx:240-243`). | Sponsor-scoped watch-rule create/edit flow with evidence and owner. | Backend-unwired · C3-seam |
+| UW-04 | Command — Sample Sleeve and replay controls | “Sample — not live,” static sleeve size/DM, and `useSharedDayRun` replay remain beside live coverage and Watchtower (`command/page.tsx:13-16,188-205,220-226,275-286`). | Replace sample positions/stats with persisted portfolio data or an empty state; server-backed event chronology if replay remains. | Local/reference-only · C2 |
+| UW-05 | Pipeline — run modes / SimControls | The DAG can display a real run, but mode changes, play/pause, clocks, event timing, and seeded driver/QA metadata use `useSimRun`/fixture plans. They do not create, cancel, or replay a server run. | Bind controls to immutable server run events, or confine them to a clearly separate reference workspace. | Local/reference-only · C4 |
+| UW-06 | Deep-Dive — bespoke tabs and evidence rails | Live module output is real; CP-0/CP-5B rails, committee output, charts/steps, and bespoke debate/recovery/covenant views remain hidden or reference-only for real issuers (`rails.tsx:18-32`; `tabs.tsx:419-424`). | Live adapters for the retained panes and evidence interactions, preserving current desktop behavior. | Backend-unwired · C4 |
+| UW-07 | Model — scenario preset / natural-language Apply and Reset | Buttons recalculate a local `active` scenario lens in `ScenarioPanel`; they do not write worksheet overrides, the mutable model, or a checkpoint (`ScenarioPanel.tsx:410-435`). | Explicit apply-to-model transaction with preview, undo, provenance, persistence, and checkpoint linkage. | Local-only · A-1/C4 |
+| UW-08 | Model — **Export model** | Downloads dependency-free CSV despite the committee-pack/XLSX concept (`components/model/export.ts:1-7`; `model/page.tsx:673-679`). | True `.xlsx` workbook with assumptions, scenarios, overrides, run/checkpoint/as-of stamps, and a round-trip test. | Partial · C9 |
+| UW-09 | Report Studio — publish/export for a real issuer | Draft/version APIs and reference-paper editing work, but a real issuer has no report object: the page states CP-RENDER is not wired, so publish/PDF remain unavailable (`reports/page.tsx:435-439,474-480,604-606`). | CP-RENDER or an equivalent live composition adapter producing issuer-specific pages from the selected run/model checkpoint/findings. | Backend-unwired · C4 / CP-RENDER |
+| UW-10 | Monitor — **Critical alerts** filter | The red count is the static `CRITICAL_ALERTS` fixture and filters the seeded replay rail, not the durable live inbox (`monitor/page.tsx:17-21,83-100,146-159`). | Derive the count/filter from persisted live `AlertEvent` rows and one shared query state. | Reference-only · C3-seam |
+| UW-11 | Monitor — Replay controls and Email Intelligence | Ack/assign/resolve on the live Alert Inbox are wired. The clock, EOD email tape, source-email modal, and `EmailIntel` filters remain seeded simulation; no email transport/outbox backs them. | Watch-rule/event source pipeline plus `AlertSink`, live `InAppSink`, and a rendered-intent `EmailSink` stub before enterprise transport. | Reference/backend-unwired · C3-seam |
+| UW-12 | Settings — custom model routing selects | Three per-lane selects are permanently disabled with no-op `onChange`; copy says the values are not applied (`settings/page.tsx:463-482`). | Run-lane override contract, validation, persistence, execution routing, and cost/authority audit. | Explicitly backend-unwired · new E7 |
+| UW-13 | Settings — Outlook connection | Settings persist/display `outlook_connected` and approved senders, but there is no connect/disconnect, credential, OAuth/test-connection, or transport action (`settings/page.tsx:551-591`). | Enterprise email adapter/control plane; do not let a stored Boolean imply a verified connection. | Backend-unwired · C3-seam/H4 |
+| UW-14 | Settings — View: Analyst / PM / QA | The selector persists composition only. It is not authorization and cannot create admin/read-only users. | Server-enforced roles-lite, role assignment, route matrix, audit visibility, and UI suppression matching policy. | Backend-unwired policy · E2 |
+| UW-15 | Issuer Profile — Market · price & DM | The panel is an explicit “Feed pending” placeholder with no loan mark/DM series (`ProfileContent.tsx:754-763`). | Consume the normalized live/manual market snapshot store with source/as-of/freshness. | Backend-unwired · C5 |
+| UW-16 | Research — **Run example research** | With no model provider, the normal run persists and returns a clearly labeled canned demo report (`research/page.tsx:3-7,395-470`; `routes/research.py:3-6`). | A configured grounded-research provider for live output; keep the example lane reference-only. | Capability-gated/reference · D2/E4 |
+| UW-17 | RV — **Run screen / Review top candidate / Ratify candidate** | Versioned screens persist, but the only snapshot is a bundled `REFERENCE` JSON import. Every row is forced screen-only/unavailable because live origin, downside, recovery, portfolio mapping, and risk-budget gates are missing; ratification is consequently unreachable (`routes/rv.py:85-103,291-367,434-453`). | Live/manual immutable snapshot ingestion, recovery/downside adapters, exact portfolio mapping, and risk-budget calculation. | Reference-only / backend-unwired · C5 |
+| UW-18 | RV — **Monitor threshold** | The button pins a finding with source surface `monitor-threshold`; it does not create a durable watch rule or alert event. | Create/edit a threshold, owner, severity, evidence link, and next-evaluation state. | Misleading partial action · C3-seam |
+| UW-19 | Sector Review — **Request refresh** | Creates a versioned review from persisted signals/reference synthesis, but CP-SR is still spec-only and the route does not run the complete analytical engine as an asynchronous job. | Real queued/running/partial/ready CP-SR execution with immutable prior published version and complete source-backed dimensions. | Partial/backend-unwired · CP-SR / X5 |
+| UW-20 | Sector Review — **Ratify updates / Publish review** | Mutations are wired and correctly gated, but reference/partial drafts cannot become a production published review. | Live source-backed CP-SR artifact satisfying every publication dependency. The buttons themselves should remain gated. | State-gated by missing engine · CP-SR / X5 |
+| UW-21 | Query — grounded lane | Metric and graph lanes are deterministic and wired. The grounded lane degrades to `partial` with preserved question/alternatives when the model provider is unavailable. | Production model-provider configuration and a green live-provenance E2E; no UI rewrite required. | Capability-gated · main-CI blocker |
+| UW-22 | Global ASK, Upload, live Alert Inbox, model save/checkpoints, issuer creation, and worklist filters | No dead action found in the current scan; their buttons either call real APIs/local utilities or are valid prerequisite gates. | Keep regression coverage; do not create fake “wire button” work for these controls. | Wired / state-gated |
+| UW-23 | Upload — **Run mode** choices and queued-run label | The chosen mode is written to each source manifest, but `createRun` does not receive it; every queued run takes the full CP-X route even while the UI says the selected mode was queued (`UploadWizard.tsx:156,201`; `steps.tsx:479-494`). | Either pass a validated route template into run planning and stamp the resolved plan, or relabel/remove the selector so it is honest document metadata rather than execution control. | Misleading partial action · new C12 |
+| UW-24 | Issuers — sample sleeve fallback | When live coverage is empty, the directory injects `DEMO_UNIVERSE` and says it is a sample sleeve. The labeling is honest, but the live worklist is not an actual observed-empty state (`issuers/page.tsx:334,400`; `lib/issuers.ts:7`). | Separate the reference workspace from the live directory, or show a true empty worklist with an explicit action to open sample data. | Reference-only · C2 |
+
+#### Unwired platform capabilities without a single button
+
+| ID | Capability gap | Current evidence | Plan owner / exit |
+|---|---|---|---|
+| UF-01 | Four spec-only engine modules | `CP-SR`, `CP-MON`, `CP-RENDER`, and `CP-EXTRACT` are `implemented=False` and never execute (`engine/registry.py:198-215`). | X5/C3/C4; implement or explicitly remove from the pre-deployment promise. |
+| UF-02 | Alert sink and watch-rule architecture | Durable alert events and ack/assign/resolve exist in the current worktree, but `AlertSink`, `InAppSink`, `EmailSink`, scheduled watch rules, deduplicated event generation, and an outbox are absent. | C3-seam; rule → event → inbox → sink E2E, with email intent recorded. |
+| UF-03 | Production market-data provider chain | Normalized snapshot/instrument tables and RV adapters exist in WIP, but no `MarketDataProvider`, `BloombergProvider`, `ManualQuoteProvider`, import/refresh endpoint, or Settings connection/test UI exists. | C5; fixture-backed provider plus manual fallback and one shared store. |
+| UF-04 | Complete live Sector Review engine | The V2 dossier contract exists, but it is reference/signal synthesis rather than CP-SR compute; display-version allocation also lacks a dedicated unique DB column under concurrent refresh. | X5 plus accepted red-team follow-up; async job and uniqueness constraint. |
+| UF-05 | Live Report renderer | Draft/version persistence exists; CP-RENDER and issuer-specific report composition do not. | C4/CP-RENDER; real issuer → report version → PDF/IC journey. |
+| UF-06 | Live Deep-Dive rail/read-model adapters | Real module center views exist; several retained evidence, QA, output-register, and committee panes are reference-only. | C4; parity matrix must pass before fixture path retirement. |
+| UF-07 | Persisted model scenario application | Scenario calculations and network readout exist; an applied scenario is not a saved override/checkpoint artifact. | A-1; apply/undo/save/reopen E2E. |
+| UF-08 | Roles-lite authorization | `role_view` remains presentation-only. A server role field and selected write gates now exist in the current checkout, but exhaustive legacy-route enforcement and an admin assignment plane are not yet certified. | E2; deny-by-default mutation matrix. |
+| UF-09 | Firm-wide append-only audit log | `audit_log`/audit helper are absent from current checkout and `origin/main`; candidate PR #169 is open. | E3; all shared mutations write actor/before/after rows. |
+| UF-10 | Breadth corpus | The 61-name MANIFEST exists; captured fixtures and `corpus_run` marker remain absent. | B5; scoped fixture count must equal manifest scope. |
+| UF-11 | Full concept-link decision journey | Individual E2Es exist, but no one test proves issuer → upload → pipeline → Deep-Dive → model checkpoint → finding → report with identical artifact identity and numbers. | C6; one backend-connected Playwright/API journey. |
+| UF-12 | Head-to-head Query walk | Not present on current checkout/main; green candidate/stamp PRs #187/#188 remain open. | C7; merge only after main CI parity. |
+| UF-13 | IC Decision Record on main | Implemented in the two-commit local branch (`0044_decisions`, `/api/decisions`, Decision Room) but not in `origin/main`; green candidate/stamp PRs #191/#192 remain open. | C8; merge, migrate, rerun server/frontend/E2E on main. |
+| UF-14 | Committee `.xlsx` export | Current code exports CSV; green candidate/stamp PRs #189/#190 remain open. | C9; merge plus openpyxl round-trip and same-number test. |
+| UF-15 | Research/report multi-worker execution | `WEB_CONCURRENCY` and stress evidence landed, but research/report executors remain in-process and are not safely coordinated across workers. | E1; durable claim/lease/reaper or documented single-worker boundary. |
+| UF-16 | Graph expansion production retrieval | `engine/graphexpansion.py` is a measurement harness and explicitly is not wired into `retrieve_corpus`. | Expansion backlog; wire only after quality/latency gate. |
+| UF-17 | Vault peer/sponsor edges | `vault_export.py` still describes peer/sponsor edges as a stub because CP-1C persists counts rather than identities. | X2/X6 dependency; persist evidence-backed entity identities first. |
+| UF-18 | Analyst disable/delete operator path | Auth comments record that disabling an analyst needs an operator/RBAC path that does not exist. | E2/H3; admin-only lifecycle with audit and data-retention semantics. |
+
+#### Latest phase-status delta
+
+| Status | Items | Evidence / remaining condition |
+|---|---|---|
+| **Delivered on `origin/main`** | A1, A7b, B1, B4, C1, D1, D3, E4, E6, G1, G4 | Tests/artifacts exist on `origin/main`. Checkboxes below are closed in this reconciliation. |
+| **Delivered locally, not on `origin/main`** | C8 | Current branch has decision tables/routes/UI/tests; PRs #191/#192 remain open. Item stays open until merged and green on main. |
+| **Partial** | C2, C3-seam, C4, C5, D4, E1, E5 | Each has real shipped progress but still fails its written exit condition; the UW/UF rows above name the residual. |
+| **Open** | A5, A6, B2, B5, C6, C7, C9-C12, E2, E3, E7, F1-F5, G2, G3, H1-H5, X backlog | No status promotion from an open PR, a fixture, a schema alone, or a local-only test. |
+
+**Immediate release order:** (1) fix the two red main E2Es and obtain a green
+main-tip run; (2) reduce/decide the eight open PRs and merge only green,
+non-overlapping candidates; (3) stabilize the 186-path worktree into reviewable
+commits; (4) resolve every local/reference/backend-unwired row in UW-01–UW-24
+or explicitly descope it from the pre-deployment promise (UW-22 remains the
+wired regression baseline); (5) execute H1/H2 on the resulting immutable build.
 
 ---
 
@@ -91,6 +238,10 @@ inbox-visible alerts does not exist — `monitor/page.tsx` still renders a
 labeled simulation (`monitor/page.tsx:14,64-67` "Illustrative sample — not
 live"). **C3-seam (§5) builds this whole boundary**; only the email-transport
 half of `EmailSink` is meant to stay outstanding at the gate.
+**State 2026-07-12 (branch `feat/design-rebuild-p1` only, unmerged):** a live
+`AlertInbox` + `useAutonomyDraft` + `alert_states` table landed (P2-WP-3) —
+see the 2026-07-12 update block above. The `AlertSink`/`EmailSink` interface
+itself is still zero-hit even here; reconcile at C3-seam pickup.
 
 **#2 Market data → Bloomberg.** Product decision 2026-07-03: the Bloomberg
 connector is **built in-plan** (C5), not left as a stub — persisted quote
@@ -114,13 +265,15 @@ outstanding at the gate.
 
 ---
 
-## 1. Current state — evidence, not aspiration
+## 1. Historical 2026-07-11 baseline — superseded
 
 Verified 2026-07-11 against `origin/main@313ebac` by direct code inspection
 and a live test run this session. Every row below is a re-derived fact, not
-inherited from a prior grounding.
+inherited from a prior grounding. **This section is retained for program
+history only. Use the 2026-07-13 authoritative reconciliation above for every
+current status or release decision.**
 
-### Working and tested today
+### Working and tested in the 2026-07-11 snapshot
 
 | Area | Evidence |
 |------|----------|
@@ -145,11 +298,11 @@ inherited from a prior grounding.
 | All 9 QA playbooks present with procedure/invariants/risk-register/artifact path | `caos/docs/qa/playbooks/*.md` — see [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md) §3 for the home/cadence/gate mapping |
 | Pilot deployed on internal host from `main` | 2026-07-02, PR #93 merged |
 
-### Not live / not done (the gap this plan closes)
+### Gaps in the 2026-07-11 snapshot
 
 | Gap | Evidence | Phase |
 |-----|----------|-------|
-| **`AlertSink`/`EmailSink`/`InAppSink` seam, watch-rule model, alert persistence, alert inbox — entirely absent.** Monitor frontend still a labeled simulation. Autonomy *engine* is committed but nothing turns its output into a persisted, actionable alert. | Zero hits (S4 Ev-1); `monitor/page.tsx:14-18,64-67` | C (C3-seam) |
+| **`AlertSink`/`EmailSink`/`InAppSink` seam, watch-rule model, alert persistence, alert inbox — entirely absent on `origin/main`.** Monitor frontend still a labeled simulation there. Autonomy *engine* is committed but nothing turns its output into a persisted, actionable alert. *(A live `AlertInbox` UI now exists on the unmerged `feat/design-rebuild-p1` branch — see the 2026-07-12 update block above; the `AlertSink` interface itself is still unbuilt even there.)* | Zero hits (S4 Ev-1); `monitor/page.tsx:14-18,64-67` | C (C3-seam) |
 | **Market-data layer — entirely absent.** No quote store, no `MarketDataProvider`/`BloombergProvider`/`ManualQuoteProvider`, no Sector RV refresh button, no Settings section. Bloomberg exists only as a name in seeded frontend fixtures. | Zero hits (S4 Ev-2); 37 migrations, none market-data | C (C5) |
 | No `MOCK_LEDGER.md` mock-inventory deliverable | absent from tree | C (C1) |
 | Command Center labeled sample sleeve board retained (though live-aware IssuerStrip + Source-Gaps board landed) | `command/page.tsx` "Sample portfolio — not live" | C (C2) |
@@ -161,7 +314,7 @@ inherited from a prior grounding.
 | Roles-lite (E2) not built — no `role` column, no `CAOS_ADMIN_EMAILS`, no role dependency. (The `team_id`/tenancy mechanism that landed 2026-07-10 is a *different*, orthogonal axis — cross-team isolation, not within-team roles.) | `database.py` has `team_id` columns only (S4 Ev-12) | E (E2) |
 | No `audit_log` table, no SBOM, no DR runbook, no scripted restore drill (drill = shell *comments* in `backup.sh`) | grep clean; `backup.sh:13-19` | E, G |
 | Unmerged: `feat/covenant-frontend` (1 orphan commit `3605c99`, frontend pages for the covenant register — the backend adapter, routes, and Query walks already shipped independently) | `git ls-remote --heads origin` | A (A3) |
-| **12** open dependabot PRs (plan previously under-tracked this at 2) + 4 draft feature/infra PRs + 1 non-draft feature PR (#147 merged) | GitHub MCP query, 2026-07-11 | A (A5) |
+| **12** open dependabot PRs (plan previously under-tracked this at 2) + 4 draft feature/infra PRs + 1 non-draft feature PR (#147 merged) *(re-verified 2026-07-12: down to 2 open — #139, #140 — the rest merged same-day per A5)* | GitHub MCP query, 2026-07-11 | A (A5) |
 | 9 unmerged orphan branches (no open PR) + 18 remote branches merged & prunable | `git ls-remote --heads origin`, cross-checked via `git merge-base` | A (A6) |
 | 8 dangling skill symlinks in `.claude/skills/` (targets removed by the 2026-07-08 skills audit) | S4 Ev-10 | A (A6b, new) |
 | CI has not gone green on `main` since `ee37030` (#148); no `schedule:`/`workflow_dispatch:` trigger exists anywhere in `ci.yml` | S4 Ev-4 | — (tracked per-phase; automation work items in the loop doc) |
@@ -177,10 +330,10 @@ inherited from a prior grounding.
 | B | Engine certification completion | both lanes clean on 3 goldens + captured breadth corpus, headless | ~2–3 wk | A |
 | C | All concepts live | kill the mock: Monitor seam, market data, Command board, remaining seams | ~3–5 wk | B |
 | D | Ingestion breadth | OCR provenance/golden, upload robustness matrix (RAG lane already done) | ~1 wk | B (∥ C) |
-| E | Enterprise hardening | roles-lite, audit trail, secrets runbook, stress run, SBOM | ~2–3 wk | C |
+| E | Enterprise hardening | roles-lite, audit trail, secrets, governance, stress, SBOM | ~2–3 wk | C |
 | F | Beta — build the dictionary | 3–5 analysts, real coverage, gap log | ~3–4 wk cal. | C, D (∥ E) |
-| G | Ops readiness | drills, alerting loop, load, DR, loops locked | ~1–2 wk | E |
-| H | Pre-deployment gate + handover | full gate on prod-parity, transfer package | ~1 wk | all |
+| G | Ops readiness | drills, independent alerting, host baseline, load, DR | ~1–2 wk | E |
+| H | Pre-deployment gate + handover | immutable candidate, UAT, cutover rehearsal, transfer package | ~1 wk | all |
 
 Sizes are planning aids, re-estimated at each phase exit (§13). D shrank
 materially this grounding (D2 RAG lane is done); A shrank (A0's five P0
@@ -195,13 +348,10 @@ full, not just their remainders.
 **Objective:** one trunk, zero known open findings, trackers telling the
 truth, tooling roots clean.
 
-- [ ] **A1 (S)** *(Exec 2026-07-11: PR #154 open — reviewed, single-file test w/ exact-slice oracle; merge after #158 unbreaks CI.)* Querygraph node-count regression test. Cap exists
-  (`querygraph.py:866 _GATE_NODE_CAP=300`, used at `:886`; sibling
-  `_WIKI_RUN_CAP=300` at `:1246`) but zero tests assert the bound (S4 Ev-11).
-  Build the graph against a seeded 100-run history and assert node count
-  stays ≤300. **Verify:** new test in `caos/tests/server/test_querygraph.py`
-  passes; `git grep -c GATE_NODE_CAP caos/tests/server/test_querygraph*.py`
-  returns ≥1. **Exit:** test lands and is green.
+- [x] **A1 (S) — DONE on main.** `test_querygraph.py:167-257` constructs an
+  over-cap finding history, pins `_GATE_NODE_CAP == 300`, and asserts the
+  deterministic severity/newest slice contains exactly 300 nodes. Keep the
+  cap test in the normal server suite.
 - [x] **A2 (S)** ~~Merge `feat/query-route-fast-lane` → `main`~~ **DONE**
   (merged via PR #99).
 - [x] **A3 (M)** **DONE 2026-07-11** — landed as PR #160 (merge 67017f01): full rebase of `3605c99` + 3 fixes, obsolete manual-rating fields dropped, profile/digest mounts rebuilt against current layouts (parallel partial #162 closed superseded). Residual: delete `feat/covenant-frontend` (A6 list). `feat/covenant-frontend` orphan commit `3605c99` (frontend
@@ -216,38 +366,24 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M)** *(Exec 2026-07-11 evening: decisions for every open PR recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md` (PR #159). The list below is stale — 9 of the 12 dependabot PRs merged same-day, and one of them (#141 typescript 7) broke 3 CI jobs on main → revert PR #158, merge first. #157 completes #135's lock regen. Merged same evening: #155, #157, #160, #161 — close #135 as superseded; #150 verdict = rebase+rescope, do not merge as-is; #158 revert is the remaining unblock.)* PR triage, current as of 2026-07-11 (**12** open dependabot,
-  not the previously-tracked 2): **#85** alembic 1.13→1.18, **#88** fastapi
-  0.138→0.139 (do not downgrade the 0.138 pin — an upgrade needs py3.11/
-  starlette re-verify), **#133** playwright/test 1.60→1.61.1, **#134**
-  actions/checkout 4→7, **#135** uvicorn 0.49→0.51, **#136** tailwindcss
-  4.3.1→4.3.2, **#137** mypy ~=2.1→~=2.2, **#138** anthropic ≥0.116<2,
-  **#139** vitest 3.2.6→4.1.10, **#140** @vitest/coverage-v8 3.2.6→4.1.10,
-  **#141** typescript 5.9.3→7.0.2 (major — held pending react/tailwind4
-  policy re-check), **#142** @playwright/test 1.60→1.61.1. Plus non-dependabot:
-  **#118** (Cursor Cloud dev env, draft) — adopt/close decision;
-  **#124** (restores `security-best-practices` skill symlink — feeds A6b),
-  **#127** (fable-5-prompter skill rework), **#144** (Query/Command triage
-  fixes) — all drafts, review for merge; **#147** (security-audit fixes) —
-  merged 2026-07-11, no action needed;
-  **#150** (lease-gated boot sweep for research/report/pipeline jobs) —
-  non-draft, review for merge. **Verify:** `mcp__github__list_pull_requests`
-  state=open count. **Exit:** every PR above has a recorded
-  merge/close/defer decision; 0 PRs older than 14 days without one (L14).
-- [ ] **A6 (S)** *(Exec 2026-07-11: all 27 remote branches classified; 18 verified merge-base-ancestor with the ready-to-run delete command, and per-orphan dispositions (4 verified superseded incl. the re-synced security brief), recorded in `caos/docs/qa/PR_TRIAGE_2026-07-11.md`. Deletion itself left to the owner.)* Remote branch hygiene: **18 branches fully merged into
-  `main`** (safe to delete — includes `fix/vmo2-followups`,
-  `feat/command-center-layout-and-sector-rv-cleanup`,
-  `feat/query-route-fast-lane`, `feat/fold-profile-rv`, the merged `claude/*`
-  set) and **9 unmerged
-  orphans with no open PR** (`fix/rv-dm-plausibility-guard` and several
-  `claude/*-brief-*` branches — triage each: land, close, or delete). Keep
-  `feat/covenant-frontend` until A3 lands. **Verify:** `git ls-remote --heads
-  origin` + `git merge-base --is-ancestor <branch> origin/main` per branch.
-  **Exit:** 0 merged-and-stale remote branches remain; every orphan has a
-  disposition. *(Local branch/worktree counts from the prior 2026-07-08
-  grounding — "43 local branches, 10 worktrees" — describe the developer's
-  own machine and are not verifiable from a fresh clone; re-check locally at
-  pickup, do not carry the stale number forward.)*
+- [ ] **A5 (M) — live PR triage.** Eight PRs were open at the 2026-07-13
+  reconciliation: #169, #184, and #187–#192. #187/#188 (C7), #189/#190
+  (C9), and #191/#192 (C8) report green candidate/stamp checks but are still
+  open; #169 has a server-test failure; #184 has cancelled checks. Record a
+  merge/close/defer decision for each, resolve overlap between candidate and
+  stamp PRs, then require a fresh green main-tip run after every accepted
+  merge. **Verify:** refresh the GitHub open-PR list and checks at pickup.
+  **Exit:** no PR older than 14 days lacks a decision, no duplicate candidate
+  remains open, and accepted work is green on `origin/main` (L14).
+- [ ] **A6 (S) — remote branch hygiene.** The 2026-07-11 classification found
+  18 merged branches and 9 orphan branches; that count is historical and must
+  not be reused as current evidence. Refresh remote refs, classify every head
+  against `origin/main`, and delete only owner-approved merged/superseded
+  heads. **Verify:** `git ls-remote --heads origin` plus
+  `git merge-base --is-ancestor <branch> origin/main` per branch. **Exit:** 0
+  merged-and-stale remote branches remain; every orphan has a disposition.
+  Machine-local branch/worktree counts are diagnostic only, never a release
+  metric.
 - [x] **A6b (S) — new.** **DONE 2026-07-11** — all 8 dangling links removed (verify command returns empty); `outstanding` skill now cites `.venv311` + the ~1393/2 baseline. (Local `.claude/skills` is untracked, so there is nothing to merge.) Skills-root hygiene: 8 dangling symlinks in
   `.claude/skills/` whose `.agents/skills/` targets were removed by the
   2026-07-08 skills audit (`error-model-validation-architect`,
@@ -266,22 +402,30 @@ truth, tooling roots clean.
   2 skipped," deploy-ready, no P0/P1. (Superseded by this session's own
   1393/2 run, which adds the `stress`+`cohort` dirs AUDIT.md's `server`-only
   count doesn't include.)
-- [ ] **A7b (S) — new.** *(Exec 2026-07-11: PR #159 open — all 9 rows verified against shipped code (sector routes + workspace tests, 2 coverage gaps closed to make it honest) and flipped to Pass; tracker 355/355 terminal.)* Adjudicate the 9 `FEATURE_TRACKER.csv` rows still
-  marked `Pending Verification` (all Command "Sector Review":
-  command-29/30/31/47/48/49/50/51/57). CP-SR is registered
-  `implemented=False` by design (spec-only, honestly routed "Not
-  Implemented" per `registry.py:152-170`) — likely resolution is "flip to
-  N/A, tracked as CP-SR scope" rather than a code fix, but confirm each row
-  individually. **Verify:** re-run the CSV status count after edit — 0 rows
-  should remain `Pending Verification` without a recorded reason. **Exit:**
-  all 355 rows carry a terminal status.
+- [x] **A7b (S) — DONE on main.** All nine formerly-pending Sector Review
+  rows were adjudicated against shipped behavior. `FEATURE_TRACKER.csv` is
+  now **355/355 `Pass`**, 0 `Pending Verification`; CP-SR production compute
+  remains separately and honestly tracked under UF-01/UW-19 rather than
+  hidden in the UI tracker.
+- [ ] **A8 (M) — current-state re-grounding.** The 2026-07-13 authoritative
+  implementation register predates commits through `c6c0f9a6` and migration
+  `0052`; it also predates the live nightly workflow, analyst role field,
+  decision/committee/report-export work, Portfolio Lab, and lineage v2. Once
+  parallel WIP settles, reconcile every UW/UF row and A–H status against a
+  clean `origin/main` checkout and current GitHub checks. Present-in-worktree
+  is not merged; a field/table is not a complete policy; a passing UI tracker
+  is not proof of live data. **Verify:** dated reconciliation records commit,
+  clean-tree status, open PRs, migration head, CI URL, current test/axe counts,
+  and evidence for every status flip. **Exit:** no “latest/current” claim in
+  this plan points at an older checkout without an explicit historical label.
 
-**Exit gate:** `main` is the only active branch (post A3/A6/A6b) · 0 open
+**Exit gate:** `main` is the only release branch (post A3/A6/A6b) · 0 open
 non-dependabot PRs without a recorded decision · dependabot backlog ≤14 days
-old (A5/L14) · CI green on `main` tip (re-check — not true as of this
-grounding) · server suite green on `.venv311` (this session: 1393 pass / 2
-skip) · `FEATURE_TRACKER.csv` has 0 unresolved `Pending Verification` rows ·
-0 dangling skill symlinks.
+old (A5/L14) · CI green on `main` tip (**not true as of 2026-07-13: two E2E
+failures**) · server suite green on the designated server venv (latest local:
+1457 pass / 7 skip; latest main CI server job green) · `FEATURE_TRACKER.csv`
+has 0 unresolved `Pending Verification` rows ·
+0 dangling skill symlinks · A8 current-state reconciliation complete.
 
 **Loops:** L1 (CI gate), L2 (code review), L3 (blast radius), L14 (dependency
 triage), L15 (tracker sweep) — see the loop doc.
@@ -295,16 +439,10 @@ filings at the API layer, both lanes, before any UI work sits on top of it.
 *(= DEVELOPMENT_PHASES Phase 1 remainder — 0/5 boxes checked there as of this
 grounding, including the #25/#26/#27 engine-fault closure boxes.)*
 
-- [ ] **B1 (M)** *(Exec 2026-07-11 late: PR #163 open — golden/test_golden_e2e.py runs the full chain offline on all 3 goldens, keyless EDGAR + reported lanes AND a keyed mock-LLM lane; `golden_e2e` marker registered in a new repo-root pytest.ini; .github/workflows/nightly.yml created with schedule+workflow_dispatch running `-m golden_e2e` (loop L5). Also freezes that CP-2 is the only LLM-bound module offline. Suite 1397/2 in-tree.)* Full-chain golden test: each golden issuer (VSAT, FUN, VMO2)
-  **keyless** (EDGAR/reported lane) and **keyed** (LLM synth) end-to-end via
-  `TestClient` — upload → chunk → 19-module DAG → CP-5 gate — asserting
-  output matches frozen goldens. **The `-m golden_e2e` marker does not exist
-  today** (S4 Ev-3); today's goldens (`caos/tests/server/golden/
-  test_golden_cp1.py`) assert CP-1 numeric drift only, not the full chain.
-  Create the marker (register it in a `pytest.ini`/`pyproject.toml` marker
-  list — none exists yet either) and the full-chain test. **Verify:** `pytest
-  -m golden_e2e -q` passes on all 3 issuers × both lanes. **Exit:** marker
-  registered, test green, wired into CI (loop doc L5 work item).
+- [x] **B1 (M) — DONE on main.** `golden/test_golden_e2e.py` covers VSAT,
+  FUN, and VMO2 across keyless EDGAR/reported and keyed mock-LLM paths,
+  including run-wide evidence resolution and CP-5. The `golden_e2e` marker is
+  registered in `pytest.ini` and selected by `.github/workflows/nightly.yml`.
 - [ ] **B2 (M)** *(Exec 2026-07-11: the no-dangling-citation floor landed inside PR #163 — `_assert_provenance_resolves_run_wide` sweeps every claim across every produced module on all 4 golden runs. Residual for B2 proper: lineage-class-aware sweep beyond chunk-existence.)* Provenance chain audit, golden-run-wide: for every claim in
   a golden run, assert `claim → evidence → chunk` resolves with no dangling
   citation ids, across the whole run rather than per-module (today's coverage
@@ -319,14 +457,9 @@ grounding, including the #25/#26/#27 engine-fault closure boxes.)*
   `test_metricengine.py`, `test_recovery_waterfall_contract.py`,
   `test_audit_p0_fixes.py`, others). No further action required; keep as a
   standing invariant (CLAUDE.md engine-conventions).
-- [ ] **B4 (S)** *(Exec 2026-07-11: PR #159 open — `test_cp5_gate_honesty.py` green on `.venv311`: pristine golden passes clean; injected bad figure → CP-1-LEV-PLAUS MATERIAL/Restricted; dropped evidence → CRITICAL/Blocked.)* CP-5 gate honesty re-check: inject one known-bad figure into
-  a golden fixture copy; assert the gate raises a finding and the run aborts.
-  No such test exists today (adjacent harnesses — `test_grounding.py`,
-  `test_tier2_findings_contract.py`, `golden/test_golden_query_gates.py` —
-  cover related ground but not this injection case). **Verify:**
-  `caos/server/.venv311/bin/python -m pytest
-  caos/tests/server/test_cp5_gate_honesty.py -q` (new file) green. **Exit:**
-  test lands, green.
+- [x] **B4 (S) — DONE on main.** `test_cp5_gate_honesty.py` proves a pristine
+  golden remains clean, an injected implausible leverage fact becomes
+  MATERIAL/Restricted, and missing evidence becomes CRITICAL/Blocked.
 - [ ] **B5 (L — own implementation plan at pickup)** Breadth corpus capture.
   **Selection delivered** — `caos/tests/server/corpus/MANIFEST.md` now names
   **61 issuers** (the original 30-name analyst cohort + 3 foreign
@@ -369,12 +502,10 @@ empty state. Monitor gets a real alert seam. Market data gets a real
 connector. **Largest phase — carries both L-sized outstanding-item builds in
 full.** C3-seam and C5 each get their own implementation plan at pickup.
 
-- [ ] **C1 (S)** *(Exec 2026-07-12: PR #166 open — MOCK_LEDGER.md delivered; 0 silent-mock rows, all seed consumers visibly labeled; burndown mapped to C2/C3-seam/C4/C5; 2 MED watch-items. L9's grep list = the ledger's seed-module import table.)* Mock inventory: grep every route/component for seeded/
-  sample/sim imports; classify each hit live / labeled-sample / silent-mock.
-  Deliverable: `caos/docs/qa/MOCK_LEDGER.md` (file:line burndown list — does
-  not exist today, S4 Ev-9). Silent-mock = CRIT, labeled-sample = MED.
-  **Verify:** ledger file exists and is non-empty. **Exit:** every hit
-  classified; feeds C2/C4's remaining scope.
+- [x] **C1 (S) — DONE on main.** `caos/docs/qa/MOCK_LEDGER.md` classifies
+  every discovered seed source and user-facing consumer: 0 silent mocks,
+  all remaining fixture use visibly labeled, with the burndown owned by
+  C2/C3-seam/C4/C5. Re-run the ledger at the C exit gate.
 - [ ] **C2 (M)** Command Center: replace the remaining labeled sample sleeve
   board (`command/page.tsx` "Sample portfolio — not live") with the real
   registry; empty registry → designed empty state. **Partially done already**
@@ -388,10 +519,16 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   "Sample" caos/frontend/src/app/command/page.tsx` returns 0 (or only an
   explicit empty-state string). **Exit:** no unlabeled/labeled-sample data on
   the board in a prod build.
+  *(2026-07-12, unmerged `feat/design-rebuild-p1` only: a "ranked-changes
+  opener + combined governance panel" landed (commit `bc696b72`, P2-WP-2) —
+  not yet independently verified against this item's `grep "Sample"` check;
+  re-verify at C2 pickup rather than assuming it closes the item.)*
 - [ ] **C3-seam (L — own implementation plan at pickup)** Monitor alert seam.
-  The autonomy **engine** (Sentinel→Anomaly→Analyst→Reporter DAG) is
-  committed and tested (`engine/autonomy.py` et al., `test_autonomy.py`) —
-  that part is done. What's missing, confirmed zero-hit (S4 Ev-1):
+  **Latest:** the autonomy engine and the live ack/assign/resolve inbox are
+  present; the current WIP also adds durable `AlertEvent` records. The
+  production rule/evaluation/sink architecture is still absent, and the
+  critical counter, replay rail, and email intelligence remain fixture-backed
+  (UW-03/UW-10/UW-11/UW-13/UW-18; UF-02). Remaining work:
   - **Watch-rule model** (DB, alembic migration): rule = issuer/portfolio
     scope × signal type × threshold. Signal sources exist already: run
     completions, QA-gate flips, covenant findings (register), new-EDGAR-filing
@@ -401,9 +538,10 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
     future news feed plugs in without a migration.
   - **Event generator**: evaluates rules on run completion + scheduled EDGAR
     poll; persists alerts (dedup on rule+issuer+fact).
-  - **Alert inbox UI**: live feed replacing the `AlertFeed`/`simAlertsToday`/
-    `EMAIL_TILES` mock (`monitor/page.tsx:14-18,64-67`); ack/resolve states;
-    keyboard-operable; provenance click-through.
+  - **Alert inbox UI cleanup**: keep the live ack/assign/resolve path, derive
+    every count/filter from persisted events, and retire or isolate
+    `AlertFeed`/`simAlertsToday`/`EMAIL_TILES`; retain keyboard operation and
+    provenance click-through.
   - **`AlertSink` seam**: `InAppSink` (live) + `EmailSink` (stub — logs,
     records "would have sent," renders the subject/body so the enterprise
     adapter is a transport swap only). Spec doc for SMTP + MS Graph variants.
@@ -418,16 +556,22 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   zero). **Exit:** rule → event → inbox → `InAppSink` round-trips end-to-end
   from a golden-issuer run; `EmailSink` stub records intent with rendered
   subject/body; Monitor frontend has zero "Illustrative sample" markers left.
+  The 2026-07-12 branch note above is historical; the 2026-07-13 UW/UF
+  register is the source of truth for what remains.
 - [ ] **C4 (M)** Deep-Dive / Report Studio residual seeded panels (from the
   C1 ledger): each → live adapter or explicit "no data / degraded" state. No
   unlabeled seed survives in a production build. **Verify:** C1's
   `MOCK_LEDGER.md` shows 0 open silent-mock rows in these surfaces. **Exit:**
   same.
 - [ ] **C5 (L — own implementation plan at pickup)** Market data: quote
-  store + Bloomberg connector. Confirmed entirely absent (S4 Ev-2; 0/38
-  migrations touch market data). This is **allowed-outstanding-item #2**'s
-  entire build phase — only enterprise entitlements/credentials/parallel-run
-  reconciliation should remain outstanding after this item lands:
+  store + Bloomberg connector. **Latest:** the current WIP contains normalized
+  immutable snapshot/instrument tables and RV screen adapters, but only a
+  bundled `REFERENCE` JSON snapshot. No production provider chain, manual
+  import/refresh path, credential/status control plane, live recovery/downside
+  inputs, exact portfolio mapping, or risk-budget adapter exists (UW-15,
+  UW-17; UF-03). This is **allowed-outstanding-item #2**'s remaining build
+  phase — only enterprise credentials/entitlements and parallel-run
+  reconciliation should remain after it lands:
   - **Persisted quote store** (`market_quotes` migration): issuer/tranche →
     DM, price, as-of, source tag. The single source for all RV analysis
     app-wide — Sector RV table, Deep-Dive RV, CP-3 peer percentiles, Command
@@ -462,14 +606,25 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   conclusion. Does not exist today (grep clean across `caos/tests/frontend/
   e2e/`). **Verify:** new Playwright spec + API assertions pass. **Exit:**
   spec green, wired into the per-PR e2e job (loop doc L7 work item).
-- [ ] **C7 (S)** Head-to-head issuer comparison — fifth Query walk (expansion
+- [ ] **C7 (S)** *(Exec 2026-07-12: PR #187 open — registered in
+  questions.ts/views.ts/synthesis.ts; backend _head_to_head() builder in
+  engine/querygraph.py reuses _covenant_register's exact node shape (group +
+  member nodes), zero new render machinery needed. GraphRequest.issuer_id_b
+  additive. New IssuerPicker.tsx (embeddable debounced autocomplete) wired
+  into query/page.tsx. Verified: 7 new backend tests green, full server suite
+  1414/1414, 5 new frontend unit tests green, tsc clean, 0 new C901
+  offenders. Residual: full frontend vitest suite inconclusive (machine
+  contention with a concurrent session, not a real failure); query_flow.spec.ts
+  extended but not run against a live stack.)* Head-to-head issuer comparison — fifth Query walk (expansion
   4.3): register in `questions.ts`/`views.ts`/`synthesis.ts` per the Query
   design mandates (synthesis sentence first, committee exhibit = charts +
   narrative); side-by-side headline `metric_facts`, covenant register rows,
   CP-3 RV percentile + CP-2B fragility. **Verify:** `npm --prefix
   caos/frontend run test -- head-to-head` (new vitest spec) +
   `npx playwright test caos/tests/frontend/e2e/query_flow.spec.ts` (extended)
-  green. **Exit:** walk answers a real query end-to-end.
+  green. **Exit:** walk answers a real query end-to-end. **Latest:** green
+  candidate/stamp PRs #187/#188 remain open; capability is not on current
+  checkout or `origin/main`.
 - [ ] **C8 (M)** IC Decision Record (expansion 4.1): append-only per-issuer
   record — recommendation, conviction, thesis sentence, committee date,
   decision, dissent, link to the run/report it was based on. Surfaced on
@@ -477,7 +632,24 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   Lands before F so the beta cohort dogfoods it. **Verify:** new table +
   route + UI; `pytest caos/tests/server/test_decision_record.py` (new)
   green. **Exit:** record created/read/appended through the real UI path.
-- [ ] **C9 (S–M)** Committee-pack `.xlsx` export (expansion 4.2): the current
+  **Latest:** implemented in the current branch only; PRs #191/#192 remain
+  open. Do not close until migrated and green on `origin/main`.
+- [ ] **C9 (S–M)** *(Exec 2026-07-12, merged via PRs #189/#190 on 2026-07-15 — real .xlsx client-side
+  (frontend-only) chosen over backend/openpyxl: model grid/scenarios/
+  assumptions are computed exclusively client-side, so a backend export
+  would mean re-implementing that math in Python (undermining C9's own
+  same-number-everywhere exit criterion) for no openpyxl benefit. 5 sheets
+  (Model/Scenarios/Assumptions/Headline Facts/Overrides), every sheet
+  stamped ORIGIN/METHOD/RUN/AS-OF. First push used `xlsx`/SheetJS (the
+  plan's own suggestion) but that package's 2 unpatched High CVEs (parse-
+  path only; usage here was write-only) tripped CI's `npm audit
+  --audit-level=high` gate unconditionally (no allowlist mechanism) — swapped
+  to ExcelJS (residual: 2 Moderate advisories in a transitive dep, under
+  CI's threshold), documented + flagged in SBOM.md. Verified: real openpyxl
+  round-trip done by hand against each library's output (genuine cross-tool
+  interop, all 5 sheets correct both times); 13 vitest cases (same-process
+  round trip) for ongoing CI; full frontend suite green, tsc/eslint clean,
+  `npm audit --audit-level=high` exits 0.)* Committee-pack `.xlsx` export (expansion 4.2): the current
   export is a documented dependency-free CSV stub (`export.ts:39-45`,
   S4 Ev-7); upgrade to real `.xlsx` via `openpyxl` (already a dependency for
   ingestion reads — `requirements.txt`) on the backend, or `npm i xlsx` on
@@ -485,15 +657,57 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   assumptions + headline `metric_facts`; every sheet stamped run id + as-of.
   **Verify:** export produces a valid `.xlsx` readable by openpyxl round-trip
   test. **Exit:** C6's same-number-everywhere assertion extends to the export.
+  **Latest:** PRs #189/#190 are merged to `origin/main`; this branch preserves
+  that export control alongside the checkpoint-first save flow.
+- [ ] **C10 (M) — worklist action semantics (UW-01–UW-03).** Decide and
+  implement the real contract for issuer assign-owner/refresh/delete and the
+  Sponsor primary review action. Omitted actions may stay omitted if the
+  product decision is recorded; an existing action may not claim “review” if
+  it only focuses a panel. Sponsor monitoring thresholds route through the
+  C3 watch-rule API. **Verify:** API mutation tests plus Issuers/Sponsors UI
+  tests cover success, partial batch failure, permissions, and audit rows.
+  **Exit:** every named action either persists its promised state or is
+  removed/renamed so no focus/navigation proxy reads as a completed review.
+- [ ] **C11 (M) — persisted model scenario application (UW-07/UF-07).** Keep
+  the current scenario lens, but add an explicit **Apply to model** transaction
+  that previews affected cells, writes provenance-bearing overrides, forms
+  one undo step, saves to the working draft, and can be captured in an
+  immutable checkpoint. Reset must never erase unrelated manual overrides.
+  **Verify:** scenario → preview → apply → undo/redo → save → reopen →
+  checkpoint restore test. **Exit:** scenario buttons are no longer a
+  session-only calculation when the analyst chooses to commit them.
+- [ ] **C12 (S–M) — Upload run-mode semantics (UW-23).** Decide whether
+  Full analysis / Update / Primary transaction are true engine plans or
+  source-manifest classifications. If they are plans, add a validated
+  run-template field to `POST /api/runs`, resolve it into an immutable module
+  plan, stamp it on the run, and make retry/idempotency preserve it. If they
+  are classifications, remove all copy claiming they route modules. **Verify:**
+  one contract/E2E case per visible mode proves the queued run's plan matches
+  its label; invalid/retired modes fail explicitly. **Exit:** no selected mode
+  can queue the full route while claiming a narrower/different route.
+- [ ] **C13 (M) — runtime promise resolution (PG-06/UF-01).** Produce a
+  checked-in promise map for `CP-SR`, `CP-MON`, `CP-RENDER`, and `CP-EXTRACT`.
+  For each module, either implement and register it, or name the live service
+  that fully owns the same user-visible contract and remove or redirect the
+  spec-only route promise. A label or reference synthesis is not equivalent.
+  Sector Review must have a real asynchronous, source-backed refresh/publish
+  path before C exits; it is not excused by X5's non-blocking expansion policy.
+  **Verify:** registry/route contract test plus one production-data E2E per
+  mapped promise, including degraded and empty behavior. **Exit:** no
+  production control or concept claims a module whose only runtime state is
+  `implemented=False`.
 
 **Exit gate:** `MOCK_LEDGER.md` (C1) burned to zero silent-mock and zero
 unlabeled sample in prod build · C3-seam: rule → event → inbox → `InAppSink`
 live end-to-end, `EmailSink` stub records intent · C5: all RV/DM surfaces
 read only the persisted quote store, Sector RV refresh round-trips against
 fixture-backed Bloomberg and degrades to manual, Settings Market Data section
-live · concept-link suite (C6) green · a11y axe re-run clean on new/changed
-routes (Monitor inbox especially — loop doc `design-a11y-ux` playbook).
-C7–C9 are tracked here but **do not block this gate** (§14 expansion policy).
+live · concept-link suite (C6) green · C10 action semantics honest · C11
+scenario application persists and round-trips · C12 selected run mode matches
+the immutable server plan · C13 closes every spec-only user promise · a11y axe re-run clean on
+new/changed routes (Monitor inbox especially — loop doc `design-a11y-ux`
+playbook). C7–C9 are tracked here but **do not block this gate** (§14
+expansion policy).
 
 **Loops:** L7 (concept-link — work item), L8 (e2e, live per-PR), L9 (mock
 regression — work item), L11 (a11y — manual per UI-phase exit), integration-
@@ -508,48 +722,26 @@ LLM-adjacent surface and must hold the fault-isolation invariant.
 it. Runs parallel to C after B. **Shrunk this grounding — D2 (RAG answer
 lane) is done and moved to §1's working table.**
 
-- [ ] **D1 (M)** *(Exec 2026-07-12: PR #183 open — document_chunks.prov
-  migration 0039 (NULL=native, "ocr"=Tesseract recognition), extract_pdf_text
-  now returns (text, used_ocr) threaded into chunk_prov on upload_document;
-  new golden test drives a genuinely image-only PDF (PIL render → JPEG →
-  hand-built /DCTDecode PDF, zero text layer, verified empty via pypdf)
-  through the real upload API with the real installed ocrmypdf/tesseract
-  binaries (not a stub) — confirms prov=="ocr" + recovered text. (c) already
-  true pre-PR: ocrmypdf/tesseract-ocr installed at deploy/Dockerfile:35. Full
-  suite 1407/6 skipped, migration round-trips clean.)* OCR lane completion. The extraction lane is built and
-  stub-tested: `ocrmypdf`/tesseract config (`config.py:237`
-  `ocrmypdf_cmd="ocrmypdf"`, 300s timeout) and `_ocrmypdf_text`
-  (`ingest.py:123`, called at `:168`, degrades to `""` on missing binary);
-  tests (`test_ingest_markitdown.py:72,79,88`) use a **stub** binary, not the
-  real one. Remaining: (a) tag chunk provenance `ocr` so CP-5/analysts can
-  discount fidelity — not present today; (b) a genuinely-scanned-PDF golden
-  fixture — `caos/tests/server/corpus/MANIFEST.md` explicitly notes "no
-  scanned-PDF issuer here… D1's OCR lane needs its own genuinely-scanned
-  fixture"; (c) verify `ocrmypdf` is actually installed in the deploy image
-  (not just referenced in config). **Verify:** new golden test with a real
-  scanned PDF fixture passes; chunk records show `prov="ocr"`; `docker run
-  <image> which ocrmypdf` succeeds. **Exit:** scanned-PDF golden green,
-  binary confirmed present in the shipped image.
+- [x] **D1 (M) — DONE on main via PR #183.** The real scanned-PDF golden
+  exercises upload → pypdf-empty → `ocrmypdf`/Tesseract → chunk persistence
+  and asserts `prov="ocr"` plus recognized values. The deploy image installs
+  both native binaries. The golden skips on hosts without the binary, so H2
+  must still execute the deploy-image leg rather than treating a skip as a
+  fresh runtime confirmation.
 - [x] **D2 (—)** ~~RAG answer lane in Query~~ **DONE.** Committed and wired
   end-to-end — see §1 working table for anchors. No further action.
-- [ ] **D3 (S)** *(Exec 2026-07-11 late: PR #164 open — table-driven adversarial matrix: 0-byte/non-PDF/lying-extension 400s, oversized 413 mid-read, corrupt + password-protected PDFs degrade with the explicit 0-chunk warning, pricing-sheet rejects non-workbook + zip-bomb-ish containers pre-expansion. Suite 1402/2 in-tree.)* Upload robustness matrix. 0-chunk warning
-  (`test_api.py:210,232`) and upload concurrency bounds
-  (`test_upload_concurrency.py:25-78`) are tested; the full adversarial
-  matrix (corrupt PDF, password-protected, 0-byte, 200MB, wrong-extension,
-  zip-bomb-ish docx) is not. **Verify:** table-driven pytest covering all six
-  cases, each rejected/degraded with an explicit analyst-visible reason
-  (never a silent 0-chunk success). **Exit:** test green, wired per-PR (loop
-  doc L10).
-- [ ] **D4 (S)** *(Exec 2026-07-12: gap confirmed REAL — the profile notes panel was read-only, the only memo write lived in Query. PR #165 open: VaultMemoUpload issuer mode (LOG NOTE textarea → composed .md with issuer mention → existing upload/autolink/memochunks path, no new store/schema), mounted on AnalystNotesPanel w/ immediate re-read + covering vitest case. Residual: the manual keyed POST /api/query/answer citation check at pickup of a live stack.)* "Log a note" quick-capture on Issuer Profile writing a
-  tagged memo into the vault (expansion 4.9). Partially covered: vault memo
-  upload exists (`components/query/VaultMemoUpload.tsx`, `engine/
-  memochunks.py`, Query walk `analyst-memos`); confirm the specific
-  quick-capture-from-profile flow (`analyst-notes.test.tsx`) covers the full
-  "no new store, no new schema" requirement. **Verify:** `npm --prefix
-  caos/frontend run test -- analyst-notes VaultMemoUpload` green; if the
-  profile-entry-point gap is real, add a covering case to
-  `analyst-notes.test.tsx` and re-run. **Exit:** a memo logged from Issuer
-  Profile is answerable via D2's RAG lane (confirm with a manual
+- [x] **D3 (S) — DONE on main.** `test_upload_robustness.py` covers empty,
+  non-PDF, lying extension, mid-read oversize, corrupt, encrypted, non-workbook,
+  and zip-bomb-like containers. Every case is an explicit 4xx or a loud
+  zero-chunk warning; none becomes silent success.
+- [ ] **D4 (S) — partial on main.** The Issuer Profile quick-note entry point,
+  vault upload/autolink path, immediate re-read, and frontend test have landed.
+  Remaining exit evidence is the live manual RAG answer proving the new memo's
+  chunk id is cited. The quick capture writes a tagged memo through
+  `VaultMemoUpload`/`memochunks.py` without a new store or schema; the
+  `analyst-notes` and `VaultMemoUpload` tests are already green. **Exit:** a
+  memo logged from Issuer Profile is answerable via D2's RAG lane (confirm
+  with a manual
   `POST /api/query/answer` call citing the new memo's chunk id).
 
 **Exit gate:** scanned-PDF golden green with real-binary confirmation (D1) ·
@@ -565,23 +757,30 @@ silently with 0 chunks.
 **Objective:** safe to put in front of an enterprise security review.
 "Functional" ≠ "safe to transfer" — this phase is the difference.
 
-- [ ] **E1 (M)** *(Exec 2026-07-12: PR #171 open — WEB_CONCURRENCY multi-worker launch (Postgres-gated), stress harness run for REAL for the first time: 2-worker + throwaway Postgres, 15-user/60s locust, 2584 req/0 failures/p95 89ms. Advisory-lock migration safety across concurrent boots confirmed working. Found (not fixed, own follow-up): research/report executors stay in-process-only under multi-worker.)* Stress/scale closure. Already landed: per-analyst run cap
+- [ ] **E1 (M) — partial on main.** `WEB_CONCURRENCY`, Postgres-gated
+  multi-worker launch, advisory-lock migration safety, and a recorded
+  15-user/60-second two-worker run (2,584 requests, 0 failures, p95 89 ms)
+  have landed. Remaining: 2×-pilot calibration and durable cross-worker
+  claiming for the research/report executors, which remain in-process. Already
+  landed: per-analyst run cap
   (`config.py:210 caos_run_per_analyst_limit=3`, enforced `routes/runs.py:298`),
   identity-keyed rate limits across runs/vault/chat/models/digest/edgar/
   ingestion/issuers, SKIP LOCKED worker lease (`config.py:326`,
-  `routes/autonomy.py:18`, `run_executor.py:248`). Missing: multi-uvicorn-
-  worker deploy config (grep clean for `--workers`/`WEB_CONCURRENCY` in
-  `caos/deploy/`), DB pool sizing re-check, and — critically — **the stress
-  harness has never been run** (`caos/tests/stress/` exists, untriggered).
+  `routes/autonomy.py:18`, `run_executor.py:248`). Missing: DB pool sizing at
+  the final 2× target and a durable lease/reaper or documented single-worker
+  boundary for research/report execution.
   **Verify:** `caos/server/.venv311/bin/python -m pytest caos/tests/stress`
   plus a locust run @ 2× pilot concurrency with mock-Anthropic fault
   injection; record and close what it finds. **Exit:** stress suite green at
   2× pilot concurrency with fault injection; multi-worker config committed
   and load-tested (feeds G3).
-- [ ] **E2 (L — own implementation plan at pickup) — DECIDED 2026-07-03:
-  roles-lite.** Confirmed not built (S4 Ev-12: only `team_id` columns exist,
-  which is the orthogonal cross-team tenancy mechanism from `313ebac`, not
-  roles). Three roles on the existing analyst-profile system:
+- [ ] **E2 (L — own implementation plan at pickup) — roles-lite, partial and
+  not yet certified.** The current checkout has an `Analyst.role` field and
+  `require_write_role` on selected newer routes, which supersedes the old
+  “only team_id exists” claim. That is not enough to close E2: the exhaustive
+  mutation/admin route matrix, bootstrap/assignment plane, legacy-route
+  coverage, and forged-role/cookie tests still require A8 re-grounding and
+  proof. Three roles on the existing analyst-profile system:
   - **analyst** (default) — full workspace read/write, runs, uploads, watch
     rules.
   - **admin** — analyst rights + profile/role management + audit-log view +
@@ -598,7 +797,7 @@ silently with 0 chunks.
   green — includes the forged-role/cookie-tamper cases. **Exit:** role model
   enforced server-side on 100% of mutating routes; documented in the
   accepted-risk register + H3 admin guide.
-- [ ] **E3 (M)** Audit trail: append-only `audit_log` table (who/what/when/
+- [ ] **E3 (M)** *(Exec 2026-07-12: PR #169 open — audit_log table (migration 0038) + audit.py write helper wired into every route mutating firm/shared state; GDPR erase extends its anonymize-not-delete pattern to audit_log; caught + fixed a real flush-outside-try 500-vs-409 bug in 4 routes along the way. Full suite 1417/2, one unrelated pre-existing test_retention.py failure at full-suite scale flagged as its own follow-up, not this PR's bug.)* Audit trail: append-only `audit_log` table (who/what/when/
   before→after) on every mutating route — issuer CRUD, uploads, deletes,
   rating edits, watch-rule changes, GDPR delete. Confirmed absent (no
   `audit_log` in `database.py`'s full table list). Runs already stamp
@@ -606,15 +805,14 @@ silently with 0 chunks.
   **Verify:** new migration + `pytest caos/tests/server/test_audit_log.py`
   (new) asserting a row on every mutating route class. **Exit:** 100% of
   mutating routes tested to write an audit row.
-- [ ] **E4 (S)** *(Exec 2026-07-12: PR #166 open — SECRETS.md runbook + test_secret_log_hygiene.py: deployed-posture sentinel scan, mutation-verified, PG-gated + wired into the CI Postgres step. Booting it exercised 3 fail-closed guards — all held.)* Secrets runbook. Boot guards for `SESSION_SECRET`/
-  `EDGE_PROXY_SECRET`/`ANALYST_SIGNUP_CODE`/demo-seed are tested
-  (`test_audit_p0_fixes.py:133-148`); no runbook document exists, no
-  "never in logs" grep test exists. Inventory (add Bloomberg credentials once
-  C5 configures them via Settings), rotation procedure per secret, "never in
-  logs" grep test. **Verify:** `caos/docs/reference/SECRETS.md` (new) exists;
-  new grep-based test scans structured logs for known secret patterns.
-  **Exit:** runbook complete, grep test green in CI.
-- [ ] **E5 (M)** *(Exec 2026-07-12: PR #180 open — playbook re-run vs origin/main, all 6 gates PASS, 0 new HIGH/MED; AST-based route-gate sweep replaced a buggy regex one; agent diff-review of the largest pending change (design-rebuild-p1's new alert_states route) found nothing. Report: security-infra-2026-07-12.md.)* Security review pass. Already re-verified present: SSRF
+- [x] **E4 (S) — DONE on main.** `docs/reference/SECRETS.md` inventories and
+  explains rotation for shipped secrets; `test_secret_log_hygiene.py` is
+  mutation-verified and CI-wired. C5/H4 must append future Bloomberg/email
+  credential names and rotation steps when those integrations exist.
+- [ ] **E5 (M) — baseline pass, final rerun still required.** The 2026-07-12
+  security-infra review passed all six gates with 0 new HIGH/MED findings and
+  replaced the route-gate regex with an AST sweep. Keep this item open until
+  the full post-C3/C5/E2/E3 diff is rerun. Already re-verified present: SSRF
   allow-list (`edgar.py:111,270`), CSP/HSTS (`test_security_headers.py`),
   GDPR-delete transactional integrity (`test_gdpr_erase.py`,
   `erase_analyst.py`). Remaining: run `/security-review` on the full diff
@@ -624,15 +822,37 @@ silently with 0 chunks.
   edge-secret checks (LAUNCH_PHASE1 §5) re-verify. CRIT/HIGH fixed, MED/LOW
   to the accepted-risk register. **Verify:** `/security-review` run recorded
   with 0 open CRIT/HIGH. **Exit:** same, plus register published.
-- [ ] **E6 (S)** *(Exec 2026-07-12: PR #166 open — SBOM.md from requirements.lock pins + frontend license-checker; no copyleft/unknown in shipped paths; 3 accepted flags documented.)* License/SBOM report. Confirmed absent (S4 Ev-9).
-  `pip-licenses` + `license-checker` (both free) → `caos/docs/reference/
-  SBOM.md`; flag anything non-permissive. **Verify:** file exists,
-  non-empty. **Exit:** SBOM published, no unflagged non-permissive licenses.
+- [x] **E6 (S) — DONE on main.** `docs/reference/SBOM.md` records locked
+  backend/frontend packages, license findings, and the three accepted flags;
+  no unflagged copyleft or unknown license remains in shipped paths.
+- [ ] **E7 (S–M) — per-lane model routing (UW-12).** Either wire the three
+  currently disabled Settings selectors into the run contract or remove the
+  stored-but-inert fields from the production UI. A real implementation must
+  validate an allow-listed provider/model per lane, stamp the resolved route
+  on the run authority/audit record, preserve the workspace default, and fail
+  closed to that default when a selected route is unavailable. **Verify:**
+  Settings persistence + run dispatch tests prove each lane selection changes
+  the executed route; an unavailable route produces an explicit recovery
+  state. **Exit:** no permanently disabled/no-op production select remains.
+- [ ] **E8 (M) — data governance and vendor handling (PG-07).** Create an
+  approved record-class matrix for uploaded source documents, chunks and
+  embeddings, run facts, prompts/model outputs, findings, committee records,
+  audit rows, analyst identity data, exports, logs, and backups. For each,
+  define classification, owner, purpose, retention, deletion/anonymization,
+  legal-hold behavior, backup-expiry propagation, and export/access policy.
+  Record Anthropic, Google OIDC, SEC EDGAR, Bloomberg, and email-transport
+  data-flow/residency/DPA decisions; do not assume a vendor's default data-use
+  posture. **Verify:** policy-to-control test matrix exercises expiry and
+  erasure for mutable records and proves immutable/audit exceptions are
+  documented and authorized. **Exit:** Data Owner and Security Owner approve
+  the matrix; every exception is in H3's accepted-risk register.
 
 **Exit gate:** stress suite green at 2× pilot concurrency with fault
 injection (E1) · roles-lite implemented + tested (E2) · audit log on 100% of
 mutating routes, tested (E3) · secrets runbook + grep test (E4) · security
-review PASS with accepted-risk register (E5) · SBOM published (E6).
+review PASS with accepted-risk register (E5) · SBOM published (E6) · custom
+model-lane routing is either live and audited or removed from production
+Settings (E7) · record-class retention and vendor handling approved (E8).
 
 **Loops:** L12 (stress — work item for weekly smoke; manual full run at
 phase exits), L18 (security review — manual + live per-PR subset),
@@ -646,13 +866,17 @@ backend-api-data and security-infra playbooks (loop doc §3).
 exposes. *(= DEVELOPMENT_PHASES Phase 3, unchanged in spirit — 0/5 boxes
 checked there.)* Calendar-parallel with E after C+D land.
 
-- [ ] **F1 (S)** Reset production registry to empty (launch default). **Keep
-  the sealed golden set** — it is the regression net, never "cleanup." File
-  anchor: production `Issuer` table (`caos/server/database.py`), excluding
-  rows tagged in the golden fixture set. **Verify:** `SELECT count(*) FROM
-  issuers WHERE ticker NOT IN ('VSAT','FUN','VMO2', ...corpus tickers)`
-  returns 0 post-reset. **Exit:** registry empty except the sealed golden +
-  corpus set.
+- [ ] **F1 (S) — beta/production data separation (PG-09).** Run F on an
+  isolated beta environment with production-parity configuration. Sealed
+  goldens and breadth-corpus fixtures remain offline test assets and are never
+  inserted into the beta or production database. Reset the **beta** registry
+  before cohort onboarding; production starts empty under
+  `CAOS_DEMO_SEED=false` unless a separately approved cutover imports real
+  pilot records. **Verify:** environment identifier and database endpoint are
+  recorded; beta contains zero fixture-tagged issuers before F2; the H0
+  release manifest proves production seed is off. **Exit:** beta and
+  production data stores are distinct, test fixtures are absent, and any
+  real-data migration has an owner, reconciliation, and rollback plan.
 - [ ] **F2 (—)** Onboard 3–5 analysts; each builds their own issuers via the
   real ingestion path (upload / EDGAR-vault). Brief them on LAUNCH_PHASE1 §6
   expectations + how to read provenance. File anchor: `LAUNCH_PHASE1.md §6`
@@ -700,13 +924,10 @@ phase is marked passed.
 
 **Objective:** the boring operational muscle an enterprise handover assumes.
 
-- [ ] **G1 (S)** *(Exec 2026-07-12: PR #175 open — restore_drill.sh scripts the drill end to end, verified against a REAL Postgres restore incl. the failure path (corrupt dump -> exit 1, no false pass); wired into docker-compose.yml + README + LAUNCH_PHASE1.)* Backup restore drill automated. Today the restore procedure
-  is **comments in `backup.sh:13-19`** (`pg_restore … caos_restore_test`, tar
-  extract) — not a script. Wrap it: pg_restore → scratch DB → row-count
-  assert → drop; vault tarball → scratch extract. **Verify:** new
-  `caos/deploy/restore_drill.sh` runs and exits 0 against the latest backup.
-  **Exit:** drill scripted, run once now, calendared quarterly (loop doc L19,
-  `HANDOVER` class).
+- [x] **G1 (S) — DONE on main.** `deploy/restore_drill.sh` restores Postgres
+  and vault into scratch targets, checks data, cleans up, and fails closed on
+  a corrupt dump. Compose, deploy README, and launch documentation expose the
+  drill; L19 retains the quarterly handover cadence.
 - [ ] **G2 (S)** Error-rate alerting — dogfood Monitor: a watch rule over the
   app's own logs/health (unhandled-exception count, run-failure rate, 5xx
   rate) → alert inbox via `AlertSink`. **Depends on C3-seam existing first.**
@@ -715,36 +936,70 @@ phase is marked passed.
   `caos/server/.venv311/bin/python -m pytest
   caos/tests/server/test_ops_alerting.py -q` (new file — trigger a synthetic
   5xx/unhandled-exception burst against a test client and assert an alert
-  lands in the inbox via `InAppSink`). **Exit:** rule live, test green.
+  lands in the inbox via `InAppSink`). **Exit:** rule live, test green. This
+  proves product self-observation only; it does not satisfy PG-03/G7 because
+  CAOS cannot report its own total outage.
 - [ ] **G3 (M)** Load characterization: locust at enterprise-plausible
   concurrency (define with owner — e.g. 15 analysts × think-time) on
   prod-parity build; p95 targets per route class; document ceiling + first
   bottleneck. Builds on E1's multi-worker config. **Verify:** `performance`
   playbook §4(B)/(C) legs run against the isolated QA stack. **Exit:**
   documented ceiling, p95 targets met or exception filed.
-- [ ] **G4 (S)** *(Exec 2026-07-12: PR #177 open — DR_RUNBOOK.md written AND rehearsed for real: two isolated Docker networks simulating old/new host, old host's DB+network fully destroyed, new host recovered a real issuer from ONLY the off-host copy in 88s measured wall-clock. RTO/RPO stated honestly incl. total-loss-if-BACKUP_SYNC_CMD-unset.)* DR runbook: host-loss scenario — restore from off-host
-  backups (now possible via the `BACKUP_SYNC_CMD` hook, `backup.sh:56-58`) to
-  a fresh host; state RTO/RPO honestly (daily backup = up to 24h RPO). No
-  runbook doc exists yet. **Rehearse once.** **Verify:** `caos/docs/
-  reference/DR_RUNBOOK.md` (new) exists; rehearsal performed and logged.
-  **Exit:** runbook complete, rehearsed once, PASS.
+- [x] **G4 (S) — DONE on main.** `docs/reference/DR_RUNBOOK.md` records the
+  fresh-host recovery procedure and an isolated-host rehearsal that restored
+  a real issuer from the off-host copy in 88 seconds. RPO/RTO and the
+  total-loss risk when `BACKUP_SYNC_CMD` is unset are stated explicitly.
 - [x] **G5 (S)** ~~Migration safety~~ **DONE** — `test_migrations.py` already
   covers single-head, `alembic check`, and a full up/downgrade round-trip on
   both py3.11 and py3.14 CI legs.
-- [x] **G6 (S)** ~~Off-host backup copy~~ **DONE** — opt-in `BACKUP_SYNC_CMD`
-  hook landed 2026-07-11 (`backup.sh:56-58`, `.env.example`). G1's restore
-  drill should exercise this path at least once to close the loop.
+- [x] **G6 (S)** ~~Off-host backup mechanism~~ **DONE** — opt-in
+  `BACKUP_SYNC_CMD` hook landed 2026-07-11 (`backup.sh:56-58`, `.env.example`).
+  This credits the mechanism only. Deployment configuration, freshness,
+  encryption, alerting, and recovery from the remote copy remain open in G8.
+- [ ] **G7 (M) — independent service/host monitoring (PG-03).** From outside
+  the CAOS host, probe public ingress and a deliberately minimal liveness
+  signal; monitor certificate expiry and DNS. From the host/management plane,
+  monitor container health/restarts, Postgres readiness/connections, queue
+  age/failures, CPU/memory/disk/inodes, backup freshness, and clock skew. Route
+  alerts through a channel that does not depend on CAOS, with severity,
+  acknowledgement, escalation, owner, and tested delivery. Define pilot
+  availability and recovery SLOs plus an error-budget/accepted-risk decision.
+  **Verify:** kill app, DB, and ingress separately; fill a scratch filesystem
+  past threshold; age a backup/certificate fixture; each condition alerts and
+  recovery clears it. **Exit:** dated evidence names the independent monitor,
+  notification target, thresholds, and responder.
+- [ ] **G8 (M) — deployable backup/restore control (PG-04).** Configure a real
+  encrypted off-host destination with least-privilege credentials and
+  retention matching E8. Prove the latest DB and vault artifacts arrived,
+  expose their age and sync result to G7, alert on failure/staleness, and
+  restore from the off-host copy at realistic pilot data volume. Record the
+  measured RPO/RTO and have the Data Owner accept them. **Verify:** simulate
+  loss of the local `backups` volume and recover only from the remote copy.
+  **Exit:** `BACKUP_SYNC_CMD` is non-empty on the target, latest sync is green,
+  remote restore passes, and no operator needs undocumented credentials.
+- [ ] **G9 (M) — target-host readiness (PG-05).** File a dated host baseline:
+  supported OS/Docker/Compose versions and patch level; firewall exposes only
+  80/443 publicly; SSH/admin access and Docker-group membership are
+  least-privilege and logged; time sync works; data volumes and off-host
+  backups are encrypted with correct ownership; disk/inode headroom covers
+  database, vault, OCR scratch, image builds, logs, and one restore; log
+  rotation and certificate renewal are configured; reboot/restart order is
+  tested. **Verify:** commands and sanitized outputs live in the H3 admin
+  package. **Exit:** deploying engineer and Security Owner sign the baseline.
 
-**Exit gate:** restore drill from off-host copy PASS (G1, using G6's hook) ·
+**Exit gate:** restore drill from off-host copy PASS (G1/G8, using G6's hook) ·
 **error-rate alerting live and tested (G2)** — included in this gate for the
 same reason as F5 above: it is core ops work, not a §14 expansion item, and
 must not stay silently open once the phase is marked passed · DR rehearsal
-PASS with stated RTO/RPO (G4) · load test PASS at agreed concurrency (G3) ·
-migration up/down PASS (G5, done) · every loop-doc §2 loop relevant to a
+PASS with stated RTO/RPO (G4/G8) · load test PASS at agreed concurrency (G3) ·
+migration up/down PASS (G5, done) · independent monitoring and tested delivery
+(G7) · encrypted/fresh off-host recovery (G8) · target-host baseline signed
+(G9) · every loop-doc §2 loop relevant to a
 landed phase has run ≥2 consecutive green cycles.
 
 **Loops:** L13 (perf smoke), L19 (restore drill — manual + `HANDOVER` post-
-transfer cadence).
+transfer cadence), L21 (independent availability/host alerts), L22 (backup
+freshness and off-host recovery).
 
 ---
 
@@ -765,9 +1020,26 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 
 **Objective:** prove the end state and package the transfer.
 
+- [ ] **H0 (M) — freeze and preflight the release candidate
+  (PG-01/PG-02/PG-11).**
+  Cut a candidate from a clean checkout exactly equal to a green
+  `origin/main` commit. Build once, record the application image digest and
+  every third-party image digest, schema head, sanitized config fingerprint,
+  Modular OS manifest hash, and linked CI/nightly/security evidence in a
+  release manifest. Add a deployment override/manifest that consumes the app
+  as `image@sha256` (and resolves third-party tags to recorded digests), so the
+  target host loads or pulls the candidate without rebuilding source. Scan the
+  **final OCI image** (including OS packages) and
+  disposition every critical/high finding. Against a recent restored copy of
+  the target database, rehearse upgrade from its actual Alembic revision,
+  application boot, critical reads/writes, and the chosen rollback/forward-fix
+  path. Immediately before H1, take and verify a fresh off-host DB+vault
+  backup and record migration abort thresholds. **Exit:** deploy and rollback
+  both name immutable digests; no build occurs from a dirty tree; the
+  candidate schema and last-good compatibility decision are signed.
 - [ ] **H1 (M)** Full [LAUNCH_PHASE1 §5](LAUNCH_PHASE1.md) checklist on a
-  prod-parity host (`.venv311` / fastapi pin), every box, no skips (currently
-  16/16 unchecked there — by nature, these are deploy-time checks).
+  prod-parity host using H0's exact image digest, every box, no skips. Update
+  stale checklist counts rather than copying them into the evidence record.
 - [ ] **H2 (S)** Full regression stack green on that build in one sweep:
   golden-master + golden E2E + concept-link + e2e + stress + a11y + perf +
   ingestion matrix. Reuses the `workflow_dispatch:` trigger the loop doc's
@@ -783,12 +1055,16 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   - Analyst onboarding guide (from F briefings)
   - OpenAPI export + endpoint inventory
   - SBOM/license report (E6)
-  - Accepted-risk register (E2/E5 decisions, signed)
+  - Release manifest, migration/rollback evidence, host baseline, monitoring
+    inventory, and cutover run sheet (H0/G7/G9/H7)
+  - Data-governance/vendor-handling matrix (E8), including retention, legal
+    hold, backup expiry, residency/DPA decisions, and immutable-record policy
+  - Accepted-risk register (E2/E5/E8 and availability/RPO/RTO decisions, signed)
   - Support model: issue intake, triage SLA, release cadence — this is also
     where the `HANDOVER`-class loops (quarterly security review, quarterly
     restore drill) get a named owner post-transfer.
-  **Verify:** `ls caos/docs/handover/` shows all 7 listed sub-documents,
-  each non-empty and dated. **Exit:** package complete; PM/CIO can execute
+  **Verify:** a dated handover index enumerates every artifact above and each
+  link resolves; do not use a brittle file-count assertion. **Exit:** package complete; PM/CIO can execute
   the H5 sign-off from it without asking a follow-up question.
 - [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready:
   - `EmailSink` adapter spec: SMTP + MS Graph variants; auth, rate limits,
@@ -808,7 +1084,7 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   packages reviewable by enterprise IT/licensing without further CAOS-side
   work.
 - [ ] **H5 (S)** Sign-off (table below). **Verify:** each row's "Sign-off"
-  cell is filled with a name + date, not blank. **Exit:** all three rows
+  cell is filled with a name + date, not blank. **Exit:** all rows
   signed.
 
 | Role | Gate | Sign-off |
@@ -816,16 +1092,45 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 | Deploying engineer | H1 + H2 green | |
 | Head of Research / QA | golden set + gap log + CP-5 gate | |
 | PM / CIO | accepted-risk register + the two named outstanding items | |
+| Security / Platform owner | H0, G7, G9, E5 and incident path | |
+| Data owner | E8 policy, G8 RPO/RTO and production-data boundary | |
+| Support owner | H7 cutover, escalation and handover loops | |
+
+- [ ] **H6 (M) — persona-critical UAT (PG-08).** On H0's immutable candidate,
+  execute a signed matrix for: analyst issuer onboarding → evidence-backed run
+  → Deep-Dive/model/report/decision; PM/CIO portfolio posture, changes,
+  committee pack and read-only behavior; Research/QA source tracing, CP-5
+  restriction, ratification, audit and correction. Include empty, partial,
+  vendor-down, stale-market, auth-expiry, failed-upload, failed-run, narrow
+  viewport, 200% zoom, keyboard, print/PDF/XLSX, and supported-browser cases.
+  Reference data must remain visibly reference-only and cannot satisfy a live
+  case. **Exit:** all critical cases pass or carry a signed accepted risk with
+  workaround and owner.
+- [ ] **H7 (S) — cutover, abort, communications, and hypercare (PG-10).** Name
+  the change window, freeze point, deployer, migration owner, go/no-go chair,
+  rollback decision owner, analyst notification, status channel, success/error
+  thresholds, observation period, and support rota. Rehearse the timed run
+  sheet on prod-parity, including one forced abort and restoration of the
+  last-good digest/data state. **Exit:** contacts acknowledge the plan and
+  hypercare ends only after the agreed stable window and evidence review.
+- [ ] **H8 (S) — blocker-only closure ledger (PG-12).** Generate a final table
+  of every blocking A–H item plus PG-01…PG-12 with status, evidence link,
+  owner, and accepted-risk reference. C7–C9 and §14 expansion items remain
+  visible but explicitly non-blocking. **Exit:** zero blocking rows are open
+  or evidence-free; no readiness conclusion depends on counting every
+  Markdown checkbox in this mixed program/backlog document.
 
 **Exit gate = pre-deployment reached:** every phase gate A–G passed
 (including F5's dogfood row and G2's alerting row above, so no unlisted item
-survives outside the two named seams) · H1/H2 green · handover package
+survives outside the two named seams) · H0 release candidate frozen and
+preflighted · H1/H2 green · handover package
 complete (H3) · both outstanding-item packages ready (H4) · H5 signed ·
+persona UAT signed (H6) · cutover/hypercare rehearsed (H7) · blocker ledger
+closed (H8) ·
 outstanding items = exactly two: the `EmailSink` adapter (spec'd) and
-Bloomberg activation (connector built; runbook ready). **Verify:** re-run the
-`grep -c "^- \[ \]" caos/docs/PRE_DEPLOYMENT_PLAN.md` sanity check — every
-remaining open checkbox at this point should be inside H4's own two
-activation-package bullets, nothing else.
+Bloomberg activation (connector built; runbook ready). **Verify:** H8's
+blocker-only ledger has zero open/evidence-free rows. Do not use a raw checkbox
+grep: this document deliberately retains non-blocking expansion work.
 
 ---
 
@@ -838,38 +1143,43 @@ nothing is missing by omission. "By design" links to a recorded decision.
 |-------------|--------------|-----------|
 | SSO / domain-restricted auth | ✅ oauth2-proxy + Google OIDC | exists; enterprise IdP = transfer config (H3) |
 | In-app identity / profiles | ✅ analyst profiles, signed cookie | exists |
-| Authorization model | ⚠️ single-team + optional config-gated cross-team tenancy mechanism (off by default) | **E2 — roles-lite decided, not built** |
-| Audit trail | ⚠️ runs only | E3 |
+| Authorization model | ⚠️ analyst role field and selected write gates now exist; complete mutation/admin matrix still needs current re-grounding | **E2 — prove deny-by-default coverage** |
+| Audit trail | ⚠️ runs/decision events only; firm-wide append-only log is not on main | E3; PR #169 remains open |
 | Rate limiting / abuse caps | ✅ per-analyst run cap + identity-keyed limits | E1 closes multi-worker gap |
-| Secrets management + rotation | ⚠️ fail-closed, no runbook | E4 |
+| Secrets management + rotation | ✅ fail-closed + shipped rotation/log-hygiene runbook | E4 done; append future market/email credentials in C5/H4 |
 | Dependency scanning | ✅ Dependabot + policy | A5 + L14 loop |
 | Malware scanning on upload | ✅ clamav | exists |
 | SSRF / egress control | ✅ allow-list | re-verified E5 |
 | Security headers / TLS | ✅ Caddy + CSP/HSTS | re-verified H1 |
-| Pen-test style review | ⚠️ ad hoc | E5 + loop doc L18 |
-| SBOM / license compliance | ❌ | E6 |
-| Backups | ✅ daily + rotation + opt-in off-host sync | exists (G6 done) |
-| Restore drills | ⚠️ manual, undocumented (comments only) | G1 |
-| DR / host-loss plan | ❌ | G4 |
+| Pen-test style review | ⚠️ 2026-07-12 baseline pass; final-diff rerun outstanding | E5 + loop doc L18 |
+| SBOM / license compliance | ✅ shipped report; no unflagged non-permissive license | E6 done |
+| Backups | ⚠️ daily local + optional off-host mechanism; target configuration/freshness/encryption not yet proven | G6 mechanism; **G8 deployment control** |
+| Restore drills | ✅ scripted and real failure path verified | G1 done; quarterly L19 cadence |
+| DR / host-loss plan | ✅ fresh-host runbook rehearsed from off-host copy | G4 done; H2 final-build rehearsal |
 | Observability (logs) | ✅ structured, contextual | exists |
-| Alerting on errors | ❌ (depends on C3-seam) | G2 |
+| Product self-alerting | ❌ (depends on C3-seam) | G2 |
+| Independent uptime/host/backup alerting | ❌ | **G7/G8; L21/L22** |
 | APM | ❌ **by design** (no paid services) | recorded decision |
-| Load testing | ⚠️ harness built, never run | E1, G3 |
-| Migrations discipline | ✅ alembic self-migrate + up/down round-trip test | done (G5) |
+| Load testing | ⚠️ 15-user/2-worker run passed; 2× pilot calibration remains | E1, G3 |
+| Migrations discipline | ⚠️ generic up/down tests pass; actual-target preflight and release rollback decision remain | G5 + **H0** |
 | Graceful LLM degradation | ✅ fault isolation by construction | exists; re-proven at each LLM-surface phase exit |
-| Market-data integration | ❌ entirely unbuilt | C5 connector + store + refresh + Settings; H4 activation w/ entitlements |
-| Monitor alert seam | ❌ entirely unbuilt (engine only) | C3-seam; H4 EmailSink activation |
-| Data retention | ✅ run-fact pruning | exists |
+| Market-data integration | ⚠️ normalized REFERENCE snapshot/run WIP; no live/manual provider chain | C5 connector + store + refresh + Settings; H4 activation w/ entitlements |
+| Monitor alert seam | ⚠️ live inbox/state WIP; no watch-rule/sink/email pipeline | C3-seam; H4 EmailSink activation |
+| Data retention / legal hold / backup expiry | ⚠️ run-fact pruning exists; record-class governance is incomplete | **E8/H3** |
 | GDPR delete | ✅ transactional | re-verified E5 |
-| Empty/error/degraded states | ⚠️ most surfaces | C1/C4 ledger closes the rest |
-| Accessibility | ✅ axe-clean target | loop doc `design-a11y-ux` playbook |
+| Empty/error/degraded states | ⚠️ explicit shared state contract shipped; reference/live route gaps remain | C4 plus UW/UF register |
+| Accessibility | ✅ latest local sweep: 0 serious/critical axe findings on 15 routes | rerun on immutable H1 build; loop doc `design-a11y-ux` |
 | i18n | ❌ **by design** — single-desk English product | note in H3 |
 | Multi-tenancy | ⚠️ mechanism exists (config-gated, off) but **by design** default is one shared team | SECURITY §2, H3; `tenancy.py` |
 | API documentation | ✅ OpenAPI | exported H3 |
-| Runbooks (deploy/rollback) | ✅ LAUNCH_PHASE1 | rehearsed G/H |
+| Immutable release / image provenance | ❌ | **H0** |
+| Target-host hardening and capacity | ❌ as a signed release artifact | **G9/H3** |
+| Runbooks (deploy/rollback) | ⚠️ LAUNCH_PHASE1 exists; immutable-digest and production-schema rehearsal remain | **H0/H1/H7** |
+| Persona-critical UAT | ❌ formal signed matrix | **H6** |
+| Cutover/change communications/hypercare | ❌ | **H7** |
 | User onboarding docs | ⚠️ §6 briefing only | H3 guide |
 | Support/maintenance model | ❌ | H3 |
-| Feature tracking / QA ledger | ✅ 355-row tracker | per-phase sweeps (A7b closes the 9 open rows) |
+| Feature tracking / QA ledger | ✅ 355/355 `Pass` | A7b done; per-phase sweeps keep it current |
 | Regression corpus (exact) | ✅ 3 sealed goldens | grows in F + via B5 promotion |
 | Test corpus (breadth) | ⚠️ selection delivered (61 issuers), 0 fixtures captured | B5 |
 
@@ -896,6 +1206,13 @@ open items tracked as §14 expansion backlog here.
   incident happened (§15) — never commit code that references still-
   uncommitted implementation files; land features as one coherent commit or
   stack, not committed-refs-ahead-of-files.
+- **Freeze once, build once, promote by digest.** H0 is the point where normal
+  small-merge flow stops for the candidate. Any code, dependency, migration,
+  prompt, config-contract, or deploy-asset change after H0 creates a new
+  candidate and invalidates H1/H2/H6 evidence tied to the prior digest.
+- **Production never contains regression fixtures.** Goldens, breadth corpus,
+  sample sleeves, and reference workspaces remain test/reference data; F uses
+  an isolated beta environment and H0 proves demo seed is off.
 - **Docs lie until reconciled** — status claims come from code/tests, not
   trackers; per-phase sweeps (L15) keep them honest.
 - **Confidence and goal audits at every phase exit** (L16, L17) — a
@@ -931,8 +1248,11 @@ here with a named unblocking event — none is scheduled by default.
 - [ ] **X4 (M)** Analyst call tracking / hit rate (4.8). **Unblock:**
   post-transfer real marks (Bloomberg cutover, outstanding item #2). C8's
   timestamps make this retroactive from day one.
-- [ ] **X5 (L, own plan)** Sector dashboards — CP-SR (4.10). **Unblock:**
-  post-transfer (needs F breadth **and** real marks).
+- [ ] **X5 (L, own plan)** Advanced cross-sector dashboards and benchmarking
+  beyond C13's production Sector Review contract (4.10). **Unblock:**
+  post-transfer (needs F breadth **and** real marks). CP-SR's core
+  source-backed refresh/publish promise is blocking C13 work and may not be
+  deferred here.
 - [ ] **X6 (M–L, own plan)** Actionable-intel lane. **Unblock:** C3-seam
   (alert schema + inbox) — **now unblocked once C3-seam lands**, still
   unscheduled by default.
@@ -955,6 +1275,13 @@ issuer walk, sponsor/counterparty graph — both live in `questions.ts`/
   Report Studio export change (natural pairing with C9).
 - [ ] **X11 (M)** Digest history snapshots. **Unblock:** C3-seam
   digest-as-sink work.
+- [ ] **X12 (M)** Promote graph expansion from a measurement harness into
+  production retrieval. **Unblock:** prove the staged expansion improves
+  answer quality within the latency/token budget; then integrate it with
+  `retrieve_corpus` behind a kill switch and regression corpus.
+- [ ] **X13 (M)** Vault peer/sponsor identity edges. **Unblock:** CP-1C and
+  sponsor extraction must persist evidence-backed entity identities rather
+  than aggregate counts; export only source-linked, canonicalized edges.
 - [ ] **Market-spread RV / `market_quotes`** — tracked: **C5** (store) +
   **X5** (sector dashboards); Bloomberg = outstanding #2, post-transfer.
 
@@ -985,3 +1312,21 @@ issuer walk, sponsor/counterparty graph — both live in `questions.ts`/
   status and mechanism claims from drifting independently, which is how the
   "nightly loop" cadence claims went stale the first time (no `schedule:`
   trigger ever existed in `ci.yml`).
+- **2026-07-12:** `origin/main` advanced to `14cb9c53` (merged #165 D4-stamp,
+  #167 C1/E4/E6-stamp — those items' exec-notes above are current as of that
+  SHA). Live dependabot re-check: 2 open (#139, #140), not 12 — confirms A5's
+  same-day merge narrative. Separately, this update was written from an
+  **unmerged working branch**, `feat/design-rebuild-p1` (15 commits ahead of
+  `origin/main`, plus uncommitted WIP) — a P1-WP/P2-WP design-rebuild
+  initiative not yet reconciled into the A–H phase-letter structure. It
+  contains real, concrete progress on C3-seam's alert-inbox/persistence
+  bullets (`alert_states` migration, live `AlertInbox` UI, `useAutonomyDraft`
+  wiring) but **not** the `AlertSink`/`EmailSink` interface itself, and the
+  branch's test suite is **currently broken** (22 failed / 319 errors on
+  `.venv311`) under in-flight WIP touching core server files — not a
+  deploy-ready state. See the "2026-07-12 update" block after the Trunk
+  state table for the full delta. **Next full grounding should**: (a)
+  reconcile the P1-WP/P2-WP commits against the phase-letter structure once
+  merged, (b) re-run the suite clean once the WIP settles, (c) decide whether
+  the branch's direct alert-inbox approach supersedes or complements the
+  `AlertSink`/`EmailSink` interface C3-seam specifies.

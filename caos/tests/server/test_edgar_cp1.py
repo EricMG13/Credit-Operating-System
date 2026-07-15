@@ -104,6 +104,8 @@ def test_build_cp1_reported_foundation():
     p = build_cp1_payload("Test Co", _facts())
     assert p is not None and p.module_id == "CP-1"
     assert p.runtime_output["basis"] == "reported_gaap_xbrl"
+    assert p.runtime_output["currency"] == "USD"
+    assert p.runtime_output["reporting_unit"] == "millions"
     nf = p.runtime_output["normalized_financials"]
     assert nf["revenue"] == {"FY2023": 2410.0, "FY2024": 2588.0, "FY2025": 2742.0}
     assert nf["adj_ebitda"]["FY2025"] == 415.0  # 300 + 115 (proxy)

@@ -10,7 +10,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getCrossDefaultMap, getIssuerProfile, queryGraph, type BusinessFact, type CrossDefaultMap, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { getIssuerProfile, queryGraph, type BusinessFact, type EarningsSummary, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
 import type { GraphResult } from "@/lib/query/graph";
 import { CloseButton } from "@/components/shared/CloseButton";
 
@@ -20,7 +20,9 @@ const EMPTY_EARNINGS: EarningsSummary = {
 };
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
+import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
 import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
@@ -28,7 +30,27 @@ import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
 import { fmtPct, fmtUsdM } from "@/lib/format";
-import { ResponsiveShell } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { DecisionHeader } from "@/components/shared/DecisionHeader";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
+import type { DecisionContextState } from "@/lib/decision-state";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import { useTypedUrlState } from "@/lib/typed-url-state";
+import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
+import { freshnessDetail, toProvFreshness } from "@/lib/freshness";
+
+const PROFILE_URL_KEYS = ["tab"] as const;
+const PROFILE_TABS = [
+  { id: "snapshot", label: "Snapshot" },
+  { id: "financials", label: "Financials" },
+  { id: "structure", label: "Structure & Covenant" },
+  { id: "market", label: "Market & RV" },
+  { id: "events", label: "Events" },
+  { id: "evidence", label: "Evidence / QA" },
+] as const;
+type ProfileTab = typeof PROFILE_TABS[number]["id"];
 
 // FY ↔ quarter granularity options for the trend toggle (as-const so the union
 // "FY" | "Q" flows into ToggleGroup's generic and back to setGran).
@@ -126,10 +148,10 @@ function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: 
 
 // Issuer-scoped jumps into the other concepts, rendered in the bottom bar.
 const ISSUER_ACTIONS = [
-  { href: "/pipeline?issuer=", label: "Run analysis" },
-  { href: "/model?issuer=", label: "Model Builder" },
-  { href: "/reports?issuer=", label: "Report Studio" },
-  { href: "/upload?issuer=", label: "Upload docs" },
+  { href: "/pipeline?issuer=", label: "Run issuer analysis" },
+  { href: "/model?issuer=", label: "Open in Model Builder" },
+  { href: "/reports?issuer=", label: "Open in Report Studio" },
+  { href: "/upload?issuer=", label: "Upload issuer documents" },
 ];
 
 export default function IssuerProfilePage() {
@@ -425,8 +447,27 @@ export function Profile({
   onClose?: () => void;
 }) {
   const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
+  const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
+  const activeFreshnessArtifact = analysis.context?.artifacts.model_checkpoint_id
+    ?? analysis.context?.artifacts.report_version_id;
+  const freshnessRead = useIssuerFreshness({
+    issuerId: id,
+    contextId: analysis.context?.id,
+    runId: latest_run?.id,
+    artifactRevision: `${analysis.context?.updated_at ?? ""}:${activeFreshnessArtifact ?? ""}`,
+  });
+  const profileFreshness = derivedFreshness(
+    freshnessRead,
+    activeFreshnessArtifact,
+  );
+  const { values: profileUrl, update: updateProfileUrl } = useTypedUrlState(PROFILE_URL_KEYS);
+  const activeTab = PROFILE_TABS.some((tab) => tab.id === profileUrl.tab)
+    ? profileUrl.tab as ProfileTab
+    : "snapshot";
   const earnings = data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
-  const deepHref = "/deepdive?issuer=" + encodeURIComponent(id);
+  const deepHref = analysis.context
+    ? contextHref("/deepdive", analysis.context.id, { issuer: id })
+    : "/deepdive?issuer=" + encodeURIComponent(id);
   // A Blocked run must not flash a committee-green stance: the recommendation
   // chip is rendered gated (idle sev + explicit label) so a screenshot can never
   // show the overweight without the block.
@@ -497,6 +538,28 @@ export function Profile({
     return () => { document.title = prev; };
   }, [isOverlay, issuer.ticker, issuer.name]);
 
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context) return;
+    const issuerIds = context.issuer_ids.includes(id) ? context.issuer_ids : [...context.issuer_ids, id];
+    const runId = latest_run?.id ?? context.artifacts.issuer_run_id;
+    const current = context.surface_state["issuer-profile"];
+    if (
+      issuerIds === context.issuer_ids
+      && runId === context.artifacts.issuer_run_id
+      && current?.active_id === id
+      && current?.view === activeTab
+    ) return;
+    void analysis.patch({
+      issuer_ids: issuerIds,
+      artifacts: { ...context.artifacts, issuer_run_id: runId },
+      surface_state: {
+        ...context.surface_state,
+        "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [], view: activeTab },
+      },
+    }).catch(() => {});
+  }, [activeTab, analysis, id, latest_run?.id]);
+
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
   // Honest one-line desk read, composed from the REAL earnings deltas — direction
@@ -507,8 +570,77 @@ export function Profile({
   // signals — a callout with warning chrome must never fire on a clean read.
   const watchSignals = (earnings.monitoring_signals || []).filter((s): s is string => typeof s === "string" && !!s.trim());
 
+  // Decision header — every field reuses a value already computed above
+  // for the header chips / body panels (no new compute, no LLM). Missing
+  // data renders "— no data" via DecisionHeader itself, never a synthesized
+  // stance. Replaces the old PM-only PmStrip: the shared header is role-aware
+  // (collapsed for Analyst, open for PM/QA) rather than role-gated, so QA
+  // gets the same ten-second answer PM did.
+  const pmPosture = latest_run
+    ? { label: String(latest_run.committee_status) + (signals.recommendation ? ` · ${signals.recommendation}${recGated ? " (gated)" : ""}` : ""), sev: recGated ? "low" : COMMITTEE_SEV[latest_run.committee_status] ?? "low" }
+    : null;
+  const pmRisk = watchSignals[0] || weaknesses[0] || "no risk flagged";
+  const pmEvidence = latest_run
+    ? { label: totalFindings ? `${findings.CRITICAL || 0} crit · ${findings.MATERIAL || 0} mat` : "clean", sev: findings.CRITICAL ? "critical" : findings.MATERIAL ? "warning" : "ok" }
+    : { label: "no run", sev: "low" };
+  const pmAction = { label: recGated ? "Clear CP-5 gate" : "Review thesis", href: deepHref };
+  const EVIDENCE_SEV_COLOR: Record<string, string> = {
+    critical: "var(--caos-critical)", warning: "var(--caos-warning)", ok: "var(--caos-success)", low: "var(--caos-muted)",
+  };
+  const profileAsOf = latest_run?.as_of_date ?? null;
+  const profileAuthority = profileAsOf ? {
+    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf },
+    approval: latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
+  } : undefined;
+  const profileUnavailable = { kind: "unavailable" as const, message: "No timestamped completed run available" };
+  const profileDecision: DecisionContextState = profileAsOf
+    ? {
+        whatChanged: { kind: "ready", value: deskRead, asOf: profileAsOf, authority: profileAuthority },
+        whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf: profileAsOf, authority: profileAuthority },
+        requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf: profileAsOf, authority: profileAuthority },
+        evidenceHealth: {
+          kind: profileFreshness?.state === "stale" ? "stale" : profileFreshness?.state === "current" && !totalFindings ? "ready" : "partial",
+          value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
+          missingSources: [...(totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : []), ...(!profileFreshness || profileFreshness.state === "unknown" ? ["central freshness evaluation"] : [])],
+          asOf: profileAsOf,
+          authority: profileAuthority,
+        },
+      }
+    : { whatChanged: profileUnavailable, whyItMatters: profileUnavailable, requiredAction: profileUnavailable, evidenceHealth: profileUnavailable };
+
+  const evidenceAtlas = (
+    <Panel title="Evidence Atlas" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Latest run</span>}>
+      <dl className="grid gap-1 p-3">
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority?.provenance.origin ?? "Unavailable"} · {profileAuthority?.approval ?? "UNRATIFIED"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Freshness</dt><dd><FreshnessIndicator evaluation={profileFreshness} /></dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Source readiness</dt><dd className="tabular text-caos-xs text-caos-text">{coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "Unavailable"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Documents</dt><dd className="tabular text-caos-xs text-caos-text">{Number(coverage.documents) || 0}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Open findings</dt><dd className="tabular text-caos-xs text-caos-text">{totalFindings}</dd></div>
+      </dl>
+      {Array.isArray(coverage.categories_missing) && coverage.categories_missing.length ? <div className="px-3 pb-3"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">Missing categories</h3><ul className="mt-1 grid gap-1">{(coverage.categories_missing as string[]).map((category) => <li key={category} className="text-caos-xs text-caos-muted">△ {category}</li>)}</ul></div> : null}
+      <Link href={deepHref} className="caos-action-secondary focus-ring inline-flex m-3 mt-0 no-underline">Open evidence in Deep-Dive</Link>
+    </Panel>
+  );
+
   const body = (
       <div className="flex flex-col gap-3">
+        <div role="tablist" aria-label="Issuer profile sections" className="flex items-center gap-1 overflow-x-auto border-b border-caos-border pb-2" onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length;
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }}>
+          {PROFILE_TABS.map((tab) => <button id={`profile-tab-${tab.id}`} key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} aria-controls={`profile-panel-${tab.id}`} tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => updateProfileUrl({ tab: tab.id === "snapshot" ? null : tab.id })} className="caos-action-secondary focus-ring whitespace-nowrap">{tab.label}</button>)}
+        </div>
+        <PersonaWorkbench
+          surface="issuer-profile"
+          decision={<DecisionHeader state={profileDecision} />}
+          inspector={activeTab === "evidence" ? null : evidenceAtlas}
+          primary={<div className="grid gap-3" role="tabpanel" id={`profile-panel-${activeTab}`} aria-labelledby={`profile-tab-${activeTab}`}>
+        <section hidden={activeTab !== "snapshot"} className="grid gap-3">
         {/* Row 1 — KPI strip: the 6 headline snapshot metrics as tiles (not a boxed
             panel), with real deltas + provenance + as-of. Replaces "Credit snapshot". */}
         {headline.length === 0 ? (
@@ -549,7 +681,9 @@ export function Profile({
             </div>
           </div>
         )}
+        </section>
 
+        <section hidden={activeTab !== "financials"} className="grid gap-3">
         {/* Row 2 — primary read: trend context | thesis, drivers, and watch. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.65fr_minmax(300px,1fr)] gap-3 items-start">
           <Panel
@@ -581,8 +715,8 @@ export function Profile({
           </Panel>
 
           <div className="flex flex-col gap-3">
-            <Panel title="Thesis & key drivers" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-6A</span>}>
-              <div className="px-3 py-2 flex flex-col gap-2">
+            <ThesisTimeline issuerId={id}>
+              <div className="flex flex-col gap-2">
                 <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />
                 <SigBand label="Downside fragility" v={signals.fragility}
                   extra={signals.shock_to_breach_pct != null ? `breach @ −${signals.shock_to_breach_pct}% EBITDA` : undefined} />
@@ -597,7 +731,7 @@ export function Profile({
                   </div>
                 ) : null}
               </div>
-            </Panel>
+            </ThesisTimeline>
 
             {watchSignals.length ? (
               <div className="rounded border p-3" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 42%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)" }}>
@@ -613,7 +747,9 @@ export function Profile({
             ) : null}
           </div>
         </div>
+        </section>
 
+        <section hidden={activeTab !== "structure"} className="grid gap-3">
         {/* Row 3 — operating context | source/coverage gate. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_1fr] gap-3 items-start">
           <Panel title="Business profile">
@@ -664,10 +800,12 @@ export function Profile({
               </div>
             </Panel>
 
-            <CrossDefaultPanel issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
+            <CrossDefaultDominoes issuerId={id} hasRun={runs.some((r) => r.status === "complete")} />
           </div>
         </div>
+        </section>
 
+        <section hidden={activeTab !== "market"} className="grid gap-3">
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 items-start">
           <Panel
@@ -684,7 +822,9 @@ export function Profile({
 
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>
+        </section>
 
+        <section hidden={activeTab !== "events"} className="grid gap-3">
         {/* Row 5 — the remaining real panels, balanced so the page ends flush: Latest
             earnings (deltas + prior→latest) | Run history. */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
@@ -722,42 +862,32 @@ export function Profile({
             )}
           </Panel>
         </div>
+        </section>
+        <section hidden={activeTab !== "evidence"} className="grid gap-3">
+          {evidenceAtlas}
+          <Panel title="QA findings" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">CP-5</span>}>
+            <div className="grid grid-cols-3 gap-2 p-3">
+              <SigText label="Critical" v={String(findings.CRITICAL || 0)} sev={findings.CRITICAL ? "critical" : undefined} />
+              <SigText label="Material" v={String(findings.MATERIAL || 0)} sev={findings.MATERIAL ? "warning" : undefined} />
+              <SigText label="Minor" v={String(findings.MINOR || 0)} />
+            </div>
+          </Panel>
+        </section>
+      </div>}
+        />
       </div>
   );
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="object"
       heightClass={isOverlay ? "h-full" : "h-screen"}
       identity={
-        <>
-          {!isOverlay ? (
-            <>
-              <Link href="/issuers" className="no-underline flex items-center gap-2 group shrink-0 rounded focus-ring" aria-label="Back to issuer register">
-                <span className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold" style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}>C</span>
-                <span className="text-caos-2xl font-semibold tracking-wide text-caos-text group-hover:text-white transition-caos whitespace-nowrap">CREDIT OS</span>
-              </Link>
-              <span className="h-4 w-px bg-caos-border shrink-0" />
-            </>
-          ) : (
-            <span className="text-caos-md text-caos-muted font-mono uppercase tracking-wider whitespace-nowrap shrink-0">
-              Issuer Profile
-            </span>
-          )}
-          <span className="tabular text-caos-accent font-semibold leading-none tracking-tight shrink-0" style={{ fontSize: 14 }}>{issuer.ticker?.toUpperCase() || "—"}</span>
-          <h2 className="text-caos-text font-medium leading-none truncate min-w-[64px] m-0" style={{ fontSize: 14 }} title={issuer.name} aria-label={`${issuer.ticker ? issuer.ticker.toUpperCase() + " " : ""}${issuer.name} — issuer profile`}>{issuer.name}</h2>
-          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
-            {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
-          </span>
-          {ratings.length ? (
-            <span className="flex items-center gap-1 shrink-0">
-              {ratings.map((r) => (
-                <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
-                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
-                </span>
-              ))}
-            </span>
-          ) : null}
-          {latest_run ? (
+        <ShellIdentity
+          showConceptNav={!isOverlay}
+          tag={isOverlay ? "ISSUER PROFILE" : issuer.ticker?.toUpperCase() || "—"}
+          title={issuer.name}
+          titleAs="h2"
+          badges={latest_run ? (
             <span className="flex items-center gap-1 shrink-0">
               <span title={STATUS_TOOLTIP[latest_run.committee_status] || ""}>
                 <Tag sev={COMMITTEE_SEV[latest_run.committee_status] ?? "low"}>{latest_run.committee_status}</Tag>
@@ -772,27 +902,43 @@ export function Profile({
                 </span>
               ) : null}
             </span>
-          ) : (
-            <Tag sev="low">no run</Tag>
-          )}
-        </>
+          ) : <Tag sev="low">no run</Tag>}
+        >
+          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
+            {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
+          </span>
+          {ratings.length ? (
+            <span className="flex items-center gap-1 shrink-0">
+              {ratings.map((r) => (
+                <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
+                  <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
+                </span>
+              ))}
+            </span>
+          ) : null}
+        </ShellIdentity>
       }
       primaryAction={
         <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
           OPEN DEEP-DIVE →
         </Link>
       }
+      status={profileAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Latest run {profileAsOf}</span> : null}
       contextualControls={
-        !isOverlay ? (
-          <ConceptNav compact />
-        ) : onClose ? (
+        isOverlay && onClose ? (
           <CloseButton onClick={onClose} title="Close (Esc)" />
         ) : null
       }
       narrowContract={{
-        essentialControls: isOverlay && onClose ? (
-          <CloseButton onClick={onClose} title="Close (Esc)" />
-        ) : null,
+        // Overlay keeps its close affordance; the STANDALONE page keeps the
+        // concept nav — previously `null`, which stripped every navigation
+        // affordance from the header below 1024px (only the footer link bar
+        // survived). Fixed as part of the design-rebuild shell work.
+        essentialControls: isOverlay ? (
+          onClose ? <CloseButton onClick={onClose} title="Close (Esc)" /> : null
+        ) : (
+          <ConceptNav compact />
+        ),
       }}
     >
       <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
@@ -806,14 +952,14 @@ export function Profile({
         {ISSUER_ACTIONS.map((a) => (
           <Link
             key={a.href}
-            href={a.href + encodeURIComponent(id)}
+            href={`${a.href}${encodeURIComponent(id)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
             className="no-underline tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring"
           >
             {a.label}
           </Link>
         ))}
       </div>
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 
@@ -936,68 +1082,9 @@ function SigBand({ label, v, extra, gated = false }: { label: string; v: unknown
   );
 }
 
-// Cross-default dominoes — which tranches a single facility default pulls in
-// (CP-3B tranche register × the CP-4C material-indebtedness threshold). Fetched
-// lazily off the profile read; when the run extracted no threshold or tranches
-// the server's honest note renders instead — never a fabricated map.
-function CrossDefaultPanel({ issuerId, hasRun }: { issuerId: string; hasRun: boolean }) {
-  const [map, setMap] = useState<CrossDefaultMap | null>(null);
-  // Distinct from "no run yet" (hasRun=false, nothing fetched): a genuine fetch
-  // failure (500/timeout/etc) must render an explicit error, not collapse to
-  // the same silent nothing as "not applicable" — mirrors SponsorsView's
-  // track-record fetch (app/sponsors/page.tsx), which shows "Couldn't load…"
-  // on catch instead of vanishing.
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    if (!hasRun) return;
-    let stale = false;
-    setError(false);
-    getCrossDefaultMap(issuerId)
-      .then((d) => { if (!stale) setMap(d); })
-      .catch(() => { if (!stale) setError(true); });
-    return () => { stale = true; };
-  }, [issuerId, hasRun]);
-  if (!hasRun) return null;
-  if (error) {
-    return (
-      <Panel title="Cross-default dominoes">
-        <div className="px-3 py-2.5"><Empty>Couldn’t load cross-default data.</Empty></div>
-      </Panel>
-    );
-  }
-  if (!map) return null;
-  const computable = map.threshold_musd != null && map.dominoes.length > 0;
-  return (
-    <Panel
-      title="Cross-default dominoes"
-      right={map.threshold_musd != null
-        ? <span className="tabular text-caos-2xs text-caos-muted">trips ≥ {fmt(map.threshold_musd, "$M")}</span>
-        : undefined}
-    >
-      {!computable ? (
-        <div className="px-3 py-2.5"><Empty>{map.note || "No domino map for this run."}</Empty></div>
-      ) : (
-        <div className="text-caos-md divide-y divide-caos-border/30">
-          {map.dominoes.map((d) => (
-            <div key={d.code} className="px-3 py-1.5 flex items-baseline gap-2">
-              <span className="tabular text-caos-sm text-caos-accent w-14 shrink-0">{d.code}</span>
-              <span className="text-caos-text text-caos-md truncate flex-1">{d.tranche}</span>
-              <span className="tabular text-caos-sm text-caos-muted">{d.amount_musd != null ? fmt(d.amount_musd, "$M") : "unsized"}</span>
-              <span
-                className="tabular text-caos-xs w-28 text-right shrink-0"
-                style={{ color: d.trips_cross_default === true ? "var(--caos-critical)" : "var(--caos-muted)" }}
-              >
-                {d.trips_cross_default === true
-                  ? `▸ pulls in ${d.pulls_in.length} tranche${d.pulls_in.length === 1 ? "" : "s"}`
-                  : d.trips_cross_default === false ? "below threshold" : "not computable"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </Panel>
-  );
-}
+// Cross-default dominoes now render via the shared CrossDefaultDominoes
+// component (components/shared/CrossDefaultDominoes.tsx) — Deep-Dive's
+// Covenants tab reads the identical live map (WP-4 G13).
 
 function SigText({ label, v, sev }: { label: string; v: string | null; sev?: string }) {
   if (v == null) return null;

@@ -12,6 +12,7 @@ import { useMemo, useState, useRef } from "react";
 import { FilterHeader, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 import { fmtMult } from "@/lib/format";
+import { IssuerLink } from "@/components/shared/IssuerLink";
 
 // Shared formatter (lib/format.fmtMult): same 1-dp + "x" + em-dash fallback;
 // the local copy could drift from every other multiple on the desk. Exported:
@@ -106,9 +107,8 @@ export function LiveCoverage({
           {visibleRows.map((r) => {
             const rv = r.rv_recommendation;
             const frag = r.downside_fragility;
-            // Select by ticker, falling back to issuer_id: a live row without a
-            // ticker was previously unselectable (silent dead-end on click).
-            const selectKey = r.ticker ?? r.issuer_id;
+            // Stable issuer IDs avoid collisions when tickers are reused.
+            const selectKey = r.issuer_id;
             const isSelected = selected === selectKey;
 
             const handleClick = () => {
@@ -142,8 +142,8 @@ export function LiveCoverage({
                 }
               >
                 <span role="gridcell" className="flex items-center gap-1.5 min-w-0">
-                  <span className="tabular text-caos-accent">{r.ticker || "—"}</span>
-                  <span className="text-caos-text truncate text-caos-md">{r.name}</span>
+                  <IssuerLink issuer={{ id: r.issuer_id }} className="tabular text-caos-accent focus-ring rounded" title={`Open ${r.name} profile`}>{r.ticker || "—"}</IssuerLink>
+                  <IssuerLink issuer={{ id: r.issuer_id }} className="text-caos-text truncate text-caos-md focus-ring rounded" title={`Open ${r.name} profile`}>{r.name}</IssuerLink>
                 </span>
                 <span role="gridcell" className="text-caos-muted text-caos-md truncate">{r.sector || "—"}</span>
                 <span role="gridcell" className="tabular text-right">{fmtX(r.metrics.net_leverage)}</span>

@@ -12,6 +12,7 @@ Off by default: every endpoint 503s until ``EDGAR_USER_AGENT`` is configured
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
@@ -57,6 +58,7 @@ class VaultExhibitRequest(BaseModel):
     file_name: Optional[str] = None
     doc_type: str = "EDGAR Exhibit"
     run_mode: str = "legal"
+    filed_date: Optional[date] = None
 
 
 class VaultExhibitResponse(BaseModel):
@@ -206,6 +208,11 @@ async def vault_exhibit(
         run_mode=body.run_mode.strip().lower(),
         file_name=file_name,
         storage_key=key,
+        source_kind="legal_document",
+        source_published_at=(
+            datetime.combine(body.filed_date, time.min, tzinfo=timezone.utc)
+            if body.filed_date else None
+        ),
         chunk_count=len(chunks),
         uploaded_by=caller.email,
     )

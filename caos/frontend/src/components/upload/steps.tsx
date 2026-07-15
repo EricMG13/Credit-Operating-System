@@ -42,6 +42,7 @@ export interface UploadResult {
   minio_key: string;
   chunks_created: number;
   message: string;
+  source_manifest_id: string;
 }
 
 export interface FileOutcome {
@@ -217,6 +218,7 @@ export function IssuerStep({
 export function FileStep({
   selectedIssuer, getRootProps, getInputProps, isDragActive,
   files, onRemoveFile, runMode, setRunMode, uploading, progress, onUpload, onCancel, onBack,
+  origin, setOrigin, method, setMethod,
   portfolios = [], portfolioId = "", setPortfolioId,
 }: {
   selectedIssuer: Issuer | null;
@@ -227,6 +229,10 @@ export function FileStep({
   onRemoveFile: (f: File) => void;
   runMode: string;
   setRunMode: (k: string) => void;
+  origin: "live" | "reference" | "demo";
+  setOrigin: (value: "live" | "reference" | "demo") => void;
+  method: "reported" | "derived" | "modelled";
+  setMethod: (value: "reported" | "derived" | "modelled") => void;
   uploading: boolean;
   progress: { index: number; total: number; name: string } | null;
   onUpload: () => void;
@@ -283,6 +289,37 @@ export function FileStep({
             ))}
           </div>
         ) : null}
+
+        <div>
+          <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Authority declaration</div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="grid gap-1 tabular text-caos-xs text-caos-muted">
+              Origin
+              <select
+                value={origin}
+                onChange={(e) => setOrigin(e.target.value as "live" | "reference" | "demo")}
+                className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring"
+              >
+                <option value="live">LIVE · analyst source</option>
+                <option value="reference">REFERENCE · template/comparison</option>
+                <option value="demo">DEMO · non-decision fixture</option>
+              </select>
+            </label>
+            <label className="grid gap-1 tabular text-caos-xs text-caos-muted">
+              Method
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value as "reported" | "derived" | "modelled")}
+                className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring"
+              >
+                <option value="reported">REPORTED · source disclosure</option>
+                <option value="derived">DERIVED · deterministic transform</option>
+                <option value="modelled">MODELLED · analytical estimate</option>
+              </select>
+            </label>
+          </div>
+          <p className="mt-1 text-caos-xs text-caos-muted">This declaration is written into the immutable source manifest and follows the evidence downstream.</p>
+        </div>
 
         <div>
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
@@ -385,6 +422,7 @@ export function ResultStep({
   outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks,
   uploading, progress, runOutcome, onReset, onRetryFailed,
   runCreating, runCreated, runError, onCreateRun,
+  contextId,
 }: {
   outcomes: FileOutcome[];
   selectedIssuer: Issuer | null;
@@ -403,6 +441,7 @@ export function ResultStep({
   runCreated: RunSummaryDTO | null;
   runError: string;
   onCreateRun: () => void;
+  contextId?: string;
 }) {
   const { openProfile } = useIssuerProfileOverlay();
   // A vaulted doc that produced 0 chunks has no extractable text (scanned /
@@ -449,6 +488,17 @@ export function ResultStep({
           {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
         </div>
       )}
+      {!uploading && selectedIssuer && runOutcome?.state === "queued" ? (
+        <div className="flex items-center gap-2 border-b border-caos-border px-3 py-2">
+          <span className="tabular text-caos-xs text-caos-muted">Exact run {runOutcome.runId.slice(0, 8)}</span>
+          <Link
+            href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runOutcome.runId)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
+            className="caos-action-secondary ml-auto no-underline focus-ring"
+          >
+            Open Execution Graph
+          </Link>
+        </div>
+      ) : null}
       {/* Vaulting a document never starts a run by itself — this is the explicit
           trigger. modeMeta is descriptive metadata on the vaulted documents
           today (not yet threaded into the engine route), so the run itself is
@@ -468,7 +518,7 @@ export function ResultStep({
                 RUN {runCreated.status.toUpperCase()} · {runCreated.id.slice(0, 8)}
               </span>
               <Link
-                href={`/pipeline?issuer=${selectedIssuer.id}`}
+                href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runCreated.id)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
                 className="focus-ring ml-auto no-underline tabular text-caos-md px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
               >
                 VIEW IN PIPELINE →
@@ -499,9 +549,12 @@ export function ResultStep({
         {outcomes.map((o) => {
           const noText = !!o.result && o.result.chunks_created === 0;
           return (
-            <div key={o.name} className="grid grid-cols-[14px_1fr_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
+            <div key={o.name} className="grid grid-cols-[14px_minmax(0,1fr)_120px_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
               <Dot sev={o.result ? (noText ? "warning" : "ok") : "critical"} />
               <span className="text-caos-text truncate">{o.name}</span>
+              <span className="tabular text-caos-2xs text-caos-muted truncate" title={o.result?.source_manifest_id}>
+                {o.result ? `MANIFEST ${o.result.source_manifest_id.slice(0, 8)}` : "—"}
+              </span>
               <span
                 className="tabular text-caos-xs text-right"
                 title={noText ? noTextTitle : undefined}

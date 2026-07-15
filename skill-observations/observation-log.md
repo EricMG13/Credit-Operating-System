@@ -33,3 +33,12 @@ harness now mandates the current model's trailer (`Claude Fable 5` this
 session). Stale constant misattributes authorship whenever the model changes.
 Change the rule to "trailer names the current model, per the harness git
 guidance" instead of a pinned model string.
+
+## 2026-07-13 — playwright-pro — OPEN
+
+Browser fixture guidance should require an explicit no-fallthrough check for
+local API interception. Playwright glob patterns that cover a query-string form
+can miss the same Axios request when it has no query delimiter, silently reading
+a developer's live database and making acceptance runs non-deterministic. Define
+both exact and filtered request shapes (or use a URL predicate), then assert the
+fixture identity/source before treating route behavior as verified.

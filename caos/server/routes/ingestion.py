@@ -9,8 +9,9 @@ mode (same templates as the CP-X pipeline routes) that applies to the batch.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -24,8 +25,15 @@ import ingest
 import rate_limit
 import ratings
 import vault_export
-from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
+from analysis_contracts import ArtifactRef
+from config import get_settings
+from context_lineage import bind_context_artifacts
+from database import (
+    AnalysisContextRecord, Document, DocumentChunk, Issuer, SourceManifest,
+    get_db, AsyncSessionLocal,
+)
 from identity import CallerIdentity, get_identity
+from lineage_service import write_lineage_edge
 from tenancy import require_issuer, scope_issuers
 
 logger = logging.getLogger("caos.ingestion")
@@ -36,6 +44,7 @@ router = APIRouter()
 # new-loan price, OID and cap table in the source materials (run_mode is metadata
 # today, so behaviour matches "full" by construction).
 RUN_MODES = {"full", "primary", "earnings", "rv", "legal"}
+SOURCE_KINDS = {"reported_financials", "price", "rating", "legal_document"}
 
 # Analyst memo intake (→ the Obsidian vault, not document_chunks).
 MEMO_TYPES = {"market-commentary", "research", "memo"}
@@ -88,6 +97,18 @@ class IngestionResponse(BaseModel):
     # Count of issuers whose agency rating was updated from a Ratings column in a
     # structured (xlsx) upload; None/absent for PDFs or a sheet without ratings.
     ratings_updated: Optional[int] = None
+    source_manifest_id: str
+
+
+class SourceManifestOut(BaseModel):
+    id: str
+    issuer_id: Optional[str]
+    origin: str
+    method: str
+    status: str
+    files: list[dict]
+    authority: dict
+    created_at: datetime
 
 
 def _validate_run_mode(run_mode: str) -> str:
@@ -95,6 +116,15 @@ def _validate_run_mode(run_mode: str) -> str:
     if mode not in RUN_MODES:
         raise HTTPException(400, f"run_mode must be one of {sorted(RUN_MODES)}")
     return mode
+
+
+def _validate_source_kind(source_kind: Optional[str]) -> Optional[str]:
+    if source_kind is None or not source_kind.strip():
+        return None
+    value = source_kind.strip().lower()
+    if value not in SOURCE_KINDS:
+        raise HTTPException(422, f"source_kind must be one of {sorted(SOURCE_KINDS)}")
+    return value
 
 
 async def _vault_document(
@@ -107,6 +137,14 @@ async def _vault_document(
     text: str,
     content: bytes,
     background_tasks: BackgroundTasks,
+    chunk_prov: Optional[str] = None,
+    origin: str = "live",
+    method: str = "reported",
+    context_id: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    fiscal_period: Optional[str] = None,
+    effective_period_end: Optional[date] = None,
+    source_published_at: Optional[datetime] = None,
 ) -> IngestionResponse:
     # Gate on the issuer's team: no uploading documents into another team's issuer
     # (no-op when tenancy is off). Also covers the missing-issuer 404.
@@ -123,13 +161,16 @@ async def _vault_document(
         run_mode=run_mode,
         file_name=file.filename or "upload.bin",
         storage_key=key,
+        source_kind=source_kind,
+        fiscal_period=fiscal_period,
+        effective_period_end=effective_period_end,
+        source_published_at=source_published_at,
         chunk_count=len(chunks),
         uploaded_by=caller.email,
     )
     db.add(doc)
     await db.flush()
     if chunks:
-        import hashlib
         import uuid
         from database import LineageEdge
 
@@ -144,6 +185,7 @@ async def _vault_document(
                 "seq": i,
                 "text": chunk,
                 "chunk_hash": chash,
+                "prov": chunk_prov,
             })
             lineage_dicts.append({
                 "id": str(uuid.uuid4()),
@@ -163,6 +205,69 @@ async def _vault_document(
                 await session.commit()
         background_tasks.add_task(run_embed_task)
 
+    as_of = datetime.now(timezone.utc)
+    manifest = SourceManifest(
+        analyst_id=caller.id,
+        issuer_id=issuer_id,
+        origin=origin,
+        method=method,
+        status="ready" if chunks else "partial",
+        files=[{
+            "document_id": doc.id,
+            "file_name": doc.file_name,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "media_type": file.content_type or "application/octet-stream",
+            "size_bytes": len(content),
+            "chunks_created": len(chunks),
+            "extraction": chunk_prov or "native",
+            "malware_scan": "clean",
+            "warning": ingest.NO_CHUNKS_WARNING if not chunks else None,
+            "source_kind": source_kind,
+            "fiscal_period": fiscal_period,
+            "effective_period_end": effective_period_end.isoformat() if effective_period_end else None,
+            "source_published_at": source_published_at.isoformat() if source_published_at else None,
+        }],
+        authority={
+            "origin": origin,
+            "method": method,
+            "freshness": (
+                "unknown" if get_settings().caos_lineage_v2_enabled else "current"
+            ),
+            "as_of": as_of.isoformat(),
+            "source_ids": [doc.id],
+            "run_id": None,
+            "version_id": None,
+            "confidence": 1.0 if chunks else 0.0,
+            "approval_state": "draft",
+            "analyst_override": None,
+        },
+        created_at=as_of,
+    )
+    db.add(manifest)
+    await db.flush()
+    if context_id and get_settings().caos_lineage_v2_enabled:
+        document_ref = ArtifactRef(kind="document", id=doc.id)
+        manifest_ref = ArtifactRef(kind="source_manifest", id=manifest.id)
+        try:
+            await bind_context_artifacts(
+                db,
+                context_id=context_id,
+                analyst_id=caller.id,
+                refs=[document_ref, manifest_ref],
+                legacy_updates={"source_manifest_id": manifest.id},
+            )
+        except LookupError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+        await write_lineage_edge(
+            db,
+            context_id=context_id,
+            analyst_id=caller.id,
+            artifact=manifest_ref,
+            parent=document_ref,
+            transform="ingestion",
+            transform_version="2",
+            enabled=True,
+        )
     return IngestionResponse(
         document_id=doc.id,
         issuer_id=issuer_id,
@@ -171,6 +276,7 @@ async def _vault_document(
         chunks_created=len(chunks),
         message=f"{file.filename} vaulted and chunked ({len(chunks)} chunks) — {run_mode} run.",
         warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
+        source_manifest_id=manifest.id,
     )
 
 
@@ -179,23 +285,54 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
+    origin: str = Form("live"),
+    method: str = Form("reported"),
+    context_id: Optional[str] = Form(None),
+    source_kind: Optional[str] = Form(None),
+    fiscal_period: Optional[str] = Form(None, max_length=64),
+    effective_period_end: Optional[date] = Form(None),
+    source_published_at: Optional[datetime] = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
+    source_kind_value = _validate_source_kind(source_kind)
     async with _upload_semaphore():
         content = await ingest.read_capped(file)
         ingest.sniff_pdf(content)
         await avscan.scan(content)  # no-op unless CLAMAV_HOST is set; rejects malware before parse
         # pypdf/markitdown parsing is synchronous and CPU-bound; off-thread it so a
         # large upload doesn't block the event loop for every other request.
-        text = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
-    return await _vault_document(db, caller, issuer_id, "Document", mode, file, text, content, background_tasks)
+        text, used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, file.filename or "upload.pdf")
+    if origin not in {"live", "reference", "demo"}:
+        raise HTTPException(422, "origin must be one of: live, reference, demo")
+    if method not in {"reported", "derived", "modelled"}:
+        raise HTTPException(422, "method must be one of: reported, derived, modelled")
+    if context_id and get_settings().caos_lineage_v2_enabled:
+        context = (await db.execute(select(AnalysisContextRecord).where(
+            AnalysisContextRecord.id == context_id,
+            AnalysisContextRecord.analyst_id == caller.id,
+        ))).scalar_one_or_none()
+        if context is None or issuer_id not in (context.issuer_ids or []):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    return await _vault_document(
+        db, caller, issuer_id, "Document", mode, file, text, content, background_tasks,
+        chunk_prov="ocr" if used_ocr else None, origin=origin, method=method,
+        context_id=context_id, source_kind=source_kind_value,
+        fiscal_period=fiscal_period.strip() if fiscal_period and fiscal_period.strip() else None,
+        effective_period_end=effective_period_end,
+        source_published_at=source_published_at,
+    )
 
 
-async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResponse) -> None:  # noqa: C901
+async def _collect_ratings(
+    db: AsyncSession,
+    content: bytes,
+    resp: IngestionResponse,
+    caller: CallerIdentity,
+) -> None:  # noqa: C901
     """Pull agency ratings off a structured (xlsx) upload and write them onto
     matching *existing* issuers — matched by FIGI, then ticker, then exact name.
 
@@ -210,7 +347,9 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
         records = await asyncio.to_thread(ratings.extract_ratings_from_workbook, content)
         if not records:
             return
-        issuers = (await db.execute(select(Issuer).limit(2000))).scalars().all()
+        issuers = (await db.execute(
+            scope_issuers(select(Issuer), caller).limit(2000)
+        )).scalars().all()
         by_figi = {i.figi.strip().lower(): i for i in issuers if i.figi}
         by_ticker = {i.ticker.strip().lower(): i for i in issuers if i.ticker}
         by_name = {i.name.strip().lower(): i for i in issuers if i.name}
@@ -233,6 +372,7 @@ async def _collect_ratings(db: AsyncSession, content: bytes, resp: IngestionResp
                 iss.rating_sp = rec["sp"]
                 changed = True
             if changed:
+                iss.ratings_observed_at = datetime.now(timezone.utc)
                 updated += 1
         if updated:
             await db.flush()
@@ -247,12 +387,20 @@ async def upload_pricing_sheet(
     background_tasks: BackgroundTasks,
     issuer_id: str = Form(...),
     run_mode: str = Form("full"),
+    origin: str = Form("live"),
+    method: str = Form("reported"),
+    context_id: Optional[str] = Form(None),
+    source_kind: Optional[str] = Form(None),
+    fiscal_period: Optional[str] = Form(None, max_length=64),
+    effective_period_end: Optional[date] = Form(None),
+    source_published_at: Optional[datetime] = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
     _upload_rate_guard(caller)
     mode = _validate_run_mode(run_mode)
+    source_kind_value = _validate_source_kind(source_kind)
     async with _upload_semaphore():
         content = await ingest.read_capped(file)
         # Scan BEFORE any parse: sniff_xlsx opens the ZIP central directory (openpyxl/
@@ -263,11 +411,48 @@ async def upload_pricing_sheet(
         # openpyxl/markitdown parsing is synchronous and CPU-bound — off-thread it (see
         # upload_document) so a large workbook doesn't stall the single event loop.
         text = await asyncio.to_thread(ingest.extract_xlsx_text, content, file.filename or "upload.xlsx")
-    resp = await _vault_document(db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks)
+    if origin not in {"live", "reference", "demo"}:
+        raise HTTPException(422, "origin must be one of: live, reference, demo")
+    if method not in {"reported", "derived", "modelled"}:
+        raise HTTPException(422, "method must be one of: reported, derived, modelled")
+    if context_id and get_settings().caos_lineage_v2_enabled:
+        context = (await db.execute(select(AnalysisContextRecord).where(
+            AnalysisContextRecord.id == context_id,
+            AnalysisContextRecord.analyst_id == caller.id,
+        ))).scalar_one_or_none()
+        if context is None or issuer_id not in (context.issuer_ids or []):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    resp = await _vault_document(
+        db, caller, issuer_id, "PricingSheet", mode, file, text, content, background_tasks,
+        origin=origin, method=method, context_id=context_id,
+        source_kind=source_kind_value, fiscal_period=fiscal_period.strip() if fiscal_period and fiscal_period.strip() else None,
+        effective_period_end=effective_period_end, source_published_at=source_published_at,
+    )
 
     # Structured sheets carry a Ratings column — collect ratings onto issuers.
-    await _collect_ratings(db, content, resp)
+    await _collect_ratings(db, content, resp, caller)
     return resp
+
+
+@router.get("/manifests/{manifest_id}", response_model=SourceManifestOut)
+async def get_source_manifest(
+    manifest_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    row = await db.get(SourceManifest, manifest_id)
+    if row is None or row.analyst_id != caller.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Source manifest not found.")
+    return SourceManifestOut(
+        id=row.id,
+        issuer_id=row.issuer_id,
+        origin=row.origin,
+        method=row.method,
+        status=row.status,
+        files=row.files or [],
+        authority=row.authority or {},
+        created_at=row.created_at,
+    )
 
 
 class MemoUploadResponse(BaseModel):
@@ -317,7 +502,10 @@ async def upload_memo(  # noqa: C901
         if ext == ".pdf":
             ingest.sniff_pdf(content)
             # markitdown/pypdf is synchronous and CPU-bound — off-thread it (see upload_document).
-            text = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
+            # Memo chunking (chunk_memo_into_corpus) has no provenance column of
+            # its own yet — used_ocr is discarded here, unlike upload_document's
+            # document_chunks.prov tagging (D1). Out of scope for this pass.
+            text, _used_ocr = await asyncio.to_thread(ingest.extract_pdf_text, content, name)
         else:
             text = content.decode("utf-8", "replace")
     if not text.strip():

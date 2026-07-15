@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import calendar
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+from config import get_settings
 from database import (
-    Document, Issuer, IssuerResearchReport, MetricFact, ModuleOutput, QAFinding, Run, get_db,
+    Document, Issuer, IssuerReportingProfile, IssuerResearchReport, MarketInstrument,
+    MarketSnapshot, MetricFact, ModelCheckpoint, ModuleOutput, QAFinding, ReportVersion,
+    Run, aware_utc, get_db,
 )
 from engine.metrics import better_fact
 from engine.periods import is_finite_number
+from freshness import POLICY_VERSION, FreshnessEvaluation, ReportingCadence, evaluate_freshness
 from identity import CallerIdentity, get_identity
 from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
 
@@ -91,8 +96,69 @@ class IssuerDocumentResponse(BaseModel):
     file_name: str
     uploaded_at: datetime
     fiscal_period: Optional[str]
+    source_kind: Optional[str] = None
+    effective_period_end: Optional[date] = None
+    source_published_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class ReportingProfileUpdate(BaseModel):
+    cadence: ReportingCadence
+    fiscal_year_end_month: Optional[int] = Field(default=None, ge=1, le=12)
+    fiscal_year_end_day: Optional[int] = Field(default=None, ge=1, le=31)
+    reporting_lag_days: Optional[int] = Field(default=None, ge=0, le=365)
+    grace_days: int = Field(default=7, ge=0, le=90)
+
+    @model_validator(mode="after")
+    def _valid_fiscal_year_end(self) -> "ReportingProfileUpdate":
+        if (self.fiscal_year_end_month is None) != (self.fiscal_year_end_day is None):
+            raise ValueError("fiscal year-end month and day must be supplied together")
+        if self.fiscal_year_end_month is not None and self.fiscal_year_end_day is not None:
+            max_day = calendar.monthrange(2000, self.fiscal_year_end_month)[1]
+            if self.fiscal_year_end_day > max_day:
+                raise ValueError("invalid fiscal year-end day for month")
+        return self
+
+
+class ReportingProfileResponse(ReportingProfileUpdate):
+    issuer_id: str
+    configured: bool
+    authority: Dict[str, Any] = Field(default_factory=dict)
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class IssuerFreshnessResponse(BaseModel):
+    issuer_id: str
+    evaluated_at: datetime
+    policy_version: str = POLICY_VERSION
+    evaluations: List[FreshnessEvaluation]
+
+
+def _profile_response(
+    issuer_id: str, row: Optional[IssuerReportingProfile]
+) -> ReportingProfileResponse:
+    if row is None:
+        return ReportingProfileResponse(
+            issuer_id=issuer_id,
+            configured=False,
+            cadence="unknown",
+            grace_days=7,
+            authority={},
+        )
+    return ReportingProfileResponse(
+        issuer_id=issuer_id,
+        configured=True,
+        cadence=row.cadence,
+        fiscal_year_end_month=row.fiscal_year_end_month,
+        fiscal_year_end_day=row.fiscal_year_end_day,
+        reporting_lag_days=row.reporting_lag_days,
+        grace_days=row.grace_days,
+        authority=row.authority or {},
+        updated_by=row.updated_by,
+        updated_at=row.updated_at,
+    )
 
 
 # Issuers and their documents are a *shared coverage universe* — every
@@ -183,6 +249,185 @@ async def get_issuer(
 ):
     issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
     return issuer
+
+
+def _require_freshness_enabled() -> None:
+    if not get_settings().caos_lineage_v2_enabled:
+        raise HTTPException(404, "Issuer not found")
+
+
+@router.get(
+    "/{issuer_id}/reporting-profile",
+    response_model=ReportingProfileResponse,
+    dependencies=[Depends(_require_freshness_enabled)],
+)
+async def get_reporting_profile(
+    issuer_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    require_issuer(caller, await db.get(Issuer, issuer_id))
+    return _profile_response(issuer_id, await db.get(IssuerReportingProfile, issuer_id))
+
+
+@router.put(
+    "/{issuer_id}/reporting-profile",
+    response_model=ReportingProfileResponse,
+    dependencies=[Depends(_require_freshness_enabled)],
+)
+async def put_reporting_profile(
+    issuer_id: str,
+    body: ReportingProfileUpdate,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    require_issuer(caller, await db.get(Issuer, issuer_id))
+    if not rate_limit.hit(
+        f"issuer-profile-write:{caller.id}",
+        max_attempts=_WRITE_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(429, "Issuer reporting-profile rate limit reached — try again in a minute.")
+    now = datetime.now(timezone.utc)
+    row = await db.get(IssuerReportingProfile, issuer_id)
+    if row is None:
+        row = IssuerReportingProfile(issuer_id=issuer_id)
+        db.add(row)
+    for key, value in body.model_dump().items():
+        setattr(row, key, value)
+    row.authority = {
+        "origin": "live",
+        "method": "analyst-provided",
+        "source_ids": [issuer_id],
+        "approval_state": "draft",
+    }
+    row.updated_by = caller.id
+    row.updated_at = now
+    await db.flush()
+    await db.refresh(row)
+    return _profile_response(issuer_id, row)
+
+
+@router.get(
+    "/{issuer_id}/freshness",
+    response_model=IssuerFreshnessResponse,
+    dependencies=[Depends(_require_freshness_enabled)],
+)
+async def get_issuer_freshness(
+    issuer_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
+    now = datetime.now(timezone.utc)
+    profile = await db.get(IssuerReportingProfile, issuer_id)
+    cadence: ReportingCadence = profile.cadence if profile else "unknown"
+    reporting_lag = profile.reporting_lag_days if profile else None
+    grace_days = profile.grace_days if profile else 7
+
+    reported = (await db.execute(
+        select(Document).where(
+            Document.issuer_id == issuer_id,
+            Document.source_kind == "reported_financials",
+            Document.effective_period_end.is_not(None),
+        ).order_by(
+            Document.effective_period_end.desc().nullslast(),
+            Document.uploaded_at.desc(),
+        ).limit(1)
+    )).scalar_one_or_none()
+    legal = (await db.execute(
+        select(Document).where(
+            Document.issuer_id == issuer_id,
+            Document.source_kind == "legal_document",
+        ).order_by(
+            Document.source_published_at.desc().nullslast(),
+            Document.uploaded_at.desc(),
+        ).limit(1)
+    )).scalar_one_or_none()
+    market = (await db.execute(
+        select(MarketSnapshot)
+        .join(MarketInstrument, MarketInstrument.snapshot_id == MarketSnapshot.id)
+        .where(
+            MarketInstrument.issuer_id == issuer_id,
+            or_(
+                MarketSnapshot.analyst_id == caller.id,
+                MarketSnapshot.analyst_id.is_(None),
+            ),
+        )
+        .order_by(MarketSnapshot.as_of.desc()).limit(1)
+    )).scalar_one_or_none()
+    run = (await db.execute(
+        select(Run).where(Run.issuer_id == issuer_id, Run.status == "complete")
+        .order_by(Run.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    checkpoint = (await db.execute(
+        select(ModelCheckpoint).where(
+            ModelCheckpoint.issuer_id == issuer_id,
+            ModelCheckpoint.analyst_id == caller.id,
+        ).order_by(ModelCheckpoint.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    report = (await db.execute(
+        select(ReportVersion)
+        .join(Run, Run.id == ReportVersion.run_id)
+        .where(Run.issuer_id == issuer_id, ReportVersion.analyst_id == caller.id)
+        .order_by(ReportVersion.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    derived = checkpoint
+    if report is not None and (
+        checkpoint is None
+        or (aware_utc(report.created_at) or datetime.min.replace(tzinfo=timezone.utc))
+        > (aware_utc(checkpoint.created_at) or datetime.min.replace(tzinfo=timezone.utc))
+    ):
+        derived = report
+
+    derived_run_id = None
+    if isinstance(derived, ModelCheckpoint):
+        derived_run_id = derived.issuer_run_id
+    elif isinstance(derived, ReportVersion):
+        derived_run_id = derived.run_id
+    derived_version_state = (
+        "unknown" if derived is None or derived_run_id is None or run is None
+        # A matching run id is not a complete source fingerprint: the run may
+        # itself have become stale after a document/market rebind. Context-level
+        # lineage can prove current; this issuer aggregate stays unknown unless
+        # it can at least prove a mismatch.
+        else "unknown" if derived_run_id == run.id else "changed"
+    )
+
+    evaluations = [
+        evaluate_freshness(
+            source_kind="reported_financials", now=now,
+            observed_at=(reported.source_published_at or reported.uploaded_at) if reported else None,
+            effective_period_end=reported.effective_period_end if reported else None,
+            cadence=cadence, reporting_lag_days=reporting_lag, grace_days=grace_days,
+        ),
+        evaluate_freshness(
+            source_kind="price", now=now,
+            observed_at=market.as_of if market else None,
+        ),
+        evaluate_freshness(
+            source_kind="rating", now=now,
+            observed_at=issuer.ratings_observed_at,
+            source_version_state="match" if issuer.ratings_observed_at else "unknown",
+        ),
+        evaluate_freshness(
+            source_kind="legal_document", now=now,
+            observed_at=(legal.source_published_at or legal.uploaded_at) if legal else None,
+            source_version_state="match" if legal else "unknown",
+        ),
+        evaluate_freshness(
+            source_kind="run", now=now,
+            observed_at=(run.completed_at or run.created_at) if run else None,
+        ),
+        evaluate_freshness(
+            source_kind="derived_artifact", now=now,
+            observed_at=derived.created_at if derived else None,
+            source_version_state=derived_version_state,
+        ),
+    ]
+    return IssuerFreshnessResponse(
+        issuer_id=issuer_id, evaluated_at=now, evaluations=evaluations
+    )
 
 
 @router.get("/{issuer_id}/documents", response_model=List[IssuerDocumentResponse])

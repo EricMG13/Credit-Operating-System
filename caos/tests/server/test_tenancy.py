@@ -106,7 +106,9 @@ def test_tenancy_isolates_issuers_runs_portfolio_and_query(monkeypatch):
         # Team A can see it (get + list) and run it.
         assert c.get(f"/api/issuers/{iid}").status_code == 200
         assert any(i["id"] == iid for i in c.get("/api/issuers/").json())
-        assert c.post("/api/runs", json={"issuer_id": iid}).status_code == 201
+        created_run = c.post("/api/runs", json={"issuer_id": iid})
+        assert created_run.status_code == 201
+        run_id = created_run.json()["id"]
 
         # Team B cannot see it, list it, read its profile, or run it (404, never 403).
         app.dependency_overrides[get_identity] = _as_team("team-b")
@@ -114,6 +116,8 @@ def test_tenancy_isolates_issuers_runs_portfolio_and_query(monkeypatch):
         assert all(i["id"] != iid for i in c.get("/api/issuers/").json())
         assert c.get(f"/api/issuers/{iid}/profile").status_code == 404
         assert c.post("/api/runs", json={"issuer_id": iid}).status_code == 404
+        assert c.get(f"/api/runs/{run_id}/modules").status_code == 404
+        assert c.get(f"/api/runs/{run_id}/modules/CP-1").status_code == 404
         # Team B's portfolio never contains team A's issuer.
         assert all(row["issuer_id"] != iid for row in c.get("/api/portfolio").json()["rows"])
         # Cross-issuer aggregate lanes fail closed (not team-scoped).

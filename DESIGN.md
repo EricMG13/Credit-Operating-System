@@ -25,6 +25,13 @@ colors:
   paper: "#f7f5ee"
   paper-ink: "#16161e"
   paper-meta: "#5c5c66"
+  paper-note: "#6c6c76"
+  paper-rule-strong: "#6f6c62"
+  paper-subhead: "#44444e"
+  paper-link: "#1f4fa0"
+  paper-soft: "#6a6a72"
+  paper-warning: "#a24310"
+  paper-watermark: "#be5410"
   paper-critical: "#b91c1c"
 typography:
   display:
@@ -54,6 +61,102 @@ typography:
     fontWeight: 500
     lineHeight: 1.5
     letterSpacing: "0.08em"
+  output-title:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "21px"
+    fontWeight: 650
+    lineHeight: 1.2
+  output-section:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 650
+    lineHeight: 1.3
+  output-body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
+    lineHeight: 1.6
+  output-meta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "8.5px"
+    fontWeight: 500
+    lineHeight: 1.45
+    letterSpacing: "0.08em"
+  output-table-label:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "7.8px"
+    fontWeight: 600
+    lineHeight: 1.25
+  appendix-title:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 650
+    lineHeight: 1.1
+  appendix-meta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "7px"
+    fontWeight: 500
+    lineHeight: 1.1
+  appendix-submeta:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "6.5px"
+    fontWeight: 500
+    lineHeight: 1.1
+  appendix-table-head:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.2px"
+    fontWeight: 600
+    lineHeight: 1.05
+  appendix-table-body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "5.7px"
+    fontWeight: 400
+    lineHeight: 1.08
+  appendix-number:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.3px"
+    fontWeight: 500
+    lineHeight: 1.08
+  appendix-emphasis:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "5.9px"
+    fontWeight: 600
+    lineHeight: 1.08
+  appendix-indent-label:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "5.4px"
+    fontWeight: 500
+    lineHeight: 1.08
+  emergency-title:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "1.125rem"
+    fontWeight: 700
+    lineHeight: 1.2
+  emergency-action:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "0.875rem"
+    fontWeight: 600
+    lineHeight: 1.2
+  emergency-body:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+    fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: 1.5
+  mobile-readable-min:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.5
+  narrative-subhead:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "0.95rem"
+    fontWeight: 600
+    lineHeight: 1.3
+  output-watermark:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "26px"
+    fontWeight: 700
+    lineHeight: 1
 rounded:
   sm: "2px"
   md: "6px"
@@ -157,11 +260,17 @@ The palette is a restrained dark desk: black workspace, cool panels, hairline bo
 - **Body** (400, 10.5px, 1.5): Dense workspace copy, cells, rail text, and tool bodies.
 - **Label** (500, 9px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
 
+### Filed Output Scale
+
+Report Studio, Query exhibits, print views, and research deliverables use a deliberate paper scale rather than workspace labels: **Output Title** (650, 21px), **Output Section** (650, 14px), **Output Body** (400, 13px, 1.6), **Output Meta** (500, 8.5px, mono), **Output Table Label** (600, 7.8px, mono), and a 26px filed-copy watermark. The full-model appendix is an intentional fit-to-page exception with a 14px title, 7px metadata, 6.5px submetadata, and a 5.2–5.9px table scale. These sizes are valid only inside paper/output roots; they must not leak into navigation, buttons, panel headers, or analytical tables. On phone layouts, 12px is the minimum forced size for compact labels. Narrative Markdown may use a 0.95rem semantic subhead. The CSS-independent fatal error boundary separately uses 1.125rem title, 0.75rem body, and 0.875rem action text so it remains legible if the application stylesheet fails.
+
 ### Named Rules
 
 **The Numeric Truth Rule.** Financial values, ids, ratings, dates, and confidence scores use mono tabular styling so columns scan and decimals align.
 
 **The No Display Labels Rule.** Product labels, buttons, table headers, and nav chips never use display sizing or decorative typography.
+
+**The Filed Output Exception.** Paper output may use the explicit filed-output scale above to preserve print hierarchy and committee readability. A larger paper title is not a workspace display label.
 
 ## 4. Elevation
 
@@ -204,6 +313,17 @@ CAOS is flat by default and uses tonal layering before shadow. Depth is created 
 - **Style:** Concept navigation is compact chip navigation with inline SVG marks. Compact headers show only the active label; inactive concepts rely on icon plus tooltip.
 - **Typography:** Mono, small, tabular, and uppercase where the surrounding header requires it.
 - **State:** Active equals Accent fill. Hover brightens text and border without changing layout.
+
+### Enterprise Workbench Anatomy
+
+Every route uses the same ordered contract: identity and source status, exactly one page-level primary action, optional collapsible decision context, one dominant work region, contextual evidence, and an optional sticky finalization bar. Surface kinds preserve specialist behavior: worklists own batch/filter anatomy; analytical objects own conclusion state; Model, Query, and Report Studio retain their editor overflow.
+
+- **Decision states:** `loading`, `ready`, `observed-empty`, `stale`, `partial`, `offline`, `error`, and `unavailable` are visually and semantically distinct. “No material change” is legal only for a successful timestamped `observed-empty` response.
+- **Authority:** Every ready conclusion carries observation time, origin, method, approval/ratification, and freshness. `LIVE` describes source origin only.
+- **Worklists:** Shared toolbar order is title/count, search, filters, selection/batch state, then actions. Five actions are visible at most; lower-frequency actions move to overflow.
+- **Utilities:** Simulation, layout, export and other low-frequency controls live in a labeled utility drawer. Escape closes it and focus returns to its trigger.
+- **Evidence Atlas:** Claim lineage, sources, recovery, glossary and downstream consumers share one contextual inspector. Native editor evidence panes remain valid; never show a duplicate inspector.
+- **Role composition:** Always label the presentation preference `View: Analyst / PM / QA`. It never grants permission or approval authority.
 
 ### Panel
 

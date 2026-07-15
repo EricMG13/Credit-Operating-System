@@ -32,14 +32,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 import vault_export
+from analysis_contracts import ArtifactRef
 from config import get_settings
+from context_lineage import bind_context_artifacts, typed_refs_from_artifacts
+from freshness import FreshnessEvaluation, evaluate_freshness, worst_freshness
 from engine import presets
 from database import (
-    Claim, EvidenceItem, Issuer, ModuleOutput, PortfolioPosition, QAFinding, Run, get_db,
+    AnalysisContextRecord, Claim, EvidenceItem, Issuer, ModuleOutput, Portfolio,
+    PortfolioPosition, QAFinding, Run, get_db,
 )
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
-from tenancy import require_issuer, require_run_access, scope_issuers, tenancy_enabled
+from lineage_service import write_lineage_edge
+from tenancy import (
+    require_issuer,
+    require_portfolio_access,
+    require_run_access,
+    scope_issuers,
+    scope_portfolios,
+    tenancy_enabled,
+)
 
 logger = logging.getLogger("caos")
 router = APIRouter()
@@ -106,13 +118,22 @@ def _idempotency_store(caller_id: str, key: Optional[str], run_id: str) -> None:
 _RUNS_MAX_PER_MINUTE = 12
 
 
-async def _auto_portfolio(db: AsyncSession, issuer_id: str) -> Optional[str]:
+async def _auto_portfolio(
+    db: AsyncSession, issuer_id: str, caller: Optional[CallerIdentity] = None
+) -> Optional[str]:
     """The single portfolio holding this issuer, if exactly one does — so a run
     auto-binds its book for CP-3C. None when unheld or held in several (ambiguous
     → don't guess; the caller can pass an explicit portfolio_id)."""
-    pids = (await db.execute(
+    if caller is None and tenancy_enabled():
+        return None
+    stmt = (
         select(PortfolioPosition.portfolio_id)
-        .where(PortfolioPosition.issuer_id == issuer_id).distinct()
+        .join(Portfolio, Portfolio.id == PortfolioPosition.portfolio_id)
+        .where(PortfolioPosition.issuer_id == issuer_id)
+        .distinct()
+    )
+    pids = (await db.execute(
+        scope_portfolios(stmt, caller) if caller is not None else stmt
     )).scalars().all()
     return pids[0] if len(pids) == 1 else None
 
@@ -124,6 +145,7 @@ class RunCreate(BaseModel):
     # Portfolio to evaluate the issuer against (CP-3C concentration goes live).
     # Omit to auto-bind the portfolio that holds this issuer, if exactly one does.
     portfolio_id: Optional[str] = Field(default=None, max_length=36)
+    context_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class ModuleStatus(BaseModel):
@@ -172,6 +194,51 @@ class RunListItem(BaseModel):
         if v is not None and v.tzinfo is None:
             return v.replace(tzinfo=timezone.utc)
         return v
+
+
+class RunFreshnessResponse(BaseModel):
+    run_id: str
+    evaluated_at: datetime
+    evaluation: FreshnessEvaluation
+
+
+async def _proved_run_freshness(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    run_id: str,
+) -> Optional[FreshnessEvaluation]:
+    """Return the exact run's lineage-proved state from an active owned context."""
+    from routes.analysis import get_context_freshness
+
+    contexts = (await db.execute(
+        select(AnalysisContextRecord)
+        .where(AnalysisContextRecord.analyst_id == caller.id)
+        .order_by(AnalysisContextRecord.updated_at.desc())
+        .limit(100)
+    )).scalars().all()
+    evaluations: list[FreshnessEvaluation] = []
+    for context in contexts:
+        artifacts = context.artifacts or {}
+        retained_run_ids = {
+            str(ref.get("id"))
+            for ref in artifacts.get("artifact_refs", [])
+            if isinstance(ref, dict)
+            and ref.get("kind") == "issuer_run"
+            and ref.get("id")
+        }
+        if artifacts.get("issuer_run_id") == run_id:
+            retained_run_ids.add(run_id)
+        if run_id not in retained_run_ids:
+            continue
+        try:
+            result = await get_context_freshness(context.id, db, caller)
+        except HTTPException:
+            continue
+        evaluations.extend(
+            item.evaluation for item in result.artifacts
+            if item.artifact.kind == "issuer_run" and item.artifact.id == run_id
+        )
+    return worst_freshness(evaluations, source_kind="run") if evaluations else None
 
 
 class EvidenceOut(BaseModel):
@@ -269,6 +336,11 @@ async def create_run(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Run rate limit reached — try again in a minute.")
 
     require_issuer(caller, await db.get(Issuer, body.issuer_id))
+    explicit_portfolio = (
+        require_portfolio_access(caller, await db.get(Portfolio, body.portfolio_id))
+        if body.portfolio_id
+        else None
+    )
 
     # Dedup: refuse a second run while one is already active for this issuer, so
     # two analysts (or a double-click) don't kick off duplicate work that then
@@ -320,7 +392,10 @@ async def create_run(
         # Bind a portfolio: the explicit choice, else auto-bind the one book that
         # holds this issuer (so CP-3C's concentration goes live with no extra step;
         # ambiguous when held in several → left unbound rather than guessing).
-        portfolio_id = body.portfolio_id or await _auto_portfolio(db, body.issuer_id)
+        if explicit_portfolio is not None:
+            portfolio_id = explicit_portfolio.id
+        else:
+            portfolio_id = await _auto_portfolio(db, body.issuer_id, caller)
         run = Run(
             issuer_id=body.issuer_id, as_of_date=body.as_of_date, analyst_id=caller.id,
             portfolio_id=portfolio_id,
@@ -330,6 +405,37 @@ async def create_run(
         )
         db.add(run)
         try:
+            await db.flush()
+            if body.context_id and settings.caos_lineage_v2_enabled:
+                context = (await db.execute(select(AnalysisContextRecord).where(
+                    AnalysisContextRecord.id == body.context_id,
+                    AnalysisContextRecord.analyst_id == caller.id,
+                ).with_for_update())).scalar_one_or_none()
+                if context is None or body.issuer_id not in (context.issuer_ids or []):
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+                input_refs = [
+                    ref for ref in typed_refs_from_artifacts(context.artifacts)
+                    if ref.kind in {"source_manifest", "document", "market_snapshot"}
+                ]
+                run_ref = ArtifactRef(kind="issuer_run", id=run.id)
+                await bind_context_artifacts(
+                    db,
+                    context_id=context.id,
+                    analyst_id=caller.id,
+                    refs=[run_ref],
+                    legacy_updates={"issuer_run_id": run.id},
+                )
+                for input_ref in input_refs:
+                    await write_lineage_edge(
+                        db,
+                        context_id=context.id,
+                        analyst_id=caller.id,
+                        artifact=run_ref,
+                        parent=input_ref,
+                        transform="run-creation",
+                        transform_version="2",
+                        enabled=True,
+                    )
             await db.commit()  # persist the queued run so the executor can see it
         except IntegrityError:
             # Belt-and-suspenders: the SELECT-then-INSERT above is already
@@ -381,6 +487,30 @@ async def get_run(
     return await _summary(db, run)
 
 
+@router.get("/{run_id}/freshness", response_model=RunFreshnessResponse)
+async def get_run_freshness(
+    run_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Evaluate this exact run rather than substituting the latest issuer run."""
+    # Keep foreign identifiers non-enumerable whether the feature is on or off.
+    run = await require_run_access(caller, await db.get(Run, run_id), db)
+    if not get_settings().caos_lineage_v2_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found.")
+    now = datetime.now(timezone.utc)
+    proved = await _proved_run_freshness(db, caller, run.id)
+    return RunFreshnessResponse(
+        run_id=run.id,
+        evaluated_at=now,
+        evaluation=proved or evaluate_freshness(
+            source_kind="run", now=now,
+            observed_at=run.completed_at or run.created_at,
+            source_version_state="unknown",
+        ),
+    )
+
+
 @router.get("/{run_id}/modules", response_model=List[ModuleDetail])
 async def get_modules(
     run_id: str,
@@ -393,8 +523,10 @@ async def get_modules(
     client one HTTP round trip (and the server ~3 queries) per module — 21
     requests per page open. This returns the same ModuleDetail shape for every
     produced module at once."""
-    if await db.get(Run, run_id) is None:
-        raise HTTPException(404, "Run not found")
+    # Apply the same team/issuer boundary as the single-run endpoint. In the
+    # default shared-desk deployment this remains a no-op beyond existence;
+    # when tenancy is enabled it prevents bulk module disclosure across teams.
+    await require_run_access(caller, await db.get(Run, run_id), db)
     rows = await _modules_for(db, run_id)
     row_pks = [r.id for r in rows]
     claims_by_module: dict[str, List[Claim]] = {pk: [] for pk in row_pks}
@@ -437,8 +569,10 @@ async def get_module(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    if tenancy_enabled():
-        await require_run_access(caller, await db.get(Run, run_id), db)
+    # Unconditional so route behavior cannot drift when tenancy is toggled at
+    # runtime. require_run_access preserves intentional shared-desk reads while
+    # enforcing the issuer team boundary when tenancy is enabled.
+    await require_run_access(caller, await db.get(Run, run_id), db)
     row = (
         await db.execute(
             select(ModuleOutput).where(

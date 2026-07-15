@@ -13,6 +13,8 @@ export interface ModelEngineState {
   anchor: ModelAnchor | null;
   downside: DownsidePathway | null; // CP-2B first-order EBITDA-shock fragility, if the run produced it
   runId: string | null;
+  /** Source observation time for decision-state disclosure. */
+  asOf?: string | null;
   committeeStatus: string | null;
   live: boolean;
   loading: boolean;
@@ -31,6 +33,7 @@ interface ModelEngineValue {
   anchor: ModelAnchor | null;
   downside: DownsidePathway | null;
   runId: string | null;
+  asOf?: string | null;
   committeeStatus: string | null;
   live: boolean;
 }
@@ -56,6 +59,7 @@ export function useModelEngine(issuerId: string): ModelEngineState {
         anchor,
         downside: cp2b ? cp2bToDownside(cp2b) : null,
         runId: latest.id,
+        asOf: latest.as_of_date ?? latest.created_at,
         committeeStatus: latest.committee_status,
         live: anchor != null, // a run with no usable CP-1 anchor still falls back
       };

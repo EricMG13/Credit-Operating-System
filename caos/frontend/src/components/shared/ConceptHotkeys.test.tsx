@@ -1,24 +1,65 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { ConceptHotkeys } from "./ConceptHotkeys";
+import { CONCEPT_CYCLE } from "@/lib/nav";
+import {
+  NavigationGuardProvider,
+  useNavigationGuard,
+} from "./NavigationGuardProvider";
 
-afterEach(cleanup);
+const push = vi.fn();
+const discard = vi.fn();
+
+afterEach(() => {
+  cleanup();
+  push.mockClear();
+  discard.mockClear();
+});
 
 // Mock useRouter and usePathname from next/navigation
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: (href: string) => push(href),
   }),
   usePathname: () => "/command",
 }));
 
+function DirtyModelGuard() {
+  useNavigationGuard({ dirty: true, enabled: true, onDiscard: discard });
+  return null;
+}
+
+function renderHotkeys({ dirty = false }: { dirty?: boolean } = {}) {
+  return render(
+    <NavigationGuardProvider>
+      {dirty ? <DirtyModelGuard /> : null}
+      <ConceptHotkeys />
+    </NavigationGuardProvider>,
+  );
+}
+
 describe("ConceptHotkeys", () => {
+  it("opens the unified palette with Alt+S and ignores editable targets", () => {
+    const listener = vi.fn();
+    window.addEventListener("caos:command-palette-open", listener);
+    renderHotkeys();
+
+    fireEvent.keyDown(window, { key: "s", altKey: true });
+    expect(listener).toHaveBeenCalledOnce();
+
+    for (const element of [document.createElement("input"), document.createElement("textarea"), document.createElement("select")]) {
+      fireEvent.keyDown(element, { key: "s", altKey: true });
+    }
+    expect(listener).toHaveBeenCalledOnce();
+    window.removeEventListener("caos:command-palette-open", listener);
+  });
+
   it("dispatches caos:subview-cycle event on Alt+Comma", () => {
     const listener = vi.fn();
     window.addEventListener("caos:subview-cycle", listener);
 
-    render(<ConceptHotkeys />);
+    renderHotkeys();
 
     const event = new KeyboardEvent("keydown", {
       key: ",",
@@ -35,11 +76,41 @@ describe("ConceptHotkeys", () => {
     window.removeEventListener("caos:subview-cycle", listener);
   });
 
+  it("cycles Alt+ArrowRight to the registry neighbor of the current route", () => {
+    push.mockClear();
+    renderHotkeys();
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowRight", altKey: true, bubbles: true }),
+    );
+
+    const cur = CONCEPT_CYCLE.indexOf("/command");
+    expect(cur).toBeGreaterThanOrEqual(0);
+    expect(push).toHaveBeenCalledWith(CONCEPT_CYCLE[(cur + 1) % CONCEPT_CYCLE.length]);
+  });
+
+  it("routes concept-cycle navigation through the unsaved-edit guard", async () => {
+    push.mockClear();
+    discard.mockClear();
+    renderHotkeys({ dirty: true });
+
+    fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: "Leave with unsaved changes?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Discard & leave" }));
+    expect(discard).toHaveBeenCalledOnce();
+    const cur = CONCEPT_CYCLE.indexOf("/command");
+    expect(push).toHaveBeenCalledWith(
+      CONCEPT_CYCLE[(cur + 1) % CONCEPT_CYCLE.length],
+    );
+  });
+
   it("dispatches caos:subview-cycle event on Alt+Period", () => {
     const listener = vi.fn();
     window.addEventListener("caos:subview-cycle", listener);
 
-    render(<ConceptHotkeys />);
+    renderHotkeys();
 
     const event = new KeyboardEvent("keydown", {
       key: ".",

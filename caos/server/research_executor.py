@@ -75,6 +75,18 @@ async def _run_research(job_id: str) -> None:
             job.status = "complete"
             job.lease_expires_at = None
             job.completed_at = _now()
+            job.authority = {
+                "origin": "demo" if result.demo else "live",
+                "method": "grounded-research",
+                "freshness": "current",
+                "as_of": job.completed_at.isoformat(),
+                "source_ids": [source.url for source in result.sources if source.url],
+                "run_id": job.id,
+                "version_id": job.id,
+                "confidence": None,
+                "approval_state": "draft",
+                "analyst_override": None,
+            }
             await session.commit()
         except asyncio.CancelledError:
             # Shutdown cancellation (BaseException, not Exception) — don't strand the
@@ -104,6 +116,11 @@ async def _mark_failed(session, job_id: str, reason: str) -> None:
             job.error = reason
             job.lease_expires_at = None
             job.completed_at = _now()
+            job.authority = {
+                **(job.authority or {}),
+                "freshness": "unknown",
+                "as_of": job.completed_at.isoformat(),
+            }
             await session.commit()
     except Exception:  # noqa: BLE001
         logger.exception("could not mark research job %s failed", job_id)

@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field
 from config import get_settings
 from engine import budget, llm_client
 from engine.periods import is_finite_number
+from engine.registry import DECLARATION_INDEX, LAYER_RANK
 from llm import _get_client, llm_configured
 
 logger = logging.getLogger("caos.research_report")
@@ -63,9 +64,9 @@ _AI_MODES = {
 _MODULE_LAYER: Dict[str, str] = {
     "CP-0": "L0", "CP-X": "L0",
     "CP-1": "L1", "CP-1A": "L1", "CP-1B": "L1", "CP-1C": "L1",
-    "CP-2": "L2", "CP-2B": "L2", "CP-2C": "L2", "CP-2D": "L2", "CP-2E": "L2", "CP-2F": "L2",
+    "CP-2": "L2", "CP-2B": "L2", "CP-2C": "L2", "CP-2D": "L2", "CP-2E": "L2", "CP-2F": "L2", "CP-2G": "L2",
     "CP-3": "L3", "CP-3B": "L3", "CP-3C": "L3", "CP-3D": "L3",
-    "CP-4": "L4", "CP-4C": "L4",
+    "CP-4": "L4", "CP-4D": "L4", "CP-4C": "L4",
     "CP-5": "L5", "CP-5B": "L5",
     "CP-6A": "L6", "CP-6E": "L6",
 }
@@ -83,11 +84,13 @@ _OVERALL_VIEW_KEYS: Dict[str, List[str]] = {
     "CP-2D": ["overall_governance_view", "overall_view"],
     "CP-2E": ["overall_liquidity_view", "overall_view"],
     "CP-2F": ["overall_macro_hedging_view", "overall_view"],
+    "CP-2G": ["overall_credit_view", "overall_view"],
     "CP-3": ["overall_view", "recommendation"],
     "CP-3B": ["overall_instrument_preference_view", "overall_view"],
     "CP-3C": ["overall_portfolio_fit_view", "overall_view"],
     "CP-3D": ["overall_refinancing_lme_view", "overall_view"],
     "CP-4": ["overall_legal_credit_view", "overall_view"],
+    "CP-4D": ["overall_structural_view", "overall_view"],
     "CP-4C": ["overall_covenant_capacity_view", "overall_view"],
     "CP-5B": ["overall_traceability_view", "overall_view"],
     "CP-6A": ["ic_chair_final_memo", "overall_view"],
@@ -475,7 +478,14 @@ def build_module_digest(mods: Dict[str, Any]) -> List[ModuleDigest]:
     Pure — no LLM, no I/O, no side effects. Unit-testable.
     """
     digests: List[ModuleDigest] = []
-    for module_id, m in sorted(mods.items()):
+    def order_key(item: tuple[str, Any]) -> tuple[int, int, str]:
+        module_id = item[0]
+        if module_id == "CP-X":
+            return (0, 1, module_id)
+        layer = _MODULE_LAYER.get(module_id, "L?")
+        return (LAYER_RANK.get(layer, 99), DECLARATION_INDEX.get(module_id, 999), module_id)
+
+    for module_id, m in sorted(mods.items(), key=order_key):
         # Handle both ORM objects (ModuleOutput) and plain dicts
         if hasattr(m, "runtime_output"):
             ro = m.runtime_output or {}

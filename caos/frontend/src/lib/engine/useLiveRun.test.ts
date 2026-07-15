@@ -10,11 +10,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useLiveRun } from "./useLiveRun";
-import { listRuns } from "@/lib/api";
+import { getModules, getQA, getRun, listRuns } from "@/lib/api";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listRuns: vi.fn(),
+  getRun: vi.fn(),
+  getModules: vi.fn(),
   getModule: vi.fn(),
   getQA: vi.fn(),
 }));
@@ -41,5 +43,35 @@ describe("useLiveRun · phase (M-1/M-2 regression)", () => {
     // Both collapse to the same empty-looking value fields, but the phase
     // must distinguish "backend error" from "no coverage yet".
     expect(errRun.result.current.phase).not.toBe(emptyRun.result.current.phase);
+  });
+
+  it("loads the exact URL-bound run instead of substituting the latest run", async () => {
+    vi.mocked(getRun).mockResolvedValue({
+      id: "run-exact",
+      issuer_id: "issuer-exact",
+      status: "complete",
+      qa_status: "Restricted",
+      committee_status: "Restricted",
+      as_of_date: "2026-06-30",
+      model_id: null,
+      prompt_version: null,
+      error: null,
+      modules: [],
+    });
+    vi.mocked(getModules).mockResolvedValue([]);
+    vi.mocked(getQA).mockResolvedValue({
+      run_id: "run-exact",
+      qa_status: "Restricted",
+      committee_status: "Restricted",
+      findings_by_severity: {},
+      findings: [],
+    });
+
+    const exact = renderHook(() => useLiveRun("issuer-exact", "run-exact"));
+    await waitFor(() => expect(exact.result.current.phase).toBe("complete"));
+
+    expect(exact.result.current.runId).toBe("run-exact");
+    expect(getRun).toHaveBeenCalledWith("run-exact");
+    expect(listRuns).not.toHaveBeenCalled();
   });
 });

@@ -24,6 +24,20 @@ describe("ModuleView", () => {
     expect(screen.queryByText(/revenue/i)).toBeNull();
   });
 
+  it("labels CP-2G reference output as unavailable instead of fabricating or calling it infrastructure", () => {
+    render(
+      <ModuleView
+        id="CP-2G"
+        sim={initSim(SIM_PLAN)}
+        onOpenEvidence={() => {}}
+        allowSeededFallback
+      />,
+    );
+    expect(screen.getByText(/no synthetic reference finding/i)).toBeTruthy();
+    expect(screen.queryByText(/is an infrastructure module/i)).toBeNull();
+    expect(screen.getByRole("link", { name: /open pipeline/i })).toBeTruthy();
+  });
+
   it("summary layout keeps analysis output and summarizes workflow cards", () => {
     render(
       <ModuleView

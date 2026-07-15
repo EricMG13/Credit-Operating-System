@@ -18,6 +18,21 @@ afterEach(() => {
 const model = buildModel();
 
 describe("ScenarioPanel", () => {
+  it("separates model and propagation modes without erasing model scenario state", () => {
+    render(<ScenarioPanel model={model} />);
+    const modelTab = screen.getByRole("tab", { name: "Model scenario" });
+    const networkTab = screen.getByRole("tab", { name: "Cross-module propagation" });
+    expect(modelTab.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Rate hike +200bps" }));
+
+    fireEvent.click(networkTab);
+    expect(networkTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(/completed run required/i)).toBeTruthy();
+
+    fireEvent.click(modelTab);
+    expect(screen.getByText("+200bps rate")).toBeTruthy();
+  });
+
   it("renders the panel and the best/base/worst comparison with the given model", () => {
     render(<ScenarioPanel model={model} />);
 

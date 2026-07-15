@@ -2,6 +2,8 @@
 // plus column layout constants. Split out of rows.ts so the pure money/parse
 // logic is unit-testable and separate from the (large) ROWS/SRC data schema.
 
+import type { Overrides } from "@/lib/reports/model";
+
 export type RowFormat = "m" | "p" | "x" | "d" | "r";
 
 /* ---------- value formatting ---------- */
@@ -45,4 +47,58 @@ export function parseNum(input: string): number | null {
   // Infinity, which would slip past a NaN-only guard and poison aggregates.
   if (!Number.isFinite(v)) return null;
   return v;
+}
+
+/* ---------- multi-cell paste ---------- */
+// A TSV/CSV clipboard block (Excel/Sheets copy) → a single Overrides patch,
+// walking from the anchor cell across the SAME visible row/col order the grid's
+// own keyboard navigation uses (so paste never disagrees with what arrow keys
+// would reach). One patch object == one undo step, regardless of block size.
+export interface PasteResult {
+  /** Merge this into Overrides with `{ ...overrides, ...patch }` — never
+   *  applied automatically, so the caller controls exactly one history push. */
+  patch: Overrides;
+  applied: number;
+  /** Pasted onto a real grid cell that isn't override-editable (a derived/
+   *  forecast column, or a row with no OV_SIGN) — silently skipped, not an error. */
+  skippedNotEditable: number;
+  /** "rowId:colKey" for a cell that WAS editable but the pasted text didn't
+   *  parse as a number — the existing override (if any) is left untouched. */
+  invalid: string[];
+}
+
+export function buildPastePatch(
+  rowIds: readonly string[],
+  colKeys: readonly string[],
+  anchor: { row: string; col: string },
+  clipboardText: string,
+): PasteResult {
+  const result: PasteResult = { patch: {}, applied: 0, skippedNotEditable: 0, invalid: [] };
+  const startRow = rowIds.indexOf(anchor.row);
+  const startCol = colKeys.indexOf(anchor.col);
+  if (startRow === -1 || startCol === -1) return result;
+
+  // Excel/Sheets copies often end in a trailing newline — that must not read
+  // as a phantom blank row one past the real block.
+  const lines = clipboardText.replace(/\r/g, "").split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+
+  lines.forEach((line, ri) => {
+    const rowId = rowIds[startRow + ri];
+    if (rowId == null) return; // past the last grid row — stop silently, spreadsheet-style
+    line.split("\t").forEach((raw, ci) => {
+      const colKey = colKeys[startCol + ci];
+      if (colKey == null) return; // past the last grid column
+      const trimmed = raw.trim();
+      if (trimmed === "") return; // a blank pasted cell leaves its target untouched
+      if (!isEditable(rowId, colKey)) { result.skippedNotEditable++; return; }
+      const v = parseNum(trimmed);
+      if (v == null) { result.invalid.push(`${rowId}:${colKey}`); return; }
+      const field = ovField(rowId);
+      result.patch[colKey + ":" + field] = v * (OV_SIGN[field] ?? 1);
+      result.applied++;
+    });
+  });
+
+  return result;
 }

@@ -51,5 +51,8 @@ describe("model appendix", () => {
     }
     expect(table.rows.some((r) => r.cellColors?.includes("#2f64b7"))).toBe(true);
     expect(table.rows.some((r) => r.cellColors?.includes("var(--caos-critical)"))).toBe(true);
+    expect(table.columnGroups?.map((group) => group.key)).toEqual(["Q", "YTD", "HIST", "LTM", "PF", "BASE", "DOWN"]);
+    expect(table.columnGroups?.map((group) => group.label)).toEqual(["Quarterly", "YTD", "Historic", "LTM", "Pro forma", "Base", "Downside"]);
+    expect(table.columnGroups?.every((group) => group.start > 0)).toBe(true);
   });
 });

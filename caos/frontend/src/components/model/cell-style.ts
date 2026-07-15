@@ -39,7 +39,8 @@ export function kpiDistressLevel(rowId: string, v: number | null): "warn" | "cri
 export const KPI_DISTRESS_GLYPH: Record<"warn" | "crit", string> = { warn: "■", crit: "▲" };
 
 // Cell text color: KPI distress shading wins; otherwise override > pct sign >
-// negative-money muting > bold > default.
+// key-account emphasis > negative-money muting > default. Bold totals remain
+// full-ink when negative: sign must never make a decision-bearing account fade.
 export function cellTextColor(opts: {
   rowId: string;
   v: number | null;
@@ -57,10 +58,10 @@ export function cellTextColor(opts: {
       ? v != null && v < 0
         ? "var(--caos-critical)"
         : "var(--caos-accent)"
-      : v != null && v < 0 && rowFmt === "m"
-      ? "var(--caos-muted)"
       : bold
       ? "var(--caos-text)"
+      : v != null && v < 0 && rowFmt === "m"
+      ? "var(--caos-muted)"
       : "var(--caos-text)")
   );
 }

@@ -11,6 +11,12 @@ import ReportsPage from "./page";
 let mockRunId: string | null = null;
 let mockPhase: string | null = null; // overrides the derived phase when set
 let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
+// Module-level, not inline in the mock factory: the real hook's anchor is
+// reference-stable across renders, and page.tsx's useMemo (line 98) depends on
+// that — an inline literal here recreates on every render and infinite-loops it.
+const LIVE_ANCHOR = { netLeverage: 4.2 };
+const EMPTY_LIVE_OUTS = {};
+const EMPTY_LIVE_STATUS = {};
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
@@ -21,11 +27,11 @@ vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/lib/engine/useLiveRun", () => ({
-  useLiveRun: () => ({ liveOuts: {}, liveEvidence: {}, runId: null, committeeStatus: null, council: [], loading: false, phase: "none" }),
+  useLiveRun: () => ({ liveOuts: EMPTY_LIVE_OUTS, liveStatus: EMPTY_LIVE_STATUS, liveEvidence: {}, runId: null, committeeStatus: null, council: [], loading: false, phase: "none" }),
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
-    anchor: mockRunId ? { netLeverage: 4.2 } : null, downside: null, runId: mockRunId,
+    anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, runId: mockRunId,
     committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: false,
     phase: mockPhase ?? (mockRunId ? "complete" : "none"),
   }),
@@ -50,13 +56,16 @@ describe("Report Studio · reference caveat (FE-5)", () => {
   it("shows the blanket 'not a live issuer run' message when no run backs the reference issuer", async () => {
     mockRunId = null;
     render(<ReportsPage />);
-    expect(await screen.findByText(/REFERENCE TEMPLATE — Atlas Forge fixture, not a live issuer run/)).toBeTruthy();
+    // Origin now carried by the shared grammar chip + precise prose beside it.
+    expect(await screen.findByText("REFERENCE")).toBeTruthy();
+    expect(await screen.findByText(/Atlas Forge fixture, not a live issuer run/)).toBeTruthy();
   });
 
   it("shows the hybrid message when a live run backs the reference issuer", async () => {
     mockRunId = "run-123";
     render(<ReportsPage />);
-    expect(await screen.findByText(/REFERENCE TEMPLATE — bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
+    expect(await screen.findByText("REFERENCE")).toBeTruthy();
+    expect(await screen.findByText(/bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
   });
 
   it("a backend outage on a real issuer reads 'could not load', not the confident no-run claim", async () => {

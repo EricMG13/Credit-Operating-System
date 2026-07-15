@@ -233,7 +233,7 @@ export function RelativeValueTable({
                       }
                     }}
                     className={`cursor-pointer transition-colors hover:bg-caos-elevated/50 focus-ring ${
-                      isActive ? "bg-caos-elevated border-l-2 border-l-caos-accent" : ""
+                      isActive ? "bg-caos-elevated caos-selected" : ""
                     }`}
                   >
                     <td className="p-2.5 pl-4 font-sans font-medium text-caos-text">

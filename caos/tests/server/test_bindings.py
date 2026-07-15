@@ -122,11 +122,12 @@ def test_binders_table_shape():
     assert set(bindings.BINDERS) == {
         "CP-0", "CP-1", "CP-2", "CP-1A", "CP-1B", "CP-1C", "CP-4C", "CP-2B",
         "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-3", "CP-3B", "CP-3C", "CP-3D",
-        "CP-4", "CP-6A", "CP-6E",
+        "CP-2G", "CP-4", "CP-4D", "CP-6A", "CP-6E",
     }
-    # 19 keys, 18 distinct binders — CP-6A and CP-6E share _bind_debate.
+    # 21 keys, 19 distinct binders — debate and specialized pairs share binders.
     assert bindings.BINDERS["CP-6A"] is bindings.BINDERS["CP-6E"]
-    assert len({id(b) for b in bindings.BINDERS.values()}) == 18
+    assert bindings.BINDERS["CP-2G"] is bindings.BINDERS["CP-4D"]
+    assert len({id(b) for b in bindings.BINDERS.values()}) == 19
 
 
 # ── default / fall-through ────────────────────────────────────────────────────
@@ -214,6 +215,29 @@ async def test_cp1c_null_issuer_falls_through(recorded):
     await bindings.resolve_binding(_ctx("CP-1C", synth, issuer=None))
     assert "peers" not in recorded
     assert synth.calls == ["CP-1C"]
+
+
+@pytest.mark.asyncio
+async def test_cp4c_records_optional_cp4d_handoff_without_changing_calculation_args(recorded):
+    handoff = {
+        "finding_id": "STR-1",
+        "summary": "Non-guarantor value is structurally remote.",
+        "priority_label": "Structurally Subordinated — Non-Guarantor Value",
+        "leakage_severity": 4,
+        "affected_creditor_classes": ["Term loan"],
+        "capacity_basis": "Demonstrated",
+        "confidence": "High",
+        "evidence_ids": ["chunk-1"],
+    }
+    cp4d = _payload("CP-4D", "up")
+    cp4d.runtime_output = {"handoffs": {"cp_4c": handoff}}
+    upstream = {**UPSTREAM, "CP-4D": cp4d}
+
+    out = await bindings.resolve_binding(_ctx("CP-4C", StubSynth("fixture"), upstream=upstream))
+
+    assert _args(recorded, "covenants") == (UPSTREAM["CP-1"], RETRIEVE)
+    assert out.runtime_output["cp4d_structural_handoff"] == handoff
+    assert out.runtime_output["cp4d_structural_handoff"] is not handoff
 
 
 # ── CP-3C (5-arg portfolio fit) ───────────────────────────────────────────────

@@ -59,8 +59,9 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
       timeout: 15000,
     });
 
-    // RIGHT pane — the IC decision rail (CP-6A verdict). "Recommendation bias"
-    // is the decision-rail heading for the reference deal.
+    // RIGHT pane — the IC decision rail is collapsed at this width to protect
+    // the dominant analysis canvas. Expanding it restores the full verdict.
+    await page.getByRole("button", { name: /Expand decision rail/i }).click();
     await expect(page.getByText(/Recommendation bias/i)).toBeVisible({ timeout: 15000 });
   });
 

@@ -9,7 +9,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import axios from "axios";
-import { getMe } from "@/lib/api";
+import { bindWorkspacePrincipal, getMe } from "@/lib/api";
 
 interface AuthUser {
   id: string;
@@ -64,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // fallow-ignore-next-line complexity
   const refresh = useCallback(async () => {
     if (loginBypassEnabled()) {
+      bindWorkspacePrincipal(LOGIN_BYPASS_USER.id);
       setUser(LOGIN_BYPASS_USER);
       setError(false);
       setNeedsLogin(false);
@@ -73,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     try {
       const me: AuthUser = await getMe();
+      bindWorkspacePrincipal(me.id);
       setUser(me);
       setError(false);
       // "local" only happens off-proxy in a non-deployed run (deployed → 401 or

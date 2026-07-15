@@ -4,7 +4,7 @@
 module_id: CP-X | module_name: PlannerRouter | schema_family: Nested | layer: Orch
 
 ## Dependencies
-UP: CP-0 | DOWN (Analytical): CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4C, CP-6A, CP-6E | DOWN (QA, L5): CP-5B, CP-5 | DOWN (Sector/Monitor, L7): CP-SR, CP-MON | DOWN (Infra): CP-RENDER, CP-EXTRACT
+UP: CP-0 | DOWN (Analytical): CP-1, CP-1A, CP-1B, CP-1C, CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G, CP-3, CP-3B, CP-3C, CP-3D, CP-4, CP-4D, CP-4C, CP-6A, CP-6E | DOWN (QA, L5): CP-5B, CP-5 | DOWN (Sector/Monitor, L7): CP-SR, CP-MON | DOWN (Infra): CP-RENDER, CP-EXTRACT
 
 ## Governance Rules
 1. CP-X routes by CP-0 content-based readiness — never by filename or assumption.
@@ -46,11 +46,13 @@ CP-5B before CP-5 | CP-6A before CP-6E | L7 (CP-SR, CP-MON) after L6 | Infrastru
 | CP-2D | GovernanceSponsorScore | L2 |
 | CP-2E | LiquidityCashFlowBridge | L2 |
 | CP-2F | MacroFXHedgingSensitivity | L2 |
+| CP-2G | ESGSustainabilityCreditRisk | L2 |
 | CP-3 | RelativeValueSecuritySelection | L3 |
 | CP-3B | RecoveryInstrumentPreference | L3 |
 | CP-3C | PortfolioFitPositionSizing | L3 |
 | CP-3D | RefinancingLMERisk | L3 |
 | CP-4 | LegalCovenantInterpreter | L4 |
+| CP-4D | RestrictedGroupGuaranteeMap | L4 |
 | CP-4C | CovenantCapacityCalculator | L4 |
 | CP-5B | EvidenceTraceValidator | L5 |
 | CP-5 | ResearchIntegrityQA | L5 |

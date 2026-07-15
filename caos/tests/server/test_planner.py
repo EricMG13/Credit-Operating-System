@@ -79,6 +79,18 @@ def test_topological_and_layer_order():
     assert order.index("CP-1A") < order.index("CP-2") < order.index("CP-4C")
 
 
+def test_phase4_flag_on_order_and_soft_downstream_contract():
+    from engine.registry import all_specs
+
+    specs = all_specs(frozenset({"caos_cp_4d_enabled", "caos_cp_2g_enabled"}))
+    plan = build_route_plan(_cp0(), specs)
+    order = _order(plan)
+    assert order.index("CP-2") < order.index("CP-2G") < order.index("CP-6A")
+    assert order.index("CP-4") < order.index("CP-4D") < order.index("CP-4C")
+    assert "CP-2G" not in next(s for s in specs if s.module_id == "CP-6A").depends_on
+    assert "CP-4D" not in next(s for s in specs if s.module_id == "CP-4C").depends_on
+
+
 # ── Readiness mapping from coverage ──────────────────────────────────────────
 
 

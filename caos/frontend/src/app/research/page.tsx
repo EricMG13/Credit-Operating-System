@@ -9,7 +9,9 @@
 import { useEffect, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { PageSubHeader } from "@/components/shared/PageSubHeader";
+import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { labelCls } from "@/components/shared/styles";
@@ -19,6 +21,8 @@ import { ReportPane } from "@/components/research/ReportPane";
 import { useNotify } from "@/components/shared/Notifications";
 import { deepResearch, resumeResearch, getResearchStatus, isResearchAborted, isResearchGone, getSettings, toErrorMessage, type ResearchBrief, type ResearchResult, type ResearchProgress } from "@/lib/api";
 import { DEFAULT_CRITERIA, loadPrefs, type AiMode } from "@/lib/research-prefs";
+import Link from "next/link";
+import { analysisApi, contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 
 export default function ResearchPage() {
   return (
@@ -39,18 +43,21 @@ const _ADV_KEY = "caos.research.adv";
 // analyst id keeps a shared machine from cross-attaching another analyst's run —
 // the GET is owner-scoped and 404s a foreign id anyway, but this avoids the round-
 // trip. Value = the job id; absence = nothing in flight.
-const _jobKey = (analystId: string) => `caos.research.job.${analystId}`;
-const _loadJobId = (analystId: string): string | null => {
+const _jobKey = (analystId: string, contextId?: string) => `caos.research.job.${analystId}.${contextId ?? "unscoped"}`;
+const _loadJobId = (analystId: string, contextId?: string): string | null => {
   try {
-    return sessionStorage.getItem(_jobKey(analystId)) || null;
+    return sessionStorage.getItem(_jobKey(analystId, contextId))
+      || sessionStorage.getItem(`caos.research.job.${analystId}`)
+      || null;
   } catch {
     return null; // private mode — resume just isn't available
   }
 };
-const _storeJobId = (analystId: string, id: string | null): void => {
+const _storeJobId = (analystId: string, contextId: string | undefined, id: string | null): void => {
   try {
-    if (id) sessionStorage.setItem(_jobKey(analystId), id);
-    else sessionStorage.removeItem(_jobKey(analystId));
+    if (id) sessionStorage.setItem(_jobKey(analystId, contextId), id);
+    else sessionStorage.removeItem(_jobKey(analystId, contextId));
+    sessionStorage.removeItem(`caos.research.job.${analystId}`);
   } catch {
     /* private mode — reattach just won't survive a reload */
   }
@@ -61,6 +68,7 @@ const _storeJobId = (analystId: string, id: string | null): void => {
 // ReportPane — splitting the form further would prop-drill 13 state fields.
 // fallow-ignore-next-line complexity
 function Research() {
+  const analysis = useAnalysisContext({ name: "Deep research" });
   const [mode, setMode] = useState<"sector" | "issuer">("sector");
   const [subject, setSubject] = useState("");
   const [audience, setAudience] = useState("");
@@ -87,6 +95,17 @@ function Research() {
   // tab stops polling for up to 15 min) and on Detach. Aborting only stops the
   // client watching; the durable server-side job keeps running (H3).
   const pollAbort = useRef<AbortController | null>(null);
+  const activeJobId = useRef<string | null>(null);
+  const restoredContext = useRef<string | null>(null);
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || restoredContext.current === context.id) return;
+    restoredContext.current = context.id;
+    const saved = context.surface_state.research;
+    if (saved?.query) setSubject(saved.query);
+    if (saved?.view === "issuer" || saved?.view === "sector") setMode(saved.view);
+  }, [analysis.context]);
 
   // Seed the brief from the analyst's saved Settings defaults (post-mount, so
   // static-export hydration isn't mismatched). Only touches the standing-lens
@@ -132,10 +151,11 @@ function Research() {
   // Runs once per analyst.
   const resumedRef = useRef(false);
   useEffect(() => {
-    if (!analystId || resumedRef.current) return;
+    if (!analystId || !analysis.context?.id || resumedRef.current) return;
     resumedRef.current = true;
-    const stored = _loadJobId(analystId);
+    const stored = _loadJobId(analystId, analysis.context?.id);
     if (!stored) return;
+    activeJobId.current = stored;
     let cancelled = false; // unmount before the probe resolves — don't touch state
     void getResearchStatus(stored)
       .then((st) => {
@@ -151,18 +171,18 @@ function Research() {
           return;
         }
         // gone (404/blip) or failed — the pointer is stale; drop it silently.
-        _storeJobId(analystId, null);
+        _storeJobId(analystId, analysis.context?.id, null);
       })
       .catch(() => {
         // Belt-and-braces: an unexpected throw must not orphan a stale id.
-        if (!cancelled) _storeJobId(analystId, null);
+        if (!cancelled) _storeJobId(analystId, analysis.context?.id, null);
       });
     return () => {
       cancelled = true;
     };
     // watch() itself surfaces terminal state for the running branch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analystId]);
+  }, [analystId, analysis.context?.id]);
 
   // Abort the active poll on unmount so a closed / navigated-away tab stops
   // polling (previously it kept GETting for up to 15 min). The durable job is
@@ -198,6 +218,36 @@ function Research() {
       const done = await poll;
       setResult(done);
       setPrevResult(null); // the new report is the report now
+      const context = analysis.context;
+      const jobId = activeJobId.current;
+      if (context && jobId) {
+        try {
+          const nextSurfaceState = {
+            ...context.surface_state,
+            research: {
+              ...(context.surface_state.research ?? {}),
+              active_id: jobId,
+              query: subj || null,
+              view: "result",
+            },
+          };
+          await analysis.patch({
+            artifacts: { ...context.artifacts, research_job_id: jobId },
+            surface_state: nextSurfaceState,
+          });
+          await analysisApi.createFinding({
+            context_id: context.id,
+            kind: "research",
+            title: subj ? `${subj} research` : "Research finding",
+            body: done.report.slice(0, 1200),
+            source_surface: "research",
+            source_run_id: jobId,
+            evidence: { source_count: done.sources.length, truncated: done.truncated },
+          }).catch(() => undefined);
+        } catch {
+          notify("Research saved", "The report completed, but its context link needs retry.");
+        }
+      }
       // Keep the durable job id in sessionStorage after a successful run (H3): the
       // completed job stays server-side and retrievable, so if the analyst hops to
       // Deep-Dive to cross-check a figure and returns (or reloads), the mount effect
@@ -213,14 +263,14 @@ function Research() {
       if (isResearchGone(e)) {
         // Stale/foreign reattach id — the job no longer exists. Drop it quietly and
         // fall back to whatever was on screen; never a scary "Research failed".
-        _storeJobId(analystId, null);
+        _storeJobId(analystId, analysis.context?.id, null);
         return; // finally clears `running`
       }
       // toErrorMessage handles the 422 list-shaped detail that a bare
       // `detail ?? fallback` would render as a crashing JSX child. (SEAM3-1)
       const msg = toErrorMessage(e, "Research failed — try again.");
       setError(msg);
-      _storeJobId(analystId, null); // terminal — nothing durable left to reattach
+      _storeJobId(analystId, analysis.context?.id, null); // terminal — nothing durable left to reattach
       notify("Research failed", msg);
     } finally {
       // Only the currently-active controller clears running — a stale watch whose
@@ -254,7 +304,10 @@ function Research() {
     // deepResearch persists the durable id via onJobId → sessionStorage before the
     // multi-minute poll, so a mid-run reload reattaches instead of orphaning it.
     void watch(
-      deepResearch(brief, setProgress, (id) => _storeJobId(analystId, id), ctrl.signal),
+      deepResearch(brief, setProgress, (id) => {
+        activeJobId.current = id;
+        _storeJobId(analystId, analysis.context?.id, id);
+      }, ctrl.signal, analysis.context?.id),
       ctrl,
     );
   }
@@ -314,15 +367,28 @@ function Research() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-caos-bg">
-      {/* sub-header */}
-      <PageSubHeader>
-        <span className="text-caos-xl text-caos-text font-medium whitespace-nowrap">Deep Research — sector &amp; issuer credit intelligence</span>
-      </PageSubHeader>
-
+    <EnterprisePage kind="analytical"
+      identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
+      primaryAction={
+        <button type="button" onClick={run} disabled={!canRun || running} className="caos-primary-action focus-ring disabled:opacity-40">
+          {running ? "Researching…" : "Run research"}
+        </button>
+      }
+      contextualControls={
+        result && analysis.context ? (
+          <>
+            {analysis.context.issuer_ids[0] ? (
+              <Link href={contextHref("/deepdive", analysis.context.id, { issuer: analysis.context.issuer_ids[0] })} className="caos-secondary-action focus-ring no-underline">Open Deep-Dive</Link>
+            ) : null}
+            <Link href={contextHref("/reports", analysis.context.id)} className="caos-secondary-action focus-ring no-underline">Open Report Studio</Link>
+          </>
+        ) : null
+      }
+      narrowContract={{ essentialControls: null }}
+    >
       {/* workspace — brief (left) drives the report (right) */}
-      <div className="flex-1 min-h-0 grid grid-cols-[400px_minmax(0,1fr)] gap-2 p-2">
-        <Panel title="Research brief">
+      <div className="caos-persona-route research-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="research" context={<Panel title="Research brief">
           {/* min-h-full (not h-full): fills the panel when short, and grows so the
               panel's own overflow-auto scrolls when the advanced section is open —
               no flex-1 child to collapse and overlap on a short viewport. */}
@@ -412,9 +478,9 @@ function Research() {
               )}
             </div>
           </div>
-        </Panel>
+        </Panel>}
 
-        <ReportPane
+        primary={<ReportPane
           running={running}
           error={error}
           result={result}
@@ -430,8 +496,9 @@ function Research() {
             setPrevResult(null);
             setError(null);
           }}
-        />
+        />}
+      />
       </div>
-    </div>
+    </EnterprisePage>
   );
 }

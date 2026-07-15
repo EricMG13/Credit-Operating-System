@@ -7,7 +7,10 @@
 
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
-import { G2Chart } from "@/components/charts/G2Chart";
+import { SemanticVisualization, type VisualizationDatum } from "@/components/charts/SemanticVisualization";
+import { AuthorityBlock } from "./AuthorityBlock";
+import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
+import type { ProvFreshness } from "@/lib/provenance";
 
 export type ReportEdits = Record<string, string>;
 type OnEdit = (path: string, text: string) => void;
@@ -95,6 +98,7 @@ function RDHead({ p, title, sub, ctx }: { p: string; title?: string; sub?: strin
 
 function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string; ctx: EditCtx }) {
   const al = s.align || [];
+  const groupStarts = new Map(s.columnGroups?.map((group) => [group.start, group]) || []);
   const rows = ctx.hideAddbacks && p === "s0"
     ? s.rows.filter((r) => {
         const first = String(r.cells[0] || "");
@@ -108,7 +112,14 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
         <thead>
           <tr>
             {s.cols.map((c, i) => (
-              <th key={i} className={al[i] ? "rd-r" : ""}><E p={p + ".h" + i} v={c} ctx={ctx} /></th>
+              <th
+                key={i}
+                className={(al[i] ? "rd-r" : "") + (groupStarts.has(i) ? " rd-group-start" : "")}
+                data-column-group={groupStarts.get(i)?.key}
+                title={groupStarts.get(i) ? `${groupStarts.get(i)!.label} period group` : undefined}
+              >
+                <E p={p + ".h" + i} v={c} ctx={ctx} />
+              </th>
             ))}
           </tr>
         </thead>
@@ -122,7 +133,12 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
               }
             >
               {r.cells.map((c, ci) => (
-                <td key={ci} className={al[ci] ? "rd-r rd-num" : ""} style={r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined}>
+                <td
+                  key={ci}
+                  className={(al[ci] ? "rd-r rd-num" : "") + (groupStarts.has(ci) ? " rd-group-start" : "")}
+                  data-column-group={groupStarts.get(ci)?.key}
+                  style={r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined}
+                >
                   {ci === 0 && !c && r.lbl0
                     ? <E p={p + ".r" + ri + ".lbl0"} v={r.lbl0} ctx={ctx} className="rd-lbl0" />
                     : <E p={p + ".r" + ri + ".c" + ci} v={c} ctx={ctx} />}
@@ -184,10 +200,24 @@ function RDList({ s, p, ctx }: { s: Extract<Section, { t: "list" }>; p: string; 
 }
 
 function RDChart({ s, p, ctx }: { s: Extract<Section, { t: "chart" }>; p: string; ctx: EditCtx }) {
+  const { data: chartData = [], ...chart } = s.spec;
+  const data = chartData as VisualizationDatum[];
   return (
     <div className="rd-sec">
-      <RDHead p={p} title={s.title} sub={s.sub} ctx={ctx} />
-      <G2Chart spec={s.spec} height={s.h || 190} mode="paper" />
+      <SemanticVisualization
+        height={s.h || 190}
+        mode="paper"
+        spec={{
+          kind: s.kind,
+          title: s.title,
+          unit: s.unit,
+          sourceIds: s.sourceIds,
+          accessibleSummary: s.accessibleSummary,
+          data,
+          tabularFallback: { label: `${s.title} data`, columns: s.columns, data },
+          chart,
+        }}
+      />
       {s.note ? <div className="rd-note"><E p={p + ".note"} v={s.note} ctx={ctx} /></div> : null}
     </div>
   );
@@ -267,8 +297,10 @@ export function ReportDoc({
   showSources,
   edits,
   onEdit,
+  editableSectionCount,
   hideAddbacks,
   onOpenEvidence,
+  authority,
 }: {
   rep: Report;
   omit?: Record<number, boolean>;
@@ -276,12 +308,26 @@ export function ReportDoc({
   showSources?: boolean;
   edits?: ReportEdits;
   onEdit?: OnEdit;
+  /** When set, only root sections below this server-owned boundary are
+      editable. Appended identity/model sections remain visible and immutable. */
+  editableSectionCount?: number;
   hideAddbacks?: boolean;
   onOpenEvidence?: (id: string) => void;
+  /** Origin/Method/Freshness/QA for the printed authority block — omit to
+      fall back to the old blanket "reference template" disclaimer (callers
+      that haven't been updated yet). */
+  authority?: { caveatKind: DeepDiveCaveatKind; liveRunBacked: boolean; runId?: string | null; qaNote?: string | null; freshness?: ProvFreshness; freshnessDetail?: string | null };
 }) {
-  const ctx: EditCtx = { edits, onEdit, hideAddbacks };
+  const boundedEdits = editableSectionCount == null || !edits
+    ? edits
+    : Object.fromEntries(Object.entries(edits).filter(([path]) => {
+        const match = /^s(\d+)(?:\.|$)/.exec(path);
+        return !match || Number(match[1]) < editableSectionCount;
+      }));
+  const ctx: EditCtx = { edits: boundedEdits, onEdit, hideAddbacks };
+  const immutableCtx: EditCtx = { hideAddbacks };
   const isModelAppendix = rep.id === "model";
-  const overrideN = edits ? Object.keys(edits).length : 0;
+  const overrideN = boundedEdits ? Object.keys(boundedEdits).length : 0;
   const secs = rep.sections
     .map((s, i) => ({ s, i }))
     .filter((x) => !(omit && omit[x.i]));
@@ -313,19 +359,25 @@ export function ReportDoc({
           </div>
         ) : null}
 
-        {/* Fixture disclaimer — the paged IC memo is the deliverable most likely
+        {/* Authority block — the paged IC memo is the deliverable most likely
             handed to committee; stamp it so a printed PDF is never mistaken for a
-            live issuer run. (#19) Kept in normal flow so it prints. */}
-        <div
-          role="note"
-          style={{
-            margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
-            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
-            textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
-          }}
-        >
-          Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
-        </div>
+            live issuer run when it isn't one. (#19, P2-WP-8) Kept in normal flow
+            so it prints. Falls back to the old blanket claim if no caveat state
+            was supplied (defensive — every current caller passes one). */}
+        {authority ? (
+          <AuthorityBlock {...authority} />
+        ) : (
+          <div
+            role="note"
+            style={{
+              margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
+              color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+              textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
+            }}
+          >
+            Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
+          </div>
+        )}
 
         {pages.map((pg, pi) => (
           <div key={pg.name} className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
@@ -346,7 +398,12 @@ export function ReportDoc({
 
             <div className="rd-secs mt-4">
               {pg.items.map((x) => (
-                <RDSection key={x.i} s={x.s} p={"s" + x.i} ctx={ctx} />
+                <RDSection
+                  key={x.i}
+                  s={x.s}
+                  p={"s" + x.i}
+                  ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
+                />
               ))}
             </div>
           </div>
@@ -392,10 +449,12 @@ export function ReportDoc({
           <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · INTERNAL USE</span>
         </div>
       )}
-      {/* Report Studio renders the Atlas Forge reference deal as a committee-ready
-          template; it is not wired to a live issuer run. Stamp it so an exported
-          PDF is never mistaken for a real issuer's memo. (#19) */}
-      {isModelAppendix ? null : (
+      {/* Authority block — origin/method/QA derived from the real caveat state,
+          not a blanket "not live" claim, so an exported PDF stays accurate
+          when the figures ARE live-backed (FE-5). (#19, P2-WP-8) */}
+      {isModelAppendix ? null : authority ? (
+        <AuthorityBlock {...authority} />
+      ) : (
         <div
           role="note"
           style={{
@@ -423,7 +482,12 @@ export function ReportDoc({
       <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
       <div className="rd-secs">
         {secs.map((x) => (
-          <RDSection key={x.i} s={x.s} p={"s" + x.i} ctx={ctx} />
+          <RDSection
+            key={x.i}
+            s={x.s}
+            p={"s" + x.i}
+            ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
+          />
         ))}
       </div>
       {showSources && !isModelAppendix ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}

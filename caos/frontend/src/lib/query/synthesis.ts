@@ -23,6 +23,7 @@ export function synthesize(g: GraphResult): string {
     case "scatter": return scatter(g);
     case "covenant-register": return covenantRegister(g);
     case "sponsor-graph": return sponsorGraph(g);
+    case "head-to-head": return headToHead(g);
   }
   switch (g.mode) {
     case "peers": return peers(g);
@@ -159,4 +160,30 @@ function sponsorGraph(g: GraphResult): string {
     ? `; ${stripCount(leaders[0].label)} backs the most (${max})`
     : "";
   return `${issuers.length} sponsor-owned ${issuers.length === 1 ? "issuer" : "issuers"} across ${sponsors.length} ${sponsors.length === 1 ? "sponsor" : "sponsors"}${lead}.`;
+}
+
+// Head-to-head: one "sector" group node per compared row, two "issuer" members
+// (one per side) underneath. The "so what" is the CP-3 relative-value read when
+// both sides have one — higher composite percentile = stronger vs peers
+// (relval.py's own polarity, not a judgment made here); anything else stays a
+// neutral row count so the sentence never claims more than the data supports.
+function headToHead(g: GraphResult): string {
+  const rows = g.nodes.filter((n) => n.kind === "sector").length;
+  if (!rows) return fallback(g);
+  const base = `${g.title} compared across ${rows} ${rows === 1 ? "row" : "rows"}`;
+  const rv = g.nodes.filter((n) => n.kind === "issuer" && n.group === "CP-3 relative value");
+  const pctOf = (n: GraphNode): number | null => {
+    const m = n.sub?.match(/^(\d+(?:\.\d+)?)th pctile/);
+    return m ? Number(m[1]) : null;
+  };
+  if (rv.length === 2) {
+    const [a, b] = rv;
+    const pa = pctOf(a);
+    const pb = pctOf(b);
+    if (pa !== null && pb !== null && pa !== pb) {
+      const [stronger, weaker] = pa > pb ? [a, b] : [b, a];
+      return `${base} — ${stronger.label} screens stronger on relative value than ${weaker.label}.`;
+    }
+  }
+  return `${base}.`;
 }

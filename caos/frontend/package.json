@@ -8,7 +8,11 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "NODE_PATH=node_modules playwright test"
+    "test:e2e": "NODE_PATH=node_modules playwright test",
+    "verify:ic-book": "node scripts/validate-ic-book-workflow.mjs",
+    "verify:monitor": "node scripts/validate-monitor-workbench.mjs",
+    "verify:profile": "node scripts/validate-profile-workbench.mjs",
+    "verify:command": "node scripts/validate-command-workbench.mjs"
   },
   "dependencies": {
     "@antv/g2": "^5.2.0",
@@ -16,6 +20,7 @@
     "d3-selection": "^3.0.0",
     "d3-transition": "^3.0.1",
     "d3-zoom": "^3.0.0",
+    "exceljs": "^4.4.0",
     "next": "^16.2.10",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { SubHeader } from "./SubHeader";
-
-type Breakpoint = "desktop" | "tablet" | "mobile";
+import { useBreakpoint } from "@/lib/useBreakpoint";
 
 /**
  * A breakpoint-aware chrome that wraps every concept page. Desktop (≥1024px) is
@@ -23,47 +21,32 @@ type Breakpoint = "desktop" | "tablet" | "mobile";
  */
 export function ResponsiveShell({
   identity,
+  status,
   primaryAction,
   contextualControls,
+  utilityControls,
+  utilityLabel,
   narrowContract,
   children,
   className = "",
   heightClass = "h-screen",
 }: {
   identity: React.ReactNode;
+  status?: React.ReactNode;
   primaryAction?: React.ReactNode;
   contextualControls?: React.ReactNode;
+  utilityControls?: React.ReactNode;
+  utilityLabel?: string;
   narrowContract: NarrowContract;
   children: React.ReactNode;
   className?: string;
   /** Override the default full-viewport height. Use "h-full" for overlay/modals. */
   heightClass?: string;
 }) {
-  const [breakpoint, setBreakpoint] = useState<Breakpoint>("desktop");
-
-  // matchMedia at 1024px and 768px, coalesced via requestAnimationFrame so a
-  // rapid resize across the boundary doesn't flicker between breakpoints.
-  const apply = useCallback(() => {
-    const w = window.innerWidth;
-    setBreakpoint(w >= 1024 ? "desktop" : w >= 768 ? "tablet" : "mobile");
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    apply();
-    let raf = 0;
-    const onResize = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(apply);
-    };
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      cancelAnimationFrame(raf);
-    };
-  }, [apply]);
-
-  const isDesktop = breakpoint === "desktop";
+  // Shared shell breakpoint — same source SubHeader uses for its 1280px
+  // MoreDrawer collapse, so the two thresholds can never disagree.
+  const { breakpoint } = useBreakpoint();
+  const isDesktop = breakpoint === "wide" || breakpoint === "desktop";
 
   // At narrow breakpoints, the header shows only essential controls (max 3).
   // The full set renders at desktop only.
@@ -75,8 +58,11 @@ export function ResponsiveShell({
     <div className={`${heightClass} flex flex-col bg-caos-bg ${className}`}>
       <SubHeader
         identity={identity}
+        status={status}
         primaryAction={primaryAction}
         contextualControls={headerContextual}
+        utilityControls={utilityControls}
+        utilityLabel={utilityLabel}
         aria-label="Concept header"
       />
       {children}

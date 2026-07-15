@@ -165,21 +165,26 @@ export function G2Chart({
     };
 
     let last = -1, stable = 0, tries = 0;
-    const ro = new ResizeObserver(() => {
+    const handleResize = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
         if (dead || !chart) return;
         const cw = el.clientWidth || 320;
         if (Math.abs(cw - builtWidth) > 1) build();
       }, 120);
-    });
+    };
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize);
     const settle = () => {
       if (dead) return;
       const cw = el.clientWidth;
       if (cw > 0 && cw === last) stable++;
       else { stable = 0; last = cw; }
       tries++;
-      if (stable >= 2 || tries > 24) { build(); ro.observe(el); }
+      if (stable >= 2 || tries > 24) {
+        build();
+        if (ro) ro.observe(el);
+        else window.addEventListener("resize", handleResize);
+      }
       else settleTimer = setTimeout(settle, 32);
     };
     // Defer loading g2 until a chart actually mounts; then start sizing.
@@ -197,7 +202,8 @@ export function G2Chart({
       dead = true;
       clearTimeout(settleTimer);
       clearTimeout(timer);
-      ro.disconnect();
+      ro?.disconnect();
+      window.removeEventListener("resize", handleResize);
       try { chart?.destroy(); } catch { /* already gone */ }
     };
   }, [spec, height, mode]);

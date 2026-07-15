@@ -16,7 +16,7 @@
 // columns, so analyst assumptions flow straight through; the roll-forward starts
 // from FY25 revenue and the LTM cash close.
 
-import { buildModel, type Model, type ModelCol } from "@/lib/reports/model";
+import type { Model, ModelCol } from "@/lib/reports/model";
 
 export interface Drivers {
   revGrowth: number; // annual revenue growth (e.g. 0.035)
@@ -122,7 +122,7 @@ export interface ScenarioLens {
  *  of base AND worst before building the set — re-centering the whole lens on a
  *  custom scenario. Omit it to follow the assumptions only. */
 export function buildScenarios(
-  model: Model = buildModel(1),
+  model: Model,
   adjust?: Partial<Drivers>,
 ): ScenarioLens {
   const f25 = model.cols.f25;

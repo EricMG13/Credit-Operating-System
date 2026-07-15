@@ -9,8 +9,8 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { ConceptNav } from "@/components/shared/ConceptNav";
-import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { SurfaceState, type SurfaceStateKind } from "@/components/shared/SurfaceState";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { listRuns } from "@/lib/api";
@@ -24,8 +24,16 @@ import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/co
 import { deriveClearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import type { Sim } from "@/lib/pipeline/sim-engine";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { SubHeader } from "@/components/shared/SubHeader";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
+import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import type { RunListItemDTO } from "@/lib/engine/types";
+import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { useIssuerFreshness } from "@/lib/engine/useFreshness";
+import { resolvePipelineFreshnessRunId } from "@/lib/freshness";
 
 export default function PipelinePage() {
   return (
@@ -61,8 +69,17 @@ function PipelineVisualizer() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const issuerParam = searchParams.get("issuer");
+  const runParam = searchParams.get("run");
+  const viewParam = searchParams.get("view");
+  const analysis = useAnalysisContext({ name: "Pipeline run review" });
   const [latestLiveIssuer, setLatestLiveIssuer] = useState<string | null>(null);
+  const [runRows, setRunRows] = useState<RunListItemDTO[]>([]);
+  const [runRowsError, setRunRowsError] = useState(false);
   const [view, setView] = useViewPreference("graph");
+
+  useEffect(() => {
+    if (viewParam === "graph" || viewParam === "lanes") setView(viewParam);
+  }, [setView, viewParam]);
 
   useEffect(() => {
     const onCycle = (e: Event) => {
@@ -92,17 +109,31 @@ function PipelineVisualizer() {
     if (issuerParam) { setLatestLiveIssuer(null); return; }
     let stale = false;
     listRuns()
-      .then((runs) => { if (!stale) setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null); })
-      .catch(() => { if (!stale) setLatestLiveIssuer(null); });
+      .then((runs) => {
+        if (stale) return;
+        setRunRows(runs);
+        setRunRowsError(false);
+        setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null);
+      })
+      .catch(() => {
+        if (stale) return;
+        setRunRows([]);
+        setRunRowsError(true);
+        setLatestLiveIssuer(null);
+      });
     return () => { stale = true; };
   }, [issuerParam]);
 
   // Prefer the requested issuer, otherwise the newest complete live run; fall
   // back to the ATLF reference demo when no live run is available.
-  const issuerId = issuerParam || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
+  const selectedRunRow = runRows.find((item) => item.id === runParam) ?? null;
+  const issuerId = issuerParam || selectedRunRow?.issuer_id || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  const { value: live, phase, latest } = useLivePipelineStatus(issuerId);
-  const liveRun = useLiveRun(issuerId);
+  const { value: live, phase, latest } = useLivePipelineStatus(issuerId, runParam);
+  const freshnessRunId = resolvePipelineFreshnessRunId(runParam, live?.runId);
+  const selectedFreshnessRead = useIssuerFreshness({ runId: freshnessRunId });
+  const selectedRunFreshness = selectedFreshnessRead.run?.evaluation ?? null;
+  const liveRun = useLiveRun(issuerId, runParam);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
   // Fail-open guard: for a *real* issuer the analyst opened expecting their run,
@@ -135,14 +166,53 @@ function PipelineVisualizer() {
     if (mod) setSelected(mod[0]);
   };
 
+  const selectRun = (row: RunListItemDTO) => {
+    const query = new URLSearchParams(searchParams.toString());
+    query.set("issuer", row.issuer_id);
+    query.set("run", row.id);
+    if (analysis.context) query.set("context", analysis.context.id);
+    router.replace(`/pipeline?${query.toString()}`);
+  };
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context) return;
+    const nextArtifacts = runParam && context.artifacts.issuer_run_id !== runParam
+      ? { ...context.artifacts, issuer_run_id: runParam }
+      : context.artifacts;
+    const current = context.surface_state.pipeline;
+    if (current?.active_id === (runParam ?? null) && current?.view === view && nextArtifacts === context.artifacts) return;
+    void analysis.patch({
+      artifacts: nextArtifacts,
+      issuer_ids: issuerId === ATLF_REFERENCE_ISSUER_ID ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
+      surface_state: {
+        ...context.surface_state,
+        pipeline: { ...current, active_id: runParam, view },
+      },
+    });
+  }, [analysis, issuerId, runParam, view]);
+
   // Double-click a module → its output register in the Concept C deep-dive.
   // CP-0 is the L0 intake stage, so it opens Document Intake; INFRA nodes
   // produce the committee pack itself, so they land on Concept E.
   const openModule = (id: string) => {
-    if (id === "CP-0") { router.push("/upload"); return; }
+    const shared = {
+      issuer: issuerId,
+      ...(runParam ? { run: runParam } : {}),
+    };
+    if (id === "CP-0") {
+      router.push(analysis.context ? contextHref("/upload", analysis.context.id, shared) : `/upload?issuer=${encodeURIComponent(issuerId)}`);
+      return;
+    }
     const infra = MODULES.find((m) => m.id === id)?.layer === "INFRA";
-    const q = `issuer=${encodeURIComponent(issuerId)}`;
-    router.push(infra ? `/reports?${q}` : `/deepdive?${q}&mod=${id}`);
+    const path = infra ? "/reports" : "/deepdive";
+    const extra = infra ? shared : { ...shared, mod: id };
+    if (analysis.context) {
+      router.push(contextHref(path, analysis.context.id, extra));
+      return;
+    }
+    const params = new URLSearchParams(extra);
+    router.push(`${path}?${params.toString()}`);
   };
 
   // A real issuer's run errored / is mid-flight / never ran — render an honest
@@ -162,6 +232,9 @@ function PipelineVisualizer() {
   // long issuer id truncates — it names what the header shows (the live CP-X run vs
   // the offline route template), so it must never be clipped out of view.
   const issuerModeSuffix = useLive ? " — live CP-X run" : " — " + mode.title;
+  const openRunHref = analysis.context
+    ? contextHref("/deepdive", analysis.context.id, { issuer: issuerId, ...(live?.runId ? { run: live.runId } : {}) })
+    : `/deepdive?issuer=${encodeURIComponent(issuerId)}${live?.runId ? `&run=${encodeURIComponent(live.runId)}` : ""}`;
 
   const narrowContract: NarrowContract = {
     essentialControls: (
@@ -186,47 +259,50 @@ function PipelineVisualizer() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
-        <>
-          <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-            ← Directory
-          </Link>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <ConceptNav compact />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          {/* Live vs. offline-demo source (only when a live run exists) */}
-          {live ? (
-            <ToggleGroup
-              size="sm"
-              className="shrink-0"
-              value={liveMode}
-              onChange={(k) => { setLiveMode(k); setSelected(null); }}
-              options={[
-                { k: true, l: "LIVE", title: "Live CP-X run for the reference issuer" },
-                { k: false, l: "DEMO", title: "Offline route-template demo" },
-              ]}
-            />
-          ) : null}
-          {/* RUN id is identity, not chrome — visible at every breakpoint. */}
-          <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">{runIdLabel}</span>
-          {/* Issuer label — always names the run. */}
-          <span className="text-caos-xl text-caos-text font-medium flex items-baseline min-w-0">
-            <span className="truncate min-w-0">{issuerName}</span>
-            <span className="shrink-0 whitespace-nowrap">{issuerModeSuffix}</span>
-          </span>
-        </>
+        <ShellIdentity
+          tag="PIPELINE"
+          badges={
+            <>
+              {live ? (
+                <ToggleGroup
+                  size="sm"
+                  className="shrink-0"
+                  value={liveMode}
+                  onChange={(k) => { setLiveMode(k); setSelected(null); }}
+                  options={[
+                    { k: true, l: "LIVE", title: "Live CP-X run for the reference issuer" },
+                    { k: false, l: "DEMO", title: "Offline route-template demo" },
+                  ]}
+                />
+              ) : null}
+              <span className="tabular text-caos-xs text-caos-accent whitespace-nowrap">{runIdLabel}</span>
+              {freshnessRunId ? <FreshnessIndicator evaluation={selectedRunFreshness} /> : null}
+            </>
+          }
+          title={<>{issuerName}{issuerModeSuffix}</>}
+        />
       }
       primaryAction={
         <Link
-          href="/upload"
-          title="L0 · Document Intake — add source documents (CP-0) that feed this route"
-          className="no-underline flex items-center gap-1 tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap shrink-0 focus-ring"
+          href={openRunHref}
+          title="Open the selected run in Deep-Dive"
+          className="caos-action-primary no-underline focus-ring"
         >
-          ↑ L0 INTAKE
+          OPEN SELECTED RUN
         </Link>
       }
       contextualControls={
+        <Link
+          href={analysis.context ? contextHref("/upload", analysis.context.id, { issuer: issuerId }) : `/upload?issuer=${encodeURIComponent(issuerId)}`}
+          className="caos-action-secondary no-underline focus-ring"
+        >
+          Document intake
+        </Link>
+      }
+      utilityLabel="Run display controls"
+      utilityControls={
         <>
           {/* CP-X route template switcher (demo mode only) */}
           {!useLive ? (
@@ -271,6 +347,22 @@ function PipelineVisualizer() {
       }
       narrowContract={narrowContract}
     >
+      <div className="caos-persona-route pipeline-workbench flex-1 min-h-0">
+      <PersonaWorkbench surface="pipeline" primary={<div className="h-full min-h-0 flex flex-col">
+      <WorkbenchToolbar
+        title="Run worklist"
+        description="Inspect stage clearance, failures and evidence for the selected analysis run."
+        count={`${runRows.length} runs · ${completed}/${total} modules`}
+        viewLabel={useLive ? "Live run" : "Demo route"}
+      />
+      <DominantTableRegion ownerId="pipeline-run-worklist" label="Recent analysis runs" className="shrink-0">
+      <PipelineRunWorklist
+        runs={runRows}
+        selectedRunId={runParam}
+        unavailable={runRowsError}
+        onSelect={selectRun}
+      />
+      </DominantTableRegion>
       <PipelineWorkspace
         view={view}
         sim={sim}
@@ -287,10 +379,81 @@ function PipelineVisualizer() {
         pickDriver={pickDriver}
         setEvModal={setEvModal}
       />
+      </div>} />
+      </div>
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={liveRun.liveEvidence} isLiveRun={!isReference && !!liveRun.runId} onClose={() => setEvModal(null)} /> : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
+}
+
+function PipelineRunWorklist({
+  runs,
+  selectedRunId,
+  unavailable,
+  onSelect,
+}: {
+  runs: RunListItemDTO[];
+  selectedRunId: string | null;
+  unavailable: boolean;
+  onSelect: (run: RunListItemDTO) => void;
+}) {
+  if (unavailable) {
+    return (
+      <div role="status" className="mx-2 mt-2 rounded border border-caos-warning/50 bg-caos-warning-surface px-3 py-2 tabular text-caos-xs text-caos-warning">
+        Run index unavailable. The selected run remains visible, but no live worklist can be asserted.
+      </div>
+    );
+  }
+  if (!runs.length) return null;
+  return (
+    <div className="mx-2 mt-2 max-h-28 shrink-0 overflow-auto rounded border border-caos-border bg-caos-panel" aria-label="Recent analysis runs">
+      <table className="w-full min-w-[760px] border-collapse tabular text-caos-xs">
+        <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
+          <tr>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Run</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Issuer</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">State</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Freshness</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Committee</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">As of</th>
+            <th scope="col" className="px-2 py-1 text-right font-medium uppercase tracking-wider">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.slice(0, 20).map((item) => {
+            const selected = selectedRunId === item.id;
+            const statusKind = item.status === "complete" ? "pass" : item.status === "failed" ? "blocked" : "running";
+            return (
+              <tr key={item.id} className={`border-t border-caos-border ${selected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/60"}`}>
+                <td className="px-2 py-1.5 text-caos-text">{item.id.slice(0, 8)}</td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.issuer_id}</td>
+                <td className="px-2 py-1.5"><Tag sev={statusKind}>{item.status.toUpperCase()}</Tag></td>
+                <td className="px-2 py-1.5"><RunFreshnessCell runId={item.id} /></td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.committee_status || "UNRATED"}</td>
+                <td className="px-2 py-1.5 text-caos-muted">{item.as_of_date || "UNKNOWN"}</td>
+                <td className="px-2 py-1 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item)}
+                    aria-pressed={selected}
+                    className="caos-action-secondary focus-ring"
+                  >
+                    {selected ? "SELECTED" : "OPEN"}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RunFreshnessCell({ runId }: { runId: string }) {
+  const freshness = useIssuerFreshness({ runId });
+  return <FreshnessIndicator evaluation={freshness.run?.evaluation} />;
 }
 
 // Honest full-pane states for a real issuer whose run is unavailable — shown
@@ -305,52 +468,36 @@ function PipelineRunState({
 }) {
   const cfg = {
     error: {
-      tag: "critical" as const, glyph: "warning" as const, head: "Run status unavailable",
+      tag: "critical" as const, kind: "error" as SurfaceStateKind, head: "Run status unavailable",
       body: "Couldn't reach the run service for this issuer. This is a connection or backend error — not a passing run. Retry, or check the service.",
     },
     in_flight: {
-      tag: "warning" as const, glyph: "locked" as const, head: "Run in progress",
+      tag: "warning" as const, kind: (runStatus === "failed" ? "unavailable" : "partial") as SurfaceStateKind, head: runStatus === "failed" ? "Run failed" : "Run in progress",
       body: runStatus === "failed"
         ? "The latest run for this issuer did not complete (failed). No cleared committee output is available — re-run the pipeline."
         : "A run for this issuer is queued or executing. The route graph populates once it completes — no cleared output yet.",
     },
     none: {
-      tag: "idle" as const, glyph: "locked" as const, head: "No runs for this issuer",
+      tag: "idle" as const, kind: "empty" as SurfaceStateKind, head: "No runs for this issuer",
       body: "This issuer has never been analysed. Start a run from Document Intake to populate the CP-X route graph.",
     },
   }[state];
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       <SubHeader
-        identity={
-          <>
-            <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-              ← Directory
-            </Link>
-            <span className="h-4 w-px bg-caos-border shrink-0" />
-            <ConceptNav compact />
-          </>
-        }
+        identity={<ShellIdentity tag="PIPELINE" title="Run state" />}
         contextualControls={<Tag sev={cfg.tag}>{cfg.head.toUpperCase()}</Tag>}
       />
       <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-        <div role="alert" className="max-w-md w-full flex flex-col gap-3 rounded-lg border border-caos-border bg-caos-panel p-7 text-center">
-          <div className="flex items-center justify-center gap-2" style={{ color: `var(--caos-${cfg.tag === "critical" ? "critical" : cfg.tag === "warning" ? "warning" : "muted"})` }}>
-            <StatusGlyph kind={cfg.glyph} size={14} />
-            <span className="tabular text-caos-sm uppercase tracking-[0.2em]">{state === "error" ? "Error" : state === "in_flight" ? "Pending" : "Empty"}</span>
-          </div>
-          <h2 className="text-caos-text text-lg font-semibold">{cfg.head}</h2>
-          <p className="text-caos-muted text-caos-md leading-relaxed">{cfg.body}</p>
-          <div className="flex items-center justify-center gap-2 mt-1">
-            <Link href="/upload" className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
-              ↑ DOCUMENT INTAKE
-            </Link>
-            <Link href={`/pipeline?issuer=${ATLF_REFERENCE_ISSUER_ID}`} className="tabular text-caos-sm px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">
-              VIEW REFERENCE DEMO
-            </Link>
-          </div>
-          <div className="tabular text-caos-3xs text-caos-muted mt-1 truncate">issuer {issuerId}</div>
-        </div>
+        <SurfaceState
+          kind={cfg.kind}
+          title={cfg.head}
+          detail={cfg.body}
+          supporting={<div className="tabular text-caos-3xs text-caos-muted truncate">issuer {issuerId}</div>}
+          className="max-w-md w-full"
+          primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Document intake</Link>}
+          secondaryAction={<Link href={`/pipeline?issuer=${ATLF_REFERENCE_ISSUER_ID}`} className="caos-action-secondary no-underline focus-ring">View reference demo</Link>}
+        />
       </div>
     </div>
   );
@@ -361,24 +508,11 @@ function PipelineLoadingState({ issuerId }: { issuerId: string }) {
   return (
     <div className="h-screen flex flex-col bg-caos-bg">
       <SubHeader
-        identity={
-          <>
-            <Link href="/issuers" className="text-caos-muted hover:text-caos-text text-caos-xl transition-caos whitespace-nowrap">
-              ← Directory
-            </Link>
-            <span className="h-4 w-px bg-caos-border shrink-0" />
-            <ConceptNav compact />
-            <span className="h-4 w-px bg-caos-border shrink-0" />
-            <span className="tabular text-caos-xl text-caos-text font-medium whitespace-nowrap truncate min-w-0">{issuerId}</span>
-          </>
-        }
+        identity={<ShellIdentity tag="PIPELINE" title={issuerId} />}
         contextualControls={<Tag sev="idle">LOADING</Tag>}
       />
       <div className="flex-1 min-h-0 flex items-center justify-center p-6">
-        <div role="status" aria-live="polite" className="flex items-center gap-2.5 text-caos-muted">
-          <Dot sev="running" pulse />
-          <span className="tabular text-caos-lg">Loading run…</span>
-        </div>
+        <SurfaceState kind="loading" title="Loading run" detail={`Retrieving the latest persisted pipeline state for ${issuerId}.`} className="max-w-md w-full" />
       </div>
     </div>
   );
@@ -418,8 +552,8 @@ function PipelineWorkspace({
   setEvModal,
 }: PipelineWorkspaceProps) {
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
-      <div className="flex flex-col gap-2 min-h-0 min-w-0">
+    <div className="pipeline-workspace flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
+      <div className="pipeline-workspace__primary flex flex-col gap-2 min-h-0 min-w-0">
         <PanelShell
           title={view === "graph" ? "Execution Graph · CP-X route plan" : "Execution Swimlanes · L0 → Export"}
           className="flex-1"
@@ -455,7 +589,7 @@ function PipelineWorkspace({
           <EventLog events={sim.events} />
         </PanelShell>
       </div>
-      <div className="flex flex-col gap-2 min-h-0">
+      <aside className="pipeline-workspace__inspector flex flex-col gap-2 min-h-0" aria-label="Run module inspection and lineage">
         <PanelShell title="Module Inspector" className="flex-[3]">
           <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} onOpen={openModule} />
         </PanelShell>
@@ -476,7 +610,7 @@ function PipelineWorkspace({
             <LineagePanel drivers={mode.drivers} onPick={pickDriver} onOpenEvidence={setEvModal} />
           )}
         </PanelShell>
-      </div>
+      </aside>
     </div>
   );
 }

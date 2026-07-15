@@ -6,18 +6,20 @@ so a dropped client/proxy connection would lose the work and its token spend.
 Instead the POST persists an ``IssuerResearchReport`` row and spawns a background
 task here; the client polls ``GET /api/issuers/{id}/research-report``.
 
-In-process tasks + sweep-on-boot, mirroring ``ResearchExecutor`` in
-[research_executor.py] and ``InProcessExecutor`` in [run_executor.py]: the app
-is a single container behind Caddy/oauth2-proxy, the same single-process
-assumption ``rate_limit.py`` makes. A process restart marks stranded ``running``
-reports failed and the analyst re-submits — no zombie ``running`` that never
-completes.
+In-process tasks, mirroring ``ResearchExecutor`` in [research_executor.py] and
+``InProcessExecutor`` in [run_executor.py]: a report is bound to whichever
+replica's request handler took the POST. The boot sweep that recovers a stranded
+report is lease-expiry gated (migrations/0038_background_job_leases), not
+unconditional, so one replica's boot can't kill a report genuinely still
+running on a sibling. A lease-expired ``running`` report is marked failed and
+the analyst re-submits — no zombie ``running`` that never completes.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket
 from datetime import datetime, timedelta, timezone
 
@@ -34,6 +36,8 @@ from research_report import (
 from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.research_report")
+
+_WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
 # Bound concurrent synthesis runs (cost guard). POST fires a background task per
 # report, so without this a sustained submission rate accumulates unbounded
@@ -89,6 +93,17 @@ async def _run_report(report_id: str) -> None:
             await session.commit()
 
         try:
+            # Lease this report before doing any real work, committed on its own
+            # so a sibling replica's boot sweep can see it durably right away.
+            # Gates ResearchReportExecutor.start()'s reap below. Inside the try:
+            # a commit failure here must still reach the except-Exception guard
+            # below and mark the report failed, not strand it in 'running' with
+            # the lease never set. (Also satisfies _save_progress's dirty-state
+            # constraint above — this commit clears it before synthesis starts.)
+            report.worker_id = _WORKER_ID
+            report.lease_expires_at = _now() + timedelta(
+                seconds=get_settings().caos_background_job_lease_seconds
+            )
             report.status = "running"  # visible to the client's poll; idempotent on re-claim
             await session.commit()
 
@@ -201,24 +216,43 @@ async def _mark_failed(session, report_id: str, reason: str) -> None:
 class ResearchReportExecutor(InProcessTaskExecutor):
     """In-process background tasks for issuer research report jobs.
 
-    ponytail: in-process + sweep-on-boot — sound for one app container. On
-    Postgres, ``get_report_executor`` picks ``ReportQueueWorker`` instead so one
-    worker process dying doesn't strand a report until the next full restart.
+    Multi-replica safe: enqueue() still spawns same-process (mirrors
+    ResearchExecutor), but start()'s boot sweep is lease-expiry gated like
+    QueueWorker._reap_orphans, so one replica can't kill another replica's
+    still-live report on a rolling redeploy. On Postgres,
+    ``get_report_executor`` picks ``ReportQueueWorker`` instead so one worker
+    process dying doesn't strand a report until the next full restart.
     """
 
     name = "research_report_in_process"
 
     async def start(self) -> None:
         # Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
-        # stranding a report in 'running'/'queued' forever. Sweep them to failed on boot.
+        # stranding a report in 'running'/'queued' forever. Running rows are
+        # gated on lease_expires_at (not unconditional) so a rolling
+        # multi-replica redeploy can't kill a report still live on a sibling. A
+        # NULL lease is reapable (legacy rows, or a crash before the lease-set commit) — see
+        # migrations/0038_background_job_leases and redteam RT-2026-07-11-03.
         async with AsyncSessionLocal() as session:
             await session.execute(
                 update(IssuerResearchReport)
-                .where(IssuerResearchReport.status.in_(("running", "queued")))
+                .where(
+                    or_(
+                        IssuerResearchReport.status == "queued",
+                        and_(
+                            IssuerResearchReport.status == "running",
+                            or_(
+                                IssuerResearchReport.lease_expires_at.is_(None),
+                                IssuerResearchReport.lease_expires_at < _now(),
+                            ),
+                        ),
+                    ),
+                )
                 .values(
                     status="failed",
                     error="abandoned (process restart)",
                     completed_at=_now(),
+                    lease_expires_at=None,
                 )
             )
             await session.commit()

@@ -152,3 +152,113 @@ async def test_covenant_availability_true_when_cp4c_exists(covenant_runs):
     assert avail["covenant"] is True
     cov = next(c for grp in caps["groups"] for c in grp["capabilities"] if c["id"] == "covenant-register")
     assert cov["enabled"] is True and cov["reason"] is None
+
+
+@pytest_asyncio.fixture
+async def h2h_issuers(seeded_db):
+    """Two issuers with headline metric_facts + CP-3/CP-2B/CP-4C outputs on a
+    completed run each — enough to compare on every C7 row. A screens stronger
+    on relative value (72nd pctile OVERWEIGHT) than B (35th pctile UNDERWEIGHT).
+    Yields {"a": id, "b": id}."""
+    from database import AsyncSessionLocal, Issuer, MetricFact, ModuleOutput, Run
+
+    issuer_ids: list = []
+    run_ids: list = []
+    async with AsyncSessionLocal() as s:
+        a = Issuer(name="ZZH2H Acme")
+        s.add(a)
+        await s.flush()
+        ra = Run(issuer_id=a.id, status="complete")
+        s.add(ra)
+        await s.flush()
+        s.add(MetricFact(issuer_id=a.id, run_id=ra.id, metric_key="net_leverage",
+                         period="FY25", value=4.0, unit="x", headline=True, provenance="run"))
+        s.add(ModuleOutput(run_id=ra.id, module_id="CP-3", module_name="RelativeValueSecuritySelection",
+                           runtime_output={"composite_percentile": 72, "recommendation": "OVERWEIGHT"}))
+        s.add(ModuleOutput(run_id=ra.id, module_id="CP-2B", module_name="DownsidePathway",
+                           runtime_output={"fragility": "LOW", "shock_to_breach_pct": 32.0}))
+        s.add(ModuleOutput(run_id=ra.id, module_id="CP-4C", module_name="CovenantCapacityCalculator",
+                           runtime_output={"leverage_covenant_x": 6.0, "current_net_leverage": 4.0,
+                                           "covenant_basis": "first_lien"}))
+
+        b = Issuer(name="ZZH2H Atlas")
+        s.add(b)
+        await s.flush()
+        rb = Run(issuer_id=b.id, status="complete")
+        s.add(rb)
+        await s.flush()
+        s.add(MetricFact(issuer_id=b.id, run_id=rb.id, metric_key="net_leverage",
+                         period="FY25", value=6.5, unit="x", headline=True, provenance="run"))
+        s.add(ModuleOutput(run_id=rb.id, module_id="CP-3", module_name="RelativeValueSecuritySelection",
+                           runtime_output={"composite_percentile": 35, "recommendation": "UNDERWEIGHT"}))
+        s.add(ModuleOutput(run_id=rb.id, module_id="CP-2B", module_name="DownsidePathway",
+                           runtime_output={"fragility": "HIGH", "shock_to_breach_pct": 8.0}))
+        await s.commit()
+        issuer_ids = [a.id, b.id]
+        run_ids = [ra.id, rb.id]
+        out = {"a": a.id, "b": b.id}
+    yield out
+    async with AsyncSessionLocal() as s:
+        from sqlalchemy import delete
+        await s.execute(delete(ModuleOutput).where(ModuleOutput.run_id.in_(run_ids)))
+        await s.execute(delete(MetricFact).where(MetricFact.run_id.in_(run_ids)))
+        await s.execute(delete(Run).where(Run.id.in_(run_ids)))
+        await s.execute(delete(Issuer).where(Issuer.id.in_(issuer_ids)))
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_head_to_head_composes_facts_rv_fragility_and_covenant(h2h_issuers):
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as s:
+        g = await querygraph.build_graph(s, "head-to-head", h2h_issuers["a"], issuer_id_b=h2h_issuers["b"])
+
+    assert g["capability_id"] == "head-to-head"
+    assert g["title"] == "ZZH2H Acme vs ZZH2H Atlas"
+    by_group = {n["group"]: [] for n in g["nodes"] if n["kind"] == "sector"}
+    for n in g["nodes"]:
+        if n["kind"] == "issuer":
+            by_group[n["group"]].append(n)
+
+    lev = {n["label"]: n["sub"] for n in by_group["Net leverage"]}
+    assert lev == {"ZZH2H Acme": "4x", "ZZH2H Atlas": "6.5x"}
+
+    rv = {n["label"]: n["sub"] for n in by_group["CP-3 relative value"]}
+    assert rv["ZZH2H Acme"] == "72th pctile · OVERWEIGHT"
+    assert rv["ZZH2H Atlas"] == "35th pctile · UNDERWEIGHT"
+
+    frag = {n["label"]: n["sub"] for n in by_group["CP-2B downside fragility"]}
+    assert frag["ZZH2H Acme"] == "LOW · breach at -32% EBITDA"
+    assert frag["ZZH2H Atlas"] == "HIGH · breach at -8% EBITDA"
+
+    # B has no CP-4C output → covenant row carries A only, never a fabricated B side.
+    cov = {n["label"]: n["sub"] for n in by_group["CP-4C covenant"]}
+    assert cov == {"ZZH2H Acme": "6x cov · 2x headroom"}
+
+
+@pytest.mark.asyncio
+async def test_head_to_head_degrades_honestly_on_bad_input(h2h_issuers):
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as s:
+        missing_pick = await querygraph.build_graph(s, "head-to-head", h2h_issuers["a"])
+        same_issuer = await querygraph.build_graph(
+            s, "head-to-head", h2h_issuers["a"], issuer_id_b=h2h_issuers["a"])
+        unknown = await querygraph.build_graph(
+            s, "head-to-head", h2h_issuers["a"], issuer_id_b="does-not-exist")
+
+    assert missing_pick["nodes"] == [] and "Pick two issuers" in missing_pick["meta"][0]
+    assert same_issuer["nodes"] == [] and "different issuers" in same_issuer["meta"][0]
+    assert unknown["nodes"] == [] and "not found" in unknown["meta"][0]
+
+
+@pytest.mark.asyncio
+async def test_head_to_head_availability_reuses_facts_flag(h2h_issuers):
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as s:
+        caps = await querygraph.capabilities(s)
+
+    h2h = next(c for grp in caps["groups"] for c in grp["capabilities"] if c["id"] == "head-to-head")
+    assert h2h["enabled"] is True and h2h["reason"] is None

@@ -15,15 +15,17 @@ rated B3/B- or below (the drift-to-CCC bucket that drives CLO haircuts).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, Field
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Issuer, Run, aware_utc, get_db
+from config import get_settings
+from database import AnalysisContextRecord, Document, DocumentChunk, Issuer, Run, aware_utc, get_db
+from freshness import POLICY_VERSION, FreshnessEvaluation, evaluate_freshness, worst_freshness
 from identity import CallerIdentity, get_identity
 from tenancy import scope_issuers, tenancy_enabled
 # Rating scale lives in ratings.py (one source of truth, shared with the
@@ -71,6 +73,66 @@ class DigestResponse(BaseModel):
     ccc_watch: List[WatchRow] = []     # B3/B- and below
     qa: Dict[str, int] = {}            # latest-complete-run qa_status -> count
     activity_24h: Dict[str, int] = {}  # runs completed / failed in the last 24h
+    # Optional so feature-off responses retain the legacy shape.
+    freshness: Optional["DigestFreshnessSummary"] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class DigestFreshnessRow(BaseModel):
+    issuer_id: str
+    name: str
+    run_id: Optional[str] = None
+    evaluation: FreshnessEvaluation
+
+
+class DigestFreshnessSummary(BaseModel):
+    policy_version: str = POLICY_VERSION
+    source_kind: Literal["run"] = "run"
+    counts: Dict[Literal["current", "due", "stale", "unknown"], int]
+    rows: List[DigestFreshnessRow] = []
+
+
+# Coverage Control Plane (WP-4 G14) — the ingestion-side counterpart to the
+# stale/CCC watch lists above: a vaulted document that quietly produced no
+# usable chunks (a scanned/encrypted PDF the OCR lane also couldn't read), or
+# one that only ever produced lower-fidelity OCR-derived chunks. Both degrade
+# silently today (ingest.py logs a warning and moves on) — this surfaces them
+# as a real, honest, live signal instead of a document that just vanishes
+# into "vaulted, contributes nothing" with no visibility anywhere.
+_DOC_SCAN_CAP = 2000
+
+
+class IngestionGapRow(BaseModel):
+    document_id: str
+    issuer_id: str
+    issuer_name: str
+    file_name: str
+    doc_type: str
+    uploaded_at: datetime
+    detail: str
+
+
+class CoverageOriginRow(BaseModel):
+    issuer_id: str
+    issuer_name: str
+    analyst_owner: Optional[str] = None
+    origins: List[str] = []
+    document_count: int
+
+
+class IngestionGapsResponse(BaseModel):
+    as_of: datetime
+    truncated: bool = False
+    # Vaulted but zero chunks extracted — every downstream module treats this
+    # document as if it doesn't exist; nothing else surfaces that fact today.
+    zero_chunk: List[IngestionGapRow] = []
+    # At least one chunk came off the OCR lane (lower-fidelity than a native
+    # text layer) — discountable, not a hard failure, but worth disclosing.
+    ocr_lane: List[IngestionGapRow] = []
+    # Per-issuer source-origin mix plus the analyst on the latest complete run.
+    # Raw source labels stay deliberately small: NATIVE / OCR / NO_TEXT.
+    coverage: List[CoverageOriginRow] = []
 
 
 def _read_rate_guard(caller: CallerIdentity) -> None:
@@ -81,6 +143,45 @@ def _read_rate_guard(caller: CallerIdentity) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Digest read rate limit reached — try again in a minute.",
         )
+
+
+async def _proved_context_run_freshness(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    run_ids: set[str],
+) -> dict[str, FreshnessEvaluation]:
+    """Resolve only lineage-proved run states from the analyst's recent contexts.
+
+    The bounded scan avoids turning the digest into an unbounded context replay.
+    A run with no matching authorized context remains UNKNOWN.
+    """
+    if not run_ids:
+        return {}
+    from routes.analysis import get_context_freshness
+
+    contexts = (await db.execute(
+        select(AnalysisContextRecord)
+        .where(AnalysisContextRecord.analyst_id == caller.id)
+        .order_by(AnalysisContextRecord.updated_at.desc())
+        .limit(50)
+    )).scalars().all()
+    collected: dict[str, list[FreshnessEvaluation]] = {}
+    for context in contexts:
+        artifacts = context.artifacts or {}
+        active_run_id = artifacts.get("issuer_run_id")
+        if active_run_id not in run_ids:
+            continue
+        try:
+            context_result = await get_context_freshness(context.id, db, caller)
+        except HTTPException:
+            continue
+        for item in context_result.artifacts:
+            if item.artifact.kind == "issuer_run" and item.artifact.id == active_run_id:
+                collected.setdefault(item.artifact.id, []).append(item.evaluation)
+    return {
+        run_id: worst_freshness(evaluations, source_kind="run")
+        for run_id, evaluations in collected.items()
+    }
 
 
 @router.get("/daily", response_model=DigestResponse)
@@ -161,6 +262,34 @@ async def daily_digest(
     failed_24h = sum(1 for r in recent if r.status == "failed" and within_24h(r.created_at))
 
     rated = sum(1 for ix in indices.values() if ix is not None)
+    freshness_summary: Optional[DigestFreshnessSummary] = None
+    if get_settings().caos_lineage_v2_enabled:
+        proved = await _proved_context_run_freshness(
+            db, caller, {run.id for run in latest.values()}
+        )
+        freshness_rows: List[DigestFreshnessRow] = []
+        freshness_counts = {"current": 0, "due": 0, "stale": 0, "unknown": 0}
+        for issuer in issuers:
+            run = latest.get(issuer.id)
+            evaluation = proved.get(run.id) if run else None
+            if evaluation is None:
+                evaluation = evaluate_freshness(
+                    source_kind="run",
+                    now=now,
+                    observed_at=(run.completed_at or run.created_at) if run else None,
+                    source_version_state="unknown",
+                )
+            freshness_counts[evaluation.state] += 1
+            freshness_rows.append(DigestFreshnessRow(
+                issuer_id=issuer.id,
+                name=issuer.name,
+                run_id=run.id if run else None,
+                evaluation=evaluation,
+            ))
+        freshness_summary = DigestFreshnessSummary(
+            counts=freshness_counts,
+            rows=freshness_rows[:_MAX_LIST],
+        )
     return DigestResponse(
         as_of=now,
         coverage={
@@ -179,4 +308,82 @@ async def daily_digest(
         ccc_watch=ccc_watch,
         qa=qa,
         activity_24h={"runs_completed": completed_24h, "runs_failed": failed_24h},
+        freshness=freshness_summary,
+    )
+
+
+@router.get("/ingestion-gaps", response_model=IngestionGapsResponse)
+async def ingestion_gaps(
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _read_rate_guard(caller)
+    now = datetime.now(timezone.utc)
+
+    has_ocr = exists(
+        select(DocumentChunk.id).where(
+            DocumentChunk.document_id == Document.id,
+            DocumentChunk.prov == "ocr",
+        )
+    ).correlate(Document)
+    docs_q = select(Document, Issuer.name, has_ocr).join(Issuer, Document.issuer_id == Issuer.id)
+    if tenancy_enabled():
+        docs_q = docs_q.where(Document.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
+    docs_q = docs_q.order_by(Document.uploaded_at.desc()).limit(_DOC_SCAN_CAP)
+    rows = (await db.execute(docs_q)).all()
+
+    zero_chunk: List[IngestionGapRow] = []
+    ocr_lane: List[IngestionGapRow] = []
+    origin_rollup: Dict[str, Dict[str, object]] = {}
+    for doc, issuer_name, document_has_ocr in rows:
+        rollup = origin_rollup.setdefault(doc.issuer_id, {
+            "issuer_name": issuer_name,
+            "origins": set(),
+            "document_count": 0,
+        })
+        rollup["document_count"] = int(rollup["document_count"]) + 1
+        if doc.chunk_count == 0:
+            rollup["origins"].add("NO_TEXT")
+            zero_chunk.append(IngestionGapRow(
+                document_id=doc.id, issuer_id=doc.issuer_id, issuer_name=issuer_name,
+                file_name=doc.file_name, doc_type=doc.doc_type,
+                uploaded_at=aware_utc(doc.uploaded_at) or now,
+                detail="No text extracted — vaulted but unusable by any module (scanned/encrypted source; OCR unavailable or also failed).",
+            ))
+        elif document_has_ocr:
+            rollup["origins"].add("OCR")
+            ocr_lane.append(IngestionGapRow(
+                document_id=doc.id, issuer_id=doc.issuer_id, issuer_name=issuer_name,
+                file_name=doc.file_name, doc_type=doc.doc_type,
+                uploaded_at=aware_utc(doc.uploaded_at) or now,
+                detail="Extracted via OCR (scanned/image source) — lower-fidelity than a native text layer; discount accordingly.",
+            ))
+        else:
+            rollup["origins"].add("NATIVE")
+    zero_chunk = zero_chunk[:_MAX_LIST]
+    ocr_lane = ocr_lane[:_MAX_LIST]
+
+    latest_owner: Dict[str, Optional[str]] = {}
+    owner_q = select(Run).where(Run.status == "complete")
+    if tenancy_enabled():
+        owner_q = owner_q.where(Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller)))
+    for run in (await db.execute(
+        owner_q.order_by(Run.created_at.desc()).limit(5000)
+    )).scalars().all():
+        latest_owner.setdefault(run.issuer_id, run.analyst_id)
+
+    coverage = [
+        CoverageOriginRow(
+            issuer_id=issuer_id,
+            issuer_name=str(values["issuer_name"]),
+            analyst_owner=latest_owner.get(issuer_id),
+            origins=sorted(values["origins"]),
+            document_count=int(values["document_count"]),
+        )
+        for issuer_id, values in origin_rollup.items()
+    ][:_MAX_LIST]
+
+    return IngestionGapsResponse(
+        as_of=now, truncated=len(rows) >= _DOC_SCAN_CAP,
+        zero_chunk=zero_chunk, ocr_lane=ocr_lane, coverage=coverage,
     )

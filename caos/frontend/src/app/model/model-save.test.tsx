@@ -19,6 +19,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: vi.fn().mockResolvedValue({ features: { model_engine_v2_enabled: false } }),
   getSavedModel: vi.fn().mockResolvedValue(null),
   saveModel: vi.fn().mockRejectedValue(new Error("boom")),
 }));
@@ -32,6 +33,7 @@ describe("Model Builder · save to DB", () => {
   it("shows a role=alert SAVE FAILED state when the PUT rejects (F3)", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
     fireEvent.click(save);
     await waitFor(() => {
       const alert = screen.getByRole("alert");

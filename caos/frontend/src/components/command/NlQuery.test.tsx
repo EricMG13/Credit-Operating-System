@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import type { StructuredResult, SynthesisResult } from "@/lib/query/types";
 
 // Mock the one API fn the component calls (POST /api/query/nl). Set a
@@ -170,13 +170,16 @@ describe("NlQuery", () => {
     // Ranked structured table renders both issuers in order.
     const table = screen.getByRole("table", { name: "Ranked query results" });
     expect(table).toBeTruthy();
-    expect(screen.getByText("Atlas Forge")).toBeTruthy();
-    expect(screen.getByText("Borealis Metals")).toBeTruthy();
+    expect(within(table).getByText("Atlas Forge")).toBeTruthy();
+    expect(within(table).getByText("Borealis Metals")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Net Leverage by issuer" })).toBeTruthy();
+    expect(screen.getByText("Seeded values included")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show equivalent table" })).toBeTruthy();
 
     // The run-derived cell carries its clickable citation chip (evidence id);
     // the seeded cell shows the muted "seed" marker — both confirm provenance UI.
     expect(screen.getByRole("button", { name: "E-CS1" })).toBeTruthy();
-    expect(screen.getByText("seed")).toBeTruthy();
+    expect(within(table).getByText("seed")).toBeTruthy();
 
     // Caveat is shown.
     expect(screen.getByText("· Seeded values are illustrative.")).toBeTruthy();

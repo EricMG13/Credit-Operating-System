@@ -50,17 +50,17 @@ The system is organised into **8 analytical layers** (L0 through L7), an **orche
 | L0 | Source readiness | CP-0 |
 | LX | Orchestration & routing | CP-X |
 | L1 | Data foundation | CP-1, CP-1A, CP-1B, CP-1C |
-| L2 | Fundamental credit synthesis | CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F |
+| L2 | Fundamental credit synthesis | CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G |
 | L3 | Valuation, portfolio & refinancing | CP-3, CP-3B, CP-3C, CP-3D |
-| L4 | Legal & covenant | CP-4, CP-4C |
+| L4 | Legal & covenant | CP-4, CP-4D, CP-4C |
 | L5 | Quality assurance | CP-5B, CP-5 |
 | L6 | Debate & decision | CP-6A, CP-6E |
 | L7 | Sector & monitoring | CP-SR, CP-MON |
 | Infra | Rendering & extraction | CP-RENDER, CP-EXTRACT, CP-PROMPT |
 
-### Total Agent Count: 27
+### Total Agent Count: 29
 
-- 24 analytical modules (L0–L7)
+- 26 analytical modules (L0–L7)
 - 3 infrastructure services
 
 ---
@@ -108,11 +108,13 @@ The system is organised into **8 analytical layers** (L0 through L7), an **orche
 | CP-2D | GovernanceSponsorScore | L2 | Assess governance quality and sponsor / management strength |
 | CP-2E | LiquidityCashFlowBridge | L2 | Liquidity assessment and cash-flow bridge |
 | CP-2F | MacroFXHedgingSensitivity | L2 | Macro sensitivity, FX exposure, and hedging assessment |
+| CP-2G | ESGSustainabilityCreditRisk | L2 | Assess issuer-specific ESG/transition credit transmission and sustainability-linked debt mechanics |
 | CP-3 | RelativeValueSecuritySelection | L3 | Spread, relative value, and security selection |
 | CP-3B | RecoveryInstrumentPreference | L3 | Recovery waterfall, instrument preference, and LGD estimates |
 | CP-3C | PortfolioFitPositionSizing | L3 | Portfolio fit and position-sizing recommendation |
 | CP-3D | RefinancingLMERisk | L3 | Refinancing risk, LME risk, and maturity-wall analysis |
 | CP-4 | LegalCovenantInterpreter | L4 | Interpret covenants, covenant aggressiveness, legal/credit implications |
+| CP-4D | RestrictedGroupGuaranteeMap | L4 | Map entity perimeter, guarantees, collateral, structural priority, leakage, and priming exposure |
 | CP-4C | CovenantCapacityCalculator | L4 | Calculate covenant capacity and headroom |
 | CP-5 | ResearchIntegrityQA | L5 | Audit research integrity and gate module outputs |
 | CP-5B | EvidenceTraceValidator | L5 | Validate evidence lineage and identify orphan claims |

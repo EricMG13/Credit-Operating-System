@@ -19,7 +19,15 @@ import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
 import { FilterHeader, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
-import { ResponsiveShell, type NarrowContract } from "@/components/shared/ResponsiveShell";
+import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { SurfaceState } from "@/components/shared/SurfaceState";
+import { BatchBar } from "@/components/shared/BatchBar";
+import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
+import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
+import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
+import { contextHref, useAnalysisContext, type AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
 
 export default function IssuersPage() {
   return (
@@ -34,12 +42,13 @@ export default function IssuersPage() {
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
-const COLS = "grid grid-cols-[60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const COLS = "grid grid-cols-[28px_60px_minmax(200px,1.7fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country", "action"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
 
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
+  const analysis = useAnalysisContext({ name: "Coverage universe" });
   const router = useRouter();
   const { openProfile } = useIssuerProfileOverlay();
   const [issuers, setIssuers] = useState<Issuer[]>([]);
@@ -68,6 +77,10 @@ function IssuersDirectory() {
   // in a scannable order (H7). Clicking a sortable header cycles asc→desc→none;
   // `null` (cleared) reverts to the raw server/demo order.
   const [sort, setSort] = useState<SortState>({ col: "name", dir: "asc" });
+  // BatchBar selection (WP-10). Pruned against `issuers` below so a stale id
+  // never survives a reload/search that drops that row from the register.
+  const [selected, setSelected] = useState<string[]>([]);
+  const hydratedContext = useRef<string | null>(null);
 
   // Server-side search across name / ticker / industry / country / FIGI,
   // debounced so typing doesn't fire a request per keystroke.
@@ -116,6 +129,75 @@ function IssuersDirectory() {
     const q = new URLSearchParams(window.location.search).get("q");
     if (q) setQuery(q);
   }, []);
+
+  // Restore and persist only the validated directory state. Legacy context
+  // `filters`/`selected` remain readable server-side, but this route writes the
+  // discriminated `issuers` surface contract from now on.
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || hydratedContext.current === context.id) return;
+    hydratedContext.current = context.id;
+    const saved = context.surface_state.issuers;
+    if (!new URLSearchParams(window.location.search).get("q") && saved?.query) setQuery(saved.query);
+    if (saved?.selected_ids) setSelected(saved.selected_ids);
+    if (saved?.filters) setFilters(saved.filters as FilterState);
+    if (saved?.sort) {
+      const [col, dir] = saved.sort.split(":");
+      if (SORTABLE.has(col) && (dir === "asc" || dir === "desc")) setSort({ col, dir });
+    }
+  }, [analysis.context]);
+
+  useEffect(() => {
+    const context = analysis.context;
+    if (!context || hydratedContext.current !== context.id) return;
+    const issuerIds = Array.from(new Set([...context.issuer_ids, ...selected]));
+    const persistedFilters = Object.fromEntries(
+      Object.entries(filters).filter((entry): entry is [string, string[]] => Array.isArray(entry[1])),
+    ) as NonNullable<AnalysisSurfaceStateEntry["filters"]>;
+    const nextSurface = {
+      query: query || null,
+      selected_ids: selected,
+      sort: sort ? `${sort.col}:${sort.dir}` : null,
+      view: "directory",
+      filters: persistedFilters,
+    };
+    if (
+      issuerIds.length === context.issuer_ids.length
+      && issuerIds.every((id, index) => id === context.issuer_ids[index])
+      && JSON.stringify(context.surface_state.issuers ?? {}) === JSON.stringify(nextSurface)
+    ) return;
+    const timer = window.setTimeout(() => {
+      void analysis.patch({
+        issuer_ids: issuerIds,
+        surface_state: {
+          ...context.surface_state,
+          issuers: nextSurface,
+        },
+      }).catch(() => {});
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [analysis, filters, query, selected, sort]);
+
+  const openIssuer = (issuerId: string) => {
+    const context = analysis.context;
+    if (context) {
+      void analysis.patch({
+        issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
+        surface_state: {
+          ...context.surface_state,
+          issuers: { ...(context.surface_state.issuers ?? {}), active_id: issuerId, selected_ids: selected },
+        },
+      }).catch(() => {});
+    }
+    openProfile(issuerId);
+  };
+
+  // Drop any selected id that's no longer in the register (search/reload
+  // swapped the row set out from under it) — a batch action must never run
+  // against an issuer that isn't there to run it against.
+  useEffect(() => {
+    setSelected((prev) => prev.filter((id) => issuers.some((i) => i.id === id)));
+  }, [issuers]);
 
   const filterVals = useMemo<Record<(typeof FILTER_KEYS)[number], (issuer: Issuer) => string | number | null | undefined>>(() => ({
     ticker: (i) => i.ticker?.slice(0, 5).toUpperCase() || "—",
@@ -171,6 +253,27 @@ function IssuersDirectory() {
       return next;
     });
 
+  const toggleSelect = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  // Select-all applies to the currently visible (filtered+sorted) rows only —
+  // toggling it never touches a selection made outside the current view.
+  const shownIds = shownIssuers.map((i) => i.id);
+  const allShownSelected = shownIds.length > 0 && shownIds.every((id) => selected.includes(id));
+  const toggleSelectAllShown = () =>
+    setSelected((prev) =>
+      allShownSelected ? prev.filter((id) => !shownIds.includes(id)) : Array.from(new Set([...prev, ...shownIds]))
+    );
+
+  // Exactly three real actions — Run pipeline, Add to watchlist, Export CSV.
+  // No delete/refresh/assign: none of those have real backing semantics yet,
+  // and BatchBar's contract is to never claim a fake blanket "done".
+  const batchActions = [
+    runPipelineAction(selected.length),
+    addToWatchlistAction(selected),
+    exportCsvAction(issuers.filter((i) => selected.includes(i.id))),
+  ];
+
   const summaryLabel = loading
     ? "loading…"
     : query
@@ -185,13 +288,13 @@ function IssuersDirectory() {
         <ConceptNav compact />
         <span className="h-4 w-px bg-caos-border shrink-0" />
         <Link
-          href="/sponsors"
+          href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           SPONSORS
         </Link>
         <Link
-          href="/upload"
+          href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
           className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
         >
           UPLOAD
@@ -201,43 +304,22 @@ function IssuersDirectory() {
   };
 
   return (
-    <ResponsiveShell
+    <EnterprisePage kind="worklist"
       identity={
-        <>
-          <span className="flex items-center gap-2 shrink-0">
+        <ShellIdentity
+          badges={!loading && demo ? (
             <span
-              className="w-5 h-5 rounded-sm flex items-center justify-center text-caos-md font-bold"
-              style={{ background: "var(--caos-accent)", color: "var(--caos-bg)" }}
-            >
-              C
-            </span>
-            {/* Wordmark + version are decorative brand chrome — lowest priority for
-                horizontal space next to the 7-item full-label ConceptNav; drop
-                them before the functional coverage-summary stat ever squeezes. */}
-            <span className="hidden 2xl:inline text-caos-2xl font-semibold tracking-wide text-caos-text whitespace-nowrap">
-              CREDIT OS
-            </span>
-            <span className="hidden 2xl:inline tabular text-caos-xs text-caos-muted border border-caos-border rounded px-1 py-px">
-              v2.2
-            </span>
-          </span>
-          <span className="h-4 w-px bg-caos-border shrink-0" />
-          <span className="text-caos-metric text-caos-text font-semibold whitespace-nowrap shrink-0">
-            Issuer Register
-          </span>
-          <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap truncate min-w-0">
-            {summaryLabel}
-          </span>
-          {!loading && demo ? (
-            <span
-              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap ml-1 hidden 2xl:inline"
+              className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
               style={{ borderColor: "var(--caos-border)", color: "var(--caos-muted)" }}
               title="No live coverage yet — these are sample issuers, not real coverage"
             >
               Demo coverage
             </span>
           ) : null}
-        </>
+          title="Issuer register"
+        >
+          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">{summaryLabel}</span>
+        </ShellIdentity>
       }
       primaryAction={
         <button
@@ -249,18 +331,30 @@ function IssuersDirectory() {
       }
       contextualControls={
         <>
-          <ConceptNav />
-          <span className="h-4 w-px bg-caos-border shrink-0" />
           <Link
-            href="/upload"
-            className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos whitespace-nowrap"
+            href={analysis.context ? contextHref("/sponsors", analysis.context.id) : "/sponsors"}
+            className="caos-secondary-action no-underline focus-ring"
           >
-            UPLOAD DOCUMENTS
+            Sponsors
+          </Link>
+          <Link
+            href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}
+            className="caos-secondary-action no-underline focus-ring"
+          >
+            Upload documents
           </Link>
         </>
       }
       narrowContract={narrowContract}
     >
+      <div className="caos-persona-route issuers-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="issuers" primary={<div className="h-full min-h-0 flex flex-col">
+      <WorkbenchToolbar
+        title="Coverage register"
+        description="Filter, select and route covered names without losing issuer context."
+        count={summaryLabel}
+        viewLabel="Shared worklist"
+      />
       {/* degraded banner — registry fetch failed; demo coverage shown is NOT live */}
       {degraded ? (
         <div
@@ -304,7 +398,8 @@ function IssuersDirectory() {
       ) : null}
 
       {/* directory */}
-      <div className="flex-1 min-h-0 p-2">
+      <DominantTableRegion ownerId="issuer-register" label="Issuer coverage register" className="flex-1 min-h-0">
+      <div className="h-full min-h-0">
         <Panel
           title="Issuer Register · coverage universe"
           className="h-full"
@@ -335,10 +430,16 @@ function IssuersDirectory() {
             </span>
           }
         >
+          {selected.length > 0 ? (
+            <div className="px-2 pt-2 pb-1">
+              <BatchBar selected={selected} onClear={() => setSelected([])} itemLabel="issuer" actions={batchActions} />
+            </div>
+          ) : null}
           {loading ? (
             <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
               {Array.from({ length: 9 }).map((_, i) => (
                 <div key={i} className={COLS + " px-3 py-[7px] border-b border-caos-border/50"}>
+                  <span />
                   <span className="h-2.5 w-9 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-44 rounded-sm bg-caos-elevated/70" />
                   <span className="h-2.5 w-8 rounded-sm bg-caos-elevated/70" />
@@ -350,47 +451,47 @@ function IssuersDirectory() {
               ))}
             </div>
           ) : issuers.length === 0 && query ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No matches for &ldquo;{query}&rdquo;</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                Search covers issuer name, ticker, sector, sub-sector, country, and FIGI.
-              </p>
-              <button
-                onClick={() => setQuery("")}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-              >
-                CLEAR SEARCH
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title={`No matches for “${query}”`}
+                detail="Search covers issuer name, ticker, sector, sub-sector, country, and FIGI."
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setQuery("")} className="caos-action-primary focus-ring">Clear search</button>}
+              />
             </div>
           ) : issuers.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No issuers yet</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                Add your first issuer, then drop its deal documents and pick a run mode to start a run.
-              </p>
-              <button
-                onClick={() => setShowForm(true)}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-              >
-                + NEW ISSUER
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title="No issuers yet"
+                detail="Add an issuer, ingest its deal documents, then select a run mode to establish the first observed analysis."
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setShowForm(true)} className="caos-action-primary focus-ring">New issuer</button>}
+              />
             </div>
           ) : shownIssuers.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center">
-              <p className="text-caos-text/85 text-caos-hero font-semibold">No rows match the active column filters</p>
-              <p className="text-caos-muted text-caos-lg max-w-xs">
-                {issuers.length} issuer{issuers.length === 1 ? "" : "s"} in the register are hidden by the filters set on one or more columns.
-              </p>
-              <button
-                onClick={() => setFilters({})}
-                className="mt-1 tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
-              >
-                CLEAR FILTERS
-              </button>
+            <div className="h-full flex items-center justify-center p-6">
+              <SurfaceState
+                kind="empty"
+                title="No rows match the active filters"
+                detail={`${issuers.length} issuer${issuers.length === 1 ? " is" : "s are"} hidden by one or more column filters.`}
+                className="w-full max-w-md"
+                primaryAction={<button type="button" onClick={() => setFilters({})} className="caos-action-primary focus-ring">Clear filters</button>}
+              />
             </div>
           ) : (
             <div role="grid" className="text-caos-xl">
               <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+                <span role="columnheader" className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={allShownSelected}
+                    onChange={toggleSelectAllShown}
+                    aria-label={allShownSelected ? "Deselect all issuers" : "Select all issuers"}
+                    className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target"
+                  />
+                </span>
                 {["Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", ""].map((h, i) => (
                   <FilterHeader
                      key={i}
@@ -429,10 +530,19 @@ function IssuersDirectory() {
                       href={issuerProfileHref(issuer)}
                       onClick={(e) => {
                         e.preventDefault();
-                        openProfile(issuer.id);
+                        openIssuer(issuer.id);
                       }}
                       aria-label={`Open profile for ${issuer.name}`}
                       className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
+                    />
+                  </span>
+                  <span role="gridcell" className="relative z-[1] flex items-center min-h-[24px]">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(issuer.id)}
+                      onChange={() => toggleSelect(issuer.id)}
+                      aria-label={`Select ${issuer.name}`}
+                      className="min-h-8 min-w-8 shrink-0 accent-[var(--caos-accent)] focus-ring caos-target"
                     />
                   </span>
                   <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
@@ -457,7 +567,9 @@ function IssuersDirectory() {
                   <span role="gridcell" className="text-caos-muted text-caos-md truncate">{issuer.country || "—"}</span>
                   <span role="gridcell" className="relative z-[1] inline-flex items-center min-h-[24px]">
                     <button
-                      onClick={() => router.push("/upload?issuer=" + encodeURIComponent(issuer.id))}
+                      onClick={() => router.push(analysis.context
+                        ? contextHref("/upload", analysis.context.id, { issuer: issuer.id })
+                        : "/upload?issuer=" + encodeURIComponent(issuer.id))}
                       aria-label={`Upload documents for ${issuer.name}`}
                       className="inline-flex items-center min-h-[24px] tabular text-caos-xs text-caos-muted hover:text-caos-text border border-caos-border rounded px-1.5 w-fit transition-caos focus-ring"
                     >
@@ -470,6 +582,9 @@ function IssuersDirectory() {
           )}
         </Panel>
       </div>
+      </DominantTableRegion>
+      </div>} />
+      </div>
 
       {/* create modal */}
       {showForm ? (
@@ -477,11 +592,11 @@ function IssuersDirectory() {
           onClose={() => setShowForm(false)}
           onCreated={(issuer) => {
             setIssuers((prev) => [...prev, issuer]);
-            openProfile(issuer.id);
+            openIssuer(issuer.id);
           }}
         />
       ) : null}
-    </ResponsiveShell>
+    </EnterprisePage>
   );
 }
 
