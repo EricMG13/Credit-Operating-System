@@ -156,7 +156,9 @@ function QueryResult({ run }: { run: QueryRun | null }) {
                   const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
                   const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
                   const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
-                  const rankCell = row.rank_value === undefined ? "—" : `${formatMetricValue(row.rank_value)}${rankUnit}`;
+                  // Unit lives in the column header; bare tabular numbers so
+                  // decimals align down the column (DESIGN.md aligned-decimals).
+                  const rankCell = row.rank_value === undefined ? "—" : formatMetricValue(row.rank_value);
                   const details = issuerMeta || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
                   return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}</td><td className="px-2 py-2 text-right text-caos-text">{rankCell}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
                 })}
