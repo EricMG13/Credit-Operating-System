@@ -479,7 +479,18 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   caos/frontend run test -- head-to-head` (new vitest spec) +
   `npx playwright test caos/tests/frontend/e2e/query_flow.spec.ts` (extended)
   green. **Exit:** walk answers a real query end-to-end.
-- [ ] **C8 (M)** IC Decision Record (expansion 4.1): append-only per-issuer
+- [ ] **C8 (M)** *(Exec 2026-07-12: PR #191 open — decision_records table
+  (migration 0043) mirrors AnalystQaFlag/qa.py's route shape but with real
+  enforced FKs (MetricFact's required-issuer/optional-run pattern) instead
+  of qa_flags' loose strings. Surfaced on Issuer Profile (DecisionRecordPanel,
+  full-width) + Command board (RecentDecisions, cross-issuer, collapsed by
+  default). E3 audit-write deliberately NOT wired yet (E3/#169 unmerged) —
+  TODO(E3) comment at the exact call site instead of building on unstable
+  ground. Verified: 8 new backend tests, full suite 1436/1436, alembic check
+  caught + fixed a real nullable-mismatch bug; 3 new frontend tests, tsc/
+  eslint clean; live end-to-end browser verification — recorded a real
+  decision, confirmed it on both Issuer Profile and Command's cross-issuer
+  panel.)* IC Decision Record (expansion 4.1): append-only per-issuer
   record — recommendation, conviction, thesis sentence, committee date,
   decision, dissent, link to the run/report it was based on. Surfaced on
   Issuer Profile + Command board; mutations follow the E3 audit pattern.
