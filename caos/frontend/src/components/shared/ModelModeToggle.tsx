@@ -20,7 +20,7 @@ export function ModelModeToggle({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className={labelCls}>{label}</span>
+      {label ? <span className={labelCls}>{label}</span> : null}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1" role="group" aria-label={ariaLabel}>
         {MODEL_MODES.map((m) => (
           <button

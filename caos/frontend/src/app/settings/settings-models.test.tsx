@@ -38,14 +38,14 @@ afterEach(() => {
 });
 
 describe("Settings · Models tab", () => {
-  it("labels the query-model cards truthfully (F2) and disables routing as not yet applied (F4, G1)", async () => {
+  it("labels the query-model cards truthfully (F2) and shows routing as planned, not dead controls (F4, G1)", async () => {
     render(<SettingsPage />);
     expect(await screen.findByText("Claude Sonnet 4.6")).toBeTruthy();
     expect(screen.queryByText(/Claude 3\.5/)).toBeNull();
-    expect(screen.getByText(/not yet applied/i)).toBeTruthy();
-    for (const lane of await screen.findAllByRole("combobox")) {
-      expect((lane as HTMLSelectElement).disabled).toBe(true);
-    }
+    // The roadmap surface is collapsed to a one-line planned note — no dead
+    // disabled selects that read as broken chrome.
+    expect(screen.getByText(/planned — per-lane routing activates/i)).toBeTruthy();
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0);
   });
 
   it("surfaces an analyst-settings save failure with the server detail (F5)", async () => {

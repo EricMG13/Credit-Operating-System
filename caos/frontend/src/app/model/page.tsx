@@ -691,8 +691,6 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       }
       contextualControls={
         <span className="flex items-center gap-2">
-          <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring">Open assumptions</button>
-          <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring">Open scenarios</button>
           <ModelHistoryControls
             canUndo={canUndo}
             canRedo={canRedo}
@@ -708,6 +706,10 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       utilityLabel="Model tools"
       utilityControls={
         <>
+          {/* Lower-frequency editors live in the drawer to keep the top bar at
+              the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
+          <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
+          <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
           {serverCheckpoints.length ? (
             <details className="relative">
               <summary className="caos-secondary-action focus-ring cursor-pointer">Server checkpoints · {serverCheckpoints.length}</summary>

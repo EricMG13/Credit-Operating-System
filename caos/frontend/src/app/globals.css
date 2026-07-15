@@ -513,7 +513,7 @@ main table:not(.rd-table):not(.rv-table) thead th {
 .rd-h-sub { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; letter-spacing: 0.04em; color: var(--paper-meta); text-transform: none; }
 
 .rd-table { width: 100%; border-collapse: collapse; }
-.rd-table th { font-size: 8px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid #9c998e; vertical-align: bottom; line-height: 1.25; }
+.rd-table th { font-size: 8px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid #9c998e; vertical-align: bottom; line-height: 1.25; white-space: nowrap; }
 .rd-table td { font-size: 9.3px; padding: 2px 0; vertical-align: top; line-height: 1.45; }
 /* Consistent gap between adjacent columns so a right-aligned number never butts
    against the next column's text; first column stays flush-left, last flush-right. */

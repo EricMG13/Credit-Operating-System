@@ -243,7 +243,7 @@ function creditSnapshot(model: Model): Report {
           ["Sector Outlook", "STABLE — order book 1.06x"], ["Sponsor Quality", "Competent operator · extractive policy (CP-2D)"],
           ["Credit Score", "71 / 100 (CP-3 T3.3)"], ["Credit Direction", "IMPROVING — gated on Q3-26 certificate"],
         ] }],
-        [{ t: "profile", title: "ANALYST RECOMMENDATION", rows: [
+        [{ t: "profile", title: "RECOMMENDATION", rows: [
           ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
           ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
           ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],
@@ -434,7 +434,7 @@ function creditMemo(model: Model): Report {
           ["Sector Outlook", "STABLE — order book 1.06x"], ["Sponsor Quality", "Competent operator · extractive policy (CP-2D)"],
           ["Credit Score", "71 / 100 (CP-3 T3.3)"], ["Credit Direction", "IMPROVING — gated on Q3-26 certificate"],
         ] }],
-        [{ t: "profile", title: "ANALYST RECOMMENDATION", rows: [
+        [{ t: "profile", title: "RECOMMENDATION", rows: [
           ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
           ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
           ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],

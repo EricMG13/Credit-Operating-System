@@ -162,8 +162,14 @@ function ReportStudio() {
   const [showSources, setShowSources] = useState(true);
   const [evModal, setEvModal] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  // The committee sheet is the point of this surface — below ~1600px both
+  // rails plus the 980px sheet don't fit, so start the left list collapsed and
+  // let the analyst reopen it. User toggles win after mount.
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1600) setLeftOpen(false);
+  }, []);
   const [hideAddbacks, setHideAddbacks] = useState(false);
   const [edits, setEdits] = useState<Record<string, Record<string, string>>>({});
   const [hydrated, setHydrated] = useState(false);

@@ -344,7 +344,7 @@ function Settings() {
       contextualControls={
         cfg ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-            {cfg.workspace.environment} · model {cfg.model}
+            <span title="Engine default lane model (server environment) — distinct from the browser-local Query Model card below">{cfg.workspace.environment} · runtime model {cfg.model}</span>
           </span>
         ) : undefined
       }
@@ -408,7 +408,7 @@ function Settings() {
                 adversarial council, issuer chat, and queries. Sent with every request; each run
                 pins the mode it ran at. Applies to this browser.
               </p>
-              <ModelModeToggle value={mode} onChange={changeMode} />
+              <ModelModeToggle value={mode} onChange={changeMode} label="" ariaLabel="Model mode" />
             </div>
           </Panel>
 
@@ -521,38 +521,15 @@ function Settings() {
                 </span>
               }
             >
-              <div className="p-3 flex flex-col gap-2">
-                <p className="tabular text-caos-2xs text-caos-warning leading-snug">
-                  Not yet applied — LLM lanes still run at the workspace tier above. Per-lane
-                  wiring lands with the run-lane override rollout; these selects are disabled
-                  until then. Any value already stored on your profile is shown, not cleared.
+              <div className="p-3">
+                {/* Roadmap surface collapsed to a one-line planned note — dead
+                    disabled controls read as broken chrome; stored profile
+                    values are preserved untouched. */}
+                <p className="tabular text-caos-2xs text-caos-muted leading-snug">
+                  Planned — per-lane routing activates with the run-lane override rollout; lanes
+                  currently run at the workspace tier above. Any preference already stored on your
+                  profile is preserved.
                 </p>
-                {[
-                  ["module_synthesis", "Module synthesis"],
-                  ["issuer_chat", "Issuer chat"],
-                  ["query", "Query / Ask"],
-                  ["reporting", "Report drafting"],
-                ].map(([lane, label]) => (
-                  <label key={lane} className="grid grid-cols-[150px_1fr] gap-2 items-center">
-                    <span className={labelCls}>{label}</span>
-                    <select
-                      value={analystSettings.model_lanes[lane] || ""}
-                      disabled
-                      aria-disabled="true"
-                      title="Not yet applied — activates with the run-lane override rollout"
-                      onChange={() => {}}
-                      className="rounded border border-caos-border bg-caos-elevated px-2 py-1.5 tabular text-caos-md text-caos-text focus-ring disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <option value="">Use workspace tier</option>
-                      <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
-                      <option value="claude-opus-4-8">claude-opus-4-8</option>
-                      <option value="deepseek/deepseek-v4-flash">deepseek/deepseek-v4-flash</option>
-                      <option value="deepseek/deepseek-v4-pro">deepseek/deepseek-v4-pro</option>
-                      <option value="z-ai/glm-5.2">z-ai/glm-5.2</option>
-                      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-                    </select>
-                  </label>
-                ))}
               </div>
             </Panel>
           </div>
