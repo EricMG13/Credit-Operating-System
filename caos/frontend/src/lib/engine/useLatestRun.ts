@@ -26,8 +26,7 @@ export interface LatestRunStatus<T> {
   latest: RunListItemDTO | null;
 }
 
-// Status-aware loader: same load as useLatestRun, but also reports the phase and
-// the latest run record. useLatestRun is a thin value-only wrapper over this.
+// Shared status-aware loader that also reports the phase and latest run record.
 export function useLatestRunStatus<T>(
   issuerId: string,
   initial: T,
@@ -80,16 +79,4 @@ export function useLatestRunStatus<T>(
   }, [exactRunId, issuerId]);
 
   return state;
-}
-
-// Value-only loader (unchanged contract): the three live hooks that only need
-// the adapted value keep using this. Returns `initial` while loading and `empty`
-// on no-run / in-flight / error, exactly as before.
-export function useLatestRun<T>(
-  issuerId: string,
-  initial: T,
-  empty: T,
-  build: (latest: RunListItemDTO) => Promise<T>,
-): T {
-  return useLatestRunStatus(issuerId, initial, empty, build).value;
 }
