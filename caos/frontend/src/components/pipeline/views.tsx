@@ -112,10 +112,11 @@ export function GraphView({
       </svg>
       {COL_ORDER.map((l, ci) => {
         const meta = LAYERS.find((x) => x.id === l);
+        const seqNote = l === "L5" || l === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined;
         return (
-          <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }}>
+          <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }} title={seqNote}>
             <div className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">{l}</div>
-            <div className="text-caos-xs text-caos-muted">{meta ? meta.label : ""}</div>
+            <div className="text-caos-xs text-caos-muted">{meta ? meta.label : ""}{l === "L5" ? " · after L6" : ""}</div>
           </div>
         );
       })}
@@ -190,9 +191,9 @@ export function SwimlaneView({
           const mods = MODULES_BY_LAYER[l] || [];
           return (
             <div key={l} className="flex flex-col min-h-0 rounded border border-caos-border bg-caos-bg/50">
-            <div className="px-2 py-1.5 border-b border-caos-border shrink-0">
+            <div className="px-2 py-1.5 border-b border-caos-border shrink-0" title={l === "L5" || l === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined}>
               <div className="tabular text-caos-sm uppercase tracking-widest text-caos-text">{l}</div>
-              <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}</div>
+              <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}{l === "L5" ? " · after L6" : ""}</div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">
               {mods.map((m) => {
@@ -416,6 +417,14 @@ export function LineagePanel({
   }, [drivers]);
   return (
     <div>
+      {/* Default (no node selected) shows the full seeded reference register —
+          label it so it never reads as this run's live lineage. */}
+      {drivers === null ? (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-caos-border/50">
+          <Tag sev="idle">DEMO</Tag>
+          <span className="tabular text-caos-2xs text-caos-muted">Seeded CP-5B reference — select a node to trace its drivers.</span>
+        </div>
+      ) : null}
       {list.map((d) => (
         <div
           key={d.n}

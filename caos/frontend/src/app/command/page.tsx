@@ -362,8 +362,8 @@ function CommandCenter() {
       {/* workspace */}
       <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden">
         <WorkbenchToolbar
-          title="Portfolio command"
-          description="Ranked changes, portfolio posture and governance queues in one decision surface."
+          title="Ranked changes & governance"
+          description="Portfolio posture and governance queues beside the ranked-change worklist."
           count={portfolio.loading ? "Loading" : portfolio.error ? "Live coverage unavailable" : `${portfolio.coveredCount}/${portfolio.issuerCount} covered`}
           viewLabel={`View: ${roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}`}
         />

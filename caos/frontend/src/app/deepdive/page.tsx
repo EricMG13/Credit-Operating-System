@@ -214,11 +214,18 @@ function DeepDive() {
     return () => window.removeEventListener("resize", syncEdges);
   }, [syncEdges, openLayers, wide]);
   // Bring the selected module chip into view after a navigation (click, ?mod=,
-  // or Alt+,/. cycle) or when its layer (re)opens.
+  // or Alt+,/. cycle) or when its layer (re)opens — but ONLY when it's actually
+  // off-screen. Scrolling an already-visible chip on first paint slices the
+  // left group label ("‹ …OUTPUTS"); leave the strip at its start instead.
   useEffect(() => {
-    stripRef.current
-      ?.querySelector('[data-active-chip="true"]')
-      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    const strip = stripRef.current;
+    const chip = strip?.querySelector<HTMLElement>('[data-active-chip="true"]');
+    if (!strip || !chip) return;
+    const chipLeft = chip.offsetLeft;
+    const chipRight = chipLeft + chip.offsetWidth;
+    const offLeft = chipLeft < strip.scrollLeft;
+    const offRight = chipRight > strip.scrollLeft + strip.clientWidth;
+    if (offLeft || offRight) chip.scrollIntoView({ inline: "center", block: "nearest" });
   }, [tab, openLayers]);
   // Evidence/source rail starts collapsed: traceability is on-demand (the E-xx
   // citation chips open the source directly), so it shouldn't hold prime
@@ -506,7 +513,7 @@ function DeepDive() {
       contextualControls={
         <button
           onClick={() => setChatOpen(!chatOpen)}
-          title="Ask follow-up questions about this issuer"
+          title={`Ask about ${code} (Alt+K)`}
           className="caos-secondary-action focus-ring"
         >
           ASK {code}
@@ -622,24 +629,32 @@ function DeepDive() {
                 className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.label}</span>
-                {!open ? (
-                  <span className="flex items-center gap-0.5">
-                    {g.mods.map((id) => {
-                      const st = modState(id);
-                      if (isCleared(st)) {
-                        // glyph: cleared modules can be pass OR warning — shape carries the
-                        // difference for colorblind analysts (the strip has no text per module)
-                        return <Dot key={id} sev={st} pulse={st === "running"} glyph />;
-                      }
-                      // A failed (Blocked) module is a ✕ ring in critical — never a
-                      // hollow-idle dot, or the strip would hide that it broke.
-                      if (st === "failed") return <Dot key={id} sev="blocked" glyph />;
-                      // Padlock = sim-gated (reference replay); a real issuer's
-                      // missing module is hollow-idle "no output", not locked.
-                      return <StatusGlyph key={id} kind={isReference ? "locked" : "idle"} />;
-                    })}
-                  </span>
-                ) : null}
+                {!open ? (() => {
+                  // Aggregate the layer's module states into counts instead of a
+                  // run of up to 7 undifferentiated glyphs (which read as soup).
+                  let cleared = 0, failed = 0, pending = 0;
+                  for (const id of g.mods) {
+                    const st = modState(id);
+                    if (isCleared(st)) cleared++;
+                    else if (st === "failed") failed++;
+                    else pending++;
+                  }
+                  const parts = [
+                    cleared ? { key: "ok", n: cleared, dot: <Dot sev="pass" glyph />, word: `${cleared} cleared` } : null,
+                    failed ? { key: "fail", n: failed, dot: <Dot sev="blocked" glyph />, word: `${failed} failed` } : null,
+                    pending ? { key: "pend", n: pending, dot: <StatusGlyph kind={isReference ? "locked" : "idle"} />, word: `${pending} ${isReference ? "gated" : "no output"}` } : null,
+                  ].filter(Boolean) as { key: string; n: number; dot: React.ReactNode; word: string }[];
+                  return (
+                    <span className="flex items-center gap-1.5" aria-label={parts.map((p) => p.word).join(", ")}>
+                      {parts.map((p) => (
+                        <span key={p.key} className="flex items-center gap-0.5" aria-hidden="true">
+                          <span className="tabular text-caos-2xs text-caos-muted">{p.n}</span>
+                          {p.dot}
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })() : null}
                 <span className="tabular text-caos-2xs text-caos-muted">{open ? "▾" : "▸"}</span>
               </button>
               {open ? (
@@ -717,7 +732,7 @@ function DeepDive() {
       <FirstRunHint id="deepdive-panes" className="mx-2 mt-2 shrink-0">
         <span className="text-white font-medium">Three panes:</span> sources &amp; evidence (left) · module analysis (center) · the IC decision &amp; sizing (right). Click any{" "}
         <span className="tabular text-caos-accent">E-xx</span> chip to open its cited source.{" "}
-        <span className="text-caos-muted">Hold <span className="tabular text-caos-text">Alt</span> — <span className="tabular text-caos-text">,</span>/<span className="tabular text-caos-text">.</span> cycle modules, <span className="tabular text-caos-text">C</span> collapse panes, <span className="tabular text-caos-text">K</span> ask.</span>
+        <span className="text-caos-muted">Hold <span className="tabular text-caos-text">Alt</span> — <span className="tabular text-caos-text">,</span>/<span className="tabular text-caos-text">.</span> cycle modules, <span className="tabular text-caos-text">C</span> collapse panes, <span className="tabular text-caos-text">K</span> Ask.</span>
       </FirstRunHint>
 
       {/* Decision-first opener: the standing view leads, above the module
